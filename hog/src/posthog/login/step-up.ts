@@ -14,13 +14,11 @@ export type StepUpResult =
           projectId: string
           // Set when the person picked another project on the approval page.
           previousProjectId: string | null
-          // Every scope the login has now.
           scopes: string[]
-          // False when PostHog didn't revoke the login this one replaced, which then works until it expires.
+          // False when PostHog didn't revoke the replaced login, which then works until it expires.
           replacedRevoked: boolean | null
       }
 
-// Saves the approved login in place of the stored one.
 export async function finishStepUp(ctx: Context, approved: OAuthLogin): Promise<StepUpResult> {
     const saved = await saveLogin(ctx.runtime, approved, { replace: (stored) => approved.continuing(stored) })
     return {

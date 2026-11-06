@@ -144,7 +144,6 @@ function approvalUrl(host: Host, userCode: string, named: string): string {
 export interface DeviceLoginRequest {
     scopes: readonly string[]
     requiredScopes: readonly string[]
-    // The command that starts the login, for the hints, like `hog auth login`.
     command: string
 }
 
@@ -171,7 +170,6 @@ export async function startDeviceLogin(
     if (refused) {
         throw refused
     }
-    // PostHog names the required scopes hog's client can't get.
     if (error?.error === 'invalid_scope') {
         throw new HogError(
             'invalid_scope',
@@ -199,9 +197,8 @@ export async function startDeviceLogin(
     }
 }
 
-// PostHog keeps required scopes on the approval page, but an older self-hosted PostHog ignores
-// `required_scopes`. A login without them would replace one that works for less than was asked, so
-// it is revoked and the stored login stays.
+// An older self-hosted PostHog ignores `required_scopes`. A login without them would replace one
+// that works for less than was asked, so it is revoked and the stored login stays.
 async function refuseWithoutRequiredScopes(
     runtime: Runtime,
     login: OAuthLogin,
