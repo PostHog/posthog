@@ -2554,7 +2554,7 @@ describe('CDP API', () => {
             ['an empty file', { ...codeSend, attachments: [attachment({ content: '' })] }],
             [
                 'a file too long to check as base64',
-                { ...codeSend, attachments: [attachment({ content: 'A'.repeat(4_500_000) })] },
+                { ...codeSend, attachments: [attachment({ content: 'A'.repeat(15_000_000) })] },
             ],
             [
                 'a file type mailbox providers block',
@@ -2589,12 +2589,12 @@ describe('CDP API', () => {
             ['a header outside the list', { ...codeSend, headers: { Sender: 'someone@example.com' } }],
             ['a header value with a line break', { ...codeSend, headers: { 'X-Note': 'a\r\nBcc: b@example.com' } }],
             [
-                'files over 512 KB in total',
+                'files over 10 MB in total',
                 {
                     ...codeSend,
                     attachments: [
-                        attachment({ content: Buffer.alloc(300 * 1024).toString('base64') }),
-                        attachment({ content: `${Buffer.alloc(213 * 1024).toString('base64')}${FILE_CONTENT}` }),
+                        attachment({ content: Buffer.alloc(6 * 1024 * 1024).toString('base64') }),
+                        attachment({ content: Buffer.alloc(5 * 1024 * 1024).toString('base64') }),
                     ],
                 },
             ],
@@ -2606,6 +2606,19 @@ describe('CDP API', () => {
             expect(res.status).toEqual(400)
             expect(JSON.stringify(res.body)).not.toContain(FILE_CONTENT.slice(0, 12))
             expect(await outcomeCount('invalid_request')).toEqual(invalidBefore + 1)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('refuses files over 512 KB when no bucket is configured, instead of filling the database', async () => {
+            const res = await sendAccepted(hogFlow.id, {
+                ...body,
+                send: {
+                    ...codeSend,
+                    attachments: [attachment({ content: Buffer.alloc(513 * 1024).toString('base64') })],
+                },
+            })
+
+            expect(res.status).toEqual(413)
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 

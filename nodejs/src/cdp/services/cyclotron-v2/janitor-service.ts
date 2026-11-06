@@ -1,4 +1,5 @@
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService } from '../../../types'
+import type { EmailAttachmentObjectStore } from '../messaging/email-attachments-object-store'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2Janitor } from './janitor'
 import { CyclotronV2JanitorConfig } from './types'
@@ -6,8 +7,12 @@ import { CyclotronV2JanitorConfig } from './types'
 export class CyclotronV2JanitorService {
     private janitor: CyclotronV2Janitor
 
-    constructor(config: CyclotronV2JanitorConfig, invocationResults?: HogInvocationResultsService) {
-        this.janitor = new CyclotronV2Janitor(config, invocationResults)
+    constructor(
+        config: CyclotronV2JanitorConfig,
+        invocationResults?: HogInvocationResultsService,
+        emailAttachmentObjectStore: EmailAttachmentObjectStore | null = null
+    ) {
+        this.janitor = new CyclotronV2Janitor(config, invocationResults, emailAttachmentObjectStore)
     }
 
     async start(): Promise<void> {

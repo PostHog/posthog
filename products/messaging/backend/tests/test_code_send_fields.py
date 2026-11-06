@@ -97,7 +97,7 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
             ),
             (
                 "attachments_too_large",
-                {"attachments": [_attachment(content=base64.b64encode(b"x" * 300_000).decode())] * 2},
+                {"attachments": [_attachment(content=base64.b64encode(b"x" * 6_000_000).decode())] * 2},
                 "attachments",
             ),
             ("reserved_header", {"headers": {"X-PostHog-Tracking-Code": "forged"}}, "headers"),

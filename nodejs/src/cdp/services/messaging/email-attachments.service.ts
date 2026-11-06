@@ -6,7 +6,12 @@ import { LazyPool } from '~/cdp/utils/lazy-pool'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
-import type { DecodedAttachment } from '../hogflows/transactional-email'
+import {
+    type DecodedAttachment,
+    MAX_EMAIL_ATTACHMENTS_BYTES,
+    MAX_EMAIL_ATTACHMENTS_BYTES_IN_POSTGRES,
+} from '../hogflows/transactional-email'
+import type { EmailAttachmentObjectStore } from './email-attachments-object-store'
 
 export const EMAIL_ATTACHMENTS_MAX_CONNECTIONS = 5
 
@@ -21,7 +26,7 @@ export const emailAttachmentOutcomesTotal = new Counter({
 export const emailAttachmentBytesPerSend = new Histogram({
     name: 'cdp_email_attachment_bytes_per_send',
     help: 'Total decoded bytes of the attachment files of one transactional email, observed when the API stores them.',
-    buckets: [1_024, 8_192, 32_768, 65_536, 131_072, 262_144, 393_216, 524_288],
+    buckets: [1_024, 8_192, 65_536, 262_144, 524_288, 1_048_576, 2_621_440, 5_242_880, 10_485_760],
 })
 
 export const EMAIL_ATTACHMENTS_MISSING = 'attachments_missing'
@@ -39,17 +44,31 @@ type AttachmentRow = {
     filename: string
     content_type: string | null
     content_id: string | null
-    content: Buffer
+    content: Buffer | null
+    storage_key: string | null
     sha256: string
 }
+
+const STORAGE_KEY_PREFIX = 'email-attachments'
+
+const storageKey = (teamId: number, jobId: string, position: number): string =>
+    `${STORAGE_KEY_PREFIX}/${teamId}/${jobId}/${position}`
 
 export class EmailAttachmentsService {
     private readonly pool: LazyPool
 
-    constructor(databaseUrl: string | undefined, maxConnections?: number) {
+    constructor(
+        databaseUrl: string | undefined,
+        maxConnections?: number,
+        private readonly objectStore: EmailAttachmentObjectStore | null = null
+    ) {
         this.pool = new LazyPool(databaseUrl, maxConnections, (err) => {
             logger.error('⚠️', 'Email attachments pool error', { error: err.message })
         })
+    }
+
+    public get maxTotalBytes(): number {
+        return this.objectStore ? MAX_EMAIL_ATTACHMENTS_BYTES : MAX_EMAIL_ATTACHMENTS_BYTES_IN_POSTGRES
     }
 
     public async store(jobId: string, teamId: number, files: DecodedAttachment[]): Promise<void> {
@@ -67,18 +86,26 @@ export class EmailAttachmentsService {
                 file.filename,
                 file.contentType ?? null,
                 file.contentId ?? null,
-                file.content,
+                this.objectStore ? null : file.content,
+                this.objectStore ? storageKey(teamId, jobId, position) : null,
                 file.sizeBytes,
                 file.sha256
             )
-            return `(gen_random_uuid(), ${Array.from({ length: 9 }, (_, i) => `$${offset + i + 1}`).join(', ')})`
+            return `(gen_random_uuid(), ${Array.from({ length: 10 }, (_, i) => `$${offset + i + 1}`).join(', ')})`
         })
+        // The rows go first, so that the janitor knows about every object even when an upload fails halfway.
         await pool.query(
             `INSERT INTO cyclotron_email_attachments
-                (id, job_id, team_id, position, filename, content_type, content_id, content, size_bytes, sha256)
+                (id, job_id, team_id, position, filename, content_type, content_id, content, storage_key, size_bytes, sha256)
              VALUES ${placeholders.join(', ')}`,
             values
         )
+        const objectStore = this.objectStore
+        if (objectStore) {
+            await Promise.all(
+                files.map((file, position) => objectStore.put(storageKey(teamId, jobId, position), file.content))
+            )
+        }
         emailAttachmentOutcomesTotal.inc({ outcome: 'stored' }, files.length)
         emailAttachmentBytesPerSend.observe(files.reduce((total, file) => total + file.sizeBytes, 0))
     }
@@ -92,20 +119,24 @@ export class EmailAttachmentsService {
         const rows = pool
             ? (
                   await pool.query<AttachmentRow>(
-                      `SELECT position, filename, content_type, content_id, content, sha256
+                      `SELECT position, filename, content_type, content_id, content, storage_key, sha256
                        FROM cyclotron_email_attachments WHERE job_id = $1 AND team_id = $2 ORDER BY position`,
                       [jobId, teamId]
                   )
               ).rows
             : []
+        const contents = await Promise.all(rows.map((row) => this.contentOf(row)))
         const matches =
             rows.length === expected.length &&
-            rows.every(
-                (row, i) =>
+            rows.every((row, i) => {
+                const content = contents[i]
+                return (
                     row.position === i &&
                     row.sha256 === expected[i].sha256 &&
-                    createHash('sha256').update(row.content).digest('hex') === expected[i].sha256
-            )
+                    content !== null &&
+                    createHash('sha256').update(content).digest('hex') === expected[i].sha256
+                )
+            })
         if (!matches) {
             emailAttachmentOutcomesTotal.inc({ outcome: 'missing' }, expected.length)
             logger.error('⚠️', 'Email attachment rows are missing or do not match the job', {
@@ -116,7 +147,17 @@ export class EmailAttachmentsService {
             throw new EmailAttachmentsMissingError()
         }
         emailAttachmentOutcomesTotal.inc({ outcome: 'loaded' }, rows.length)
-        return rows.map((row, i) => ({ ...expected[i], content: row.content }))
+        return rows.map((_row, i) => ({ ...expected[i], content: contents[i]! }))
+    }
+
+    private async contentOf(row: AttachmentRow): Promise<Buffer | null> {
+        if (!row.storage_key) {
+            return row.content
+        }
+        if (!this.objectStore) {
+            throw new Error('Email attachments are in object storage, but no bucket is configured')
+        }
+        return await this.objectStore.get(row.storage_key)
     }
 
     public async delete(jobId: string, teamId: number): Promise<void> {
@@ -125,12 +166,18 @@ export class EmailAttachmentsService {
             if (!pool) {
                 return
             }
+            const stillQueued = `EXISTS (SELECT 1 FROM cyclotron_jobs WHERE id = $1 AND status IN ('available', 'running'))`
+            if (this.objectStore) {
+                // Objects go first: if this fails, the rows stay and the janitor finds the objects again.
+                const stored = await pool.query<{ storage_key: string }>(
+                    `SELECT storage_key FROM cyclotron_email_attachments
+                     WHERE job_id = $1 AND team_id = $2 AND storage_key IS NOT NULL AND NOT ${stillQueued}`,
+                    [jobId, teamId]
+                )
+                await this.objectStore.delete(stored.rows.map((row) => row.storage_key))
+            }
             const result = await pool.query(
-                `DELETE FROM cyclotron_email_attachments
-                 WHERE job_id = $1 AND team_id = $2
-                   AND NOT EXISTS (
-                       SELECT 1 FROM cyclotron_jobs WHERE id = $1 AND status IN ('available', 'running')
-                   )`,
+                `DELETE FROM cyclotron_email_attachments WHERE job_id = $1 AND team_id = $2 AND NOT ${stillQueued}`,
                 [jobId, teamId]
             )
             emailAttachmentOutcomesTotal.inc({ outcome: 'deleted' }, result.rowCount ?? 0)

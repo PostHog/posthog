@@ -1300,6 +1300,10 @@ export class CdpApi {
 
                 const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
                 const files = decodeAttachments(send)
+                const attachmentBytes = files.reduce((total, file) => total + file.sizeBytes, 0)
+                if (attachmentBytes > this.emailAttachmentsService.maxTotalBytes) {
+                    return reply('invalid_request', 413, { error: 'attachments_too_large' })
+                }
                 const sendToQueue = send ? queuedSend(send, files) : undefined
                 if (sendToQueue) {
                     invocation.state.send = sendToQueue

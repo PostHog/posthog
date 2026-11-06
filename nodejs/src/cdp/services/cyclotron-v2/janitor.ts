@@ -7,6 +7,7 @@ import { captureException } from '~/common/utils/posthog'
 
 import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
 import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
+import type { EmailAttachmentObjectStore } from '../messaging/email-attachments-object-store'
 import { emailAttachmentOutcomesTotal } from '../messaging/email-attachments.service'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import {
@@ -140,7 +141,8 @@ export class CyclotronV2Janitor {
         // the give-up path can construct a janitor without Kafka. When absent
         // the janitor never deletes poison pills (it only resets/retries) — it
         // refuses to drop a job it can't record a recovery row for.
-        private invocationResults?: HogInvocationResultsService
+        private invocationResults?: HogInvocationResultsService,
+        private emailAttachmentObjectStore: EmailAttachmentObjectStore | null = null
     ) {
         this.pool = new Pool({
             connectionString: config.pool.dbUrl,
@@ -546,15 +548,7 @@ export class CyclotronV2Janitor {
 
     async sweepEmailAttachments(): Promise<number> {
         try {
-            const result = await this.pool.query(
-                `DELETE FROM cyclotron_email_attachments
-                 WHERE id IN (
-                     SELECT id FROM cyclotron_email_attachments WHERE created_at < $1 LIMIT $2
-                     FOR UPDATE SKIP LOCKED
-                 )`,
-                [new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS), this.cleanupBatchSize]
-            )
-            const swept = result.rowCount ?? 0
+            const swept = await this.deleteExpiredEmailAttachments()
             if (swept > 0) {
                 emailAttachmentOutcomesTotal.inc({ outcome: 'swept' }, swept)
                 logger.info('CyclotronV2Janitor swept email attachment rows', { count: swept })
@@ -571,6 +565,37 @@ export class CyclotronV2Janitor {
             logger.error('CyclotronV2Janitor email attachment sweep failed', { error: String(err) })
             captureException(err)
             return 0
+        }
+    }
+
+    // The transaction keeps the row locked, so if the object delete fails the row stays to find the object again.
+    private async deleteExpiredEmailAttachments(): Promise<number> {
+        const cutoff = new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS)
+        // A janitor without a bucket can't delete a stored object, so it leaves that row for one that can.
+        const sweepable = this.emailAttachmentObjectStore ? 'TRUE' : 'storage_key IS NULL'
+        const client = await this.pool.connect()
+        try {
+            await client.query('BEGIN')
+            const expired = await client.query<{ id: string; storage_key: string | null }>(
+                `SELECT id, storage_key FROM cyclotron_email_attachments
+                 WHERE created_at < $1 AND ${sweepable}
+                 LIMIT $2 FOR UPDATE SKIP LOCKED`,
+                [cutoff, this.cleanupBatchSize]
+            )
+            const storageKeys = expired.rows.flatMap((row) => (row.storage_key ? [row.storage_key] : []))
+            if (storageKeys.length > 0) {
+                await this.emailAttachmentObjectStore?.delete(storageKeys)
+            }
+            const deleted = await client.query(`DELETE FROM cyclotron_email_attachments WHERE id = ANY($1::uuid[])`, [
+                expired.rows.map((row) => row.id),
+            ])
+            await client.query('COMMIT')
+            return deleted.rowCount ?? 0
+        } catch (err) {
+            await client.query('ROLLBACK').catch(() => undefined)
+            throw err
+        } finally {
+            client.release()
         }
     }
 

@@ -106246,7 +106246,7 @@ export namespace Schemas {
       /** Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
       bcc?: string | string[] | null;
       /**
-         * Files attached to the email your code rendered: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here.
+         * Files attached to the email your code rendered: up to 10, and at most 10 MB in total after decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here.
          * @maxItems 10
          * @nullable
          */

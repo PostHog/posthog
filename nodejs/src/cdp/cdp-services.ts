@@ -35,6 +35,7 @@ import { IntegrationManagerService } from './services/managers/integration-manag
 import { PersonsManagerService } from './services/managers/persons-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
+import { buildEmailAttachmentObjectStore } from './services/messaging/email-attachments-object-store'
 import {
     EMAIL_ATTACHMENTS_MAX_CONNECTIONS,
     EmailAttachmentsService,
@@ -480,7 +481,8 @@ export function createCdpCoreServices(
         : null
     const emailAttachmentsService = new EmailAttachmentsService(
         config.CYCLOTRON_NODE_DATABASE_URL,
-        EMAIL_ATTACHMENTS_MAX_CONNECTIONS
+        EMAIL_ATTACHMENTS_MAX_CONNECTIONS,
+        buildEmailAttachmentObjectStore(config)
     )
     const emailService = new EmailService(
         {

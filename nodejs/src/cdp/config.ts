@@ -173,6 +173,12 @@ export type CdpConfig = ClickhouseConfig & {
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
     CYCLOTRON_NODE_DATABASE_URL?: string
     // SES (Workflows email sending)
+    // Where large transactional email attachments wait to send. Empty keeps them in Postgres, limited to 512 KB.
+    CDP_EMAIL_ATTACHMENTS_S3_BUCKET: string
+    CDP_EMAIL_ATTACHMENTS_S3_REGION: string
+    CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: string
+    CDP_EMAIL_ATTACHMENTS_S3_ACCESS_KEY_ID: string
+    CDP_EMAIL_ATTACHMENTS_S3_SECRET_ACCESS_KEY: string
     SES_ENDPOINT: string
     SES_ACCESS_KEY_ID: string
     SES_SECRET_ACCESS_KEY: string
@@ -431,6 +437,11 @@ export function getDefaultCdpConfig(): CdpConfig {
               : undefined,
 
         // SES
+        CDP_EMAIL_ATTACHMENTS_S3_BUCKET: isDevEnv() ? 'posthog' : '',
+        CDP_EMAIL_ATTACHMENTS_S3_REGION: 'us-east-1',
+        CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: isDevEnv() ? 'http://localhost:19000' : '',
+        CDP_EMAIL_ATTACHMENTS_S3_ACCESS_KEY_ID: isDevEnv() ? 'object_storage_root_user' : '',
+        CDP_EMAIL_ATTACHMENTS_S3_SECRET_ACCESS_KEY: isDevEnv() ? 'object_storage_root_password' : '',
         SES_ENDPOINT: isTestEnv() || isDevEnv() ? 'http://localhost:4566' : '',
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',

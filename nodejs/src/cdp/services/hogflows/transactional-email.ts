@@ -19,7 +19,9 @@ const CopyRecipientsSchema = z
     .readonly()
     .optional()
 
-export const MAX_EMAIL_ATTACHMENTS_BYTES = 512 * 1024
+export const MAX_EMAIL_ATTACHMENTS_BYTES = 10 * 1024 * 1024
+// Without a bucket the files live in the Cyclotron database, which can't take large rows.
+export const MAX_EMAIL_ATTACHMENTS_BYTES_IN_POSTGRES = 512 * 1024
 
 const BLOCKED_ATTACHMENT_EXTENSIONS: ReadonlySet<string> = new Set([
     'ade',
@@ -135,7 +137,23 @@ const BLOCKED_ATTACHMENT_EXTENSIONS: ReadonlySet<string> = new Set([
     'xnk',
 ])
 
-const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
+// A loop rather than a regular expression, because attachment content runs to many megabytes.
+const isBase64 = (value: string): boolean => {
+    if (value.length % 4 !== 0) {
+        return false
+    }
+    const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0
+    for (let i = 0; i < value.length - padding; i++) {
+        const code = value.charCodeAt(i)
+        const isDigit = code >= 48 && code <= 57
+        const isUpper = code >= 65 && code <= 90
+        const isLower = code >= 97 && code <= 122
+        if (!isDigit && !isUpper && !isLower && code !== 43 && code !== 47) {
+            return false
+        }
+    }
+    return true
+}
 const MAX_ATTACHMENT_BASE64_LENGTH = Math.ceil(MAX_EMAIL_ATTACHMENTS_BYTES / 3) * 4
 const MIME_TYPE_RE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/i
 const CONTROL_CHARACTER_RE = /[\x00-\x1F\x7F]/
@@ -160,8 +178,8 @@ const AttachmentSchema = z
         content: z
             .string()
             .min(1, { message: 'content must not be empty' })
-            .max(MAX_ATTACHMENT_BASE64_LENGTH, { message: 'attachments must be 512 KB or less in total' })
-            .refine((content) => content.length <= MAX_ATTACHMENT_BASE64_LENGTH && BASE64_RE.test(content), {
+            .max(MAX_ATTACHMENT_BASE64_LENGTH, { message: 'attachments must be 10 MB or less in total' })
+            .refine((content) => content.length <= MAX_ATTACHMENT_BASE64_LENGTH && isBase64(content), {
                 message: 'content must be base64',
             }),
         contentType: z
@@ -188,7 +206,7 @@ const AttachmentsSchema = z
         (files) =>
             files.reduce((total, file) => total + Buffer.byteLength(file.content, 'base64'), 0) <=
             MAX_EMAIL_ATTACHMENTS_BYTES,
-        { message: 'attachments must be 512 KB or less in total' }
+        { message: 'attachments must be 10 MB or less in total' }
     )
     .readonly()
     .optional()

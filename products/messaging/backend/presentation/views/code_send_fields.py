@@ -13,7 +13,7 @@ from products.messaging.backend.facade.transactional_email import PIPELINE_ADDRE
 
 MAX_ADDRESSES_PER_FIELD = 10
 MAX_ATTACHMENTS = 10
-MAX_ATTACHMENTS_BYTES = 512 * 1024
+MAX_ATTACHMENTS_BYTES = 10 * 1024 * 1024
 MAX_FILENAME_LENGTH = 255
 SES_ATTACHMENT_HEADER_MAX_LENGTH = 78
 BLOCKED_ATTACHMENT_EXTENSIONS = frozenset(
@@ -166,7 +166,7 @@ class AttachmentListField(serializers.ListField):
         attachments = super().to_internal_value(data)
         if sum(_decoded_size(attachment["content"]) for attachment in attachments) > MAX_ATTACHMENTS_BYTES:
             raise serializers.ValidationError(
-                f"Send at most {MAX_ATTACHMENTS_BYTES // 1024} KB of attachments in total, counted after decoding.",
+                f"Send at most {MAX_ATTACHMENTS_BYTES // (1024 * 1024)} MB of attachments in total, counted after decoding.",
                 code="attachments_too_large",
             )
         return attachments
@@ -224,7 +224,7 @@ _ATTACHMENT_REASON = _Reason(
 )
 _ATTACHMENT_LIMIT_REASON = _Reason(
     why="A transactional email has to arrive fast, and large attachments slow its delivery.",
-    fix=f"Send at most {MAX_ATTACHMENTS} files and {MAX_ATTACHMENTS_BYTES // 1024} KB in total, or link to "
+    fix=f"Send at most {MAX_ATTACHMENTS} files and {MAX_ATTACHMENTS_BYTES // (1024 * 1024)} MB in total, or link to "
     "larger files from the email body.",
 )
 _HEADER_NAME_REASON = _Reason(
