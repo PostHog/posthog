@@ -26,6 +26,8 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 VIEW_MODULE = "products.data_warehouse.backend.presentation.views.table"
 MODEL_MODULE = "products.warehouse_sources.backend.models.table"
+SERVICE_MODULE = "products.warehouse_sources.backend.file_upload_sources"
+STORAGE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.storage"
 UPLOAD_ID = "11111111-2222-4333-8444-555555555555"
 NEW_UPLOAD_ID = "22222222-2222-4333-8444-555555555555"
 
@@ -198,6 +200,16 @@ class TestCreateTableFromUpload(APIBaseTest):
         super().setUp()
         self.upload_url = f"/api/environments/{self.team.pk}/warehouse_tables/upload_file/"
         self.create_url = f"/api/environments/{self.team.pk}/warehouse_tables/create_from_upload/"
+        # Each create also makes a file upload source and starts its first sync.
+        patches = [
+            patch(f"{STORAGE_MODULE}.get_s3_client", return_value=_FakeS3()),
+            patch(f"{SERVICE_MODULE}.sync_connect"),
+            patch(f"{SERVICE_MODULE}.sync_external_data_job_workflow"),
+            patch(f"{SERVICE_MODULE}.trigger_ad_hoc_sync"),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
 
     def _upload(self, filename: str = "orders.csv", file_format: str = "csv") -> str:
         with patch(f"{VIEW_MODULE}.get_s3_client", return_value=_FakeS3()):
@@ -225,10 +237,10 @@ class TestCreateTableFromUpload(APIBaseTest):
         ):
             return self.client.post(f"{self.create_url}?include_columns=false", data=payload, format="json")
 
-    def test_an_uploaded_file_becomes_a_self_managed_table(self) -> None:
+    def test_an_uploaded_file_becomes_a_table_that_reads_it_in_place(self) -> None:
         # The wiring guard for the two-step contract: the upload endpoint's `upload_id` has to be
-        # accepted by create_from_upload, and the result has to be a self-managed table (no source,
-        # queried in place from our own bucket) rather than a pipeline ExternalDataSource.
+        # accepted by create_from_upload, and the table has to read the file in place from our own
+        # bucket until its file upload source syncs.
         upload_id = self._upload()
 
         response = self._create(upload_id=upload_id, filename="orders.csv", file_format="csv", table_name="orders")
@@ -246,8 +258,6 @@ class TestCreateTableFromUpload(APIBaseTest):
         )
         assert table.columns == FAKE_COLUMNS
         assert table.created_via == DataWarehouseTable.CreatedVia.WEB
-        # No pipeline source is created — this is the whole point of the self-managed shape.
-        assert ExternalDataSource.objects.count() == 0
 
     def test_an_uploaded_table_cannot_be_repointed_at_another_location(self) -> None:
         # An uploaded table carries no credential, so it is read with the ClickHouse node's own role
@@ -462,18 +472,15 @@ class TestWarehouseTableDeleteRemovesHostedFile(APIBaseTest):
         assert removed == [f"test-bucket/file_uploads/team_{self.team.pk}/{upload_id}/orders.csv"]
 
 
-SERVICE_MODULE = "products.warehouse_sources.backend.file_upload_sources"
-STORAGE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.storage"
 SOURCE_VIEWS = "products.warehouse_sources.backend.presentation.views.external_data_source.base"
-OBJECT_STORAGE_FLAG = "dwh-object-storage-sources"
 REPLACEMENT_COLUMNS = {
     "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Nullable(Int64)"},
     "placed_at": {"hogql": "DateTimeDatabaseField", "clickhouse": "Nullable(DateTime64(6))"},
 }
 
 
-def _flag(enabled: bool):
-    return lambda key, *args, **kwargs: enabled and key == OBJECT_STORAGE_FLAG
+def _warehouse_api_flag(flag_key: str, *args: object, **kwargs: object) -> bool:
+    return flag_key == "warehouse-api"
 
 
 @override_settings(DATAWAREHOUSE_BUCKET="test-bucket", DATAWAREHOUSE_BUCKET_DOMAIN="warehouse.posthog.test")
@@ -484,7 +491,7 @@ class TestFileUploadSources(APIBaseTest):
         self.s3 = _FakeS3()
         self.trigger_count = 0
         patches = [
-            patch("posthoganalytics.feature_enabled", side_effect=_flag(True)),
+            patch("posthoganalytics.feature_enabled", return_value=False),
             patch(f"{VIEW_MODULE}.get_s3_client", return_value=self.s3),
             patch(f"{STORAGE_MODULE}.get_s3_client", return_value=self.s3),
             patch(f"{VIEW_MODULE}.validate_data_warehouse_table_columns.delay"),
@@ -527,12 +534,12 @@ class TestFileUploadSources(APIBaseTest):
             format="json",
         )
 
-    def test_with_the_flag_an_upload_becomes_a_file_upload_source_and_one_billable_sync(self) -> None:
+    def test_an_upload_becomes_a_file_upload_source_and_one_billable_sync(self) -> None:
         response = self._create()
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         table = DataWarehouseTable.objects.get(id=response.json()["id"])
-        # Until the first sync imports it, the table reads the file in place, as without the flag.
+        # Until the first sync imports it, the table reads the file in place.
         assert (table.name, table.external_data_source_id, table.credential_id) == ("orders", None, None)
         assert (
             table.url_pattern
@@ -561,15 +568,6 @@ class TestFileUploadSources(APIBaseTest):
             "reset_pipeline": False,
             "workflow_id_prefix": "file-upload",
         }
-
-    def test_without_the_flag_an_upload_stays_a_self_managed_table(self) -> None:
-        self.flag.side_effect = _flag(False)
-
-        response = self._create()
-
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert not ExternalDataSource.objects.filter(team=self.team).exists()
-        self.trigger.assert_not_called()
 
     def test_a_sync_that_fails_to_start_still_leaves_a_working_table(self) -> None:
         self.trigger.side_effect = RuntimeError("temporal is down")
@@ -775,7 +773,7 @@ class TestFileUploadSources(APIBaseTest):
     def test_a_new_file_for_a_migrated_table_starts_the_sync_that_adopts_it(
         self, _name: str, key: str, path: str
     ) -> None:
-        self.flag.side_effect = lambda flag_key, *args, **kwargs: flag_key in (OBJECT_STORAGE_FLAG, "warehouse-api")
+        self.flag.side_effect = _warehouse_api_flag
         table, schema = self._migrated_table(key)
         old_url = table.url_pattern
         self.get_columns.return_value = dict(REPLACEMENT_COLUMNS)
@@ -852,7 +850,7 @@ class TestFileUploadSources(APIBaseTest):
         assert (schema.source.job_inputs["upload_id"], schema.source.job_inputs["filename"]) == ("", "")
 
     def test_a_refused_legacy_file_action_deletes_the_file_it_stored(self) -> None:
-        self.flag.side_effect = lambda flag_key, *args, **kwargs: flag_key in (OBJECT_STORAGE_FLAG, "warehouse-api")
+        self.flag.side_effect = _warehouse_api_flag
         _, schema = self._migrated_table("managed/team_{team}/orders.csv")
         ExternalDataJob.objects.create(
             team=self.team, pipeline=schema.source, schema=schema, status=ExternalDataJob.Status.RUNNING

@@ -238,6 +238,8 @@ Optional recovery actions sit below the message and wrap on narrow screens.
 - **Report**: top chrome, headline, the byline with the Owner and Priority chips (`ReportMeta`), lede,
   "Read the full report" (only when there is a summary or a signal), evidence (trace, quotes, replay), facts,
   the observation card, impact tiles, charts, activity, and the action bar.
+  The report and full report wrap their scrolling content in `BlurTargetView` and pass its ref to the top chrome.
+  Android uses this target to blur content behind the header; iOS uses its native background blur.
 - **Full report** (`report/[id]/details`): top chrome with Back only and the headline as its scroll title,
   a "Full report" eyebrow, the headline and the byline, the whole summary, then "Signals" with a count and one card per
   signal, newest first, and "Open in PostHog" at the end (hidden in demo mode).

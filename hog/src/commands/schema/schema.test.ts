@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { runHog, TEST_CREDENTIALS } from '@/testing'
+import { readJson, runHog, TEST_CREDENTIALS } from '@/testing'
 
 const AGENT = { ...TEST_CREDENTIALS, CLAUDECODE: '1' }
 
@@ -32,7 +32,7 @@ describe('hog schema', () => {
         })
         expect(result.exitCode).toBe(0)
         expect(result.files['/work/src/lib/posthog-typed.ts']).toBe('new')
-        expect(JSON.parse(result.files['/work/posthog.json']!)).toEqual({
+        expect(readJson(result.files['/work/posthog.json']!)).toEqual({
             errorTracking: { release: { name: 'web' } },
             languages: {
                 typescript: {
@@ -68,7 +68,7 @@ describe('hog schema', () => {
         })
 
         expect(result.files[written]).toBe('generated')
-        expect(JSON.parse(result.files['/work/posthog.json']!)).toMatchObject({
+        expect(readJson(result.files['/work/posthog.json']!)).toMatchObject({
             $schema: expect.stringContaining('posthog.schema.json'),
             languages: { typescript: { output_path: stored } },
         })
