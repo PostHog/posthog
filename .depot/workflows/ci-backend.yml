@@ -536,6 +536,12 @@ jobs:
                         # _EXTERNAL_COMPANION_SKILL_DIRS in products/signals/backend/scout_harness/lazy_seed.py
                         # names this companion skill from another product.
                         - 'products/replay_vision/skills/exploring-replay-vision-observations/**'
+                        # A test file added or deleted, Jest included, can change the baseline that
+                        # test_unowned_test_directories.py enforces. Keep in step with runner_for_path
+                        # in packages/owners-yaml/owners_yaml/census.py.
+                        - added|deleted: '**/test_*.py'
+                        - added|deleted: '**/*_test.py'
+                        - added|deleted: '**/*.{test,spec}.{js,jsx,ts,tsx}'
                       sdk_manifests:
                         # Everything the SDK major-version guard reads. Lockfiles are listed
                         # because a floor-only or `*` spec can move to a new major through

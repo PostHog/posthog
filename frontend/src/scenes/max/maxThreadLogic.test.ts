@@ -52,7 +52,7 @@ import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { MAX_DASHBOARD_CONTEXT_WAIT_MS, maxThreadLogic } from './maxThreadLogic'
-import { MaxContextType } from './maxTypes'
+import { MaxContextType, MaxInsightContext } from './maxTypes'
 import {
     MOCK_CONVERSATION,
     MOCK_CONVERSATION_ID,
@@ -1420,6 +1420,31 @@ describe('maxThreadLogic', () => {
                 'max conversation turn completed',
                 expect.objectContaining({ status: 'failure', error_status_code: 400, prompt_length: 5 })
             )
+        })
+
+        it('keeps the context source of the send on a reconnect, which sends no ui_context', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            jest.spyOn(api.conversations, 'stream').mockRejectedValue(new ApiError('error', 500))
+
+            logic.unmount()
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('hello', true, { insights: [{ id: 'abc' } as MaxInsightContext] })
+            }).toDispatchActions(['askMax', 'completeThreadGeneration'])
+            await expectLogic(logic, () => {
+                logic.actions.streamConversation(
+                    { conversation: MOCK_TEMP_CONVERSATION_ID, content: null, agent_mode: null },
+                    0
+                )
+            }).toDispatchActions(['streamConversation', 'completeThreadGeneration'])
+
+            const turnSources = captureSpy.mock.calls
+                .filter(([event]) => event === 'max conversation turn completed')
+                .map(([, properties]) => properties?.context_source)
+            expect(turnSources).toEqual(['added', 'added'])
         })
     })
 

@@ -32,10 +32,13 @@ def determine_parsed_date_for_property_matching(value: ValueT) -> datetime.datet
 
 # Note: Any changes to this function need to be reflected in the rust version
 # rust/feature-flags/src/properties/relative_date.rs
-def relative_date_parse_for_feature_flag_matching(value: str) -> Optional[datetime.datetime]:
+def relative_date_parse_for_feature_flag_matching(
+    value: str, now: Optional[datetime.datetime] = None
+) -> Optional[datetime.datetime]:
+    """The date that `value`, such as "-7d", stands for, counted back from `now` or from the current time."""
     regex = r"^-?(?P<number>[0-9]+)(?P<interval>[a-z])$"
     match = re.search(regex, value)
-    parsed_dt = datetime.datetime.now(tz=ZoneInfo("UTC"))
+    parsed_dt = now or datetime.datetime.now(tz=ZoneInfo("UTC"))
     if match:
         number = int(match.group("number"))
 

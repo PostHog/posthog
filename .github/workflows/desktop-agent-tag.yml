@@ -59,6 +59,8 @@ jobs:
               with:
                   fetch-depth: 0
                   filter: blob:none
+                  sparse-checkout: .github/workflows/desktop-agent-tag.yml
+                  sparse-checkout-cone-mode: false
                   token: ${{ steps.app-token.outputs.token }}
 
             - name: Compute version and create tag

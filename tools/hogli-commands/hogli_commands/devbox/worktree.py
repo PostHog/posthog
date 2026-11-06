@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import re
 import sys
+import json
+import shutil
 import hashlib
 import subprocess
 import urllib.parse
@@ -14,7 +17,13 @@ from typing import Any
 
 import click
 
-from ..worktrees import worktree_source
+from ..worktrees import (
+    WorktreeBox,
+    clean_registered_box,
+    prune_boxes_of_removed_worktrees,
+    teardown_worktree_box,
+    worktree_source,
+)
 from . import hogland, mutagen
 from .cli import _preferred_region, devbox_clone, devbox_start, resolve_workspace_name
 from .coder import (
@@ -39,12 +48,14 @@ from .config import (
     clear_worktree_auto_sources,
     clear_worktree_box_cleanup,
     ensure_worktree_id,
+    get_worktree_boxes_path,
     load_worktree_boxes,
     record_worktree_box,
     save_worktree_auto_sources,
     save_worktree_box_cleanup,
     save_worktree_provider,
     saved_worktree_auto_sources,
+    saved_worktree_box_cleanup,
     saved_worktree_provider,
     worktree_box_claimant,
 )
@@ -52,11 +63,18 @@ from .sync import _REMOTE_REPO_PATH, _detect_local_posthog_checkout, ensure_hogl
 
 CODER_NAME_MAX_LENGTH = 32
 _HASH_LENGTH = 4
-_BRANCH_PREFIXES_TO_DROP = ("worktree-",)
+_BRANCH_PREFIXES_TO_DROP = ("worktree-", "worktree/")
 _RESERVED_SUFFIXES = tuple(suffix for suffix in REGION_NAME_SUFFIXES.values() if suffix)
 _AUTO_OFF = "off"
 _AUTO_LOG_NAME = "hogli-devbox-worktree.log"
+_AUTO_STARTED_NAME = "hogli-devbox-worktree.auto-started"
+_TEARDOWN_LOG_NAME = "hogli-devbox-teardown.log"
+_HERDR_PLUGIN_ID = "posthog.devbox"
+_HERDR_PLUGIN_DIR = Path("tools") / "herdr-devbox-plugin"
 _SUBAGENT_WORKTREE_PREFIX = "agent-"
+_CONDUCTOR_LOCAL_SETTINGS = Path(".conductor") / "settings.local.toml"
+_CONDUCTOR_SETUP_SCRIPT = "bin/devbox-worktree-hook created conductor"
+_CONDUCTOR_SCRIPTS = f'[scripts]\nsetup = "{_CONDUCTOR_SETUP_SCRIPT}"\narchive = "bin/devbox-worktree-hook archiving"\n'
 
 
 def label_budget(username: str, region: str) -> int:
@@ -133,7 +151,101 @@ def _save_auto_sources(value: str) -> None:
     save_worktree_auto_sources(sources)
     click.echo(
         f"New worktrees from {', '.join(sources)} now get their own devbox. "
-        "The husky post-checkout hook starts `hogli devbox:worktree` in the background when one is created."
+        "The husky post-checkout hook or the app's own create hook starts `hogli devbox:worktree` in the background."
+    )
+    if "herdr" in sources:
+        _link_herdr_plugin(_detect_local_posthog_checkout())
+    if "conductor" in sources:
+        _install_conductor_scripts(_detect_local_posthog_checkout())
+
+
+def _install_conductor_scripts(root: Path) -> None:
+    """Write the hooks to Conductor's uncommitted project settings, because a committed file would replace each user's own scripts."""
+    try:
+        settings_path = _main_checkout(root) / _CONDUCTOR_LOCAL_SETTINGS
+    except (OSError, subprocess.SubprocessError):
+        click.echo(
+            f"Couldn't find your main checkout. Add these lines to <main checkout>/{_CONDUCTOR_LOCAL_SETTINGS}:\n"
+            f"{_CONDUCTOR_SCRIPTS}"
+        )
+        return
+    if settings_path.exists():
+        if _CONDUCTOR_SETUP_SCRIPT in settings_path.read_text():
+            click.echo(f"Conductor already runs the devbox scripts from {settings_path}.")
+        else:
+            click.echo(
+                f"{settings_path} already exists, so add the devbox scripts to it yourself:\n{_CONDUCTOR_SCRIPTS}"
+            )
+        return
+    settings_path.parent.mkdir(exist_ok=True)
+    settings_path.write_text(_CONDUCTOR_SCRIPTS)
+    click.echo(f"Added the devbox setup and archive scripts to {settings_path}.")
+
+
+def _find_herdr_plugin(listing: Any) -> dict[str, Any] | None:
+    if isinstance(listing, dict):
+        if listing.get("plugin_id") == _HERDR_PLUGIN_ID:
+            return listing
+        children: list[Any] = list(listing.values())
+    elif isinstance(listing, list):
+        children = listing
+    else:
+        return None
+    for child in children:
+        found = _find_herdr_plugin(child)
+        if found is not None:
+            return found
+    return None
+
+
+def _main_checkout(root: Path) -> Path:
+    result = subprocess.run(
+        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return Path(result.stdout.strip()).parent
+
+
+def _link_herdr_plugin(root: Path) -> None:
+    """Link the plugin from the main checkout, which outlives every worktree, unless herdr already has it."""
+    herdr = shutil.which("herdr")
+    if herdr is None:
+        click.echo(
+            f"herdr isn't on your PATH. Once it is, run `herdr plugin link <main checkout>/{_HERDR_PLUGIN_DIR}`."
+        )
+        return
+    try:
+        listing = subprocess.run([herdr, "plugin", "list", "--json"], capture_output=True, text=True, timeout=30)
+        existing = _find_herdr_plugin(json.loads(listing.stdout)) if listing.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, ValueError):
+        existing = None
+    if existing is not None:
+        state = "enabled" if existing.get("enabled") else "disabled"
+        click.echo(
+            f"The herdr plugin {_HERDR_PLUGIN_ID} is already linked from {existing.get('plugin_root')} ({state})."
+        )
+        return
+    try:
+        plugin_dir = _main_checkout(root) / _HERDR_PLUGIN_DIR
+    except (OSError, subprocess.SubprocessError):
+        click.echo(f"Couldn't find your main checkout. Run `herdr plugin link <main checkout>/{_HERDR_PLUGIN_DIR}`.")
+        return
+    if not (plugin_dir / "herdr-plugin.toml").is_file():
+        click.echo(f"Your main checkout has no {_HERDR_PLUGIN_DIR} yet. Pull it, then run this command again.")
+        return
+    try:
+        result = subprocess.run([herdr, "plugin", "link", str(plugin_dir)], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as error:
+        click.echo(f"Couldn't link the herdr plugin: {error}")
+        return
+    if result.returncode != 0:
+        click.echo(f"Couldn't link the herdr plugin: {(result.stderr or result.stdout).strip()}")
+        return
+    click.echo(
+        f"Linked the herdr plugin from {plugin_dir}. Turn it off with `herdr plugin disable {_HERDR_PLUGIN_ID}`."
     )
 
 
@@ -154,6 +266,7 @@ class _WorktreeTarget:
     workspace_name: str
     label: str
     abandoned_mirror: str | None = None
+    reset_mirror: bool = False
 
 
 @dataclass(frozen=True)
@@ -204,6 +317,15 @@ def _fail_if_other_provider_box_exists(record: WorktreeBoxRecord) -> None:
         )
 
 
+def _predecessor_box_survives(
+    record: WorktreeBoxRecord | None, workspaces: list[dict[str, Any]], provider: str
+) -> bool:
+    if record is None or record.provider != provider:
+        return False
+    live = get_workspace(record.workspace, workspaces)
+    return live is not None and record.owns(live)
+
+
 def _resolve_target(
     root: Path,
     label: str | None,
@@ -215,12 +337,17 @@ def _resolve_target(
     """Return the devbox this worktree uses.
 
     A worktree that already has a registered box keeps it, even after a branch
-    rename, so a re-run never creates a second box. A record saved for an
-    earlier worktree at the same path does not count.
+    rename, so a re-run never creates a second box. A worktree recreated at the
+    same path, as t3code does when it resumes a thread it cleaned up, takes over
+    the box of the worktree it replaces while that box still exists. Its mirror
+    is recreated, because the old one saw its local root disappear.
     """
     boxes = load_worktree_boxes()
     registered = boxes.get(str(root))
-    if registered is not None and registered.worktree_id is not None and not registered.tracks_worktree(_git_dir(root)):
+    recreated = (
+        registered is not None and registered.worktree_id is not None and not registered.tracks_worktree(_git_dir(root))
+    )
+    if recreated and not _predecessor_box_survives(registered, workspaces, provider):
         registered = None
     abandoned_mirror = None
     if registered is not None and registered.provider != provider:
@@ -232,7 +359,7 @@ def _resolve_target(
         registered = registered_box = None
     registered_label = label_of(registered.workspace) if registered is not None else None
     if registered is not None and registered_label is not None and label in (None, registered_label):
-        return _WorktreeTarget(workspace_name=registered.workspace, label=registered_label)
+        return _WorktreeTarget(workspace_name=registered.workspace, label=registered_label, reset_mirror=recreated)
 
     box_naming = naming()
     resolved_label = label or derive_label(_current_branch(root), box_naming.label_budget)
@@ -269,6 +396,28 @@ def _list_workspaces_or_fail() -> list[dict[str, Any]]:
         )
         raise SystemExit(1)  # unreachable; helps the type checker see no fall-through
     return workspaces
+
+
+def _prune_box_of_worktree_removed_during_setup(root: Path, git_dir: Path) -> bool:
+    if root.exists():
+        return False
+    click.echo(f"{root} was removed while its devbox started.")
+    box_action = saved_worktree_box_cleanup() or "stop"
+    prune_boxes_of_removed_worktrees(git_dir.parents[2], box_action, root, dry_run=False)
+    return True
+
+
+def _has_reusable_mirror(target: _WorktreeTarget) -> bool:
+    if target.reset_mirror:
+        return False
+    return bool(mutagen.sync_list(label_selector=mutagen.workspace_label_selector(target.workspace_name)))
+
+
+def _reset_recreated_mirror(target: _WorktreeTarget) -> None:
+    # Runs before `_claim_box` saves the new worktree's ID. A failed terminate then
+    # leaves the old ID in place, so a retry still sees a recreated worktree and resets.
+    if target.reset_mirror:
+        mutagen.sync_terminate(mutagen.workspace_label_selector(target.workspace_name))
 
 
 @click.command(name="devbox:worktree", help="Give this worktree its own devbox and sync mirror")
@@ -359,7 +508,7 @@ def devbox_worktree(
         lambda: _coder_naming(cloning, clone_source),
     )
     existing = get_workspace(target.workspace_name, workspaces)
-    has_sync = bool(mutagen.sync_list(label_selector=mutagen.workspace_label_selector(target.workspace_name)))
+    has_sync = _has_reusable_mirror(target)
 
     if existing is None:
         box_step = (
@@ -377,6 +526,7 @@ def devbox_worktree(
 
     if not _print_plan(root, box_step, sync_step, on_clean, dry_run):
         return
+    _reset_recreated_mirror(target)
     git_dir, worktree_id = _claim_box(root, target, existing, on_clean, "coder")
     _drop_abandoned_mirror(target)
 
@@ -400,6 +550,8 @@ def devbox_worktree(
                 worktree_id=worktree_id,
             ),
         )
+    if _prune_box_of_worktree_removed_during_setup(root, git_dir):
+        return
     ensure_sync_session(target.workspace_name, workspaces, root, verbose=verbose)
     click.echo()
     click.echo(f"App URL, once the stack runs on the box: {_app_url(target.workspace_name)}")
@@ -453,7 +605,7 @@ def _hogland_worktree(root: Path, label: str | None, on_clean: str | None, dry_r
     target = _resolve_target(root, label, devboxes, "hogland", hogland.label_of, _hogland_naming)
     name = target.workspace_name
     existing = get_workspace(name, devboxes)
-    has_sync = bool(mutagen.sync_list(label_selector=mutagen.workspace_label_selector(name)))
+    has_sync = _has_reusable_mirror(target)
 
     if existing is None:
         box_step = f"Create Hogland devbox '{name}'"
@@ -468,6 +620,7 @@ def _hogland_worktree(root: Path, label: str | None, on_clean: str | None, dry_r
     )
     if not _print_plan(root, box_step, sync_step, on_clean, dry_run):
         return
+    _reset_recreated_mirror(target)
     git_dir, worktree_id = _claim_box(root, target, existing, on_clean, "hogland")
     _drop_abandoned_mirror(target)
 
@@ -487,6 +640,8 @@ def _hogland_worktree(root: Path, label: str | None, on_clean: str | None, dry_r
                 provider="hogland",
             ),
         )
+    if _prune_box_of_worktree_removed_during_setup(root, git_dir):
+        return
     ensure_hogland_sync_session(name, root, verbose=verbose)
     click.echo()
     click.echo(f"  SSH    hogland devbox ssh {name}")
@@ -495,27 +650,145 @@ def _hogland_worktree(root: Path, label: str | None, on_clean: str | None, dry_r
 
 
 @click.command(
-    name="devbox:worktree:auto",
-    help="Start devbox:worktree in the background for this new worktree, if `devbox:worktree --auto` covers it",
+    name="devbox:worktree:prune",
+    help="Stop or delete the devboxes of worktrees that another tool, such as t3code or herdr, already removed",
 )
-def devbox_worktree_auto() -> None:
-    enabled = saved_worktree_auto_sources()
-    if not enabled:
-        return
-    root = _detect_local_posthog_checkout()
-    if not _is_linked_worktree(root) or not should_auto_provision(root, worktree_source(root), enabled):
-        return
+@click.option("--stop", "action", flag_value="stop", default=None, help="Stop the boxes")
+@click.option("--delete", "action", flag_value="delete", help="Delete the boxes, including their disks")
+@click.option(
+    "--path",
+    "worktree_path",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Only the box of the worktree that was at this path",
+)
+@click.option("--dry-run", is_flag=True, help="Print the boxes without changing anything")
+def devbox_worktree_prune(action: str | None, worktree_path: Path | None, dry_run: bool) -> None:
+    box_action = action or saved_worktree_box_cleanup() or "stop"
+    pruned = prune_boxes_of_removed_worktrees(_detect_local_posthog_checkout(), box_action, worktree_path, dry_run)
+    if not pruned:
+        click.echo("No devboxes belong to removed worktrees.")
 
-    log_path = _git_dir(root) / _AUTO_LOG_NAME
+
+def _act_on_box_in_background(worktree_root: Path, box: WorktreeBox, box_action: str, keep_record: bool) -> None:
+    # The worktree and its git directory are about to be deleted, so the process runs
+    # from the main checkout and logs next to the box records.
+    main_checkout = _main_checkout(worktree_root)
+    log_path = get_worktree_boxes_path().with_name(_TEARDOWN_LOG_NAME)
+    main_env = {key: value for key, value in os.environ.items() if key not in ("VIRTUAL_ENV", "PYTHONPATH")}
     with log_path.open("ab") as log:
         subprocess.Popen(
-            # -P keeps the worktree off sys.path, so a `hogli` package committed to the
-            # branch being checked out cannot shadow the installed one and run here.
-            [sys.executable, "-P", "-m", "hogli", "devbox:worktree", "--yes"],
-            cwd=root,
+            [
+                str(main_checkout / "bin" / "hogli"),
+                "devbox:worktree:teardown",
+                f"--{box_action}",
+                "--box-of",
+                str(box.worktree_path),
+                "--worktree-id",
+                str(box.record.worktree_id),
+                *(["--keep-record"] if keep_record else []),
+            ],
+            cwd=main_checkout,
+            env={**main_env, "HOGLI_MANIFEST": str(main_checkout / "hogli.yaml")},
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
+    click.echo(
+        f"hogli: the sync mirror is stopped. The devbox {box_action} continues in the background. Log: {log_path}"
+    )
+
+
+@click.command(
+    name="devbox:worktree:teardown",
+    help="Stop the sync mirror and the devbox of this worktree before a tool such as Superset or Emdash removes it",
+)
+@click.option("--stop", "action", flag_value="stop", default=None, help="Stop the box")
+@click.option("--delete", "action", flag_value="delete", help="Delete the box, including its disk")
+@click.option(
+    "--background",
+    is_flag=True,
+    help="Stop the mirror now and act on the box in a background process, to stay inside a tool's hook time limit",
+)
+@click.option(
+    "--keep-record",
+    is_flag=True,
+    help="Keep the record of a stopped box, for a tool that keeps the worktree on disk, such as Emdash on archive",
+)
+@click.option("--box-of", "box_of", type=click.Path(path_type=Path), default=None, hidden=True)
+@click.option("--worktree-id", "worktree_id", default=None, hidden=True)
+@click.option("--dry-run", is_flag=True, help="Print the plan without changing anything")
+def devbox_worktree_teardown(
+    action: str | None,
+    background: bool,
+    keep_record: bool,
+    box_of: Path | None,
+    worktree_id: str | None,
+    dry_run: bool,
+) -> None:
+    box_action = action or saved_worktree_box_cleanup() or "stop"
+    if box_of is not None:
+        if worktree_id is not None:
+            clean_registered_box(box_of, worktree_id, box_action, keep_record)
+        return
+    root = _detect_local_posthog_checkout()
+    if not _is_linked_worktree(root):
+        return
+    git_dir = _git_dir(root)
+    act_on_box = (lambda box, chosen: _act_on_box_in_background(root, box, chosen, keep_record)) if background else None
+    if teardown_worktree_box(root, git_dir, box_action, dry_run, keep_record, act_on_box) is None:
+        click.echo("This worktree has no devbox from `hogli devbox:worktree`.")
+    elif not dry_run:
+        # A tool that keeps the worktree, such as Emdash on archive, can run its create hook again later.
+        (git_dir / _AUTO_STARTED_NAME).unlink(missing_ok=True)
+
+
+def _claim_auto_start(git_dir: Path) -> bool:
+    # Both the husky post-checkout hook and a tool's own create hook can fire for
+    # one new worktree. The first caller creates this file and starts the box.
+    try:
+        (git_dir / _AUTO_STARTED_NAME).open("x").close()
+    except FileExistsError:
+        return False
+    return True
+
+
+@click.command(
+    name="devbox:worktree:auto",
+    help="Start devbox:worktree in the background for this new worktree, if `devbox:worktree --auto` covers it",
+)
+@click.option(
+    "--source",
+    type=click.Choice(WORKTREE_AUTO_SOURCES),
+    default=None,
+    help="The tool that created the worktree. Defaults to the tool whose folder holds it.",
+)
+def devbox_worktree_auto(source: str | None) -> None:
+    enabled = saved_worktree_auto_sources()
+    if not enabled:
+        return
+    root = _detect_local_posthog_checkout()
+    if not _is_linked_worktree(root) or not should_auto_provision(root, source or worktree_source(root), enabled):
+        return
+    git_dir = _git_dir(root)
+    if not _claim_auto_start(git_dir):
+        return
+
+    log_path = git_dir / _AUTO_LOG_NAME
+    try:
+        with log_path.open("ab") as log:
+            subprocess.Popen(
+                # -P keeps the worktree off sys.path, so a `hogli` package committed to the
+                # branch being checked out cannot shadow the installed one and run here.
+                [sys.executable, "-P", "-m", "hogli", "devbox:worktree", "--yes"],
+                cwd=root,
+                stdin=subprocess.DEVNULL,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+    except OSError:
+        (git_dir / _AUTO_STARTED_NAME).unlink(missing_ok=True)
+        raise
     click.echo(f"hogli: creating a devbox for this worktree in the background. Log: {log_path}")
