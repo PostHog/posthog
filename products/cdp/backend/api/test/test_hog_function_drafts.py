@@ -322,7 +322,8 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert function.draft_encrypted_inputs["token"]["value"] == "new"
         assert function.encrypted_inputs["token"]["value"] == "live-token"
 
-    def test_a_later_draft_edit_adds_an_entry_to_a_staged_dictionary_secret(self):
+    @parameterized.expand([("unmarked", {}), ("marked_as_read", {"secret": True})])
+    def test_a_later_draft_edit_adds_an_entry_to_a_staged_dictionary_secret(self, _name: str, marker: dict):
         function_id = self._create(
             inputs_schema=[
                 BASE_FUNCTION["inputs_schema"][0],
@@ -338,7 +339,12 @@ class TestHogFunctionDrafts(DraftTestCase):
 
         self._stage(
             function_id,
-            {"inputs": {"url": url, "secret_headers": {"value": {"Authorization": "********", "X-New": "typed"}}}},
+            {
+                "inputs": {
+                    "url": url,
+                    "secret_headers": {**marker, "value": {"Authorization": "********", "X-New": "typed"}},
+                }
+            },
         )
 
         staged = HogFunction.objects.get(id=function_id).draft_encrypted_inputs["secret_headers"]["value"]
@@ -432,13 +438,32 @@ class TestHogFunctionDrafts(DraftTestCase):
 
     @parameterized.expand(
         [
-            ("stored_secret", {"secret": True}, status.HTTP_400_BAD_REQUEST),
-            ("entered_secret", {"value": "typed for this test"}, status.HTTP_200_OK),
+            ("stored_secret", "destination", SENDER_HOG, {"secret": True}, status.HTTP_400_BAD_REQUEST),
+            ("entered_secret", "destination", SENDER_HOG, {"value": "typed for this test"}, status.HTTP_200_OK),
+            # A transformation is under the enabled-functions cap, which validates the nested
+            # configuration through a branch of its own.
+            (
+                "stored_secret_printed_by_a_transformation",
+                "transformation",
+                "print(inputs.token); return event",
+                {"secret": True},
+                status.HTTP_400_BAD_REQUEST,
+            ),
         ]
     )
-    def test_test_invocation_that_sends_a_secret_to_a_new_host(self, _name: str, token: dict, expected_status: int):
-        function_id = self._create(hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}})
-        configuration = {**BASE_FUNCTION, "hog": SENDER_HOG, "inputs": sender_inputs(MOVED_URL, token)}
+    def test_test_invocation_that_sends_a_secret_to_a_new_host(
+        self, _name: str, function_type: str, tested_hog: str, token: dict, expected_status: int
+    ):
+        stored_hog = SENDER_HOG if function_type == "destination" else "return event"
+        function_id = self._create(
+            type=function_type, hog=stored_hog, inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}}
+        )
+        configuration = {
+            **BASE_FUNCTION,
+            "type": function_type,
+            "hog": tested_hog,
+            "inputs": sender_inputs(MOVED_URL, token),
+        }
 
         with secret_host_binding_flag(True):
             response, mock_invoke = self._test_invoke(
@@ -447,6 +472,42 @@ class TestHogFunctionDrafts(DraftTestCase):
 
         assert response.status_code == expected_status, response.json()
         assert mock_invoke.called == (expected_status == status.HTTP_200_OK)
+
+    @parameterized.expand([("live_edit", False), ("draft_test_run", True)])
+    def test_rotating_one_secret_keeps_an_unbound_sibling(self, _name: str, staged: bool):
+        sibling_schema = {"key": "event_token", "type": "string", "label": "Event token", "secret": True}
+        function_id = self._create(
+            hog=f"{SENDER_HOG} fetch(event.properties.url, {{'body': inputs.event_token}});",
+            inputs_schema=[*BASE_FUNCTION["inputs_schema"], sibling_schema],
+            inputs={**sender_inputs(SENDER_URL, {"value": "live"}), "event_token": {"value": "live-event-token"}},
+        )
+        rotated = {"inputs": {**sender_inputs(SENDER_URL, {"value": "rotated"}), "event_token": {"secret": True}}}
+
+        with secret_host_binding_flag(True):
+            if staged:
+                self._stage(function_id, rotated)
+                response, _ = self._test_invoke(function_id, {"use_draft": True, "mock_async_functions": False})
+            else:
+                response = self.client.patch(self._url(function_id), rotated)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_rotating_a_secret_cannot_move_a_sibling_that_reads_it(self):
+        sibling_schema = {"key": "target", "type": "string", "label": "Target", "secret": True}
+        function_id = self._create(
+            hog="fetch(inputs.target, {'headers': {'Authorization': inputs.token}});",
+            inputs_schema=[*BASE_FUNCTION["inputs_schema"], sibling_schema],
+            inputs={**sender_inputs(SENDER_URL, {"value": "live"}), "target": {"value": SENDER_URL}},
+        )
+
+        with secret_host_binding_flag(True):
+            response = self.client.patch(
+                self._url(function_id),
+                {"inputs": {**sender_inputs(SENDER_URL), "target": {"value": MOVED_URL}}},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (response.json()["attr"], response.json()["code"]) == ("inputs__token", "secret_reentry_required")
 
     def test_draft_never_carries_secret_values(self):
         function_id = self._create()
