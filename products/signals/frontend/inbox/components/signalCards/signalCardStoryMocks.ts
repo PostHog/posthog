@@ -402,11 +402,7 @@ export const SIGNAL_CARD_MOCKS: Mocks = {
         '/api/projects/:id/vision/observations/:observationId/thumbnail/': () => pngResponse(RECORDING_PREVIEW_PNG),
     },
     post: {
-        '/api/environments/:id/session_recordings/batch_check_exists': () => [
-            200,
-            { results: { 'sess-1': true, 'sess-2': true } },
-        ],
-        '/api/projects/:id/session_recordings/batch_check_exists': () => [
+        '/api/:scope/:id/session_recordings/batch_check_exists': () => [
             200,
             { results: { 'sess-1': true, 'sess-2': true } },
         ],
@@ -416,7 +412,7 @@ export const SIGNAL_CARD_MOCKS: Mocks = {
 /** A loaded error tracking issue, so the error tracking card embeds its live row instead of the skeleton. */
 export const ERROR_TRACKING_ISSUE_MOCKS: Mocks = {
     get: {
-        '/api/environments/:team_id/error_tracking/issues/:issue_id/': () => [
+        '/api/:scope/:team_id/error_tracking/issues/:issue_id/': () => [
             200,
             {
                 id: 'issue-3',
@@ -430,7 +426,7 @@ export const ERROR_TRACKING_ISSUE_MOCKS: Mocks = {
         ],
     },
     post: {
-        '/api/environments/:team_id/query/ErrorTrackingQuery/': () => [
+        '/api/:scope/:team_id/query/ErrorTrackingQuery/': () => [
             200,
             {
                 results: [
