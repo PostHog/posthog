@@ -11,6 +11,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.integration import EmailIntegration, Integration
+from posthog.models.integration.email import lock_sender_domain
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
@@ -95,9 +96,7 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         other = connection.get_new_connection(connection.get_connection_params())
         try:
             with other.cursor() as cursor:
-                cursor.execute(
-                    "SELECT pg_advisory_xact_lock(hashtext('email_sender_domain'), hashtext('locked.example.com'))"
-                )
+                lock_sender_domain(cursor, "locked.example.com")
             with connection.cursor() as cursor:
                 cursor.execute("SET LOCAL lock_timeout = '200ms'")
             create = lambda: EmailIntegration.create_native_integration(

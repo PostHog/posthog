@@ -38,6 +38,11 @@ def _duplicate_sender_error(email_address: str) -> ValidationError:
     return ValidationError(f"A sender for {email_address} already exists. Edit that sender instead of adding it again.")
 
 
+def lock_sender_domain(cursor: Any, domain: str) -> None:
+    # Creates on one domain run in turn, so each sees the sender rows and SES MAIL FROM the previous one left.
+    cursor.execute("SELECT pg_advisory_xact_lock(hashtext('email_sender_domain'), hashtext(%s))", [domain])
+
+
 @frozen
 class EmailDomainStatusReport:
     check: "EmailDomainCheck"
@@ -69,9 +74,8 @@ class EmailIntegration:
         if domain in free_email_domains_list or domain in disposable_email_domains_list:
             raise ValidationError(f"Email domain {domain} is not supported. Please use a custom domain.")
 
-        # Creates on one domain run in turn, so each sees the sender rows and SES MAIL FROM the previous one left.
         with connection.cursor() as cursor:
-            cursor.execute("SELECT pg_advisory_xact_lock(hashtext('email_sender_domain'), hashtext(%s))", [domain])
+            lock_sender_domain(cursor, domain)
 
         # Checked before the provider call, so a duplicate does not register an SES domain.
         if model.Integration.objects.filter(team_id=team_id, kind="email", integration_id=email_address).exists():
