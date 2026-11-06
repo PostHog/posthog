@@ -3,7 +3,6 @@ from collections import defaultdict
 from collections.abc import Sequence
 from copy import deepcopy
 from datetime import timedelta
-from enum import StrEnum
 from typing import Any, Optional, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -19,7 +18,6 @@ from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from opentelemetry import trace
-from prometheus_client import Counter
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
@@ -71,6 +69,17 @@ from products.cdp.backend.models.plugin import TranspilerError
 from products.cdp.backend.presentation.hog_invocations.rerun import (
     HogInvocationRerunRequestSerializer,
     HogInvocationRerunResponseSerializer,
+)
+from products.cdp.backend.secret_binding import (
+    SECRET_HOST_BINDING_COUNTER,
+    SECRET_REENTRY_CODE,
+    SECRET_REENTRY_MESSAGE,
+    SecretBinding,
+    binding_metric,
+    comparable_inputs,
+    entered_secret_input_keys,
+    secret_binding,
+    secret_binding_enforced,
 )
 from products.cdp.backend.secret_origins import (
     SecretOrigins,
@@ -147,14 +156,6 @@ ENABLE_WITH_OPEN_DRAFT_MESSAGE = (
 CREATE_ENABLED_MESSAGE = (
     "Create destinations disabled: test with an invocation first, then enable with a separate update "
     "once the config looks right."
-)
-
-SECRET_HOST_BINDING_FLAG = "cdp-secret-host-binding"
-SECRET_REENTRY_MESSAGE = "This change would send the secret to a new address. Enter the secret again to confirm."
-SECRET_HOST_BINDING_COUNTER = Counter(
-    "posthog_cdp_secret_host_binding_total",
-    "Secret inputs saved with the origins they may be sent to, by outcome and by the API surface that saved them.",
-    labelnames=["outcome", "surface"],
 )
 
 # The confirm token makes the publish preview structurally unskippable: only the preview mints it,
@@ -319,35 +320,12 @@ def _only_masked(value: Any) -> bool:
     return value == MASKED_SECRET_VALUE
 
 
-def entered_secret_input_keys(raw_inputs: Any) -> set[str]:
-    """Input keys whose request value replaces the stored secret. A dictionary secret sent with some
-    entries still masked keeps those stored entries, so it does not count as entered."""
-    if not isinstance(raw_inputs, dict):
-        return set()
-    return {
-        key
-        for key, item in raw_inputs.items()
-        if isinstance(item, dict)
-        and "value" in item
-        and item["value"] != MASKED_SECRET_VALUE
-        and not (isinstance(item["value"], dict) and MASKED_SECRET_VALUE in item["value"].values())
-    }
-
-
-def _comparable_inputs(items: Any) -> dict:
-    return {
-        key: (item.get("value"), item.get("templating") or "hog")
-        for key, item in (items or {}).items()
-        if isinstance(item, dict)
-    }
-
-
 def _analyzed_config(hog: Optional[str], inputs: dict, mappings: Any, secret_keys: set[str]) -> tuple:
     public_inputs = {key: item for key, item in inputs.items() if key not in secret_keys}
     return (
         hog or "",
-        _comparable_inputs(public_inputs),
-        [_comparable_inputs(items) for items in mapping_inputs(mappings)],
+        comparable_inputs(public_inputs),
+        [comparable_inputs(items) for items in mapping_inputs(mappings)],
     )
 
 
@@ -363,7 +341,7 @@ def _unchanged_secrets(
     moved = {
         key
         for key in secret_keys
-        if _comparable_inputs({key: inputs.get(key)}) != _comparable_inputs({key: stored_inputs.get(key)})
+        if comparable_inputs({key: inputs.get(key)}) != comparable_inputs({key: stored_inputs.get(key)})
     }
     kept = secret_keys - moved
     if not moved or not kept:
@@ -372,37 +350,6 @@ def _unchanged_secrets(
     with_stored.update({key: stored_inputs[key] for key in moved if key in stored_inputs})
     restored = secret_origins(hog, with_stored, mapping_inputs(mappings), kept)
     return {key for key in kept if restored[key] == derived[key]}
-
-
-class SecretBinding(StrEnum):
-    BOUND = "bound"
-    KEPT = "kept"
-    REFUSED = "refused"
-
-
-class SecretBindingMetric(StrEnum):
-    BOUND = "bound"
-    KEPT = "kept"
-    REFUSED = "refused"
-    WOULD_REFUSE = "would_refuse"
-    STAGED = "staged"
-
-
-def _binding_metric(outcome: SecretBinding, let_through: bool, stages_draft: bool) -> SecretBindingMetric:
-    if not let_through:
-        return SecretBindingMetric(outcome.value)
-    return SecretBindingMetric.STAGED if stages_draft else SecretBindingMetric.WOULD_REFUSE
-
-
-def secret_binding(
-    derived: SecretOrigins, baseline: Optional[SecretOrigins], entered: bool, unchanged: bool
-) -> tuple[SecretOrigins, SecretBinding]:
-    """The origins a secret may be sent to after a save, and whether the save binds, keeps or is
-    refused. A secret with no baseline is new, so it binds like an entered one."""
-    if entered or baseline is None:
-        return derived, SecretBinding.BOUND
-    sends_within = isinstance(derived, frozenset) and isinstance(baseline, frozenset) and derived <= baseline
-    return baseline, SecretBinding.KEPT if unchanged or sends_within else SecretBinding.REFUSED
 
 
 def _secret_baselines(
@@ -1092,24 +1039,17 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 origins = derived[key]
             inputs[key]["allowed_origins"] = stored_origins(origins)
             SECRET_HOST_BINDING_COUNTER.labels(
-                outcome=_binding_metric(outcome, let_through, stages_draft), surface=surface
+                outcome=binding_metric(outcome, let_through, stages_draft), surface=surface
             ).inc()
         if enforce:
             raise serializers.ValidationError(
-                {"inputs": dict.fromkeys(refused, SECRET_REENTRY_MESSAGE)}, code="secret_reentry_required"
+                {"inputs": dict.fromkeys(refused, SECRET_REENTRY_MESSAGE)}, code=SECRET_REENTRY_CODE
             )
 
     def _enforces_secret_binding(self, team: Team) -> bool:
         if self.context.get("view") is None:
             return False
-        return bool(
-            posthoganalytics.feature_enabled(
-                SECRET_HOST_BINDING_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id)},
-                send_feature_flag_events=False,
-            )
-        )
+        return secret_binding_enforced(team)
 
     def to_representation(self, data):
         is_instance = isinstance(data, HogFunction)

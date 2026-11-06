@@ -1,12 +1,17 @@
-from typing import Any
+from typing import Any, Optional
 
 from django.core.management.base import BaseCommand, CommandError
 
-from products.cdp.backend.services.secret_origins_backfill import backfill_secret_origins
+from products.cdp.backend.services.secret_origins_backfill import BackfillReport, backfill_secret_origins
 
 
 class Command(BaseCommand):
     help = "Bind stored secret inputs of hog functions to the origins they may be sent to. Dry run by default."
+    # What one unbound-secret report line counts.
+    subject = "functions"
+
+    def backfill(self, *, commit: bool, team_id: Optional[int], batch_size: int) -> BackfillReport:
+        return backfill_secret_origins(commit=commit, team_id=team_id, batch_size=batch_size)
 
     def add_arguments(self, parser: Any) -> None:
         parser.add_argument("--commit", action="store_true", help="Write the changes. Omit for a dry run.")
@@ -19,12 +24,12 @@ class Command(BaseCommand):
         commit: bool = options["commit"]
         if options["batch_size"] < 1:
             raise CommandError("--batch-size must be at least 1.")
-        report = backfill_secret_origins(commit=commit, team_id=options["team_id"], batch_size=options["batch_size"])
+        report = self.backfill(commit=commit, team_id=options["team_id"], batch_size=options["batch_size"])
         for outcome, count in sorted(report.outcomes.items()):
             self.stdout.write(f"secrets {outcome}: {count}")
-        # An unbound secret can go to any origin, so a person decides whether its function needs a change.
+        # An unbound secret can go to any origin, so a person decides whether its config needs a change.
         for template_id, count in report.unbound_templates.most_common():
-            self.stdout.write(f"functions with an unbound secret, by template: {template_id}={count}")
+            self.stdout.write(f"{self.subject} with an unbound secret, by template: {template_id}={count}")
         if commit:
             self.stdout.write(f"rows written: {report.rows_written}")
         else:

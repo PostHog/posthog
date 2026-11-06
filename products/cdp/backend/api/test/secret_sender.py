@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from prometheus_client import REGISTRY
 
-from products.cdp.backend.api.hog_function import SecretBindingMetric
+from products.cdp.backend.secret_binding import SecretBindingMetric
 
 SENDER_URL = "https://hooks.example.com/a"
 MOVED_URL = "https://evil.example.com/a"

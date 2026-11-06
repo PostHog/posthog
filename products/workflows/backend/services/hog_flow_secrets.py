@@ -21,7 +21,7 @@ _FUNCTION_TRIGGER_CONFIG_TYPES = frozenset({"webhook", "manual", "tracking_pixel
 TemplateCache = dict[str, Optional[Any]]
 
 
-def _function_template_for_action(action: dict, template_cache: Optional[TemplateCache] = None) -> Optional[Any]:
+def function_template_for_action(action: dict, template_cache: Optional[TemplateCache] = None) -> Optional[Any]:
     # A function step, or a trigger whose source is function-shaped, resolves a template whose
     # inputs_schema tells us which inputs are secret. Everything else has no secret inputs.
     config = action.get("config") or {}
@@ -40,7 +40,7 @@ def _function_template_for_action(action: dict, template_cache: Optional[Templat
 
 
 def secret_keys_for_action(action: dict, template_cache: Optional[TemplateCache] = None) -> set[str]:
-    template = _function_template_for_action(action, template_cache)
+    template = function_template_for_action(action, template_cache)
     if not template:
         return set()
     return {schema["key"] for schema in (template.inputs_schema or []) if schema.get("secret")}
@@ -121,7 +121,7 @@ def mask_secret_action_inputs(
     # A secret dictionary paired with a plain one (a webhook's secret headers) keeps its entry names,
     # so the editor can list them and a save changes one entry without wiping the others.
     for flow_action in actions:
-        template = _function_template_for_action(flow_action, template_cache)
+        template = function_template_for_action(flow_action, template_cache)
         schemas = (template.inputs_schema or []) if template else []
         secret_keys = {schema["key"] for schema in schemas if schema.get("secret")}
         if not secret_keys:
