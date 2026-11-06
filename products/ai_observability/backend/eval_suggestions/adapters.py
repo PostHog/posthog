@@ -67,17 +67,48 @@ def hog_list(values: Iterable[str]) -> str:
     return "[" + ", ".join(hog_string(value) for value in values) + "]"
 
 
+# Every tool call in a parsed output, as [tool, arguments, call id]. An empty `tool_calls` list holds none.
+_COLLECT_CALLS = """fun collect_calls(value, calls) {
+    let kind := typeof(value)
+    if (kind == 'array') {
+        for (let i, child in value) {
+            calls := collect_calls(child, calls)
+        }
+        return calls
+    }
+    if (kind != 'object') {
+        return calls
+    }
+    if (typeof(value.function) == 'object') {
+        if (value.function.name != null) {
+            let id := toString(ifNull(value.id, ''))
+            return arrayPushBack(calls, [toString(value.function.name), jsonStringify(value.function.arguments), id])
+        }
+    }
+    if (has(['tool_use', 'function_call', 'tool-call', 'tool_call'], toString(value.type))) {
+        let tool := ifNull(value.toolName, value.name)
+        if (tool != null) {
+            let id := toString(ifNull(value.id, ifNull(value.call_id, ifNull(value.toolCallId, ''))))
+            return arrayPushBack(calls, [toString(tool), jsonStringify(ifNull(value.arguments, value.input)), id])
+        }
+    }
+    for (let key, child in value) {
+        calls := collect_calls(child, calls)
+    }
+    return calls
+}
+"""
+
 # A generation that asks for tools is a step of the turn, so its rendered tool calls are not the answer.
-_FINAL_TEXT = """let tool_markers := ['"tool_calls"', '"tool_use"', '"function_call"', '"tool_call"', '"tool-call"']
+_FINAL_TEXT = (
+    _COLLECT_CALLS
+    + """
 let final_text := ''
 for (let i, item in evaluation_events) {
     if (item.event == '$ai_generation' and length(trim(item.output_text)) > 0) {
-        let raw := toString(ifNull(item.output, ''))
         let calls_tools := false
-        for (let m, marker in tool_markers) {
-            if (position(raw, marker) > 0) {
-                calls_tools := true
-            }
+        if (isValidJSON(item.output)) {
+            calls_tools := length(collect_calls(jsonParse(item.output), [])) > 0
         }
         if (not calls_tools) {
             final_text := item.output_text
@@ -88,6 +119,7 @@ if (length(final_text) == 0) {
     print('No final assistant text in this trace')
     return null
 }"""
+)
 
 
 def unrecovered_errors(error_prefixes: Sequence[str]) -> AdaptedCheck:
@@ -148,36 +180,7 @@ def repeated_tool_calls(skipped_tools: Sequence[str]) -> AdaptedCheck:
 let skipped := {hog_list(sorted(skipped_tools))}
 let threshold := {REPEAT_THRESHOLD}
 
-fun collect_calls(value, calls) {{
-    let kind := typeof(value)
-    if (kind == 'array') {{
-        for (let i, child in value) {{
-            calls := collect_calls(child, calls)
-        }}
-        return calls
-    }}
-    if (kind != 'object') {{
-        return calls
-    }}
-    if (typeof(value.function) == 'object') {{
-        if (value.function.name != null) {{
-            let id := toString(ifNull(value.id, ''))
-            return arrayPushBack(calls, [toString(value.function.name), jsonStringify(value.function.arguments), id])
-        }}
-    }}
-    if (has(['tool_use', 'function_call', 'tool-call', 'tool_call'], toString(value.type))) {{
-        let tool := ifNull(value.toolName, value.name)
-        if (tool != null) {{
-            let id := toString(ifNull(value.id, ifNull(value.call_id, ifNull(value.toolCallId, ''))))
-            return arrayPushBack(calls, [toString(tool), jsonStringify(ifNull(value.arguments, value.input)), id])
-        }}
-    }}
-    for (let key, child in value) {{
-        calls := collect_calls(child, calls)
-    }}
-    return calls
-}}
-
+{_COLLECT_CALLS}
 let counts := {{}}
 let seen := {{}}
 for (let i, item in evaluation_events) {{

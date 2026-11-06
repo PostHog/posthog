@@ -46,7 +46,7 @@ MAX_INPUT_MESSAGE_BYTES = 8192
 # Custom metadata past this size marks the event unreadable, which keeps the sample's memory bounded.
 MAX_PROPERTIES_BYTES = 65536
 ROLE_LABEL = re.compile(r"^(assistant|ai|model):\s*", re.IGNORECASE)
-TOOL_CALL_MARKERS = ('"tool_calls"', '"tool_use"', '"function_call"', '"tool_call"', '"tool-call"')
+TOOL_CALL_TYPES = frozenset({"tool_use", "function_call", "tool_call", "tool-call"})
 # Screening reads at most 3000 characters, so each part of a turn gets a third.
 TURN_TEXT_CHARS = 1000
 
@@ -98,7 +98,7 @@ FROM (
         event,
         timestamp,
         distinct_id,
-        properties,
+        if(length(ai_events.properties) <= {max_properties}, ai_events.properties, '{}') AS properties,
         if(startsWith(input, '['), concat('[', left(JSONExtractRaw(input, -1), {max_input}), ']'), left(input, {max_input})) AS last_input,
         if(startsWith(input, '[') AND JSONLength(input) >= 2, JSONExtractRaw(input, -2), '') AS previous_raw,
         if(
@@ -235,12 +235,29 @@ def _hydrate(team: Team, trace_ids: Sequence[str], start: datetime, end: datetim
     return by_trace
 
 
+def _has_tool_call(value: Any) -> bool:
+    """Whether a parsed output holds a tool call, the same shapes the checks' `collect_calls` reads."""
+    if isinstance(value, list):
+        return any(_has_tool_call(child) for child in value)
+    if not isinstance(value, dict):
+        return False
+    function = value.get("function")
+    if isinstance(function, dict) and function.get("name") is not None:
+        return True
+    if value.get("type") in TOOL_CALL_TYPES and (value.get("toolName") or value.get("name")) is not None:
+        return True
+    return any(_has_tool_call(child) for child in value.values())
+
+
 def _calls_tools(generation: LLMTraceEvent) -> bool:
     """Whether a generation's output asks for tools, which makes it a step of the turn and not its answer."""
-    output = json.dumps(
-        generation.properties.get("$ai_output_choices") or generation.properties.get("$ai_output") or ""
-    )
-    return any(marker in output for marker in TOOL_CALL_MARKERS)
+    output = generation.properties.get("$ai_output_choices") or generation.properties.get("$ai_output") or ""
+    if isinstance(output, str):
+        try:
+            output = json.loads(output)
+        except ValueError:
+            return False
+    return _has_tool_call(output)
 
 
 def _tokens(value: Any) -> float:

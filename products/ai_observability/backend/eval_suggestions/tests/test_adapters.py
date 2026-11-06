@@ -126,6 +126,22 @@ class TestAdaptedChecks:
                 [_answer("I'll send the invite."), _calls(("send_invite", {"email": "jane.doe@acme.io"}, "c1"))],
                 True,
             ),
+            # OpenAI-compatible clients send an empty tool_calls list on a plain answer.
+            (
+                "email_in_an_answer_with_no_tool_calls",
+                adapters.sensitive_data(),
+                [
+                    (
+                        "$ai_generation",
+                        {
+                            "$ai_output_choices": [
+                                {"role": "assistant", "content": "Ask jane.doe@acme.io", "tool_calls": []}
+                            ]
+                        },
+                    )
+                ],
+                False,
+            ),
             (
                 "otel_tool_call_parts_repeat",
                 REPEATS,

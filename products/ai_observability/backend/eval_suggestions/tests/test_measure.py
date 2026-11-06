@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.schema import LLMTrace
+from posthog.schema import LLMTrace, LLMTraceEvent
 
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 
@@ -18,6 +18,7 @@ from products.ai_observability.backend.eval_suggestions.measure import (
     EVENTS_PER_TRACE,
     MAX_OUTPUT_BYTES,
     SampledTrace,
+    _calls_tools,
     _sampled_trace,
     fetch_sample,
     run_check,
@@ -247,3 +248,18 @@ def test_run_check_maps_each_verdict(_name: str, source: str, failed: bool | Non
     [outcome] = run_check(compile_check(check), [sampled])
 
     assert outcome.failed is failed
+
+
+@parameterized.expand(
+    [
+        ("empty_tool_calls", [{"role": "assistant", "content": "Done.", "tool_calls": []}], False),
+        ("null_tool_calls", [{"role": "assistant", "content": "Done.", "tool_calls": None}], False),
+        ("function_call", [{"role": "assistant", "tool_calls": [{"function": {"name": "search"}}]}], True),
+        ("otel_part", [{"role": "assistant", "parts": [{"type": "tool_call", "name": "search"}]}], True),
+    ]
+)
+def test_only_a_populated_tool_call_makes_a_generation_a_step(_name: str, output: list, expected: bool) -> None:
+    event = LLMTraceEvent(
+        id="e", event="$ai_generation", createdAt=AT.isoformat(), properties={"$ai_output_choices": output}
+    )
+    assert _calls_tools(event) is expected
