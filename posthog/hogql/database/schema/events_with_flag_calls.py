@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from functools import partial
+from typing import TYPE_CHECKING
 
 from posthog.hogql import ast
 from posthog.hogql.constants import FEATURE_FLAG_PROPERTY_PREFIX, FLAG_CALLED_EVENT
@@ -23,6 +24,9 @@ from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
 from posthog.clickhouse.events_json import is_temporary_event_property
 from posthog.dataclasses import frozen
+
+if TYPE_CHECKING:
+    from posthog.hogql.context import HogQLContext
 
 EVENTS_WITH_FLAG_CALLS_TABLE = "events_with_flag_calls"
 EVENTS_WITH_FLAG_CALLS_CHAIN: list[str] = ["posthog", EVENTS_WITH_FLAG_CALLS_TABLE]
@@ -250,8 +254,8 @@ class EventsWithFlagCallsTable(LazyTable):
         return EVENTS_WITH_FLAG_CALLS_TABLE
 
 
-def serialized_like_events(table: Table, chain: list[str | int], read: ast.Field, context) -> ast.Expr:
-    """`toJSONString(read)` on flag_evaluations, as a direct read on the events table in use returns it for `chain`.
+def serialized_like_events(table: Table, chain: list[str | int], read: ast.Field, context: "HogQLContext") -> ast.Expr:
+    """The flag_evaluations expression that returns what `toJSONString(<chain>)` returns on the events table in use.
 
     On the native JSON events table, `toJSONString` of one top-level key returns the key's JSON value. Events serializes
     the text of a `$feature/<key>` property instead, because it rebuilds that property from `$feature_flags`. It does

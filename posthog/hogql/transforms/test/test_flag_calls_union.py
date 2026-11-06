@@ -1382,6 +1382,14 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
                 "SELECT event, toJSONString(properties.probe), properties.probe = 'text' AND properties.probe.json IS NULL "
                 f"FROM events WHERE {MIXED} AND distinct_id = 'json' ORDER BY timestamp, event",
             ),
+            # Two JSON text reads whose chains join to the same name get different exports.
+            (
+                "json_export_name_collision",
+                "SELECT event, toJSONString(properties.probe), properties.probe = 'text' "
+                "AND toJSONString(properties.`first___probe`) = '\"flat\"' "
+                "AND ifNull(toJSONString(properties.first.probe), 'null') = 'null' "
+                f"FROM events WHERE {MIXED} AND distinct_id = 'json' ORDER BY timestamp, event",
+            ),
             (
                 "integer_key",
                 "SELECT event, toJSONString(properties[1]), properties[1] = 'text' FROM events "
@@ -1421,7 +1429,9 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         # The first key makes a read by position differ from a read of the key "1".
         self._create_json_rows(
             [
-                {} if stored is missing else {"first": "x", "probe": stored, "1": stored, "$sdk_debug_probe": stored}
+                {}
+                if stored is missing
+                else {"first": "x", "first___probe": "flat", "probe": stored, "1": stored, "$sdk_debug_probe": stored}
                 for stored, _ in stored_and_read
             ]
         )
