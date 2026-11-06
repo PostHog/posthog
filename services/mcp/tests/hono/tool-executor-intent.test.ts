@@ -282,6 +282,38 @@ describe('ToolExecutor analytics capture', () => {
         capture.mockRestore()
     })
 
+    it.each(['direct', 'exec'])('captures only the arguments the %s handler received', async (mode) => {
+        const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+        const tool = {
+            name: 'switch-project',
+            title: 'Switch project',
+            description: 'Synthetic switch',
+            scopes: [],
+            annotations: { readOnlyHint: false },
+            schema: z.object({ projectId: z.number() }),
+            handler: async () => 'Switched',
+        }
+        vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+            build: () => tool,
+            meta: undefined,
+            rawInputSchema: undefined,
+            definition: undefined,
+        })
+        const state = makeToolExecutorState([tool], { useSingleExec: mode === 'exec', suppressAnalytics: false })
+        const args = { projectId: 2, data: '{"password":"canary-secret"}' }
+
+        await executor.handleToolCall(
+            mode === 'exec'
+                ? { name: 'exec', arguments: { command: `call switch-project ${JSON.stringify(args)}` } }
+                : { name: tool.name, arguments: args },
+            state
+        )
+
+        await vi.waitFor(() => expect(capture).toHaveBeenCalledOnce())
+        expect(capture.mock.calls[0]![0].parameters).toEqual({ projectId: 2 })
+        capture.mockRestore()
+    })
+
     it.each(['direct', 'exec'])('sends no arguments for a %s call its schema rejects', async (mode) => {
         const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
         const tool = {

@@ -89,8 +89,8 @@ interface ResolvedTool {
 
 interface ExecMetricState {
     innerToolName: string | undefined
+    innerInput: Record<string, unknown> | undefined
     innerResult: unknown
-    innerRejected: boolean
     innerOutputFormat: ExecInnerCallProperties['output_format'] | undefined
     /** What the agent asked for, merged onto the event whichever verb ran. */
     commandMeta: ExecCommandMeta | undefined
@@ -419,14 +419,13 @@ export class ToolExecutor {
                     llmModel: prepared.llmModel,
                     llmModelSource: prepared.llmModelSource,
                     llmModelMissingReason: prepared.llmModel ? undefined : getModelMissingReason(rawArgs.llm_model),
-                    parameters: prepared.args ?? rawArgs,
                 },
                 args: prepared.args ?? rawArgs,
                 preparedCall: prepared,
             }
         } catch {
             return {
-                analyticsMeta: { llmModelMissingReason: 'capture_error', parameters: rawArgs },
+                analyticsMeta: { llmModelMissingReason: 'capture_error' },
                 args: rawArgs,
                 preparedCall: undefined,
             }
@@ -470,8 +469,7 @@ export class ToolExecutor {
                     ...inputShape,
                     ...errorAnalyticsProperties(classifyToolError(rejection, tool.name), rejection),
                 },
-                // A rejected shape can hide a credential inside a string, past key-based redaction.
-                { ...analyticsMeta, parameters: undefined },
+                analyticsMeta,
                 this.servedToolDescription(tool.name)
             )
             return {
@@ -555,7 +553,7 @@ export class ToolExecutor {
                     ...toolResultAnalyticsProperties(response),
                     ...guidanceAnalyticsProperties(guidance),
                 },
-                { ...analyticsMeta, response: handlerResult },
+                { ...analyticsMeta, parameters: validation.data, response: handlerResult },
                 this.servedToolDescription(tool.name)
             )
 
@@ -612,7 +610,7 @@ export class ToolExecutor {
                     ...(lookupMiss ? skillLookupMissProperties(lookupMiss.kind) : {}),
                     ...guidanceAnalyticsProperties(guidance),
                 },
-                analyticsMeta,
+                { ...analyticsMeta, parameters: validation.data },
                 this.servedToolDescription(tool.name)
             )
 
@@ -663,8 +661,8 @@ export class ToolExecutor {
     ): Promise<unknown> {
         const execMetrics: ExecMetricState = {
             innerToolName: undefined,
+            innerInput: undefined,
             innerResult: undefined,
-            innerRejected: false,
             innerOutputFormat: undefined,
             commandMeta: undefined,
             innerFailure: undefined,
@@ -706,7 +704,7 @@ export class ToolExecutor {
                     ...wrapperInputShape,
                     ...errorAnalyticsProperties(classifyToolError(rejection, 'exec'), rejection),
                 },
-                { ...analyticsMeta, parameters: undefined }
+                analyticsMeta
             )
             return {
                 content: [{ type: 'text', text: message }],
@@ -730,17 +728,13 @@ export class ToolExecutor {
         // the analytics event names the tool the agent was reaching for, so its failure
         // counts against that tool rather than hiding in the `exec` bucket.
         const analyticsToolName = (): string => execMetrics.innerToolName ?? attemptedCallTarget(execShape) ?? 'exec'
-        // Only a resolved inner tool has a name to apply the capture policy to. Otherwise the
-        // arguments are the agent's raw command string, which key-based redaction can't see into.
-        // A rejected shape can likewise hide a credential inside a string.
-        const execAnalyticsMeta = (): ToolCallAnalyticsMeta =>
-            execMetrics.innerToolName && !execMetrics.innerRejected
-                ? {
-                      ...analyticsMeta,
-                      parameters: parseExecCallInnerArgs(validation.data.command),
-                      response: execMetrics.innerResult,
-                  }
-                : { ...analyticsMeta, parameters: undefined }
+        // The inner tool's validated arguments and raw result. A command that never reached a
+        // handler has neither, so its raw string never reaches analytics.
+        const execAnalyticsMeta = (): ToolCallAnalyticsMeta => ({
+            ...analyticsMeta,
+            parameters: execMetrics.innerInput,
+            response: execMetrics.innerResult,
+        })
 
         // Which stored skill an exec-routed read returned. Success only, unlike the
         // verb above: that records what the agent attempted, this records what it got.
@@ -903,8 +897,8 @@ export class ToolExecutor {
             // event (now relabelled to the inner tool name, with the inner tool's category
             // derived from it) already carries this call, so a second emit would double-count.
             execMetrics.innerToolName = toolName
+            execMetrics.innerInput = properties.input
             execMetrics.innerResult = properties.result
-            execMetrics.innerRejected = properties.validation_error === true
             execMetrics.innerOutputFormat = properties.output_format
             if (!properties.success) {
                 execMetrics.innerFailure = { error: properties.error }
@@ -1011,10 +1005,7 @@ export class ToolExecutor {
         analyticsMeta: ToolCallAnalyticsMeta
     ): Promise<unknown> {
         const request = renderUiDataRequest(toolName, toolInput, appKey)
-        const preload = this.dispatchToolCall(request.name, { arguments: request.arguments }, state, {
-            ...analyticsMeta,
-            parameters: request.arguments,
-        })
+        const preload = this.dispatchToolCall(request.name, { arguments: request.arguments }, state, analyticsMeta)
             .then((result) => {
                 const data = readRenderUiData(result as CallToolResult, appKey)
                 return data.isError ? undefined : (data.structuredContent ?? undefined)
@@ -1072,7 +1063,7 @@ export class ToolExecutor {
                     ...inputShape,
                     ...errorAnalyticsProperties(classifyToolError(rejection, 'render-ui'), rejection),
                 },
-                { ...analyticsMeta, parameters: undefined }
+                analyticsMeta
             )
             return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
         }
@@ -1085,6 +1076,7 @@ export class ToolExecutor {
             stop({ status: 'success' })
             void trackToolCall('render-ui', Date.now() - startMs, false, state, inputShape, {
                 ...analyticsMeta,
+                parameters: validation.data,
                 response: handlerResult,
             })
             // The handler always returns an exec-built payload (UI resourceUri + structuredContent).
