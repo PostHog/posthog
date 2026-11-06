@@ -69,6 +69,7 @@ export const Empty: Story = {
 
 export const Loading: Story = {
     args: { dataSource: [], loading: true },
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 
 // One row per badge tier, plus two rows with no errors, so the column's alignment shows.
