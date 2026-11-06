@@ -61082,6 +61082,25 @@ export namespace Schemas {
       version: number;
     }
 
+    export interface LLMProxyModelInfo {
+      /** Provider-specific model identifier. */
+      id: string;
+      /** Model display name. */
+      name: string;
+      /** Provider display name. */
+      provider: string;
+      /** Description of the model. */
+      description: string;
+      /** Whether the provider recommends this model. */
+      is_recommended: boolean;
+      /** Whether this model supports decision questions. */
+      supports_decisions?: boolean;
+      /** Whether this model supports chat completions with written reasoning. */
+      supports_chat?: boolean;
+      /** Whether an evaluation judge can set a reasoning level for this model. */
+      supports_reasoning?: boolean;
+    }
+
     /**
      * Arbitrary key-value metadata.
      */
@@ -73069,6 +73088,28 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: PlatformAlertConfiguration[];
+    }
+
+    export interface PlaygroundChatList {
+      /** Playground chat id. */
+      id: string;
+      /** First question, truncated. Empty until someone asks. */
+      title: string;
+      /** When this chat was created. */
+      created_at: string;
+      /** When this chat was last asked in. */
+      updated_at: string;
+      /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
+      has_open_turn: boolean;
+    }
+
+    export interface PaginatedPlaygroundChatListList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: PlaygroundChatList[];
     }
 
     /**
@@ -91794,19 +91835,6 @@ export namespace Schemas {
       has_open_turn: boolean;
       /** Questions in this chat, oldest first. Each turn's answer comes from its sandbox run. */
       turns: PlaygroundTurn[];
-    }
-
-    export interface PlaygroundChatList {
-      /** Playground chat id. */
-      id: string;
-      /** First question, truncated. Empty until someone asks. */
-      title: string;
-      /** When this chat was created. */
-      created_at: string;
-      /** When this chat was last asked in. */
-      updated_at: string;
-      /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
-      has_open_turn: boolean;
     }
 
     /**
@@ -124114,6 +124142,17 @@ export namespace Schemas {
      * When provided, returns per-ticket gap rows instead of aggregated view. Requires `ticket:read` scope in addition to `business_knowledge:read`.
      */
     ticket_id?: string;
+    };
+
+    export type BusinessKnowledgePlaygroundChatsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type BusinessKnowledgeRepositoriesFileRetrieveParams = {
