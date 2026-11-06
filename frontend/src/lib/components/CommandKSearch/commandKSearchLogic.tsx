@@ -375,7 +375,6 @@ export interface commandKSearchLogicMeta {
                 query: SectionsQuery
                 stale: boolean
             },
-            featureFlags: FeatureFlagsSet,
             searchCorrection: SearchCorrection | null,
             expandedGroups: string[]
         ) => CommandKSection[]
