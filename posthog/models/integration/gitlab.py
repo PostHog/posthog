@@ -46,9 +46,11 @@ class GitLabIntegration:
     def _validate_api_url(url: str) -> None:
         if urlparse(url).scheme != "https":
             raise GitLabIntegrationError("Invalid GitLab hostname: HTTPS is required")
-        allowed, error = is_url_allowed(url)
+        allowed, _ = is_url_allowed(url)
         if not allowed:
-            raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
+            # The validator's reason names the IP the hostname resolved to, and setup surfaces this
+            # error to the API caller, so the detail stays in the url_validation.blocked log line.
+            raise GitLabIntegrationError("Invalid GitLab hostname: it must be a publicly reachable GitLab instance")
 
     @staticmethod
     def _request(

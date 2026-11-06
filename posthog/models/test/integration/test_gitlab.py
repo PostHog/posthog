@@ -51,11 +51,15 @@ class TestGitLabIntegrationSSRFProtection:
         """URL validation must happen before the request is made."""
         from posthog.models.integration import GitLabIntegration, GitLabIntegrationError
 
-        mock_is_url_allowed.return_value = (False, "Private IP address not allowed")
+        mock_is_url_allowed.return_value = (False, "Disallowed target IP: 10.1.2.3")
 
-        with pytest.raises(GitLabIntegrationError, match="Invalid GitLab hostname"):
-            GitLabIntegration.get("http://192.168.1.1", "projects/1", "token123", endpoint="/api/v4/projects/{id}")
+        with pytest.raises(GitLabIntegrationError, match="Invalid GitLab hostname") as rejection:
+            GitLabIntegration.get(
+                "https://gitlab.internal.example.com", "projects/1", "token123", endpoint="/api/v4/projects/{id}"
+            )
 
+        # Setup turns this error into a 400 body, so the resolved address must not travel with it.
+        assert "10.1.2.3" not in str(rejection.value)
         mock_get.assert_not_called()
 
     @patch("requests.request")
