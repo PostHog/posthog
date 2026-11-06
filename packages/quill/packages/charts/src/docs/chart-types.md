@@ -199,12 +199,14 @@ There is no `series` or `labels`.
   Widths use the larger of `value` and `baselineValue`, so a node present in only one window still gets room.
 - Ids default to the path of names from the root (`main/parse/lex`), with `#2`, `#3` appended to repeated sibling names.
   Set `id` when names repeat and the host needs a stable key, for `defaultFocusedId` or its own state.
+  Only the first node with a given `id` keeps it, and later ones fall back to their path, so a key that repeats under several callers still zooms to the node clicked.
   The focus is kept by id, so it survives a data update that still has the node.
   A node object reached twice is skipped, which also guards against cyclic input.
 - Colors follow the data: `diff` colors when any node has a `baselineValue`, else one color per `group` when any node has a `group`, else one color per name.
   Groups and names get palette colors in first-seen order, blended toward the background so labels stay readable in both themes.
   A legend below the graph shows each group's share of total self value, largest first. Its rows list colors, not series, so they are not clickable.
   `diff` colors by `value / baselineValue` on a red (slower) to blue (faster) scale whose strength grows with the change, full at 2× or ½×.
+  The two colors are `theme.colors[4]` and `theme.colors[0]`; a palette with fewer than five colors, or with the same color in both places, uses the default palette's.
   A change within `diff.threshold` (default 0.1) is neutral, and so is a node with fewer than `diff.minCount` samples in `count` or `baselineCount`.
   A node with no baseline, or a baseline of 0, is new and gets a dashed outline; a node with a baseline but no value is gone and draws faded.
   Slower uses the palette's red (`theme.colors[4]`) and faster its blue (`theme.colors[0]`).

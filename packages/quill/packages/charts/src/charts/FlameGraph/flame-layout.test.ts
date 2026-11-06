@@ -102,8 +102,12 @@ describe('flame layout', () => {
                 { name: 'a', value: 2, children: [{ name: 'c', value: 1 }] },
                 { name: 'a/b', value: 3 },
                 { name: 'span', id: 'trace:42', value: 4, children: [{ name: 'db', value: 2 }] },
+                { name: 'span', id: 'trace:42', value: 1 },
             ],
         })
+        const repeated = indexOfId(tree, 'root/span')!
+        expect(tree.nodes[repeated].value).toBe(1)
+        expect(nodeId(tree, repeated)).toBe('root/span')
         expect(tree.nodes[indexOfId(tree, 'root/a/b')!].name).toBe('a/b')
         expect(tree.nodes[indexOfId(tree, 'root/a/c')!].name).toBe('c')
         expect(indexOfId(tree, 'trace:42/db')).toBe(tree.size - 1)
@@ -136,6 +140,27 @@ describe('flame layout', () => {
         expect(nodeId(tree, cellAt(cells, 2, 299)!.index)).toBe('root/a/a1')
         expect(nodeId(tree, cellAt(cells, 2, 303)!.index)).toBe('root/a/a1')
         expect(cellAt(cells, 2, 305)).toBeNull()
+    })
+
+    it('keeps children whose widths round past their parent out of the next sibling zoom', () => {
+        const tree = buildFlameTree({
+            name: 'root',
+            value: 10,
+            children: [
+                {
+                    name: 'a',
+                    value: 9,
+                    children: [
+                        { name: 'a1', value: 2 },
+                        { name: 'a2', value: 7 },
+                    ],
+                },
+                { name: 'b', value: 1 },
+            ],
+        })
+        const window = focusWindow(tree, { kind: 'node', index: indexOfId(tree, 'root/b')! })
+        const cells = computeFlameCells(tree, window, 800, 0, 2)
+        expect(cells.map((cell) => nodeId(tree, cell.index))).toEqual(['root', 'root/b'])
     })
 
     it('bundles a run of narrow siblings, keeps a lone narrow node, and skips children of narrow nodes', () => {

@@ -41,6 +41,8 @@ export interface FlameInk {
 
 export function resolveInk(theme: ChartTheme): FlameInk {
     const palette = theme.colors.length > 0 ? theme.colors : DEFAULT_CHART_COLORS
+    const diffPalette =
+        palette.length > 4 && toSrgbColor(palette[4]) !== toSrgbColor(palette[0]) ? palette : DEFAULT_CHART_COLORS
     const background = toSrgbColor(theme.backgroundColor ?? FALLBACK_BACKGROUND)
     const dark = prefersLightText(background)
     // `tooltipColor` is the host's foreground in the stock themes. A host whose tooltip inverts the
@@ -53,8 +55,8 @@ export function resolveInk(theme: ChartTheme): FlameInk {
         dark,
         ink,
         neutral: mixColors(background, ink, 0.14),
-        slower: toSrgbColor(palette[4 % palette.length]),
-        faster: toSrgbColor(palette[0]),
+        slower: toSrgbColor(diffPalette[4]),
+        faster: toSrgbColor(diffPalette[0]),
     }
 }
 

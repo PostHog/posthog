@@ -6,7 +6,8 @@ import type { ChartTheme, TooltipContext } from '../../core/types'
 export interface FlameNode<Meta = unknown> {
     /** Stable identity, used for `defaultFocusedId` and to keep the focus across data updates.
      *  Defaults to the path of names from the root, so it only needs setting when sibling names
-     *  repeat or the host needs its own key. */
+     *  repeat or the host needs its own key. Only the first node with a given id keeps it; later
+     *  ones fall back to their path. */
     id?: string
     /** Label drawn on the rectangle and shown in the tooltip. */
     name: string

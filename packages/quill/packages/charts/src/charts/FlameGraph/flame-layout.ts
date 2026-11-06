@@ -109,11 +109,15 @@ export function buildFlameTree<Meta>(data: FlameNode<Meta> | FlameNode<Meta>[]):
     let hasGroups = false
 
     const suffixes = new Map<FlameNode<Meta>, number>()
+    const claimedIds = new Set<string>()
+    const ownsId = new Set<FlameNode<Meta>>()
     /** Suffixes follow input order, so sorting siblings never changes a node's default id. */
     const assignSuffixes = (siblings: FlameNode<Meta>[]): void => {
         const seenNames = new Map<string, number>()
         for (const sibling of siblings) {
-            if (sibling.id !== undefined) {
+            if (sibling.id !== undefined && !claimedIds.has(sibling.id)) {
+                claimedIds.add(sibling.id)
+                ownsId.add(sibling)
                 continue
             }
             const name = String(sibling.name ?? '')
@@ -133,7 +137,7 @@ export function buildFlameTree<Meta>(data: FlameNode<Meta> | FlameNode<Meta>[]):
         x0.push(left)
         x1.push(right)
         nameSuffix.push(suffixes.get(node) ?? 0)
-        if (node.id !== undefined && !explicitIds.has(node.id)) {
+        if (node.id !== undefined && ownsId.has(node)) {
             explicitIds.set(node.id, index)
         }
         hasBaseline ||= node.baselineValue !== undefined
@@ -168,7 +172,7 @@ export function buildFlameTree<Meta>(data: FlameNode<Meta> | FlameNode<Meta>[]):
             const unit = parentWeight > 0 ? span / Math.max(parentWeight, childWeight) : 0
             let left = x0[head]
             for (const child of ordered) {
-                const right = left + weightOf(child) * unit
+                const right = Math.min(x1[head], left + weightOf(child) * unit)
                 push(child, head, left, right)
                 left = right
             }
@@ -242,12 +246,17 @@ function idSegment(tree: FlameTree<unknown>, index: number): string {
     return suffix > 0 ? `${name}#${suffix}` : name
 }
 
+function ownId(tree: FlameTree<unknown>, index: number): string | undefined {
+    const id = tree.nodes[index].id
+    return id !== undefined && tree.explicitIds.get(id) === index ? id : undefined
+}
+
 /** A node's id: its own `id`, or the path of names from the root (or from the nearest ancestor with
  *  its own `id`), joined with `/`. */
 export function nodeId(tree: FlameTree<unknown>, index: number): string {
     const parts: string[] = []
     for (let i = index; i >= 0; i = tree.parent[i]) {
-        const own = tree.nodes[i].id
+        const own = ownId(tree, i)
         if (own !== undefined) {
             parts.push(own)
             break
@@ -274,7 +283,7 @@ export function indexOfId(tree: FlameTree<unknown>, id: string): number | undefi
         }
     }
     for (let i = 0; i < tree.size && tree.depth[i] === 0; i++) {
-        if (tree.nodes[i].id === undefined) {
+        if (ownId(tree, i) === undefined) {
             tryEnter(i, 0)
         }
     }
@@ -289,7 +298,7 @@ export function indexOfId(tree: FlameTree<unknown>, id: string): number | undefi
             return index
         }
         for (let c = tree.childStart[index], last = c + tree.childCount[index]; c < last; c++) {
-            if (tree.nodes[c].id === undefined) {
+            if (ownId(tree, c) === undefined) {
                 tryEnter(c, end + 1)
             }
         }

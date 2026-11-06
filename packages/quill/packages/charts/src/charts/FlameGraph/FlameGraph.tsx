@@ -82,6 +82,13 @@ function keyToFocus(tree: FlameTree<unknown>, key: FocusKey): FlameFocus {
     return null
 }
 
+function isFocusedCell(focus: FlameFocus, cell: FlameCell): boolean {
+    if (focus?.kind === 'node') {
+        return cell.kind === 'node' && cell.index === focus.index
+    }
+    return focus?.kind === 'bundle' && cell.kind === 'bundle' && cell.index === focus.first && cell.last === focus.last
+}
+
 function idToKey(id: string | null | undefined): FocusKey {
     return id ? { kind: 'node', id } : null
 }
@@ -383,17 +390,15 @@ function FlameGraphInner<Meta = unknown>({
             onClick: (event: React.MouseEvent<HTMLDivElement>): void => {
                 const hit = hitAt(event.clientX, event.clientY)
                 // Cells from a paint of an older tree hold indices that mean other nodes now.
-                if (!hit || hit.tree !== tree) {
+                if (!hit || hit.tree !== tree || isFocusedCell(focus, hit.cell)) {
                     return
                 }
                 const { cell } = hit
-                if (cell.kind === 'bundle') {
-                    changeFocus({ kind: 'bundle', first: nodeId(tree, cell.index), last: nodeId(tree, cell.last) })
-                    return
-                }
-                if (focus?.kind !== 'node' || focus.index !== cell.index) {
-                    changeFocus({ kind: 'node', id: nodeId(tree, cell.index) })
-                }
+                changeFocus(
+                    cell.kind === 'bundle'
+                        ? { kind: 'bundle', first: nodeId(tree, cell.index), last: nodeId(tree, cell.last) }
+                        : { kind: 'node', id: nodeId(tree, cell.index) }
+                )
             },
         }),
         [hitAt, changeFocus, tree, focus]
@@ -465,7 +470,6 @@ function FlameGraphInner<Meta = unknown>({
         const fill = hover.cell.kind === 'bundle' ? ink.neutral : colors.fills[hover.cell.index]
         const rowLabel = (hit.kind === 'node' && hit.node.group) || 'Value'
         const baseline = hit.kind === 'node' && colorBy === 'diff' ? hit.node.baselineValue : undefined
-        const isFocused = focus?.kind === 'node' && hover.cell.kind === 'node' && focus.index === hover.cell.index
         return {
             dataIndex: hover.cell.index,
             label,
@@ -492,7 +496,7 @@ function FlameGraphInner<Meta = unknown>({
             hit,
             valueFormatter,
             comparing: colorBy === 'diff',
-            canFocus: hover.cell.kind === 'bundle' || !isFocused,
+            canFocus: !isFocusedCell(focus, hover.cell),
         }
     }, [hover, hit, ink, colors, focus, valueFormatter, colorBy])
 
@@ -557,7 +561,7 @@ function FlameGraphInner<Meta = unknown>({
                     ) : null}
                     <ChartLegendLayout legend={showLegend ? legend : null} position="bottom" align="start" gap={6}>
                         <div
-                            className="relative w-full overflow-y-auto overflow-x-hidden outline-none focus-visible:ring-2 focus-visible:ring-(--color-graph-crosshair)"
+                            className="relative w-full overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable] outline-none focus-visible:ring-2 focus-visible:ring-(--color-graph-crosshair)"
                             style={{ height: viewportHeight, containerType: 'size' }}
                             tabIndex={0}
                             data-attr="hog-chart-flame-viewport"
