@@ -70,10 +70,12 @@ ORDER BY bucket
 // Users are counted by distinct_id, not person_id. HogQL resolves person_id through a join
 // over every person override of the project, and on large projects that join runs out of
 // memory. A person with several distinct_ids counts once per distinct_id.
-const USERS_QUERY = `
+const PERIOD_TOTALS_QUERY = `
 SELECT
     uniqIf(distinct_id, timestamp >= __CUR_START__) AS current_users,
-    uniqIf(distinct_id, timestamp < __CUR_START__) AS prior_users
+    uniqIf(distinct_id, timestamp < __CUR_START__) AS prior_users,
+    round(quantileIf(0.95)(toFloat(properties.$mcp_duration_ms), timestamp >= __CUR_START__)) AS current_p95,
+    round(quantileIf(0.95)(toFloat(properties.$mcp_duration_ms), timestamp < __CUR_START__)) AS prior_p95
 FROM events
 WHERE event = '$mcp_tool_call'
     AND properties.$mcp_tool_name IS NOT NULL
@@ -160,6 +162,12 @@ export interface KPIData {
     p95LatencyMs: KPIMetric
 }
 
+// Window-level figures that can't be summed from per-bucket rows: distinct users and a percentile.
+export interface PeriodTotals {
+    users: KPIMetric
+    p95LatencyMs: KPIMetric
+}
+
 export interface ToolRow {
     tool: string
     total_calls: number
@@ -238,6 +246,10 @@ const EMPTY_METRIC: KPIMetric = {
     sparklineLabels: [],
     goodDirection: 'up',
 }
+const EMPTY_PERIOD_TOTALS: PeriodTotals = {
+    users: { ...EMPTY_METRIC, goodDirection: 'up' },
+    p95LatencyMs: { ...EMPTY_METRIC, goodDirection: 'down' },
+}
 const EMPTY_KPIS: KPIData = {
     sessions: { ...EMPTY_METRIC, goodDirection: 'up' },
     toolCalls: { ...EMPTY_METRIC, goodDirection: 'up' },
@@ -315,32 +327,38 @@ function parseRows(rawRows: unknown[][]): BucketRow[] {
     }))
 }
 
+// A tool with a handful of calls swings to 100% on one failure, so ranking needs a minimum sample.
+export const MIN_CALLS_TO_RANK_ERRORS = 20
+
+export function rankToolsByErrorRate(rows: ToolRow[]): ToolRow[] {
+    return rows
+        .filter((r) => r.total_calls >= MIN_CALLS_TO_RANK_ERRORS)
+        .sort((a, b) => b.error_rate_pct - a.error_rate_pct)
+}
+
+export function rankedToolsEmptyMessage(rows: ToolRow[]): string | undefined {
+    return rows.length > 0 ? `No tool has ${MIN_CALLS_TO_RANK_ERRORS} or more calls in this date range yet.` : undefined
+}
+
 // Buckets at or after `currentStartBucket` belong to the selected window; the
 // rest are the equal-length window immediately before it.
 export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIData {
     const current = rows.filter((r) => r.bucket >= currentStartBucket).sort((a, b) => a.bucket.localeCompare(b.bucket))
     const previous = rows.filter((r) => r.bucket < currentStartBucket)
 
-    // Newest bucket with latency data — p95 === 0 marks a bucket without any.
-    const latestP95 = (rows_: BucketRow[]): number =>
-        [...rows_].sort((a, b) => b.bucket.localeCompare(a.bucket)).find((r) => r.p95 > 0)?.p95 ?? 0
-
-    // Newest bucket with any calls — a 0% rate from an empty bucket would be meaningless.
-    const latestErrorRate = (rows_: BucketRow[]): number => {
-        const row = [...rows_].sort((a, b) => b.bucket.localeCompare(a.bucket)).find((r) => r.tool_calls > 0)
-        return row ? (row.errors / row.tool_calls) * 100 : 0
+    const errorRate = (rows_: BucketRow[]): number => {
+        const calls = rows_.reduce((acc, r) => acc + r.tool_calls, 0)
+        return calls ? (rows_.reduce((acc, r) => acc + r.errors, 0) / calls) * 100 : 0
     }
 
     const curSessions = current.reduce((acc, r) => acc + r.sessions, 0)
     const curCalls = current.reduce((acc, r) => acc + r.tool_calls, 0)
-    const curP95 = latestP95(current)
 
     const prevSessions = previous.reduce((acc, r) => acc + r.sessions, 0)
     const prevCalls = previous.reduce((acc, r) => acc + r.tool_calls, 0)
-    const prevP95 = latestP95(previous)
 
-    const curErrorRate = latestErrorRate(current)
-    const prevErrorRate = latestErrorRate(previous)
+    const curErrorRate = errorRate(current)
+    const prevErrorRate = errorRate(previous)
     const sparklineLabels = current.map((r) => r.bucket)
 
     return {
@@ -368,10 +386,9 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
             sparklineLabels,
             goodDirection: 'down',
         },
+        // The headline value comes from PeriodTotals; a period p95 can't be built from bucket p95s.
         p95LatencyMs: {
-            value: curP95,
-            previousValue: prevP95,
-            deltaPct: deltaPct(curP95, prevP95),
+            ...EMPTY_METRIC,
             sparkline: current.map((r) => r.p95),
             sparklineLabels,
             goodDirection: 'down',
@@ -402,6 +419,7 @@ export interface mcpDashboardOverviewLogicValues {
     hasFilterInteraction: boolean
     hasModelData: boolean
     hasProtocolVersionData: boolean
+    headlineKpis: KPIData
     intentClusterCount: KPIMetric
     interval: IntervalType
     kpiIncompleteTail: boolean
@@ -410,6 +428,8 @@ export interface mcpDashboardOverviewLogicValues {
     modelRows: ModelRow[]
     modelRowsLoading: boolean
     notableSessions: NotableSession[]
+    periodTotals: PeriodTotals
+    periodTotalsLoading: boolean
     protocolVersionRows: MCPProtocolVersionBreakdownItem[]
     protocolVersionRowsLoading: boolean
     queryFilters: HogQLFilters
@@ -420,8 +440,6 @@ export interface mcpDashboardOverviewLogicValues {
     toolDailySeries: ToolDailySeries
     toolRows: ToolRow[]
     toolRowsLoading: boolean
-    users: KPIMetric
-    usersLoading: boolean
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -509,6 +527,21 @@ export interface mcpDashboardOverviewLogicActions {
         payload?: void
     ) => {
         modelRows: ModelRow[]
+        payload?: void
+    }
+    loadPeriodTotals: (_: void) => void
+    loadPeriodTotalsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPeriodTotalsSuccess: (
+        periodTotals: PeriodTotals,
+        payload?: void
+    ) => {
+        periodTotals: PeriodTotals
         payload?: void
     }
     loadProtocolVersionRows: (_: void) => void
@@ -599,21 +632,6 @@ export interface mcpDashboardOverviewLogicActions {
         }[]
         payload?: void
     }
-    loadUsers: (_: void) => void
-    loadUsersFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadUsersSuccess: (
-        users: KPIMetric,
-        payload?: void
-    ) => {
-        users: KPIMetric
-        payload?: void
-    }
     markFilterInteraction: () => {
         value: true
     }
@@ -637,7 +655,7 @@ export interface mcpDashboardOverviewLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         dashboardLoading: (
             kpisLoading: boolean,
-            usersLoading: boolean,
+            periodTotalsLoading: boolean,
             toolRowsLoading: boolean,
             sessionRowsLoading: boolean,
             harnessRowsLoading: boolean,
@@ -660,6 +678,7 @@ export interface mcpDashboardOverviewLogicMeta {
         interval: (dateFilter: DateFilter) => IntervalType
         bucketKeys: (dateFilter: DateFilter, timezone: string, interval: IntervalType) => string[]
         activityIncompleteTail: (bucketKeys: string[], timezone: string, interval: IntervalType) => boolean
+        headlineKpis: (kpis: KPIData, periodTotals: PeriodTotals) => KPIData
         kpiIncompleteTail: (kpis: KPIData, timezone: string, interval: IntervalType) => boolean
         dailyActivity: (activityRows: ActivityRow[], bucketKeys: string[]) => DailyActivity
         toolDailySeries: (toolDailyRows: ToolDailyRow[], bucketKeys: string[]) => ToolDailySeries
@@ -703,7 +722,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             {
                 reloadAll: () => false,
                 loadKPIsFailure: () => true,
-                loadUsersFailure: () => true,
+                loadPeriodTotalsFailure: () => true,
                 loadToolRowsFailure: () => true,
                 loadSessionRowsFailure: () => true,
                 loadHarnessRowsFailure: () => true,
@@ -742,10 +761,10 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 },
             },
         ],
-        users: [
-            EMPTY_METRIC,
+        periodTotals: [
+            EMPTY_PERIOD_TOTALS,
             {
-                loadUsers: async (_: void, breakpoint): Promise<KPIMetric> => {
+                loadPeriodTotals: async (_: void, breakpoint): Promise<PeriodTotals> => {
                     const { interval, timezone } = values
                     const kpiWindow = buildComparisonWindow(
                         values.dateFilter.dateFrom,
@@ -763,21 +782,26 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                     const curStart = `toDateTime('${kpiWindow.currentStartBucket}', '${timezone}')`
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
-                        query: USERS_QUERY.replace(/__CUR_START__/g, curStart),
+                        query: PERIOD_TOTALS_QUERY.replace(/__CUR_START__/g, curStart),
                         filters: kpiWindowFilters(values.queryFilters, kpiWindow),
                     })) as HogQLQueryResponse
                     breakpoint()
                     const row = (response?.results as unknown[][])?.[0] ?? []
-                    const value = Number(row[0] ?? 0)
-                    const previousValue = Number(row[1] ?? 0)
-                    return {
+                    const metric = (
+                        value: number,
+                        previousValue: number,
+                        goodDirection: KPIMetric['goodDirection']
+                    ): KPIMetric => ({
                         value,
                         previousValue,
                         deltaPct: deltaPct(value, previousValue),
-                        // No sparkline: the headline is a window-level distinct count, not a per-bucket series.
                         sparkline: [],
                         sparklineLabels: [],
-                        goodDirection: 'up',
+                        goodDirection,
+                    })
+                    return {
+                        users: metric(Number(row[0] ?? 0), Number(row[1] ?? 0), 'up'),
+                        p95LatencyMs: metric(Number(row[2] ?? 0), Number(row[3] ?? 0), 'down'),
                     }
                 },
             },
@@ -927,7 +951,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         dashboardLoading: [
             (s) => [
                 s.kpisLoading,
-                s.usersLoading,
+                s.periodTotalsLoading,
                 s.toolRowsLoading,
                 s.sessionRowsLoading,
                 s.harnessRowsLoading,
@@ -969,6 +993,18 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         ],
         // Read off the KPI sparkline's own labels, not `bucketKeys`: the sparkline is not zero-filled,
         // so on a day with no calls yet its last point is yesterday, which is settled.
+        headlineKpis: [
+            (s) => [s.kpis, s.periodTotals],
+            (kpis: KPIData, periodTotals: PeriodTotals): KPIData => ({
+                ...kpis,
+                p95LatencyMs: {
+                    ...kpis.p95LatencyMs,
+                    ...periodTotals.p95LatencyMs,
+                    sparkline: kpis.p95LatencyMs.sparkline,
+                    sparklineLabels: kpis.p95LatencyMs.sparklineLabels,
+                },
+            }),
+        ],
         kpiIncompleteTail: [
             (s) => [s.kpis, s.timezone, s.interval],
             (kpis: KPIData, timezone: string, interval: IntervalType): boolean =>
@@ -1034,7 +1070,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         },
         reloadAll: () => {
             actions.loadKPIs()
-            actions.loadUsers()
+            actions.loadPeriodTotals()
             actions.loadToolRows()
             actions.loadSessionRows()
             actions.loadHarnessRows()

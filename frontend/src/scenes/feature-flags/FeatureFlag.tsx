@@ -32,7 +32,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { retryImport } from 'lib/utils/retryImport'
+import { lazyWithRetry, retryImport } from 'lib/utils/retryImport'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -125,6 +125,11 @@ const RESOURCE_TYPE = 'feature_flag'
 // instead of the click blocking the main thread for seconds and reading as a dead click.
 const FeatureFlagForm = lazy(() =>
     retryImport(() => import('./FeatureFlagForm').then((m) => ({ default: m.FeatureFlagForm })))
+)
+
+// Only teams with code analysis see the Code tab, so its code stays out of the flag page's chunk.
+const FeatureFlagCodeTab = lazyWithRetry(() =>
+    import('products/feature_flags/frontend/FeatureFlagCodeTab').then((m) => ({ default: m.FeatureFlagCodeTab }))
 )
 
 function FeatureFlagFormSkeleton(): JSX.Element {
@@ -401,6 +406,17 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                 label: 'Testing',
                 key: FeatureFlagsTab.TESTING,
                 content: <FeatureFlagTestingTab featureFlag={featureFlag} />,
+            },
+            {
+                label: 'Code',
+                key: FeatureFlagsTab.CODE,
+                content: featureFlag.id ? (
+                    <ChunkLoadErrorBoundary>
+                        <Suspense fallback={<LemonSkeleton className="h-24" />}>
+                            <FeatureFlagCodeTab id={featureFlag.id} featureFlag={featureFlag} />
+                        </Suspense>
+                    </ChunkLoadErrorBoundary>
+                ) : null,
             },
         ] as LemonTab<FeatureFlagsTab>[]
     ).filter((tab) => availableTabs.includes(tab.key))

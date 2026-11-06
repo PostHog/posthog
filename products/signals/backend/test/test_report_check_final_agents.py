@@ -51,6 +51,7 @@ from products.signals.backend.report_monitoring_outcomes import aggregate_monito
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, TRIGGERED_BY_MONITORING
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary
 from products.signals.backend.serializers import SignalReportCheckSerializer
+from products.signals.backend.task_profiles import SCOUT_FULL_NETWORK
 from products.signals.backend.temporal.agentic.scout_scheduler import (
     RunSignalsScoutInput,
     RunSignalsScoutOutput,
@@ -779,7 +780,7 @@ class TestFinalAuthoredAgentExecution(FinalAuthoredAgentChecksSetup, NonAtomicBa
             "preset": "signals_scout_reports",
             "extra_write_scopes": ["notebook:write"],
         }
-        assert captured["mcp_builtin_agent_key"] == "scout"
+        assert captured["profile"] == SCOUT_FULL_NETWORK
         assert captured["model"] is SignalScoutRunSummary
         assert captured["mcp_tool_allowlist"] is None
         prompt = cast(str, captured["prompt"])

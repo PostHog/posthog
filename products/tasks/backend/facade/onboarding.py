@@ -10,6 +10,7 @@ import posthoganalytics
 
 from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
+from posthog.helpers.email_utils import email_domain
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.oauth import MCP_READ_SCOPES
@@ -36,8 +37,10 @@ from products.tasks.backend.facade.onboarding_prompt import (
     missing_onboarding_prompt_placeholders,
     render_onboarding_prompt,
 )
+from products.tasks.backend.facade.profiles import TaskRunOptions
 from products.tasks.backend.logic.services.model_catalogue import filter_unsupported_effort, runtime_adapter_for
 from products.tasks.backend.models import Task, TaskClientProvenance
+from products.tasks.backend.task_profiles import USER
 from products.tasks.backend.task_sources import idempotency_key_q
 
 from ee.billing.salesforce_enrichment.constants import PERSONAL_EMAIL_DOMAINS
@@ -74,7 +77,7 @@ def _started_session_id(team_id: int, user_id: int) -> UUID | None:
 
 
 def company_domain_from(email: str) -> str | None:
-    _, _, domain = email.strip().lower().partition("@")
+    domain = email_domain(email.strip().lower())
     if not domain or domain in PERSONAL_EMAIL_DOMAINS:
         return None
     return normalize_target(domain)
@@ -253,20 +256,22 @@ def start_onboarding_session(
                 title=ONBOARDING_SESSION_TITLE,
                 title_manually_set=True,
                 description=description,
-                origin_product=Task.OriginProduct.USER_CREATED,
+                profile=USER,
                 user_id=user.id,
                 channel_id=channel_id,
                 origin_key=origin_key,
                 client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
+                options=TaskRunOptions(
+                    adapter=session_runtime_adapter,
+                    model=session_model,
+                    reasoning_effort=filter_unsupported_effort(
+                        session_runtime_adapter, session_model, ONBOARDING_SESSION_EFFORT
+                    ),
+                    mcp_scopes=ONBOARDING_SESSION_SCOPES,
+                    permission_mode="auto",
+                ),
                 create_pr=False,
                 mode="interactive",
-                runtime_adapter=session_runtime_adapter,
-                model=session_model,
-                reasoning_effort=filter_unsupported_effort(
-                    session_runtime_adapter, session_model, ONBOARDING_SESSION_EFFORT
-                ),
-                posthog_mcp_scopes=ONBOARDING_SESSION_SCOPES,
-                initial_permission_mode="auto",
             )
     except IntegrityError:
         started = _started_session_id(team.id, user.id)

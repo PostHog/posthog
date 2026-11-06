@@ -8,6 +8,7 @@ from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, S
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 from urllib.parse import urlparse
@@ -114,6 +115,7 @@ from products.tasks.backend.facade.profiles import (
     TaskProfile,
     TaskRunOptions,
     TaskSource,
+    find_task_profile,
     resolve_task_origin,
 )
 from products.tasks.backend.feature_flags import (
@@ -208,15 +210,34 @@ from products.tasks.backend.pr_urls import (
     read_pr_urls as read_pr_urls,
 )
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
+from products.tasks.backend.public_create import (
+    asks_for_run as asks_for_run,
+    create_fields_from_options as create_fields_from_options,
+    idempotent_request as idempotent_request,
+    options_from_request as options_from_request,
+    public_idempotency_key as public_idempotency_key,
+    request_fingerprint as request_fingerprint,
+    uses_public_create as uses_public_create,
+)
 from products.tasks.backend.repository_config_analytics import (
     capture_repository_config_changed,
     capture_space_context_changed,
     repositories_differ,
 )
+from products.tasks.backend.run_options import (
+    run_only_option_names as run_only_option_names,
+    run_options_record as run_options_record,
+    validate_run_options as validate_run_options,
+)
+from products.tasks.backend.task_profiles import (
+    PUBLIC_RUN_OPTIONS as PUBLIC_RUN_OPTIONS,
+    SPACE_SETUP,
+    USER,
+    WIZARD,
+)
 from products.tasks.backend.task_sources import apply_task_source, idempotency_key_q, source_q
 from products.tasks.backend.visibility import (
     PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
-    TEAM_READABLE_ORIGIN_PRODUCTS,
     readable_without_channel,
     scout_trial_visibility_q,
     task_control_q,
@@ -281,6 +302,9 @@ __all__ = [
     "get_imported_task_run",
     "get_task_by_origin_key",
     "get_task_id_by_idempotency_key",
+    "find_task_for_idempotency_key",
+    "task_source_in_team",
+    "IdempotencyKeyReused",
     "touch_imported_task",
     "apply_task_run_model_config",
     "task_run_model_outside_gateway_pin",
@@ -419,6 +443,7 @@ __all__ = [
     "resolve_slack_thread_context",
     "resume_task_run_in_cloud",
     "run_task",
+    "start_missing_first_run",
     "send_cancel",
     "select_repository_for_message",
     "set_task_run_output",
@@ -2054,8 +2079,7 @@ def create_and_run_task(
     title: str,
     description: str,
     user_id: int,
-    origin_product: "Task.OriginProduct | None" = None,
-    profile: TaskProfile | None = None,
+    profile: TaskProfile,
     repository: str | None = None,
     create_pr: bool = True,
     mode: str = "background",
@@ -2065,7 +2089,6 @@ def create_and_run_task(
     signal_report_id: str | None = None,
     free_trial_enabled: bool | None = None,
     continue_admitted_pipeline: bool = False,
-    internal: bool | None = None,
     sandbox_environment_id: str | None = None,
     channel_id: str | UUID | None = None,
     source: TaskSource | None = None,
@@ -2093,9 +2116,8 @@ def create_and_run_task(
     materializes it at or after that time. The run still stores its complete execution settings.
 
     """
-    origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=internal)
+    origin = resolve_task_origin(profile=profile)
     origin_product = cast("Task.OriginProduct", origin.origin_product)
-    internal = origin.internal
     columns = apply_task_source(source, signal_report_id=signal_report_id, hog_flow_id=extra.get("hog_flow_id"))
     signal_report_id = columns.signal_report_id
     if columns.hog_flow_id is not None:
@@ -2109,13 +2131,12 @@ def create_and_run_task(
             team, report_id=signal_report_id, stage="task_create", enabled=free_trial_enabled
         )
     channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
-    if channel is None and not internal and not readable_without_channel(origin_product, profile):
+    if channel is None and not origin.internal and not readable_without_channel(origin_product, profile):
         channel = _ensure_personal_channel(team.id, user_id)[0]
     task = Task.create_and_run(
         team=team,
         title=title,
         description=description,
-        origin_product=origin_product,
         profile=profile,
         user_id=user_id,
         repository=repository,
@@ -2126,7 +2147,6 @@ def create_and_run_task(
         scheduled_at=scheduled_at,
         branch=branch,
         signal_report_id=signal_report_id,
-        internal=internal,
         sandbox_environment_id=sandbox_environment_id,
         **extra,
     )
@@ -2286,17 +2306,17 @@ def create_wizard_cloud_run(
         team=team,
         title="Set up PostHog",
         description=prompt,
-        origin_product=Task.OriginProduct.ONBOARDING,
+        profile=WIZARD,
         user_id=user_id,
         repository=repository,
+        options=TaskRunOptions(
+            adapter=WIZARD_CLOUD_RUN_RUNTIME_ADAPTER, model=WIZARD_CLOUD_RUN_MODEL, mcp_scopes="read_only"
+        ),
         create_pr=True,
         mode="background",
         branch=branch,
         wizard_config={},
         wizard_head_branch=head_branch,
-        posthog_mcp_scopes="read_only",
-        runtime_adapter=WIZARD_CLOUD_RUN_RUNTIME_ADAPTER,
-        model=WIZARD_CLOUD_RUN_MODEL,
         ai_stage=WIZARD_CLOUD_RUN_AI_STAGE,
         # The agent server boots idle; this is the message that actually kicks it off once ready
         # (delivered by forward_pending_user_message). Without it the run stalls after "Started agent".
@@ -2336,8 +2356,7 @@ def create_task_without_run(
     *,
     team,
     user_id: int,
-    origin_product: "Task.OriginProduct | None" = None,
-    profile: TaskProfile | None = None,
+    profile: TaskProfile,
     title: str = "",
     description: str = "",
     repository: str | None = None,
@@ -2351,18 +2370,16 @@ def create_task_without_run(
     For callers that own run creation themselves — e.g. the sandbox warm path, which boots the first
     run via the warming facade. ``team`` is a core ``posthog.Team`` (not a tasks model).
     """
-    origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=None)
     if channel is None:
         channel = (
             None
-            if readable_without_channel(origin.origin_product, profile)
+            if readable_without_channel(profile.origin_product, profile)
             else _ensure_personal_channel(team.id, user_id)[0]
         )
     task = Task.create_without_run(
         team=team,
         title=title,
         description=description,
-        origin_product=cast("Task.OriginProduct", origin.origin_product),
         profile=profile,
         user_id=user_id,
         repository=repository,
@@ -2387,7 +2404,7 @@ def create_channel_task(team_id: int, user_id: int, channel_id: str | UUID, *, t
     return create_task_without_run(
         team=Team.objects.get(id=team_id),
         user_id=user_id,
-        origin_product=Task.OriginProduct.USER_CREATED,
+        profile=USER,
         title=title,
         description=description,
         channel=channel,
@@ -3205,6 +3222,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # runner); a PATCHable key would let any task controller mint a GitHub token onto a
         # queued repo-less run.
         "github_read_access",
+        "github_token_scope",
         # Historical loop runs use this server stamp to keep owner credential revocation fail-closed.
         "loop_id",
         # Stamped at creation by workflow tasks: a PATCHable value would widen the run's connector allowlist.
@@ -4115,6 +4133,38 @@ def get_task_id_by_idempotency_key(team_id: int, key: str) -> UUID | None:
     return Task.objects.filter(idempotency_key_q(key), team_id=team_id).values_list("id", flat=True).first()
 
 
+PUBLIC_CREATE_FINGERPRINT_STATE_KEY = "public_create_fingerprint"
+
+
+class IdempotencyKeyReused(Exception):
+    pass
+
+
+def find_task_for_idempotency_key(
+    team_id: int, user_id: int | None, key: str, fingerprint: str
+) -> contracts.TaskDetailDTO | None:
+    task = Task.objects.filter(idempotency_key_q(key), team_id=team_id).first()
+    if task is None:
+        return None
+    if (
+        task.deleted
+        or (task.state or {}).get(PUBLIC_CREATE_FINGERPRINT_STATE_KEY) != fingerprint
+        or not _visible_task_qs(team_id, user_id).filter(pk=task.pk).exists()
+    ):
+        raise IdempotencyKeyReused(key)
+    return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
+
+
+def task_source_in_team(team_id: int, source: TaskSource) -> bool:
+    try:
+        source_id = UUID(source.id)
+    except ValueError:
+        return False
+    if source.kind == SourceKind.SIGNAL_REPORT:
+        return signal_report_queryset().filter(team_id=team_id, pk=source_id).exists()
+    return False
+
+
 def get_task_by_origin_key(
     team_id: int, origin_key: str, *, include_latest_run: bool = True
 ) -> contracts.TaskDetailDTO | None:
@@ -4138,9 +4188,9 @@ def create_imported_task(
     team_id: int,
     user_id: int,
     *,
+    profile: TaskProfile,
     title: str,
     origin_key: str,
-    internal: bool,
     created_at: datetime,
 ) -> contracts.TaskDetailDTO:
     """Create the task that hosts a transcript imported from elsewhere.
@@ -4155,9 +4205,10 @@ def create_imported_task(
             "title": title,
             "title_manually_set": False,
             "description": "",
-            "origin_product": Task.OriginProduct.POSTHOG_AI,
+            "origin_product": profile.origin_product,
+            "profile": profile.key,
             "origin_key": origin_key,
-            "internal": internal,
+            "internal": not profile.listed,
             "created_at": created_at,
         },
     )
@@ -7994,8 +8045,6 @@ def create_task_and_run(
     client_provenance: TaskClientProvenance | None = None,
     code_access_allowed: bool = False,
 ) -> contracts.TaskRunResult:
-    from products.signals.backend.facade.api import ReportTaskCapExceeded
-
     if custom_image_id := run_data.get("custom_image_id"):
         custom_image = SandboxCustomImage.get_accessible_for_task(
             image_id=custom_image_id, team_id=team_id, task_created_by_id=user_id
@@ -8028,8 +8077,24 @@ def create_task_and_run(
         client_provenance=client_provenance,
         code_access_allowed=code_access_allowed,
     )
+    return _start_first_run(
+        task, team_id, user_id, run_data=run_data, only_if_no_runs="idempotency_key" in validated_data
+    )
+
+
+def start_missing_first_run(
+    team_id: int, user_id: int | None, *, task: contracts.TaskDetailDTO, run_data: dict
+) -> contracts.TaskRunResult:
+    return _start_first_run(task, team_id, user_id, run_data=run_data, only_if_no_runs=True)
+
+
+def _start_first_run(
+    task: contracts.TaskDetailDTO, team_id: int, user_id: int | None, *, run_data: dict, only_if_no_runs: bool
+) -> contracts.TaskRunResult:
+    from products.signals.backend.facade.api import ReportTaskCapExceeded
+
     try:
-        result = run_task(task.id, team_id, user_id, validated_data=run_data)
+        result = run_task(task.id, team_id, user_id, validated_data=run_data, only_if_no_runs=only_if_no_runs)
         if result is None:
             return contracts.TaskRunResult(task=task, run_error="Failed to create task run.")
         return contracts.TaskRunResult(
@@ -8080,11 +8145,28 @@ def create_task(
     validated_data = dict(validated_data)
     validated_data["team"] = team
     validated_data.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
+    profile = find_task_profile(validated_data.get("profile"))
+    reuses_no_warm_run = uses_public_create(validated_data)
+    source = validated_data.pop("source", None)
+    if source is not None:
+        columns = apply_task_source(source, signal_report_id=None, hog_flow_id=None)
+        validated_data["source_kind"] = source.kind.value
+        validated_data["source_id"] = source.id
+        if columns.signal_report_id is not None and "signal_report" not in validated_data:
+            validated_data["signal_report_id"] = columns.signal_report_id
+        if columns.hog_flow_id is not None:
+            validated_data["hog_flow_id"] = columns.hog_flow_id
+    fingerprint = validated_data.pop("idempotency_fingerprint", None)
+    if fingerprint is not None:
+        validated_data["state"] = {
+            **validated_data.get("state", {}),
+            PUBLIC_CREATE_FINGERPRINT_STATE_KEY: fingerprint,
+        }
     if (
         validated_data.get("channel") is None
         and user_id is not None
         and not validated_data.get("internal", False)
-        and validated_data["origin_product"] not in TEAM_READABLE_ORIGIN_PRODUCTS
+        and not readable_without_channel(validated_data["origin_product"], profile)
     ):
         validated_data["channel"] = _ensure_personal_channel(team_id, user_id)[0]
     validated_data["client_provenance"] = client_provenance
@@ -8143,7 +8225,7 @@ def create_task(
     # requests that must agree on the origin — when they disagree the lookup misses and we cold-create,
     # which costs latency but can never hand over a Run booted under another product's budget or
     # PR-authorship rules.
-    if warm_branch_provided and user_id is not None:
+    if warm_branch_provided and user_id is not None and not reuses_no_warm_run:
         # Post-defaults comparison: warm runs are provisioned with the default triple
         # filled in, so the requested selection must be resolved the same way to match.
         warm_selection = _with_ai_run_defaults(
@@ -8177,6 +8259,8 @@ def create_task(
                 custom_image_id=warm_custom_image_id,
                 initial_permission_mode=warm_initial_permission_mode,
                 signal_report_id=str(signal_report.id) if report_discussion and signal_report is not None else None,
+                task_runtime=validated_data.get("runtime"),
+                json_schema=validated_data.get("json_schema"),
             )
         )
         if warm_run is not None and not _warm_sandbox_selection_is_accessible(
@@ -8693,6 +8777,19 @@ def handoff_task(
         }
         locked.state[TASK_OWNERSHIP_VERSION_STATE_KEY] = str(uuid4())
         locked.save()
+        from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product write kept off the api import path
+            queue_task_handoff_claims,
+        )
+
+        # After commit, so the report locks it takes are never waited on while this task row is locked.
+        transaction.on_commit(
+            partial(
+                queue_task_handoff_claims,
+                team_id=team_id,
+                task_id=str(locked.id),
+                previous_user_id=user_id,
+            )
+        )
         message = TaskThreadMessage.objects.for_team(team_id).create(
             team_id=team_id,
             task_id=locked.id,
@@ -8959,6 +9056,8 @@ def _find_idling_warm_run(
     custom_image_id: str | UUID | None = None,
     initial_permission_mode: str | None = None,
     signal_report_id: str | UUID | None = None,
+    task_runtime: str | None = None,
+    json_schema: dict[str, Any] | None = None,
 ) -> TaskRun | None:
     """Most-recent idling pre-warmed Run matching this user's cloud composing selection, or ``None``.
 
@@ -8974,7 +9073,8 @@ def _find_idling_warm_run(
     authorship rules to another.
 
     Reuse also requires the warm Run's runtime, model, sandbox environment, and custom image selections to
-    match the request, plus its permission mode when the caller states one. Reasoning effort is deliberately
+    match the request, plus its permission mode and task runtime when the caller states them. The warm Task's
+    output schema must equal the requested one. Reasoning effort is deliberately
     excluded: activation applies the final effort before the first turn. Other mismatches return ``None`` so
     the caller cold-creates on the correct sandbox.
     The optional repo/branch/``await_user_message`` predicates stay in the query; the remaining selection is
@@ -9024,6 +9124,10 @@ def _find_idling_warm_run(
             state.get("custom_image_id") or None,
         )
         if have != wanted:
+            continue
+        if task_runtime is not None and run.task.runtime != task_runtime:
+            continue
+        if (json_schema or None) != (run.task.json_schema or None):
             continue
         # Asymmetric on purpose, and load-bearing: a warm Run's state ALWAYS holds a concrete permission
         # mode (warm_task_sandbox writes one unconditionally), while callers that never send one — the
@@ -9356,6 +9460,7 @@ def warm_task_sandbox(
     team_id: int,
     user_id: int,
     *,
+    profile: TaskProfile,
     repository: str | None,
     repositories: list[str] | None = None,
     github_integration_id: int | None,
@@ -9366,18 +9471,16 @@ def warm_task_sandbox(
     sandbox_environment_id: str | UUID | None = None,
     custom_image_id: str | UUID | None = None,
     client_provenance: TaskClientProvenance | None = None,
-    origin_product: str = Task.OriginProduct.USER_CREATED,
     initial_permission_mode: str | None = None,
     signal_report_id: str | UUID | None = None,
     code_access_allowed: bool = False,
 ) -> contracts.WarmTaskDTO | None:
     """Warm a full idling Run for a cloud task while the user composes.
 
-    ``origin_product`` is stamped on the draft Task and fixes what the warm can later be reused for: it
-    selects the OAuth app, the warm quota gate (``USER_CREATED`` has no billing gate; ``POSTHOG_AI`` runs
+    ``profile`` is stamped on the draft Task and fixes what the warm can later be reused for: it
+    selects the OAuth app, the warm quota gate (the ``user`` profile has no billing gate; ``posthog_ai`` runs
     the AI-credit check), the warm-pool caps, and PR authorship. None of these can change at activation,
-    so a submit only reuses a warm born under the same origin. Defaults to ``USER_CREATED`` for the
-    Code-app callers that predate the parameter.
+    so a submit only reuses a warm born under the same origin.
 
     Births a draft Task, then ``SandboxWarmer.warm()`` provisions an interactive
     Run that boots, optionally clones and checks out ``branch``, then starts the agent on the selected
@@ -9466,7 +9569,7 @@ def warm_task_sandbox(
     existing = _find_idling_warm_run(
         team_id,
         user_id,
-        origin_product=origin_product,
+        origin_product=profile.origin_product,
         repository=repository,
         repositories=normalized_repositories,
         github_integration_id=github_integration_id,
@@ -9486,7 +9589,7 @@ def warm_task_sandbox(
         team=team,
         title="",
         description="",
-        origin_product=Task.OriginProduct(origin_product),
+        profile=profile,
         user_id=user_id,
         repositories=normalized_repositories,
         signal_report_id=str(signal_report_id) if signal_report_id is not None else None,
@@ -9673,6 +9776,7 @@ def warm_task_resume_sandbox(
         "self_driving_head_branch",
         "stack_base_branch",
         "github_read_access",
+        "github_token_scope",
         "github_access_repositories",
     ):
         if protected_key in (previous_run.state or {}):
@@ -9757,10 +9861,12 @@ def run_task(
     warm_retry_token: str | None = None,
     pipeline_rerun: bool = False,
     free_trial_enabled: bool | None = None,
+    only_if_no_runs: bool = False,
 ) -> contracts.TaskRunResult | None:
     """Return None for an inaccessible task, otherwise return its refreshed detail or a structured error.
 
     The caller applies the usage gate. Only server-requested Signals research may set pipeline_rerun.
+    With only_if_no_runs, the task lock is taken first and a task that already has a run starts no other.
     """
     from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,
@@ -10110,6 +10216,8 @@ def run_task(
         # so this server-side copy is the only way it reaches a successor run.)
         if (previous_run.state or {}).get("github_read_access") is True:
             extra_state["github_read_access"] = True
+        if github_token_scope := (previous_run.state or {}).get("github_token_scope"):
+            extra_state["github_token_scope"] = github_token_scope
 
         # A resumed child run stays a child, so its sandbox still cannot start more runs. The keys
         # are PATCH-protected, so this server-side copy is the only way they reach a successor run.
@@ -10291,6 +10399,10 @@ def run_task(
         }
     try:
         with transaction.atomic():
+            if only_if_no_runs:
+                Task.objects.select_for_update(of=("self",)).get(id=task.id, team_id=task.team_id)
+                if task.runs.filter(team_id=task.team_id).exists():
+                    return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
             task_run = task.create_run(
                 mode=mode, branch=branch, extra_state=extra_state, acting_user_id=user_id, scheduled_at=scheduled_at
             )
@@ -11580,16 +11692,18 @@ def start_space_setup(
                 description=build_space_setup_prompt(
                     team_id=team.id, channel_id=str(channel.id), channel_name=channel.name, request=request
                 ),
-                origin_product=Task.OriginProduct.SPACE_SETUP,
+                profile=SPACE_SETUP,
                 user_id=user_id,
                 channel=channel,
                 repository=repository,
+                options=TaskRunOptions(
+                    adapter=SPACE_SETUP_RUNTIME_ADAPTER,
+                    model=SPACE_SETUP_MODEL,
+                    reasoning_effort=SPACE_SETUP_REASONING_EFFORT,
+                    mcp_scopes=[*contracts.SPACE_SETUP_SCOPES, CONTEXT_LAYER_INTERNAL_SCOPE],
+                    permission_mode="auto",
+                ),
                 create_pr=False,
-                posthog_mcp_scopes=[*contracts.SPACE_SETUP_SCOPES, CONTEXT_LAYER_INTERNAL_SCOPE],
-                runtime_adapter=SPACE_SETUP_RUNTIME_ADAPTER,
-                model=SPACE_SETUP_MODEL,
-                reasoning_effort=SPACE_SETUP_REASONING_EFFORT,
-                initial_permission_mode="auto",
                 client_provenance=client_provenance,
             )
         except ValueError as e:
