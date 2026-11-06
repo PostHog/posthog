@@ -18,6 +18,7 @@ from django.core.cache import cache
 from django.utils import timezone
 
 import structlog
+from rest_framework.exceptions import ValidationError
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
@@ -319,6 +320,9 @@ def failure_status(error: Exception) -> str | None:
         return STATUS_ACCESS_DENIED
     # Only the exposed invalid-query error, such as an unknown table. ResolutionError is internal to the engine.
     if isinstance(error, QueryError):
+        return STATUS_BROKEN_QUERY
+    # A query runner raises this for a saved query that its validation rules reject, so a later tick cannot pass.
+    if isinstance(error, ValidationError):
         return STATUS_BROKEN_QUERY
     return None
 

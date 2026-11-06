@@ -17,6 +17,7 @@ from django.test import SimpleTestCase, override_settings
 
 import numpy as np
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
@@ -741,6 +742,7 @@ class TestRunInsight(SimpleTestCase):
             ("timeout", ClickHouseQueryTimeOut(), "too_expensive"),
             ("access_denied", TableAccessDeniedError("no access"), "access_denied"),
             ("unknown_table", QueryError("Unknown table `deleted_table`."), "broken_query"),
+            ("invalid_query", ValidationError("Not supported.", code="unsupported_settings"), "broken_query"),
             ("unsupported", UnsupportedInsightError("not trends"), "unsupported"),
         ]
     )
