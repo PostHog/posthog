@@ -58,23 +58,50 @@ export function getWarehouseNativeBinding(metric: ExperimentMetric): WarehouseNa
     return source ? { connection_id: source.connection_id, unit: source.unit } : EMPTY_WAREHOUSE_NATIVE_BINDING
 }
 
+export type MetricDataSources = { warehouseNative: boolean; posthog: boolean }
+
+/** Which data sources the metric queries read. A query of another kind than `ExperimentMetric` reads PostHog data. */
+export function getMetricDataSources(queries: ({ kind: NodeKind } | null | undefined)[]): MetricDataSources {
+    const present = queries.filter((query): query is { kind: NodeKind } => !!query)
+    const warehouseNative = present.filter(
+        (query) =>
+            query.kind === NodeKind.ExperimentMetric && metricUsesWarehouseNativeSource(query as ExperimentMetric)
+    )
+    return { warehouseNative: warehouseNative.length > 0, posthog: warehouseNative.length < present.length }
+}
+
 /**
  * Which data sources the metrics of the experiment read, shared metrics included. The API accepts
  * warehouse-native metrics only under a warehouse-native exposure, and no other metric under one.
  */
 export function getExperimentMetricDataSources(
     experiment: Pick<Experiment, 'metrics' | 'metrics_secondary' | 'saved_metrics'>
-): { warehouseNative: boolean; posthog: boolean } {
-    const queries = [
+): MetricDataSources {
+    return getMetricDataSources([
         ...(experiment.metrics ?? []),
         ...(experiment.metrics_secondary ?? []),
         ...(experiment.saved_metrics ?? []).map((savedMetric) => savedMetric?.query),
-    ].filter(Boolean)
-    const warehouseNative = queries.filter(
-        (query) =>
-            query.kind === NodeKind.ExperimentMetric && metricUsesWarehouseNativeSource(query as ExperimentMetric)
-    )
-    return { warehouseNative: warehouseNative.length > 0, posthog: warehouseNative.length < queries.length }
+    ])
+}
+
+/**
+ * Why the exposure cannot change to the other data source. The API rejects an exposure that reads
+ * another data source than the metrics, so the metrics must go first.
+ */
+export function getExposureSourceBlockedReasons(
+    exposureIsWarehouseNative: boolean,
+    metricDataSources: MetricDataSources
+): { warehouseNative?: string; posthog?: string } {
+    return {
+        warehouseNative:
+            !exposureIsWarehouseNative && metricDataSources.posthog
+                ? "Remove this experiment's metrics first. A warehouse-native exposure only works with warehouse-native metrics."
+                : undefined,
+        posthog:
+            exposureIsWarehouseNative && metricDataSources.warehouseNative
+                ? "Remove this experiment's metrics first. Warehouse-native metrics only work with a warehouse-native exposure."
+                : undefined,
+    }
 }
 
 export function experimentUsesWarehouseNativeSources(
