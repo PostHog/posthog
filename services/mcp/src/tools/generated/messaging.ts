@@ -201,6 +201,92 @@ const optOutsRemove = (): ToolBase<ReturnType<typeof OptOutsRemoveSchema>, Schem
     },
 })
 
+const ProviderImportsCreateSchema = () => {
+    const MessagingProviderImportsCreateBody = orvalSchemas.MessagingProviderImportsCreateBody()
+    return MessagingProviderImportsCreateBody
+}
+
+const providerImportsCreate = (): ToolBase<
+    ReturnType<typeof ProviderImportsCreateSchema>,
+    Schemas.ProviderImportRun
+> => ({
+    name: 'provider-imports-create',
+    schema: ProviderImportsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ProviderImportsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.provider !== undefined) {
+            body['provider'] = params.provider
+        }
+        if (params.steps !== undefined) {
+            body['steps'] = params.steps
+        }
+        if (params.api_key !== undefined) {
+            body['api_key'] = params.api_key
+        }
+        const result = await context.api.request<Schemas.ProviderImportRun>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_provider_imports/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ProviderImportsGetSchema = () => {
+    const MessagingProviderImportsRetrieveParams = orvalSchemas.MessagingProviderImportsRetrieveParams()
+    return MessagingProviderImportsRetrieveParams.omit({ project_id: true })
+}
+
+const providerImportsGet = (): ToolBase<ReturnType<typeof ProviderImportsGetSchema>, Schemas.ProviderImportRun> => ({
+    name: 'provider-imports-get',
+    schema: ProviderImportsGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ProviderImportsGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ProviderImportRun>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_provider_imports/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const ProviderImportsListSchema = () => z.object({})
+
+const providerImportsList = (): ToolBase<
+    ReturnType<typeof ProviderImportsListSchema>,
+    WithPostHogUrl<Schemas.ProviderImportRun[]>
+> => ({
+    name: 'provider-imports-list',
+    schema: ProviderImportsListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof ProviderImportsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ProviderImportRun[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_provider_imports/`,
+        })
+        return await withPostHogUrl(context, result, '/workflows')
+    },
+})
+
+const ProviderImportsProvidersSchema = () => z.object({})
+
+const providerImportsProviders = (): ToolBase<
+    ReturnType<typeof ProviderImportsProvidersSchema>,
+    Schemas.ImportProviderOption[]
+> => ({
+    name: 'provider-imports-providers',
+    schema: ProviderImportsProvidersSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof ProviderImportsProvidersSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ImportProviderOption[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_provider_imports/providers/`,
+        })
+        return result
+    },
+})
+
 const SupabaseAuthEmailsSettingsGetSchema = () => z.object({})
 
 const supabaseAuthEmailsSettingsGet = (): ToolBase<
@@ -283,6 +369,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'opt-outs-add': optOutsAdd,
     'opt-outs-list': optOutsList,
     'opt-outs-remove': optOutsRemove,
+    'provider-imports-create': providerImportsCreate,
+    'provider-imports-get': providerImportsGet,
+    'provider-imports-list': providerImportsList,
+    'provider-imports-providers': providerImportsProviders,
     'supabase-auth-emails-settings-get': supabaseAuthEmailsSettingsGet,
     'supabase-auth-emails-settings-update': supabaseAuthEmailsSettingsUpdate,
     'supabase-auth-emails-starter-templates-create': supabaseAuthEmailsStarterTemplatesCreate,

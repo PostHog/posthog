@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 10 enabled ops
+ * PostHog API - MCP 14 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -195,6 +195,87 @@ export const MessagingPreferencesRemoveOptOutCreateBody = () => zod.object({
         .optional()
         .describe(
             'Optional message category key. If omitted, the recipient is opted back in to all marketing messages.'
+        ),
+})
+
+/**
+ * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+ *
+ * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
+ * @summary List the most recent provider imports
+ */
+export const MessagingProviderImportsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+ *
+ * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
+ * @summary Start a background import from another messaging tool
+ */
+export const MessagingProviderImportsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const messagingProviderImportsCreateBodyStepsItemMax = 64
+
+export const messagingProviderImportsCreateBodyApiKeyMax = 512
+
+export const MessagingProviderImportsCreateBody = () => zod.object({
+    provider: zod
+        .enum(['customerio', 'resend'])
+        .describe('\* `customerio` - Customer.io\n\* `resend` - Resend')
+        .describe('The provider to import from.\n\n\* `customerio` - Customer.io\n\* `resend` - Resend'),
+    steps: zod
+        .array(zod.string().max(messagingProviderImportsCreateBodyStepsItemMax))
+        .min(1)
+        .describe(
+            "Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send."
+        ),
+    api_key: zod
+        .string()
+        .max(messagingProviderImportsCreateBodyApiKeyMax)
+        .optional()
+        .describe(
+            "The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time."
+        ),
+})
+
+/**
+ * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+ *
+ * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
+ * @summary Get a provider import and its progress
+ */
+export const MessagingProviderImportsRetrieveParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+ *
+ * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
+ * @summary List the providers and what each can import
+ */
+export const MessagingProviderImportsProvidersListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 

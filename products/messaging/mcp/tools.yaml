@@ -113,6 +113,71 @@ tools:
         description: >
             Opt a recipient back in to the message category named by category_key, or to all marketing messages if
             omitted. Use to honor a resubscribe recorded in your own app. Repeating a call is safe.
+    provider-imports-create:
+        operation: messaging_provider_imports_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Start an import from another email tool
+        description: >
+            Start a background import from another email tool, such as Resend, into the active project. Before the first
+            call, tell the user the project's name and id and ask whether the data belongs there. Ask the user to create
+            the API key themselves and treat it as a secret: never repeat it or write it to a file. Pass the step keys
+            from provider-imports-providers. Returns at once with the run. Poll provider-imports-get until `status` is
+            `completed` or `failed`. A second start while a run is active returns 409. Importing again adds what's new
+            and leaves anything changed or deleted in PostHog as it is. Never creates people, and imported drafts never
+            send on their own.
+        feature_flag: workflows-resend-import
+    provider-imports-get:
+        operation: messaging_provider_imports_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get an import's progress and results
+        description: >
+            Get one import run: each step's status and last error, a breakdown in `counts`, and in `items` each
+            template, workflow or domain it handled with a link and notes on what to review. Show the user the notes and
+            each step's failures. A step that is `running` with a `last_error` is retrying by itself.
+        feature_flag: workflows-resend-import
+    provider-imports-list:
+        operation: messaging_provider_imports_list
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List recent imports
+        description: >
+            List this project's most recent imports from other email tools, newest first. Use it to find a run that is
+            already active before you start another.
+        feature_flag: workflows-resend-import
+    provider-imports-providers:
+        operation: messaging_provider_imports_providers_list
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List email tools PostHog can import from
+        description: >
+            List the email tools this project can import from, what each one can bring over (`steps`, with the keys to
+            pass to provider-imports-create), what stays behind (`not_imported`), and what the person does afterward
+            (`next_steps`). `retains_credentials: false` means PostHog deletes the API key when the run ends, so every
+            import needs it again. Load the migrating-from-email-providers skill before you start a move.
+        feature_flag: workflows-resend-import
     supabase-auth-emails-settings-get:
         operation: messaging_supabase_auth_emails_settings_retrieve
         enabled: true
