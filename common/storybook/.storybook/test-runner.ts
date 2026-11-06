@@ -591,7 +591,14 @@ async function waitForQuiet(page: Page, timeout: number, loaderTimeoutMs: number
  */
 async function finishAnimations(page: Page): Promise<void> {
     await page.evaluate(() => {
-        for (const animation of document.getAnimations()) {
+        // document.getAnimations() leaves out shadow trees, and the toolbar renders in one.
+        const roots: (Document | ShadowRoot)[] = [document]
+        document.querySelectorAll('*').forEach((element) => {
+            if (element.shadowRoot) {
+                roots.push(element.shadowRoot)
+            }
+        })
+        for (const animation of roots.flatMap((root) => root.getAnimations())) {
             try {
                 animation.finish()
             } catch {
