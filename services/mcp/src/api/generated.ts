@@ -66182,19 +66182,6 @@ export namespace Schemas {
       results: MemberProjectAccess[];
     }
 
-    export interface MergePush {
-      /**
-         * The 40-character SHA of the master merge commit.
-         * @pattern ^[0-9a-f]{40}$
-         */
-      commit_sha: string;
-    }
-
-    export interface MergePushResponse {
-      /** Always accepted; the merge check runs in the background. */
-      status: string;
-    }
-
     export type MessageContextualTools = { [key: string]: unknown };
 
     /**
