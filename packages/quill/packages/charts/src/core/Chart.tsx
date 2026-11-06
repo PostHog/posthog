@@ -36,7 +36,9 @@ import type {
     ChartTheme,
     CreateScalesFn,
     DateRangeZoomData,
+    DragRect,
     DrawHoverResult,
+    PixelRangeSelectData,
     PointClickData,
     ResolveValueFn,
     Series,
@@ -87,6 +89,14 @@ export interface ChartProps<Meta = unknown> {
      *  bands. Takes precedence over `onDateRangeZoom`. Chart-type adapters provide this and
      *  expose a domain-shaped callback (e.g. Heatmap's `onBrush`); consumers do not. */
     onAreaSelect?: (data: AreaSelectData, scales: ChartScales) => void
+    /** Enables an x-only drag on a continuous x axis: the completed gesture reports the dragged
+     *  pixel span, clamped to the plot, with the committed `scales`, so chart-type adapters can
+     *  snap it to their own x values (e.g. Histogram's bin edges). Ranks below `onAreaSelect` and
+     *  above `onDateRangeZoom`. Chart-type adapters provide this; consumers do not. */
+    onPixelRangeSelect?: (data: PixelRangeSelectData, scales: ChartScales) => void
+    /** Chart-type seam: rewrite the live drag rect before it is drawn, e.g. to snap it to the bin
+     *  edges the completed gesture will select. Chart-type adapters provide this; consumers do not. */
+    snapDragRect?: (rect: DragRect, scales: ChartScales) => DragRect
     className?: string
     dataAttr?: string
     children?: React.ReactNode
@@ -138,6 +148,8 @@ export function Chart<Meta = unknown>({
     isPointClickable,
     onDateRangeZoom,
     onAreaSelect,
+    onPixelRangeSelect,
+    snapDragRect,
     className,
     dataAttr,
     children,
@@ -319,6 +331,7 @@ export function Chart<Meta = unknown>({
         isPointClickable,
         onDateRangeZoom,
         onAreaSelect,
+        onPixelRangeSelect,
         resolveValue,
         resolvePositionValue,
         resolveBottomValue,
@@ -339,6 +352,11 @@ export function Chart<Meta = unknown>({
         return composeDrawHoverWithSelection(withCrosshair)
     }, [showCrosshair, theme.crosshairColor, theme.crosshairDashPattern, axisOrientation, labelToCoord, drawHover])
 
+    const drawnDragRect = useMemo(
+        () => (dragRect && snapDragRect && scales ? snapDragRect(dragRect, scales) : dragRect),
+        [dragRect, snapDragRect, scales]
+    )
+
     useChartDraw({
         ctx,
         overlayCtx,
@@ -349,7 +367,7 @@ export function Chart<Meta = unknown>({
         hoverIndex,
         hoverPosition,
         theme,
-        dragRect,
+        dragRect: drawnDragRect,
         drawStatic: drawStaticWithTicks,
         drawHover: composedDrawHover,
         hoverAnimationMs,
@@ -421,7 +439,7 @@ export function Chart<Meta = unknown>({
                         !!onPointClick &&
                         (isPointClickable?.(hoverIndex) ?? true)
                     }
-                    crosshair={!!onDateRangeZoom || !!onAreaSelect}
+                    crosshair={!!onDateRangeZoom || !!onAreaSelect || !!onPixelRangeSelect}
                     contextMenu={!!onPointContextMenu}
                     ariaLabel={ariaLabel}
                     labelCount={labels.length}

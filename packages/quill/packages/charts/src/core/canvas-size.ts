@@ -67,6 +67,7 @@ export function buildDimensions(rect: SizeRect, margins: ChartMargins): ChartDim
         plotTop: margins.top,
         plotWidth: finitePlotSize(rect.width - margins.left - margins.right),
         plotHeight: finitePlotSize(rect.height - margins.top - margins.bottom),
+        pixelRatio: (typeof window !== 'undefined' && window.devicePixelRatio) || 1,
     }
 }
 
@@ -77,6 +78,7 @@ export function sameDimensions(a: ChartDimensions, b: ChartDimensions): boolean 
         a.plotLeft === b.plotLeft &&
         a.plotTop === b.plotTop &&
         a.plotWidth === b.plotWidth &&
-        a.plotHeight === b.plotHeight
+        a.plotHeight === b.plotHeight &&
+        a.pixelRatio === b.pixelRatio
     )
 }

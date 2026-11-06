@@ -118,6 +118,22 @@ Each label takes light or dark text from the cell fill behind it, and is dropped
 `config.highlightedColumns` draws a band behind the named columns, for a column the consumer selected or is hovering.
 The consumer owns the column header, so it owns the click and hover that set those indices.
 
+## Histogram
+
+Distributions with real bin edges, mainly latency: `bins: { start, end, count }[]` on a numeric x axis.
+Each bar spans its bin's edges, so bins of different widths (log-spaced latency buckets) draw at their true widths, edge to edge.
+Use `BarChart` when the x values are categories.
+
+- `series: { key, label, data, color? }[]` stacks layers per bin (ok and error, or one per service), with `data` aligned to `bins` as passed. `bin.count` is ignored when `series` is set.
+- Bins may arrive in any order. Non-finite or empty bins are dropped, and a bin that overlaps the previous one starts at the previous bin's `end`. A gap between bins stays empty.
+- `config.xAxis` and `config.yAxis` take `label`, `hide`, and the y-axis format fields (`format: 'duration_ns'`, `prefix`, `tickFormatter`, …). `xAxis.scale` is `linear` (default) or `log`. The x formatter also writes the tooltip's bin range.
+- A log x axis ticks in 1-2-5 decade steps: every decade first, then all the 5s, then all the 2s, never a partial step. A bin starting at or below zero is drawn one bin-ratio wide (the ratio of the first positive bin), and a bin ending at or below zero is not drawn but still counts toward totals.
+- A non-empty bin draws at least 1px tall, so a few samples next to a tall bin stay visible. Empty bins draw nothing and keep their space. Count ticks are whole numbers when every count is whole.
+- Bars wider than 3px get a 1px gutter. Narrower bars fill edge to edge. Edges snap to device pixels, and bins narrower than a device pixel merge into one column with their summed counts, so with 1,000+ bins no bin drops out of the drawing, the hover, or a selection.
+- `onRangeSelect` enables drag to select. The live band snaps to whole bins as the pointer moves, and the callback fires `{ min, max }` with `min` at the first bin's `start` and `max` at the last bin's exclusive `end`. A drag that ends exactly on an edge excludes the bin beyond it. A drag under 8px wide selects nothing, so a wobbly click stays a click. Escape abandons a drag in progress.
+- `selectedRange` is controlled: it draws the selection band at its exact values and fades the bars outside it. `onRangeSelect(null)` fires on Escape while the pointer is over a bin and a range is selected.
+- Hover resolves the bin under the cursor, empty bins included. The default tooltip is `DefaultTooltip`: the bin range as the header, a row per non-empty layer with its count and share of the total, a total row when stacked, and the share below the bin's `end` as the footer. A `tooltip` render prop receives `HistogramTooltipContext` with `bin`, `bins` (more than one when sub-pixel bins merged), `count`, `fraction`, and `cumulativeFraction`.
+
 ## SankeyChart
 
 Flow between stages: `nodes: { id, label?, color?, meta? }[]` and `links: { source, target, value, color?, meta? }[]`, where `source` and `target` are node ids.
