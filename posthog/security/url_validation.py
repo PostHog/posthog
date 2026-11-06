@@ -286,12 +286,14 @@ def _blocked_host_name(host: str) -> BlockedName | None:
         return BlockedName(reason="Private IP address not allowed")
 
     if is_cloud():
-        # Detection only: these names resolve to ordinary public IPs, so every IP check passes
-        # them, and the lookup alone confirms the path to whoever runs the collaborator.
+        # These names resolve to ordinary public IPs, so every IP check below passes them. The
+        # lookup alone confirms the path to whoever runs the collaborator, so the refusal has to
+        # come from the name, before this host reaches the resolver.
         from posthog.security.oob_domains import matched_oob_domain  # noqa: PLC0415 — breaks an import cycle
 
         if (oob_domain := matched_oob_domain(host)) is not None:
             logger.info("security.oob_domain_seen", host=host, domain=oob_domain, guard="url_validation")
+            return BlockedName(reason="Domain not allowed", pattern=oob_domain)
     return None
 
 
