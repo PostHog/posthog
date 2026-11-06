@@ -5,8 +5,8 @@ import { cn } from '@posthog/quill'
 
 import { commandLogic } from 'lib/components/Command/commandLogic'
 
-import { TODAY_PANES, TODAY_RAIL_PANES } from './todayRailItems'
-import { todayShellLogic } from './todayShellLogic'
+import { TODAY_PANES } from './todayRailItems'
+import { TODAY_RAIL_PANES, todayShellLogic } from './todayShellLogic'
 
 const TAB_CLASS =
     'flex min-w-0 flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-md text-xxs font-medium outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-inset [&_svg]:size-5'

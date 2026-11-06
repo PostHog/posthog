@@ -9,6 +9,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { commentsLogic } from 'lib/components/Comments/commentsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
@@ -161,6 +162,14 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
 
     afterEach(() => {
         localStorage.removeItem(FEEDBACK_STORAGE_KEY)
+    })
+
+    it('gives the loaded ticket as a People recent', () => {
+        expect(logic.values.todayPeopleRecent).toEqual({
+            type: 'ticket',
+            name: 'Ticket #42',
+            href: urls.supportTicketDetail(42),
+        })
     })
 
     it('selects the latest AI message', async () => {
