@@ -853,7 +853,7 @@ def resolve_scout_report_pull_requests(
     Call it before the edit transaction opens, because each pull request costs one GitHub API call. A
     pull request the report already links is skipped here, so a retried edit makes no GitHub calls.
 
-    `report_repository` is the repository the report targets once the edit lands. A link changes the
+    `report_repository` is the decided repository the report targets once the edit lands. A link changes the
     report's inbox status, so only a pull request in that repository, in a state GitHub confirmed, is
     accepted. An `unknown` state is refused rather than stored, because a stored link is never looked up
     again and would leave the report unresolved for good. A pull request closed without merging is
@@ -864,7 +864,7 @@ def resolve_scout_report_pull_requests(
         return []
     if not report_repository:
         raise InvalidScoutReportError(
-            "pull requests can only be linked to a report with a repository; set `repository` in the same edit"
+            "pull requests can only be linked to a report with a decided repository; set `repository` in the same edit"
         )
     linked = _linked_pull_request_keys(team_id, report_id)
     details: list[PullRequestDetails] = []
@@ -918,6 +918,10 @@ def link_scout_report_pull_requests(
     webhook refresh and is closed when the report is suppressed or snoozed. Neither may touch a pull
     request the scout did not open.
     """
+    from products.signals.backend.tasks import (
+        refresh_linked_pull_request_state,  # noqa: PLC0415 - keeps the Celery task module off this module's import path
+    )
+
     _validate_report_id(report_id)
     if not pull_requests:
         return 0
@@ -937,6 +941,10 @@ def link_scout_report_pull_requests(
             ).filter(actor_kind__in=[SignalActorKind.TASK, SignalActorKind.SYSTEM]).update(
                 actor_kind=SignalActorKind.AGENT, actor_agent=SCOUT_PULL_REQUEST_LINK_AGENT, task_id=None
             )
+            if stored.state != SignalReportPullRequest.State.MERGED:
+                transaction.on_commit(
+                    partial(refresh_linked_pull_request_state.delay, team_id, stored.url), robust=True
+                )
         if new:
             apply_report_completion(report)
     logger.info(

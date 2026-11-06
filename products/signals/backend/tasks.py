@@ -150,6 +150,43 @@ def write_pull_request_to_support_tickets(self: Task, team_id: int, report_id: s
 @shared_task(
     bind=True,
     ignore_result=True,
+    autoretry_for=(GitHubEgressBudgetExhausted, GitHubIntegrationError),
+    retry_backoff=True,
+    max_retries=5,
+)
+@with_team_scope()
+def refresh_linked_pull_request_state(self: Task, team_id: int, pr_url: str) -> None:
+    """Read a just-linked pull request from GitHub again and store any state it moved to.
+
+    A webhook that lands between the link's GitHub lookup and its commit finds no stored pull request,
+    so without this re-read the link keeps the stale state until the next webhook, which may never come.
+    """
+    try:
+        details = report_assignments._pull_request_details(team_id, pr_url, raise_on_error=True)
+    except GitHubRateLimitError as error:
+        raise self.retry(exc=error, countdown=max(error.retry_after or 0, 60))
+    if details.state == SignalReportPullRequest.State.UNKNOWN:
+        return
+    stored = (
+        SignalReportPullRequest.objects.for_team(team_id)
+        .filter(repository=details.repository, number=details.number)
+        .values_list("state", flat=True)
+        .first()
+    )
+    if stored is None or stored == details.state:
+        return
+    update_pull_request_state(
+        team_id=team_id,
+        repository=details.repository,
+        number=details.number,
+        state=details.state,
+        merged_at=details.merged_at,
+    )
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
     queue=CeleryQueue.LONG_RUNNING.value,
     autoretry_for=(Exception,),
     retry_backoff=True,

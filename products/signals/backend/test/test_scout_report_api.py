@@ -87,6 +87,8 @@ SET_REPOSITORY_PATH = "products.signals.backend.scout_harness.tools.report.set_s
 REVISION_COUNT_PATH = "products.signals.backend.scout_harness.tools.report.get_content_revision_count"
 REFUSAL_COUNTER_PATH = "products.signals.backend.scout_report.judge.increment_scout_report_safety_refusal"
 _CONNECTED_REPOS = ["acme/widgets", "acme/gadgets"]
+_MERGED_PR = {"state": "closed", "merged": True, "merged_at": "2026-01-15T10:00:00Z"}
+_DRAFT_PR = {"state": "open", "draft": True}
 REPORT_TOOLS = ["emit_report", "edit_report"]
 
 
@@ -685,17 +687,19 @@ class TestScoutReportAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("merged", {"state": "closed", "merged": True, "merged_at": "2026-01-15T10:00:00Z"}, "resolved"),
-            ("draft", {"state": "open", "draft": True}, "ready"),
+            ("merged", [_MERGED_PR], "resolved"),
+            ("draft", [_DRAFT_PR, _DRAFT_PR], "ready"),
+            # The pull request merges between the edit's lookup and its commit, so its webhook found no link.
+            ("merged after the lookup", [_DRAFT_PR, _MERGED_PR], "resolved"),
         ]
     )
     def test_edit_report_links_an_existing_pull_request_without_touching_it(
-        self, _name: str, github_pr: dict, expected_status: str
+        self, _name: str, pr_reads: list[dict], expected_status: str
     ) -> None:
         run = _make_run(self.team)
         pr_url = "https://github.com/acme/widgets/pull/7"
         github = MagicMock()
-        github.get_pull_request.return_value = {"success": True, "url": pr_url, **github_pr}
+        github.get_pull_request.side_effect = [{"success": True, "url": pr_url, **read} for read in pr_reads]
         with (
             _safe_judge(),
             patch(EMBED_PATH),
@@ -721,7 +725,7 @@ class TestScoutReportAPI(APIBaseTest):
                 assert edited.status_code == status.HTTP_200_OK, edited.json()
                 assert edited.json()["pull_requests_linked"] == linked
 
-        github.get_pull_request.assert_called_once_with("acme/widgets", 7)
+        assert [read.args for read in github.get_pull_request.call_args_list] == [("acme/widgets", 7)] * len(pr_reads)
         label.assert_not_called()
         ready_for_review.assert_not_called()
         assign_reviewers.assert_not_called()
@@ -733,13 +737,24 @@ class TestScoutReportAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("another repository", "https://github.com/acme/gadgets/pull/7", {"success": True, "state": "open"}),
-            ("unreadable on GitHub", "https://github.com/acme/widgets/pull/7", {"success": False}),
-            ("closed without merging", "https://github.com/acme/widgets/pull/7", {"success": True, "state": "closed"}),
+            ("another repository", "https://github.com/acme/gadgets/pull/7", {"success": True, "state": "open"}, True),
+            ("unreadable on GitHub", "https://github.com/acme/widgets/pull/7", {"success": False}, True),
+            (
+                "closed without merging",
+                "https://github.com/acme/widgets/pull/7",
+                {"success": True, "state": "closed"},
+                True,
+            ),
+            (
+                "inferred repository",
+                "https://github.com/acme/widgets/pull/7",
+                {"success": True, "state": "open"},
+                False,
+            ),
         ]
     )
     def test_edit_report_refuses_a_pull_request_that_cannot_settle_the_report(
-        self, _name: str, pr_url: str, github_pr: dict
+        self, _name: str, pr_url: str, github_pr: dict, names_repository: bool
     ) -> None:
         run = _make_run(self.team)
         github = MagicMock()
@@ -754,11 +769,19 @@ class TestScoutReportAPI(APIBaseTest):
             )
             assert created.status_code == status.HTTP_200_OK, created.json()
             report_id = created.json()["report_id"]
-            edited = self.client.post(
-                self._edit_url(str(run.id)),
-                data={"report_id": report_id, "repository": "acme/widgets", "pull_requests": [pr_url]},
-                format="json",
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=report_id,
+                content=RepoSelectionResult(
+                    repository="acme/widgets", reason="Read from the report text.", autostart_eligible=False
+                ),
+                attribution=ArtefactAttribution.system(),
+                reevaluate_autostart=False,
             )
+            edit: dict = {"report_id": report_id, "pull_requests": [pr_url]}
+            if names_repository:
+                edit["repository"] = "acme/widgets"
+            edited = self.client.post(self._edit_url(str(run.id)), data=edit, format="json")
 
         assert edited.status_code == status.HTTP_400_BAD_REQUEST, edited.json()
         assert not SignalReportArtefact.objects.filter(report_id=report_id, pull_request__isnull=False).exists()
