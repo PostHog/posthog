@@ -91,6 +91,13 @@ export const AeoPromptsBulkImportBody = /* @__PURE__ */ zod.object({
                     .describe(
                         'Share of answers (0-100) that mention the brand for this prompt, as reported by the tool the prompt set came from. Kept to benchmark against our own citation rate.'
                     ),
+                origin: zod
+                    .enum(['api', 'suggestion'])
+                    .describe('\* `api` - Api\n\* `suggestion` - Suggestion')
+                    .optional()
+                    .describe(
+                        "Where the prompt text came from: api (written by a person) or suggestion (picked from aeo_prompts\/suggest). Stored in the prompt's evidence so suggested prompts can be audited later.\n\n\* `api` - Api\n\* `suggestion` - Suggestion"
+                    ),
             })
         )
         .min(1)

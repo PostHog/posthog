@@ -32,6 +32,7 @@ def test_parse_keeps_valid_items_and_drops_duplicates_existing_and_bad_labels() 
             _item("Which tool records sessions?", circle="moonshot"),
             _item("How do I mask inputs in replays?", funnel_stage="sideways"),
             _item("What is Hedgebox?", circle="branded", branded=False),
+            _item("How do I lazy-load a <video> element?"),
             "not an object",
             _item("   "),
         ]
@@ -61,6 +62,10 @@ def test_parse_caps_the_count_and_strips_invisible_characters() -> None:
 def test_parse_raises_when_the_answer_has_no_list(answer: str) -> None:
     with pytest.raises(PromptSuggestionError):
         parse_suggestions(answer, count=5, existing_keys=set())
+
+
+def test_parse_accepts_an_empty_list_as_nothing_to_suggest() -> None:
+    assert parse_suggestions("Nothing new to add: []", count=5, existing_keys=set()) == []
 
 
 def test_parse_skips_bracketed_commentary_before_the_list() -> None:

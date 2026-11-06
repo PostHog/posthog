@@ -46,7 +46,7 @@ Its Opportunities and Drafts tabs are content autopilot, which drafts pages for 
 
 ### Suggested prompts
 
-`POST /api/projects/<id>/aeo_prompts/suggest/` takes a `domain` (plus optional `brand`, `description`, `competitors`, `topics` and `count`) and returns a pending job. A Celery task asks Claude, through the AI gateway with web search, for prompts a buyer would ask, each labeled with a topic, a circle (differentiation, battleground, vulnerability, table stakes or branded), a funnel stage and a branded flag. Poll `GET aeo_prompts/suggest/<job id>/` for the result; jobs live in the cache for an hour.
+`POST /api/projects/<id>/aeo_prompts/suggest/` takes a `domain` (plus optional `brand`, `description`, `competitors`, `topics` and `count`) and returns a pending job. A Celery task asks Claude, through the AI gateway with web search, for prompts a buyer would ask, each labeled with a topic, a circle (differentiation, battleground, vulnerability, table stakes or branded), a funnel stage and a branded flag. Poll `GET aeo_prompts/suggest/<job id>/` for the result; jobs live in the cache for an hour after their last update, and a job still pending after 8 minutes reads as failed. Imported suggestions record `via: suggestion` in their evidence.
 Nothing is saved as a prompt: a person imports the ones they keep. Suggestions need the organization's AI data processing approval, and prompts the project already tracks are left out.
 The MCP tools for it (`aeo-prompts-suggest`, `aeo-prompts-suggestion-get`) ship disabled until the route is deployed.
 

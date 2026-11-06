@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+import unicodedata
 from typing import Any
 
 from django.conf import settings
@@ -33,21 +34,29 @@ from products.aeo.backend.facade.contracts import (
     PromptSuggestionRequest,
     PromptSuggestionStatus,
 )
-from products.aeo.backend.models import AEOPrompt
+from products.aeo.backend.models import AEOPrompt, AEOPromptVersion
 from products.aeo.backend.seeding import normalize_prompt
 
 logger = structlog.get_logger(__name__)
 
 MAX_SUGGESTIONS = 50
 MAX_SUGGESTION_SEARCHES = 3
-MAX_SUGGESTION_TOKENS = 8000
+# Each suggestion takes roughly 150 tokens of JSON; the rest leaves room for research notes.
+BASE_SUGGESTION_TOKENS = 3000
+TOKENS_PER_SUGGESTION = 200
 MAX_EXISTING_PROMPTS_IN_INSTRUCTIONS = 100
 REASON_MAX_LENGTH = 300
 SUGGESTION_CALL_TIMEOUT_SECONDS = 120
+# A call with less time than this left would only time out, so the job stops as too slow instead.
+MIN_SUGGESTION_CALL_SECONDS = 15
 # Web search can pause a turn (`pause_turn`); each continuation is another call, all under one deadline.
 MAX_SUGGESTION_CONTINUATIONS = 3
 SUGGESTION_DEADLINE_SECONDS = 300
 SUGGESTION_JOB_TTL_SECONDS = 60 * 60
+# A job still pending past the task's hard time limit lost its worker, so readers see it as failed.
+SUGGESTION_JOB_STALE_SECONDS = 8 * 60
+UNREADABLE_ANSWER_ERROR = "Claude's answer couldn't be read. Try again."
+STALE_JOB_ERROR = "Prompt suggestions stopped before they finished. Try again."
 
 
 _INSTRUCTIONS = """You help a team choose the prompts to track for AI visibility: the questions people ask AI assistants \
@@ -112,8 +121,10 @@ def build_suggestion_instructions(request: PromptSuggestionRequest, existing_pro
 
 def _suggestion_items(text: str) -> list[Any]:
     """The JSON array of suggestions in the answer. Commentary can come before it and carry
-    brackets of its own, such as a markdown link, so each `[` is tried until one decodes to a list holding objects."""
+    brackets of its own, such as a markdown link, so each `[` is tried until one decodes to a list holding objects.
+    A bare empty array is a valid answer with nothing to suggest."""
     decoder = json.JSONDecoder()
+    found_empty = False
     for start in (i for i, char in enumerate(text) if char == "["):
         try:
             items, _ = decoder.raw_decode(text, start)
@@ -121,7 +132,20 @@ def _suggestion_items(text: str) -> list[Any]:
             continue
         if isinstance(items, list) and any(isinstance(item, dict) for item in items):
             return items
-    raise PromptSuggestionError("The model did not return a list of prompts")
+        found_empty = found_empty or items == []
+    if found_empty:
+        return []
+    raise PromptSuggestionError(UNREADABLE_ANSWER_ERROR)
+
+
+def _complete_items_prefix(text: str) -> str:
+    """Close an array the token limit cut off after its last complete object."""
+    end = text.rfind("}")
+    return text[: end + 1] + "]" if end != -1 else text
+
+
+def _visible(text: str) -> str:
+    return "".join(char for char in text if unicodedata.category(char) not in ("Cf", "Cc") or char.isspace())
 
 
 def prompt_key(text: str) -> str:
@@ -136,8 +160,10 @@ def parse_suggestions(text: str, *, count: int, existing_keys: set[str]) -> list
     for item in _suggestion_items(text):
         if not isinstance(item, dict):
             continue
-        prompt = normalize_prompt(_plain(str(item.get("prompt") or ""), MAX_PROMPT_LENGTH))
-        if not prompt or prompt_key(prompt) in seen:
+        raw_prompt = normalize_prompt(_visible(str(item.get("prompt") or "")))
+        prompt = normalize_prompt(_plain(raw_prompt, MAX_PROMPT_LENGTH))
+        # Sanitizing that changes visible text (a stripped tag, a cut) would track wording nobody asks, so the item goes.
+        if not prompt or prompt != raw_prompt or prompt_key(prompt) in seen:
             continue
         circle = str(item.get("circle") or "")
         stage = str(item.get("funnel_stage") or "")
@@ -197,14 +223,14 @@ def generate_suggestions(
             session.trust_env = False
             for _ in range(MAX_SUGGESTION_CONTINUATIONS + 1):
                 remaining = deadline - time.monotonic()
-                if remaining <= 0:
+                if remaining < MIN_SUGGESTION_CALL_SECONDS:
                     break
                 response = session.post(
                     gateway.url.rstrip("/") + "/messages",
                     headers=headers,
                     json={
                         "model": settings.AEO_ANTHROPIC_MODEL,
-                        "max_tokens": MAX_SUGGESTION_TOKENS,
+                        "max_tokens": BASE_SUGGESTION_TOKENS + TOKENS_PER_SUGGESTION * count,
                         "messages": messages,
                         "tools": [
                             {
@@ -220,8 +246,12 @@ def generate_suggestions(
                 response.raise_for_status()
                 body = response.json()
                 if body.get("stop_reason") != "pause_turn":
+                    text = _answer_text(body)
+                    if body.get("stop_reason") == "max_tokens":
+                        # Keep the complete suggestions instead of losing the whole paid answer.
+                        text = _complete_items_prefix(text)
                     try:
-                        return parse_suggestions(_answer_text(body), count=count, existing_keys=existing_keys)
+                        return parse_suggestions(text, count=count, existing_keys=existing_keys)
                     except PromptSuggestionError:
                         # The gateway logs this call as a success, so an unreadable answer is only visible here.
                         logger.warning(
@@ -245,10 +275,14 @@ def _job_key(team_id: int, job_id: str) -> str:
     return f"aeo_prompt_suggestions:{team_id}:{job_id}"
 
 
-def _save_job(team_id: int, job: PromptSuggestionJob) -> None:
+def _save_job(team_id: int, job: PromptSuggestionJob, *, started_at: float | None = None) -> None:
+    if started_at is None:
+        stored = cache.get(_job_key(team_id, job.id))
+        started_at = stored.get("started_at", time.time()) if isinstance(stored, dict) else time.time()
     cache.set(
         _job_key(team_id, job.id),
         {
+            "started_at": started_at,
             "status": job.status.value,
             "error": job.error,
             "suggestions": [
@@ -271,6 +305,12 @@ def load_job(team_id: int, job_id: str) -> PromptSuggestionJob:
     stored = cache.get(_job_key(team_id, job_id))
     if not isinstance(stored, dict):
         raise PromptSuggestionJobNotFoundError(job_id)
+    started_at = stored.get("started_at", 0)
+    if stored["status"] == PromptSuggestionStatus.PENDING and time.time() - started_at > SUGGESTION_JOB_STALE_SECONDS:
+        # A hard kill or a lost task never writes a final status.
+        job = PromptSuggestionJob(id=job_id, status=PromptSuggestionStatus.FAILED, error=STALE_JOB_ERROR)
+        _save_job(team_id, job, started_at=started_at)
+        return job
     return PromptSuggestionJob(
         id=job_id,
         status=PromptSuggestionStatus(stored["status"]),
@@ -291,7 +331,7 @@ def load_job(team_id: int, job_id: str) -> PromptSuggestionJob:
 
 def create_job(team_id: int) -> PromptSuggestionJob:
     job = PromptSuggestionJob(id=str(uuid.uuid4()), status=PromptSuggestionStatus.PENDING)
-    _save_job(team_id, job)
+    _save_job(team_id, job, started_at=time.time())
     return job
 
 
@@ -300,15 +340,18 @@ def fail_job(team_id: int, job_id: str, error: str) -> None:
 
 
 def run_job(team_id: int, job_id: str, request: PromptSuggestionRequest) -> None:
-    prompts = list(AEOPrompt.objects.for_team(team_id).order_by("-created_at").values_list("prompt", flat=True))
+    prompts = list(
+        AEOPrompt.objects.for_team(team_id)
+        .order_by("-created_at")
+        .values_list("prompt", flat=True)[:MAX_EXISTING_PROMPTS_IN_INSTRUCTIONS]
+    )
+    # Every version of every prompt counts, archived ones included, so a suggestion never revives retired wording.
+    existing_keys = {
+        prompt_key(text)
+        for text in AEOPromptVersion.objects.for_team(team_id).values_list("text", flat=True).iterator()
+    }
     try:
-        # Archived prompts count as tracked, so a suggestion never revives a prompt someone retired.
-        suggestions = generate_suggestions(
-            team_id,
-            request,
-            context_prompts=prompts[:MAX_EXISTING_PROMPTS_IN_INSTRUCTIONS],
-            existing_keys={prompt_key(prompt) for prompt in prompts},
-        )
+        suggestions = generate_suggestions(team_id, request, context_prompts=prompts, existing_keys=existing_keys)
     except PromptSuggestionError as error:
         fail_job(team_id, job_id, str(error))
         return

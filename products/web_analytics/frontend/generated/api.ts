@@ -342,7 +342,7 @@ export const getAeoPromptsSuggestionRetrieveUrl = (projectId: string, jobId: str
 }
 
 /**
- * Gets a prompt suggestion job started with POST aeo_prompts/suggest/. status is pending while Claude works, then completed with the suggestions or failed with an error. Jobs expire an hour after they start.
+ * Gets a prompt suggestion job started with POST aeo_prompts/suggest/. status is pending while Claude works, then completed with the suggestions or failed with an error. Jobs expire an hour after their last update.
  * @summary Get AEO prompt suggestions
  */
 export const aeoPromptsSuggestionRetrieve = async (

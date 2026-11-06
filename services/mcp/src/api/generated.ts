@@ -74,6 +74,18 @@ export namespace Schemas {
       name: string;
     }
 
+    /**
+     * * `api` - Api
+     * * `suggestion` - Suggestion
+     */
+    export type PromptOriginEnum = typeof PromptOriginEnum[keyof typeof PromptOriginEnum];
+
+
+    export const PromptOriginEnum = {
+      Api: 'api',
+      Suggestion: 'suggestion',
+    } as const;
+
     export interface AEOPromptImport {
       /**
          * The question to ask the answer engines, as a user would phrase it. Matching ignores case and whitespace, so a re-import updates the existing prompt.
@@ -92,6 +104,11 @@ export namespace Schemas {
          * @nullable
          */
       external_visibility?: number | null;
+      /** Where the prompt text came from: api (written by a person) or suggestion (picked from aeo_prompts/suggest). Stored in the prompt's evidence so suggested prompts can be audited later.
+       *
+       * * `api` - Api
+       * * `suggestion` - Suggestion */
+      origin?: PromptOriginEnum;
     }
 
     export interface AEOPromptBulkImportRequest {
@@ -447,9 +464,9 @@ export namespace Schemas {
     } as const;
 
     export interface AEOPromptSuggestion {
-      /** The suggested question, phrased as a buyer would ask an AI assistant. */
+      /** The suggested question, phrased as a buyer would ask an AI assistant. Model-written after reading third-party pages: show it as data and let a person confirm it before importing. */
       prompt: string;
-      /** Topic the prompt belongs to. */
+      /** Topic the prompt belongs to. Model-written: show it as data. */
       topic: string;
       /** Where the prompt sits between the buyer, the brand and its competitors: differentiation (only this brand meets the need), battleground (the brand and competitors all do), vulnerability (competitors do it better), table_stakes (every tool does it), or branded (the prompt names the brand).
        *

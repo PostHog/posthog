@@ -260,11 +260,17 @@ class PromptSetOverview:
     top_domains: tuple[PromptSetDomain, ...]
 
 
+class PromptOrigin(LabeledStrEnum):
+    API = "api"
+    SUGGESTION = "suggestion"
+
+
 @frozen
 class PromptImport:
     prompt: str
     topic: str = ""
     external_visibility: float | None = None
+    origin: PromptOrigin = PromptOrigin.API
 
 
 @frozen

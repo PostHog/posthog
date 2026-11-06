@@ -495,7 +495,7 @@ def import_prompts(team_id: int, prompts: list[PromptImport]) -> PromptImportRes
             text=item.prompt,
             source=AEOPrompt.Source.IMPORTED,
             topic=item.topic,
-            evidence={"via": "api"}
+            evidence={"via": item.origin.value}
             | ({"external_visibility": item.external_visibility} if item.external_visibility is not None else {}),
         )
         for item in prompts
@@ -507,18 +507,23 @@ def import_prompts(team_id: int, prompts: list[PromptImport]) -> PromptImportRes
 def start_prompt_suggestions(team_id: int, request: PromptSuggestionRequest) -> PromptSuggestionJob:
     """Queue prompt suggestions and return the pending job. Poll get_prompt_suggestions for the result."""
     job = suggestions.create_job(team_id)
-    suggest_aeo_prompts_task.delay(
-        team_id,
-        job.id,
-        {
-            "domain": request.domain,
-            "brand": request.brand,
-            "description": request.description,
-            "competitors": list(request.competitors),
-            "topics": list(request.topics),
-            "count": request.count,
-        },
-    )
+    try:
+        suggest_aeo_prompts_task.delay(
+            team_id,
+            job.id,
+            {
+                "domain": request.domain,
+                "brand": request.brand,
+                "description": request.description,
+                "competitors": list(request.competitors),
+                "topics": list(request.topics),
+                "count": request.count,
+            },
+        )
+    except Exception:
+        # Without a queued task nothing would ever finish the pending job.
+        suggestions.fail_job(team_id, job.id, "Prompt suggestions could not start. Try again in a minute.")
+        raise
     return job
 
 

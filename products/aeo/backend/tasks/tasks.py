@@ -97,7 +97,10 @@ def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
 
 
 @shared_task(
-    ignore_result=True, soft_time_limit=SUGGESTION_SOFT_TIME_LIMIT_SECONDS, time_limit=SUGGESTION_TIME_LIMIT_SECONDS
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    soft_time_limit=SUGGESTION_SOFT_TIME_LIMIT_SECONDS,
+    time_limit=SUGGESTION_TIME_LIMIT_SECONDS,
 )
 @skip_team_scope_audit  # Team is the tenant; prompts are read via AEOPrompt.objects.for_team
 def suggest_aeo_prompts_task(team_id: int, job_id: str, request: dict) -> None:

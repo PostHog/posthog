@@ -774,6 +774,7 @@ class TestAEOPromptAPI(APIBaseTest):
         [
             ("answer", True, "completed", ["Best session replay tool?"], 1),
             ("paused", True, "completed", ["Best session replay tool?"], 2),
+            ("cut_off", True, "completed", ["Best session replay tool?"], 1),
             ("timeout", True, "failed", [], 1),
             ("answer", False, None, [], 0),
         ]
@@ -783,10 +784,16 @@ class TestAEOPromptAPI(APIBaseTest):
     ) -> None:
         self.organization.is_ai_data_processing_approved = ai_approved
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
-        self.client.post(f"{self.url}bulk_import/", {"prompts": [{"prompt": "Tracked already?"}]}, format="json")
+        self.client.post(
+            f"{self.url}bulk_import/",
+            {"prompts": [{"prompt": "Tracked already?"}, {"prompt": "Old wording?"}]},
+            format="json",
+        )
+        old_id = next(r["id"] for r in self.client.get(self.url).json()["results"] if r["prompt"] == "Old wording?")
+        self.client.patch(f"{self.url}{old_id}/", {"prompt": "New wording?"}, format="json")
         items = [
             {"prompt": p, "topic": "Replay", "circle": "battleground", "funnel_stage": "bottom", "branded": False}
-            for p in ["Best session replay tool?", "Tracked already?"]
+            for p in ["Best session replay tool?", "Tracked already?", "Old wording?"]
         ]
         paused = MagicMock(status_code=200)
         paused.json.return_value = {"stop_reason": "pause_turn", "content": [{"type": "text", "text": "Reading."}]}
@@ -795,10 +802,17 @@ class TestAEOPromptAPI(APIBaseTest):
             "stop_reason": "end_turn",
             "content": [{"type": "text", "text": json.dumps(items)}],
         }
+        # The token limit cut the array mid-way through its second object.
+        cut_off = MagicMock(status_code=200)
+        cut_off.json.return_value = {
+            "stop_reason": "max_tokens",
+            "content": [{"type": "text", "text": json.dumps(items[:1])[:-1] + ', {"prompt": "Half'}],
+        }
         post = MagicMock(
             side_effect={
                 "answer": [answered],
                 "paused": [paused, answered],
+                "cut_off": [cut_off],
                 "timeout": requests.Timeout(),
             }[outcome]
         )
@@ -811,7 +825,7 @@ class TestAEOPromptAPI(APIBaseTest):
             started = self.client.post(f"{self.url}suggest/", {"domain": "example.com"}, format="json")
 
         assert post.call_count == calls
-        assert AEOPrompt.objects.for_team(self.team.id).count() == 1
+        assert AEOPrompt.objects.for_team(self.team.id).count() == 2
         if final_status is None:
             assert started.status_code == status.HTTP_403_FORBIDDEN
             return
@@ -823,6 +837,27 @@ class TestAEOPromptAPI(APIBaseTest):
         if outcome == "paused":
             resumed = post.call_args_list[1].kwargs["json"]["messages"]
             assert resumed[-1] == {"role": "assistant", "content": [{"type": "text", "text": "Reading."}]}
+
+    def test_a_pending_job_past_its_deadline_reads_as_failed(self) -> None:
+        with patch("products.aeo.backend.facade.api.suggest_aeo_prompts_task.delay"):
+            started = self.client.post(f"{self.url}suggest/", {"domain": "example.com"}, format="json").json()
+
+        with time_machine.travel(timezone.now() + dt.timedelta(minutes=9), tick=False):
+            job = self.client.get(f"{self.url}suggest/{started['id']}/").json()
+
+        assert job["status"] == "failed"
+        assert job["error"] == "Prompt suggestions stopped before they finished. Try again."
+
+    def test_import_records_that_a_prompt_came_from_a_suggestion(self) -> None:
+        self.client.post(
+            f"{self.url}bulk_import/",
+            {"prompts": [{"prompt": "Suggested?", "origin": "suggestion"}, {"prompt": "Written?"}]},
+            format="json",
+        )
+
+        evidence = {p.prompt: p.evidence for p in AEOPrompt.objects.for_team(self.team.id)}
+        assert evidence["Suggested?"]["via"] == "suggestion"
+        assert evidence["Written?"]["via"] == "api"
 
     def test_suggestion_get_returns_404_for_an_unknown_job(self) -> None:
         response = self.client.get(f"{self.url}suggest/{uuid.uuid4()}/")

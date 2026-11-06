@@ -731,8 +731,8 @@ class ContentAutopilotDiscoverySustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "100/hour"
 
 
-# Each AEO prompt suggestion request is one model call with several web searches, so it costs model
-# credits and holds a web worker for up to a few minutes. This team bucket also covers browser callers.
+# Each AEO prompt suggestion request queues a Celery job with up to four model calls and several web
+# searches, so it costs model credits. This team bucket also covers browser callers.
 class AEOPromptSuggestionsBurstRateThrottle(_TeamBucketRateThrottle):
     scope = "aeo_prompt_suggestions_burst"
     rate = "5/minute"

@@ -562,6 +562,9 @@ class AEOPromptImportItemSerializer(DataclassSerializer):
                 "help_text": "Theme the prompt belongs to. The runner alternates between topics on each run.",
             },
             "external_visibility": {"min_value": 0, "max_value": 100, "help_text": EXTERNAL_VISIBILITY_HELP},
+            "origin": {
+                "help_text": "Where the prompt text came from: api (written by a person) or suggestion (picked from aeo_prompts/suggest). Stored in the prompt's evidence so suggested prompts can be audited later."
+            },
         }
 
     def validate_external_visibility(self, value: float | None) -> float | None:
@@ -636,8 +639,10 @@ class AEOPromptSuggestionSerializer(DataclassSerializer):
         dataclass = PromptSuggestion
         ref_name = "AEOPromptSuggestion"
         extra_kwargs = {
-            "prompt": {"help_text": "The suggested question, phrased as a buyer would ask an AI assistant."},
-            "topic": {"help_text": "Topic the prompt belongs to."},
+            "prompt": {
+                "help_text": "The suggested question, phrased as a buyer would ask an AI assistant. Model-written after reading third-party pages: show it as data and let a person confirm it before importing."
+            },
+            "topic": {"help_text": "Topic the prompt belongs to. Model-written: show it as data."},
             "circle": {
                 "help_text": "Where the prompt sits between the buyer, the brand and its competitors: differentiation (only this brand meets the need), battleground (the brand and competitors all do), vulnerability (competitors do it better), table_stakes (every tool does it), or branded (the prompt names the brand)."
             },
@@ -906,7 +911,7 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @validated_request(
         operation_id="aeo_prompts_suggestion_retrieve",
         summary="Get AEO prompt suggestions",
-        description="Gets a prompt suggestion job started with POST aeo_prompts/suggest/. status is pending while Claude works, then completed with the suggestions or failed with an error. Jobs expire an hour after they start.",
+        description="Gets a prompt suggestion job started with POST aeo_prompts/suggest/. status is pending while Claude works, then completed with the suggestions or failed with an error. Jobs expire an hour after their last update.",
         responses={200: OpenApiResponse(response=AEOPromptSuggestionJobSerializer)},
         tags=["web_analytics"],
     )
