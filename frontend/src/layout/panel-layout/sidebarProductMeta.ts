@@ -80,6 +80,7 @@ export const SIDEBAR_PRODUCTS_WITHOUT_DOCS = new Set<string>([
     'Transactional',
     'Uptime monitoring',
     'Visual review',
+    'Wizard',
 ])
 
 const examples: Record<string, string> = {
@@ -133,6 +134,7 @@ const examples: Record<string, string> = {
     Tracing: 'Follow a slow request across services to find the bottleneck.',
     'Visual review': 'Review visual changes before they reach users.',
     'Web scripts': 'Add a website tag without changing your application code.',
+    Wizard: 'Review the code changes an agent prepares to set up PostHog.',
     Workflows: 'Send a follow-up when someone completes an onboarding step.',
     Actions: 'Combine related clicks into a single event for analysis.',
     Annotations: 'Mark a release date to help explain a change in a chart.',

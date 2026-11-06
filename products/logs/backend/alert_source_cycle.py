@@ -34,7 +34,13 @@ from posthog.models import Team
 from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
 
 from products.alerts.backend.facade.destinations import configured_destination_template_ids
-from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, refresh_settings, slot_of
+from products.alerts_platform.backend.facade.api import (
+    due_check_ids,
+    due_checks,
+    has_incident_destination,
+    refresh_settings,
+    slot_of,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
@@ -456,13 +462,13 @@ def _request(
     destination needs one resolve for every trigger. An alert with no such destination gets no
     incident action, so its edges start no delivery.
     """
-    destination_alert_id = str(check.legacy_configuration_id)
+    destination_alert_id = str(check.destination_alert_id)
     actions = {
         key: action
         for key, move in moves.items()
         if (action := decide_incident_action(move.before, move.after, policy=PLATFORM_LOGS_ALERT_POLICY)) is not None
     }
-    if actions and not _has_incident_destination(check.team_id, destination_alert_id):
+    if actions and not _has_incident_destination(check):
         actions = {}
     if not sends_messages and not actions:
         return None
@@ -478,10 +484,9 @@ def _request(
         event_ids_by_incident_action=EVENT_IDS_BY_INCIDENT_ACTION,
         incident_actions=actions,
         sends_messages=sends_messages,
-        # The logs alert page, as the HogFunction messages linked. An alert with no logs row has none.
-        source_alert_url=logs_alert_url(check.team_id, check.legacy_configuration_id)
-        if check.legacy_configuration_id is not None
-        else None,
+        # The logs alert page, as the HogFunction messages linked. The logs API serves an alert with
+        # no logs row under the configuration's own id.
+        source_alert_url=logs_alert_url(check.team_id, check.destination_alert_id),
         owned_by_platform=check.owned_by_platform,
         overflowed=recorded.overflowed,
         overflow_is_lower_bound=recorded.overflow_is_lower_bound,
@@ -493,12 +498,18 @@ def _ungrouped_move(check: PlatformAlertCheckInput, outcome: Outcome) -> dict[st
     return {"": _Move(before=AlertState(check.instance().state), after=outcome.new_state)}
 
 
-def _has_incident_destination(team_id: int, destination_alert_id: str) -> bool:
-    """Whether a destination of this alert follows the incident events. Read only on a firing edge."""
+def _has_incident_destination(check: PlatformAlertCheckInput) -> bool:
+    """Whether a destination of this alert follows the incident events, as a HogFunction or as a
+    destination the platform keeps. Read only on a firing edge. A copy's destinations are always
+    HogFunctions, so only an alert with no logs row can have the platform's."""
+    if check.legacy_configuration_id is None and has_incident_destination(
+        team_id=check.team_id, configuration_id=check.id
+    ):
+        return True
     return bool(
         configured_destination_template_ids(
-            team_id=team_id,
-            alert_id=destination_alert_id,
+            team_id=check.team_id,
+            alert_id=str(check.destination_alert_id),
             allowed_event_ids=tuple(EVENT_IDS_BY_INCIDENT_ACTION.values()),
         )
     )
@@ -678,6 +689,9 @@ def _as_configured_now(
     A copy the platform owns is not a seed: every edit reaches it directly, from the logs API or the
     platform's, so it is evaluated as stored. It still needs its logs row on the copy's team. A row in
     a child environment has its logs there, and the query would read the project's instead.
+
+    An alert the platform created without a logs row is evaluated as stored. It is always on a
+    project, because a create refuses an environment.
     """
     legacy_ids = [check.legacy_configuration_id for check in checks if check.legacy_configuration_id is not None]
     alerts = {alert.id: alert for alert in LogsAlertConfiguration.objects.filter(team_id=team_id, id__in=legacy_ids)}
@@ -685,7 +699,7 @@ def _as_configured_now(
     stopped: list[Decision] = []
     for check in checks:
         alert = alerts.get(check.legacy_configuration_id)
-        if check.owned_by_platform and alert is not None:
+        if check.owned_by_platform and (check.legacy_configuration_id is None or alert is not None):
             current.append(check)
             continue
         if alert is None or not alert.enabled:
