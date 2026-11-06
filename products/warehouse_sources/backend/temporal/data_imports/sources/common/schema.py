@@ -99,6 +99,23 @@ def _change_tracking_tier(field: IncrementalField) -> int:
     return 0
 
 
+def _rank_score(field: IncrementalField) -> int:
+    """Higher is better. Each criterion outweighs all the criteria after it."""
+    return (
+        _change_tracking_tier(field) * 1000
+        + (100 if field.get("is_indexed", True) else 0)
+        + (0 if field.get("nullable", False) else 10)
+        + _TYPE_RANK.get(field.get("field_type") or field["type"], 0)
+    )
+
+
+def _exact_name_preference(field: IncrementalField) -> int:
+    name = (field.get("field") or "").lower()
+    if name in _INCREMENTAL_FIELD_PREFERENCE:
+        return _INCREMENTAL_FIELD_PREFERENCE.index(name)
+    return len(_INCREMENTAL_FIELD_PREFERENCE)
+
+
 def rank_incremental_fields(incremental_fields: list[IncrementalField]) -> list[IncrementalField]:
     """Sort candidate cursor fields best first, and mark the first one as recommended.
 
@@ -112,27 +129,14 @@ def rank_incremental_fields(incremental_fields: list[IncrementalField]) -> list[
     gets `notes` that explain the trade-offs to the user or to an agent.
     """
 
-    def sort_key(field: IncrementalField) -> tuple[int, int, int, int, int]:
-        name = (field.get("field") or "").lower()
-        exact_preference = (
-            _INCREMENTAL_FIELD_PREFERENCE.index(name)
-            if name in _INCREMENTAL_FIELD_PREFERENCE
-            else len(_INCREMENTAL_FIELD_PREFERENCE)
-        )
-        return (
-            -_change_tracking_tier(field),
-            0 if field.get("is_indexed", True) else 1,
-            1 if field.get("nullable", False) else 0,
-            -_TYPE_RANK.get(field.get("field_type") or field["type"], 0),
-            exact_preference,
-        )
-
     # The synthetic Postgres xmin cursor only works as its own sync method, so it never leads.
     synthetic = [f for f in incremental_fields if (f.get("field_type") or f["type"]) == IncrementalFieldType.XID]
     real = [f for f in incremental_fields if (f.get("field_type") or f["type"]) != IncrementalFieldType.XID]
 
     ranked: list[IncrementalField] = []
-    for position, candidate in enumerate(sorted(real, key=sort_key)):
+    # Two stable sorts: the exact-name preference breaks ties left by the score.
+    by_preferred_name = sorted(real, key=_exact_name_preference)
+    for position, candidate in enumerate(sorted(by_preferred_name, key=_rank_score, reverse=True)):
         notes = []
         tier = _change_tracking_tier(candidate)
         if tier == 2:

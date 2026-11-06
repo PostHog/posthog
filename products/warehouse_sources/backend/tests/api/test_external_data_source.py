@@ -6596,6 +6596,11 @@ class TestExternalDataSource(APIBaseTest):
                             # Index lookup raises against the mocked pg_connection (object())
                             # and falls back to the no-warning default (is_indexed=True).
                             "is_indexed": True,
+                            "recommended": True,
+                            "notes": [
+                                "Only marks new rows. Edits to existing rows don't sync.",
+                                "Can be empty. Rows where it's empty never sync.",
+                            ],
                         }
                     ],
                     "incremental_available": True,
@@ -6676,6 +6681,11 @@ class TestExternalDataSource(APIBaseTest):
                             # Index lookup raises against the mocked pg_connection (object())
                             # and falls back to the no-warning default (is_indexed=True).
                             "is_indexed": True,
+                            "recommended": True,
+                            "notes": [
+                                "Only marks new rows. Edits to existing rows don't sync.",
+                                "Can be empty. Rows where it's empty never sync.",
+                            ],
                         }
                     ],
                     "incremental_available": True,
