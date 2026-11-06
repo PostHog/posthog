@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconBell, IconPlus, IconShare, IconWarning } from '@posthog/icons'
+import { IconBell, IconPin, IconPinFilled, IconPlus, IconShare, IconWarning } from '@posthog/icons'
 import {
     Button,
     DropdownMenuItem,
@@ -12,6 +12,8 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { AnalyticsPinMenuItem } from 'scenes/analytics/AnalyticsPinMenuItem'
+import { PinTarget, analyticsPinnedLogic, pinKey } from 'scenes/analytics/analyticsPinnedLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -58,6 +60,18 @@ export function QuillInsightPageHeaderActions({
     const biEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
     const shareItems = useInsightShareItems(insight)
     const { push } = useActions(router)
+    const { pinnedShortcutIds, shortcutDataLoading } = useValues(analyticsPinnedLogic)
+    const { togglePinned } = useActions(analyticsPinnedLogic)
+
+    const pinTarget: PinTarget | null = insight.short_id
+        ? {
+              type: 'insight',
+              ref: insight.short_id,
+              name: insight.name || insight.derived_name || 'Unnamed',
+              href: urls.insightView(insight.short_id),
+          }
+        : null
+    const pinned = !!pinTarget && pinnedShortcutIds.has(pinKey(pinTarget.type, pinTarget.ref))
 
     const overrideWarning = getOverrideWarningPropsForButton(query, filtersOverride, variablesOverride)
 
@@ -89,6 +103,7 @@ export function QuillInsightPageHeaderActions({
                 <SceneTitleSecondaryActions
                     menu={
                         <>
+                            {pinTarget && <AnalyticsPinMenuItem target={pinTarget} dataAttr="insight-more-menu-pin" />}
                             {shareItems && (
                                 <DropdownMenuSub>
                                     <DropdownMenuSubTrigger data-attr="insight-more-menu-share">
@@ -131,6 +146,19 @@ export function QuillInsightPageHeaderActions({
                         </>
                     }
                 >
+                    {pinTarget && (
+                        <Button
+                            variant="outline"
+                            size="icon"
+                            aria-label={pinned ? 'Unpin from sidebar' : 'Pin to sidebar'}
+                            tooltip={pinned ? 'Unpin from sidebar' : 'Pin to sidebar'}
+                            disabled={shortcutDataLoading}
+                            onClick={() => togglePinned(pinTarget)}
+                            data-attr={pinned ? 'insight-header-unpin' : 'insight-header-pin'}
+                        >
+                            {pinned ? <IconPinFilled /> : <IconPin />}
+                        </Button>
+                    )}
                     <InsightShareMenu insight={insight} />
                     <Button
                         variant="outline"
