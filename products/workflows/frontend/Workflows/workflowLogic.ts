@@ -3827,6 +3827,7 @@ export const workflowLogic = kea<workflowLogicType>([
                     workflow.exit_condition === 'exit_only_at_end' &&
                     isBroadcastShaped(workflow.actions) &&
                     canEditInWizard(workflow.actions, workflow.edges) &&
+                    // Broadcasts can't send through the sandbox sender, so the wizard would refuse to launch it.
                     !sendsFromSandboxSender(workflow, [
                         ...listedSandboxSenderIds(values.integrations ?? []),
                         ...(cache.firstRunSandboxSenderId ? [cache.firstRunSandboxSenderId] : []),

@@ -1,7 +1,6 @@
 import { IntegrationType } from '~/types'
 
-import type { HogFlowAction } from '../Workflows/hogflows/types'
-import { allowsSandboxSender, resolveDefaultEmailSender } from './defaultEmailSender'
+import { resolveDefaultEmailSender } from './defaultEmailSender'
 
 const sender = (id: number, verified: boolean, kind = 'email'): IntegrationType =>
     ({ id, kind, config: { verified } }) as unknown as IntegrationType
@@ -62,29 +61,6 @@ describe('defaultEmailSender', () => {
             },
         ])('picks $case', ({ integrations, defaultId, expected }) => {
             expect(resolveDefaultEmailSender(integrations, defaultId)?.integrationId ?? null).toEqual(expected)
-        })
-    })
-
-    describe('allowsSandboxSender', () => {
-        it.each<{ step: string; actionType: HogFlowAction['type']; originProduct: string | null; expected: boolean }>([
-            { step: 'a workflow email step', actionType: 'function_email', originProduct: null, expected: true },
-            {
-                step: 'a broadcast email step',
-                actionType: 'function_email',
-                originProduct: 'broadcasts',
-                expected: false,
-            },
-            {
-                step: 'a transactional email key step',
-                actionType: 'function_email',
-                originProduct: 'transactional_email_keys',
-                expected: false,
-            },
-            { step: 'a loops email step', actionType: 'function_email', originProduct: 'loops', expected: false },
-            { step: 'a generic function step', actionType: 'function', originProduct: null, expected: false },
-            { step: 'a trigger', actionType: 'trigger', originProduct: null, expected: false },
-        ])('is $expected for $step', ({ actionType, originProduct, expected }) => {
-            expect(allowsSandboxSender(actionType, originProduct)).toBe(expected)
         })
     })
 })

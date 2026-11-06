@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import { ApiConfig } from 'lib/api'
+import { ApiConfig, ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
@@ -11,14 +11,9 @@ import type { IntegrationKind, IntegrationType } from '~/types'
 
 import { integrationsEmailSandboxSenderCreate, integrationsList } from 'products/integrations/frontend/generated/api'
 
-import {
-    DefaultEmailSender,
-    allowsSandboxSender,
-    resolveDefaultEmailSender,
-    verifiedOwnEmailSenders,
-} from '../Channels/defaultEmailSender'
+import { DefaultEmailSender, resolveDefaultEmailSender, verifiedOwnEmailSenders } from '../Channels/defaultEmailSender'
 import type { HogFlow, HogFlowAction } from './hogflows/types'
-import { emailStepValue, takesOwnSender, withEmailSender } from './workflowEmailPrefill'
+import { allowsSandboxSender, emailStepValue, takesOwnSender, withEmailSender } from './workflowEmailPrefill'
 
 function takesSandboxSender(action: HogFlowAction, workflow: HogFlow): boolean {
     const value = emailStepValue(action)
@@ -58,10 +53,18 @@ async function loadEveryIntegrationPage(): Promise<IntegrationType[]> {
     return integrations
 }
 
-async function provisionSandboxSender(): Promise<number> {
-    const sandbox = await integrationsEmailSandboxSenderCreate(String(ApiConfig.getCurrentTeamId()))
-    await integrationsLogic.findMounted()?.asyncActions.loadIntegrations()
-    return sandbox.id
+async function provisionSandboxSender(): Promise<number | null> {
+    try {
+        const sandbox = await integrationsEmailSandboxSenderCreate(String(ApiConfig.getCurrentTeamId()))
+        await integrationsLogic.findMounted()?.asyncActions.loadIntegrations()
+        return sandbox.id
+    } catch (error) {
+        // 404 means the sandbox sender is switched off for this project, 403 that this person can't set it up.
+        if (error instanceof ApiError && (error.status === 404 || error.status === 403)) {
+            return null
+        }
+        throw error
+    }
 }
 
 function teamDefaultSenderId(): number | null | undefined {
@@ -79,8 +82,8 @@ async function resolveFirstRunSender(allowSandbox: boolean): Promise<DefaultEmai
         if (!sandboxApplies(integrations, allowSandbox)) {
             return resolveDefaultEmailSender(integrations, teamDefaultSenderId())
         }
-        const sandbox = integrations.find(isSandboxEmailSender)
-        return { integrationId: sandbox?.id ?? (await provisionSandboxSender()), reason: 'sandbox_sender' }
+        const sandboxId = integrations.find(isSandboxEmailSender)?.id ?? (await provisionSandboxSender())
+        return sandboxId === null ? null : { integrationId: sandboxId, reason: 'sandbox_sender' }
     } catch (error) {
         posthog.captureException(error, { feature: 'workflows-sandbox-sender', step: 'first-run sender' })
         throw error
@@ -121,5 +124,6 @@ export async function withFirstRunSender(
         return { workflow, sender: null }
     }
     const takesSender = (action: HogFlowAction): boolean => stepTakesSender(action, workflow, sender)
-    return { workflow: withEmailSender(workflow, sender.integrationId, takesSender).workflow, sender }
+    const filled = withEmailSender(workflow, sender.integrationId, takesSender)
+    return filled.filled ? { workflow: filled.workflow, sender } : { workflow, sender: null }
 }

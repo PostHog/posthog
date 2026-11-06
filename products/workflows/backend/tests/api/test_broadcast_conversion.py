@@ -4,9 +4,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.db import connection
 from django.test import override_settings
-from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import status
@@ -109,22 +107,51 @@ class TestBroadcastConversionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("sandbox sender", {"integrationId": "sandbox"}, int, True, False),
-            ("sandbox sender with the project flag off", {"integrationId": "sandbox"}, int, False, False),
-            ("sandbox sender stored as a whole-number float", {"integrationId": "sandbox"}, float, True, False),
-            ("sandbox sender stored as a string", {"integrationId": "sandbox"}, str, True, False),
-            ("sandbox sender in a rotation", {"integrationIds": ["own", "sandbox"]}, int, True, False),
-            ("own sender", {"integrationId": "own"}, int, True, True),
+            ("sandbox sender", {"integrationId": "sandbox"}, int, True, False, SANDBOX_SETTINGS),
+            (
+                "sandbox sender with the project flag off",
+                {"integrationId": "sandbox"},
+                int,
+                False,
+                False,
+                SANDBOX_SETTINGS,
+            ),
+            (
+                "sandbox sender after the sandbox settings are cleared",
+                {"integrationId": "sandbox"},
+                int,
+                True,
+                False,
+                {},
+            ),
+            (
+                "sandbox sender stored as a whole-number float",
+                {"integrationId": "sandbox"},
+                float,
+                True,
+                False,
+                SANDBOX_SETTINGS,
+            ),
+            ("sandbox sender stored as a string", {"integrationId": "sandbox"}, str, True, False, SANDBOX_SETTINGS),
+            (
+                "sandbox sender in a rotation",
+                {"integrationIds": ["own", "sandbox"]},
+                int,
+                True,
+                False,
+                SANDBOX_SETTINGS,
+            ),
+            ("own sender", {"integrationId": "own"}, int, True, True, SANDBOX_SETTINGS),
             (
                 "own rotation with a stale sandbox fallback",
                 {"integrationId": "sandbox", "integrationIds": ["own"]},
                 int,
                 True,
                 True,
+                SANDBOX_SETTINGS,
             ),
         ]
     )
-    @override_settings(**SANDBOX_SETTINGS)
     @patch("posthoganalytics.feature_enabled")
     def test_a_workflow_sending_through_the_sandbox_sender_does_not_become_a_broadcast(
         self,
@@ -133,6 +160,7 @@ class TestBroadcastConversionAPI(APIBaseTest):
         stored_as: Callable[[int], Any],
         flag_on: bool,
         convertible: bool,
+        sandbox_settings: dict[str, str],
         flag: Any,
     ) -> None:
         flag.return_value = flag_on
@@ -159,18 +187,10 @@ class TestBroadcastConversionAPI(APIBaseTest):
         email = {**EMAIL, "config": {"inputs": {"email": {"value": {"from": sender_from}}}}}
         flow = self._flow(actions=[TRIGGER, email, EXIT])
 
-        assert (str(flow.id) in self._candidate_ids()) is convertible
-        response = self._convert(flow)
+        with override_settings(**sandbox_settings):
+            assert (str(flow.id) in self._candidate_ids()) is convertible
+            response = self._convert(flow)
         assert (response.status_code == status.HTTP_200_OK) is convertible, response.json()
-
-    def test_conversion_skips_the_sandbox_lookup_without_sandbox_settings(self) -> None:
-        flow = self._flow()
-
-        with CaptureQueriesContext(connection) as queries:
-            assert str(flow.id) in self._candidate_ids()
-            assert self._convert(flow).status_code == status.HTTP_200_OK
-
-        assert not [query for query in queries.captured_queries if '"posthog_integration"' in query["sql"]]
 
     def test_candidates_stop_at_the_cap_and_say_more_exist(self) -> None:
         newest = self._flow(name="Newest")
