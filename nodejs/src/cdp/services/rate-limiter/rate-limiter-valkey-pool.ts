@@ -104,3 +104,11 @@ function withoutOfflineQueue(pool: RedisV2, name: string): RedisV2 {
             }),
     }
 }
+
+export function createSandboxEmailCapValkey(
+    config: RateLimiterValkeyConfig & Pick<CdpConfig, 'WORKFLOWS_SANDBOX_SENDER_ENABLED'>
+): RedisV2 | null {
+    return config.WORKFLOWS_SANDBOX_SENDER_ENABLED
+        ? createSesRateLimiterValkeyPool(config, 'sandbox-email-cap', { mode: 'failFast' })
+        : null
+}

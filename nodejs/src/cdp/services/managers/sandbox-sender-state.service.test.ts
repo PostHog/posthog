@@ -89,6 +89,27 @@ describe('SandboxSenderStateService', () => {
         }
     })
 
+    it('keeps the cached state when a fresh read fails', async () => {
+        const outcomes: unknown[] = [row(false), new Error('relation does not exist')]
+        const query = jest.fn((_tx: unknown, sql: string) => {
+            if (!isLookup(sql)) {
+                return Promise.resolve({ rows: [] })
+            }
+            const outcome = outcomes.shift()
+            return outcome instanceof Error ? Promise.reject(outcome) : Promise.resolve(outcome)
+        })
+        const service = new SandboxSenderStateService(
+            { connect: () => Promise.resolve(idleClient()), query } as unknown as PostgresRouter,
+            'sandbox-tenant',
+            pubSub
+        )
+
+        await expect(service.isPaused()).resolves.toBe(false)
+        await expect(service.isPaused({ fresh: true })).rejects.toThrow('relation does not exist')
+        await expect(service.isPaused()).resolves.toBe(false)
+        expect(query.mock.calls.filter(([, sql]) => isLookup(sql))).toHaveLength(2)
+    })
+
     it('reads again after a reload message and after a fresh read, also for checks that wait while the message arrives', async () => {
         let reload: (message: { tenantName: string }) => void = () => undefined
         const reloadingPubSub = {

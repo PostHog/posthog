@@ -471,13 +471,19 @@ describe('EmailService', () => {
             it.each([
                 ['the switch is off', false, false, {}],
                 ['the switch is off', true, false, {}],
+                ['the switch is off for a broadcast', false, false, {}],
                 ['the tenant is empty', false, true, { tenantName: '' }],
                 ['the configuration set is blank', true, true, { configurationSetName: '   ' }],
                 ['the From address is empty', false, true, { fromAddress: '' }],
             ] as const)(
                 'skips when the sandbox sender is switched off because %s (isTest=%s)',
-                async (_reason, isTest, enabled, routeSettings: Partial<SandboxEmailSenderConfig>) => {
+                async (reason, isTest, enabled, routeSettings: Partial<SandboxEmailSenderConfig>) => {
                     service = createSandboxService(enabled, { senderSettings: routeSettings })
+                    if (reason === 'the switch is off for a broadcast') {
+                        Object.assign(invocation, {
+                            hogFlow: { id: invocation.functionId, team_id: team.id, trigger: { type: 'batch' } },
+                        })
+                    }
 
                     const result = await service.executeSendEmail(invocation, isTest)
 
@@ -1111,7 +1117,6 @@ describe('EmailService', () => {
                         .mockImplementationOnce(async (buckets) => {
                             const grant = await claim(buckets)
                             await setTenantStatus('DISABLED')
-                            clock.mockReturnValue(now + pastPauseCacheMs)
                             return grant
                         })
                     try {
@@ -1122,7 +1127,7 @@ describe('EmailService', () => {
                         expect(blocked.logs).toContainEqual(expect.objectContaining({ message: pausedMessage }))
 
                         await setTenantStatus('ENABLED')
-                        clock.mockReturnValue(now + 2 * pastPauseCacheMs)
+                        clock.mockReturnValue(now + pastPauseCacheMs)
                         invocation.state.vmState = { stack: [] } as any
                         const resumed = await service.executeSendEmail(invocation)
                         expect(resumed.error).toBeUndefined()

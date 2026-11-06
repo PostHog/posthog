@@ -74,7 +74,7 @@ describe('OrganizationMembersService', () => {
     it.each([
         ['allows a verified member, whatever the case and padding', true, () => Promise.resolve(), 'allowed'],
         ['flags an unverified member', false, () => Promise.resolve(), 'unverified'],
-        ['allows a member with no recorded verification', null, () => Promise.resolve(), 'allowed'],
+        ['flags a member with no recorded verification as unverified', null, () => Promise.resolve(), 'unverified'],
         [
             'blocks a removed member',
             true,
@@ -305,7 +305,7 @@ describe('OrganizationMembersService', () => {
             }
         })
 
-        it('shares one member lookup with a send that starts while it runs and with later sends, and reloads it after a minute', async () => {
+        it('shares one member lookup with a send that starts while it runs and with later sends, and reloads it before it is a minute old', async () => {
             const start = Date.now()
             const clock = jest.spyOn(Date, 'now').mockReturnValue(start)
             let member = 'member@example.com'
@@ -389,19 +389,27 @@ describe('OrganizationMembersService', () => {
             }
         )
 
-        it('checks a cached block against a fresh lookup before reporting it', async () => {
+        it('reloads a cached block older than five seconds before reporting it, and reuses the reload for later blocks', async () => {
+            const start = Date.now()
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(start)
             let members = ['member@example.com']
             const query = jest.fn(() => Promise.resolve({ rows: members.map(memberRow) }))
             const service = new OrganizationMembersService(routerFor(query))
+            const outsider = [{ address: 'outside@example.com', unverifiedMember: false }]
+            const blocked = async (address: string): Promise<unknown> =>
+                memberCheck(await service.checkRecipients(1, [address], { fresh: false })).blocked
+            try {
+                expect(await blocked('member@example.com')).toEqual([])
+                members = ['member@example.com', 'joined@example.com']
+                clock.mockReturnValue(start + 5_001)
 
-            expect(
-                memberCheck(await service.checkRecipients(1, ['member@example.com'], { fresh: false })).blocked
-            ).toEqual([])
-            members = ['member@example.com', 'joined@example.com']
-
-            expect(
-                memberCheck(await service.checkRecipients(1, ['joined@example.com'], { fresh: false })).blocked
-            ).toEqual([])
+                expect(await blocked('joined@example.com')).toEqual([])
+                expect(await blocked('outside@example.com')).toEqual(outsider)
+                expect(await blocked('outside@example.com')).toEqual(outsider)
+                expect(query).toHaveBeenCalledTimes(2)
+            } finally {
+                clock.mockRestore()
+            }
         })
 
         it('does not let a fresh check join a lookup that started before it', async () => {
