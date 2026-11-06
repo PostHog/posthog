@@ -32,7 +32,7 @@ class TestSample(ClickhouseTestMixin, APIBaseTest):
         at: datetime,
         answer: str = "Here is the summary.",
         *,
-        messages: list[dict[str, str]] | None = None,
+        messages: list[dict[str, Any]] | None = None,
         properties: dict[str, str] | None = None,
         copies: int = 1,
     ) -> None:
@@ -100,11 +100,27 @@ class TestSample(ClickhouseTestMixin, APIBaseTest):
 
         assert [(s.trace.id, len(s.trace.events)) for s in sample.traces] == [("duplicated", 1)]
 
-    def test_a_trace_keeps_the_reply_the_user_answered(self) -> None:
+    @parameterized.expand(
+        [
+            ("text", "I archived all 40 notes."),
+            # Longer than any byte cap on the raw message, so a cut in the JSON would lose the reply.
+            ("long_text", "x" * 9000 + " I archived all 40 notes."),
+            ("content_blocks", [{"type": "text", "text": "I archived all 40 notes."}]),
+        ]
+    )
+    def test_a_trace_keeps_the_reply_the_user_answered(self, _name: str, content: Any) -> None:
+        self._assert_previous_reply({"role": "assistant", "content": content})
+
+    def test_a_trace_keeps_an_otel_reply_the_user_answered(self) -> None:
+        self._assert_previous_reply(
+            {"role": "assistant", "parts": [{"type": "text", "content": "I archived all 40 notes."}]}
+        )
+
+    def _assert_previous_reply(self, reply: dict[str, Any]) -> None:
         end = timezone.now() - timedelta(minutes=30)
         history = [
             {"role": "user", "content": "Archive my notes"},
-            {"role": "assistant", "content": "I archived all 40 notes."},
+            reply,
             {"role": "user", "content": "No, only the ones from March."},
         ]
         self._generation("turn", end - timedelta(hours=3), messages=history)
@@ -112,8 +128,12 @@ class TestSample(ClickhouseTestMixin, APIBaseTest):
 
         sampled = fetch_sample(self.team, window, fetch_profile(self.team, window)).traces[0]
 
-        reply, correction = sampled.turn_text.find("I archived all 40 notes."), sampled.turn_text.find("only the ones")
-        assert 0 <= reply < correction
+        reply_at, correction = (
+            sampled.turn_text.find("I archived all 40 notes."),
+            sampled.turn_text.find("only the ones"),
+        )
+        assert 0 <= reply_at < correction
+        assert len(sampled.turn_text) <= 3100
 
 
 AT = datetime(2026, 11, 1, tzinfo=UTC)
@@ -159,14 +179,14 @@ def test_a_trace_holds_the_segment_value_of_every_generation() -> None:
     assert sampled.raw_segment_values == {"ai_product": frozenset({"chat-1", "search"})}
 
 
-def test_a_long_earlier_reply_leaves_room_for_the_current_turn() -> None:
-    history = json.dumps({"role": "assistant", "content": "x" * 5000})
-
-    sampled = _sampled_trace("t", [_row(0, previous=history)], held_out=False, spans_days=False, segment_keys=[])
+def test_boolean_segments_keep_the_spelling_filters_match() -> None:
+    sampled = _sampled_trace(
+        "t", [_row(0, {"is_paid": True})], held_out=False, spans_days=False, segment_keys=["is_paid"]
+    )
 
     assert sampled is not None
-    assert len(sampled.turn_text) <= 3100
-    assert sampled.turn_text.index("User:") < 3000
+    assert (sampled.segments, sampled.raw_segments) == ({"is_paid": "true"}, {"is_paid": "true"})
+    assert sampled.raw_segment_values == {"is_paid": frozenset({"true"})}
 
 
 def test_an_event_cut_to_fit_anywhere_in_the_trace_skips_it() -> None:

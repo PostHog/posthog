@@ -191,8 +191,13 @@ LIMIT 10000
 """
 
 
+def segment_text(value: Any) -> str:
+    """A property value as ClickHouse prints it, so a boolean reads `true` as it does in profiling and filters."""
+    return json.dumps(value) if isinstance(value, bool) else str(value)
+
+
 def normalize_segment_value(value: Any) -> str:
-    return NUMERIC_SUFFIX.sub("", str(value)) if value is not None else ""
+    return NUMERIC_SUFFIX.sub("", segment_text(value)) if value is not None else ""
 
 
 def dispatcher_tools(tool_counts: Mapping[str, int]) -> tuple[str, ...]:
@@ -382,29 +387,36 @@ class SegmentRates:
     inside_total: int
     outside: int
     outside_total: int
-    # Traces with a flagged item inside the segment, and with any item outside it. Items of one response are not
-    # independent observations, so the flagged items have to come from several traces.
+    # Items of one response are not independent observations, so confidence is judged over traces: how many traces
+    # have a flagged item inside the segment, and any item outside it, and the sum of each trace's flagged share.
     inside_traces: int = 0
     outside_traces: int = 0
+    inside_trace_items: int = 0
+    inside_share: float = 0.0
+    outside_share: float = 0.0
 
 
 def _rates(
     outputs: Sequence[StructuredOutput], field: str, segment_key: str, segment_value: str, values: Sequence[str]
 ) -> SegmentRates:
     """Matching and total items inside the segment, and in its sibling segments."""
-    inside = inside_total = outside = outside_total = inside_traces = outside_traces = 0
+    inside = inside_total = outside = outside_total = inside_traces = outside_traces = inside_trace_items = 0
+    inside_share = outside_share = 0.0
     for output in outputs:
         segment = output.segments.get(segment_key)
-        if segment is None:
-            continue
         items = output.fields.get(field, ())
+        if segment is None or not items:
+            continue
         matching = sum(1 for item in items if item in values)
         if segment == segment_value:
             inside, inside_total = inside + matching, inside_total + len(items)
             inside_traces += matching > 0
+            inside_trace_items += 1
+            inside_share += matching / len(items)
         else:
             outside, outside_total = outside + matching, outside_total + len(items)
-            outside_traces += bool(items)
+            outside_traces += 1
+            outside_share += matching / len(items)
     return SegmentRates(
         inside=inside,
         inside_total=inside_total,
@@ -412,6 +424,9 @@ def _rates(
         outside_total=outside_total,
         inside_traces=inside_traces,
         outside_traces=outside_traces,
+        inside_trace_items=inside_trace_items,
+        inside_share=inside_share,
+        outside_share=outside_share,
     )
 
 
@@ -438,7 +453,7 @@ def find_structured_gaps(outputs: Sequence[StructuredOutput]) -> list[Structured
     The values a segment over-uses are tested together, because a severity scale splits one judgment over
     several values: P0 and P1 can each look close to their siblings while "must-fix" as a whole does not.
     The set counts when the segment uses it MIN_GAP_RATIO times as often, at least MIN_GAP_DIFFERENCE more,
-    and the two Wilson intervals do not overlap.
+    and the Wilson intervals of the per-trace shares do not overlap.
     """
     gaps: list[StructuredGap] = []
     segment_keys = sorted({key for output in outputs for key in output.segments})
@@ -461,8 +476,8 @@ def find_structured_gaps(outputs: Sequence[StructuredOutput]) -> list[Structured
                 if (
                     inside_rate < MIN_GAP_RATIO * outside_rate
                     or inside_rate - outside_rate < MIN_GAP_DIFFERENCE
-                    or wilson_interval(rates.inside, rates.inside_total).low
-                    <= wilson_interval(rates.outside, rates.outside_total).high
+                    or wilson_interval(rates.inside_share, rates.inside_trace_items).low
+                    <= wilson_interval(rates.outside_share, rates.outside_traces).high
                 ):
                     continue
                 gaps.append(

@@ -29,6 +29,7 @@ from .profile import (
     TeamProfile,
     normalize_segment_value,
     parse_structured,
+    segment_text,
     short_string_fields,
 )
 from .queries import run_ai_events_query, run_query
@@ -69,6 +70,8 @@ LIMIT {limit}
 
 # Only the last two messages of each input are read: the last is the user's message for the first call of a turn,
 # and the one before it is the assistant reply the user answers. Full histories cost far more than checks need.
+# The query keeps only the end of that reply's text (string content, content blocks or OTel parts), since a cut in
+# the raw JSON would make it unreadable.
 # Rows are deduplicated by uuid first, since ingestion can write an event twice, and one row past the cap is kept so
 # a trace with more events than the cap shows up as incomplete.
 _HYDRATE_SQL = """
@@ -85,7 +88,7 @@ SELECT
     output_choices,
     output,
     unreadable,
-    previous_message,
+    previous_reply,
     input_state,
     output_state
 FROM (
@@ -97,7 +100,25 @@ FROM (
         distinct_id,
         properties,
         if(startsWith(input, '['), concat('[', left(JSONExtractRaw(input, -1), {max_input}), ']'), left(input, {max_input})) AS last_input,
-        if(startsWith(input, '[') AND JSONLength(input) >= 2, left(JSONExtractRaw(input, -2), {max_input}), '') AS previous_message,
+        if(startsWith(input, '[') AND JSONLength(input) >= 2, JSONExtractRaw(input, -2), '') AS previous_raw,
+        if(
+            JSONExtractString(previous_raw, 'role') = 'assistant',
+            right(
+                arrayStringConcat(
+                    arrayFilter(
+                        part -> part != '',
+                        arrayConcat(
+                            [JSONExtractString(previous_raw, 'content')],
+                            arrayMap(block -> JSONExtractString(block, 'text'), JSONExtractArrayRaw(previous_raw, 'content')),
+                            arrayMap(block -> JSONExtractString(block, 'content'), JSONExtractArrayRaw(previous_raw, 'parts'))
+                        )
+                    ),
+                    ' '
+                ),
+                {turn_chars}
+            ),
+            ''
+        ) AS previous_reply,
         countMatches(input, '"role":[[:space:]]*"user"') AS user_messages,
         match(input, '"role":[[:space:]]*"tool"|"type":[[:space:]]*"(tool_result|function_call_output)"') AS has_tool_results,
         if(length(output_choices) <= {max_output}, output_choices, '') AS output_choices,
@@ -202,6 +223,7 @@ def _hydrate(team: Team, trace_ids: Sequence[str], start: datetime, end: datetim
             "max_input": ast.Constant(value=MAX_INPUT_MESSAGE_BYTES),
             "max_output": ast.Constant(value=MAX_OUTPUT_BYTES),
             "max_properties": ast.Constant(value=MAX_PROPERTIES_BYTES),
+            "turn_chars": ast.Constant(value=TURN_TEXT_CHARS),
             "rows_per_trace": ast.Constant(value=EVENTS_PER_TRACE + 1),
             "max_rows": ast.Constant(value=len(trace_ids) * (EVENTS_PER_TRACE + 1)),
         },
@@ -229,20 +251,6 @@ def _tokens(value: Any) -> float:
         return 0.0
 
 
-def _assistant_text(raw: str) -> str:
-    """The text of an assistant message as raw JSON, or "" for any other message."""
-    try:
-        message = json.loads(raw) if raw else None
-    except ValueError:
-        return ""
-    if not isinstance(message, dict) or message.get("role") != "assistant":
-        return ""
-    content = message.get("content")
-    if isinstance(content, list):
-        content = " ".join(str(part.get("text", "")) for part in content if isinstance(part, dict))
-    return str(content or "")
-
-
 def _sampled_trace(
     trace_id: str, rows: list[tuple[Any, ...]], *, held_out: bool, spans_days: bool, segment_keys: Sequence[str]
 ) -> SampledTrace | None:
@@ -266,7 +274,7 @@ def _sampled_trace(
         output_choices,
         output,
         unreadable,
-        previous_message,
+        previous_reply,
         input_state,
         output_state,
     ) in rows:
@@ -289,7 +297,7 @@ def _sampled_trace(
         events.append(trace_event)
         if event == "$ai_generation":
             generations.append((trace_event, int(user_messages or 0), bool(has_tool_results)))
-            previous_replies.append(_assistant_text(previous_message))
+            previous_replies.append(str(previous_reply or ""))
     if not generations:
         return None
 
@@ -308,7 +316,7 @@ def _sampled_trace(
     )
     last_generation = generations[-1][0]
     raw_segments = {
-        key: str(last_generation.properties[key])
+        key: segment_text(last_generation.properties[key])
         for key in segment_keys
         if last_generation.properties.get(key) not in (None, "")
     }
@@ -322,7 +330,7 @@ def _sampled_trace(
     }
     first = generations[0][0]
     # The reply the user answered, so a correction reads against what the assistant said before it.
-    before = previous_replies[0][-TURN_TEXT_CHARS:]
+    before = previous_replies[0]
     return SampledTrace(
         trace=LLMTrace(
             id=trace_id,
@@ -339,7 +347,9 @@ def _sampled_trace(
             for key in segment_keys
             if (
                 values := frozenset(
-                    str(g.properties[key]) for g, _, _ in generations if g.properties.get(key) not in (None, "")
+                    segment_text(g.properties[key])
+                    for g, _, _ in generations
+                    if g.properties.get(key) not in (None, "")
                 )
             )
         },

@@ -11,7 +11,7 @@ class Interval:
     high: float
 
 
-def wilson_interval(successes: int, total: int, z: float = Z_95) -> Interval:
+def wilson_interval(successes: float, total: int, z: float = Z_95) -> Interval:
     """95% Wilson score interval for a proportion. It stays inside [0, 1] and is sane at 0 or n successes,
     which matters here because failure counts are small."""
     if total <= 0:
