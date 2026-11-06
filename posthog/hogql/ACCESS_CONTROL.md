@@ -241,7 +241,7 @@ The check uses the stored column name, so a column alias such as `FROM raw_docum
 The pipeline copies no other event property into the embedding `metadata`.
 `conversation_hashes` on `posthog.mcp_intent_calls_hourly` and `posthog.mcp_intent_topic_daily` holds the unsalted cityHash64 of each conversation id, read from `$mcp_session_id` or `$session_id`, so it masks when either property is restricted.
 It reads as an empty array rather than NULL, so array functions over it still run and count no conversations.
-`tool` on both rollups holds the effective tool name, read from `$mcp_exec_tool_call_name`, `$mcp_exec_target_tool` or `$mcp_tool_name`, so restricting any of the three masks it to NULL.
+`tool` on both rollups holds the effective tool name, read from `$mcp_exec_tool_call_name`, `$mcp_exec_target_tool` or `$mcp_tool_name` depending on `$mcp_exec_verb`, so restricting any of the four masks it to NULL.
 The assignments table keeps no tool column.
 The mapping is keyed by the stored column name, not the HogQL field name, so an expression field that reads a mirror column masks too: `flag_evaluations.response` reads the stored `response` column through `nullIf`, and the hidden `flag_evaluation_response` reads it bare, and both mask. The hidden `goe_N.key` on `flag_evaluations` reads the stored `$group_N` column through an expression field, and it masks too.
 For AI columns, `AI_PROPERTY_TO_COLUMN` in `posthog/hogql/database/schema/ai_events.py` is shared with the query rewriter.

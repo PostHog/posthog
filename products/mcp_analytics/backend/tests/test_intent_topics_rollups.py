@@ -2,6 +2,7 @@ from datetime import UTC, timedelta
 from zoneinfo import ZoneInfo
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -64,6 +65,16 @@ class TestFetchHourlyCalls(ClickhouseTestMixin, APIBaseTest):
                 (0.0, intent_hash("plot signups"), "query-trends", 3, 2),
                 (1.0, intent_hash("plot signups"), "query-trends", 1, 1),
             ]
+
+    def test_a_query_cut_short_by_a_limit_raises_instead_of_returning_partial_counts(self) -> None:
+        # Partial counts would be written as a newer version of each bucket and replace the complete ones.
+        with patch(
+            "products.mcp_analytics.backend.intent_topics.corpus.execute_hogql_query", wraps=execute_hogql_query
+        ) as execute:
+            fetch_hourly_calls(self.team, since=DAY, until=DAY + timedelta(hours=1))
+
+        settings = execute.call_args.kwargs["settings"]
+        assert (settings.timeout_overflow_mode, settings.read_overflow_mode) == ("throw", "throw")
 
 
 class TestRebuildTopicDaily(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
