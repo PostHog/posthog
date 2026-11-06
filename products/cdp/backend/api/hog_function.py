@@ -688,7 +688,12 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             raise serializers.ValidationError({"filters": "Select the materialized view to trigger on."})
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
         self.context["existing_email_values_by_key"] = (
-            _stored_email_values_by_key(instance.inputs_schema, instance.inputs) if instance else {}
+            # A secret input is stored only in encrypted_inputs.
+            _stored_email_values_by_key(
+                instance.inputs_schema, {**(instance.inputs or {}), **(instance.encrypted_inputs or {})}
+            )
+            if instance
+            else {}
         )
         self.context["existing_email_values_by_mapping"] = _stored_email_values_by_mapping(
             instance, data.get("mappings")

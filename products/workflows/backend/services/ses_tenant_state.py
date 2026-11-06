@@ -14,6 +14,7 @@ from botocore.exceptions import (
     ReadTimeoutError,
 )
 from prometheus_client import Counter
+from psycopg.errors import LockNotAvailable
 
 from posthog.models.team import Team
 from posthog.plugins.plugin_server_api import (
@@ -111,25 +112,29 @@ def _apply_sandbox_tenant_state(state: SandboxSenderTenantState, sending_status:
 
 
 def sync_sandbox_tenant_state(provider: SESProvider | None = None) -> None:
-    # Serialize SES reads so a stale sweep cannot overwrite a newer pause.
     tenant_name = settings.SES_SANDBOX_TENANT_NAME
     if not tenant_name:
         return
     SandboxSenderTenantState.objects.get_or_create(tenant_name=tenant_name)
     with transaction.atomic():
         try:
-            # NOWAIT makes an overlapping sync fail at once, and its task retries with backoff. A
-            # waiting sync would hold a Celery worker and a database connection while the lock
-            # holder waits on SES.
+            # The lock serializes SES reads, so a stale sweep cannot overwrite a newer pause. NOWAIT
+            # makes an overlapping sync fail at once, and its task retries with backoff. A waiting
+            # sync would hold a Celery worker and a database connection while the holder waits on SES.
             state = SandboxSenderTenantState.objects.select_for_update(nowait=True).get(tenant_name=tenant_name)
-        except OperationalError:
-            SANDBOX_TENANT_SYNC_FAILURES.labels(kind="busy").inc()
+        except OperationalError as error:
+            SANDBOX_TENANT_SYNC_FAILURES.labels(
+                kind="busy" if isinstance(error.__cause__, LockNotAvailable) else "error"
+            ).inc()
             raise
         try:
             tenant = (provider or SESProvider()).get_tenant_sending_state(tenant_name)
         except Exception as error:
             SANDBOX_TENANT_SYNC_FAILURES.labels(kind=_sandbox_sync_failure_kind(error)).inc()
             raise
+        if tenant is None:
+            SANDBOX_TENANT_SYNC_FAILURES.labels(kind="missing").inc()
+            logger.warning("Sandbox SES tenant not found", tenant_name=tenant_name)
         _apply_sandbox_tenant_state(state, tenant.sending_status if tenant is not None else "")
 
 

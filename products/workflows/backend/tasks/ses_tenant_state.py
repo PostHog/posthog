@@ -54,13 +54,14 @@ def reconcile_ses_tenant_states() -> None:
         .distinct()
         .order_by("team_id")
     )
+    # Builds its own provider, so a provider that cannot be built counts as a failed sandbox read.
+    try:
+        sync_sandbox_tenant_state()
+    except Exception:
+        logger.exception("SES sandbox tenant reconciliation failed")
     # One provider for the whole sweep: a fresh SESProvider per team would rebuild its boto3
     # clients (and re-resolve credentials) thousands of times.
     provider = SESProvider()
-    try:
-        sync_sandbox_tenant_state(provider=provider)
-    except Exception:
-        logger.exception("SES sandbox tenant reconciliation failed")
     synced = 0
     failed = 0
     for team_id in team_ids.iterator(chunk_size=500):

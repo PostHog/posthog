@@ -64,7 +64,7 @@ SENDING_ALLOWANCE_CACHE_SECONDS = 60
 def team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
     """
     Usage comes from the send metrics rather than the worker's token buckets, so the numbers match
-    what the rest of this page reports. Cached briefly because the endpoint reloads on every search
+    what the rest of this page reports, except that usage leaves out sandbox sends. Cached briefly because the endpoint reloads on every search
     keystroke while these two aggregations do not depend on the search.
     """
     # Entries are pickles: bump the version when EmailSendingAllowance changes module or shape.
