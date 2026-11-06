@@ -2008,6 +2008,9 @@
                     "$ref": "#/definitions/VectorSearchQuery"
                 },
                 {
+                    "$ref": "#/definitions/InboxUsageQuery"
+                },
+                {
                     "$ref": "#/definitions/UsageMetricsQuery"
                 },
                 {
@@ -10288,6 +10291,107 @@
                 },
                 "warnings": {
                     "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedInboxUsageQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "$ref": "#/definitions/InboxUsage"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
                     "items": {
                         "anyOf": [
                             {
@@ -30062,6 +30166,10 @@
                     "$ref": "#/definitions/HogQLFilters",
                     "description": "Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder"
                 },
+                "freshSources": {
+                    "description": "Validate on the Python validator with freshly fetched sources, the same sources query execution uses. Adds a sources fetch on every request, so only set it where the result blocks an action.",
+                    "type": "boolean"
+                },
                 "globals": {
                     "description": "Extra globals for the query",
                     "type": "object"
@@ -30151,6 +30259,10 @@
                         "$ref": "#/definitions/PredicateIndexUsage"
                     },
                     "type": "array"
+                },
+                "internalError": {
+                    "description": "The validator raised an internal error, such as a database failure, so the errors do not prove that the query is invalid.",
+                    "type": "boolean"
                 },
                 "isUsingIndices": {
                     "$ref": "#/definitions/QueryIndexUsage"
@@ -30694,6 +30806,290 @@
                 }
             },
             "required": ["type"],
+            "type": "object"
+        },
+        "InboxUsage": {
+            "additionalProperties": false,
+            "properties": {
+                "as_of": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "attribution_incomplete": {
+                    "description": "Missing source metadata is retained in a null-source bucket.",
+                    "type": "boolean"
+                },
+                "exempt_credits": {
+                    "description": "Billing-exempt subset of total_credits.",
+                    "type": "string"
+                },
+                "incomplete": {
+                    "type": "boolean"
+                },
+                "period_end": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "period_start": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "pricing": {
+                    "$ref": "#/definitions/InboxUsagePricing"
+                },
+                "project_id": {
+                    "$ref": "#/definitions/integer"
+                },
+                "scouts": {
+                    "description": "Scout execution only. These totals and source totals sum to total_credits.",
+                    "items": {
+                        "$ref": "#/definitions/InboxUsageScout"
+                    },
+                    "type": "array"
+                },
+                "sources": {
+                    "description": "Processing, research and implementation. Excludes scout execution.",
+                    "items": {
+                        "$ref": "#/definitions/InboxUsageSource"
+                    },
+                    "type": "array"
+                },
+                "total_credits": {
+                    "description": "Recorded finalized credits, including exemptions. Decimal strings preserve fractional credits.",
+                    "type": "string"
+                },
+                "unsettled_credits": {
+                    "description": "Unfinalized credits created in the selected range, excluded from total_credits.",
+                    "type": "string"
+                },
+                "untracked_scout_run_count": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": [
+                "as_of",
+                "attribution_incomplete",
+                "exempt_credits",
+                "incomplete",
+                "period_end",
+                "period_start",
+                "pricing",
+                "project_id",
+                "scouts",
+                "sources",
+                "total_credits",
+                "unsettled_credits",
+                "untracked_scout_run_count"
+            ],
+            "type": "object"
+        },
+        "InboxUsageCredits": {
+            "additionalProperties": false,
+            "properties": {
+                "exempt_credits": {
+                    "description": "Billing-exempt subset of total_credits.",
+                    "type": "string"
+                },
+                "incomplete": {
+                    "type": "boolean"
+                },
+                "total_credits": {
+                    "description": "Recorded finalized credits, including exemptions. Decimal strings preserve fractional credits.",
+                    "type": "string"
+                }
+            },
+            "required": ["total_credits", "exempt_credits", "incomplete"],
+            "type": "object"
+        },
+        "InboxUsagePricing": {
+            "additionalProperties": false,
+            "properties": {
+                "currency": {
+                    "const": "USD",
+                    "type": "string"
+                },
+                "usd_per_credit": {
+                    "description": "Multiply credits by this value for recorded USD usage, before billing adjustments.",
+                    "type": "string"
+                }
+            },
+            "required": ["currency", "usd_per_credit"],
+            "type": "object"
+        },
+        "InboxUsageQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "UTC date range. Use explicitDate for exact bounds; the end is exclusive."
+                },
+                "kind": {
+                    "const": "InboxUsageQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/InboxUsageQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["dateRange", "kind"],
+            "type": "object"
+        },
+        "InboxUsageQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "$ref": "#/definitions/InboxUsage"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "InboxUsageScout": {
+            "additionalProperties": false,
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "exempt_credits": {
+                    "description": "Billing-exempt subset of total_credits.",
+                    "type": "string"
+                },
+                "incomplete": {
+                    "type": "boolean"
+                },
+                "reports_produced": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Distinct reports emitted by this scout; reports may be shared across scouts."
+                },
+                "run_count": {
+                    "$ref": "#/definitions/integer"
+                },
+                "scout_config_id": {
+                    "type": ["string", "null"]
+                },
+                "skill_name": {
+                    "type": "string"
+                },
+                "total_credits": {
+                    "description": "Recorded finalized credits, including exemptions. Decimal strings preserve fractional credits.",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "display_name",
+                "exempt_credits",
+                "incomplete",
+                "reports_produced",
+                "run_count",
+                "scout_config_id",
+                "skill_name",
+                "total_credits"
+            ],
+            "type": "object"
+        },
+        "InboxUsageSource": {
+            "additionalProperties": false,
+            "properties": {
+                "exempt_credits": {
+                    "description": "Billing-exempt subset of total_credits.",
+                    "type": "string"
+                },
+                "implementation_credits": {
+                    "type": "string"
+                },
+                "incomplete": {
+                    "type": "boolean"
+                },
+                "processing_credits": {
+                    "type": "string"
+                },
+                "research_credits": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "type": ["string", "null"]
+                },
+                "source_type": {
+                    "type": ["string", "null"]
+                },
+                "total_credits": {
+                    "description": "Recorded finalized credits, including exemptions. Decimal strings preserve fractional credits.",
+                    "type": "string"
+                }
+            },
+            "required": [
+                "exempt_credits",
+                "implementation_credits",
+                "incomplete",
+                "processing_credits",
+                "research_credits",
+                "source_product",
+                "source_type",
+                "total_credits"
+            ],
             "type": "object"
         },
         "InfinityValue": {
@@ -35662,6 +36058,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties"],
@@ -35919,6 +36319,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["conversionGoalId", "kind", "properties"],
@@ -36124,6 +36528,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["conversionGoalId", "kind", "properties"],
@@ -36824,6 +37232,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties"],
@@ -37506,6 +37918,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties"],
@@ -40937,6 +41353,7 @@
                 "DatabaseSchemaQuery",
                 "SuggestedQuestionsQuery",
                 "TeamTaxonomyQuery",
+                "InboxUsageQuery",
                 "EventTaxonomyQuery",
                 "ActorsPropertyTaxonomyQuery",
                 "TracesQuery",
@@ -43505,6 +43922,10 @@
                                 "$ref": "#/definitions/PredicateIndexUsage"
                             },
                             "type": "array"
+                        },
+                        "internalError": {
+                            "description": "The validator raised an internal error, such as a database failure, so the errors do not prove that the query is invalid.",
+                            "type": "boolean"
                         },
                         "isUsingIndices": {
                             "$ref": "#/definitions/QueryIndexUsage"
@@ -49604,6 +50025,68 @@
                             "description": "The date range used for the query"
                         },
                         "results": {
+                            "$ref": "#/definitions/InboxUsage"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
                             "items": {
                                 "$ref": "#/definitions/UsageMetric"
                             },
@@ -51728,6 +52211,9 @@
                 },
                 {
                     "$ref": "#/definitions/VectorSearchQuery"
+                },
+                {
+                    "$ref": "#/definitions/InboxUsageQuery"
                 },
                 {
                     "$ref": "#/definitions/UsageMetricsQuery"
@@ -58238,6 +58724,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties", "queryType"],
@@ -58554,6 +59044,16 @@
             },
             "type": "array"
         },
+        "WebAnalyticsQueryModifiers": {
+            "additionalProperties": false,
+            "properties": {
+                "useDimensionalTables": {
+                    "description": "Serve web overview and stats table queries from the dimensional precompute tables when they hold ready data for the whole date range. Falls back to the normal path otherwise.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "WebAnalyticsSampling": {
             "additionalProperties": false,
             "properties": {
@@ -58660,6 +59160,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["breakdownBy", "kind", "properties"],
@@ -58834,6 +59338,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties"],
@@ -59012,6 +59520,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties"],
@@ -59237,6 +59749,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties"],
@@ -59425,6 +59941,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties"],
@@ -59698,6 +60218,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties"],
@@ -60006,6 +60530,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties"],
@@ -60235,6 +60763,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["breakdownBy", "kind", "properties"],
@@ -60487,6 +61019,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "metric", "percentile", "properties", "thresholds"],
@@ -60702,6 +61238,10 @@
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
+                },
+                "webQueryModifiers": {
+                    "$ref": "#/definitions/WebAnalyticsQueryModifiers",
+                    "description": "Per-request switches for how web analytics serves this query."
                 }
             },
             "required": ["kind", "properties", "source"],

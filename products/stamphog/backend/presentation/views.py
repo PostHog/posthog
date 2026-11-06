@@ -84,8 +84,9 @@ _INSTALL_STATE_MAX_AGE_SECONDS = 60 * 60
 # `enabled` is split by direction: turning reviews on takes editor, turning them off takes manager.
 REVIEW_POLICY_FIELDS = ("review_mode", "trigger_label")
 # Reviewer requests decide which teams get asked on every pull request, and turning them off can leave
-# pull requests with no reviewer at all, so both directions take manager.
-MANAGER_FIELDS = (*REVIEW_POLICY_FIELDS, "routing_mode")
+# pull requests with no reviewer at all, so both directions take manager. A fork label replaces a
+# team's review request on fork pull requests, so it decides who gets asked too.
+MANAGER_FIELDS = (*REVIEW_POLICY_FIELDS, "routing_mode", "routing_fork_labels")
 
 ReviewLevel = Literal["editor", "manager"]
 

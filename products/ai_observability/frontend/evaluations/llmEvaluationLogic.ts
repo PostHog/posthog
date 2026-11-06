@@ -145,6 +145,16 @@ if (not result) {
 return result`,
 ]
 
+// A new judge starts from this instead of an empty box. It returns true or false, the default output type.
+export const DEFAULT_JUDGE_PROMPT = `Check the assistant's response to the user.
+
+Return true if the response:
+- Answers what the user asked
+- States only facts it can support, without making things up
+- Follows the instructions in the system prompt
+
+Return false if it misses any of these.`
+
 const DEFAULT_SENTIMENT_SOURCE = 'user_messages' as const
 const DEFAULT_SENTIMENT_RUNS_FILTER = 'negative' as const
 const DEFAULT_CONDITION_ROLLOUT_PERCENTAGE = 100
@@ -1485,7 +1495,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                             : {
                                   ...baseFields,
                                   evaluation_type: 'llm_judge' as const,
-                                  evaluation_config: { prompt: '' },
+                                  evaluation_config: { prompt: DEFAULT_JUDGE_PROMPT },
                               }
                 actions.loadEvaluationSuccess(newEvaluation)
             }
@@ -1539,7 +1549,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     status_reason_detail: null,
                     evaluation_type: 'llm_judge',
                     evaluation_config: {
-                        prompt: '',
+                        prompt: DEFAULT_JUDGE_PROMPT,
                     },
                     output_type: 'boolean',
                     output_config: {},
