@@ -12,6 +12,7 @@ from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.restricted_properties import (
     PERSON_PROPERTY_CONTAINERS,
     RESTRICTABLE_JSON_BLOB_COLUMNS,
+    restricted_key_path,
     restricted_property_keys_for_table_type,
 )
 
@@ -22,12 +23,9 @@ from products.event_definitions.backend.models.property_definition import Proper
 _GROUP_PROPERTIES_COLUMN = re.compile(r"group(\d+)_properties")
 
 
-@pytest.mark.parametrize(
-    "reversible, encoded, encoded_twice",
-    [(False, "user%%2Eemail", "user%%2Eemail"), (True, "user%25%2Eemail", "user%2525%252Eemail")],
-)
-def test_native_restrictions_include_encoded_event_and_identify_keys(
-    monkeypatch: pytest.MonkeyPatch, reversible: bool, encoded: str, encoded_twice: str
+@pytest.mark.parametrize("reversible", [False, True])
+def test_native_restrictions_alias_encoded_spellings_only_without_reversible_keys(
+    monkeypatch: pytest.MonkeyPatch, reversible: bool
 ) -> None:
     monkeypatch.setattr("posthog.clickhouse.events_json.EVENTS_JSON_REVERSIBLE_KEYS", reversible)
     context = HogQLContext(
@@ -38,15 +36,22 @@ def test_native_restrictions_include_encoded_event_and_identify_keys(
             RestrictedProperty(name="user%.email", property_type=PropertyDefinition.Type.PERSON),
         },
     )
-    assert restricted_property_keys_for_table_type(ast.TableType(table=EventsTable()), context) == {
+    keys = restricted_property_keys_for_table_type(ast.TableType(table=EventsTable()), context)
+    expected = {
         "user%.email",
-        encoded,
         "$unparseable_properties",
         *(f"{container}.user%.email" for container in PERSON_PROPERTY_CONTAINERS),
-        *(f"{container}.{encoded}" for container in PERSON_PROPERTY_CONTAINERS),
-        *(f"{container}%2E{encoded}" for container in PERSON_PROPERTY_CONTAINERS),
-        *(f"{container}%2E{encoded_twice}" for container in PERSON_PROPERTY_CONTAINERS),
     }
+    if not reversible:
+        # The column stores `user%.email` and the literal `user%%2Eemail` as one path, so both spellings are restricted.
+        expected |= {
+            "user%%2Eemail",
+            *(f"{container}.user%%2Eemail" for container in PERSON_PROPERTY_CONTAINERS),
+            *(f"{container}%2Euser%%2Eemail" for container in PERSON_PROPERTY_CONTAINERS),
+        }
+    assert keys == expected
+    # A reversible column stores the literal `user%%2Eemail` as its own path, so the restriction leaves it readable.
+    assert (restricted_key_path(["user%%2Eemail"], keys) is None) == reversible
 
 
 # A distinct restricted key per property class, so a table dispatched to the wrong class, or a group blob
