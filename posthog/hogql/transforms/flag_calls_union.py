@@ -654,6 +654,13 @@ class _WithValues:
 
     def __init__(self) -> None:
         self._values: dict[int, ast.Expr] = {}
+        self._has_flag_called_constant: dict[int, bool] = {}
+
+    def has_flag_called_constant(self, cte: ast.CTE) -> bool:
+        found = self._has_flag_called_constant.get(id(cte))
+        if found is None:
+            found = self._has_flag_called_constant[id(cte)] = _has_flag_called_constant(cte.expr)
+        return found
 
     def of(self, cte: ast.CTE) -> ast.Expr:
         value = self._values.get(id(cte))
@@ -843,8 +850,18 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
     @property
     def names_flag_calls(self) -> bool:
         # Past the budget the finder cannot tell which values it compares with `event`. A query without any
-        # `$feature_flag_called` constant cannot compare `event` with one, so only a query with one counts.
-        return bool(self.literals) or (self.values_left < 0 and _has_flag_called_constant(self.root))
+        # `$feature_flag_called` constant cannot compare `event` with one, so only a query with one counts. A column CTE
+        # in scope can hold that constant outside the query.
+        return bool(self.literals) or (
+            self.values_left < 0
+            and (
+                _has_flag_called_constant(self.root)
+                or any(
+                    cte.cte_type == "column" and self.with_values.has_flag_called_constant(cte)
+                    for cte in self.ctes.values()
+                )
+            )
+        )
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         if node is self.root:

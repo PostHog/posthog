@@ -235,6 +235,9 @@ def _restrict(organization, team, name: str) -> None:
     )
 
 
+_PAST_THE_BUDGET = "FROM persons AS p JOIN events AS e ON p.id = e.person_id WHERE e.event IN ('$pageview', '$autocapture', '$identify')"
+
+
 class TestRenameFlagCallScansToUnion(SimpleTestCase):
     @parameterized.expand(
         [
@@ -690,19 +693,22 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no_flag_call_constant", "", []),
+            ("no_flag_call_constant", f"SELECT count() {_PAST_THE_BUDGET}", []),
             (
                 "flag_call_constant_elsewhere",
-                ", '$feature_flag_called' AS name",
+                f"SELECT count(), '$feature_flag_called' AS name {_PAST_THE_BUDGET}",
+                ["it compares `event` with more values than the flag-call check reads"],
+            ),
+            (
+                "flag_call_constant_in_an_outer_with",
+                "WITH '$feature_flag_called' AS fc SELECT * FROM (SELECT count() FROM persons AS p "
+                "JOIN events AS e ON p.id = e.person_id WHERE e.event IN ('$pageview', '$autocapture', fc))",
                 ["it compares `event` with more values than the flag-call check reads"],
             ),
         ]
     )
-    def test_scan_past_the_compared_values_budget(self, _name: str, extra_select: str, expected_refusals: list[str]):
-        select = _select(
-            f"SELECT count(){extra_select} FROM persons AS p JOIN events AS e ON p.id = e.person_id "
-            "WHERE e.event IN ('$pageview', '$autocapture', '$identify')"
-        )
+    def test_scan_past_the_compared_values_budget(self, _name: str, query: str, expected_refusals: list[str]):
+        select = _select(query)
         with patch("posthog.hogql.transforms.flag_calls_union._COMPARED_VALUES_BUDGET", 2):
             rename = rename_flag_call_scans_to_union(
                 select, flag_key_compares_as_string=lambda: True, only_in_flag_evaluations=True
