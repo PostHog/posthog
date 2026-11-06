@@ -28,7 +28,6 @@ APP_SOURCE = "hog_flow"
 
 SENT_METRIC = "email_sent"
 SANDBOX_SENT_METRIC = "email_sandbox_sent"
-SENT_METRICS = [SENT_METRIC, SANDBOX_SENT_METRIC]
 HARD_BOUNCE_METRIC = "email_bounced_hard"
 # SES complaint events are recorded under this name (see the SES webhook handler in the email
 # worker), so a complaint rate reads `email_blocked`, not a metric called "complaint".
@@ -348,7 +347,7 @@ def _fetch_daily_metrics(
     feature: Feature = Feature.ENRICHMENT,
 ) -> dict[int, dict[str, _DailyEmailMetrics]]:
     auto_pause_metrics = [name for name in settings.WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES if name]
-    other_metrics = list(dict.fromkeys([HARD_BOUNCE_METRIC, COMPLAINT_METRIC, *auto_pause_metrics]))
+    other_metrics = [HARD_BOUNCE_METRIC, COMPLAINT_METRIC, *auto_pause_metrics]
     params: dict[str, Any] = {
         "app_source": APP_SOURCE,
         "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
@@ -356,7 +355,7 @@ def _fetch_daily_metrics(
         "team_ids": team_ids,
         "sent": SENT_METRIC,
         "sandbox": SANDBOX_SENT_METRIC,
-        "names": [*SENT_METRICS, *other_metrics],
+        "names": [SENT_METRIC, SANDBOX_SENT_METRIC, *other_metrics],
     }
     in_window = "timestamp >= toDateTime64(%(after)s, 6)" + (
         " AND timestamp <= toDateTime64(%(before)s, 6)" if before else ""
