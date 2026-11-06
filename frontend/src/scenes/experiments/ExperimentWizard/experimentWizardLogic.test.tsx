@@ -15,6 +15,7 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { useMocks } from '~/mocks/jest'
 import {
     type ExperimentMetric,
+    type ExperimentMetricSource,
     ExperimentMetricType,
     type ExperimentWarehouseNativeExposureConfig,
     ExperimentWarehouseNativeMathType,
@@ -668,19 +669,40 @@ describe('experimentWizardLogic', () => {
             expect(logic.values.saveDisabledReason).toBeUndefined()
         })
 
-        it('counts shared metrics among the data sources the draft reads', () => {
-            const sharedEventsMetric = {
-                kind: NodeKind.ExperimentMetric,
-                uuid: 'shared-1',
-                metric_type: ExperimentMetricType.MEAN,
-                source: { kind: NodeKind.EventsNode, event: '$pageview' },
-                isSharedMetric: true,
-                sharedMetricId: 7,
-            } as ExperimentMetric
+        it('blocks the save while a shared metric cannot run with the exposure', () => {
+            const sharedMetric = (source: ExperimentMetricSource): ExperimentMetric =>
+                ({
+                    kind: NodeKind.ExperimentMetric,
+                    uuid: 'shared-1',
+                    metric_type: ExperimentMetricType.MEAN,
+                    source,
+                    isSharedMetric: true,
+                    sharedMetricId: 7,
+                }) as ExperimentMetric
+            const exposure = warehouseExposure()
+            const sharedWarehouseMetric = sharedMetric({
+                kind: NodeKind.ExperimentWarehouseNativeNode,
+                connection_id: exposure.connection_id,
+                unit: exposure.unit,
+                query: 'SELECT customer_id AS entity_id, paid_at AS timestamp FROM billing.payments',
+                math: ExperimentWarehouseNativeMathType.TotalCount,
+            })
+            logic.actions.setExposureCriteria({ exposure_config: exposure })
 
-            createLogic.actions.setSharedMetrics({ primary: [], secondary: [sharedEventsMetric] })
-
+            // The draft keeps shared metrics outside `experiment`, so they are easy to leave out of the check
+            createLogic.actions.setSharedMetrics({
+                primary: [],
+                secondary: [sharedMetric({ kind: NodeKind.EventsNode, event: '$pageview' })],
+            })
             expect(logic.values.metricDataSources).toEqual({ warehouseNative: false, posthog: true })
+            expect(logic.values.saveDisabledReason).toMatch(/only works with warehouse-native metrics/)
+
+            createLogic.actions.setSharedMetrics({ primary: [sharedWarehouseMetric], secondary: [] })
+            expect(logic.values.saveDisabledReason).toBeUndefined()
+
+            // An exposure edit moves the draft's own metrics, but a shared metric keeps its connection
+            logic.actions.setExposureCriteria({ exposure_config: warehouseExposure({ connection_id: 'connection-2' }) })
+            expect(logic.values.saveDisabledReason).toMatch(/shared metric uses another connection/)
         })
 
         it('saveExperiment marks all steps as departed, revealing all errors', async () => {

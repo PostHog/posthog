@@ -13,6 +13,7 @@ import {
     getExperimentMetricDataSources,
     getExposureSourceBlockedReasons,
     getWarehouseNativeMetricError,
+    getWarehouseNativeMismatchError,
     toWarehouseNativeMetric,
 } from './warehouseNativeSources'
 
@@ -148,5 +149,27 @@ describe('warehouseNativeSources', () => {
 
         expect(!!reasons.warehouseNative).toBe(blocked === 'warehouseNative')
         expect(!!reasons.posthog).toBe(blocked === 'posthog')
+    })
+
+    it.each([
+        ['a shared metric on the same connection and unit', warehouseSource(), null],
+        ['a shared metric on another connection', warehouseSource({ connection_id: 'connection-2' }), /shared metric/],
+        [
+            'a shared metric on another unit',
+            warehouseSource({ unit: { unit_type: 'account', id_namespace: 'crm_account_id' } }),
+            /shared metric/,
+        ],
+    ])('checks a warehouse-native exposure against %s', (_, sharedSource, expected) => {
+        const exposure = { ...warehouseSource(), kind: NodeKind.ExperimentWarehouseNativeExposureConfig as const }
+
+        const error = getWarehouseNativeMismatchError(exposure, { warehouseNative: true, posthog: false }, [
+            meanMetric(sharedSource),
+        ])
+
+        if (expected) {
+            expect(error).toMatch(expected)
+        } else {
+            expect(error).toBeNull()
+        }
     })
 })

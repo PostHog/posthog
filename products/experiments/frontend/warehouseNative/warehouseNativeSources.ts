@@ -158,6 +158,14 @@ export function toWarehouseNativeMetric(
     }
 }
 
+const metricMatchesBinding = (metric: ExperimentMetric, binding: WarehouseNativeBinding): boolean =>
+    getWarehouseNativeSources(metric).every(
+        (source) =>
+            source.connection_id === binding.connection_id &&
+            source.unit.unit_type === binding.unit.unit_type &&
+            source.unit.id_namespace === binding.unit.id_namespace
+    )
+
 /**
  * Copies the exposure's connection and unit onto the warehouse-native metrics. The API rejects an
  * exposure that differs from the metrics, so a changed exposure must save together with them.
@@ -172,14 +180,36 @@ export function alignMetricsWithExposure<T extends { kind: NodeKind }>(
             return metric
         }
         const experimentMetric = metric as unknown as ExperimentMetric
-        const aligned = getWarehouseNativeSources(experimentMetric).every(
-            (source) =>
-                source.connection_id === exposure.connection_id &&
-                source.unit.unit_type === exposure.unit.unit_type &&
-                source.unit.id_namespace === exposure.unit.id_namespace
-        )
-        return aligned ? metric : (toWarehouseNativeMetric(experimentMetric, exposure) as unknown as T)
+        return metricMatchesBinding(experimentMetric, exposure)
+            ? metric
+            : (toWarehouseNativeMetric(experimentMetric, exposure) as unknown as T)
     })
+}
+
+/**
+ * Why the API would reject the exposure together with the metrics, or null. A shared metric keeps
+ * its own connection and unit, so `alignMetricsWithExposure` cannot move it to a changed exposure.
+ */
+export function getWarehouseNativeMismatchError(
+    exposure: ExperimentWarehouseNativeExposureConfig | null,
+    metricDataSources: MetricDataSources,
+    sharedMetricQueries: ({ kind: NodeKind } | null | undefined)[]
+): string | null {
+    if (!exposure) {
+        return metricDataSources.warehouseNative
+            ? 'Warehouse-native metrics need a warehouse-native exposure. Remove them, or change the exposure.'
+            : null
+    }
+    if (metricDataSources.posthog) {
+        return 'A warehouse-native exposure only works with warehouse-native metrics. Remove the other metrics, or change the exposure.'
+    }
+    const sharedMetricDiffers = sharedMetricQueries.some(
+        (query) =>
+            query?.kind === NodeKind.ExperimentMetric && !metricMatchesBinding(query as ExperimentMetric, exposure)
+    )
+    return sharedMetricDiffers
+        ? 'A shared metric uses another connection, unit or ID type than the exposure. Remove it, or match the exposure to it.'
+        : null
 }
 
 const getBindingError = (binding: WarehouseNativeBinding): string | null => {

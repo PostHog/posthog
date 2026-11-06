@@ -24,6 +24,7 @@ import {
     getExposureSourceBlockedReasons,
     getWarehouseNativeExposure,
     getWarehouseNativeExposureError,
+    getWarehouseNativeMismatchError,
 } from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import { experimentLogic } from '../experimentLogic'
@@ -64,6 +65,15 @@ export function ExposureCriteriaModal({ onSave, metricDataSources }: ExposureCri
             !!warehouseExposure,
             metricDataSources ?? getExperimentMetricDataSources(experiment)
         )
+    // A shared metric keeps its own connection and unit, so the save cannot move it to an edited exposure
+    const saveDisabledReason = warehouseExposure
+        ? (getWarehouseNativeExposureError(warehouseExposure) ??
+          getWarehouseNativeMismatchError(
+              warehouseExposure,
+              { warehouseNative: false, posthog: false },
+              (experiment.saved_metrics ?? []).map((savedMetric) => savedMetric?.query)
+          ))
+        : null
 
     return (
         <LemonModal
@@ -90,9 +100,7 @@ export function ExposureCriteriaModal({ onSave, metricDataSources }: ExposureCri
                             closeExposureCriteriaModal()
                         }}
                         type="primary"
-                        disabledReason={
-                            warehouseExposure ? getWarehouseNativeExposureError(warehouseExposure) : undefined
-                        }
+                        disabledReason={saveDisabledReason}
                     >
                         Save
                     </LemonButton>
