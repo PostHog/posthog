@@ -1,7 +1,8 @@
 use std::io::Cursor;
 use std::{
+    ffi::OsStr,
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 use anyhow::{Context, Result};
@@ -146,8 +147,6 @@ fn extract_symbol_data(data: &[u8], base_name: &str, output: &Path) -> Result<()
 
 /// Extract a dSYM ZIP archive (DWARF binary + optional source files).
 fn extract_dsym_zip(zip_data: &[u8], base_name: &str, output: &Path) -> Result<()> {
-    use std::path::Component;
-
     let dsym_dir = output.join(base_name);
     fs::create_dir_all(&dsym_dir).context("Failed to create dSYM output directory")?;
 
@@ -157,11 +156,13 @@ fn extract_dsym_zip(zip_data: &[u8], base_name: &str, output: &Path) -> Result<(
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).context("Failed to read ZIP entry")?;
 
-        // Sanitize: keep only Normal components, stripping .., ., and root prefixes
+        // Sanitize: keep only Normal components, stripping .., ., and root prefixes.
+        // On Windows a mid-path `C:` is Normal here but becomes a drive prefix
+        // once pushed, which replaces the path, so each part is checked alone.
         let safe_name: PathBuf = std::path::Path::new(file.name())
             .components()
             .filter_map(|c| match c {
-                Component::Normal(part) => Some(part),
+                Component::Normal(part) if is_plain_component(part) => Some(part),
                 _ => None,
             })
             .collect();
@@ -190,17 +191,14 @@ fn extract_dsym_zip(zip_data: &[u8], base_name: &str, output: &Path) -> Result<(
     Ok(())
 }
 
-/// Extract a reasonable base filename from the symbol set ref.
+/// Extract a reasonable base filename from the symbol set ref. Callers join
+/// the result onto the output directory, so anything that is not a single
+/// plain path component falls back to `symbol_set`.
 fn derive_base_name(ref_str: &str) -> String {
     let name = std::path::Path::new(ref_str)
         .file_name()
         .and_then(|n| n.to_str())
-        .unwrap_or(ref_str);
-    let name = if name == ".." || name == "." {
-        "symbol_set"
-    } else {
-        name
-    };
+        .unwrap_or_default();
     // Strip common extensions so we can re-add the correct ones
     let name = name
         .strip_suffix(".js.map")
@@ -211,9 +209,63 @@ fn derive_base_name(ref_str: &str) -> String {
         .or_else(|| name.strip_suffix(".dSYM"))
         .unwrap_or(name);
 
-    if name.is_empty() {
-        "symbol_set".to_string()
-    } else {
+    if is_plain_component(OsStr::new(name)) {
         name.to_string()
+    } else {
+        "symbol_set".to_string()
+    }
+}
+
+fn is_plain_component(name: &OsStr) -> bool {
+    let mut components = Path::new(name).components();
+    matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        fs,
+        io::{Cursor, Write},
+    };
+
+    use posthog_symbol_data::{write_symbol_data, AppleDsym};
+
+    use super::{derive_base_name, extract, ExtractArgs};
+
+    #[test]
+    fn extract_keeps_dsym_files_inside_the_output_directory() {
+        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        zip.start_file("dwarf", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(b"debug info").unwrap();
+        let zip_data = zip.finish().unwrap().into_inner();
+
+        let root = tempfile::tempdir().unwrap();
+        let file = root.path().join("...dSYM");
+        fs::write(
+            &file,
+            write_symbol_data(AppleDsym { data: zip_data }).unwrap(),
+        )
+        .unwrap();
+        let output = root.path().join("out");
+
+        extract(&ExtractArgs {
+            file,
+            output: output.clone(),
+        })
+        .unwrap();
+
+        assert!(!root.path().join("dwarf").exists());
+        assert!(output.join("symbol_set").join("dwarf").is_file());
+    }
+
+    #[test]
+    fn derive_base_name_falls_back_when_the_ref_has_no_file_name() {
+        assert_eq!(
+            derive_base_name("https://example.com/static/app.js.map"),
+            "app"
+        );
+        assert_eq!(derive_base_name("../../../"), "symbol_set");
+        assert_eq!(derive_base_name("/"), "symbol_set");
     }
 }
