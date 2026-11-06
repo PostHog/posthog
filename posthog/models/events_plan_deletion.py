@@ -43,27 +43,24 @@ class TeamEventsPlanDeletion(models.Model):
     next_deletion_on = models.DateField(
         help_text="The cleanup on or after this date deletes the team's events older than the period."
     )
-    downgraded_from_months = models.PositiveSmallIntegerField(
-        null=True,
-        blank=True,
-        help_text="The plan period before a downgrade shortened the team's period. "
-        "It clears once organization admins hear about the next pass, or once the pass runs.",
-    )
 
     @property
     def state(self) -> "PlanDeletionState":
-        return PlanDeletionState(
-            months=self.months,
-            next_deletion_on=self.next_deletion_on,
-            downgraded_from_months=self.downgraded_from_months,
-        )
+        return PlanDeletionState(months=self.months, next_deletion_on=self.next_deletion_on)
+
+
+class TeamEventsRetentionDowngrade(models.Model):
+    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, db_constraint=False)
+    downgraded_from_months = models.PositiveSmallIntegerField(
+        help_text="The plan period before a downgrade shortened the team's period. The row goes once organization "
+        "admins hear about the team's next pass, or once that pass runs."
+    )
 
 
 @frozen
 class PlanDeletionState:
     months: int
     next_deletion_on: date
-    downgraded_from_months: int | None = None
 
 
 def cleanup_timezone() -> str:
@@ -88,35 +85,25 @@ def next_pass_on(today: date) -> date:
     return cleanup_on_or_after(today + relativedelta(months=PASS_INTERVAL_MONTHS))
 
 
-def admitted(period_months: int, today: date, downgraded_from_months: int | None = None) -> PlanDeletionState:
-    return PlanDeletionState(
-        months=period_months, next_deletion_on=next_pass_on(today), downgraded_from_months=downgraded_from_months
-    )
+def admitted(period_months: int, today: date) -> PlanDeletionState:
+    return PlanDeletionState(months=period_months, next_deletion_on=next_pass_on(today))
 
 
 def is_shorter_period(state: PlanDeletionState, period_months: int) -> bool:
     return period_months < state.months
 
 
-def with_period(
-    state: PlanDeletionState, period_months: int, today: date, downgraded_from_months: int | None = None
-) -> PlanDeletionState:
-    if not is_shorter_period(state, period_months):
-        return replace(state, months=period_months)
-    return PlanDeletionState(
-        months=period_months,
-        next_deletion_on=max(state.next_deletion_on, next_pass_on(today)),
-        downgraded_from_months=max(state.downgraded_from_months or 0, downgraded_from_months or 0) or None,
+def with_period(state: PlanDeletionState, period_months: int, today: date) -> PlanDeletionState:
+    next_deletion_on = (
+        max(state.next_deletion_on, next_pass_on(today))
+        if is_shorter_period(state, period_months)
+        else state.next_deletion_on
     )
+    return PlanDeletionState(months=period_months, next_deletion_on=next_deletion_on)
 
 
 def after_pass(state: PlanDeletionState, today: date) -> PlanDeletionState:
-    passed = state.next_deletion_on <= today
-    return replace(
-        state,
-        next_deletion_on=max(state.next_deletion_on, next_pass_on(today)),
-        downgraded_from_months=None if passed else state.downgraded_from_months,
-    )
+    return replace(state, next_deletion_on=max(state.next_deletion_on, next_pass_on(today)))
 
 
 def deletion_months(setting: TeamEventsRetention | None, due_pass_months: int | None) -> int | None:
@@ -128,9 +115,7 @@ def deleting_plans(teams: Iterable[Team]) -> list[TeamPlan]:
     return [team_plan(team) for team in teams if should_delete_past_default_period(team)]
 
 
-def reschedule_plan_deletions(
-    plans: Sequence[TeamPlan], today: date, downgraded_from_months: int | None = None
-) -> dict[int, PlanDeletionState]:
+def reschedule_plan_deletions(plans: Sequence[TeamPlan], today: date) -> dict[int, PlanDeletionState]:
     team_ids = [plan.team_id for plan in plans]
     rows = {
         row.team_id: row.state
@@ -141,16 +126,14 @@ def reschedule_plan_deletions(
     for team_id in team_ids:
         state = rows.get(team_id)
         states[team_id] = (
-            with_period(state, periods[team_id], today, downgraded_from_months)
-            if state is not None
-            else admitted(periods[team_id], today, downgraded_from_months)
+            with_period(state, periods[team_id], today) if state is not None else admitted(periods[team_id], today)
         )
 
     TeamEventsPlanDeletion.objects.bulk_create(
         [_row(team_id, state) for team_id, state in states.items() if team_id in rows and state != rows[team_id]],
         update_conflicts=True,
         unique_fields=["team"],
-        update_fields=["months", "next_deletion_on", "downgraded_from_months"],
+        update_fields=["months", "next_deletion_on"],
         batch_size=_WRITE_BATCH_SIZE,
     )
     TeamEventsPlanDeletion.objects.bulk_create(
@@ -162,19 +145,14 @@ def reschedule_plan_deletions(
 
 
 def _row(team_id: int, state: PlanDeletionState) -> TeamEventsPlanDeletion:
-    return TeamEventsPlanDeletion(
-        team_id=team_id,
-        months=state.months,
-        next_deletion_on=state.next_deletion_on,
-        downgraded_from_months=state.downgraded_from_months,
-    )
+    return TeamEventsPlanDeletion(team_id=team_id, months=state.months, next_deletion_on=state.next_deletion_on)
 
 
 def apply_events_retention_change(
     organization: Organization, previous_months: int | None, previous_standard_retention: bool
 ) -> None:
     """Align the organization's teams and their passes with its plan period. When a downgrade shortens the period of
-    any team, push those teams' passes and tell the admins.
+    any team, push those teams' passes, remember the downgrade until their next pass, and tell the admins.
 
     The first billing sync has no previous period. It moves teams off the 84-month fallback, which is no downgrade.
     """
@@ -191,11 +169,9 @@ def apply_events_retention_change(
         shortened = _shortened_teams(organization.id, teams, previous_months, previous_standard_retention)
         if not shortened:
             return
-        states = reschedule_plan_deletions(deleting_plans(shortened), cleanup_date(), previous_months)
-    deletion_on = min(
-        (state.next_deletion_on for state in states.values() if state.downgraded_from_months is not None),
-        default=None,
-    )
+        states = reschedule_plan_deletions(deleting_plans(shortened), cleanup_date())
+        _remember_downgrade(shortened, previous_months)
+    deletion_on = min((state.next_deletion_on for state in states.values()), default=None)
     report_events_retention_shortened.delay(str(organization.id), _notice(organization, previous_months, deletion_on))
 
 
@@ -211,6 +187,26 @@ def _shortened_teams(
     return [team for team in teams if after[team.id] < before[team.id]]
 
 
+def _remember_downgrade(teams: Sequence[Team], previous_months: int) -> None:
+    remembered = dict(
+        TeamEventsRetentionDowngrade.objects.filter(team_id__in=[team.id for team in teams]).values_list(
+            "team_id", "downgraded_from_months"
+        )
+    )
+    TeamEventsRetentionDowngrade.objects.bulk_create(
+        [
+            TeamEventsRetentionDowngrade(
+                team_id=team.id, downgraded_from_months=max(previous_months, remembered.get(team.id, 0))
+            )
+            for team in teams
+        ],
+        update_conflicts=True,
+        unique_fields=["team"],
+        update_fields=["downgraded_from_months"],
+        batch_size=_WRITE_BATCH_SIZE,
+    )
+
+
 def report_retention_shortened(organization_id: UUID, notice: dict[str, object]) -> None:
     _notify_admins(RETENTION_SHORTENED_EVENT, {organization_id: notice})
 
@@ -220,25 +216,28 @@ def report_upcoming_deletions() -> int:
     deletion_on = next_cleanup_on()
     if deletion_on - cleanup_date() > timedelta(days=DELETION_NOTICE_DAYS):
         return 0
-    marked = TeamEventsPlanDeletion.objects.filter(
-        downgraded_from_months__isnull=False, next_deletion_on__lte=deletion_on
+    due = TeamEventsPlanDeletion.objects.filter(
+        team_id__in=TeamEventsRetentionDowngrade.objects.values("team_id"), next_deletion_on__lte=deletion_on
     )
-    plans = deleting_plans(Team.objects.filter(id__in=marked.values("team_id")))
+    plans = deleting_plans(Team.objects.filter(id__in=due.values("team_id")))
     with transaction.atomic():
         states = reschedule_plan_deletions(plans, cleanup_date())
-    markers: dict[UUID, dict[int, int]] = defaultdict(dict)
-    for plan in plans:
-        state = states[plan.team_id]
-        if state.downgraded_from_months is not None and state.next_deletion_on <= deletion_on:
-            markers[plan.organization_id][plan.team_id] = state.downgraded_from_months
+    due_plans = {plan.team_id: plan for plan in plans if states[plan.team_id].next_deletion_on <= deletion_on}
+    downgraded_from: dict[UUID, dict[int, int]] = defaultdict(dict)
+    for team_id, months in TeamEventsRetentionDowngrade.objects.filter(team_id__in=due_plans).values_list(
+        "team_id", "downgraded_from_months"
+    ):
+        downgraded_from[due_plans[team_id].organization_id][team_id] = months
     notified = 0
-    for organization in Organization.objects.filter(id__in=markers).only("id", "name", "available_product_features"):
-        previous_months = max(markers[organization.id].values())
+    for organization in Organization.objects.filter(id__in=downgraded_from).only(
+        "id", "name", "available_product_features"
+    ):
+        previous_months = max(downgraded_from[organization.id].values())
         if organization_events_retention_months(organization) < previous_months:
             notice = _notice(organization, previous_months, deletion_on)
             _notify_admins(DELETION_UPCOMING_EVENT, {organization.id: notice})
             notified += 1
-        marked.filter(team_id__in=markers[organization.id]).update(downgraded_from_months=None)
+        TeamEventsRetentionDowngrade.objects.filter(team_id__in=downgraded_from[organization.id]).delete()
     return notified
 
 

@@ -61,6 +61,7 @@ from posthog.models.events_plan_deletion import (
     CLEANUP_HOUR,
     PlanDeletionState,
     TeamEventsPlanDeletion,
+    TeamEventsRetentionDowngrade,
     after_pass,
     cleanup_date,
     cleanup_timezone,
@@ -1886,11 +1887,11 @@ def advance_plan_deletion_passes(
     for chunk in chunked(plan.completed_pass_team_ids, _TEAM_CHUNK_SIZE):
         with transaction.atomic():
             rows = list(TeamEventsPlanDeletion.objects.select_for_update().filter(team_id__in=chunk))
+            passed = [row.team_id for row in rows if row.next_deletion_on <= passes.run_on]
             for row in rows:
-                state = after_pass(row.state, passes.run_on)
-                row.next_deletion_on = state.next_deletion_on
-                row.downgraded_from_months = state.downgraded_from_months
-            TeamEventsPlanDeletion.objects.bulk_update(rows, ["next_deletion_on", "downgraded_from_months"])
+                row.next_deletion_on = after_pass(row.state, passes.run_on).next_deletion_on
+            TeamEventsPlanDeletion.objects.bulk_update(rows, ["next_deletion_on"])
+            TeamEventsRetentionDowngrade.objects.filter(team_id__in=passed).delete()
         advanced += len(rows)
     context.add_output_metadata({"passes": dagster.MetadataValue.int(advanced)})
 

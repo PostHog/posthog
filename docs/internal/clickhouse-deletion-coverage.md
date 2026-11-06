@@ -362,16 +362,19 @@ A billing sync that lengthens the plan period writes the organization's rows str
 A billing sync that shortens the plan period checks each team's period under the previous and the new plan, each with its own standard retention feature.
 It does nothing more when no team's period gets shorter, for example when every team has a set period within the new plan.
 Otherwise it writes the rows of those teams straight away, the same way a settings save does.
-Each row whose period got shorter keeps the plan period from before in `downgraded_from_months`.
+It also writes a `TeamEventsRetentionDowngrade` row with the plan period from before for each of those teams, whether the deletion flag covers the team or not.
+A second downgrade before the team's next pass keeps the longer of the two previous plan periods.
 The sync then queues the Celery task `report_events_retention_shortened`, which sends an `events retention period shortened` event to each organization admin, with the previous and new plan periods and the first pass past the shorter period.
+That pass date is empty when the deletion flag covers none of those teams.
 The send runs in a worker, so an ingestion outage never holds up the billing sync, and the task retries a failed send 5 times over up to about 15 minutes.
 The first billing sync of a new organization sends nothing, because the organization has no previous plan period.
 The Celery beat task `report_upcoming_events_deletions` runs daily at 15:00 UTC.
-Once the next cleanup is 14 days away or less, it reschedules the downgraded rows due at that cleanup, the same way a settings save does, so a period that got shorter since the pass was set moves the pass instead of announcing it.
-It then sends an `events retention deletion upcoming` event to the admins of each organization with a row still due, one organization at a time, and clears that organization's `downgraded_from_months` once its send succeeds.
-It counts only rows of teams the cleanup deletes for, so a team the deletion flag no longer covers keeps its marker and gets no email.
-It sends nothing for an organization whose plan period went back up, and a completed pass also clears the field.
-A failed send fails the task and keeps the markers of the organizations not yet sent, so the next daily run sends only those again.
+Once the next cleanup is 14 days away or less, it reschedules the rows of downgraded teams due at that cleanup, the same way a settings save does, so a period that got shorter since the pass was set moves the pass instead of announcing it.
+It then sends an `events retention deletion upcoming` event to the admins of each organization with a downgraded team still due, one organization at a time, and deletes those teams' downgrade rows once its send succeeds.
+It counts only teams the cleanup deletes for.
+A team the deletion flag does not cover keeps its downgrade row, so its admins still hear about its first pass once the flag covers it.
+It sends nothing for an organization whose plan period went back up, and a completed pass also deletes the team's downgrade row.
+A failed send fails the task and keeps the downgrade rows of the organizations not yet sent, so the next daily run sends only those again.
 Workflows turn both events into emails.
 
 The job runs `ensure_no_concurrent_deletes_run` before it plans, and that guard also runs in `deletes_job`. Each job fails at the start while a `deletes_job`, cleanup or squash run is executing, so the two never mutate the events tables at the same time.
