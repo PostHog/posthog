@@ -481,20 +481,34 @@ class TestUpdateTaskRunStatusActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "origin_product,status,expected_event",
+        "origin_product,status,expected_event,await_user_message",
         [
-            (Task.OriginProduct.POSTHOG_AI, TaskRun.Status.COMPLETED, "chat with ai"),
-            (Task.OriginProduct.POSTHOG_AI, TaskRun.Status.FAILED, "chat with ai failed"),
-            (Task.OriginProduct.USER_CREATED, TaskRun.Status.COMPLETED, None),
-            (Task.OriginProduct.USER_CREATED, TaskRun.Status.FAILED, None),
+            (Task.OriginProduct.POSTHOG_AI, TaskRun.Status.COMPLETED, "chat with ai", False),
+            (Task.OriginProduct.POSTHOG_AI, TaskRun.Status.FAILED, "chat with ai failed", False),
+            (Task.OriginProduct.POSTHOG_AI, TaskRun.Status.FAILED, None, True),
+            (Task.OriginProduct.POSTHOG_AI, TaskRun.Status.CANCELLED, None, False),
+            (Task.OriginProduct.USER_CREATED, TaskRun.Status.COMPLETED, None, False),
+            (Task.OriginProduct.USER_CREATED, TaskRun.Status.FAILED, None, False),
         ],
     )
     @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     def test_posthog_ai_chat_outcome_is_captured_per_origin_and_status(
-        self, mock_capture, activity_environment, test_task_run, origin_product, status, expected_event
-    ):
+        self,
+        mock_delay: MagicMock,
+        mock_capture: MagicMock,
+        activity_environment: ActivityEnvironment,
+        test_task_run: TaskRun,
+        origin_product: str,
+        status: str,
+        expected_event: str | None,
+        await_user_message: bool,
+    ) -> None:
         test_task_run.task.origin_product = origin_product
-        test_task_run.task.save(update_fields=["origin_product"])
+        test_task_run.task.state = {"created_on_mobile": True}
+        test_task_run.task.save(update_fields=["origin_product", "state"])
+        test_task_run.state = {"await_user_message": await_user_message}
+        test_task_run.save(update_fields=["state"])
 
         async_to_sync(activity_environment.run)(
             update_task_run_status,
@@ -504,6 +518,25 @@ class TestUpdateTaskRunStatusActivity:
                 error_message="boom" if status == TaskRun.Status.FAILED else None,
             ),
         )
+
+        if (
+            origin_product == Task.OriginProduct.POSTHOG_AI
+            and status == TaskRun.Status.FAILED
+            and not await_user_message
+        ):
+            mock_delay.assert_called_once()
+            assert mock_delay.call_args.args[:3] == (
+                test_task_run.task.created_by_id,
+                "PostHog",
+                "PostHog AI stopped because of an error",
+            )
+            async_to_sync(activity_environment.run)(
+                update_task_run_status,
+                UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=status),
+            )
+            mock_delay.assert_called_once()
+        else:
+            mock_delay.assert_not_called()
 
         chats = [c for c in mock_capture.call_args_list if str(c.kwargs.get("event", "")).startswith("chat with ai")]
         if expected_event is None:

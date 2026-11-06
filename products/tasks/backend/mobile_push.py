@@ -7,10 +7,16 @@ from django.utils import timezone
 
 from posthog.models.user_push_token import UserPushToken
 
-from products.tasks.backend.models import Task, TaskPresence
+from products.tasks.backend.models import Task, TaskPresence, TaskRun
 from products.tasks.backend.visibility import task_control_q
 
 MOBILE_PUSH_USER_IDS = "mobile_push_user_ids"
+POSTHOG_AI_PUSH_BODIES: dict[str, str] = {
+    "completed": "PostHog AI finished your chat",
+    "turn_completed": "PostHog AI finished your chat",
+    "failed": "PostHog AI stopped because of an error",
+    "awaiting": "PostHog AI needs your input",
+}
 
 
 def mobile_push_user_ids(task: Task) -> set[int]:
@@ -19,8 +25,28 @@ def mobile_push_user_ids(task: Task) -> set[int]:
 
 
 def task_mobile_push_eligible(task: Task, user_id: int) -> bool:
-    return user_id in mobile_push_user_ids(task) or (
+    mobile_eligible = user_id in mobile_push_user_ids(task) or (
         (task.state or {}).get("created_on_mobile") is True and task.origin_product != Task.OriginProduct.SLACK
+    )
+    if task.origin_product == Task.OriginProduct.POSTHOG_AI:
+        return mobile_eligible and task.created_by_id == user_id and not task.archived and not task.deleted
+    return mobile_eligible
+
+
+def posthog_ai_push_delivery_allowed(
+    task: Task, *, user_id: int, task_run_id: str | None, notification_kind: str | None
+) -> bool:
+    if notification_kind not in POSTHOG_AI_PUSH_BODIES or task_run_id is None:
+        return False
+    run_exists = (
+        TaskRun.objects.filter(id=task_run_id, task_id=task.id, team_id=task.team_id)
+        .exclude(status=TaskRun.Status.CANCELLED)
+        .exists()
+    )
+    return run_exists and not (
+        TaskPresence.objects.for_team(task.team_id)
+        .filter(task_id=task.id, user_id=user_id, expires_at__gt=timezone.now())
+        .exists()
     )
 
 
