@@ -56,7 +56,7 @@ from posthog.models.oauth_provisioning import ProvisioningConfig
 from posthog.scopes import UNPRIVILEGED_SCOPES
 from posthog.storage import object_storage
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -253,7 +253,7 @@ class HedgeboxMatrix(Matrix):
         team.session_recording_opt_in = True  # Also see: the tools/hedgebox-dummy/ app
 
         # Actions
-        interacted_with_file_action = Action.objects.create(
+        interacted_with_file_action = create_action(
             name="Interacted with file",
             team=team,
             description="Logged-in interaction with a file.",
@@ -273,7 +273,7 @@ class HedgeboxMatrix(Matrix):
                 },
             ],
         )
-        Action.objects.create(
+        create_action(
             name="Visited Marius Tech Tips campaign",
             team=team,
             description="Visited page of the campaign we did with Marius Tech Tips, the best YouTube channel for tech tips.",
@@ -424,7 +424,7 @@ class HedgeboxMatrix(Matrix):
                             custom_name="Signed up",
                         ),
                         ActionsNode(
-                            id=interacted_with_file_action.pk,
+                            id=interacted_with_file_action.id,
                             name=interacted_with_file_action.name,
                         ),
                         EventsNode(
@@ -488,7 +488,7 @@ class HedgeboxMatrix(Matrix):
                             type=EntityType.EVENTS,
                         ),
                         returningEntity=RetentionEntity(
-                            id=str(interacted_with_file_action.pk),
+                            id=str(interacted_with_file_action.id),
                             name=interacted_with_file_action.name,
                             type=EntityType.ACTIONS,
                         ),
@@ -525,7 +525,7 @@ class HedgeboxMatrix(Matrix):
                 source=LifecycleQuery(
                     series=[
                         ActionsNode(
-                            id=interacted_with_file_action.pk,
+                            id=interacted_with_file_action.id,
                             name=interacted_with_file_action.name,
                             math=BaseMathType.TOTAL,
                         )

@@ -11,6 +11,7 @@ from django.conf import settings
 from django.utils import timezone
 
 import pytest_asyncio
+from asgiref.sync import sync_to_async
 from azure.ai.inference.aio import EmbeddingsClient
 from azure.ai.inference.models import EmbeddingItem, EmbeddingsResult, EmbeddingsUsage
 from azure.core.credentials import AzureKeyCredential
@@ -34,13 +35,13 @@ from posthog.temporal.ai.sync_vectors import (
     batch_embed_actions,
     batch_embed_and_sync_actions,
     batch_summarize_actions,
-    get_actions_qs,
     get_approximate_actions_count,
     sync_action_vectors,
 )
 from posthog.temporal.common.clickhouse import get_client
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import Action
+from products.actions.backend.facade.testing import acreate_action, aget_action_ai_state, delete_action
 
 
 @pytest.fixture(autouse=True)
@@ -53,48 +54,55 @@ def cleanup():
         pass
 
 
-@pytest.fixture
-def action_models(ateam):
-    return (
-        Action(
-            team=ateam,
-            name="Completed onboarding",
-            description="Filters users who successfully completed onboarding",
-            steps_json=[{"event": "onboarding completed"}],
-        ),
-        Action(
-            team=ateam,
-            name="Requested a quote",
-            description="Display users who wanted to purchase the product",
-            steps_json=[{"href": "/subscribe", "href_matching": "exact", "event": "pressed button"}],
-        ),
-        Action(
-            team=ateam,
-            name="Interacted with the assistant",
-            description="Cohort of events when users interacted with the AI assistant",
-            steps_json=[{"event": "message sent"}, {"url": "/chat", "event": "$pageview"}],
-        ),
-    )
+ACTION_FIELDS: tuple[dict[str, Any], ...] = (
+    {
+        "name": "Completed onboarding",
+        "description": "Filters users who successfully completed onboarding",
+        "steps_json": [{"event": "onboarding completed"}],
+    },
+    {
+        "name": "Requested a quote",
+        "description": "Display users who wanted to purchase the product",
+        "steps_json": [{"href": "/subscribe", "href_matching": "exact", "event": "pressed button"}],
+    },
+    {
+        "name": "Interacted with the assistant",
+        "description": "Cohort of events when users interacted with the AI assistant",
+        "steps_json": [{"event": "message sent"}, {"url": "/chat", "event": "$pageview"}],
+    },
+)
+
+
+async def _plant_actions(team, fields: list[dict[str, Any]]) -> list[Action]:
+    # One at a time, so ids ascend in the order given.
+    return [await acreate_action(team=team, **action_fields) for action_fields in fields]
+
+
+async def _remove_actions(actions: list[Action]) -> None:
+    for action in actions:
+        await sync_to_async(delete_action)(action)
 
 
 @pytest_asyncio.fixture
-async def actions(action_models, ateam):
-    await Action.objects.abulk_create(action_models)
-    yield action_models
-    await Action.objects.filter(team=ateam).adelete()
+async def actions(ateam):
+    planted = await _plant_actions(ateam, list(ACTION_FIELDS))
+    yield planted
+    await _remove_actions(planted)
 
 
 @pytest_asyncio.fixture
-async def summarized_actions(action_models, ateam):
+async def summarized_actions(ateam):
     dt = timezone.now()
     summaries = ["Test summary 1", "Test summary 2", "Test summary 3"]
-    for action, summary in zip(action_models, summaries):
-        action.last_summarized_at = dt
-        action.summary = summary
-
-    await Action.objects.abulk_create(action_models)
-    yield action_models
-    await Action.objects.filter(team=ateam).adelete()
+    planted = await _plant_actions(
+        ateam,
+        [
+            {**action_fields, "last_summarized_at": dt, "summary": summary}
+            for action_fields, summary in zip(ACTION_FIELDS, summaries)
+        ],
+    )
+    yield planted
+    await _remove_actions(planted)
 
 
 @pytest.fixture
@@ -142,60 +150,6 @@ def _query_pg_embeddings() -> list[tuple]:
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_get_actions_qs(actions):
-    qs = await get_actions_qs(timezone.now())
-    assert await qs.acount() == 3
-    qs = await get_actions_qs(timezone.now(), 0, 1)
-    assert await qs.acount() == 1
-    qs = await get_actions_qs(timezone.now() - timedelta(days=1))
-    assert await qs.acount() == 0
-
-    dt = timezone.now()
-    action = actions[0]
-    action.last_summarized_at = dt + timedelta(seconds=1)
-    await action.asave()
-
-    qs = await get_actions_qs(dt + timedelta(seconds=2))
-    assert await qs.acount() == 2
-
-
-@pytest.mark.django_db
-@pytest.mark.asyncio
-async def test_get_actions_qs_with_deleted_actions(actions):
-    start_dt = timezone.now()
-
-    # Never summarized and deleted
-    action_1, action_2, action_3 = actions
-    action_1.deleted = True
-    await action_1.asave()
-
-    # Updated after last summarization
-    action_2.updated_at = start_dt - timedelta(hours=1)
-    action_2.last_summarized_at = start_dt - timedelta(hours=2)
-    await action_2.asave()
-
-    # Deleted but updated after last summarization
-    action_3.updated_at = start_dt - timedelta(hours=2)
-    action_3.last_summarized_at = start_dt - timedelta(hours=1)
-    action_3.deleted = True
-    await action_3.asave()
-
-    qs = await get_actions_qs(start_dt + timedelta(hours=1))
-    assert await qs.acount() == 2
-    assert {a async for a in qs.values_list("id", flat=True)} == {action_2.id, action_3.id}
-
-
-@pytest.mark.django_db
-@pytest.mark.asyncio
-async def test_get_actions_qs_with_unapproved_organization(aorganization):
-    aorganization.is_ai_data_processing_approved = False
-    await aorganization.asave()
-    qs = await get_actions_qs(timezone.now())
-    assert await qs.acount() == 0
-
-
-@pytest.mark.django_db
-@pytest.mark.asyncio
 async def test_get_approximate_actions_count(actions):
     res = await get_approximate_actions_count(GetApproximateActionsCountInputs(start_dt=timezone.now().isoformat()))
     assert res == 3
@@ -215,17 +169,16 @@ async def test_basic_batch_summarization(azure_mock, actions):
         )
         assert summarize_mock.call_count == 1
 
-        updated_action = actions[0]
-        await updated_action.arefresh_from_db()
-        assert updated_action.summary == "Test1"
-        assert updated_action.last_summarized_at == start_dt
-        assert updated_action.embedding_last_synced_at is None
+        updated_state = await aget_action_ai_state(actions[0])
+        assert updated_state.summary == "Test1"
+        assert updated_state.last_summarized_at == start_dt
+        assert updated_state.embedding_last_synced_at is None
 
         for action in actions[1:]:
-            await action.arefresh_from_db()
-            assert action.summary is None
-            assert action.last_summarized_at is None
-            assert action.embedding_last_synced_at is None
+            state = await aget_action_ai_state(action)
+            assert state.summary is None
+            assert state.last_summarized_at is None
+            assert state.embedding_last_synced_at is None
 
         summarize_mock.return_value = ["Test2", "Test3"]
 
@@ -236,15 +189,15 @@ async def test_basic_batch_summarization(azure_mock, actions):
         expected_texts = ["Test1", "Test2", "Test3"]
 
         for action, expected_text in zip(actions, expected_texts):
-            await action.arefresh_from_db()
-            assert action.summary == expected_text
-            assert action.last_summarized_at == start_dt
-            assert action.embedding_last_synced_at is None
+            state = await aget_action_ai_state(action)
+            assert state.summary == expected_text
+            assert state.last_summarized_at == start_dt
+            assert state.embedding_last_synced_at is None
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_summarize_with_errors(azure_mock, actions: tuple[Action], ateam):
+async def test_batch_summarize_with_errors(azure_mock, actions: list[Action], ateam):
     with (
         patch("posthog.temporal.ai.sync_vectors.abatch_summarize_actions") as summarize_mock,
     ):
@@ -254,7 +207,7 @@ async def test_batch_summarize_with_errors(azure_mock, actions: tuple[Action], a
         await batch_summarize_actions(
             BatchSummarizeActionsInputs(offset=0, batch_size=96, start_dt=start_dt.isoformat())
         )
-        updated_actions = [action async for action in Action.objects.filter(team=ateam).order_by("id")]
+        updated_actions = [await aget_action_ai_state(action) for action in actions]
         assert len(updated_actions) == 3
         assert updated_actions[0].summary == "Test1"
         assert updated_actions[1].summary == "Test2"
@@ -279,7 +232,7 @@ async def test_batch_summarize_with_errors(azure_mock, actions: tuple[Action], a
         assert summarize_mock.call_count == 1
         assert len(summarize_mock.call_args[0][0]) == 1
 
-        updated_actions = [action async for action in Action.objects.filter(team=ateam).order_by("id")]
+        updated_actions = [await aget_action_ai_state(action) for action in actions]
         assert len(updated_actions) == 3
         assert ("Test1", "Test2", "Test3") == tuple(action.summary for action in updated_actions)
         assert [start_dt, start_dt, new_start_dt] == [action.last_summarized_at for action in updated_actions]
@@ -325,7 +278,7 @@ async def test_batch_embedding(azure_mock, actions):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_embedding_with_errors(azure_mock, actions: tuple[Action]):
+async def test_batch_embedding_with_errors(azure_mock, actions: list[Action]):
     with patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock:
         # batch_size=1, one call
         embeddings_mock.side_effect = ValueError("Test error")
@@ -403,8 +356,7 @@ async def test_clickhouse_sync_single_batch(summarized_actions, summarized_actio
         assert expected_result == parse_records(embeddings)
 
         for action in summarized_actions:
-            await action.arefresh_from_db()
-            assert action.embedding_last_synced_at == start_dt
+            assert (await aget_action_ai_state(action)).embedding_last_synced_at == start_dt
 
         with patch("posthog.temporal.common.clickhouse.ClickHouseClient.execute_query") as mock:
             await sync_action_vectors(client, summarized_actions_with_embeddings, 10, start_dt)
@@ -436,8 +388,7 @@ async def test_clickhouse_sync_multiple_batches(summarized_actions, summarized_a
         assert expected_result == parse_records(embeddings)
 
         for action in summarized_actions:
-            await action.arefresh_from_db()
-            assert action.embedding_last_synced_at == start_dt
+            assert (await aget_action_ai_state(action)).embedding_last_synced_at == start_dt
 
         with patch("posthog.temporal.common.clickhouse.ClickHouseClient.execute_query") as mock:
             await sync_action_vectors(client, summarized_actions_with_embeddings, 1, start_dt)
@@ -567,23 +518,28 @@ async def test_batch_embed_and_sync_actions_filters_out_actions(azure_mock, atea
     embeddings = [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]]
 
     # Create actions with different last_summarized_at values
-    actions = [
-        Action(
-            team=ateam, name="Before start 1", last_summarized_at=start_dt - timedelta(days=1), summary="Test1"
-        ),  # Should be included
-        Action(
-            team=ateam,
-            name="Before start 2",
-            last_summarized_at=start_dt - timedelta(days=1),
-            embedding_last_synced_at=start_dt - timedelta(days=2),
-            summary="Test2",
-        ),  # Should be included
-        Action(team=ateam, name="At start", last_summarized_at=start_dt, summary="Test3"),  # Should be included
-        Action(
-            team=ateam, name="After start", last_summarized_at=start_dt + timedelta(days=1), summary="Test4"
-        ),  # Should not be included
-    ]
-    await Action.objects.abulk_create(actions)
+    actions = await _plant_actions(
+        ateam,
+        [
+            {
+                "name": "Before start 1",
+                "last_summarized_at": start_dt - timedelta(days=1),
+                "summary": "Test1",
+            },  # Should be included
+            {
+                "name": "Before start 2",
+                "last_summarized_at": start_dt - timedelta(days=1),
+                "embedding_last_synced_at": start_dt - timedelta(days=2),
+                "summary": "Test2",
+            },  # Should be included
+            {"name": "At start", "last_summarized_at": start_dt, "summary": "Test3"},  # Should be included
+            {
+                "name": "After start",
+                "last_summarized_at": start_dt + timedelta(days=1),
+                "summary": "Test4",
+            },  # Should not be included
+        ],
+    )
 
     with (
         patch("azure.ai.inference.aio.EmbeddingsClient.embed") as embeddings_mock,
@@ -615,12 +571,9 @@ async def test_batch_embed_and_sync_actions_filters_out_actions_with_no_summary(
     start_dt = timezone.now()
 
     # Create actions with different last_summarized_at values
-    actions = [
-        Action(
-            team=ateam, name="Before start 1", last_summarized_at=start_dt - timedelta(days=1)
-        ),  # Should be included
-    ]
-    await Action.objects.abulk_create(actions)
+    await _plant_actions(
+        ateam, [{"name": "Before start 1", "last_summarized_at": start_dt - timedelta(days=1)}]
+    )  # Has no summary, so it is never embedded
 
     with patch("temporalio.activity.heartbeat"):
         result = await batch_embed_and_sync_actions(
@@ -636,36 +589,34 @@ async def test_batch_embed_and_sync_actions_filters_out_actions_with_no_summary(
     assert len(rows) == 0
 
 
-async def _create_actions_with_embedding_version(ateam, start_dt):
+async def _create_actions_with_embedding_version(ateam, start_dt) -> list[Action]:
     # Create actions with different last_summarized_at values
-    actions = [
-        Action(
-            team=ateam,
-            name="Before start 1",
-            last_summarized_at=start_dt - timedelta(days=1),
-            embedding_last_synced_at=start_dt - timedelta(hours=8),  # shouldn't be included by time filters
-            summary="Test1",
-            embedding_version=None,
-        ),  # Should be included
-        Action(
-            team=ateam,
-            name="Before start 2",
-            last_summarized_at=start_dt - timedelta(days=1),
-            embedding_last_synced_at=start_dt - timedelta(hours=8),  # shouldn't be included by time filters
-            summary="Test2",
-            embedding_version=1,
-        ),  # Should be included
-        Action(
-            team=ateam,
-            name="Before start 2",
-            last_summarized_at=start_dt - timedelta(days=1),
-            embedding_last_synced_at=start_dt - timedelta(days=2),
-            summary="Test2",
-            embedding_version=2,  # Should not be included by the version filter
-        ),  # Should be included
-    ]
-    await Action.objects.abulk_create(actions)
-    return actions
+    return await _plant_actions(
+        ateam,
+        [
+            {
+                "name": "Before start 1",
+                "last_summarized_at": start_dt - timedelta(days=1),
+                "embedding_last_synced_at": start_dt - timedelta(hours=8),  # shouldn't be included by time filters
+                "summary": "Test1",
+                "embedding_version": None,
+            },  # Should be included
+            {
+                "name": "Before start 2",
+                "last_summarized_at": start_dt - timedelta(days=1),
+                "embedding_last_synced_at": start_dt - timedelta(hours=8),  # shouldn't be included by time filters
+                "summary": "Test2",
+                "embedding_version": 1,
+            },  # Should be included
+            {
+                "name": "Before start 2",
+                "last_summarized_at": start_dt - timedelta(days=1),
+                "embedding_last_synced_at": start_dt - timedelta(days=2),
+                "summary": "Test2",
+                "embedding_version": 2,  # Should not be included by the version filter
+            },  # Should be included
+        ],
+    )
 
 
 @pytest.mark.django_db
@@ -705,8 +656,7 @@ async def test_batch_embed_and_sync_actions_embedding_version(azure_mock, ateam)
         } == {2}
 
         for action in actions:
-            await action.arefresh_from_db()
-            assert action.embedding_version == 2
+            assert (await aget_action_ai_state(action)).embedding_version == 2
 
 
 @pytest.mark.asyncio
@@ -895,8 +845,7 @@ async def test_updates_embedding_version(embeddings_mock, azure_mock, ateam):
             }
 
             for action in actions:
-                await action.arefresh_from_db()
-                assert action.embedding_version == 2
+                assert (await aget_action_ai_state(action)).embedding_version == 2
 
 
 @pytest.mark.asyncio
@@ -1032,19 +981,19 @@ async def test_heartbeat_called_multiple_times_with_large_batch(azure_mock, atea
     start_dt = timezone.now()
 
     # Create more actions to process multiple iterations
-    actions = []
-    for i in range(10):
-        actions.append(
-            Action(
-                team=ateam,
-                name=f"Action {i}",
-                description=f"Description {i}",
-                last_summarized_at=start_dt - timedelta(days=1),
-                summary=f"Summary {i}",
-                steps_json=[{"event": f"event_{i}"}],
-            )
-        )
-    await Action.objects.abulk_create(actions)
+    await _plant_actions(
+        ateam,
+        [
+            {
+                "name": f"Action {i}",
+                "description": f"Description {i}",
+                "last_summarized_at": start_dt - timedelta(days=1),
+                "summary": f"Summary {i}",
+                "steps_json": [{"event": f"event_{i}"}],
+            }
+            for i in range(10)
+        ],
+    )
 
     embeddings = [[0.1, 0.1] for _ in range(10)]
 

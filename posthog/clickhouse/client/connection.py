@@ -160,6 +160,8 @@ class ClickHouseUser(StrEnum):
     ALERTS_PLATFORM_INSIGHT = "alerts_platform_insight"
     # Exists on the logs cluster only. Pass it with Workload.LOGS, never as a query tag.
     ALERTS_PLATFORM_LOGS = "alerts_platform_logs"
+    # Exists on the logs cluster only. Snuffle connects as it for the platform's PromQL queries.
+    ALERTS_PLATFORM_METRICS = "alerts_platform_metrics"
     # The platform's own bookkeeping, shared by every source: its check history and the default
     # user of its evaluation worker. A source's checks keep their own user, so a new source never
     # takes from another source's budget.
@@ -451,7 +453,14 @@ def get_http_client(**overrides):
 
 # Named users that exist on the logs cluster. Every other named user exists on the main cluster
 # only, and sync_execute assigns some of them (APP, API) from tags without checking the workload.
-LOGS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset({ClickHouseUser.ALERTS_PLATFORM_LOGS})
+# ALERTS_PLATFORM_INSIGHT exists on both, because an insight can read logs, spans or metrics.
+LOGS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset(
+    {
+        ClickHouseUser.ALERTS_PLATFORM_INSIGHT,
+        ClickHouseUser.ALERTS_PLATFORM_LOGS,
+        ClickHouseUser.ALERTS_PLATFORM_METRICS,
+    }
+)
 
 
 def connection_creds(workload: Workload, ch_user: ClickHouseUser) -> ClickHouseCredentials | None:

@@ -26,7 +26,6 @@ from urllib.parse import parse_qsl, unquote, urlsplit
 from uuid import UUID, uuid4
 
 import structlog
-from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX, EncryptedJSONField
@@ -40,21 +39,12 @@ from posthog.integrations import (
 )
 from posthog.sync import database_sync_to_async_pool
 
-from products.warehouse_sources.backend.facade.contracts import (
-    UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE,
-    WAREHOUSE_SOURCE_USAGE_TYPE,
-    SharedCredentialsError,
-)
+from products.warehouse_sources.backend.facade.contracts import WAREHOUSE_SOURCE_USAGE_TYPE, SharedCredentialsError
 from products.warehouse_sources.backend.logic.credential_auth_types import credentials_accessor
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
-
-CREDENTIALS_ORPHANED_COUNTER = Counter(
-    "warehouse_source_credentials_orphaned_total",
-    "Credentials rows that no object uses any more after a warehouse source released them",
-)
 
 # Decrypts leaves with the same keys as `Integration.sensitive_config`. The keys come from the settings.
 _SENSITIVE_CONFIG_FIELD = EncryptedJSONField(default=dict, ignore_decrypt_errors=True)
@@ -184,13 +174,7 @@ class WarehouseSourceCredentialsStore:
         if current is not None and same_connection_fields(current, fields):
             return IntegrationReference.from_legacy_id(pk)
         try:
-            # A source whose inputs do not decode may use the row, so it blocks a delete. It does not make an
-            # edit shared: else one broken source of the kind would block every edit of every row of the kind.
-            others = [
-                usage
-                for usage in _other_usages(rows, source, row.id)
-                if usage.type != UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE
-            ]
+            others = _other_usages(rows, source, row.id)
         except IntegrationNotFound as error:
             raise CredentialsNotFoundError(f"Credentials of source {source.id} do not exist") from error
         if others:
@@ -222,26 +206,6 @@ class WarehouseSourceCredentialsStore:
             return _other_usages(rows, source, pk)
         except IntegrationNotFound:
             return []
-
-    @staticmethod
-    def release(source: ExternalDataSource) -> bool:
-        """Note that the source no longer uses its row. Returns True when nothing else uses it.
-
-        The row stays, because a person may reuse it or delete it from the integrations list.
-        """
-        pk = _pk(source)
-        rows = _accessor_or_none(source)
-        if pk is None or rows is None:
-            return False
-        try:
-            others = _other_usages(rows, source, pk)
-        except IntegrationNotFound:
-            return False
-        if others:
-            return False
-        CREDENTIALS_ORPHANED_COUNTER.inc()
-        logger.info("warehouse_source_credentials_orphaned", team_id=source.team_id, integration_id=pk)
-        return True
 
     @staticmethod
     def discard(source: ExternalDataSource) -> bool:
@@ -445,6 +409,12 @@ def _fields_of(sensitive_config: Any) -> dict[str, Any] | None:
     # The field encrypts each leaf, and a leaf that fails to decrypt comes back as raw ciphertext
     # rather than raising. Peel extra layers a read-then-save added, and treat any leaf no key can
     # open as an unreadable row, so ciphertext is never handed out as a credential.
+    return recover_encrypted_leaves(fields)
+
+
+def recover_encrypted_leaves(fields: Mapping[str, Any]) -> dict[str, Any] | None:
+    """``fields`` with every ciphertext leaf decrypted through all its layers, or None when a leaf
+    cannot be opened by any configured key."""
     try:
         return _recover_leaves(dict(fields))
     except _UndecryptableLeaf:
