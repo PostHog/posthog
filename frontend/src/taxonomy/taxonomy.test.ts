@@ -4,6 +4,7 @@ import type * as hiddenEventsModule from 'lib/components/TaxonomicFilter/utils/h
 import type * as helpersModule from './helpers'
 import type * as loaderModule from './loadCoreFilterDefinitions'
 import type * as taxonomyModule from './taxonomy'
+import { isPostHogProperty } from './taxonomy'
 
 type Modules = {
     taxonomy: typeof taxonomyModule
@@ -60,5 +61,16 @@ describe('core filter definitions', () => {
             await modules.loader.loadCoreFilterDefinitions()
             expect(read(modules)).toEqual(afterLoad)
         })
+    })
+
+    it.each<[string, boolean]>([
+        ['$browser', true],
+        ['$feature/my-flag', true],
+        ['url', false],
+        ['version', false],
+        ['tool_name', false],
+        ['my_custom_property', false],
+    ])('treats %s as a PostHog property: %s', (key, expected) => {
+        expect(isPostHogProperty(key)).toEqual(expected)
     })
 })

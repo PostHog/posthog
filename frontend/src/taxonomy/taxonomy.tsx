@@ -180,7 +180,7 @@ export const POSTHOG_EVENT_PROMOTED_PROPERTIES = {
 export type KNOWN_PROMOTED_PROPERTY_PARENTS = keyof typeof POSTHOG_EVENT_PROMOTED_PROPERTIES
 
 export function isPostHogProperty(propertyKey: string, isCloudOrDev: boolean | undefined = false): boolean {
-    const isPostHogProperty = propertyKey.startsWith('$') || PROPERTY_KEYS.includes(propertyKey)
+    const isPostHogProperty = propertyKey.startsWith('$')
     const isNonDollarPostHogProperty = isCloudOrDev && CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS.includes(propertyKey)
     return isPostHogProperty || isNonDollarPostHogProperty
 }
