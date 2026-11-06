@@ -1,7 +1,8 @@
 import time
-from typing import Literal
+from typing import Any, Literal
 
 import structlog
+import posthoganalytics
 from temporalio import activity
 
 from posthog.dataclasses import frozen
@@ -26,6 +27,15 @@ logger = structlog.get_logger(__name__)
 
 
 @frozen
+class MemoryEventIdentity:
+    """Who a memory sync event is captured for: the memory owner and the run's organization and project."""
+
+    distinct_id: str
+    organization_id: str
+    team_uuid: str
+
+
+@frozen
 class PersistAgentMemoryInput:
     sandbox_id: str
     run_id: str
@@ -34,6 +44,7 @@ class PersistAgentMemoryInput:
     reason: str
     # The actor of the most recent follow-up the workflow dispatched; None before any follow-up.
     actor_user_id: int | None = None
+    identity: MemoryEventIdentity | None = None
 
 
 @frozen
@@ -54,6 +65,46 @@ def _record_counts(direction: Literal["persist", "restore"], counts: MemorySyncC
     increment_agent_memory_files(direction, "error", counts.errors)
     for reason, count in counts.skipped.items():
         increment_agent_memory_files(direction, f"skipped_{reason}", count)
+
+
+def _capture_memory_event(
+    event: str,
+    identity: MemoryEventIdentity | None,
+    *,
+    run_id: str,
+    outcome: str,
+    counts: MemorySyncCounts,
+    duration_ms: int,
+    error: str | None,
+    **extra: Any,
+) -> None:
+    """Capture the sync as a product event so memory usage and cap hits are visible per user. Never raises."""
+    if identity is None:
+        return
+    properties: dict[str, Any] = {
+        "run_id": run_id,
+        "outcome": outcome,
+        "slugs": counts.slugs,
+        "files_written": counts.files_written,
+        "files_unchanged": counts.files_unchanged,
+        "files_deleted": counts.files_deleted,
+        "files_skipped": counts.files_skipped,
+        "files_errored": counts.errors,
+        "duration_ms": duration_ms,
+        "error": error,
+        **extra,
+    }
+    for reason, count in counts.skipped.items():
+        properties[f"skipped_{reason}"] = count
+    try:
+        posthoganalytics.capture(
+            distinct_id=identity.distinct_id,
+            event=event,
+            properties=properties,
+            groups={"organization": identity.organization_id, "project": identity.team_uuid},
+        )
+    except Exception:
+        logger.warning("agent_memory_event_capture_failed", event=event, run_id=run_id, exc_info=True)
 
 
 def _actor_changed(run_id: str, team_id: int, actor_user_id: int | None) -> bool:
@@ -89,6 +140,16 @@ def _finish_persist(
         files_skipped=counts.files_skipped,
         duration_ms=duration_ms,
         error=error,
+    )
+    _capture_memory_event(
+        "agent_memory_persisted",
+        input.identity,
+        run_id=input.run_id,
+        outcome=outcome,
+        counts=counts,
+        duration_ms=duration_ms,
+        error=error,
+        reason=input.reason,
     )
     if error is not None:
         emit_agent_log(input.run_id, "debug", f"Agent memory not saved ({input.reason}): {outcome}")
@@ -145,7 +206,9 @@ def persist_agent_memory(input: PersistAgentMemoryInput) -> PersistAgentMemoryOu
     return _finish_persist(input, "persisted", started_at, counts, None)
 
 
-def restore_agent_memory_into_sandbox(sandbox: SandboxBase, *, run_id: str, team_id: int, user_id: int) -> None:
+def restore_agent_memory_into_sandbox(
+    sandbox: SandboxBase, *, run_id: str, team_id: int, user_id: int, identity: MemoryEventIdentity | None = None
+) -> None:
     """Write the user's stored memory into a fresh sandbox before agent-server boots. Never raises."""
     started_at = time.perf_counter()
     outcome = "failed"
@@ -175,6 +238,15 @@ def restore_agent_memory_into_sandbox(sandbox: SandboxBase, *, run_id: str, team
         files_written=counts.files_written,
         files_deleted=counts.files_deleted,
         files_skipped=counts.files_skipped,
+        duration_ms=duration_ms,
+        error=error,
+    )
+    _capture_memory_event(
+        "agent_memory_restored",
+        identity,
+        run_id=run_id,
+        outcome=outcome,
+        counts=counts,
         duration_ms=duration_ms,
         error=error,
     )

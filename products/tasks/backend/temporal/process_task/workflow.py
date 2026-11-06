@@ -76,7 +76,7 @@ from .activities.get_task_processing_context import (
     get_task_processing_context,
 )
 from .activities.materialize_context_layer import MaterializeContextLayerInput, materialize_context_layer_in_sandbox
-from .activities.persist_agent_memory import PersistAgentMemoryInput, persist_agent_memory
+from .activities.persist_agent_memory import MemoryEventIdentity, PersistAgentMemoryInput, persist_agent_memory
 from .activities.post_slack_update import PostSlackUpdateInput, post_slack_update
 from .activities.provision_sandbox import (
     REPOSITORY_CLONE_RETRY_DELAYS_SECONDS,
@@ -3376,6 +3376,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     user_id=user_id,
                     reason=reason,
                     actor_user_id=self._agent_memory_last_actor_user_id,
+                    identity=MemoryEventIdentity(
+                        distinct_id=self.context.distinct_id,
+                        organization_id=self.context.organization_id,
+                        team_uuid=self.context.team_uuid,
+                    ),
                 ),
                 start_to_close_timeout=(
                     _PERSIST_AGENT_MEMORY_ATTEMPT_TIMEOUT
