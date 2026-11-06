@@ -26,14 +26,14 @@ import { ToolUsageChart } from './dashboard/ToolUsageChart'
 import { MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT } from './feedback/constants'
 import { MCPAnalyticsFeedbackPrompt } from './feedback/MCPAnalyticsFeedbackPrompt'
 import { MCPAnalyticsFirstLook } from './firstLook/MCPAnalyticsFirstLook'
-import { mcpDashboardOverviewLogic } from './mcpDashboardOverviewLogic'
+import { mcpDashboardOverviewLogic, rankedToolsEmptyMessage, rankToolsByErrorRate } from './mcpDashboardOverviewLogic'
 
 export function MCPAnalyticsDashboardOverview(): JSX.Element {
     const {
-        kpis,
+        headlineKpis,
         kpisLoading,
-        users,
-        usersLoading,
+        periodTotals,
+        periodTotalsLoading,
         intentClusterCount,
         notableSessions,
         sessionRowsLoading,
@@ -88,7 +88,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                 onRefresh={reloadAll}
                 refreshing={
                     kpisLoading ||
-                    usersLoading ||
+                    periodTotalsLoading ||
                     sessionRowsLoading ||
                     harnessRowsLoading ||
                     modelRowsLoading ||
@@ -142,11 +142,11 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                 <section className="flex min-w-0 flex-col gap-4" data-quill>
                     <h2 className="mb-4 text-xl font-semibold text-primary">Key metrics</h2>
                     <KpiTiles
-                        kpis={kpis}
-                        users={users}
+                        kpis={headlineKpis}
+                        users={periodTotals.users}
                         intentClusterCount={intentClusterCount}
                         kpisLoading={kpisLoading}
-                        usersLoading={usersLoading}
+                        usersLoading={periodTotalsLoading}
                         showIntentClusters={!!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]}
                         theme={theme}
                         interval={interval}
@@ -195,7 +195,8 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     <CardRow twoColumnsClassName="@min-[64rem]/mcp-overview:grid-cols-2">
                         {showToolErrors && (
                             <ToolErrorRateChart
-                                rows={toolRows}
+                                rows={rankToolsByErrorRate(toolRows)}
+                                emptyMessage={rankedToolsEmptyMessage(toolRows)}
                                 loading={toolRowsLoading}
                                 theme={theme}
                                 onToolClick={openToolReport}

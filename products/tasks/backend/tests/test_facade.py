@@ -836,6 +836,27 @@ class TestFacadeReadsAndMappers(TestCase):
         if gate != "warm_resume":
             self.assertEqual(refused_by_gate, refused)
 
+    @parameterized.expand(
+        [
+            ("signal_report_in_the_team", SourceKind.SIGNAL_REPORT, False, False, True),
+            ("signal_report_in_another_team", SourceKind.SIGNAL_REPORT, True, False, False),
+            ("signal_report_with_a_malformed_id", SourceKind.SIGNAL_REPORT, False, True, False),
+            ("hog_flow_has_no_row_to_check", SourceKind.HOG_FLOW, False, False, False),
+            ("loop_without_a_row_to_check", SourceKind.LOOP, False, False, False),
+        ]
+    )
+    def test_task_source_in_team(
+        self, _name: str, kind: SourceKind, in_other_team: bool, malformed_id: bool, expected: bool
+    ) -> None:
+        from products.signals.backend.models import SignalReport
+
+        owner = Team.objects.create(organization=self.organization, name="Other team") if in_other_team else self.team
+        row_id = SignalReport.objects.create(team=owner).id if kind == SourceKind.SIGNAL_REPORT else uuid4()
+
+        source = TaskSource(kind=kind, id="not-an-id" if malformed_id else str(row_id))
+
+        self.assertIs(facade.task_source_in_team(self.team.id, source), expected)
+
     def test_task_control_runtime_and_origin_uses_control_predicate(self):
         task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI, runtime=Task.Runtime.PI)
         self.assertEqual(
@@ -1726,9 +1747,11 @@ class TestFacadeReadsAndMappers(TestCase):
             ("self_driving_head_branch", "posthog-self-driving/fix-abc123"),
             ("stack_base_branch", "posthog-self-driving/schema-abc123"),
             ("github_access_repositories", ["acme/api", "acme/assets"]),
+            ("github_read_access", True),
+            ("github_token_scope", "push"),
         ]
     )
-    def test_run_task_resume_carries_self_driving_branch_stamp(self, state_key: str, branch: str | list[str]):
+    def test_run_task_resume_carries_self_driving_branch_stamp(self, state_key: str, branch: str | list[str] | bool):
         # The signals review carve-out binds a PR to its run by matching the PR head ref against the
         # PATCH-protected state.self_driving_head_branch stamp. A resume mints a new run, so the
         # stamp must be copied forward or the carve-out stops matching the successor — the receiver

@@ -112,6 +112,9 @@ Enter the account endpoint (`https://<account>.documents.azure.com`), a read-onl
         return {
             "401 Client Error: Unauthorized for url:": "Azure Cosmos DB rejected the account key. Copy a current key from the account's Keys page and reconnect.",
             "403 Client Error: Forbidden for url:": FORBIDDEN_MESSAGE,
+            # A firewall-blocked request gets a custom reason phrase instead of "Forbidden", so it
+            # needs its own key. Matched on Azure's stable wording, not the appended IP or URL.
+            "blocked by your Cosmos DB account firewall settings": FORBIDDEN_MESSAGE,
             "404 Client Error:": "The database or container no longer exists in this Cosmos DB account. Check the source settings and the table list.",
             "Azure Cosmos DB account key is not valid base64": "The account key is not valid. Copy the primary or secondary key from the account's Keys page and reconnect.",
         }

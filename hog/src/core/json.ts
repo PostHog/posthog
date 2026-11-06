@@ -1,13 +1,13 @@
 import { z } from 'zod'
 
-import { failWith, parseOrThrow, type ParseFailure } from './schema'
+import { failWith, parseOrThrow, type ParseFailure, type Schema } from './schema'
 
 // The only module that calls JSON.parse. Its result is `unknown` until a schema checks it, so no
 // caller casts JSON to the type it hopes for.
 
 export const JsonObject = z.record(z.string(), z.unknown())
 
-export function parseJson<S extends z.ZodType>(text: string, schema: S, failure: ParseFailure): z.output<S> {
+export function parseJson<T>(text: string, schema: Schema<T>, failure: ParseFailure): T {
     let raw: unknown
     try {
         raw = JSON.parse(text)
@@ -18,9 +18,10 @@ export function parseJson<S extends z.ZodType>(text: string, schema: S, failure:
 }
 
 // For files hog wrote itself and data it can do without: anything it can't read counts as missing.
-export function parseJsonOrUndefined<S extends z.ZodType>(text: string, schema: S): z.output<S> | undefined {
+export function parseJsonOrUndefined<T>(text: string, schema: Schema<T>): T | undefined {
     try {
-        return schema.safeParse(JSON.parse(text)).data
+        const parsed = schema.safeParse(JSON.parse(text))
+        return parsed.success ? parsed.data : undefined
     } catch {
         return undefined
     }
