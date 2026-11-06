@@ -57,6 +57,12 @@ def _has_posthog_ai_access(team: Team, user: User) -> bool:
     return get_posthog_ai_access_decision(user, team.organization).allowed
 
 
+def _has_cached_posthog_ai_access(team: Team, user: User) -> bool:
+    from products.tasks.backend.facade.access import get_cached_posthog_ai_access_decision  # noqa: PLC0415
+
+    return get_cached_posthog_ai_access_decision(user, team.organization).allowed
+
+
 def connect() -> None:
     register_task_read_exclusion(copied_chats_hidden_without_sandbox_mode, name="posthog_ai_copied_chats")
     register_task_run_start_guard(catch_up_conversation_copy_before_run, name="posthog_ai_conversation_copy")
@@ -89,8 +95,8 @@ def copied_chats_hidden_without_sandbox_mode(team_id: int, user_id: int | None) 
     if not copied_task_ids:
         return ()
     team = Team.objects.filter(id=team_id).only("id", "organization_id").first()
-    user = User.objects.filter(id=user_id).only("id", "distinct_id").first()
-    if team is None or user is None or _has_posthog_ai_access(team, user):
+    user = User.objects.filter(id=user_id).first()
+    if team is None or user is None or _has_cached_posthog_ai_access(team, user):
         return ()
     return copied_task_ids
 
