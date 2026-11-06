@@ -31,6 +31,7 @@ FROZEN_KIND_DEFAULTS: dict[str, str] = {
     "apple-ads": "oauth",
     "aws-redshift": "credentials",
     "aws-s3": "credentials",
+    "aws-warehouse-sources": "credentials",
     "azure-blob": "credentials",
     "bing-ads": "oauth",
     "clickup": "oauth",
