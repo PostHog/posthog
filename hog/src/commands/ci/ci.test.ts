@@ -168,6 +168,36 @@ describe('hog ci setup', () => {
         expect(PENDING_FILE in run.files).toBe(true)
     })
 
+    test('asks a custom OIDC provider policy for the issuer and claims passed in', async () => {
+        const run = await setup(
+            [
+                '--provider',
+                'custom',
+                '--issuer',
+                'https://auth.example.com',
+                '--subject',
+                'deploy-bot',
+                '--condition',
+                'env=production',
+                '--scope',
+                'query:read',
+            ],
+            { respond: policyApi() }
+        )
+
+        expect(run.exitCode).toBe(0)
+        expect(run.requests.some((request) => request.url.includes('resolve_subject'))).toBe(false)
+        expect(run.requests.find((request) => request.url === REQUESTS)?.body).toEqual({
+            name: 'deploy-bot on auth.example.com',
+            issuer: 'https://auth.example.com',
+            subject_claim: 'sub',
+            subject: 'deploy-bot',
+            subject_name: 'deploy-bot',
+            conditions: { env: 'production' },
+            scopes: ['query:read'],
+        })
+    })
+
     test.each([
         ['no scope', ['--branch', 'main'], REPOSITORY, 'missing_scopes'],
         ['no branch or environment', ['--scope', 'query:read'], REPOSITORY, 'missing_conditions'],
@@ -176,6 +206,33 @@ describe('hog ci setup', () => {
             ['--branch', 'main', '--scope', 'query:read'],
             { '/work/.git/config': REPOSITORY['/work/.git/config'] },
             'provider_not_detected',
+        ],
+        [
+            'a custom provider without its issuer',
+            ['--provider', 'custom', '--subject', 'bot', '--condition', 'env=prod', '--scope', 'query:read'],
+            REPOSITORY,
+            'missing_custom_option',
+        ],
+        [
+            'a custom provider without a condition',
+            [
+                '--provider',
+                'custom',
+                '--issuer',
+                'https://auth.example.com',
+                '--subject',
+                'bot',
+                '--scope',
+                'query:read',
+            ],
+            REPOSITORY,
+            'missing_conditions',
+        ],
+        [
+            'an issuer for a supported provider',
+            ['--branch', 'main', '--issuer', 'https://auth.example.com', '--scope', 'query:read'],
+            REPOSITORY,
+            'custom_option_without_custom_provider',
         ],
     ])('stops before asking PostHog when it has %s', async (_name, args, files, code) => {
         const run = await setup(args, { files, respond: policyApi() })

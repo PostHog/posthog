@@ -1,4 +1,5 @@
 import { CI_SETUP_COMMAND, policyRequestFlow, policyRequestWait, resolveSubject } from '@/ci/policy-request'
+import { CUSTOM_OIDC } from '@/ci/providers/custom/custom'
 import { WORKLOAD_PROVIDERS, type WorkloadConditions, type WorkloadProvider } from '@/ci/providers/registry'
 import { detectRepositoryProvider, pickProviderHint, readRepository } from '@/ci/repository'
 import { clearPending, printPending, resumeApproval, runApproval, type ApprovalResult } from '@/core/approval'
@@ -77,6 +78,67 @@ function conditionsFrom(
     }
 }
 
+// `--condition claim=value`, repeatable.
+function conditionPairs(raw: readonly string[]): WorkloadConditions {
+    return Object.fromEntries(
+        raw.map((entry) => {
+            const separator = entry.indexOf('=')
+            if (separator < 1 || separator === entry.length - 1) {
+                throw new HogError(
+                    'invalid_condition',
+                    `--condition ${entry} isn't claim=value.`,
+                    'Pass it like --condition environment=production.',
+                    EXIT_USAGE
+                )
+            }
+            return [entry.slice(0, separator), entry.slice(separator + 1)]
+        })
+    )
+}
+
+interface CustomOptions {
+    issuer?: string
+    subjectClaim?: string
+    subject?: string
+    condition?: string[]
+    name?: string
+}
+
+// A custom OIDC provider has no repository to read and no lookup, so every value comes from a flag.
+function customRequest(options: CustomOptions): {
+    custom: { issuer: string; subjectClaim: string }
+    subject: { subject: string; subject_name: string }
+    conditions: WorkloadConditions
+} {
+    const missing = (flag: string, example: string): HogError =>
+        new HogError(
+            'missing_custom_option',
+            `--provider custom needs ${flag}.`,
+            `Pass it like ${example}.`,
+            EXIT_USAGE
+        )
+    if (!options.issuer) {
+        throw missing('--issuer', '--issuer https://auth.example.com')
+    }
+    if (!options.subject) {
+        throw missing('--subject', '--subject deploy-bot')
+    }
+    const conditions = conditionPairs(options.condition ?? [])
+    if (Object.keys(conditions).length === 0) {
+        throw new HogError(
+            'missing_conditions',
+            'Say which tokens may get a PostHog token, so the policy never trusts every token the issuer signs for the subject.',
+            'Pass --condition with a claim the issuer sets, like --condition environment=production.',
+            EXIT_USAGE
+        )
+    }
+    return {
+        custom: { issuer: options.issuer, subjectClaim: options.subjectClaim ?? 'sub' },
+        subject: { subject: options.subject, subject_name: options.name ?? options.subject },
+        conditions,
+    }
+}
+
 function printSnippet(out: Output, result: Setup): void {
     out.line('')
     out.line('Add this to posthog.json in the repository:')
@@ -124,6 +186,27 @@ export default defineCommand({
             description:
                 'The scopes the job gets, like error_tracking:write. Separate several with commas, as in --scope error_tracking:write,query:read, or repeat the flag',
         },
+        issuer: {
+            type: 'string',
+            placeholder: 'url',
+            description: 'With --provider custom: the OIDC issuer URL, exactly as its tokens carry it',
+        },
+        subjectClaim: {
+            type: 'string',
+            placeholder: 'claim',
+            description: 'With --provider custom: the claim that names the workload. Defaults to sub',
+        },
+        subject: {
+            type: 'string',
+            placeholder: 'value',
+            description: 'With --provider custom: the exact value the subject claim must have',
+        },
+        condition: {
+            type: 'string',
+            multiple: true,
+            placeholder: 'claim=value',
+            description: 'With --provider custom: a claim the token must carry with this exact value. Repeat for more',
+        },
         name: { type: 'string', description: 'What to call the policy in PostHog' },
         wait: { type: 'boolean', description: 'Wait for the request an earlier run started to be approved' },
     },
@@ -136,6 +219,7 @@ export default defineCommand({
     examples: [
         'hog ci setup --branch main --scope error_tracking:write',
         'hog ci setup --environment production --scope endpoint:write,query:read',
+        'hog ci setup --provider custom --issuer https://auth.example.com --subject deploy-bot --condition env=production --scope error_tracking:write',
         'hog ci setup --wait',
     ],
 
@@ -161,6 +245,33 @@ export default defineCommand({
                 'Pass --scope with the scopes, like --scope error_tracking:write for source map uploads, or --scope endpoint:write,query:read for several.',
                 EXIT_USAGE
             )
+        }
+        if (options.provider === CUSTOM_OIDC.key) {
+            const { custom, subject, conditions } = customRequest(options)
+            const api = await ctx.posthog()
+            const { host, projectId } = (await ctx.session()).current
+            const target = { host, projectId }
+            const name = options.name ?? `${subject.subject} on ${new URL(custom.issuer).host}`
+            const result = await runApproval(
+                ctx,
+                policyRequestFlow(api, target, { provider: CUSTOM_OIDC, custom, name, subject, conditions, scopes })
+            )
+            const setup = setupFor(CUSTOM_OIDC, target)
+            if (result.status === 'pending') {
+                return { ...result, ...setup }
+            }
+            await clearPending(ctx.runtime, CI_SETUP_COMMAND)
+            return { status: 'approved', policyId: result.value.policyId, ...setup }
+        }
+        for (const flag of ['issuer', 'subjectClaim', 'subject', 'condition'] as const) {
+            if (options[flag] !== undefined) {
+                throw new HogError(
+                    'custom_option_without_custom_provider',
+                    `--${flag.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)} only works with --provider custom.`,
+                    'Pass --provider custom, or leave the flag out.',
+                    EXIT_USAGE
+                )
+            }
         }
         const repository = await readRepository(ctx.runtime)
         const provider = options.provider

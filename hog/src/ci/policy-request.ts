@@ -52,6 +52,8 @@ export type PendingPolicyRequest = z.output<typeof PendingPolicyRequestSchema>
 
 export interface PolicyRequestInput {
     provider: WorkloadProvider
+    // For a custom OIDC provider, the issuer and the claim that names the workload.
+    custom?: { issuer: string; subjectClaim: string }
     name: string
     subject: ResolvedSubject
     conditions: WorkloadConditions
@@ -84,7 +86,7 @@ export function policyRequestFlow(
     target: { host: Host; projectId: ProjectId },
     input: PolicyRequestInput
 ): ApprovalFlow<PendingPolicyRequest, ApprovedPolicy> {
-    const { provider, subject, conditions, scopes } = input
+    const { provider, subject, conditions, scopes, custom } = input
     const same = (existing: PendingPolicyRequest): boolean =>
         existing.host === target.host &&
         existing.projectId === target.projectId &&
@@ -99,7 +101,8 @@ export function policyRequestFlow(
                 requestsPath(target.projectId),
                 {
                     name: input.name,
-                    issuer: provider.issuer,
+                    issuer: custom?.issuer ?? provider.issuer,
+                    ...(custom ? { subject_claim: custom.subjectClaim } : {}),
                     subject: subject.subject,
                     subject_name: subject.subject_name,
                     conditions,
