@@ -6589,6 +6589,7 @@ export type ExperimentExposureHealthFindingCode =
     | 'bias_risk_multiple_excluded'
     | 'multiple_variants_share'
     | 'test_account_filter_removes_exposures'
+    | 'unserved_variant_exposures'
 
 export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
 
@@ -6628,6 +6629,7 @@ export type ExperimentExposureHealthCheckKey =
     | 'bias_risk_multiple_excluded'
     | 'multiple_variants_share'
     | 'test_account_filter_removes_exposures'
+    | 'unserved_variant_exposures'
 
 export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_applicable' | 'not_checked'
 
@@ -6642,6 +6644,8 @@ export type ExperimentExposureHealthValueKey =
     | 'since_launch_hours'
     | 'exposed_without_test_account_filter_count'
     | 'kept_by_test_account_filter_percentage'
+    | 'unserved_exposed_count'
+    | 'unserved_exposed_percentage'
 
 export type ExperimentExposureHealthRuleSide = 'above' | 'below'
 

@@ -26609,7 +26609,8 @@
                 "srm",
                 "bias_risk_multiple_excluded",
                 "multiple_variants_share",
-                "test_account_filter_removes_exposures"
+                "test_account_filter_removes_exposures",
+                "unserved_variant_exposures"
             ],
             "type": "string"
         },
@@ -26733,7 +26734,8 @@
                 "srm",
                 "bias_risk_multiple_excluded",
                 "multiple_variants_share",
-                "test_account_filter_removes_exposures"
+                "test_account_filter_removes_exposures",
+                "unserved_variant_exposures"
             ],
             "type": "string"
         },
@@ -26776,7 +26778,9 @@
                 "p_value",
                 "since_launch_hours",
                 "exposed_without_test_account_filter_count",
-                "kept_by_test_account_filter_percentage"
+                "kept_by_test_account_filter_percentage",
+                "unserved_exposed_count",
+                "unserved_exposed_percentage"
             ],
             "type": "string"
         },

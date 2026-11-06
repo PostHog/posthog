@@ -21,6 +21,7 @@ from posthog.schema import (
     ExperimentExposureCriteria,
     ExperimentExposureHealthCheckKey,
     ExperimentExposureHealthFindingCode,
+    ExperimentExposureHealthFindingSeverity,
     ExperimentExposureQuery,
     ExperimentWarehouseNativeExposureConfig,
     MultipleVariantHandling,
@@ -2180,6 +2181,65 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(
             "ExperimentExposuresWithoutTestAccountFilterQuery" in query_types,
             any(count is not None for *_, count in expected),
+        )
+
+    @parameterized.expand(
+        [
+            ("a_variant_without_a_share", {"active": True, "control": 0}, "variant_not_served"),
+            ("the_flag_is_off", {"active": False, "control": 50}, "flag_off"),
+        ]
+    )
+    def test_reports_users_first_exposed_in_a_variant_that_the_flag_no_longer_serves(
+        self, _name: str, flag_setup: dict[str, Any], subcode: str
+    ) -> None:
+        self.feature_flag.filters = {
+            **self.feature_flag.filters,
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": flag_setup["control"]},
+                    {"key": "test", "rollout_percentage": 100 - flag_setup["control"]},
+                ]
+            },
+        }
+        self.feature_flag.active = flag_setup["active"]
+        with time_machine.travel("2024-01-03T10:00:00Z", tick=False):
+            self.feature_flag.save()
+        # Before the day of the save, the old setup served both variants. After it, only "control" arrives, as a value
+        # that the flag can't have returned.
+        for day, variant, users in [
+            ("2024-01-02", "test", 10),
+            ("2024-01-02", "control", 10),
+            ("2024-01-04", "control", 12),
+        ]:
+            for i in range(users):
+                _create_event(
+                    distinct_id=f"{day}_{variant}_{i}",
+                    event="$feature_flag_called",
+                    timestamp=f"{day}T10:00:00Z",
+                    properties={"$feature_flag_response": variant, "$feature_flag": self.feature_flag.key},
+                    team=self.team,
+                )
+        flush_persons_and_events()
+
+        with time_machine.travel(LATER, tick=False):
+            response = ExperimentExposuresQueryRunner(
+                team=self.team, query=self._running_exposure_query(), user=self.user
+            ).calculate()
+
+        self.assertEqual(
+            [
+                (finding.code, finding.subcode, finding.severity, finding.evidence.get("unserved_exposed_count"))
+                for finding in response.health_findings or []
+                if finding.code == ExperimentExposureHealthFindingCode.UNSERVED_VARIANT_EXPOSURES
+            ],
+            [
+                (
+                    ExperimentExposureHealthFindingCode.UNSERVED_VARIANT_EXPOSURES,
+                    subcode,
+                    ExperimentExposureHealthFindingSeverity.WARNING,
+                    12,
+                )
+            ],
         )
 
     @parameterized.expand([("direct", False, True), ("precomputed", True, False)])

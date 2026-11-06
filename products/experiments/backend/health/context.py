@@ -193,6 +193,8 @@ class FlagState:
     variants: tuple[FlagVariant, ...]
     # The release conditions that can serve a request, in evaluation order.
     reachable_conditions: tuple[ReachableCondition, ...]
+    # The flag's last save, or None when unknown.
+    saved_at: datetime | None = None
 
 
 @frozen
@@ -645,6 +647,7 @@ def parse_flag_state(
     variants: object,
     aggregation_group_type_index: int | None = None,
     early_exit: bool = False,
+    saved_at: datetime | None = None,
 ) -> FlagState:
     conditions = groups if isinstance(groups, list) else []
     flag_variants = parse_variants(variants)
@@ -659,6 +662,7 @@ def parse_flag_state(
             _reachable_condition(index + 1, conditions[index], variant_keys, aggregation_group_type_index)
             for index in reachable
         ),
+        saved_at=saved_at,
     )
 
 
@@ -767,6 +771,7 @@ def _load_flag_state(experiment: Experiment) -> FlagState | None:
         variants=flag.variants,
         aggregation_group_type_index=flag.aggregation_group_type_index,
         early_exit=flag.early_exit,
+        saved_at=flag.updated_at,
     )
 
 

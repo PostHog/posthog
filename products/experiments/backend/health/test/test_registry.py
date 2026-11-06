@@ -547,6 +547,7 @@ class TestEvaluate(TestCase):
             (Key.MULTIPLE_VARIANTS_SHARE, {"exposures": _totals_with_multiple(30, 1000)}),
             (Key.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES, {"exposures": _filtered_totals(400, 1000)}),
             (Key.ZERO_EXPOSURES, {}),
+            (Key.UNSERVED_VARIANT_EXPOSURES, {"flag": replace(UNEVEN_FLAG, saved_at=LAUNCHED_AT)}),
         ]
     )
     def test_a_rule_names_values_that_its_check_reads(self, key: Key, changes: dict[str, Any]) -> None:

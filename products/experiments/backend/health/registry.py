@@ -65,6 +65,12 @@ from products.experiments.backend.health.checks.srm import (
     srm,
     srm_values,
 )
+from products.experiments.backend.health.checks.unserved_variants import (
+    UNSERVED_MINIMUM_COUNT,
+    UNSERVED_SHARE_THRESHOLD,
+    unserved_variant_exposures,
+    unserved_variant_values,
+)
 from products.experiments.backend.health.checks.zero_exposures import zero_exposures, zero_exposures_values
 from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.delays import ZERO_EXPOSURES_GRACE_HOURS
@@ -261,7 +267,10 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
 # The exposure query runs these on its answer. They must not include the checks above: the exposure answer
 # is cached for a day, and a flag edit would not clear their findings. `srm` reads the verdict of
 # `split_changed_mid_run`, which only a split edit can change, and the variant overrides of the release conditions. The
-# split and the release conditions are part of the exposure query's cache key.
+# split and the release conditions are part of the exposure query's cache key. `unserved_variant_exposures` also reads
+# whether the flag is on and when it was last saved. The page's query carries the whole flag, so a change to either
+# recalculates the page's answer. A backend answer keeps the old finding until its next calculation, and that finding
+# still holds for the users it counts.
 EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     HealthCheck(
         key=ExperimentHealthCheckKey.ZERO_EXPOSURES,
@@ -320,6 +329,25 @@ EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             test=ExperimentHealthRuleTest.CHI_SQUARED,
             minimum=ExperimentHealthRuleMinimum(
                 value=ExperimentHealthValueKey.COMPARED_COUNT, threshold=SRM_MINIMUM_SAMPLE_SIZE
+            ),
+        ),
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.UNSERVED_VARIANT_EXPOSURES,
+        name="Exposures in variants that the flag doesn't serve",
+        description=(
+            "Counts the users first exposed in a variant that the feature flag doesn't serve, for example while the "
+            "flag is off or after a variant's share is set to 0%. Their exposures carry a value that didn't come from "
+            "the flag, so the variants compare users that the flag didn't assign, which can bias the results."
+        ),
+        run=unserved_variant_exposures,
+        read=unserved_variant_values,
+        rule=ExperimentHealthCheckRule(
+            value=ExperimentHealthValueKey.UNSERVED_EXPOSED_PERCENTAGE,
+            threshold=UNSERVED_SHARE_THRESHOLD,
+            warns=ExperimentHealthRuleSide.ABOVE,
+            minimum=ExperimentHealthRuleMinimum(
+                value=ExperimentHealthValueKey.UNSERVED_EXPOSED_COUNT, threshold=UNSERVED_MINIMUM_COUNT
             ),
         ),
     ),
