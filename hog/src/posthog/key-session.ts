@@ -34,7 +34,10 @@ export class KeySession {
     // keeps the login's id. Another id means another project, where the rest of the command must not go.
     async reload(): Promise<void> {
         const latest = await this.storage?.reread()
-        if (latest?.loginKey !== this.key.loginKey) {
+        if (!latest) {
+            throw new HogError('not_authenticated', 'You logged out of hog.', 'Run `hog auth login` to log in again.')
+        }
+        if (latest.loginKey !== this.key.loginKey) {
             throw new HogError(
                 'login_changed',
                 'Your login now works in another project, so hog stopped instead of sending the rest of the command there.',

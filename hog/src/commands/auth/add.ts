@@ -46,7 +46,8 @@ export default defineCommand({
                 EXIT_USAGE
             )
         }
-        return stepUp(ctx, args.scopes)
+        const { parseScope } = await import('@/posthog/scopes')
+        return stepUp(ctx, args.scopes.map(parseScope))
     },
 
     human({ result, out }) {

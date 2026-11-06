@@ -973,4 +973,18 @@ describe('hog auth login', () => {
             logins: { [EU]: { loginId: 'login-1' } },
         })
     })
+
+    test('status treats a challenged 403 as a missing detail and asks nothing', async () => {
+        const result = await runHog(['auth', 'status'], {
+            stdoutIsTTY: true,
+            ...OAUTH_LOGIN,
+            respond: (url) =>
+                url.endsWith('/api/users/@me/')
+                    ? { status: 403, body: { detail: 'missing scope' }, headers: { 'WWW-Authenticate': CHALLENGE } }
+                    : { status: 200, body: { name: 'Hedgebox' } },
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('Hedgebox')
+    })
 })

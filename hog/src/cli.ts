@@ -107,10 +107,17 @@ async function withScopeHint(error: unknown, scopes: readonly string[] | undefin
         return error
     }
     const credentials = await ctx.requestedCredentials?.catch(() => undefined)
+    if (!canStepUp(credentials)) {
+        return error.withHint(
+            `Check that the personal API key has the ${scopes.join(', ')} scope and access to this project.`
+        )
+    }
+    const { scopesNotCovered } = await import('@/posthog/scopes')
+    const missing = scopesNotCovered(credentials?.key.status().scopes ?? [], scopes)
     return error.withHint(
-        canStepUp(credentials)
-            ? `Run \`${stepUpCommand(scopes)}\` to add the scopes to your login, and check that you can access this project.`
-            : `Check that the personal API key has the ${scopes.join(', ')} scope and access to this project.`
+        missing.length > 0
+            ? `Run \`${stepUpCommand(missing)}\` to add the scopes to your login, and check that you can access this project.`
+            : 'Check that you can access this project.'
     )
 }
 

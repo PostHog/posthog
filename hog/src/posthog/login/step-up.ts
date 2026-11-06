@@ -3,7 +3,7 @@ import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
 import type { OAuthLogin } from '@/posthog/oauth'
 import { addToKeyHint, canStepUp } from '@/posthog/scope-challenge'
-import { parseScope, scopesNotCovered } from '@/posthog/scopes'
+import { scopesNotCovered } from '@/posthog/scopes'
 
 import { ADD_COMMAND, loginFlow, saveLogin } from './flow'
 
@@ -58,10 +58,10 @@ export async function promptStepUp(ctx: Context, scopes: readonly string[]): Pro
 
 // `hog auth add`: a device login for the scopes the login holds plus the ones it lacks, with those
 // marked required. At a terminal it waits for the approval and saves the login. Agents get the link.
-export async function stepUp(ctx: Context, scopes: readonly string[]): Promise<StepUpResult> {
-    const wanted = scopes.map(parseScope)
+export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<StepUpResult> {
     const credentials = await ctx.credentials()
-    const { key } = credentials
+    // The session, not the credentials, holds the login an earlier step-up in this command saved.
+    const key = (await ctx.session()).current
     const held = key.status().scopes
     if (!canStepUp(credentials) || held === null) {
         throw keyCantStepUp(wanted)

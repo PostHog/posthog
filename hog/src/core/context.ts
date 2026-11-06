@@ -20,6 +20,7 @@ export class Context {
     private keySession?: Promise<KeySession>
     private loaded?: Promise<LoadedConfig | undefined>
     private tools?: Promise<ApiToolLibrary>
+    private stepUpRunning?: Promise<boolean>
 
     constructor(
         readonly runtime: Runtime,
@@ -47,9 +48,14 @@ export class Context {
     }
 
     // Resolves to whether the person added the scopes, after which the session uses the new login.
-    async stepUp(scopes: readonly string[]): Promise<boolean> {
-        const { promptStepUp } = await import('@/posthog/login/step-up')
-        return promptStepUp(this, scopes)
+    // Requests sent at once can all hit a missing scope, and they share one prompt.
+    stepUp(scopes: readonly string[]): Promise<boolean> {
+        this.stepUpRunning ??= import('@/posthog/login/step-up')
+            .then(({ promptStepUp }) => promptStepUp(this, scopes))
+            .finally(() => {
+                this.stepUpRunning = undefined
+            })
+        return this.stepUpRunning
     }
 
     // The nearest posthog.json, or undefined when there is none. Throws `invalid_config` when it

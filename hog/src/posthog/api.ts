@@ -8,7 +8,7 @@ import { VERSION } from '@/version'
 
 import { hostUrl } from './host'
 import type { KeySession } from './key-session'
-import { challengedScopes, stepUpRequired } from './scope-challenge'
+import { challengedScopes, isScopeName, stepUpCommand } from './scope-challenge'
 
 export const USER_AGENT = `hog/${VERSION}`
 // Generous, because a HogQL query can run for minutes. It only stops a connection that hangs.
@@ -88,6 +88,24 @@ export class ApiError extends HogError {
 }
 
 export type StepUp = (scopes: readonly string[]) => Promise<boolean>
+
+// A 403, so callers that treat a missing scope as a missing detail keep working. Agents get the
+// scopes and the command as data. Only scope names reach the command, because agents run it.
+export function stepUpRequired(
+    scopes: readonly string[],
+    message = `Your login needs ${scopes.join(', ')} for this.`
+): ApiError {
+    const named = scopes.filter(isScopeName)
+    const command = stepUpCommand(named)
+    return new ApiError(
+        403,
+        undefined,
+        'step_up_required',
+        message,
+        `Run \`${command}\` to add the scopes to your login, then run the command again.`,
+        { scopes: named, command }
+    )
+}
 
 // A DRF error body. `type` is the DRF error type, such as `validation_error`.
 // A field of another type reads as missing, so the others still reach the error message.
@@ -174,17 +192,22 @@ export class PostHogApi {
     }
 
     // The challenge names every scope the request needs, so the ones the login holds stay out of the step-up.
+    // A login that already holds every challenged scope gets the plain 403: adding them again changes nothing.
     private async missingScopes(response: HttpResponse): Promise<string[] | undefined> {
-        if (response.status !== 403) {
-            return undefined
+        const challenged =
+            response.status === 403 ? challengedScopes(response.headers.get('www-authenticate')) : undefined
+        if (!challenged || !this.stepUp) {
+            return challenged
         }
-        const { isScope, scopesNotCovered } = await import('./scopes')
-        const challenged = challengedScopes(response.headers.get('www-authenticate'), isScope)
-        if (!challenged) {
-            return undefined
-        }
+        const { scopesNotCovered } = await import('./scopes')
         const missing = scopesNotCovered(this.session.current.status().scopes ?? [], challenged)
-        return missing.length > 0 ? missing : challenged
+        return missing.length > 0 ? missing : undefined
+    }
+
+    // For lookups that only add detail, like the user's email: a missing scope fails the lookup
+    // without asking the person to add it.
+    withoutStepUp(): PostHogApi {
+        return new PostHogApi(this.session, this.fetchFn)
     }
 
     private failure(status: number, body: unknown): ApiError {

@@ -1,8 +1,14 @@
 import { parseInsufficientScopeChallenge } from '@posthog/mcp/src/lib/missing-scope'
 
-import { HogError } from '@/core/errors'
-
 import type { Credentials } from './credentials'
+
+// The shape of a PostHog scope name. Scopes in a step-up can come from the server, and agents run the
+// command they end up in, so nothing else may reach it.
+const SCOPE_NAME = /^[a-z][a-z0-9_]*:(read|write)$/
+
+export function isScopeName(scope: string): boolean {
+    return SCOPE_NAME.test(scope)
+}
 
 export function stepUpCommand(scopes: readonly string[]): string {
     return `hog auth add ${scopes.join(' ')}`
@@ -19,23 +25,9 @@ export function addToKeyHint(scopes: readonly string[]): string {
 }
 
 // RFC 6750 section 3.1. PostHog sends the challenge on a 403 only to logins from apps that support
-// step-up, and `scope` names every scope the request needs, held or not. hog puts these scopes into
-// a command a person or an agent runs, so `isScope` keeps only names PostHog has.
-export function challengedScopes(header: string | null, isScope: (scope: string) => boolean): string[] | undefined {
-    const scopes = parseInsufficientScopeChallenge(header)?.filter(isScope)
+// step-up, and `scope` names every scope the request needs, held or not. A newer PostHog can name a
+// scope this hog doesn't know, so the filter checks the shape, not hog's scope list.
+export function challengedScopes(header: string | null): string[] | undefined {
+    const scopes = parseInsufficientScopeChallenge(header)?.filter(isScopeName)
     return scopes?.length ? scopes : undefined
-}
-
-export function stepUpRequired(
-    scopes: readonly string[],
-    message = `Your login needs ${scopes.join(', ')} for this.`
-): HogError {
-    const command = stepUpCommand(scopes)
-    return new HogError(
-        'step_up_required',
-        message,
-        `Run \`${command}\` to add the scopes to your login, then run the command again.`,
-        undefined,
-        { scopes: [...scopes], command }
-    )
 }

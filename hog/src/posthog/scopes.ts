@@ -11,10 +11,6 @@ const ScopeSchema = z.enum(RESOURCE_SCOPES).brand<'Scope'>()
 
 export type Scope = z.output<typeof ScopeSchema>
 
-export function isScope(raw: string): boolean {
-    return ScopeSchema.safeParse(raw).success
-}
-
 export function parseScope(raw: string): Scope {
     const parsed = ScopeSchema.safeParse(raw)
     if (parsed.success) {
