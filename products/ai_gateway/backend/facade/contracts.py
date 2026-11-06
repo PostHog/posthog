@@ -11,7 +11,7 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
-from .enums import DevTokenClient, DevTokenStatus
+from .enums import DevTokenClient, DevTokenStatus, TeamAccessAction
 
 
 @dataclass(frozen=True)
@@ -87,3 +87,37 @@ class DevTokenRefused(Exception):
         self.code = code
         self.detail = detail
         self.http_status = http_status
+
+
+@dataclass(frozen=True)
+class TeamAccessChange:
+    team_id: int
+    action: TeamAccessAction
+    changed: bool
+    # The field's value before the call. When `changed` is False, this says since when the team was already there.
+    previous_at: datetime | None
+
+
+@dataclass(frozen=True)
+class TeamCreditAdded:
+    entry_id: str
+    amount_usd: str
+    balance_usd: str
+    # The gateway already had a credit with this idempotency key, so no new money moved.
+    duplicate: bool
+
+
+@dataclass(frozen=True)
+class TeamCreditTopUp:
+    created_at: datetime
+    amount_usd: str
+    reason: str
+    actor_email: str | None
+
+
+class TeamCreditRefused(Exception):
+    """A top-up that was not made: the amount is out of bounds, or the gateway refused or failed."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
