@@ -70,6 +70,10 @@ def precompute_person_resolution_enabled(team: Team) -> bool:
     again when the flag turns on. The read join aggregates all of the team's override rows on
     every read. Off, a build stores no distinct_id, and a read takes the person stored at build
     time and pays no join. Default-off and fail-safe: an absent or unevaluable flag keeps both off.
+
+    Person deletion does not sweep the precomputed tables, because neither is a target in
+    posthog/models/deletion_targets.py. A stored distinct_id therefore stays after its person is
+    deleted, until the row expires. Keep the flag to test teams until both tables are targets.
     """
     return bool(
         posthoganalytics.feature_enabled(
