@@ -7,10 +7,12 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from django.core.management import call_command
 
 from posthog.models.activity_logging.activity_log import ActivityLog, Detail
+from posthog.models.person.divergence.cleanup_queue import PG_CLEANUP_QUEUE_TABLE
 from posthog.models.person.divergence.inspection import hash_distinct_id, inspect_mappings, inspect_persons
 from posthog.models.person.test.divergence_fixtures import DivergenceFixturesMixin
 from posthog.models.person.util import tombstone_persons_in_postgres
 from posthog.personhog_client.fake_client import get_active_fake
+from posthog.persons_db import persons_db_connection
 
 
 class TestDivergenceInspection(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
@@ -43,6 +45,12 @@ class TestDivergenceInspection(DivergenceFixturesMixin, ClickhouseTestMixin, Bas
         self._ch_person(ghost, 3, {"email": "ghost@example.com"})
 
         self._log_person_activity("deleted", item_id=deleted.pk, name=str(deleted.uuid))
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
+            cursor.execute(
+                f"INSERT INTO {PG_CLEANUP_QUEUE_TABLE} (team_id, person_uuid, deleted_at, max_version, blocked_at) "
+                "VALUES (%s, %s, now(), 3, now())",
+                [self.team.pk, str(deleted.uuid)],
+            )
         self._log_person_activity("updated", item_id=stale.pk, name=None)
         self._log_person_activity("updated", item_id=tie.pk, name=None)
 
@@ -62,6 +70,9 @@ class TestDivergenceInspection(DivergenceFixturesMixin, ClickhouseTestMixin, Bas
         queued = by_key[str(deleted.uuid)].tombstone_queue
         assert queued is not None and queued["person_version"] == 3 and queued["tombstoned_at_ms"] > 0
         assert by_key[str(stale.uuid)].tombstone_queue is None
+        drain_row = by_key[str(deleted.uuid)].cleanup_queue
+        assert drain_row is not None and drain_row["max_version"] == 3 and drain_row["blocked_at"] is not None
+        assert by_key[str(stale.uuid)].cleanup_queue is None
         assert flavors == {
             str(tie.uuid): ("tie", None, "republish"),
             str(blanked.uuid): ("blanked", None, "republish"),
