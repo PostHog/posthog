@@ -1,11 +1,20 @@
-import { CI_SETUP_COMMAND, policyRequestFlow, policyRequestWait, resolveSubject } from '@/ci/policy-request'
+import {
+    CI_SETUP_COMMAND,
+    policyRequestFlow,
+    policyRequestWait,
+    resolveSubject,
+    type PolicyRequestInput,
+} from '@/ci/policy-request'
 import { CUSTOM_OIDC } from '@/ci/providers/custom/custom'
 import { WORKLOAD_PROVIDERS, type WorkloadConditions, type WorkloadProvider } from '@/ci/providers/registry'
 import { detectRepositoryProvider, pickProviderHint, readRepository } from '@/ci/repository'
 import { clearPending, printPending, resumeApproval, runApproval, type ApprovalResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
+import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls, type Output } from '@/core/output'
+import { kebabCase } from '@/core/text'
+import type { PostHogApi } from '@/posthog/api'
 import { cloudRegion, type Host } from '@/posthog/host'
 import type { ProjectId } from '@/posthog/ids'
 
@@ -96,6 +105,36 @@ function conditionPairs(raw: readonly string[]): WorkloadConditions {
     )
 }
 
+// Flags that only make sense for one kind of provider, so passing them to the other is a mistake, not a no-op.
+const CUSTOM_FLAGS = ['issuer', 'subjectClaim', 'subject', 'condition'] as const
+const REGISTRY_FLAGS = ['branch', 'environment', 'repository', 'subjectId'] as const
+
+function rejectFlags(
+    options: Partial<Record<string, unknown>>,
+    flags: readonly string[],
+    code: string,
+    rule: string,
+    hint: string
+): void {
+    const passed = flags.find((flag) => options[flag] !== undefined)
+    if (passed) {
+        throw new HogError(code, `--${kebabCase(passed)} ${rule}`, hint, EXIT_USAGE)
+    }
+}
+
+function issuerHost(issuer: string): string {
+    const url = URL.parse(issuer)
+    if (url?.protocol !== 'https:') {
+        throw new HogError(
+            'invalid_issuer',
+            `--issuer ${issuer} isn't an https:// URL.`,
+            'Pass the issuer exactly as its tokens carry it in iss, like --issuer https://auth.example.com.',
+            EXIT_USAGE
+        )
+    }
+    return url.host
+}
+
 interface CustomOptions {
     issuer?: string
     subjectClaim?: string
@@ -105,11 +144,7 @@ interface CustomOptions {
 }
 
 // A custom OIDC provider has no repository to read and no lookup, so every value comes from a flag.
-function customRequest(options: CustomOptions): {
-    custom: { issuer: string; subjectClaim: string }
-    subject: { subject: string; subject_name: string }
-    conditions: WorkloadConditions
-} {
+function customRequest(options: CustomOptions, scopes: string[]): PolicyRequestInput {
     const missing = (flag: string, example: string): HogError =>
         new HogError(
             'missing_custom_option',
@@ -120,6 +155,7 @@ function customRequest(options: CustomOptions): {
     if (!options.issuer) {
         throw missing('--issuer', '--issuer https://auth.example.com')
     }
+    const host = issuerHost(options.issuer)
     if (!options.subject) {
         throw missing('--subject', '--subject deploy-bot')
     }
@@ -133,10 +169,29 @@ function customRequest(options: CustomOptions): {
         )
     }
     return {
-        custom: { issuer: options.issuer, subjectClaim: options.subjectClaim ?? 'sub' },
+        provider: CUSTOM_OIDC,
+        issuer: options.issuer,
+        subjectClaim: options.subjectClaim ?? 'sub',
+        name: options.name ?? `${options.subject} on ${host}`,
         subject: { subject: options.subject, subject_name: options.name ?? options.subject },
         conditions,
+        scopes,
     }
+}
+
+async function requestPolicy(
+    ctx: Context,
+    api: PostHogApi,
+    target: { host: Host; projectId: ProjectId },
+    input: PolicyRequestInput
+): Promise<SetupResult> {
+    const result = await runApproval(ctx, policyRequestFlow(api, target, input))
+    const setup = setupFor(input.provider, target)
+    if (result.status === 'pending') {
+        return { ...result, ...setup }
+    }
+    await clearPending(ctx.runtime, CI_SETUP_COMMAND)
+    return { status: 'approved', policyId: result.value.policyId, ...setup }
 }
 
 function printSnippet(out: Output, result: Setup): void {
@@ -247,32 +302,25 @@ export default defineCommand({
             )
         }
         if (options.provider === CUSTOM_OIDC.key) {
-            const { custom, subject, conditions } = customRequest(options)
+            rejectFlags(
+                options,
+                REGISTRY_FLAGS,
+                'option_not_for_custom_provider',
+                "doesn't work with --provider custom.",
+                'Pass --subject for the workload and --condition claim=value for each claim to check.'
+            )
+            const input = customRequest(options, scopes)
             const api = await ctx.posthog()
             const { host, projectId } = (await ctx.session()).current
-            const target = { host, projectId }
-            const name = options.name ?? `${subject.subject} on ${new URL(custom.issuer).host}`
-            const result = await runApproval(
-                ctx,
-                policyRequestFlow(api, target, { provider: CUSTOM_OIDC, custom, name, subject, conditions, scopes })
-            )
-            const setup = setupFor(CUSTOM_OIDC, target)
-            if (result.status === 'pending') {
-                return { ...result, ...setup }
-            }
-            await clearPending(ctx.runtime, CI_SETUP_COMMAND)
-            return { status: 'approved', policyId: result.value.policyId, ...setup }
+            return await requestPolicy(ctx, api, { host, projectId }, input)
         }
-        for (const flag of ['issuer', 'subjectClaim', 'subject', 'condition'] as const) {
-            if (options[flag] !== undefined) {
-                throw new HogError(
-                    'custom_option_without_custom_provider',
-                    `--${flag.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)} only works with --provider custom.`,
-                    'Pass --provider custom, or leave the flag out.',
-                    EXIT_USAGE
-                )
-            }
-        }
+        rejectFlags(
+            options,
+            CUSTOM_FLAGS,
+            'custom_option_without_custom_provider',
+            'only works with --provider custom.',
+            'Pass --provider custom, or leave the flag out.'
+        )
         const repository = await readRepository(ctx.runtime)
         const provider = options.provider
             ? providerByKey(options.provider)
@@ -307,16 +355,14 @@ export default defineCommand({
             : await resolveSubject(api, projectId, provider, subjectName)
         const name = options.name ?? `${subject.subject_name} on ${provider.name}`
 
-        const result = await runApproval(
-            ctx,
-            policyRequestFlow(api, target, { provider, name, subject, conditions, scopes })
-        )
-        const setup = setupFor(provider, target)
-        if (result.status === 'pending') {
-            return { ...result, ...setup }
-        }
-        await clearPending(ctx.runtime, CI_SETUP_COMMAND)
-        return { status: 'approved', policyId: result.value.policyId, ...setup }
+        return await requestPolicy(ctx, api, target, {
+            provider,
+            issuer: provider.issuer,
+            name,
+            subject,
+            conditions,
+            scopes,
+        })
     },
 
     human({ result, out }) {

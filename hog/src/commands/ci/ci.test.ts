@@ -199,6 +199,31 @@ describe('hog ci setup', () => {
     })
 
     test.each([
+        ['the same issuer', 'https://auth.example.com', 0],
+        ['another issuer', 'https://login.example.com', 1],
+    ])('running a custom request again for %s', async (_name, issuer, created) => {
+        const args = (issuerUrl: string): string[] => [
+            '--provider',
+            'custom',
+            '--issuer',
+            issuerUrl,
+            '--subject',
+            'deploy-bot',
+            '--condition',
+            'env=production',
+            '--scope',
+            'query:read',
+        ]
+        const first = await setup(args('https://auth.example.com'), { respond: policyApi() })
+
+        const run = await setup(args(issuer), { files: first.files, respond: policyApi({ final: 'pending' }) })
+
+        expect(run.requests.filter((request) => request.url === REQUESTS && request.method === 'POST')).toHaveLength(
+            created
+        )
+    })
+
+    test.each([
         ['no scope', ['--branch', 'main'], REPOSITORY, 'missing_scopes'],
         ['no branch or environment', ['--scope', 'query:read'], REPOSITORY, 'missing_conditions'],
         [
@@ -227,6 +252,42 @@ describe('hog ci setup', () => {
             ],
             REPOSITORY,
             'missing_conditions',
+        ],
+        [
+            'a custom provider with a registry flag',
+            [
+                '--provider',
+                'custom',
+                '--issuer',
+                'https://auth.example.com',
+                '--subject',
+                'bot',
+                '--condition',
+                'env=prod',
+                '--branch',
+                'main',
+                '--scope',
+                'query:read',
+            ],
+            REPOSITORY,
+            'option_not_for_custom_provider',
+        ],
+        [
+            'a custom issuer that is not https',
+            [
+                '--provider',
+                'custom',
+                '--issuer',
+                'http://auth.example.com',
+                '--subject',
+                'bot',
+                '--condition',
+                'env=prod',
+                '--scope',
+                'query:read',
+            ],
+            REPOSITORY,
+            'invalid_issuer',
         ],
         [
             'an issuer for a supported provider',

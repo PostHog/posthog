@@ -56,7 +56,9 @@ function exchangeHint(
 ): string {
     switch (code) {
         case 'workload_no_matching_policy':
-            return `Run \`hog ci setup\` on your machine to ask an admin to trust this ${provider.name} workload in project ${projectId}.`
+            return provider.key === 'custom'
+                ? `Run \`hog ci setup --provider custom --issuer <issuer URL>\` on your machine to ask an admin to trust this workload in project ${projectId}.`
+                : `Run \`hog ci setup\` on your machine to ask an admin to trust this ${provider.name} workload in project ${projectId}.`
         case 'workload_policy_request_pending':
             return body.approval_url
                 ? `Ask an organization admin to approve the request: ${body.approval_url}`
