@@ -64,8 +64,7 @@ export class SandboxSenderStateService {
         this.cached = read
         read.paused.then(
             () => {
-                // Overlapping reads can finish out of order, so only a read that started after
-                // the last good one replaces it, and it also replaces an older read in the cache.
+                // Overlapping reads can finish out of order.
                 if (reloads === this.reloads && read.number > (this.lastGood?.number ?? 0)) {
                     this.lastGood = read
                     if (!this.cached || this.cached.number < read.number) {

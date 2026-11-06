@@ -412,6 +412,46 @@ describe('OrganizationMembersService', () => {
             }
         })
 
+        it('shares one reload between blocked sends that arrive while it runs', async () => {
+            jest.useFakeTimers()
+            const start = Date.now()
+            let reloadStarted: () => void = () => {}
+            const started = new Promise<void>((resolve) => (reloadStarted = resolve))
+            let releaseReload: () => void = () => {}
+            const held = new Promise<void>((resolve) => (releaseReload = resolve))
+            const query = jest
+                .fn()
+                .mockResolvedValueOnce({ rows: [memberRow('member@example.com')] })
+                .mockImplementation(async () => {
+                    reloadStarted()
+                    await held
+                    return { rows: [memberRow('member@example.com')] }
+                })
+            const service = new OrganizationMembersService(routerFor(query))
+            const outsider = [{ address: 'outside@example.com', unverifiedMember: false }]
+            try {
+                const firstLoad = service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })
+                await jest.advanceTimersByTimeAsync(0)
+                expect(await firstLoad).toEqual([])
+                jest.setSystemTime(start + 5_001)
+
+                const first = service.getBlockedRecipients(1, ['outside@example.com'], { fresh: false })
+                await jest.advanceTimersByTimeAsync(0)
+                await started
+                const later = Array.from({ length: 5 }, () =>
+                    service.getBlockedRecipients(1, ['outside@example.com'], { fresh: false })
+                )
+                await jest.advanceTimersByTimeAsync(0)
+                expect(query).toHaveBeenCalledTimes(2)
+
+                releaseReload()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(await Promise.all([first, ...later])).toEqual(Array(6).fill(outsider))
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('keeps serving the cached members to later sends when the reload of a cached block fails', async () => {
             const start = Date.now()
             const clock = jest.spyOn(Date, 'now').mockReturnValue(start)
