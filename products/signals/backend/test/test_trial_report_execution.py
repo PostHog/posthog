@@ -367,20 +367,60 @@ class TestTrialReportExecution(NonAtomicBaseTest):
             receipt = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
             assert receipt.spend == 14
             assert receipt.billing_exempt and receipt.trial_grant_id is None and receipt.usage_billing
-        async_to_sync(publish_report_spend_activity)(
-            SignalReportSummaryWorkflowInputs(
-                team_id=self.team.id,
-                report_id=str(report.id),
-                signal_id=signal_id,
-                operator_rerun=True,
+        with patch("products.signals.backend.temporal.summary.submit_signal_metadata_updates", new_callable=AsyncMock):
+            async_to_sync(publish_report_spend_activity)(
+                SignalReportSummaryWorkflowInputs(
+                    team_id=self.team.id,
+                    report_id=str(report.id),
+                    signal_id=signal_id,
+                    operator_rerun=True,
+                )
             )
-        )
         original.refresh_from_db()
         assert (original.spend, original.finalized_at, original.trial_grant_id) == original_snapshot
         grant.refresh_from_db()
         assert (grant.settled_microusd, grant.incomplete_sources) == grant_snapshot
         now = timezone.now()
         assert get_signals_spend_billing_credits_by_team(now - timedelta(days=1), now + timedelta(days=1)) == []
+
+    def test_operator_pipeline_finalizes_new_signals_without_changing_its_original_receipt(self) -> None:
+        grant = self.claim()
+        original_id, pending_id = uuid4(), uuid4()
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=original_id)
+        record_llm_spend(
+            "original",
+            team_id=self.team.id,
+            signal_id=str(original_id),
+            stage="research",
+            token_cost_microusd=100_000,
+            trial_grant_id=str(grant.id),
+        )
+        finish_report_spend(team_id=self.team.id, report_id=str(report.id), signal_id=str(original_id))
+        original = SignalSpend.objects.for_team(self.team.id).get(signal_id=original_id)
+        original_finalized = original.finalized_at
+        prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="operator", operator_rerun=True)
+        SignalReport.objects.filter(id=report.id).update(pending_triggering_signal_id=pending_id)
+        record_llm_spend(
+            "organic-signal",
+            team_id=self.team.id,
+            signal_id=str(pending_id),
+            stage="research",
+            token_cost_microusd=100_000,
+            trial_grant_id=str(grant.id),
+        )
+        with patch("products.signals.backend.temporal.summary.submit_signal_metadata_updates", new_callable=AsyncMock):
+            async_to_sync(publish_report_spend_activity)(
+                SignalReportSummaryWorkflowInputs(
+                    team_id=self.team.id,
+                    report_id=str(report.id),
+                    signal_id=str(original_id),
+                    operator_rerun=True,
+                )
+            )
+        original.refresh_from_db()
+        assert original.finalized_at == original_finalized
+        assert original.spend == 10 and original.trial_grant_id == grant.id
+        assert SignalSpend.objects.for_team(self.team.id).get(signal_id=pending_id).finalized_at is not None
 
     def test_free_signal_cannot_skip_paid_authorization_for_customer_report(self) -> None:
         grant = self.claim()

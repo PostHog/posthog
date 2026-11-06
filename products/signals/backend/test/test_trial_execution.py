@@ -600,9 +600,20 @@ class TestTrialExecution(BaseTest):
         assert created is not None and created.error is None and created.run is not None
         assert task.runs.get().state["self_driving_funding"]["grant_id"] == str(grant.id)
 
-    def test_accepted_pipeline_without_trial_finishes_after_the_quota(self) -> None:
-        self.flag_mock.return_value = False
-        report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4(), run_count=1)
+    @parameterized.expand([("existing", False), ("operator", False), ("operator", True)])
+    def test_accepted_pipeline_without_trial_finishes_after_the_quota(self, funding: str, exempt: bool) -> None:
+        self.flag_mock.side_effect = lambda key, *args, **kwargs: (
+            funding == "operator" and key == "self-driving-free-trial"
+        )
+        report = SignalReport.objects.create(
+            team=self.team,
+            triggering_signal_id=uuid4(),
+            run_count=1,
+            billing_exempt_reason=SignalReport.BillingExemptReason.POSTHOG_SYSTEM if exempt else None,
+        )
+        prepare_report_pass(
+            team=self.team, report_id=str(report.id), operation_key="accepted", operator_rerun=funding == "operator"
+        )
         task = Task.objects.create(
             team=self.team,
             title="Accepted implementation",
@@ -625,11 +636,11 @@ class TestTrialExecution(BaseTest):
                 self.user.id,
                 validated_data={"mode": "background"},
                 pipeline_rerun=True,
-                free_trial_enabled=False,
+                free_trial_enabled=funding == "operator",
             )
         assert result is not None and result.error is None and result.run_error is None
         assert task.runs.count() == 1
-        assert task.runs.get().state["self_driving_funding"]["funding"] == "existing"
+        assert task.runs.get().state["self_driving_funding"]["funding"] == funding
 
     def test_background_research_keeps_report_admission_after_the_quota(self) -> None:
         self.flag_mock.return_value = False
@@ -690,13 +701,13 @@ class TestTrialExecution(BaseTest):
                 )
         assert task.runs.count() == 1
 
-    @parameterized.expand([("trial",), ("paid",), ("existing",), (None,)])
+    @parameterized.expand([("trial",), ("paid",), ("operator",), ("existing",), (None,)])
     def test_facade_continuation_keeps_admitted_funding_when_trial_rollout_is_disabled(
         self, funding: str | None
     ) -> None:
         grant = self.claim()
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4())
-        if funding in {"trial", "paid"}:
+        if funding in {"trial", "paid", "operator"}:
             if funding == "paid":
                 record_llm_spend(
                     "exhaust",
@@ -707,7 +718,11 @@ class TestTrialExecution(BaseTest):
                     trial_grant_id=str(grant.id),
                 )
             prepare_report_pass(
-                team=self.team, report_id=str(report.id), operation_key="accepted", paid_authorized=True
+                team=self.team,
+                report_id=str(report.id),
+                operation_key="accepted",
+                paid_authorized=True,
+                operator_rerun=funding == "operator",
             )
             report.refresh_from_db()
         elif funding is not None:
@@ -729,13 +744,13 @@ class TestTrialExecution(BaseTest):
                 continue_admitted_pipeline=continue_admitted_pipeline,
             )
 
-        if funding in {"trial", "paid"}:
+        if funding in {"trial", "paid", "operator"}:
             created = create_implementation(continue_admitted_pipeline=True)
             assert created.latest_run is not None
             run = TaskRun.objects.get(id=created.latest_run.id)
             assert run.state["self_driving_funding"]["funding"] == funding
             receipt = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
-            assert receipt.billing_exempt is (funding == "trial")
+            assert receipt.billing_exempt is (funding in {"trial", "operator"})
             assert (receipt.trial_grant_id == grant.id) is (funding == "trial")
         else:
             with self.assertRaises(FreeTrialPullRequestRefused):
