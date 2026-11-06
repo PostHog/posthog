@@ -1,0 +1,131 @@
+"""Stage 5: a decision model screens failures the text itself shows, and names what existing evaluations cover.
+
+It ranks candidates and picks example traces. Its rate is never shown, because on real traces it reacts to
+surface cues, and it is never asked about hallucination, claimed success or task outcome.
+"""
+
+import re
+from collections.abc import Mapping, Sequence
+
+from django.conf import settings
+
+from posthog.llm.system_one import Answer, ChoiceAnswer, ChoiceQuestion, NoulAnswer, NoulQuestion, Question
+from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, SystemOneClient, build_system_one_client
+from posthog.models.team import Team
+from posthog.temporal.ai_observability.shared_activities import consented_team_ids
+
+from . import catalog
+from .coverage import ExistingEval
+from .measure import SampledTrace
+from .ranking import ScreeningResult
+
+AI_PRODUCT = "llma_eval_suggestions"
+# Calibrated on labelled traces: separation was best between 0.8 and 0.9, and 0.5 flagged far too much.
+FAILING_PROBABILITY = 0.9
+# A dedupe answer below this confidence keeps the candidate and labels it "similar to" the evaluation.
+DEDUPE_CONFIDENCE = 0.6
+MAX_SCREENED_TRACES = 128
+MAX_STATE_CHARS = 3000
+CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+_NONE_OPTION = "none"
+_DEDUPE_INSTRUCTIONS = (
+    "This is the definition of an automated evaluation that checks AI outputs. Which one of these standard checks "
+    "does it implement? Pick none when it checks something more specific than any standard check, such as a "
+    "product rule or a routing decision."
+)
+_SENTIMENT_QUESTION = "Does the user sound frustrated, annoyed, or angry with the assistant in this turn?"
+_LABELS = {
+    "sentiment": "The user sounds frustrated",
+    "prompt_injection": "Text tries to override the assistant's instructions",
+}
+
+
+def build_client(team: Team) -> SystemOneClient:
+    """Raises SystemOneNotConfigured where no System One server is set up, which a caller treats as a skip."""
+    return build_system_one_client(model=settings.HOGQL_PROMPT_JEV_MODEL, ai_product=AI_PRODUCT, team_id=team.pk)
+
+
+def consented(team: Team) -> bool:
+    return team.pk in consented_team_ids([team.pk])
+
+
+def clean_state(text: str) -> str:
+    return CONTROL_CHARACTERS.sub(" ", text)[:MAX_STATE_CHARS]
+
+
+def _question(template_key: str) -> Question:
+    template = catalog.template(template_key)
+    if template_key == "sentiment":
+        return NoulQuestion(instructions=_SENTIMENT_QUESTION)
+    if template.output_type == "categorical":
+        options = template.output_config.get("options", [])
+        return ChoiceQuestion(
+            instructions=template.prompt, criteria={option["key"]: option["label"] for option in options}
+        )
+    return NoulQuestion(instructions=template.prompt)
+
+
+def failing_probability(template_key: str, answer: Answer) -> tuple[float, str] | None:
+    """How likely the answer marks a failure, with a one-line label. None for a refusal or a malformed answer."""
+    if isinstance(answer, NoulAnswer):
+        return answer.probability, _LABELS.get(template_key, catalog.template(template_key).name)
+    if isinstance(answer, ChoiceAnswer):
+        template = catalog.template(template_key)
+        passing = set(template.output_config.get("passing_rule", {}).get("categories", []))
+        labels = {option["key"]: option["label"] for option in template.output_config.get("options", [])}
+        return (
+            sum(p for option, p in answer.probabilities.items() if option not in passing),
+            labels.get(answer.choice, answer.choice),
+        )
+    return None
+
+
+def screen(
+    client: SystemOneClient, template_keys: Sequence[str], traces: Sequence[SampledTrace]
+) -> list[ScreeningResult]:
+    """Ask every template's question about the visible turn of each trace that has text.
+
+    Each call holds one trace: with several traces in one state, the model reads the others as the same
+    conversation and scores repeated requests that are not there.
+    """
+    readable = [t for t in traces if t.final_text.strip()][:MAX_SCREENED_TRACES]
+    questions = {key: _question(key) for key in template_keys}
+    flagged: dict[str, list[tuple[float, str, str]]] = {key: [] for key in template_keys}
+    for sampled in readable:
+        state = {"turn": clean_state(sampled.turn_text)}
+        keys = list(questions)
+        for start in range(0, len(keys), GATEWAY_MAX_QUESTIONS):
+            batch = keys[start : start + GATEWAY_MAX_QUESTIONS]
+            answers = client.decide(state=state, questions={key: questions[key] for key in batch}).answers
+            for key in batch:
+                scored = failing_probability(key, answers[key])
+                if scored is not None and scored[0] >= FAILING_PROBABILITY:
+                    flagged[key].append((scored[0], sampled.trace.id, scored[1]))
+    return [
+        ScreeningResult(
+            template_key=key,
+            screened=len(readable),
+            flagged=[(trace_id, label) for _, trace_id, label in sorted(flagged[key], reverse=True)],
+        )
+        for key in template_keys
+    ]
+
+
+def dedupe(
+    client: SystemOneClient, evals: Sequence[ExistingEval], options: Mapping[str, str]
+) -> dict[str, tuple[ExistingEval, float]]:
+    """For each candidate key, the existing evaluation the model says implements it, and its confidence."""
+    choices = dict(list(options.items())[:15]) | {_NONE_OPTION: "Something more specific than any standard check"}
+    question = ChoiceQuestion(instructions=_DEDUPE_INSTRUCTIONS, criteria=choices)
+    matches: dict[str, tuple[ExistingEval, float]] = {}
+    # One definition per call, for the same reason as screen().
+    for existing in evals:
+        answer = client.decide(
+            state={"definition": clean_state(existing.definition_text)}, questions={"covers": question}
+        ).answers["covers"]
+        if not isinstance(answer, ChoiceAnswer) or answer.choice == _NONE_OPTION:
+            continue
+        if answer.choice not in matches or answer.confidence > matches[answer.choice][1]:
+            matches[answer.choice] = (existing, answer.confidence)
+    return matches
