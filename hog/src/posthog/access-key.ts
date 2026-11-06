@@ -50,10 +50,6 @@ export class MemoryKeyStorage implements AccessKeyStorage {
     }
 }
 
-export function projectAccess(scopes: string[], projectId: ProjectId): ApiKeyAccess {
-    return { scopes, scopedTeams: [Number(projectId)], scopedOrganizations: [] }
-}
-
 // A key hog sends to PostHog. Each kind owns how it authenticates, renews, logs out and is stored,
 // so callers never branch on the kind.
 export interface AccessKey {
