@@ -10,13 +10,14 @@ from parameterized import parameterized
 from posthog.api.livestream import LivestreamAuthentication
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import OrganizationDomain, OrganizationMembership, PropertyDefinition
+from posthog.models import OrganizationDomain, OrganizationMembership
 from posthog.test.authentication_checks import covers_authentication
 from posthog.test.persons import create_group_type_mapping
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class TestLivestreamAuthorization(APIBaseTest):

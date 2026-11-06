@@ -127,7 +127,8 @@ class TestInsightExplanationAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_fixing_an_explanation_keeps_its_link(self) -> None:
+    @patch("products.product_analytics.backend.presentation.insight_explanation.report_user_action")
+    def test_fixing_an_explanation_keeps_its_link(self, report_user_action: Any) -> None:
         created = self.client.post(self._url(self.insight), {"data": EXPLANATION}, format="json")
         url = f"{self._url(self.insight)}{created.json()['id']}/"
 
@@ -136,6 +137,13 @@ class TestInsightExplanationAPI(APIBaseTest):
         assert fixed.status_code == status.HTTP_200_OK, fixed.json()
         assert fixed.json()["id"] == created.json()["id"]
         assert self.client.get(url).json()["data"]["headline"] == "A spike from **ads**."
+        assert [(call.args[1], call.args[2]) for call in report_user_action.call_args_list] == [
+            (
+                "explain chart link saved",
+                {"explanation_id": created.json()["id"], "insight_id": self.insight.short_id, "updated": updated},
+            )
+            for updated in (False, True)
+        ]
 
     @parameterized.expand(
         [

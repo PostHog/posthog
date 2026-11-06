@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { HogError } from '@/core/errors'
 import { parseLosslessJson } from '@/core/json'
 import type { RuntimeFetch } from '@/core/runtime'
-import { parseOrThrow } from '@/core/schema'
+import { parseOrThrow, type Schema } from '@/core/schema'
 import { VERSION } from '@/version'
 
 import { hostUrl } from './host'
@@ -120,24 +120,19 @@ export class PostHogApi {
 
     // Each call names the schema of the answer it expects, so a command never works with a shape
     // PostHog didn't send.
-    get<S extends z.ZodType>(path: string, schema: S): Promise<z.output<S>> {
+    get<T>(path: string, schema: Schema<T>): Promise<T> {
         return this.request('GET', path, schema)
     }
 
-    post<S extends z.ZodType>(path: string, body: unknown, schema: S): Promise<z.output<S>> {
+    post<T>(path: string, body: unknown, schema: Schema<T>): Promise<T> {
         return this.request('POST', path, schema, body)
     }
 
-    patch<S extends z.ZodType>(path: string, body: unknown, schema: S): Promise<z.output<S>> {
+    patch<T>(path: string, body: unknown, schema: Schema<T>): Promise<T> {
         return this.request('PATCH', path, schema, body)
     }
 
-    private async request<S extends z.ZodType>(
-        method: Method,
-        path: string,
-        schema: S,
-        body?: unknown
-    ): Promise<z.output<S>> {
+    private async request<T>(method: Method, path: string, schema: Schema<T>, body?: unknown): Promise<T> {
         const url = this.url(path)
         const response = await this.session.send(
             (token) => sendRequest(this.fetchFn, url, { method, body, token }),
