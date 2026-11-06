@@ -133,7 +133,6 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
     })),
     actions({
         publishDraft: true,
-        // `inputs` holds the secrets the publisher entered again after publish refused to move them.
         confirmPublishDraft: (confirmToken: string, inputs?: EnteredSecretInputs) => ({ confirmToken, inputs }),
         discardDraft: true,
         confirmDiscardDraft: true,
@@ -251,7 +250,7 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
             } catch (error) {
                 const refusal = parseSecretReentryRefusal(error)
                 if (refusal) {
-                    // Nothing changed, so the form stays as it is and the same preview token still applies.
+                    // The refused publish wrote nothing, so the same preview token still applies.
                     actions.setDraftActionPending(null)
                     actions.requireSecretReentry(
                         refusal,

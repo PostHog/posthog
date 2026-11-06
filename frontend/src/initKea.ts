@@ -248,10 +248,9 @@ const GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH: Record<string, 
 }
 
 /*
-Write actions whose owning logic handles a 400 with code `secret_reentry_required`: it asks for the
-secret again in a dialog, or toasts the refusal with the input's name. It is a prompt for user input,
-so it is not reported as an exception. Owned by hogFunctionSecretReentryLogic's upsertHogFunctionFailure
-listener. The backend raises the code in products/cdp/backend/api/hog_function.py.
+Write actions whose owning logic asks for the secret again after a 400 with code `secret_reentry_required`.
+The 400 asks for user input, so it is not reported as an exception. Owned by hogFunctionSecretReentryLogic's
+upsertHogFunctionFailure listener. The backend raises the code in products/cdp/backend/api/hog_function.py.
 */
 const SECRET_REENTRY_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     upsertHogFunction: 'scenes.pipeline.hogFunctionConfigurationLogic',

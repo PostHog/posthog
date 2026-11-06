@@ -220,31 +220,44 @@ describe('hogFunctionSecretReentryLogic', () => {
         expect(configLogic.values.configuration.inputs?.api_key).toEqual({ secret: true })
     })
 
+    // A form that shows an error does not submit, so the other field's error arrives while the request is in flight.
+    const OTHER_FIELD_ERRORS = { name: 'Name taken', inputs: { url: 'Enter a valid URL' } }
+
+    const refuseSave = async (key: string): Promise<void> => {
+        mockApi.update.mockImplementationOnce(async () => {
+            configLogic.actions.setConfigurationManualErrors(OTHER_FIELD_ERRORS)
+            throw refusal(key)
+        })
+        configLogic.actions.submitConfiguration()
+    }
+
+    const refuseTestRun = async (key: string): Promise<void> => {
+        const testLogic = await mountTestLogic()
+        mockApi.createTestInvocation.mockImplementationOnce(async () => {
+            configLogic.actions.setConfigurationManualErrors(OTHER_FIELD_ERRORS)
+            throw refusal(key)
+        })
+        testLogic.actions.submitTestInvocation()
+    }
+
     it.each([
-        ['a save', 'not_in_schema', 'Enter not_in_schema again in the form.', false],
-        ['a save', 'signing_cert', 'Enter Signing certificate again in the form.', true],
-        ['a test run', 'signing_cert', 'Enter Signing certificate again in the form.', true],
+        ['a save', 'not_in_schema', refuseSave, 'Enter not_in_schema again in the form.', false],
+        ['a save', 'signing_cert', refuseSave, 'Enter Signing certificate again in the form.', true],
+        ['a test run', 'signing_cert', refuseTestRun, 'Enter Signing certificate again in the form.', true],
     ])(
         'falls back to a toast naming the input when %s refuses %s, which the dialog cannot ask for',
-        async (source, key, toastStart, marksField) => {
+        async (_source, key, refuse, toastStart, marksField) => {
             const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
 
-            await expectLogic(logic, async () => {
-                if (source === 'a save') {
-                    mockApi.update.mockRejectedValueOnce(refusal(key))
-                    configLogic.actions.submitConfiguration()
-                } else {
-                    const testLogic = await mountTestLogic()
-                    mockApi.createTestInvocation.mockRejectedValueOnce(refusal(key))
-                    testLogic.actions.submitTestInvocation()
-                }
-            }).toDispatchActions(['requireSecretReentry'])
+            await expectLogic(logic, () => refuse(key)).toDispatchActions(['requireSecretReentry'])
 
             expect(logic.values.isOpen).toBe(false)
             expect(toastSpy).toHaveBeenCalledTimes(1)
             expect(toastSpy.mock.calls[0][0]).toMatch(new RegExp(`^${toastStart}`))
             expect(configLogic.values.configurationManualErrors).toEqual(
-                marksField ? { inputs: { [key]: REFUSAL_DETAIL } } : {}
+                marksField
+                    ? { ...OTHER_FIELD_ERRORS, inputs: { ...OTHER_FIELD_ERRORS.inputs, [key]: REFUSAL_DETAIL } }
+                    : OTHER_FIELD_ERRORS
             )
         }
     )
