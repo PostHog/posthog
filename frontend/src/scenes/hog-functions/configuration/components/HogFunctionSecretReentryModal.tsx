@@ -5,9 +5,26 @@ import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
-import { hogFunctionSecretReentryLogic } from '../hogFunctionSecretReentryLogic'
+import { SecretReentrySource, hogFunctionSecretReentryLogic } from '../hogFunctionSecretReentryLogic'
 
 const SECRET_INPUT_ID = 'hog-function-secret-reentry-value'
+
+const CONFIRM_LABELS: Record<SecretReentrySource, string> = {
+    save: 'Save',
+    test: 'Test function',
+    publish: 'Publish',
+}
+
+function reentryDescription(isDictionary: boolean, source: SecretReentrySource | undefined): string {
+    if (source === 'publish') {
+        return isDictionary
+            ? 'The staged changes send these secret values to a new address. Enter them to publish.'
+            : 'The staged changes send this secret to a new address. Enter its value to publish.'
+    }
+    return isDictionary
+        ? 'Your edits send these secret values to a new address. Enter them to confirm.'
+        : 'Your edits send this secret to a new address. Enter its value to confirm.'
+}
 
 export function HogFunctionSecretReentryModal(): JSX.Element {
     const { logicProps } = useValues(hogFunctionConfigurationLogic)
@@ -25,11 +42,7 @@ export function HogFunctionSecretReentryModal(): JSX.Element {
             width={480}
             hasUnsavedInput={!!secretValue || Object.values(secretEntryValues).some(Boolean)}
             title={isDictionary ? 'Enter the secret values again' : 'Enter the secret again'}
-            description={
-                isDictionary
-                    ? 'Your edits send these secret values to a new address. Enter them to confirm.'
-                    : 'Your edits send this secret to a new address. Enter its value to confirm.'
-            }
+            description={reentryDescription(isDictionary, prompt?.source)}
             footer={
                 <>
                     <LemonButton type="secondary" onClick={cancelSecretReentry}>
@@ -41,15 +54,15 @@ export function HogFunctionSecretReentryModal(): JSX.Element {
                         disabledReason={confirmDisabledReason}
                         data-attr="hog-function-secret-reentry-confirm"
                     >
-                        {prompt?.source === 'test' ? 'Test function' : 'Save'}
+                        {CONFIRM_LABELS[prompt?.source ?? 'save']}
                     </LemonButton>
                 </>
             }
         >
-            {prompt?.entryKeys ? (
-                <LemonField.Pure label={prompt.label}>
+            {isDictionary ? (
+                <LemonField.Pure label={prompt?.label}>
                     <div className="flex flex-col gap-2">
-                        {prompt.entryKeys.map((entryKey, index) => (
+                        {prompt?.entryKeys?.map((entryKey, index) => (
                             <div className="flex gap-2 items-center" key={entryKey}>
                                 <span className="flex-1 min-w-0 font-mono truncate" title={entryKey}>
                                     {entryKey}

@@ -19,6 +19,13 @@ import type { HogFunctionApi, HogFunctionPublishResponseApi } from 'products/cdp
 import { buildHogFunctionDraftDiff } from './hogFunctionConfigDiffUtils'
 import { HogFunctionConfigurationLogicProps, hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { openHogFunctionPublishDraftDialog } from './HogFunctionPublishDraftDialog'
+import {
+    EnteredSecretInputs,
+    SecretReentryConfiguration,
+    SecretReentrySource,
+    hogFunctionSecretReentryLogic,
+} from './hogFunctionSecretReentryLogic'
+import { SecretReentryRefusal, parseSecretReentryRefusal } from './secretReentryRefusal'
 
 export type HogFunctionDraftAction = 'publish' | 'discard'
 
@@ -50,11 +57,26 @@ export interface hogFunctionDraftLogicActions {
         hogFunction: HogFunctionType | null
         payload?: any
     } // hogFunctionConfigurationLogic
+    requireSecretReentry: (
+        refusal: SecretReentryRefusal,
+        source: SecretReentrySource,
+        onContinue: (entered: EnteredSecretInputs) => void,
+        configuration?: SecretReentryConfiguration | null | undefined
+    ) => {
+        configuration: SecretReentryConfiguration | null | undefined
+        onContinue: (entered: EnteredSecretInputs) => void
+        refusal: SecretReentryRefusal
+        source: SecretReentrySource
+    } // hogFunctionSecretReentryLogic
     confirmDiscardDraft: () => {
         value: true
     }
-    confirmPublishDraft: (confirmToken: string) => {
+    confirmPublishDraft: (
+        confirmToken: string,
+        inputs?: EnteredSecretInputs
+    ) => {
         confirmToken: string
+        inputs: EnteredSecretInputs | undefined
     }
     discardDraft: () => {
         value: true
@@ -105,11 +127,14 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
         actions: [
             hogFunctionConfigurationLogic(props),
             ['loadHogFunction', 'loadHogFunctionSuccess', 'loadHogFunctionFailure'],
+            hogFunctionSecretReentryLogic(props),
+            ['requireSecretReentry'],
         ],
     })),
     actions({
         publishDraft: true,
-        confirmPublishDraft: (confirmToken: string) => ({ confirmToken }),
+        // `inputs` holds the secrets the publisher entered again after publish refused to move them.
+        confirmPublishDraft: (confirmToken: string, inputs?: EnteredSecretInputs) => ({ confirmToken, inputs }),
         discardDraft: true,
         confirmDiscardDraft: true,
         setDraftActionPending: (pending: HogFunctionDraftAction | null) => ({ pending }),
@@ -199,7 +224,7 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
             // pinned: analytics event name
             posthog.capture('hog function draft publish previewed', { type })
         },
-        confirmPublishDraft: async ({ confirmToken }) => {
+        confirmPublishDraft: async ({ confirmToken, inputs }) => {
             const id = values.hogFunction?.id
             const type = values.type
             // draftActionPending also guards the dialog's close animation, where a fast double-click
@@ -212,6 +237,7 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
                 const response = await hogFunctionsPublishCreate(String(values.currentTeamIdStrict), id, {
                     confirm: true,
                     confirm_token: confirmToken,
+                    ...(inputs ? { inputs } : {}),
                 })
                 lemonToast.success('Changes published')
                 // pinned: analytics event name
@@ -223,6 +249,18 @@ export const hogFunctionDraftLogic = kea<hogFunctionDraftLogicType>([
                     return
                 }
             } catch (error) {
+                const refusal = parseSecretReentryRefusal(error)
+                if (refusal) {
+                    // Nothing changed, so the form stays as it is and the same preview token still applies.
+                    actions.setDraftActionPending(null)
+                    actions.requireSecretReentry(
+                        refusal,
+                        'publish',
+                        (entered) => actions.confirmPublishDraft(confirmToken, { ...inputs, ...entered }),
+                        values.hogFunction?.draft
+                    )
+                    return
+                }
                 lemonToast.error(
                     error instanceof ApiError && error.status !== 409 && error.detail
                         ? error.detail

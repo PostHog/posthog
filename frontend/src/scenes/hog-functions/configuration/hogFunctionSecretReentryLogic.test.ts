@@ -3,11 +3,15 @@ import { expectLogic } from 'kea-test-utils'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 
 import { initKeaTests } from '~/test/init'
 import { HogFunctionType } from '~/types'
 
+import { hogFunctionsPublishCreate } from 'products/cdp/frontend/generated/api'
+
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
+import { hogFunctionDraftLogic } from './hogFunctionDraftLogic'
 import { hogFunctionSecretReentryLogic } from './hogFunctionSecretReentryLogic'
 import { parseSecretReentryRefusal } from './secretReentryRefusal'
 
@@ -20,7 +24,13 @@ jest.mock('lib/api', () => ({
     },
 }))
 
+jest.mock('products/cdp/frontend/generated/api', () => ({
+    ...jest.requireActual('products/cdp/frontend/generated/api'),
+    hogFunctionsPublishCreate: jest.fn(),
+}))
+
 const mockApi = api.hogFunctions as jest.Mocked<typeof api.hogFunctions>
+const mockPublish = hogFunctionsPublishCreate as jest.MockedFunction<typeof hogFunctionsPublishCreate>
 
 const SECRET_SENDER: HogFunctionType = {
     id: '123-456-789',
@@ -39,20 +49,25 @@ const SECRET_SENDER: HogFunctionType = {
         { key: 'url', type: 'string', label: 'Webhook URL', secret: false, required: true },
         { key: 'api_key', type: 'string', label: 'API key', secret: true, required: false },
         { key: 'secret_headers', type: 'dictionary', label: 'Secret headers', secret: true, required: false },
+        { key: 'signing_cert', type: 'json', label: 'Signing certificate', secret: true, required: false },
     ],
     inputs: {
         url: { value: 'https://hooks.example.com' },
         api_key: { value: undefined, secret: true },
         secret_headers: { secret: true, value: { Authorization: '********' } },
+        signing_cert: { value: undefined, secret: true },
     },
 }
 
 const REFUSAL_DETAIL = 'This change would send the secret to a new address. Enter the secret again to confirm.'
 
-const refusal = (key: string): Record<string, unknown> => ({
-    status: 400,
-    data: { type: 'validation_error', code: 'secret_reentry_required', attr: `inputs__${key}`, detail: REFUSAL_DETAIL },
-})
+const refusal = (key: string): ApiError =>
+    new ApiError('Bad request', 400, undefined, {
+        type: 'validation_error',
+        code: 'secret_reentry_required',
+        attr: `inputs__${key}`,
+        detail: REFUSAL_DETAIL,
+    })
 
 describe('hogFunctionSecretReentryLogic', () => {
     let configLogic: ReturnType<typeof hogFunctionConfigurationLogic.build>
@@ -69,10 +84,12 @@ describe('hogFunctionSecretReentryLogic', () => {
     }
 
     beforeEach(async () => {
+        jest.restoreAllMocks()
         initKeaTests()
         mockApi.get.mockResolvedValue(SECRET_SENDER)
         mockApi.update.mockReset()
         mockApi.createTestInvocation.mockReset()
+        mockPublish.mockReset()
         configLogic = hogFunctionConfigurationLogic({ id: SECRET_SENDER.id })
         configLogic.mount()
         logic = hogFunctionSecretReentryLogic({ id: SECRET_SENDER.id })
@@ -82,6 +99,7 @@ describe('hogFunctionSecretReentryLogic', () => {
     })
 
     it('asks for each refused secret in turn and retries the save with the edits kept', async () => {
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
         mockApi.update
             .mockRejectedValueOnce(refusal('api_key'))
             .mockRejectedValueOnce(refusal('secret_headers'))
@@ -107,6 +125,8 @@ describe('hogFunctionSecretReentryLogic', () => {
         ])
 
         expect(logic.values.isOpen).toBe(false)
+        // The dialog is the only feedback: no generic "failed" toast shows over it.
+        expect(toastSpy).not.toHaveBeenCalled()
         expect(mockApi.update).toHaveBeenCalledTimes(3)
         expect(mockApi.update.mock.calls[2][1].inputs).toMatchObject({
             url: { value: 'https://new.example.com' },
@@ -161,30 +181,73 @@ describe('hogFunctionSecretReentryLogic', () => {
         })
     })
 
-    it.each([
-        [
-            'save',
-            async () => {
-                mockApi.update.mockRejectedValueOnce(refusal('not_in_schema'))
-                configLogic.actions.submitConfiguration()
+    it('asks for a secret the staged draft moves and publishes it with the entered value', async () => {
+        configLogic.actions.loadHogFunctionSuccess({
+            ...SECRET_SENDER,
+            draft: {
+                inputs_schema: SECRET_SENDER.inputs_schema,
+                inputs: { api_key: { value: undefined, secret: true } },
             },
-        ],
-        [
-            'test run',
-            async () => {
-                const testLogic = await mountTestLogic()
-                mockApi.createTestInvocation.mockRejectedValueOnce(refusal('not_in_schema'))
-                testLogic.actions.submitTestInvocation()
-            },
-        ],
-    ])('shows the refusal as a toast when a %s refuses a secret the form cannot ask for', async (_, submit) => {
-        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
+        })
+        const draftLogic = hogFunctionDraftLogic({ id: SECRET_SENDER.id })
+        draftLogic.mount()
+        mockPublish.mockRejectedValueOnce(refusal('api_key')).mockResolvedValueOnce({
+            published: true,
+            draft_updated_at: null,
+            confirm_token: null,
+            changed_fields: null,
+            function: SECRET_SENDER as any,
+        })
 
-        await expectLogic(logic, submit).toDispatchActions(['requireSecretReentry'])
+        await expectLogic(logic, () => draftLogic.actions.confirmPublishDraft('preview-token')).toDispatchActions([
+            'openSecretReentry',
+        ])
+        expect(logic.values.prompt).toEqual({ key: 'api_key', label: 'API key', entryKeys: null, source: 'publish' })
+        expect(draftLogic.values.draftActionPending).toBeNull()
 
-        expect(logic.values.isOpen).toBe(false)
-        expect(toastSpy).toHaveBeenCalledWith(REFUSAL_DETAIL)
+        logic.actions.setSecretValue('new key')
+        await expectLogic(configLogic, () => logic.actions.confirmSecretReentry()).toDispatchActions([
+            'loadHogFunctionSuccess',
+        ])
+
+        expect(mockPublish).toHaveBeenCalledTimes(2)
+        expect(mockPublish.mock.calls[1][2]).toEqual({
+            confirm: true,
+            confirm_token: 'preview-token',
+            inputs: { api_key: { value: 'new key' } },
+        })
+        // The form holds the live config, so the secret entered for the draft never lands in it.
+        expect(configLogic.values.configuration.inputs?.api_key).toEqual({ secret: true })
     })
+
+    it.each([
+        ['a save', 'not_in_schema', 'Enter not_in_schema again in the form.', false],
+        ['a save', 'signing_cert', 'Enter Signing certificate again in the form.', true],
+        ['a test run', 'signing_cert', 'Enter Signing certificate again in the form.', true],
+    ])(
+        'falls back to a toast naming the input when %s refuses %s, which the dialog cannot ask for',
+        async (source, key, toastStart, marksField) => {
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
+
+            await expectLogic(logic, async () => {
+                if (source === 'a save') {
+                    mockApi.update.mockRejectedValueOnce(refusal(key))
+                    configLogic.actions.submitConfiguration()
+                } else {
+                    const testLogic = await mountTestLogic()
+                    mockApi.createTestInvocation.mockRejectedValueOnce(refusal(key))
+                    testLogic.actions.submitTestInvocation()
+                }
+            }).toDispatchActions(['requireSecretReentry'])
+
+            expect(logic.values.isOpen).toBe(false)
+            expect(toastSpy).toHaveBeenCalledTimes(1)
+            expect(toastSpy.mock.calls[0][0]).toMatch(new RegExp(`^${toastStart}`))
+            expect(configLogic.values.configurationManualErrors).toEqual(
+                marksField ? { inputs: { [key]: REFUSAL_DETAIL } } : {}
+            )
+        }
+    )
 
     it.each([
         ['a refusal', refusal('api_key'), { key: 'api_key', detail: REFUSAL_DETAIL }],

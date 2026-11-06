@@ -24,7 +24,12 @@ import {
     hogFunctionConfigurationLogic,
     sanitizeConfiguration,
 } from './hogFunctionConfigurationLogic'
-import { SecretReentrySource, hogFunctionSecretReentryLogic } from './hogFunctionSecretReentryLogic'
+import {
+    EnteredSecretInputs,
+    SecretReentryConfiguration,
+    SecretReentrySource,
+    hogFunctionSecretReentryLogic,
+} from './hogFunctionSecretReentryLogic'
 import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
 import { SecretReentryRefusal, parseSecretReentryRefusal } from './secretReentryRefusal'
 
@@ -144,9 +149,11 @@ export interface hogFunctionTestLogicActions {
     requireSecretReentry: (
         refusal: SecretReentryRefusal,
         source: SecretReentrySource,
-        onContinue: () => void
+        onContinue: (entered: EnteredSecretInputs) => void,
+        configuration?: SecretReentryConfiguration | null | undefined
     ) => {
-        onContinue: () => void
+        configuration: SecretReentryConfiguration | null | undefined
+        onContinue: (entered: EnteredSecretInputs) => void
         refusal: SecretReentryRefusal
         source: SecretReentrySource
     } // hogFunctionSecretReentryLogic
