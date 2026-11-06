@@ -236,6 +236,8 @@ export class TemplateTester {
                 fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
                 siteUrl: config.SITE_URL,
                 internalApiBaseUrl: config.INTERNAL_API_BASE_URL,
+                secretOriginCheckObserveTeams: config.CDP_SECRET_ORIGIN_CHECK_OBSERVE_TEAMS,
+                secretOriginCheckEnforceTeams: config.CDP_SECRET_ORIGIN_CHECK_ENFORCE_TEAMS,
             },
             {
                 teamManager: this.mockTeamManager as any,

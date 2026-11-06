@@ -1,3 +1,4 @@
+import { LRUCache } from 'lru-cache'
 import { Counter } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
@@ -6,7 +7,7 @@ import { logger } from '~/common/utils/logger'
 
 import { HogFunctionType } from '../types'
 
-type SecretOriginCheckMode = 'off' | 'observe' | 'enforce'
+type SecretOriginCheckMode = 'observe' | 'enforce'
 
 type SecretOriginOutcome = 'allowed' | 'unbound' | 'unbound_missing' | 'mismatch' | 'error'
 
@@ -22,17 +23,30 @@ export type SecretOriginRequest = {
 
 export type SecretOriginRefusal = { inputKey: string; origin: string }
 
+export type SecretOriginCheck = {
+    mode: SecretOriginCheckMode
+    outcomes: SecretOriginOutcome[]
+    refusal: SecretOriginRefusal | null
+}
+
+type CarriedSecret = { inputKey: string; origin: string; outcome: SecretOriginOutcome }
+
+type CheckedHogFunction = Pick<HogFunctionType, 'id' | 'team_id' | 'template_id' | 'inputs' | 'encrypted_inputs'>
+
 // A shorter value matches too much unrelated text in a URL, header or body, such as a JSON key or a path segment.
 const MIN_SCANNED_SECRET_LENGTH = 8
-
-const WARN_WINDOW_MS = 15 * 60 * 1000
-const WARN_MAX_ENTRIES = 10_000
 
 export const secretOriginCheckCounter = new Counter({
     name: 'cdp_secret_origin_check_total',
     help: 'Stored secrets the first attempt of a fetch carries, by whether the request origin is one the secret was saved for. Functions whose secrets all predate stored origins are not counted.',
     labelNames: ['outcome', 'mode'],
 })
+
+export function countSecretOriginCheck({ mode, outcomes }: SecretOriginCheck): void {
+    for (const outcome of outcomes) {
+        secretOriginCheckCounter.inc({ outcome, mode })
+    }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -68,6 +82,20 @@ function namedSecretInputs(params: SecretOriginRequest['params']): Set<string | 
     ])
 }
 
+function textLeaves(value: unknown): string[] {
+    if (typeof value === 'string') {
+        return [value]
+    }
+    if (Array.isArray(value)) {
+        return value.flatMap(textLeaves)
+    }
+    return isRecord(value) ? Object.values(value).flatMap(textLeaves) : []
+}
+
+function plainInputTexts(inputs: CheckedHogFunction['inputs']): Set<string> {
+    return new Set(Object.values(inputs ?? {}).flatMap((input) => textLeaves(isRecord(input) ? input.value : null)))
+}
+
 function originOutcome(allowedOrigins: unknown, origin: string): SecretOriginOutcome {
     if (allowedOrigins === '*') {
         return 'unbound'
@@ -78,14 +106,11 @@ function originOutcome(allowedOrigins: unknown, origin: string): SecretOriginOut
     return allowedOrigins.includes(origin) ? 'allowed' : 'mismatch'
 }
 
-function carriedSecretOutcomes(
-    hogFunction: Pick<HogFunctionType, 'encrypted_inputs'>,
-    request: SecretOriginRequest
-): { origin: string; outcomes: { inputKey: string; outcome: SecretOriginOutcome }[] } | null {
+function carriedSecrets(hogFunction: CheckedHogFunction, request: SecretOriginRequest): CarriedSecret[] {
     // encrypted_inputs stays a ciphertext string when decryption fails, and its entries come from stored JSON.
     const encryptedInputs: unknown = hogFunction.encrypted_inputs
     if (!isRecord(encryptedInputs)) {
-        return null
+        return []
     }
     // A function whose secrets all predate stored origins can never be refused, so it skips the scan.
     const hasStoredOrigins = Object.values(encryptedInputs).some(
@@ -93,106 +118,81 @@ function carriedSecretOutcomes(
     )
     const origin = hasStoredOrigins ? requestOrigin(request.url) : null
     if (!origin) {
-        return null
+        return []
     }
 
     const named = namedSecretInputs(request.params)
+    // A value the function also holds in a plain input, such as `application/json` in both the plain and the
+    // secret headers, is not secret, and sending it to another origin leaks nothing.
+    const plainTexts = plainInputTexts(hogFunction.inputs)
     const sentTexts = [request.url, ...Object.values(request.headers), request.body ?? '']
-    const outcomes: { inputKey: string; outcome: SecretOriginOutcome }[] = []
+    const isSent = (secret: string): boolean =>
+        secret.length >= MIN_SCANNED_SECRET_LENGTH &&
+        !plainTexts.has(secret) &&
+        sentTexts.some((text) => typeof text === 'string' && text.includes(secret))
+
+    const carried: CarriedSecret[] = []
     for (const [inputKey, input] of Object.entries(encryptedInputs)) {
         if (!isRecord(input)) {
             continue
         }
-        // Only a text secret is looked for by value. A dictionary secret, such as secret headers, also holds
-        // ordinary values like `application/json` that unrelated requests send, so it counts as carried only
-        // when a fetch option names it.
-        const secret = input.value
-        const carried =
-            named.has(inputKey) ||
-            (typeof secret === 'string' &&
-                secret.length >= MIN_SCANNED_SECRET_LENGTH &&
-                sentTexts.some((text) => typeof text === 'string' && text.includes(secret)))
-        if (carried) {
-            outcomes.push({ inputKey, outcome: originOutcome(input.allowed_origins, origin) })
+        if (named.has(inputKey) || textLeaves(input.value).some(isSent)) {
+            carried.push({ inputKey, origin, outcome: originOutcome(input.allowed_origins, origin) })
         }
     }
-    return { origin, outcomes }
+    return carried
 }
 
-// Fails open on an internal error in every mode, because a refused request is a lost delivery.
+// Fails open on an internal error, because a refused request is a lost delivery.
 export class SecretOriginGuard {
-    private readonly mode: SecretOriginCheckMode
+    private readonly observedForTeam: (teamId: number) => boolean
     private readonly enforcedForTeam: (teamId: number) => boolean
-    private readonly lastWarnedAt = new Map<string, number>()
+    // One line per function, input and origin in the window, because a destination sends on every matching event.
+    private readonly warned = new LRUCache<string, true>({ max: 10_000, ttl: 15 * 60 * 1000 })
 
-    constructor(modeSetting: string | undefined, enforceTeams: string | undefined) {
-        const mode = (modeSetting ?? '').trim().toLowerCase()
-        if (mode === 'off' || mode === 'observe' || mode === 'enforce') {
-            this.mode = mode
-        } else {
-            this.mode = 'observe'
-            if (mode) {
-                logger.warn('🦔', '[HogExecutor] Unknown secret origin check mode, observing instead', {
-                    mode: modeSetting,
-                })
-            }
-        }
-        this.enforcedForTeam = buildIntegerMatcher(enforceTeams, true)
+    constructor({ observeTeams, enforceTeams }: { observeTeams: string; enforceTeams: string }) {
+        this.observedForTeam = buildIntegerMatcher(observeTeams.trim(), true)
+        this.enforcedForTeam = buildIntegerMatcher(enforceTeams.trim(), true)
     }
 
     check(
-        hogFunction: Pick<HogFunctionType, 'id' | 'team_id' | 'template_id' | 'encrypted_inputs'>,
+        hogFunction: CheckedHogFunction,
         request: SecretOriginRequest,
-        { firstAttempt }: { firstAttempt: boolean }
-    ): SecretOriginRefusal | null {
-        if (this.mode === 'off') {
+        { mayEnforce }: { mayEnforce: boolean }
+    ): SecretOriginCheck | null {
+        const enforced = this.enforcedForTeam(hogFunction.team_id)
+        if (!enforced && !this.observedForTeam(hogFunction.team_id)) {
             return null
         }
-        const mode = this.mode === 'enforce' && this.enforcedForTeam(hogFunction.team_id) ? 'enforce' : 'observe'
+        const mode = enforced && mayEnforce ? 'enforce' : 'observe'
         try {
-            const result = carriedSecretOutcomes(hogFunction, request)
-            let refusal: SecretOriginRefusal | null = null
-            for (const { inputKey, outcome } of result?.outcomes ?? []) {
-                if (firstAttempt) {
-                    secretOriginCheckCounter.inc({ outcome, mode })
-                }
-                if (outcome === 'mismatch' && result) {
-                    this.warn(hogFunction, inputKey, result.origin, mode)
-                    refusal ??= { inputKey, origin: result.origin }
-                }
+            const carried = carriedSecrets(hogFunction, request)
+            const mismatches = carried.filter(({ outcome }) => outcome === 'mismatch')
+            for (const { inputKey, origin } of mismatches) {
+                this.warn(hogFunction, inputKey, origin, mode)
             }
-            return mode === 'enforce' ? refusal : null
+            const [refused] = mismatches
+            return {
+                mode,
+                outcomes: carried.map(({ outcome }) => outcome),
+                refusal: mode === 'enforce' && refused ? { inputKey: refused.inputKey, origin: refused.origin } : null,
+            }
         } catch (error) {
-            if (firstAttempt) {
-                secretOriginCheckCounter.inc({ outcome: 'error', mode })
-            }
             logger.warn('🦔', '[HogExecutor] Secret origin check skipped due to an internal error', {
                 error: error instanceof Error ? error.message : String(error),
                 teamId: hogFunction.team_id,
                 functionId: hogFunction.id,
             })
-            return null
+            return { mode, outcomes: ['error'], refusal: null }
         }
     }
 
-    // One line per function, input and origin in the window, because a destination sends on every matching event.
-    private warn(
-        hogFunction: Pick<HogFunctionType, 'id' | 'team_id' | 'template_id'>,
-        inputKey: string,
-        origin: string,
-        mode: SecretOriginCheckMode
-    ): void {
+    private warn(hogFunction: CheckedHogFunction, inputKey: string, origin: string, mode: SecretOriginCheckMode): void {
         const key = `${hogFunction.id}:${inputKey}:${origin}`
-        const now = Date.now()
-        const warnedAt = this.lastWarnedAt.get(key)
-        if (warnedAt !== undefined && now - warnedAt < WARN_WINDOW_MS) {
+        if (this.warned.has(key)) {
             return
         }
-        this.lastWarnedAt.delete(key)
-        this.lastWarnedAt.set(key, now)
-        if (this.lastWarnedAt.size > WARN_MAX_ENTRIES) {
-            this.lastWarnedAt.delete(this.lastWarnedAt.keys().next().value!)
-        }
+        this.warned.set(key, true)
         logger.warn('🦔', '[HogExecutor] Secret input sent to an origin it was not saved for', {
             teamId: hogFunction.team_id,
             functionId: hogFunction.id,
