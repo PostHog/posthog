@@ -13,8 +13,6 @@ export type BlockedRecipient = { readonly address: string; readonly unverifiedMe
 
 const MAX_SNAPSHOT_AGE_MS = 60_000
 const LOOKUP_TIMEOUT_MS = 3_000
-// The loader stamps a snapshot when its lookup ends, and the lookup deadline ends every lookup within
-// LOOKUP_TIMEOUT_MS of reading, so no cached snapshot is older than MAX_SNAPSHOT_AGE_MS.
 const REFRESH_AGE_MS = MAX_SNAPSHOT_AGE_MS - LOOKUP_TIMEOUT_MS
 const BLOCK_RECHECK_AGE_MS = 5_000
 const MAX_OPEN_LOOKUPS = 5
