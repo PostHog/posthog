@@ -102,8 +102,9 @@ class TestAuthorizeView:
         assert "response_type=code" in location
         assert "user_scope" not in location
 
+    @pytest.mark.parametrize("slack_mcp", [True, False])
     def test_search_scopes_flag_asks_for_user_scopes_on_the_invite_workspace(
-        self, logged_in_client, workspace_integration
+        self, slack_mcp: bool, logged_in_client, workspace_integration
     ):
         client, _ = logged_in_client
         token = InviteToken(
@@ -114,6 +115,10 @@ class TestAuthorizeView:
             patch(
                 "products.slack_app.backend.views.slack_user_link.is_slack_app_link_search_scopes_enabled",
                 return_value=True,
+            ),
+            patch(
+                "products.slack_app.backend.views.slack_user_link.is_slack_app_slack_mcp_enabled",
+                return_value=slack_mcp,
             ),
             patch(
                 "products.slack_app.backend.views.slack_user_link.slack_mcp_user_scopes",
@@ -131,8 +136,9 @@ class TestAuthorizeView:
         assert f"{location.scheme}://{location.netloc}{location.path}" == "https://slack.com/oauth/v2/authorize"
         assert params["team"] == [SLACK_TEAM_ID]
         user_scopes = params["user_scope"][0].split(",")
-        # The Slack MCP's scopes join the request once, so the same token can connect it.
-        assert {"search:read.public", "search:read.im", "users:read.email", "channels:history"} <= set(user_scopes)
+        assert {"search:read.public", "search:read.im", "users:read.email"} <= set(user_scopes)
+        # With `slack-app-slack-mcp` on, the Slack MCP's scopes join the request once, so the same token can connect it.
+        assert ("channels:history" in user_scopes) is slack_mcp
         assert len(user_scopes) == len(set(user_scopes))
         state = CallbackState.decode(params["state"][0])
         assert state is not None and state.search_scopes is True
@@ -207,9 +213,9 @@ class TestCallbackView:
         # render the friendly "Slack authorization was canceled." copy.
         self._assert_settings_redirect_error(response, "access_denied")
 
-    @pytest.mark.parametrize("search_scopes", [False, True])
+    @pytest.mark.parametrize("search_scopes, slack_mcp", [(False, True), (True, True), (True, False)])
     def test_happy_path_creates_link_and_redirects_to_settings(
-        self, search_scopes: bool, logged_in_client, workspace_integration
+        self, search_scopes: bool, slack_mcp: bool, logged_in_client, workspace_integration
     ):
         client, user = logged_in_client
         state = self._state_for(user, workspace_integration.team_id, search_scopes=search_scopes)
@@ -225,6 +231,10 @@ class TestCallbackView:
                 "products.slack_app.backend.views.slack_user_link.connect_slack_mcp_from_user_token",
                 return_value=True,
             ) as connect_slack_mcp,
+            patch(
+                "products.slack_app.backend.views.slack_user_link.is_slack_app_slack_mcp_enabled",
+                return_value=slack_mcp,
+            ),
             patch("posthog.models.integration.slack.WebClient"),
             patch("products.slack_app.backend.analytics.ph_background_capture") as mock_ph,
             patch("products.slack_app.backend.views.slack_user_link.request_onboarding") as mock_refresh_card,
@@ -234,8 +244,8 @@ class TestCallbackView:
         self._assert_settings_redirect_success(response)
         assert exchange.call_args.kwargs["search_scopes"] is search_scopes
         assert work_focus.called is search_scopes
-        assert connect_slack_mcp.called is search_scopes
-        if search_scopes:
+        assert connect_slack_mcp.called is (search_scopes and slack_mcp)
+        if search_scopes and slack_mcp:
             assert connect_slack_mcp.call_args.kwargs["access_token"] == SLACK_USER_ACCESS_TOKEN
         assert mock_refresh_card.call_args.args[1] == SLACK_USER_ID
         mock_ph.return_value.alias.assert_called_once_with(
