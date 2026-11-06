@@ -42,6 +42,7 @@ import { evaluationReportLogic } from './evaluationReportLogic'
 import { LLMEvaluationLogicProps, hasUnsetConditionRollout, llmEvaluationLogic } from './llmEvaluationLogic'
 import { EvaluationDetailResults } from './overview/EvaluationDetailResults'
 import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
+import { EvaluationFixSuggestionBanner } from './suggestions/EvaluationFixSuggestionBanner'
 
 const RUNS_BACKFILL_TIME_FORMAT = { formatDate: 'MMM D, YYYY', formatTime: 'HH:mm' }
 
@@ -221,6 +222,15 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         <Link to={settingsUrl}>Go to settings to fix this key.</Link>
                     </div>
                 </LemonBanner>
+            )}
+
+            {typeof searchParams.suggestion === 'string' && (
+                <EvaluationFixSuggestionBanner
+                    suggestionId={searchParams.suggestion}
+                    evaluationId={evaluation.id}
+                    userAccessLevel={evaluation.user_access_level ?? undefined}
+                    hasUnsavedChanges={unsaved}
+                />
             )}
 
             <LemonTabs

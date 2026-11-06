@@ -171,6 +171,7 @@ def start_backfill(
     rerun_existing: bool,
     total_count: int,
     user: User,
+    max_units: int | None = None,
 ) -> EvaluationBackfill:
     """Create the backfill row and start its walk. Raises a ValidationError when one already runs."""
     try:
@@ -183,6 +184,7 @@ def start_backfill(
             conditions=conditions,
             rerun_existing=rerun_existing,
             total_count=total_count,
+            max_units=max_units,
             created_by=user,
         )
     except IntegrityError:

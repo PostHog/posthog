@@ -12,6 +12,7 @@ export type TraceDrawerListId =
     | 'dataset-items'
     | 'offline-experiment'
     | 'cluster-traces'
+    | 'eval-suggestions'
 
 export interface TraceDrawerListConfig {
     // Tested against the path without its project prefix. Other products use `trace` for their own ids, and on browser
@@ -93,6 +94,12 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         backTo: 'cluster',
         backLabel: 'Back to cluster',
         openingMode: 'summary',
+        rowClick: false,
+    },
+    'eval-suggestions': {
+        pathMatcher: /^\/ai-evals\/evaluations$/,
+        backTo: 'evaluations',
+        backLabel: 'Back to evaluations',
         rowClick: false,
     },
 }
