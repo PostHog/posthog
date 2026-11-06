@@ -29,7 +29,7 @@ AUTH_TOKEN_INVALIDATION_FAILURE_COUNTER = Counter(
 
 
 def _sync_with_async_fallback(
-    action: Callable[[], None],
+    action: Callable[[], object],
     fallback_task: Task,
     fallback_args: list[Any],
     result_context: dict,
