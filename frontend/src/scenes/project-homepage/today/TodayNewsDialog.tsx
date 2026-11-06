@@ -81,17 +81,19 @@ export function TodayNewsDialog(): JSX.Element | null {
                             <div className="@3xl:col-span-3">
                                 <TodayNewsLead story={edition.lead} onDiveIn={() => diveIn(edition.lead, 0)} />
                             </div>
-                            <ul className="m-0 flex list-none flex-col p-0 @3xl:col-span-2">
-                                {edition.stories.map((story, index) => (
-                                    <TodayNewsStoryRow
-                                        key={story.id}
-                                        story={story}
-                                        onDiveIn={() => diveIn(story, index + 1)}
-                                    />
-                                ))}
-                            </ul>
+                            <div className="flex flex-col gap-3 @3xl:col-span-2">
+                                <ul className="m-0 flex list-none flex-col p-0">
+                                    {edition.stories.map((story, index) => (
+                                        <TodayNewsStoryRow
+                                            key={story.id}
+                                            story={story}
+                                            onDiveIn={() => diveIn(story, index + 1)}
+                                        />
+                                    ))}
+                                </ul>
+                                {edition.briefs.length > 0 ? <TodayNewsBriefs briefs={edition.briefs} /> : null}
+                            </div>
                         </div>
-                        {edition.briefs.length > 0 ? <TodayNewsBriefs briefs={edition.briefs} /> : null}
                     </div>
                 </DialogBody>
             </DialogContent>
