@@ -273,7 +273,7 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
         assert len(rows) == expected_groups
         assert sum(r.occurrences for r in rows) == len(messages)
         assert {r.message for r in rows} == {"validation"}
-        assert all(r.sample_message in messages for r in rows)
+        assert {r.sample_message for r in rows} <= set(messages)
 
     def test_excludes_other_tools_and_resolves_effective_tool_name(self) -> None:
         self._emit(tool_name="other_tool", error_type="internal", client_name="claude-ai")
