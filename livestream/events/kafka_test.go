@@ -251,6 +251,77 @@ func TestParse_InnerTimestampOverridesWrapper(t *testing.T) {
 	assert.Equal(t, "$pageview", got.Event)
 }
 
+func TestParse_CaptureOptions(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     string
+		options  string
+		expected map[string]interface{}
+	}{
+		{
+			name: "options override client properties",
+			data: `{"event":"$pageview","properties":{"$session_id":"client","$window_id":"client","$cookieless_mode":false,` +
+				`"$ignore_sent_at":true,"$product_tour_id":"client","$process_person_profile":true}}`,
+			options: `{"session_id":"server","window_id":"","cookieless_mode":true,"disable_skew_correction":false,` +
+				`"product_tour_id":"server","process_person_profile":false}`,
+			expected: map[string]interface{}{
+				"$session_id": "server", "$window_id": "", "$cookieless_mode": true,
+				"$ignore_sent_at": false, "$product_tour_id": "server", "$process_person_profile": false,
+			},
+		},
+		{
+			name:     "values with the wrong type are skipped",
+			data:     `{"event":"$pageview","properties":{"$session_id":"client","$cookieless_mode":false}}`,
+			options:  `{"session_id":42,"cookieless_mode":"true","window_id":null,"req_lib":"posthog-go"}`,
+			expected: map[string]interface{}{"$session_id": "client", "$cookieless_mode": false},
+		},
+		{
+			name:     "req_lib fills a missing $lib",
+			data:     `{"event":"$pageview","properties":{}}`,
+			options:  `{"req_lib":"posthog-go","req_lib_version":"2.0.0"}`,
+			expected: map[string]interface{}{"$lib": "posthog-go", "$lib_version": "2.0.0"},
+		},
+		{
+			name:     "req_lib fills a null $lib",
+			data:     `{"event":"$pageview","properties":{"$lib":null,"$lib_version":"0.9.0"}}`,
+			options:  `{"req_lib":"posthog-go","req_lib_version":"2.0.0"}`,
+			expected: map[string]interface{}{"$lib": "posthog-go", "$lib_version": "2.0.0"},
+		},
+		{
+			name:     "a client $lib wins over req_lib",
+			data:     `{"event":"$pageview","properties":{"$lib":"posthog-go-mcp","$lib_version":"0.3.0"}}`,
+			options:  `{"req_lib":"posthog-go","req_lib_version":"2.0.0"}`,
+			expected: map[string]interface{}{"$lib": "posthog-go-mcp", "$lib_version": "0.3.0"},
+		},
+		{
+			name:     "options inside data are ignored",
+			data:     `{"event":"$pageview","properties":{"$session_id":"client"},"options":{"session_id":"injected","req_lib":"x","req_lib_version":"1"}}`,
+			expected: map[string]interface{}{"$session_id": "client"},
+		},
+		{
+			name:     "options apply to null properties",
+			data:     `{"event":"$pageview","properties":null}`,
+			options:  `{"session_id":"server"}`,
+			expected: map[string]interface{}{"$session_id": "server"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wrapper := map[string]interface{}{"uuid": "test-uuid", "distinct_id": "user-1", "data": tt.data, "token": "tok"}
+			if tt.options != "" {
+				wrapper["options"] = json.RawMessage(tt.options)
+			}
+			input, err := json.Marshal(wrapper)
+			require.NoError(t, err)
+
+			got := parse(new(mocks.GeoLocator), nil, input)
+
+			assert.Equal(t, tt.expected, got.Properties)
+		})
+	}
+}
+
 func TestRunParsing_SubscriberGate(t *testing.T) {
 	watchedBody := `{"distinct_id":"user-1","uuid":"uuid-1","ip":"","data":"{\"event\":\"$pageview\",\"properties\":{}}","token":"tok"}`
 

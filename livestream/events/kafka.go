@@ -102,6 +102,8 @@ type PostHogEventWrapper struct {
 	Data       string         `json:"data"`
 	Token      string         `json:"token"`
 	Timestamp  string         `json:"timestamp"`
+	// Set only by capture v1. Read from the outer message: `data` is client-controlled.
+	Options map[string]interface{} `json:"options,omitempty"`
 }
 
 //easyjson:json
@@ -296,6 +298,45 @@ func (c *PostHogKafkaConsumer) runParsing(ctx context.Context) {
 	}
 }
 
+// captureOptionOverrides lists the capture v1 option keys that override the
+// matching event property. The key names are the capture contract.
+var captureOptionOverrides = []struct {
+	key      string
+	property string
+	isBool   bool
+}{
+	{"session_id", "$session_id", false},
+	{"window_id", "$window_id", false},
+	{"cookieless_mode", "$cookieless_mode", true},
+	{"disable_skew_correction", "$ignore_sent_at", true},
+	{"product_tour_id", "$product_tour_id", false},
+	{"process_person_profile", "$process_person_profile", true},
+}
+
+// applyCaptureOptions skips values with the wrong type. It fills $lib and
+// $lib_version from req_lib and req_lib_version only when the event has no $lib.
+func applyCaptureOptions(options, properties map[string]interface{}) {
+	for _, o := range captureOptionOverrides {
+		switch value := options[o.key].(type) {
+		case string:
+			if !o.isBool {
+				properties[o.property] = value
+			}
+		case bool:
+			if o.isBool {
+				properties[o.property] = value
+			}
+		}
+	}
+
+	lib, libOk := options["req_lib"].(string)
+	libVersion, libVersionOk := options["req_lib_version"].(string)
+	if libOk && libVersionOk && properties["$lib"] == nil {
+		properties["$lib"] = lib
+		properties["$lib_version"] = libVersion
+	}
+}
+
 func parse(geolocator geo.GeoLocator, classifier *bot.Classifier, kafkaMessage []byte) PostHogEvent {
 	var wrapperMessage PostHogEventWrapper
 	if err := json.Unmarshal(kafkaMessage, &wrapperMessage); err != nil {
@@ -312,6 +353,13 @@ func parse(geolocator geo.GeoLocator, classifier *bot.Classifier, kafkaMessage [
 	data := []byte(wrapperMessage.Data)
 	if err := json.Unmarshal(data, &phEvent); err != nil {
 		log.Printf("Error decoding JSON %s: %v", err, string(data))
+	}
+
+	if len(wrapperMessage.Options) > 0 {
+		if phEvent.Properties == nil {
+			phEvent.Properties = make(map[string]interface{})
+		}
+		applyCaptureOptions(wrapperMessage.Options, phEvent.Properties)
 	}
 
 	phEvent.Uuid = wrapperMessage.Uuid
