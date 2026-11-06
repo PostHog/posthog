@@ -457,8 +457,6 @@ function sandboxRecipientsOf(params: CyclotronInvocationQueueParametersEmailType
 
 type SandboxRecipientBlockReason = Exclude<SandboxEmailBlockReason, 'switch_off' | 'not_workflow_step'>
 
-// CC and BCC belong to the route because a route builder may parse them its own way, and SES must
-// deliver to exactly the list that builder checked.
 type SesRoute = {
     tenantName: string
     configurationSetName: string
