@@ -22,7 +22,11 @@ from posthog.temporal.alerts.investigation import IN_FLIGHT_INVESTIGATION_HORIZO
 from posthog.temporal.alerts.retry_policy import alert_timeouts
 
 from products.alerts.backend.facade.destinations import choose_delivery_path
-from products.alerts.backend.insight_alert_state_machine import apply_invalid_configuration, apply_platform_state
+from products.alerts.backend.insight_alert_state_machine import (
+    FIRING_NOT_RENOTIFIED_KEY,
+    apply_invalid_configuration,
+    apply_platform_state,
+)
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.alerts.backend.platform_source_cycle import DELIVERY_EVENT_IDS, platform_upsert_of
 from products.alerts_platform.backend.facade.api import give_back_ownership, take_ownership, upsert_configuration
@@ -132,13 +136,17 @@ def _firing_notification_pending(alert: AlertConfiguration, at: datetime) -> boo
     # A check's workflow notifies before its execution timeout ends, so past that the insight stack
     # has sent the notification or given up on it.
     horizon = alert_timeouts(alert.calculation_interval).workflow_execution
-    return AlertCheck.objects.filter(
-        alert_configuration=alert,
-        created_at__gte=at - horizon,
-        state=AlertState.FIRING,
-        notification_sent_at__isnull=True,
-        notification_suppressed_by_agent=False,
-    ).exists()
+    return (
+        AlertCheck.objects.filter(
+            alert_configuration=alert,
+            created_at__gte=at - horizon,
+            state=AlertState.FIRING,
+            notification_sent_at__isnull=True,
+            notification_suppressed_by_agent=False,
+        )
+        .exclude(triggered_metadata__has_key=FIRING_NOT_RENOTIFIED_KEY)
+        .exists()
+    )
 
 
 def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCutover, ...]:
