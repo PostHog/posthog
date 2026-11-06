@@ -2077,7 +2077,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
 
         lookup = patch(
-            "products.experiments.backend.health.launch_time.ActivityLog.objects.filter",
+            "products.experiments.backend.models.experiment.ActivityLog.objects.filter",
             side_effect=OperationalError("the activity log is unavailable"),
         )
         with time_machine.travel(now, tick=False), lookup if launch_lookup_fails else nullcontext():
