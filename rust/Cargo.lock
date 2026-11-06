@@ -541,7 +541,7 @@ name = "assignment-coordination"
 version = "0.1.0"
 dependencies = [
  "etcd-client",
- "h2 0.4.15",
+ "h2 0.4.13",
  "metrics",
  "serde",
  "serde_json",
@@ -1217,12 +1217,12 @@ dependencies = [
  "aws-smithy-runtime-api",
  "aws-smithy-types",
  "h2 0.3.27",
- "h2 0.4.15",
+ "h2 0.4.13",
  "http 0.2.12",
  "http 1.5.0",
  "http-body 0.4.6",
  "hyper 0.14.32",
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "hyper-rustls 0.24.2",
  "hyper-rustls 0.27.10",
  "hyper-util",
@@ -1425,7 +1425,7 @@ dependencies = [
  "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "hyper-util",
  "itoa",
  "matchit 0.7.3",
@@ -1558,7 +1558,7 @@ dependencies = [
  "bytes",
  "http 1.5.0",
  "http-body 1.1.0",
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "reqwest 0.11.27",
  "serde",
  "tokio",
@@ -1921,7 +1921,7 @@ dependencies = [
  "home",
  "http 1.5.0",
  "http-body-util",
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "hyper-named-pipe",
  "hyper-rustls 0.27.10",
  "hyper-util",
@@ -2285,7 +2285,7 @@ dependencies = [
  "hex",
  "hmac 0.12.1",
  "http-body-util",
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "hyper-util",
  "lifecycle",
  "limiters",
@@ -2671,7 +2671,7 @@ dependencies = [
  "futures",
  "futures-channel",
  "http-body-util",
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "hyper-rustls 0.27.10",
  "hyper-util",
  "lz4_flex 0.11.6",
@@ -3201,9 +3201,9 @@ dependencies = [
 
 [[package]]
 name = "compression-codecs"
-version = "0.4.47"
+version = "0.4.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84f840cff84d10085260e460023934d0af699e71212b09b2a41452e8bd9cda43"
+checksum = "cae36683101b2899f48bd31f8db9839437356188e3b1ff23096e73dab09ba8fe"
 dependencies = [
  "brotli 9.1.1",
  "compression-core",
@@ -5580,9 +5580,9 @@ dependencies = [
 
 [[package]]
 name = "h2"
-version = "0.4.15"
+version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cb093c84e8bd9b188d4c4a8cb6579fc016968d14c99882163cd3ff402a4f155"
+checksum = "2f44da3a8150a6703ed5d34e164b875fd14c2cdab9af1252a9a1020bde2bdc54"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -6066,15 +6066,15 @@ dependencies = [
 
 [[package]]
 name = "hyper"
-version = "1.12.0"
+version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c3e324da4c95177d6291d4c8730197c0d1822f8a9766814a4a44fa5ab797c9c"
+checksum = "6299f016b246a94207e63da54dbe807655bf9e00044f73ded42c3ac5305fbcca"
 dependencies = [
  "atomic-waker",
  "bytes",
  "futures-channel",
  "futures-core",
- "h2 0.4.15",
+ "h2 0.4.13",
  "http 1.5.0",
  "http-body 1.1.0",
  "httparse",
@@ -6096,7 +6096,7 @@ dependencies = [
  "futures-util",
  "headers",
  "http 1.5.0",
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "hyper-rustls 0.27.10",
  "hyper-util",
  "pin-project-lite",
@@ -6112,7 +6112,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fab3637d6b04a8037af8a266fdf6cf92ea957e8c53981a2bf6136572531025bf"
 dependencies = [
  "hex",
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "hyper-util",
  "pin-project-lite",
  "tokio",
@@ -6141,7 +6141,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa8e654703247911e29c23fbeaa261834bd9bb74efba2f9acddc37bfb127f53"
 dependencies = [
  "http 1.5.0",
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "hyper-util",
  "log",
  "rustls 0.23.46",
@@ -6170,7 +6170,7 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b90d566bffbce6a75bd8b09a05aa8c2cb1fabb6cb348f8840c9e4c90a0d83b0"
 dependencies = [
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "hyper-util",
  "pin-project-lite",
  "tokio",
@@ -6185,7 +6185,7 @@ checksum = "70206fc6890eaca9fde8a0bf71caa2ddfc9fe045ac9e5c70df101a7dbde866e0"
 dependencies = [
  "bytes",
  "http-body-util",
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "hyper-util",
  "native-tls",
  "tokio",
@@ -6206,7 +6206,7 @@ dependencies = [
  "http 1.5.0",
  "http-body 1.1.0",
  "httparse",
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "ipnet",
  "libc",
  "percent-encoding",
@@ -6263,7 +6263,7 @@ checksum = "986c5ce3b994526b3cd75578e62554abd09f0899d6206de48b3e96ab34ccc8c7"
 dependencies = [
  "hex",
  "http-body-util",
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "hyper-util",
  "pin-project-lite",
  "tokio",
@@ -6829,7 +6829,7 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "serde",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6991,9 +6991,9 @@ dependencies = [
 
 [[package]]
 name = "json5"
-version = "1.3.6"
+version = "1.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e46128c9fb848c29097da3149e627cce5496d0b2820a9be06d12ee266c09c749"
+checksum = "733a844dbd6fef128e98cb4487b887cb55454d92cd9994b1bafe004fabbe670c"
 dependencies = [
  "serde",
  "ucd-trie",
@@ -7250,7 +7250,7 @@ dependencies = [
  "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "hyper-http-proxy",
  "hyper-rustls 0.27.10",
  "hyper-timeout 0.5.2",
@@ -7944,7 +7944,7 @@ checksum = "5d58e362dc7206e9456ddbcdbd53c71ba441020e62104703075a69151e38d85f"
 dependencies = [
  "base64 0.22.1",
  "http-body-util",
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "hyper-tls",
  "hyper-util",
  "indexmap 2.14.2",
@@ -8084,7 +8084,7 @@ dependencies = [
  "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "hyper-util",
  "log",
  "pin-project-lite",
@@ -8690,7 +8690,7 @@ dependencies = [
  "http-body-util",
  "httparse",
  "humantime",
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "itertools 0.14.0",
  "md-5 0.10.6",
  "parking_lot",
@@ -10053,7 +10053,7 @@ dependencies = [
  "protobuf-codegen",
  "smallvec",
  "spin 0.10.1",
- "symbolic-demangle 12.17.4",
+ "symbolic-demangle 12.17.2",
  "tempfile",
  "thiserror 2.0.21",
 ]
@@ -10340,7 +10340,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
  "heck",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "log",
  "multimap",
  "once_cell",
@@ -10360,7 +10360,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03da047801ff44bb6a4d407d4860c05fd70bb81714e6b2f3812603d5b145b042"
 dependencies = [
  "heck",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "log",
  "multimap",
  "petgraph 0.8.3",
@@ -10394,7 +10394,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -10407,7 +10407,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -10761,7 +10761,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.3",
  "rustls 0.23.46",
- "socket2 0.6.5",
+ "socket2 0.5.10",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -10800,7 +10800,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.5",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.52.0",
 ]
@@ -11145,9 +11145,9 @@ dependencies = [
 
 [[package]]
 name = "regex"
-version = "1.13.1"
+version = "1.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f020237b6c8eed93db2e2cb53c00c60a8e1bc73da7d073199a1180401450218d"
+checksum = "f1292b7759ae1cb9ec195452d1390a074f0cd8541ab7a5a8c31cd6db45d4a6ba"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -11337,11 +11337,11 @@ dependencies = [
  "encoding_rs",
  "futures-core",
  "futures-util",
- "h2 0.4.15",
+ "h2 0.4.13",
  "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "hyper-rustls 0.27.10",
  "hyper-tls",
  "hyper-util",
@@ -11387,11 +11387,11 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "futures-util",
- "h2 0.4.15",
+ "h2 0.4.13",
  "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "hyper-rustls 0.27.10",
  "hyper-util",
  "js-sys",
@@ -11665,7 +11665,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -13110,22 +13110,22 @@ dependencies = [
 
 [[package]]
 name = "symbolic"
-version = "12.17.4"
+version = "12.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad5c5737a441adba669e11beaed09a567bb79d54f81aca9fea05f5a86ae8583a"
+checksum = "3a7418e0528510cf3b289a1250775e8c8b6a333bcdd01689133f68a818da798f"
 dependencies = [
- "symbolic-common 12.17.4",
+ "symbolic-common 12.17.2",
  "symbolic-debuginfo",
- "symbolic-demangle 12.17.4",
+ "symbolic-demangle 12.17.2",
  "symbolic-sourcemapcache",
  "symbolic-symcache",
 ]
 
 [[package]]
 name = "symbolic-common"
-version = "12.17.4"
+version = "12.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "803d14d7cb9c6fa5b95a6f3de8af95b356a528d391998fa45a07d320a5573e51"
+checksum = "751a2823d606b5d0a7616499e4130a516ebd01a44f39811be2b9600936509c23"
 dependencies = [
  "debugid",
  "memmap2",
@@ -13147,9 +13147,9 @@ dependencies = [
 
 [[package]]
 name = "symbolic-debuginfo"
-version = "12.17.4"
+version = "12.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "481b3ee37cc1779e1667a1233c87f1a923cf707b30bb20006253b9f9b01b20eb"
+checksum = "b31bd9264d07f393b10145300f7db000627d9b464705650da1b68448e6a7e72a"
 dependencies = [
  "debugid",
  "elementtree",
@@ -13169,7 +13169,7 @@ dependencies = [
  "serde_json",
  "smallvec",
  "srcsrv",
- "symbolic-common 12.17.4",
+ "symbolic-common 12.17.2",
  "symbolic-ppdb",
  "thiserror 2.0.21",
  "wasmparser",
@@ -13179,15 +13179,15 @@ dependencies = [
 
 [[package]]
 name = "symbolic-demangle"
-version = "12.17.4"
+version = "12.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39505731ae891b2dde47b0e4ae2ec40a7ced3476ab1129f1bf829e3fba62bb83"
+checksum = "79b237cfbe320601dd24b4ac817a5b68bb28f5508e33f08d42be0682cadc8ac9"
 dependencies = [
  "cc",
  "cpp_demangle",
  "msvc-demangler",
  "rustc-demangle",
- "symbolic-common 12.17.4",
+ "symbolic-common 12.17.2",
 ]
 
 [[package]]
@@ -13202,15 +13202,15 @@ dependencies = [
 
 [[package]]
 name = "symbolic-ppdb"
-version = "12.17.4"
+version = "12.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c5c45298ba053e6ab3f71cf458c680686a069700aacb1fe80a130aa0fe39de3"
+checksum = "80c4a143efd6e989aedf589fe1981ffaffef852dc143a813e02aaf57a3d23846"
 dependencies = [
  "flate2",
  "indexmap 2.14.2",
  "serde",
  "serde_json",
- "symbolic-common 12.17.4",
+ "symbolic-common 12.17.2",
  "thiserror 2.0.21",
  "uuid",
  "watto",
@@ -13218,14 +13218,14 @@ dependencies = [
 
 [[package]]
 name = "symbolic-sourcemapcache"
-version = "12.17.4"
+version = "12.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "213e05079c7e25aa4b0774af2738cfab10df7ceb55656b82eea59267b90a35e2"
+checksum = "4bb896c4034e5daa65e0945b1d162006eaf5c56423b8f29e862d049197b49e6a"
 dependencies = [
  "itertools 0.14.0",
  "js-source-scopes",
  "sourcemap",
- "symbolic-common 12.17.4",
+ "symbolic-common 12.17.2",
  "thiserror 2.0.21",
  "tracing",
  "watto",
@@ -13233,12 +13233,12 @@ dependencies = [
 
 [[package]]
 name = "symbolic-symcache"
-version = "12.17.4"
+version = "12.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b7909c4eb0dc91cddf6f861fd4ca73b75d2a3472b360a0203b81a9f8cb962ee"
+checksum = "9b14fe4ebcdce2b318d7b4f04d12e6c73c1504a59ed4423d90607aa7baa9ea37"
 dependencies = [
  "indexmap 2.14.2",
- "symbolic-common 12.17.4",
+ "symbolic-common 12.17.2",
  "symbolic-debuginfo",
  "thiserror 2.0.21",
  "tracing",
@@ -13407,7 +13407,7 @@ dependencies = [
  "futures-util",
  "http 1.5.0",
  "http-body-util",
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "hyper-util",
  "parking_lot",
  "rand 0.10.3",
@@ -14110,11 +14110,11 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "flate2",
- "h2 0.4.15",
+ "h2 0.4.13",
  "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "hyper-timeout 0.5.2",
  "hyper-util",
  "percent-encoding",
@@ -14140,11 +14140,11 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "flate2",
- "h2 0.4.15",
+ "h2 0.4.13",
  "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
- "hyper 1.12.0",
+ "hyper 1.9.0",
  "hyper-timeout 0.5.2",
  "hyper-util",
  "percent-encoding",
@@ -14743,9 +14743,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.29.0"
+version = "1.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a0e2d11620c50695fe12bbbfde96b3477fe606e7284c22d505c12ce51214514"
+checksum = "ddd74a9687298c6858e9b88ec8935ec45d22e8fd5e6394fa1bd4e99a87789c76"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
