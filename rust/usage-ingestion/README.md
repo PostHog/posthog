@@ -209,6 +209,7 @@ can count unmerged duplicates and is suitable only for an approximate read.
 | --- | --- | --- | --- | --- |
 | `ingestion` | `events`, `ai_events` | events | `{day}:{sha256 of event, distinct_id, uuid}` | ingestion consumers, ingestion API |
 | `ai-ingestion` | `ai_events` | events | `{day}:{sha256 of event, distinct_id, uuid}` | AI ingestion consumer |
+| `ai-ingestion` | `ai_overage_bytes` | bytes | `{day}:{sha256 of event, distinct_id, uuid}:{event bytes}` | AI ingestion consumer |
 | `error-tracking` | `exceptions` | events | `{day}:{sha256 of event, distinct_id, uuid}` | error tracking server |
 | `cdp` | `cdp_billable_invocations` | invocations | `event:{eventUuid}` / `flow:{invocationId}:{actionStepCount}:{kind}` / `webhook:{invocationId}` | CDP consumers |
 | `feature-flags` | `feature_flag_requests`, `feature_flag_local_evaluation_requests`, `feature_flag_local_evaluation_not_modified_requests` | requests | fresh UUIDv7 per flush | feature flags service |
@@ -274,6 +275,12 @@ AI ingestion has its own lane. Its allow step DLQs non-AI events, so every
 event reaching its counter is billable as `ai_events`. It writes to both
 `clickhouse_events_json` and `clickhouse_ai_events_json`; counting before that
 split bills once.
+
+An AI event above its included size adds an `ai_overage_bytes` record of the
+bytes above it, on the same acknowledgement. Its ID appends the event's size to
+the event identity, because `ai_events` keeps every copy of an event: an
+identical retry collapses, and a resend with other content bills its own
+overage.
 
 Error tracking counts after Cymbal, the Rust symbolication service. Cymbal can
 suppress an exception, so a suppressed exception is never billed. Token
