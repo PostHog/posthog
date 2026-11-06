@@ -2,6 +2,8 @@ from typing import Any
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -27,6 +29,8 @@ def run_query(team: Team, sql: str, placeholders: dict[str, ast.Expr], query_typ
             query_type=query_type,
             workload=Workload.OFFLINE,
             settings=_settings(),
+            # These queries read no warehouse table, so skip building the team's full catalog.
+            context=HogQLContext(team_id=team.pk, team=team, database=Database.create_for_posthog_tables(team)),
         )
     return list(response.results or [])
 
@@ -50,6 +54,7 @@ def run_ai_events_query(
                 query_type=query_type,
                 fall_back_to_events=False,
                 workload=Workload.OFFLINE,
+                posthog_tables_only=True,
                 settings=_settings(),
             )
         except (AIEventsNotFoundError, AIEventsExpiredError):

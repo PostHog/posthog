@@ -6,6 +6,7 @@ the sample that `measure.py` hydrates from `ai_events`, so this module never sca
 
 import re
 import json
+import math
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
@@ -26,6 +27,8 @@ MAX_SEGMENT_VALUES = 20
 # Absolute rather than a share of traffic: a property one AI feature sends, such as its review stage,
 # segments that feature even when other features send most of the team's generations.
 MIN_SEGMENT_GENERATIONS = 50
+# Segments are counted on a hash sample of about this many generations, then scaled back.
+SEGMENT_SAMPLE_GENERATIONS = 100_000
 NUMERIC_SUFFIX = re.compile(r"[-_ .#]?\d+$")
 
 # Structured-output gaps: a field value one segment uses far more than its siblings.
@@ -122,21 +125,31 @@ LIMIT 20
 """
 
 # Numeric suffixes are stripped before counting, so `lens-1` and `lens-2` count as one segment.
+# Reads a hash sample of generations, so an ID-like property on a busy team can't grow the GROUP BY with traffic.
+# Keys with too many values are dropped in the query, so no LIMIT can cut one down to a false segment.
 _SEGMENTS_SQL = """
-SELECT key, value, count() AS generations
+SELECT key, tupleElement(pair, 1) AS value, tupleElement(pair, 2) AS generations
 FROM (
-    SELECT
-        arrayJoin(JSONExtractKeysAndValues(properties, 'String')) AS pair,
-        tupleElement(pair, 1) AS key,
-        replaceRegexpAll(tupleElement(pair, 2), '[-_ .#]?[0-9]+$', '') AS value
-    FROM events
-    WHERE event = '$ai_generation' AND timestamp >= {start} AND timestamp < {end}
+    SELECT key, groupArray((value, generations)) AS pairs
+    FROM (
+        SELECT key, value, count() AS generations
+        FROM (
+            SELECT
+                arrayJoin(JSONExtractKeysAndValues(properties, 'String')) AS kv,
+                tupleElement(kv, 1) AS key,
+                replaceRegexpAll(tupleElement(kv, 2), '[-_ .#]?[0-9]+$', '') AS value
+            FROM events
+            WHERE event = '$ai_generation' AND timestamp >= {start} AND timestamp < {end}
+              AND cityHash64(toString(uuid)) % 1000 < {per_mille}
+        )
+        WHERE NOT startsWith(key, '$') AND notEmpty(value) AND length(value) <= 64
+        GROUP BY key, value
+    )
+    GROUP BY key
+    HAVING length(pairs) <= {max_values}
 )
-WHERE NOT startsWith(key, '$') AND notEmpty(value) AND length(value) <= 64
-GROUP BY key, value
-ORDER BY generations DESC
-LIMIT 21 BY key
-LIMIT 2000
+ARRAY JOIN pairs AS pair
+LIMIT 10000
 """
 
 
@@ -147,6 +160,12 @@ def normalize_segment_value(value: Any) -> str:
 def dispatcher_tools(tool_counts: Mapping[str, int]) -> tuple[str, ...]:
     total = sum(tool_counts.values())
     return tuple(tool for tool, calls in tool_counts.items() if total and calls / total > DISPATCHER_SHARE)
+
+
+def segment_sample_per_mille(generations: int) -> int:
+    if generations <= SEGMENT_SAMPLE_GENERATIONS:
+        return 1000
+    return max(1, math.ceil(1000 * SEGMENT_SAMPLE_GENERATIONS / generations))
 
 
 def segments_from_rows(rows: Iterable[tuple[Any, ...]]) -> dict[str, dict[str, int]]:
@@ -175,7 +194,20 @@ def fetch_profile(team: Team, window: ProfileWindow) -> TeamProfile:
         if tool and tool.strip()
     }
     error_rows = run_query(team, _ERRORS_SQL, placeholders, "EvalSuggestionsProfileErrors")
-    segment_rows = run_query(team, _SEGMENTS_SQL, placeholders, "EvalSuggestionsProfileSegments")
+    per_mille = segment_sample_per_mille(generations)
+    segment_rows = [
+        (key, value, round(count * 1000 / per_mille))
+        for key, value, count in run_query(
+            team,
+            _SEGMENTS_SQL,
+            {
+                **placeholders,
+                "per_mille": ast.Constant(value=per_mille),
+                "max_values": ast.Constant(value=MAX_SEGMENT_VALUES),
+            },
+            "EvalSuggestionsProfileSegments",
+        )
+    ]
 
     def share(column: int) -> float:
         return sum(int(row[column]) for row in daily) / generations if generations else 0.0
