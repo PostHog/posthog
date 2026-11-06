@@ -31,6 +31,9 @@ REFRESH_FLOOR_FLAG = "data-modeling-refresh-floor"
 
 # An endpoint's freshness stops at seven days, so a coarser floor would leave its materialization no cadence to pick.
 _COARSEST_FLOOR = timedelta(days=7)
+# Endpoint reads need the label for every version they serialize and several times per run. A label up to a
+# minute old only moves an endpoint's serving window, and reconciles read the current one.
+_RECENT_PACKAGE_LABELS: TTLCache[str, str] = TTLCache(maxsize=10_000, ttl=60)
 _BUCKETS_BY_NAME = {format_cadence(bucket): bucket for bucket in SCHEDULABLE_BUCKETS if bucket <= _COARSEST_FLOOR} | {
     "24hour": timedelta(days=1)
 }
@@ -65,9 +68,7 @@ def read_plan_refresh_floor(team_id: int) -> PlanRefreshFloorReading:
     return read_organization_plan_refresh_floor(organization)
 
 
-# Endpoint reads call this for every version they serialize and several times per run. A label up to a
-# minute old only moves an endpoint's serving window, and reconciles read the current one.
-@cached(TTLCache(maxsize=10_000, ttl=60), lock=Lock())
+@cached(_RECENT_PACKAGE_LABELS, lock=Lock())
 def _recent_organization_package_label(organization_id: str) -> str:
     return organization_package_label(organization_id)
 

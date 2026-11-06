@@ -34,8 +34,8 @@ from products.data_modeling.backend.logic.node_frequency import (
     set_declared_target,
 )
 from products.data_modeling.backend.logic.refresh_floor import (
+    _RECENT_PACKAGE_LABELS,
     REFRESH_FLOOR_FLAG,
-    _recent_organization_package_label,
     read_organization_plan_refresh_floor,
     schedule_floor_for_organization,
 )
@@ -1159,7 +1159,7 @@ class TestMaybeReconcileDag(BaseTest):
         )
 
     def test_endpoint_serving_reads_the_package_once_while_a_reconcile_reads_it_fresh(self):
-        _recent_organization_package_label.cache_clear()
+        _RECENT_PACKAGE_LABELS.clear()
         with mock.patch(FLAG_RESULT, return_value=mock.Mock(enabled=False)):
             with self.assertNumQueries(1):
                 schedule_floor_for_organization(self.organization)
