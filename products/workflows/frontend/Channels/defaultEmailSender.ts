@@ -2,8 +2,6 @@ import { isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
 
 import { IntegrationType } from '~/types'
 
-import type { HogFlowAction } from '../Workflows/hogflows/types'
-
 export type DefaultEmailSenderReason = 'project_default' | 'only_verified_sender' | 'sandbox_sender'
 
 export interface DefaultEmailSender {
@@ -31,11 +29,4 @@ export function resolveDefaultEmailSender(
         return { integrationId: verified[0].id, reason: 'only_verified_sender' }
     }
     return null
-}
-
-export function allowsSandboxSender(
-    actionType: HogFlowAction['type'],
-    originProduct: string | null | undefined
-): boolean {
-    return actionType === 'function_email' && originProduct == null
 }

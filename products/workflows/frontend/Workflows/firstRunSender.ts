@@ -11,14 +11,9 @@ import type { IntegrationKind, IntegrationType } from '~/types'
 
 import { integrationsEmailSandboxSenderCreate, integrationsList } from 'products/integrations/frontend/generated/api'
 
-import {
-    DefaultEmailSender,
-    allowsSandboxSender,
-    resolveDefaultEmailSender,
-    verifiedOwnEmailSenders,
-} from '../Channels/defaultEmailSender'
+import { DefaultEmailSender, resolveDefaultEmailSender, verifiedOwnEmailSenders } from '../Channels/defaultEmailSender'
 import type { HogFlow, HogFlowAction } from './hogflows/types'
-import { emailStepValue, takesOwnSender, withEmailSender } from './workflowEmailPrefill'
+import { allowsSandboxSender, emailStepValue, takesOwnSender, withEmailSender } from './workflowEmailPrefill'
 
 function takesSandboxSender(action: HogFlowAction, workflow: HogFlow): boolean {
     const value = emailStepValue(action)
@@ -109,5 +104,6 @@ export async function withFirstRunSender(
         sender.reason === 'sandbox_sender'
             ? (action: HogFlowAction): boolean => takesSandboxSender(action, workflow)
             : takesOwnSender
-    return { workflow: withEmailSender(workflow, sender.integrationId, takesSender).workflow, sender }
+    const filled = withEmailSender(workflow, sender.integrationId, takesSender)
+    return filled.filled ? { workflow: filled.workflow, sender } : { workflow, sender: null }
 }

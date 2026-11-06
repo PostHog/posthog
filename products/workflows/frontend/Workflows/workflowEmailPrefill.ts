@@ -94,7 +94,7 @@ export function withPrefilledEmail(workflow: HogFlow, email: MessageDraft): HogF
     }
 }
 
-export type EmailStepValue = { from?: { integrationId?: number; email?: string; name?: string }; replyTo?: string }
+type EmailStepValue = { from?: { integrationId?: number; email?: string; name?: string }; replyTo?: string }
 
 export function emailStepValue(action: HogFlowAction): EmailStepValue | null {
     const config = action.config as Record<string, any> | undefined
@@ -104,6 +104,13 @@ export function emailStepValue(action: HogFlowAction): EmailStepValue | null {
 export function takesOwnSender(action: HogFlowAction): boolean {
     const value = emailStepValue(action)
     return !!value && !value.from?.integrationId
+}
+
+export function allowsSandboxSender(
+    actionType: HogFlowAction['type'],
+    originProduct: string | null | undefined
+): boolean {
+    return actionType === 'function_email' && originProduct == null
 }
 
 export function withStepSender(action: HogFlowAction, integrationId: number): HogFlowAction {
