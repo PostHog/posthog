@@ -236,6 +236,13 @@ export interface analyticsListLogicActions {
     clearNarrowingFilters: () => {
         value: true
     }
+    itemOpened: (
+        item: AnalyticsItem,
+        position: number
+    ) => {
+        item: AnalyticsItem
+        position: number
+    }
     loadFolderContents: (_: void) => void
     loadFolderContentsFailure: (
         error: string,
@@ -296,13 +303,6 @@ export interface analyticsListLogicActions {
     }
     setInsightsHidden: (hidden: boolean) => {
         hidden: boolean
-    }
-    itemOpened: (
-        item: AnalyticsItem,
-        position: number
-    ) => {
-        item: AnalyticsItem
-        position: number
     }
     setScope: (scope: AnalyticsListScope) => {
         scope: AnalyticsListScope
