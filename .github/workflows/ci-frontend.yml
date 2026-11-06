@@ -616,6 +616,9 @@ jobs:
                   key: frontend-base-reports-${{ github.event.pull_request.base.sha }}
 
             - name: Check out base branch for size comparison
+              # A fetch/checkout failure must only cost the vs-base comparison, never redden
+              # the required check: the comment steps degrade to "no base measurement".
+              continue-on-error: true
               if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -643,6 +646,7 @@ jobs:
                   du -sb frontend/dist | cut -f1 > frontend/dist-size-base.txt
 
             - name: Install cached base branch reports
+              continue-on-error: true
               if: >-
                   github.event_name == 'pull_request' &&
                   !startsWith(github.head_ref, 'trunk-merge/') &&
