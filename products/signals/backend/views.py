@@ -19,6 +19,7 @@ from django.db.models import (
     Count,
     Exists,
     F,
+    FloatField,
     Func,
     IntegerField,
     OuterRef,
@@ -30,8 +31,8 @@ from django.db.models import (
     Value,
     When,
 )
-from django.db.models.expressions import OrderBy
-from django.db.models.functions import Coalesce
+from django.db.models.expressions import BaseExpression, OrderBy
+from django.db.models.functions import Cast, Coalesce
 from django.db.models.lookups import GreaterThanOrEqual
 from django.utils import timezone
 
@@ -167,6 +168,7 @@ from products.signals.backend.presentation.spend import ReportSpendSerializer
 from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.ranking.access import can_view_inbox_ranking, user_flag_enabled
+from products.signals.backend.ranking.cache import PUBLIC_LIFT_FIELDS, PUBLIC_SCORE_FIELDS
 from products.signals.backend.ranking.inbox_sort import (
     PRIORITY_ORDERING,
     RANKER_ORDERINGS,
@@ -199,6 +201,7 @@ from products.signals.backend.report_claims import (
 )
 from products.signals.backend.report_content_gates import (
     organization_inbox_cached_filters_enabled,
+    organization_inbox_sort_cache_enabled,
     organization_report_monitoring_enabled,
 )
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -1828,12 +1831,12 @@ class SignalReportViewSet(
         "is_suggested_reviewer": "is_suggested_reviewer",
         "signal_count": "signal_count",
         "total_weight": "total_weight",
-        "priority": "priority_sort_rank",
+        "priority": "inbox_priority_sort_rank",
         "created_at": "created_at",
         "updated_at": "updated_at",
         "id": "id",
-        **{field: f"{field}_score" for field in RANKING_ORDERING_HEADS},
-        "ranking_fixed": "ranking_fix_score",
+        **{field: f"inbox_{field}_score" for field in RANKING_ORDERING_HEADS},
+        "ranking_fixed": "inbox_ranking_fix_score",
     }
     _RANKING_ORDERING_HEADS: dict[str, str] = RANKING_ORDERING_HEADS
 
@@ -2051,7 +2054,8 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_inbox_view_filter(qs)
         qs = self._annotate_signal_report_status_rank(qs)
         if self._needs_priority_annotation():
-            qs = self._annotate_signal_report_priority(qs)
+            priority_rank = F("priority_sort_rank") if self._inbox_sort_cache else latest_priority_rank()
+            qs = qs.annotate(inbox_priority_sort_rank=priority_rank)
             qs = self._apply_signal_report_priority_filter(qs)
         if self.action == "list":
             qs = self._annotate_signal_report_ranking(qs)
@@ -2467,8 +2471,6 @@ class SignalReportViewSet(
         return queryset.filter(SignalReport.reports_for_task_filter(task_uuid))
 
     def _apply_signal_report_priority_filter(self, queryset):
-        # Filters on the `priority_sort_rank` annotation, which must be applied first.
-        # Reports without a priority artefact rank after every priority, so this filter excludes them.
         priority_filter = self.request.query_params.get("priority")
         if not priority_filter and self.request.query_params.get("use_priority_preference", "false").lower() == "true":
             user = cast(User, self.request.user)
@@ -2483,7 +2485,7 @@ class SignalReportViewSet(
             )
             threshold = personal_threshold or project_threshold
             values = AutonomyPriority.values[: AutonomyPriority.values.index(threshold) + 1]
-            return queryset.filter(priority_sort_rank__in=self._priority_ranks(values))
+            return queryset.filter(inbox_priority_sort_rank__in=self._priority_ranks(values))
         if not priority_filter:
             return queryset
 
@@ -2500,7 +2502,7 @@ class SignalReportViewSet(
                 }
             )
 
-        return queryset.filter(priority_sort_rank__in=self._priority_ranks(values))
+        return queryset.filter(inbox_priority_sort_rank__in=self._priority_ranks(values))
 
     @staticmethod
     def _priority_ranks(priorities: Iterable[str]) -> list[int]:
@@ -2620,29 +2622,35 @@ class SignalReportViewSet(
             )
         )
 
-    def _annotate_signal_report_priority(self, queryset):
-        # `ordering=priority` sorts by the priority value ("P0"–"P4") from the latest priority_judgment
-        # artefact, as its index in `AutonomyPriority.values`. Reports without a priority rank after "P4".
-        return queryset.annotate(priority_sort_rank=latest_priority_rank())
+    @cached_property
+    def _inbox_sort_cache(self) -> bool:
+        return organization_inbox_sort_cache_enabled(self.organization.id)
+
+    def _needs_priority_annotation(self) -> bool:
+        params = self.request.query_params
+        if params.get("priority") or params.get("use_priority_preference", "false").lower() == "true":
+            return True
+        return any(clause.lstrip("-") == "inbox_priority_sort_rank" for clause in self._parse_signal_report_ordering())
 
     def _annotate_signal_report_ranking(self, queryset):
-        # `ordering=ranking_<head>` sorts by the served model's probability for that head, read from
-        # the latest ranking_score artefact as `results -> <served_key> -> scores -> <head>`. Only
-        # the heads the ordering names are annotated, because each one is a correlated subquery.
         ordered_fields = {clause.lstrip("-") for clause in self._parse_signal_report_ordering()}
         annotated: set[str] = set()
         for field, head in self._RANKING_ORDERING_HEADS.items():
             annotation = self._SIGNAL_REPORT_ORDERING_FIELDS[field]
-            # An alias shares its annotation with the field it renames, so annotate each one once.
             if annotation not in ordered_fields or annotation in annotated:
                 continue
             annotated.add(annotation)
-            queryset = queryset.annotate(**{annotation: latest_ranking_value(head, "scores")})
+            value: BaseExpression | F
+            if not self._inbox_sort_cache:
+                value = latest_ranking_value(head, "scores")
+            elif head in PUBLIC_SCORE_FIELDS:
+                value = F(PUBLIC_SCORE_FIELDS[head])
+            else:
+                value = Cast(F(f"ranking_scores__{head}"), FloatField())
+            queryset = queryset.annotate(**{annotation: value})
         return queryset
 
     def _apply_signal_report_ranking_filters(self, queryset):
-        # Each named head is one correlated subquery, compared with `>=`. NULL never matches, so
-        # unscored and stale reports drop out of every ranking filter.
         filters: tuple[tuple[str, Literal["scores", "lifts"]], ...] = (
             ("ranking_min_lift", "lifts"),
             ("ranking_min_probability", "scores"),
@@ -2653,7 +2661,9 @@ class SignalReportViewSet(
                 continue
             for outcome, minimum in minimums.items():
                 head = MODEL_HEAD_BY_OUTCOME[outcome]
-                queryset = queryset.filter(GreaterThanOrEqual(latest_ranking_value(head, key), minimum))
+                fields = PUBLIC_SCORE_FIELDS if key == "scores" else PUBLIC_LIFT_FIELDS
+                value = F(fields[head]) if self._inbox_sort_cache else latest_ranking_value(head, key)
+                queryset = queryset.filter(GreaterThanOrEqual(value, minimum))
         return queryset
 
     def _parse_ranking_minimums(self, param: str) -> dict[str, float]:
@@ -2683,15 +2693,6 @@ class SignalReportViewSet(
             # A report must meet every pair, so a repeated outcome keeps its strictest minimum.
             minimums[outcome] = max(minimum, minimums.get(outcome, minimum))
         return minimums
-
-    def _needs_priority_annotation(self) -> bool:
-        # The priority value is a correlated subquery too, and the serializer renders priority from
-        # the prefetched artefacts instead, so only a priority filter or a priority sort needs it.
-        params = self.request.query_params
-        if params.get("priority") or params.get("use_priority_preference", "false").lower() == "true":
-            return True
-        priority_clause = self._SIGNAL_REPORT_ORDERING_FIELDS["priority"]
-        return any(clause.lstrip("-") == priority_clause for clause in self._parse_signal_report_ordering())
 
     def _prefetch_signal_report_priority_artefacts(self, queryset):
         return queryset.prefetch_related(
