@@ -75,7 +75,7 @@ class PulseChoice:
 
 def find(context: Context) -> Found:
     pinned = context.pinned
-    return Found(pulse=tuple(_progressive_metrics(context, pinned, PULSE_CANDIDATES - len(pinned))))
+    return Found(pulse=tuple(_progressive_metrics(context, pinned | context.hidden, PULSE_CANDIDATES - len(pinned))))
 
 
 def _dashboard_context(candidate: PulseCandidate) -> InsightDashboardContext | None:

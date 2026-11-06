@@ -85,8 +85,9 @@ def get_highlights(
         PinnedNumber(key=pin.key, dashboard_id=pin.dashboard_id)
         for pin in pulse_pins.get_pins(team=team, user_id=user.id, scopes=scopes)
     ]
+    hidden = pulse_pins.get_hidden(team=team, user_id=user.id)
     key = _key(team, user, scopes)
-    pins_key = _pins_key(pins)
+    pins_key = _pins_key(pins, hidden)
     rows = (
         TodayHighlights.objects.for_team(team.id)
         .filter(user_id=user.id, key=key, local_day=day)
@@ -109,6 +110,7 @@ def get_highlights(
             key,
             pins,
             pins_key,
+            hidden,
             after=latest.id if latest else None,
         )
         status = HighlightsStatus.COMPUTING
@@ -162,10 +164,12 @@ def _key(team: Team, user: User, scopes: frozenset[str] | None) -> str:
     return hashlib.sha256(f"{granted}:{restrictions}".encode()).hexdigest()[:32]
 
 
-def _pins_key(pins: Sequence[PinnedNumber]) -> str:
-    if not pins:
+def _pins_key(pins: Sequence[PinnedNumber], hidden: Sequence[str] = ()) -> str:
+    if not pins and not hidden:
         return ""
     signature = ",".join(f"{pin.key}@{pin.dashboard_id or ''}" for pin in pins)
+    if hidden:
+        signature += "|" + ",".join(sorted(hidden))
     return hashlib.sha256(signature.encode()).hexdigest()[:32]
 
 
@@ -184,6 +188,7 @@ def _start(
     key: str,
     pins: list[PinnedNumber],
     pins_key: str,
+    hidden: list[str],
     after: UUID | None,
 ) -> None:
     lock = f"today_highlights:start:{team.id}:{user.id}:{key}:{pins_key}:{day.isoformat()}:{after}"
@@ -200,6 +205,7 @@ def _start(
         scopes=None if scopes is None else sorted(scopes),
         source_names=[source.name for source in load_sources()],
         pins=pins,
+        hidden=hidden,
     )
     try:
         asyncio.run(
@@ -326,6 +332,7 @@ def run_source(inputs: HighlightSourceInputs) -> HighlightSourceResult:
         None if inputs.scopes is None else frozenset(inputs.scopes),
         frozenset(inputs.pinned),
         publish_pulse=partial(publish_pulse, inputs) if inputs.highlights_id is not None else None,
+        hidden=frozenset(inputs.hidden),
     )
     if source is None or not context.allows(*source.scopes):
         return HighlightSourceResult(source_name=inputs.source_name, found=None, failed=False)

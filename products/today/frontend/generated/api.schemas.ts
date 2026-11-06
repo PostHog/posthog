@@ -380,9 +380,32 @@ export interface PulsePinApi {
     dashboard_id?: number | null
 }
 
+export interface HiddenPulseNumberApi {
+    /** Key of the hidden number: a key metric setting such as signup_event, or insight:<short_id>. */
+    key: string
+    /** Current name of the number. */
+    name: string
+}
+
 export interface PulsePinsApi {
     /** Numbers the person keeps at the start of the key numbers, in order. Suggestions fill the free places. Only the first 4 distinct keys are kept. At most 20 entries. */
     pins: PulsePinApi[]
+    /** Numbers the person hid from the key numbers, oldest first. Suggestions skip them. Change them with the hidden numbers endpoint. */
+    readonly hidden: readonly HiddenPulseNumberApi[]
+}
+
+export interface SetHiddenPulseNumbersApi {
+    /**
+     * Keys of every number to hide, oldest first. Replaces the hidden numbers. At most 50 keys.
+     * @maxItems 50
+     * @items.maxLength 200
+     */
+    keys: string[]
+}
+
+export interface HiddenPulseNumbersApi {
+    /** Numbers the person hid from the key numbers, oldest first. Numbers the person can no longer see are left out. */
+    hidden: HiddenPulseNumberApi[]
 }
 
 /**

@@ -63,12 +63,14 @@ class Context:
         scopes: frozenset[str] | None = None,
         pinned: frozenset[str] = frozenset(),
         publish_pulse: Callable[[HighlightFindings, list[PulseSlot]], None] | None = None,
+        hidden: frozenset[str] = frozenset(),
     ) -> None:
         self.team = team
         self.user = user
         self.today = today
         self.scopes = scopes
         self.pinned = pinned
+        self.hidden = hidden
         self.publish_pulse = publish_pulse or ignore_pulse
         self.failures: list[str] = []
         self.access = UserAccessControl(user=user, team=team)

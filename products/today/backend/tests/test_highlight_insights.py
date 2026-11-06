@@ -393,8 +393,24 @@ class TestRoutineInsights(BaseTest):
 
         self.assertEqual([m.key for m in pulse], ["insight:habit"])
 
+    @parameterized.expand(
+        [
+            (
+                "nothing_hidden",
+                frozenset(),
+                ["habit", "alerted", "subscribed", "b1", "b2", "b3"],
+            ),
+            (
+                "a_hidden_insight_leaves_no_gap",
+                frozenset({"insight:alerted"}),
+                ["habit", "subscribed", "b1", "b2", "b3", "b4"],
+            ),
+        ]
+    )
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
-    def test_the_pulse_mixes_repeated_watched_and_built_insights_without_popular_ones(self) -> None:
+    def test_the_pulse_mixes_repeated_watched_and_built_insights_without_popular_ones(
+        self, _name: str, hidden: frozenset[str], expected: list[str]
+    ) -> None:
         other = User.objects.create_and_join(self.organization, "viewer@example.com", None)
         for user, ref, ages in ((self.user, "habit", [1, 5, 9]), (self.user, "once", [1]), (other, "shared", [1])):
             FileSystemViewLog.objects.create(
@@ -415,20 +431,14 @@ class TestRoutineInsights(BaseTest):
             ),
             patch.object(routine, "insight_short_ids_watched_by", return_value=["alerted", "habit"]),
             patch.object(routine, "insight_short_ids_subscribed_by", return_value=["subscribed"]),
-            patch.object(routine, "insight_short_ids_built_by", return_value=["b1", "b2", "b3"]),
+            patch.object(routine, "insight_short_ids_built_by", return_value=["b1", "b2", "b3", "b4"]),
         ):
-            pulse = routine.find(Context(self.team, self.user, TODAY)).pulse
+            pulse = routine.find(Context(self.team, self.user, TODAY, hidden=hidden)).pulse
 
+        reasons = {"habit": "routine", "alerted": "watched", "subscribed": "watched"}
         self.assertEqual(
             [(m.key, m.reason) for m in pulse],
-            [
-                ("insight:habit", "routine"),
-                ("insight:alerted", "watched"),
-                ("insight:subscribed", "watched"),
-                ("insight:b1", "built"),
-                ("insight:b2", "built"),
-                ("insight:b3", "built"),
-            ],
+            [(f"insight:{ref}", reasons.get(ref, "built")) for ref in expected],
         )
 
 

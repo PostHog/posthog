@@ -14,10 +14,12 @@ import type { InsightShortId } from '~/types'
 import { insightsList } from 'products/product_analytics/frontend/generated/api'
 import {
     todayHighlightsRetrieve,
+    todayPulsePinsHiddenUpdate,
     todayPulsePinsRetrieve,
     todayPulsePinsUpdate,
 } from 'products/today/frontend/generated/api'
 import type {
+    HiddenPulseNumberApi,
     HighlightItemApi,
     HighlightMetricApi,
     HighlightsApi,
@@ -227,6 +229,7 @@ export interface todayHighlightsLogicValues {
     highlightsLoading: boolean
     highlightsPending: boolean
     highlightsWaitOver: boolean
+    pulseHidden: HiddenPulseNumberApi[]
     pulseInsightResults: PulsePinApi[]
     pulseInsightResultsLoading: boolean
     pulseInsightSearchFailed: boolean
@@ -347,6 +350,9 @@ export interface todayHighlightsLogicActions {
     retryPulse: () => {
         value: true
     }
+    savePulseHidden: (hidden: HiddenPulseNumberApi[]) => {
+        hidden: HiddenPulseNumberApi[]
+    }
     setHiddenHighlights: (hidden: Record<string, string>) => {
         hidden: Record<string, string>
     }
@@ -356,8 +362,14 @@ export interface todayHighlightsLogicActions {
     setPinnedPulseKeys: (metrics: PulsePinApi[]) => {
         metrics: PulsePinApi[]
     }
+    setPulseHidden: (hidden: HiddenPulseNumberApi[]) => {
+        hidden: HiddenPulseNumberApi[]
+    }
     setPulsePlaces: (places: PulsePlace[]) => {
         places: PulsePlace[]
+    }
+    showHiddenPulseNumber: (hidden: HiddenPulseNumberApi) => {
+        hidden: HiddenPulseNumberApi
     }
     stopWaitingForHighlights: () => {
         value: true
@@ -398,6 +410,7 @@ export interface todayHighlightsLogicMeta {
             pulsePins: PulsePinApi[],
             highlights: HighlightsApi | null,
             hiddenPulseMetrics: Record<string, true>,
+            pulseHidden: any,
             currentProjectId: number | string,
             pulsePlaces: PulsePlace[],
             pulsePinsSettled: boolean
@@ -458,6 +471,9 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         hidePulseMetric: (metric: HighlightMetricApi, position: number) => ({ metric, position }),
         unhidePulseMetric: (metric: HighlightMetricApi, position: number) => ({ metric, position }),
         setHiddenPulseMetrics: (hidden: Record<string, true>) => ({ hidden }),
+        setPulseHidden: (hidden: HiddenPulseNumberApi[]) => ({ hidden }),
+        savePulseHidden: (hidden: HiddenPulseNumberApi[]) => ({ hidden }),
+        showHiddenPulseNumber: (hidden: HiddenPulseNumberApi) => ({ hidden }),
         setPinnedPulseKeys: (metrics: PulsePinApi[]) => ({ metrics }),
         pulsePinsSaved: true,
         pulseEditorOpened: true,
@@ -469,7 +485,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         retryPulse: true,
         pulseViewUnmounted: (documentDeparture: boolean = false) => ({ documentDeparture }),
     }),
-    loaders(({ values, cache }) => ({
+    loaders(({ actions, values, cache }) => ({
         pulseInsightResults: [
             [] as PulsePinApi[],
             {
@@ -499,8 +515,12 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             {
                 loadPulsePins: async (): Promise<PulsePinApi[]> => {
                     const edits = cache.pinEdits ?? 0
+                    const hiddenEdits = cache.hiddenEdits ?? 0
                     try {
-                        const { pins } = await todayPulsePinsRetrieve(String(values.currentProjectId))
+                        const { pins, hidden } = await todayPulsePinsRetrieve(String(values.currentProjectId))
+                        if ((cache.hiddenEdits ?? 0) === hiddenEdits) {
+                            actions.setPulseHidden([...(hidden ?? [])])
+                        }
                         return (cache.pinEdits ?? 0) === edits ? pins : values.pulsePins
                     } catch (error) {
                         if (error instanceof ApiError && error.status === 404) {
@@ -536,6 +556,13 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         pulsePins: {
             setPinnedPulseKeys: (_, { metrics }) => metrics,
         },
+        pulseHidden: [
+            [] as HiddenPulseNumberApi[],
+            {
+                setPulseHidden: (_, { hidden }) => hidden,
+                savePulseHidden: (_, { hidden }) => hidden,
+            },
+        ],
         pulsePinsLoaded: [false, { loadPulsePinsSuccess: () => true }],
         pulsePinsLoadFailed: [false, { pulsePinsLoadGaveUp: () => true, loadPulsePinsSuccess: () => false }],
         pulsePinsSaving: [false, { setPinnedPulseKeys: () => true, pulsePinsSaved: () => false }],
@@ -599,6 +626,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 s.pulsePins,
                 s.highlights,
                 s.hiddenPulseMetrics,
+                s.pulseHidden,
                 s.currentProjectId,
                 s.pulsePlaces,
                 s.pulsePinsSettled,
@@ -607,6 +635,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 pulsePins: PulsePinApi[],
                 highlights: HighlightsApi | null,
                 hiddenPulseMetrics: Record<string, true>,
+                pulseHidden: HiddenPulseNumberApi[],
                 currentProjectId: number | string,
                 pulsePlaces: PulsePlace[],
                 pulsePinsSettled: boolean
@@ -623,7 +652,9 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 const suggested = placePulseSlots(
                     slots.filter((slot) => !pinnedKeys.has(slot.key)),
                     pulsePlaces.filter((place) => !pinnedKeys.has(place.key)),
-                    (key) => !!hiddenPulseMetrics[hiddenHighlightKey(currentProjectId, key)],
+                    (key) =>
+                        pulseHidden.some((hidden) => hidden.key === key) ||
+                        !!hiddenPulseMetrics[hiddenHighlightKey(currentProjectId, key)],
                     PULSE_TILES - pinned.length
                 )
                 return { slots: [...pinned, ...suggested.slots], places: suggested.places }
@@ -873,9 +904,60 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         loadPulsePinsSuccess: () => {
             cache.pinsLoadRetries = 0
             actions.setPulsePlaces(values.pulsePlacement.places)
+            const prefix = hiddenHighlightKey(values.currentProjectId, '')
+            const local = Object.keys(values.hiddenPulseMetrics).filter((key) => key.startsWith(prefix))
+            if (local.length === 0) {
+                return
+            }
+            const known = new Set(values.pulseHidden.map((hidden) => hidden.key))
+            const moved = local
+                .map((key) => key.slice(prefix.length))
+                .filter((key) => !known.has(key))
+                .map((key) => ({ key, name: key }))
+            actions.setHiddenPulseMetrics(
+                Object.fromEntries(
+                    Object.entries(values.hiddenPulseMetrics).filter(([key]) => !key.startsWith(prefix))
+                ) as Record<string, true>
+            )
+            if (moved.length > 0) {
+                actions.savePulseHidden([...values.pulseHidden, ...moved])
+            }
         },
         setHiddenPulseMetrics: () => {
             actions.setPulsePlaces(values.pulsePlacement.places)
+        },
+        setPulseHidden: () => {
+            actions.setPulsePlaces(values.pulsePlacement.places)
+        },
+        savePulseHidden: async ({ hidden }, breakpoint) => {
+            actions.setPulsePlaces(values.pulsePlacement.places)
+            cache.hiddenEdits = (cache.hiddenEdits ?? 0) + 1
+            const edits = cache.hiddenEdits
+            const previous: Promise<unknown> = cache.hiddenSave ?? Promise.resolve()
+            const save = (cache.hiddenSave = previous
+                .catch(() => undefined)
+                .then(() =>
+                    todayPulsePinsHiddenUpdate(String(values.currentProjectId), {
+                        keys: hidden.map((number) => number.key),
+                    })
+                ))
+            try {
+                const saved = await save
+                breakpoint()
+                if (cache.hiddenEdits === edits) {
+                    actions.setPulseHidden(saved.hidden)
+                }
+            } catch {
+                toast.error({ title: "Couldn't save your hidden numbers. Try again." })
+                breakpoint()
+                actions.loadPulsePins()
+                return
+            }
+            actions.loadHighlights()
+        },
+        showHiddenPulseNumber: ({ hidden }) => {
+            actions.savePulseHidden(values.pulseHidden.filter((number) => number.key !== hidden.key))
+            posthog.capture('today pulse metric unhidden', { kind: pulseKind(hidden.key), source: 'editor' })
         },
         loadPulsePinsFailure: () => {
             if ((cache.pinsLoadRetries ?? 0) >= PINS_LOAD_RETRIES) {
@@ -889,10 +971,10 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             }, 'pulsePinsLoadRetry')
         },
         hidePulseMetric: ({ metric, position }) => {
-            actions.setHiddenPulseMetrics({
-                ...values.hiddenPulseMetrics,
-                [hiddenHighlightKey(values.currentProjectId, metric.key)]: true,
-            })
+            actions.savePulseHidden([
+                ...values.pulseHidden.filter((hidden) => hidden.key !== metric.key),
+                { key: metric.key, name: metric.name },
+            ])
             posthog.capture('today pulse metric hidden', {
                 kind: pulseKind(metric.key),
                 reason: metric.reason,
@@ -904,8 +986,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             })
         },
         unhidePulseMetric: ({ metric, position }) => {
-            const { [hiddenHighlightKey(values.currentProjectId, metric.key)]: _, ...rest } = values.hiddenPulseMetrics
-            actions.setHiddenPulseMetrics(rest)
+            actions.savePulseHidden(values.pulseHidden.filter((hidden) => hidden.key !== metric.key))
             posthog.capture('today pulse metric unhidden', {
                 kind: pulseKind(metric.key),
                 reason: metric.reason,

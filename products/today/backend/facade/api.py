@@ -59,8 +59,19 @@ def get_highlights(
 
 
 def get_pulse_pins(*, team: Team, user: User, scopes: frozenset[str] | None) -> contracts.PulsePins:
-    return contracts.PulsePins(pins=pulse_pins.get_pins(team=team, user_id=user.id, scopes=scopes))
+    return contracts.PulsePins(
+        pins=pulse_pins.get_pins(team=team, user_id=user.id, scopes=scopes),
+        hidden=pulse_pins.named_hidden(team=team, user=user, keys=pulse_pins.get_hidden(team=team, user_id=user.id)),
+    )
 
 
 def set_pulse_pins(*, team: Team, user: User, pins: list[contracts.PulsePin]) -> contracts.PulsePins:
-    return contracts.PulsePins(pins=pulse_pins.set_pins(team=team, user_id=user.id, pins=pins))
+    return contracts.PulsePins(
+        pins=pulse_pins.set_pins(team=team, user_id=user.id, pins=pins),
+        hidden=pulse_pins.named_hidden(team=team, user=user, keys=pulse_pins.get_hidden(team=team, user_id=user.id)),
+    )
+
+
+def set_hidden_pulse_numbers(*, team: Team, user: User, keys: list[str]) -> contracts.HiddenPulseNumbers:
+    kept = pulse_pins.set_hidden(team=team, user_id=user.id, keys=keys)
+    return contracts.HiddenPulseNumbers(hidden=pulse_pins.named_hidden(team=team, user=user, keys=kept))
