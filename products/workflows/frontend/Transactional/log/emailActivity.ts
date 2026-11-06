@@ -14,6 +14,8 @@ import type {
 export const ACTIVITY_WINDOW_DAYS = 7
 export const ACTIVITY_BEFORE_LIMIT = 50
 export const ACTIVITY_AFTER_LIMIT = 100
+/** A row with no session of its own stays with activity it happened this close to. */
+export const ACTIVITY_JOIN_MINUTES = 30
 
 export interface ActivityEvent {
     uuid: string
@@ -143,6 +145,7 @@ function foldRows(merged: ActivityRow[]): ActivityRow[] {
             last?.kind === 'event' &&
             last.event.event === row.event.event &&
             last.event.sessionId === row.event.sessionId &&
+            (!!row.event.sessionId || dayjs(row.at).diff(dayjs(last.lastAt), 'minute') < ACTIVITY_JOIN_MINUTES) &&
             describeActivityEvent(last.event) === describeActivityEvent(row.event)
         ) {
             last.count += 1

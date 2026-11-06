@@ -1,10 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
-import { ActivityEventRow, ActivityRow, isCustomEvent } from './emailActivity'
-
-/** A row with no session of its own, such as a server-side event, stays in a session it happened this close to. */
-const SESSION_JOIN_MINUTES = 30
+import { ACTIVITY_JOIN_MINUTES, ActivityEventRow, ActivityRow, isCustomEvent } from './emailActivity'
 
 export interface ActivityGroup {
     key: string
@@ -46,7 +43,7 @@ export function groupActivityRows(rows: ActivityRow[]): ActivityGroup[] {
     for (const row of rows) {
         const rowSession = row.kind === 'event' ? row.event.sessionId : null
         const last = current[current.length - 1]
-        const closeToLast = !!last && dayjs(row.at).diff(dayjs(lastRowAt(last)), 'minute') < SESSION_JOIN_MINUTES
+        const closeToLast = !!last && dayjs(row.at).diff(dayjs(lastRowAt(last)), 'minute') < ACTIVITY_JOIN_MINUTES
         if (rowSession ? rowSession !== sessionId : !!sessionId && !closeToLast) {
             flush()
             sessionId = rowSession
@@ -73,13 +70,12 @@ const COLLAPSED_GROUP_ROWS = 4
 
 export interface CollapsedGroup {
     rows: ActivityRow[]
-    /** How many events and emails the collapsed rows leave out. */
+    /** How many more rows the group shows when it opens. */
     hidden: number
 }
 
 /** What a long group shows at first: its custom events and emails once each, or else its first rows. */
 export function collapseGroup(group: ActivityGroup): CollapsedGroup {
-    const total = group.rows.reduce((sum, row) => sum + (row.kind === 'event' ? row.count : 1), 0)
     if (group.rows.length <= COLLAPSED_GROUP_ROWS) {
         return { rows: group.rows, hidden: 0 }
     }
@@ -97,6 +93,5 @@ export function collapseGroup(group: ActivityGroup): CollapsedGroup {
     }
     const important = Array.from(byName.values())
     const rows = (important.length ? important : group.rows).slice(0, COLLAPSED_GROUP_ROWS)
-    const shown = rows.reduce((sum, row) => sum + (row.kind === 'event' ? row.count : 1), 0)
-    return { rows, hidden: total - shown }
+    return { rows, hidden: group.rows.length - rows.length }
 }

@@ -50,6 +50,18 @@ describe('emailActivityGroups', () => {
             ],
         },
         {
+            name: 'does not fold a much later event with no session into the session',
+            events: [
+                event('a', '2026-06-15T09:00:00Z', 's1'),
+                event('sync-1', '2026-06-15T09:01:00Z', null, 'synced'),
+                event('sync-2', '2026-06-15T12:00:00Z', null, 'synced'),
+            ],
+            expected: [
+                ['s1', ['a', 'sync-1']],
+                [null, ['sync-2']],
+            ],
+        },
+        {
             name: 'starts a session group after events with no session',
             events: [event('first', '2026-06-15T09:00:00Z', null), event('a', '2026-06-15T09:01:00Z', 's1')],
             expected: [
@@ -76,7 +88,7 @@ describe('emailActivityGroups', () => {
             ['synced', 2],
             ['paid', 1],
         ])
-        expect(hidden).toBe(3)
+        expect(hidden).toBe(4)
     })
 
     it('shows the first rows of a long group with no custom events', () => {
