@@ -1262,7 +1262,10 @@ function generateToolCode(
 
     const injectBody = config.inject_body ?? {}
     const injectBodyEntries = Object.entries(injectBody)
-    const injectQueryEntries = injectedQueryEntries(config, composition.queryParamNames)
+    const injectQueryEntries = injectedQueryEntries(
+        config,
+        composition.queryParamNames.map((name) => composition.renamedFields[name] ?? name)
+    )
     const hasInjectBody = !isSoftDelete && injectBodyEntries.length > 0
     const hasBody = !isSoftDelete && (composition.bodyFieldNames.length > 0 || hasInjectBody)
     const hasQuery = composition.queryParamNames.length > 0 || injectQueryEntries.length > 0

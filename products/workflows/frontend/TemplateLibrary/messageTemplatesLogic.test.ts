@@ -86,12 +86,8 @@ describe('messageTemplatesLogic', () => {
         await expect(saveTemplateTags(template('a', 'Welcome', []), ['growth'])).rejects.toThrow()
         expect(logic.values.templates.find((t) => t.id === 'a')?.tags).toEqual(['growth', 'onboarding'])
     })
-})
 
-describe('messageTemplatesLogic duplicate', () => {
-    afterEach(() => {
-        jest.restoreAllMocks()
-    })
+    afterEach(() => jest.restoreAllMocks())
 
     it('duplicates the editable design when the list response omits it', async () => {
         const listTemplate = {
@@ -109,10 +105,6 @@ describe('messageTemplatesLogic duplicate', () => {
                 email: { ...listEmail, design: { body: { rows: [] } } },
             },
         } as MessageTemplate
-        jest.spyOn(messagingApi, 'messagingTemplatesList').mockResolvedValue({
-            results: [listTemplate],
-            count: 1,
-        } as Awaited<ReturnType<typeof messagingApi.messagingTemplatesList>>)
         const retrieve = jest
             .spyOn(messagingApi, 'messagingTemplatesRetrieve')
             .mockResolvedValue(fullTemplate as MessageTemplateApi)
@@ -122,12 +114,8 @@ describe('messageTemplatesLogic duplicate', () => {
             content: fullTemplate.content,
         } as MessageTemplateApi)
 
-        initKeaTests()
-        const logic = messageTemplatesLogic()
-        logic.mount()
-
-        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
-        await expectLogic(logic, () => logic.actions.duplicateTemplate(logic.values.templates[0])).toDispatchActions([
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.duplicateTemplate(listTemplate)).toDispatchActions([
             'duplicateTemplateSuccess',
         ])
         expect(retrieve).toHaveBeenCalledWith(String(ApiConfig.getCurrentTeamId()), listTemplate.id)
@@ -135,7 +123,5 @@ describe('messageTemplatesLogic duplicate', () => {
             String(ApiConfig.getCurrentTeamId()),
             expect.objectContaining({ name: 'Welcome (copy)', content: fullTemplate.content })
         )
-
-        logic.unmount()
     })
 })

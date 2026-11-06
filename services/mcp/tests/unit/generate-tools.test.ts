@@ -893,25 +893,29 @@ describe('inject_query', () => {
         }
     })
 
-    it('rejects an injected query parameter that remains exposed', () => {
-        const config: ToolConfig = {
-            operation: 'things_list',
-            enabled: true,
-            inject_query: { include_design: false },
-        }
+    it.each([undefined, { include_design: 'includeDesign' }])(
+        'rejects an injected query parameter that remains exposed with rename_params=%s',
+        (rename_params) => {
+            const config: ToolConfig = {
+                operation: 'things_list',
+                enabled: true,
+                rename_params,
+                inject_query: { include_design: false },
+            }
 
-        expect(() =>
-            generateToolCode(
-                'things-list',
-                config,
-                queryResolved(),
-                defaultCategory,
-                makeSpec(),
-                new Set<string>(),
-                stubGetQuerySchema
-            )
-        ).toThrow('Injected query parameter "include_design" must be excluded from tool inputs')
-    })
+            expect(() =>
+                generateToolCode(
+                    'things-list',
+                    config,
+                    queryResolved(),
+                    defaultCategory,
+                    makeSpec(),
+                    new Set<string>(),
+                    stubGetQuerySchema
+                )
+            ).toThrow('Injected query parameter "include_design" must be excluded from tool inputs')
+        }
+    )
 })
 
 describe('anyOf / oneOf body schemas (discriminated unions)', () => {
