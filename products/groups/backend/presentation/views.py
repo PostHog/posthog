@@ -55,6 +55,7 @@ from posthog.personhog_client.converters import GroupTypeMappingResult
 from posthog.ph_client import feature_enabled_or_false
 from posthog.utils import str_to_bool
 
+from products.access_control.backend.facade import api as access_control
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.groups.backend.facade import api as groups
 from products.groups.backend.facade.contracts import GroupPropertyDefinitionInput
@@ -934,10 +935,15 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         )
 
     def _create_notebook_for_group(self, group: Group) -> None:
+        # The notebook is shared with every project member, so leave out properties any access rule covers.
+        restricted = access_control.group_property_names_with_access_rules(
+            team_id=self.team.id, group_type_index=group.group_type_index
+        )
+        properties = {key: value for key, value in group.group_properties.items() if key not in restricted}
         # A group name is customer data and can hold line breaks. Markdown escapes inline syntax
         # but keeps line breaks, so a second line starts its own block — a heading, a list, or a
         # live component. Collapse the name to one line, which is what a title is anyway.
-        group_name = " ".join(str(group.group_properties.get("name") or "").split())
+        group_name = " ".join(str(properties.get("name") or "").split())
         notebook_title = f"{group_name} Notes" if group_name else "Notes"
         template_nodes = [
             create_heading_with_text(text=notebook_title, level=1),
