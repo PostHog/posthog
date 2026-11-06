@@ -125,6 +125,7 @@ depends_on = [
     "products.aeo",
     "products.analytics_platform",
     "products.approvals",
+    "products.authorization",
     "products.batch_exports",
     "products.billing_alerts",
     "products.business_knowledge",

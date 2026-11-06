@@ -1290,24 +1290,24 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
             team=self.team, created_by=self.other_user, name="other user dashboard"
         )
 
-        # Access controls total 3 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
+        # Access controls add 4 queries, because the project check and the object check each load the user's roles and the rules
         self._assert_access_control_adds_queries(
-            f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true", expected_extra_queries=3
+            f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true", expected_extra_queries=4
         )
 
         # Accessing a different users dashboard doesn't +1 as the preload works using the pk
         self._assert_access_control_adds_queries(
-            f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true", expected_extra_queries=3
+            f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true", expected_extra_queries=4
         )
 
-        # Getting my own notebook is the same as a dashboard - 3 extra queries
+        # Getting my own notebook is the same as a dashboard
         self._assert_access_control_adds_queries(
-            f"/api/projects/@current/notebooks/{self.notebook.short_id}", expected_extra_queries=3
+            f"/api/projects/@current/notebooks/{self.notebook.short_id}", expected_extra_queries=4
         )
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
         self._assert_access_control_adds_queries(
-            f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}", expected_extra_queries=3
+            f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}", expected_extra_queries=4
         )
 
         # Project access doesn't double query the object, but roles and access controls load 3 times, 2 queries each
@@ -1326,26 +1326,26 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
             team=self.team, created_by=self.other_user, name="other user dashboard"
         )
 
-        # Access controls total 3 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
+        # Access controls add 4 queries, because the project check and the object check each load the user's roles and the rules
         self._assert_access_control_adds_queries(
-            f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true", expected_extra_queries=3
+            f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true", expected_extra_queries=4
         )
 
         # Accessing a different users dashboard doesn't +1 as the preload works using the pk
         self._assert_access_control_adds_queries(
-            f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true", expected_extra_queries=3
+            f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true", expected_extra_queries=4
         )
 
     def test_query_counts_only_adds_1_for_non_pk_resources(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
-        # Getting my own notebook is the same as a dashboard - 3 extra queries
+        # Getting my own notebook is the same as a dashboard
         self._assert_access_control_adds_queries(
-            f"/api/projects/@current/notebooks/{self.notebook.short_id}", expected_extra_queries=3
+            f"/api/projects/@current/notebooks/{self.notebook.short_id}", expected_extra_queries=4
         )
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
         self._assert_access_control_adds_queries(
-            f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}", expected_extra_queries=3
+            f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}", expected_extra_queries=4
         )
 
     def test_query_counts_stable_for_project_access(self):
