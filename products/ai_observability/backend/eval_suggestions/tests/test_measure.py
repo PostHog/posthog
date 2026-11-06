@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -5,13 +6,20 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
+from posthog.schema import LLMTrace
+
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 
+from products.ai_observability.backend.eval_suggestions.adapters import AdaptedCheck, compile_check
 from products.ai_observability.backend.eval_suggestions.measure import (
     EVENTS_PER_TRACE,
     MAX_OUTPUT_BYTES,
+    SampledTrace,
     _sampled_trace,
     fetch_sample,
+    run_check,
 )
 from products.ai_observability.backend.eval_suggestions.profile import ProfileWindow, fetch_profile
 
@@ -133,3 +141,47 @@ def test_a_trace_holds_the_segment_value_of_every_generation() -> None:
     assert sampled is not None
     assert sampled.segments == {"ai_product": "search"}
     assert sampled.segment_values == {"ai_product": frozenset({"chat", "search"})}
+    assert sampled.raw_segment_values == {"ai_product": frozenset({"chat-1", "search"})}
+
+
+def test_a_long_earlier_reply_leaves_room_for_the_current_turn() -> None:
+    at = datetime(2026, 11, 1, tzinfo=UTC)
+    history = json.dumps({"role": "assistant", "content": "x" * 5000})
+    rows = [("t", "e0", "$ai_generation", at, "u", {}, "", 1, False, "", "", False, history)]
+
+    sampled = _sampled_trace("t", rows, held_out=False, spans_days=False, segment_keys=[])
+
+    assert sampled is not None
+    assert len(sampled.turn_text) <= 3100
+    assert sampled.turn_text.index("User:") < 3000
+
+
+@parameterized.expand(
+    [
+        ("pass", "return true", False),
+        ("fail", "return false", True),
+        ("not_applicable", "return null", None),
+        ("runtime_error", "return 1 / 0", None),
+    ]
+)
+def test_run_check_maps_each_verdict(_name: str, source: str, failed: bool | None) -> None:
+    check = AdaptedCheck(key="k", name="n", description="d", source=source, template_key="", severity=1.0)
+    trace = LLMTrace(id="t", createdAt="2026-11-01T00:00:00Z", distinctId="u", events=[])
+    sampled = SampledTrace(
+        trace=trace,
+        held_out=False,
+        spans_days=False,
+        segments={},
+        segment_values={},
+        raw_segment_values={},
+        raw_segments={},
+        final_text="",
+        turn_text="",
+        user_messages=1,
+        has_tool_results=False,
+        input_tokens=0,
+    )
+
+    [outcome] = run_check(compile_check(check), [sampled])
+
+    assert outcome.failed is failed

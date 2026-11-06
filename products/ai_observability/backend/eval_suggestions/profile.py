@@ -382,7 +382,8 @@ class SegmentRates:
     inside_total: int
     outside: int
     outside_total: int
-    # Traces that hold any item on each side. Items of one response are not independent observations.
+    # Traces with a flagged item inside the segment, and with any item outside it. Items of one response are not
+    # independent observations, so the flagged items have to come from several traces.
     inside_traces: int = 0
     outside_traces: int = 0
 
@@ -400,7 +401,7 @@ def _rates(
         matching = sum(1 for item in items if item in values)
         if segment == segment_value:
             inside, inside_total = inside + matching, inside_total + len(items)
-            inside_traces += bool(items)
+            inside_traces += matching > 0
         else:
             outside, outside_total = outside + matching, outside_total + len(items)
             outside_traces += bool(items)
