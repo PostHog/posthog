@@ -1,5 +1,6 @@
 import logging
 from datetime import timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -8,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 from django.db import connection
 from django.utils import timezone
 
+from temporalio import activity
 from temporalio.client import ScheduleOverlapPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
@@ -17,7 +19,11 @@ from posthog.models import Team
 from posthog.redis import get_client as get_redis_client
 from posthog.sync import database_sync_to_async
 
-from products.customer_analytics.backend.logic.membership import MembershipExistence, MembershipKey
+from products.customer_analytics.backend.logic.membership import (
+    MembershipCleanupBusy,
+    MembershipExistence,
+    MembershipKey,
+)
 from products.customer_analytics.backend.logic.membership_deletion import (
     MembershipDeletionCounts,
     MembershipDeletionInput,
@@ -59,7 +65,10 @@ async def test_team_workflow_stops_at_scan_or_run_limit(
     execute_activity = AsyncMock(return_value=MembershipDeletionCounts(checked=100, has_more=has_more))
     with (
         patch("products.customer_analytics.backend.temporal.membership_deletion.MAX_BATCHES_PER_TEAM", 3),
-        patch("temporalio.workflow.now", side_effect=[now, *[now + elapsed] * 3]),
+        patch("temporalio.workflow.now", side_effect=[now, *[now + elapsed] * 30]),
+        patch(
+            "temporalio.workflow.info", return_value=SimpleNamespace(start_time=now, execution_timeout=TEAM_RUN_BUDGET)
+        ),
         patch("temporalio.workflow.execute_activity", execute_activity),
     ):
         result = await MembershipDeletionTeamWorkflow().run(MembershipDeletionInput(team_id=1))
@@ -70,10 +79,16 @@ async def test_team_workflow_stops_at_scan_or_run_limit(
 @pytest.mark.asyncio
 async def test_coordinator_stops_between_teams_at_deadline() -> None:
     now = timezone.now()
+    clock = now
     execute_activity = AsyncMock(side_effect=[[1, 2], None])
-    execute_child = AsyncMock()
+
+    async def finish_child(*args: object, **kwargs: object) -> None:
+        nonlocal clock
+        clock = now + COORDINATOR_RUN_BUDGET
+
+    execute_child = AsyncMock(side_effect=finish_child)
     with (
-        patch("temporalio.workflow.now", side_effect=[now, now, now, now + COORDINATOR_RUN_BUDGET]),
+        patch("temporalio.workflow.now", side_effect=lambda: clock),
         patch("temporalio.workflow.execute_activity", execute_activity),
         patch("temporalio.workflow.execute_child_workflow", execute_child),
     ):
@@ -90,7 +105,8 @@ def test_deletion_lease_and_network_transaction_scope(team: Team) -> None:
     store = MembershipDeletionStore()
     lease = get_redis_client().lock(f"customer_analytics:membership_cleanup:{team_id}", timeout=60)
     with lease, patch.object(store, "delete_config") as delete_config:
-        assert run_membership_deletion(MembershipDeletionInput(team_id=team_id), store).checked == 0
+        with pytest.raises(MembershipCleanupBusy):
+            run_membership_deletion(MembershipDeletionInput(team_id=team_id), store)
         delete_config.assert_not_called()
 
     def delete_without_transaction(*args: object) -> None:
@@ -112,7 +128,7 @@ def test_deletion_lease_and_network_transaction_scope(team: Team) -> None:
         last_checked_at=timezone.now(),
     )
 
-    def lookup_without_transaction(*args: object) -> MembershipExistence:
+    def lookup_without_transaction(*args: object, **kwargs: object) -> MembershipExistence:
         assert not connection.in_atomic_block
         return MembershipExistence(persons=frozenset(), groups=frozenset())
 
@@ -177,6 +193,17 @@ async def test_temporal_deletion_erases_discovered_membership_after_grace_period
         ) == [(0,)]
         assert not MembershipCleanupCandidate.objects.for_team(team.pk).exists()
 
+    lost_result = False
+
+    @activity.defn(name="membership_deletion_activity")
+    async def retry_deleted_batch(input: MembershipDeletionInput) -> MembershipDeletionCounts:
+        nonlocal lost_result
+        result = await membership_deletion_activity(input)
+        if not lost_result:
+            lost_result = True
+            raise RuntimeError("Simulated lost activity result after deletion commit")
+        return result
+
     await database_sync_to_async(seed_membership)()
     async with await WorkflowEnvironment.start_local() as environment:
         await create_membership_discovery_schedule(environment.client)
@@ -199,7 +226,7 @@ async def test_temporal_deletion_erases_discovered_membership_after_grace_period
                 membership_discovery_activity,
                 record_membership_discovery_team_activity,
                 list_membership_deletion_teams_activity,
-                membership_deletion_activity,
+                retry_deleted_batch,
                 record_membership_deletion_team_activity,
             ],
         ):
@@ -218,6 +245,7 @@ async def test_temporal_deletion_erases_discovered_membership_after_grace_period
                 execution_timeout=timedelta(minutes=1),
             )
     await database_sync_to_async(assert_erased)()
+    assert lost_result
     mutation_logs = [record.getMessage() for record in caplog.records if record.name == "posthog.clickhouse.cluster"]
     assert any("delete_membership" in message for message in mutation_logs)
     assert all(identifier not in message for message in mutation_logs for identifier in [*distinct_ids, group_key])
