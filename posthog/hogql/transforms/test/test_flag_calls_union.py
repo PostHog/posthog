@@ -185,6 +185,35 @@ def _list_alias_in_many_comparisons() -> ast.SelectQuery:
     return select
 
 
+def _with_list_read_by_many_subqueries() -> ast.SelectQuery:
+    names = ast.Tuple(
+        exprs=[
+            *(ast.Constant(value="$feature_flag_called", start=n, end=n + 1) for n in range(30_000)),
+            ast.Constant(value="$pageview"),
+        ]
+    )
+    branches = [_select("SELECT 1 FROM events WHERE event IN names") for _ in range(300)]
+    select = _select("SELECT 1 FROM (SELECT 1)")
+    select.ctes = {"names": ast.CTE(name="names", expr=names, cte_type="column")}
+    assert select.select_from is not None
+    select.select_from.table = ast.SelectSetQuery(
+        initial_select_query=branches[0],
+        subsequent_select_queries=[
+            ast.SelectSetNode(set_operator="UNION ALL", select_query=branch) for branch in branches[1:]
+        ],
+    )
+    return select
+
+
+def _long_with() -> ast.SelectQuery:
+    select = _select("SELECT 1 FROM events WHERE event IN ('$pageview', c49999)")
+    names = [*(f"e{n}" for n in range(49_999)), "$feature_flag_called"]
+    select.ctes = {
+        f"c{n}": ast.CTE(name=f"c{n}", expr=ast.Constant(value=name), cte_type="column") for n, name in enumerate(names)
+    }
+    return select
+
+
 def _set_mode(organization, mode: FlagEvaluationsMode) -> None:
     OrganizationFeatureFlagsConfig.objects.update_or_create(
         organization=organization, defaults={"flag_evaluations_mode": mode}
@@ -472,6 +501,134 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
                 [],
             ),
             (
+                "with_constant_in_a_list_with_other_events",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM events WHERE event IN ('$pageview', fc)",
+                [UNION],
+                [],
+            ),
+            # The flag_evaluations swap does not read a WITH constant, so it cannot take this scan on mode 2.
+            (
+                "with_constant_pinned_to_only_flag_calls",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM events WHERE event = fc",
+                [UNION],
+                [],
+            ),
+            (
+                "with_tuple_as_the_in_list",
+                "WITH ('$pageview', '$feature_flag_called') AS names SELECT count() FROM events WHERE event IN names",
+                [UNION],
+                [],
+            ),
+            (
+                "alias_of_a_with_constant",
+                "WITH '$feature_flag_called' AS fc SELECT fc AS name, count() FROM events "
+                "WHERE event IN ('$pageview', name) GROUP BY name",
+                [UNION],
+                [],
+            ),
+            (
+                "with_constant_inside_a_lambda",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM events "
+                "WHERE arrayExists(x -> event IN ('$pageview', fc), [1])",
+                [UNION],
+                [],
+            ),
+            (
+                "with_constant_named_by_another_with_name",
+                "WITH '$feature_flag_called' AS a, a AS b SELECT count() FROM events WHERE event IN ('$pageview', b)",
+                [UNION],
+                [],
+            ),
+            (
+                "with_tuple_that_names_another_with_name",
+                "WITH '$feature_flag_called' AS a, ('$pageview', a) AS names "
+                "SELECT count() FROM events WHERE event IN names",
+                [UNION],
+                [],
+            ),
+            (
+                "with_name_compared_with_a_lambda_argument_named_event",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM events SAMPLE 0.1 "
+                "WHERE event = '$pageview' AND arrayExists(event -> event = fc, ['$pageview'])",
+                ["events"],
+                [],
+            ),
+            (
+                "with_value_computed_from_another_with_name",
+                "WITH '$feature_flag_called' AS a, concat(a, '') AS fc "
+                "SELECT count() FROM events WHERE event IN ('$pageview', fc)",
+                [UNION],
+                [],
+            ),
+            (
+                "with_name_shadowed_by_an_events_column",
+                "WITH '$feature_flag_called' AS distinct_id SELECT count() FROM events "
+                "WHERE event IN ('$pageview', distinct_id)",
+                ["events"],
+                [],
+            ),
+            (
+                "with_name_shadowed_by_a_lambda_argument",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM events "
+                "WHERE arrayExists(fc -> event IN ('$pageview', fc), ['$autocapture'])",
+                ["events"],
+                [],
+            ),
+            (
+                "outer_with_constant_in_a_subquery",
+                "WITH '$feature_flag_called' AS fc "
+                "SELECT count() FROM (SELECT event FROM events WHERE event IN ('$pageview', fc))",
+                [UNION],
+                [],
+            ),
+            (
+                "subquery_with_constant",
+                "SELECT count() FROM "
+                "(WITH '$feature_flag_called' AS fc SELECT event FROM events WHERE event IN ('$pageview', fc))",
+                [UNION],
+                [],
+            ),
+            (
+                "subquery_with_name_shadowing_an_outer_with_name",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM "
+                "(WITH '$autocapture' AS fc SELECT event FROM events WHERE event IN ('$pageview', fc))",
+                ["events"],
+                [],
+            ),
+            (
+                "with_constant_in_a_later_branch_of_a_select_set",
+                "WITH '$feature_flag_called' AS fc SELECT 1 FROM events WHERE event = '$pageview' "
+                "UNION ALL SELECT 1 FROM events WHERE event IN ('$pageview', fc) "
+                "UNION ALL (WITH '$autocapture' AS fc SELECT 1 FROM events WHERE event IN ('$pageview', fc))",
+                ["events", UNION, "events"],
+                [],
+            ),
+            # The body of `x` reads the outer `fc`, because the inner `fc` comes after `x` in its WITH.
+            (
+                "with_name_declared_after_the_cte_that_reads_it",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM "
+                "(WITH x AS (SELECT count() FROM events WHERE event IN ('$pageview', fc)), '$autocapture' AS fc "
+                "SELECT * FROM x)",
+                ["x", UNION],
+                [],
+            ),
+            (
+                "with_constant_in_a_scan_after_another_table",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM persons AS p JOIN events AS e "
+                "ON p.id = e.person_id WHERE e.event IN ('$pageview', fc)",
+                ["persons", "events"],
+                ["it joins events after another table"],
+            ),
+            param(
+                "with_constant_on_mode_1",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM events WHERE event IN ('$pageview', fc)",
+                [UNION],
+                [],
+                only_in_flag_evaluations=False,
+            ),
+            ("long_with", _long_with(), [UNION], []),
+            ("with_list_read_by_many_subqueries", _with_list_read_by_many_subqueries(), [UNION] * 300, []),
+            (
                 "cte_named_events_after_another_table",
                 "WITH events AS (SELECT 1 AS person_id, '$pageview' AS event) "
                 f"SELECT count() FROM persons AS p JOIN events AS e ON p.id = e.person_id WHERE {E_MIXED}",
@@ -553,19 +710,35 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no_flag_call_constant", "", []),
+            (
+                "no_flag_call_constant",
+                "SELECT count() FROM persons AS p JOIN events AS e ON p.id = e.person_id "
+                "WHERE e.event IN ('$pageview', '$autocapture', '$identify')",
+                [],
+            ),
             (
                 "flag_call_constant_elsewhere",
-                ", '$feature_flag_called' AS name",
+                "SELECT count(), '$feature_flag_called' AS name FROM persons AS p JOIN events AS e ON p.id = e.person_id "
+                "WHERE e.event IN ('$pageview', '$autocapture', '$identify')",
+                ["it compares `event` with more values than the flag-call check reads"],
+            ),
+            (
+                "flag_call_constant_in_an_outer_with",
+                "WITH '$feature_flag_called' AS fc SELECT * FROM (SELECT count() FROM persons AS p "
+                "JOIN events AS e ON p.id = e.person_id WHERE e.event IN ('$pageview', '$autocapture', fc))",
+                ["it compares `event` with more values than the flag-call check reads"],
+            ),
+            (
+                "flag_call_constant_in_the_first_branch_with",
+                "WITH '$feature_flag_called' AS fc SELECT 1 FROM events WHERE event = '$pageview' "
+                "UNION ALL SELECT count() FROM persons AS p JOIN events AS e ON p.id = e.person_id "
+                "WHERE e.event IN ('$pageview', '$autocapture', fc)",
                 ["it compares `event` with more values than the flag-call check reads"],
             ),
         ]
     )
-    def test_scan_past_the_compared_values_budget(self, _name: str, extra_select: str, expected_refusals: list[str]):
-        select = _select(
-            f"SELECT count(){extra_select} FROM persons AS p JOIN events AS e ON p.id = e.person_id "
-            "WHERE e.event IN ('$pageview', '$autocapture', '$identify')"
-        )
+    def test_scan_past_the_compared_values_budget(self, _name: str, query: str, expected_refusals: list[str]):
+        select = _select(query)
         with patch("posthog.hogql.transforms.flag_calls_union._COMPARED_VALUES_BUDGET", 2):
             rename = rename_flag_call_scans_to_union(
                 select, flag_key_compares_as_string=lambda: True, only_in_flag_evaluations=True
@@ -685,6 +858,20 @@ class TestReadFlagCallsWithUnion(BaseTest):
             param(
                 "alias_of_the_flag_call_event_name_on_mode_2",
                 "SELECT '$feature_flag_called' AS name, count() FROM events WHERE event = name",
+                True,
+                True,
+                mode=ONLY,
+            ),
+            param(
+                "with_constant_in_a_mixed_filter_on_mode_2",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM events WHERE event IN ('$pageview', fc)",
+                True,
+                True,
+                mode=ONLY,
+            ),
+            param(
+                "with_constant_pinned_to_only_flag_calls_on_mode_2",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM events WHERE event = fc",
                 True,
                 True,
                 mode=ONLY,
@@ -1380,6 +1567,13 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
                 event="event AS name",
                 event_filter="name IN ('$pageview', '$feature_flag_called')",
             ),
+            param(
+                "filter_on_a_with_constant",
+                ONLY,
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                ctes="WITH '$feature_flag_called' AS fc",
+                event_filter="event IN ('$pageview', fc)",
+            ),
         ]
     )
     def test_each_flag_call_comes_from_one_table(
@@ -1389,9 +1583,11 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         poe: PersonsOnEventsMode,
         event: str = "event",
         event_filter: str = MIXED,
+        ctes: str = "",
     ):
         response = self._run(
             f"""
+            {ctes}
             SELECT distinct_id, {event}, properties.source, person_id, person.properties.email
             FROM events
             WHERE {event_filter} AND timestamp >= now() - INTERVAL 120 DAY
