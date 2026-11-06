@@ -241,6 +241,11 @@ class TaskProcessingContext:
         return (self.state or {}).get("github_read_access") is True
 
     @property
+    def github_token_scope(self) -> Literal["read", "push"] | None:
+        scope = (self.state or {}).get("github_token_scope")
+        return scope if scope in ("read", "push") else None
+
+    @property
     def sandbox_environment_id(self) -> str | None:
         return (self.state or {}).get("sandbox_environment_id")
 

@@ -1,7 +1,8 @@
+from dataclasses import replace
 from datetime import datetime, timedelta
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
@@ -14,6 +15,7 @@ from posthog.models.team import Team
 from products.signals.backend.models import SignalReport
 from products.tasks.backend.access import PostHogAIAccessDecision
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR
+from products.tasks.backend.facade.profiles import WarmPolicy, WarmQuota, get_task_profile
 from products.tasks.backend.logic.services.warm import ActiveSessionCaps, SandboxWarmer, WarmSourceChanged
 from products.tasks.backend.models import SandboxSession, Task, TaskRun
 
@@ -530,3 +532,107 @@ class TestSandboxWarmerAtCapacity(APIBaseTest):
             )
 
         assert scope == expected
+
+
+class TestSandboxWarmerProfilePolicy(APIBaseTest):
+    @staticmethod
+    def _profile(origin: str, warm: WarmPolicy | None):
+        return replace(get_task_profile("user"), key="test.warm", origin_product=origin, warm=warm)
+
+    def _warm_runs(self, count: int) -> None:
+        for _ in range(count):
+            task = Task.objects.create(
+                team=self.team,
+                title="",
+                description="",
+                origin_product=Task.OriginProduct.POSTHOG_AI,
+                created_by=self.user,
+            )
+            task.create_run(mode="interactive", extra_state={"await_user_message": True})
+
+    @parameterized.expand(
+        [
+            (
+                "profile_without_warm_denies_a_warmable_origin",
+                Task.OriginProduct.POSTHOG_AI,
+                None,
+                False,
+                True,
+                PermissionDenied,
+            ),
+            (
+                "profile_warm_allows_an_origin_the_registry_denies",
+                Task.OriginProduct.ERROR_TRACKING,
+                WarmPolicy(quota=WarmQuota.AI_CREDITS, per_user_cap=2, per_org_cap=10, feature_flag=None),
+                False,
+                True,
+                None,
+            ),
+            (
+                "profile_ai_credits_quota_blocks_a_limited_team",
+                Task.OriginProduct.ERROR_TRACKING,
+                WarmPolicy(quota=WarmQuota.AI_CREDITS, per_user_cap=2, per_org_cap=10, feature_flag=None),
+                True,
+                True,
+                QuotaLimitExceeded,
+            ),
+            (
+                "profile_without_a_quota_ignores_the_credit_limit",
+                Task.OriginProduct.POSTHOG_AI,
+                WarmPolicy(quota=WarmQuota.NONE, per_user_cap=2, per_org_cap=10, feature_flag=None),
+                True,
+                True,
+                None,
+            ),
+            (
+                "profile_posthog_ai_quota_refuses_a_user_without_access",
+                Task.OriginProduct.POSTHOG_AI,
+                WarmPolicy(quota=WarmQuota.POSTHOG_AI, per_user_cap=2, per_org_cap=10, feature_flag=None),
+                False,
+                False,
+                PermissionDenied,
+            ),
+            (
+                "profile_posthog_ai_quota_still_checks_credits",
+                Task.OriginProduct.POSTHOG_AI,
+                WarmPolicy(quota=WarmQuota.POSTHOG_AI, per_user_cap=2, per_org_cap=10, feature_flag=None),
+                True,
+                True,
+                QuotaLimitExceeded,
+            ),
+        ]
+    )
+    def test_enforce_quota_follows_the_profile(self, _name, origin, warm, team_limited, access_allowed, expected_error):
+        profile = self._profile(origin, warm)
+        access = MagicMock(allowed=access_allowed)
+
+        with (
+            patch(f"{WARM}.is_team_limited", return_value=team_limited),
+            patch(f"{WARM}.get_posthog_ai_access_decision", return_value=access),
+        ):
+            if expected_error is None:
+                SandboxWarmer.enforce_quota(origin, self.team, self.user, profile=profile)
+            else:
+                with self.assertRaises(expected_error):
+                    SandboxWarmer.enforce_quota(origin, self.team, self.user, profile=profile)
+
+    @parameterized.expand(
+        [
+            ("user_cap_below_the_origin_cap", 1, 10, 1, True),
+            ("user_cap_above_the_origin_cap", 3, 10, _CAPS.per_user, False),
+            ("org_cap_below_the_origin_cap", 10, 1, 1, True),
+        ]
+    )
+    def test_at_capacity_follows_the_profile_caps(self, _name, per_user_cap, per_org_cap, existing_warm_runs, expected):
+        warm = WarmPolicy(quota=WarmQuota.NONE, per_user_cap=per_user_cap, per_org_cap=per_org_cap, feature_flag=None)
+        profile = self._profile(Task.OriginProduct.POSTHOG_AI, warm)
+        self._warm_runs(existing_warm_runs)
+
+        assert (
+            SandboxWarmer.at_capacity(Task.OriginProduct.POSTHOG_AI, self.team, self.user, profile=profile) is expected
+        )
+
+    def test_at_capacity_without_a_profile_uses_the_origin_caps(self):
+        self._warm_runs(_CAPS.per_user)
+
+        assert SandboxWarmer.at_capacity(Task.OriginProduct.POSTHOG_AI, self.team, self.user) is True

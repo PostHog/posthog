@@ -90,6 +90,8 @@ class NodeRole(StrEnum):
     AI_EVENTS = "ai_events"
     AUX = "aux"
     BATCH_EXPORTS = "batch_exports"
+    INGESTION_METRICS = "ingestion_metrics"
+    METRICS = "metrics"
     OPS = "ops"
     SESSIONS = "sessions"
 
@@ -104,13 +106,14 @@ DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
         NodeRole.AUX,
         NodeRole.BATCH_EXPORTS,
         NodeRole.LOGS,
+        NodeRole.METRICS,
         NodeRole.OPS,
         NodeRole.SESSIONS,
     }
 )
 # Single-shard data clusters: ALTER runs on one host, replication propagates.
 SINGLE_SHARD_DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
-    {NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.BATCH_EXPORTS, NodeRole.OPS, NodeRole.SESSIONS}
+    {NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.BATCH_EXPORTS, NodeRole.METRICS, NodeRole.OPS, NodeRole.SESSIONS}
 )
 
 
@@ -453,8 +456,13 @@ def get_http_client(**overrides):
 
 # Named users that exist on the logs cluster. Every other named user exists on the main cluster
 # only, and sync_execute assigns some of them (APP, API) from tags without checking the workload.
+# ALERTS_PLATFORM_INSIGHT exists on both, because an insight can read logs, spans or metrics.
 LOGS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset(
-    {ClickHouseUser.ALERTS_PLATFORM_LOGS, ClickHouseUser.ALERTS_PLATFORM_METRICS}
+    {
+        ClickHouseUser.ALERTS_PLATFORM_INSIGHT,
+        ClickHouseUser.ALERTS_PLATFORM_LOGS,
+        ClickHouseUser.ALERTS_PLATFORM_METRICS,
+    }
 )
 
 

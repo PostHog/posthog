@@ -9,7 +9,6 @@
                 "backend/hogql_queries/**",
                 "backend/tasks/**",
                 "backend/temporal/**",
-                "backend/metric_query_runner.py",
                 "backend/dashboard_import/receivers.py",
                 "backend/models.py",
                 "backend/migrations/**"
