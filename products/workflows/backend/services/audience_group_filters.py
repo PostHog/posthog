@@ -20,6 +20,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 
 from posthog.models.property import Property, PropertyGroup, PropertyOperatorType
+from posthog.models.property.property import PropertyValidationError
 from posthog.models.team.team import Team
 
 from products.workflows.backend.facade.contracts import PersonGroupMembership
@@ -29,6 +30,9 @@ GROUP_TYPE_NOT_SUPPORTED_MESSAGE = (
     "People can only be filtered by properties of the account group type set in customer analytics."
 )
 MEMBERSHIP_NOT_READY_MESSAGE = "Account membership is still being calculated. Try again when it finishes."
+INVALID_GROUP_CONDITION_MESSAGE = (
+    "A group property condition is incomplete or invalid. Check its property, group type, and value."
+)
 
 
 def audience_group_type_index(team: Team, filters: dict) -> Optional[int]:
@@ -48,15 +52,21 @@ def reject_unsupported_group_conditions_in_audience(team: Team, filters: dict) -
 
 
 def _supported_membership(team: Team, filters: dict) -> Optional[PersonGroupMembership]:
-    # This reads the raw filters because the parser drops a condition it can't parse, such as one with an
-    # invalid group_type_index, and the audience would then silently lose that condition.
-    indices = {
-        condition.get("group_type_index")
+    # This reads the raw filters because the parser drops a condition it can't parse, such as one with no
+    # value or an invalid group_type_index, and the audience would then silently lose that condition.
+    conditions = [
+        condition
         for condition in _raw_conditions((filters or {}).get("properties"))
         if condition.get("type") == "group"
-    }
-    if not indices:
+    ]
+    if not conditions:
         return None
+    for condition in conditions:
+        try:
+            Property(**condition)
+        except (PropertyValidationError, exceptions.ValidationError, TypeError):
+            raise exceptions.ValidationError({"filters": INVALID_GROUP_CONDITION_MESSAGE})
+    indices = {condition.get("group_type_index") for condition in conditions}
     membership = get_person_group_membership(team)
     if membership is None or indices != {membership.group_type_index}:
         raise exceptions.ValidationError({"filters": GROUP_TYPE_NOT_SUPPORTED_MESSAGE})

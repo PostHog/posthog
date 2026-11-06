@@ -88,6 +88,9 @@ webhook_template = MOCK_NODE_TEMPLATES[0]
 BACKFILLED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
+READY_ACCOUNT_MEMBERSHIP = PersonGroupMembership(group_type_index=0, ready=True)
+
+
 class _StubAccountAudienceProvider:
     def __init__(self, group_type: str | None, membership: PersonGroupMembership | None = None):
         self.group_type = group_type
@@ -4410,33 +4413,32 @@ class TestHogFlowAPI(APIBaseTest):
     @parameterized.expand(
         [
             # A membership backfill in progress blocks the send, not the edit.
-            ("account_group_type_while_backfilling", PersonGroupMembership(group_type_index=0, ready=False), 0, 201),
-            ("other_group_type", PersonGroupMembership(group_type_index=0, ready=True), 1, 400),
-            # The parser drops a condition with an invalid index, which would widen the audience.
-            ("invalid_group_type_index", PersonGroupMembership(group_type_index=0, ready=True), 99, 400),
-            ("no_account_group_type", None, 0, 400),
+            ("account_group_type_while_backfilling", PersonGroupMembership(group_type_index=0, ready=False), {}, None),
+            ("other_group_type", READY_ACCOUNT_MEMBERSHIP, {"group_type_index": 1}, "account group type"),
+            ("no_account_group_type", None, {}, "account group type"),
+            # The parser drops a condition it can't build, which would widen the audience.
+            ("invalid_group_type_index", READY_ACCOUNT_MEMBERSHIP, {"group_type_index": 99}, "incomplete or invalid"),
+            ("missing_value", READY_ACCOUNT_MEMBERSHIP, {"value": None}, "incomplete or invalid"),
         ]
     )
     def test_hog_flow_batch_trigger_person_audience_group_property_conditions(
-        self, _name, membership, group_type_index, expected_status
+        self, _name, membership, condition_overrides, expected_error
     ):
+        condition = {
+            "key": "plan",
+            "type": "group",
+            "group_type_index": 0,
+            "operator": "exact",
+            "value": ["enterprise"],
+            **condition_overrides,
+        }
         with self._account_audience_provider(membership=membership):
-            response = self._post_batch_flow(
-                {
-                    "properties": [
-                        {
-                            "key": "plan",
-                            "type": "group",
-                            "group_type_index": group_type_index,
-                            "operator": "exact",
-                            "value": ["enterprise"],
-                        }
-                    ]
-                }
-            )
-        assert response.status_code == expected_status, response.json()
-        if expected_status == 400:
-            assert "account group type" in response.json()["detail"]
+            response = self._post_batch_flow({"properties": [condition]})
+        if expected_error is None:
+            assert response.status_code == 201, response.json()
+        else:
+            assert response.status_code == 400, response.json()
+            assert expected_error in response.json()["detail"]
 
     def test_hog_flow_batch_trigger_accounts_audience_saves(self):
         with self._account_audience_provider():
