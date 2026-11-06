@@ -18,9 +18,7 @@ if TYPE_CHECKING:
 # A closed list of teams. No team joins it after the platform delivers for its source.
 LEGACY_WEBHOOK_BODY_FLAG: Final = "alert-platform-legacy-webhook-body"
 
-# While this is off for a team, it keeps the legacy body even when it is not on the list above.
-# The list is topped up right before this turns on, so a team that added its first webhook in
-# between does not switch bodies under a receiver that already parses the legacy one.
+# A team off the list above keeps the legacy body until this turns on for it.
 ALERTMANAGER_WEBHOOK_BODY_FLAG: Final = "alert-platform-alertmanager-webhook-body"
 
 # The header value the HogFunction path sends with its body.

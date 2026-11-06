@@ -98,8 +98,7 @@ class HogFunctionPathReason(StrEnum):
     # delivery reads destinations per alert, so it would never send to it.
     UNBOUND = "unbound"
     WEBHOOK_BODY_UNKNOWN = "webhook_body_unknown"
-    # A stock webhook whose team keeps the legacy body, for a source whose legacy body native
-    # delivery cannot send. Only the HogFunction sends that body.
+    # Native delivery cannot send this source's legacy webhook body, and the team keeps it.
     LEGACY_WEBHOOK_BODY_NOT_NATIVE = "legacy_webhook_body_not_native"
     # Native delivery sends PagerDuty incident actions only, never the firing event.
     PAGERDUTY_NOT_NATIVE = "pagerduty_not_native"
