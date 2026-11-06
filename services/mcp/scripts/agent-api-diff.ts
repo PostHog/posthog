@@ -27,18 +27,21 @@ const TRACKED_PATHS = ['services/mcp/schema', 'services/mcp/tests/unit/__snapsho
 const EXIT_UNAVAILABLE = 3
 
 function extractBaseRef(baseRef: string, target: string): string | null {
-    const archive = spawnSync('git', ['archive', baseRef, '--', ...TRACKED_PATHS], {
-        cwd: REPO_ROOT,
-        maxBuffer: 256 * 1024 * 1024,
-    })
-    if (archive.status !== 0) {
-        console.warn(`Could not read ${baseRef}: ${archive.stderr?.toString().trim()}`)
-        return null
-    }
-    const untar = spawnSync('tar', ['-x', '-C', target], { input: archive.stdout })
-    if (untar.status !== 0) {
-        console.warn(`Could not unpack ${baseRef}: ${untar.stderr?.toString().trim()}`)
-        return null
+    // A commit-root archive prefetches unrelated blobs in a partial clone, even with a path filter.
+    for (const trackedPath of TRACKED_PATHS) {
+        const archive = spawnSync('git', ['archive', `--prefix=${trackedPath}/`, `${baseRef}:${trackedPath}`], {
+            cwd: REPO_ROOT,
+            maxBuffer: 256 * 1024 * 1024,
+        })
+        if (archive.status !== 0) {
+            console.warn(`Could not read ${baseRef}: ${archive.stderr?.toString().trim()}`)
+            return null
+        }
+        const untar = spawnSync('tar', ['-x', '-C', target], { input: archive.stdout })
+        if (untar.status !== 0) {
+            console.warn(`Could not unpack ${baseRef}: ${untar.stderr?.toString().trim()}`)
+            return null
+        }
     }
     return target
 }

@@ -53,7 +53,7 @@ function makeReport(id: string): SignalReport {
 }
 
 describe('reportListLogic', () => {
-    it('settles monitoring without requests while disabled and reloads when the flag changes', async () => {
+    it('loads monitoring from the server without a browser rollout flag', async () => {
         const requests: string[] = []
         useMocks({
             get: {
@@ -72,21 +72,9 @@ describe('reportListLogic', () => {
         logic.mount()
         try {
             await expectLogic(logic, () => logic.actions.ensureLoaded()).toFinishAllListeners()
-            expect(requests).toEqual([])
-            expect(logic.values).toMatchObject({ count: 0, reports: [], isLoaded: true, hasMore: false })
-
-            await expectLogic(logic, () =>
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_MONITORING], {
-                    [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
-                })
-            ).toFinishAllListeners()
-            expect(requests).toHaveLength(1)
+            expect(requests.length).toBeGreaterThan(0)
             expect(requests.every((url) => new URL(url).searchParams.get('status') === 'monitoring')).toBe(true)
             expect(logic.values).toMatchObject({ count: 1, reports: [makeReport('monitored')] })
-
-            await expectLogic(logic, () => featureFlagLogic.actions.setFeatureFlags([], {})).toFinishAllListeners()
-            expect(requests).toHaveLength(1)
-            expect(logic.values).toMatchObject({ count: 0, reports: [], hasMore: false })
         } finally {
             logic.unmount()
         }
@@ -352,27 +340,66 @@ describe('reportListLogic', () => {
             bulkLogic.unmount()
         })
 
-        it('keeps a claim made while the first page reloads, which the reload read before the claim saved', async () => {
-            let releasePage: () => void = () => {}
-            const heldPage = new Promise<void>((resolve) => {
-                releasePage = resolve
-            })
-            useMocks({
-                get: {
-                    [REPORTS_URL]: async () => {
-                        await heldPage
-                        return [200, { count: FIRST_PAGE.length, next: null, previous: null, results: FIRST_PAGE }]
-                    },
+        it.each(
+            [
+                { name: 'claim', scope: INBOX_SCOPE_ENTIRE_PROJECT, before: null, after: myClaim },
+                { name: 'release', scope: INBOX_SCOPE_ENTIRE_PROJECT, before: myClaim, after: null },
+                {
+                    name: 'release from Claimed by you',
+                    scope: INBOX_SCOPE_CLAIMED_BY_YOU,
+                    before: myClaim,
+                    after: null,
                 },
-            })
+            ].flatMap((testCase) => ['first', 'next'].map((page) => ({ ...testCase, page })))
+        )('keeps a $name while the $page page loads', async ({ scope, before, after, page }) => {
+            const bulkLogic = inboxBulkActionsLogic()
+            bulkLogic.mount()
+            try {
+                logic.actions.setScope(scope)
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.setReportAssignee(FIRST_PAGE[0].id, before)
+                const staleRows = page === 'first' ? logic.values.reportsResponse!.results : SECOND_PAGE
+                let releasePage: () => void = () => {}
+                const heldPage = new Promise<void>((resolve) => {
+                    releasePage = resolve
+                })
+                useMocks({
+                    get: {
+                        [REPORTS_URL]: async () => {
+                            await heldPage
+                            return [
+                                200,
+                                {
+                                    count: FIRST_PAGE.length + SECOND_PAGE.length,
+                                    next: null,
+                                    previous: null,
+                                    results: staleRows,
+                                },
+                            ]
+                        },
+                    },
+                })
 
-            logic.actions.loadReports()
-            logic.actions.setReportAssignee(FIRST_PAGE[0].id, myClaim)
-            releasePage()
-            await expectLogic(logic).toFinishAllListeners()
+                if (page === 'first') {
+                    logic.actions.loadReports()
+                } else {
+                    logic.actions.loadMore()
+                }
+                bulkLogic.actions.reportClaimChanged(FIRST_PAGE[0].id, after)
+                const expectedRow = scope === INBOX_SCOPE_CLAIMED_BY_YOU ? undefined : { assignee: after }
+                if (expectedRow) {
+                    expect(logic.values.reports.find((r) => r.id === FIRST_PAGE[0].id)).toMatchObject(expectedRow)
+                } else {
+                    expect(logic.values.reports.find((r) => r.id === FIRST_PAGE[0].id)).toBeUndefined()
+                }
+                const rowsAfterWrite = logic.values.reports
+                releasePage()
+                await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.reports.find((r) => r.id === FIRST_PAGE[0].id)?.assignee).toEqual(myClaim)
-            expect(logic.values.reports.find((r) => r.id === FIRST_PAGE[1].id)?.assignee).toBeUndefined()
+                expect(logic.values.reports).toEqual([...rowsAfterWrite, ...(page === 'next' ? SECOND_PAGE : [])])
+            } finally {
+                bulkLogic.unmount()
+            }
         })
 
         it('keeps a row removed while the next page is in flight out of the appended list', async () => {
@@ -390,7 +417,7 @@ describe('reportListLogic', () => {
                                 count: FIRST_PAGE.length + SECOND_PAGE.length,
                                 next: null,
                                 previous: null,
-                                results: SECOND_PAGE,
+                                results: [FIRST_PAGE[3], ...SECOND_PAGE],
                             },
                         ]
                     },
@@ -488,43 +515,51 @@ describe('reportListLogic', () => {
         )
     })
 
-    // `InboxStateFilter` hides the Closed state until the project holds a closed report, so this
-    // project-wide check has to keep up with reports that close while the inbox is open.
-    describe('closed state availability', () => {
-        let projectClosedReports: number
+    describe.each(['closed', 'outcome-monitoring'] as const)('%s state availability', (sectionKey) => {
+        let projectReports: number
         let logic: ReturnType<typeof reportListLogic.build>
 
         beforeEach(async () => {
-            projectClosedReports = 0
+            projectReports = 0
             useMocks({
                 get: {
                     '/api/projects/:team_id/signals/reports/available_reviewers': {},
                     [REPORTS_URL]: ({ request }) => {
                         const params = new URL(request.url).searchParams
-                        if (params.get('count_only') === 'true') {
-                            return [200, { count: projectClosedReports, next: null, previous: null, results: [] }]
+                        if (
+                            params.get('count_only') === 'true' &&
+                            !params.has('priority') &&
+                            !params.has('suggested_reviewers')
+                        ) {
+                            return [200, { count: projectReports, next: null, previous: null, results: [] }]
                         }
                         return [200, { count: 0, next: null, previous: null, results: [] }]
                     },
                 },
             })
             initKeaTests()
-            logic = reportListLogic(sectionListLogicProps('closed'))
+            logic = reportListLogic(sectionListLogicProps(sectionKey))
             logic.mount()
+            inboxFiltersLogic.actions.setPriorityFilter(['P0'])
             logic.actions.ensureLoaded()
             await expectLogic(logic).toFinishAllListeners()
         })
 
         afterEach(() => logic.unmount())
 
-        it('rechecks the project for closed reports when the loaded section refreshes', async () => {
-            expect(logic.values.hasProjectClosedReports).toBe(false)
+        it('rechecks the project independently of scoped rows when the loaded section refreshes', async () => {
+            expect(logic.values.hasProjectReports).toBe(false)
 
-            projectClosedReports = 1
+            projectReports = 1
             logic.actions.refresh()
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.hasProjectClosedReports).toBe(true)
+            expect(logic.values.hasProjectReports).toBe(true)
+            expect(logic.values.reports).toEqual([])
+
+            projectReports = 0
+            await expectLogic(logic, () => logic.actions.refresh()).toFinishAllListeners()
+            expect(logic.values.hasProjectReports).toBe(false)
         })
     })
 

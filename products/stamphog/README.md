@@ -199,6 +199,10 @@ A comment names the cut owners and why.
 The page offers the setting only when the default branch has a root `owners.yaml` (`GET repo_configs/{id}/owners_file/`, at most one GitHub call per repository every 10 minutes, at a priority the egress limiter can shed), and keeps it in view while it is on, so it can be turned off.
 `routing_fork_labels` has no API yet. Set it with a manual DB write, for example `StamphogRepoConfig.objects.for_team(team_id).filter(repository="acme/widgets").update(routing_fork_labels={"team-alpha": "team/alpha"})`.
 
+Routing only adds review requests, so a second assigner that requests every owner leaves the cut nothing to remove.
+In PostHog/posthog, `.github/workflows/auto-assign-reviewers.yml` stops when the repository variable `AUTO_ASSIGN_REVIEWERS_PAUSED` is `true`.
+Turn routing on first, then set the variable. To roll back, delete the variable first, then turn routing off.
+
 The latest result is stored on `PullRequest.routing` with its mode, trigger (`opened`, `ready_for_review`, `verdict:<outcome>` or `safety_net`), scope (`full` or `pinned`) and status (`waiting`, `routing`, `requested` or `done`).
 `full_routed_head`, `pinned_routed_head` (with their `_at` times) and `requested_owners` carry over to every later record, so the PR-level rules hold across pushes.
 Routing never writes `payload_updated_at` or the descriptive fields of the row, so it cannot make the review path drop a delivery as stale.
@@ -206,7 +210,8 @@ Routing never writes `payload_updated_at` or the descriptive fields of the row, 
 Each run that makes its requests is also recorded, append-only, in `RoutingRun` with one `RoutingRunOwner` row per owner: what the run did with the owner (`outcome`), why (`reason`), the model's one-line reason when it proposed a cut, also when a guard kept the owner, and every changed file the owner owns, without patches.
 owners.yaml and the pull request both change after the run, so the run keeps its own copy of the file list, and `owners_sha` names the default-branch commit whose owners.yaml files decided the owners.
 The plan decides each owner's outcome and reason. The rows are written after the `requested` record is saved, so a failed log write only logs and never makes the task request again.
-Read them with `GET routing_runs/` (filters `repository`, `pr_number`, `owner`) or the `stamphog-routing-runs-list` MCP tool.
+Read them with `GET routing_runs/` (filters `repository`, `pr_number`, `owner`, `outcome`, `reason`, `head_sha`, `created_after`, `created_before`) or the `stamphog-routing-runs-list` MCP tool.
+`outcome` and `reason` match the same owner as `owner`, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.
 The list leaves out the file lists, because a large pull request gives every owner a long one. `GET routing_runs/{id}/` and `stamphog-routing-runs-get` return them. The model call carries `stamphog_routing_run_id`, `stamphog_repo` and `stamphog_pr_number`, which link a run to its LLM trace.
 
 Every routing run (event, verdict or safety net) takes the same steps:

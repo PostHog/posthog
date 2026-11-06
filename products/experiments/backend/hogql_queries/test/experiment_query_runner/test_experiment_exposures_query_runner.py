@@ -1,4 +1,5 @@
 import re
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -7,6 +8,7 @@ import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 from unittest.mock import patch
 
+from django.db import OperationalError
 from django.forms.models import model_to_dict
 from django.test import override_settings
 
@@ -40,7 +42,7 @@ from posthog.test.test_journeys import journeys_for
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -1273,7 +1275,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
     def test_exposure_query_with_action_as_exposure_criteria(self, _name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
         # Create an action for purchase events with specific properties
-        action = Action.objects.create(
+        action = create_action(
             name="Qualified Purchase",
             team=self.team,
             steps_json=[{"event": "purchase", "properties": [{"key": "plan", "value": "premium", "type": "event"}]}],
@@ -2000,10 +2002,11 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            ("first_day", "2024-01-01T23:00:00Z", None, []),
+            ("first_day", "2024-01-01T23:00:00Z", None, None, []),
             (
                 "after_a_day",
                 "2024-01-02T01:00:00Z",
+                None,
                 None,
                 [(ExperimentExposureHealthFindingCode.ZERO_EXPOSURES, "flag_not_called")],
             ),
@@ -2011,7 +2014,33 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 "after_a_day_with_flag_calls",
                 "2024-01-02T01:00:00Z",
                 datetime(2024, 1, 1, 12, tzinfo=UTC),
+                None,
                 [(ExperimentExposureHealthFindingCode.ZERO_EXPOSURES, "calls_not_counted")],
+            ),
+            ("first_day_after_a_launch_with_an_earlier_start_date", "2024-01-02T01:00:00Z", None, 12, []),
+            (
+                "after_a_day_from_a_launch_with_an_earlier_start_date",
+                "2024-01-02T13:00:00Z",
+                None,
+                12,
+                [(ExperimentExposureHealthFindingCode.ZERO_EXPOSURES, "flag_not_called")],
+            ),
+            (
+                "launch_hidden_from_a_reader_without_the_flag_history",
+                "2024-01-02T01:00:00Z",
+                None,
+                12,
+                [(ExperimentExposureHealthFindingCode.ZERO_EXPOSURES, "flag_not_called")],
+                False,
+            ),
+            (
+                "launch_lookup_fails",
+                "2024-01-02T01:00:00Z",
+                None,
+                12,
+                [(ExperimentExposureHealthFindingCode.ZERO_EXPOSURES, "flag_not_called")],
+                True,
+                True,
             ),
         ]
     )
@@ -2020,10 +2049,23 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         _name: str,
         now: str,
         last_called_at: datetime | None,
+        launched_hours_after_start: int | None,
         expected: list[tuple[ExperimentExposureHealthFindingCode, str]],
+        reads_flag_history: bool = True,
+        launch_lookup_fails: bool = False,
     ) -> None:
         self.feature_flag.last_called_at = last_called_at
         self.feature_flag.save()
+        if launched_hours_after_start is not None:
+            launched_at = datetime(2024, 1, 1, tzinfo=UTC) + timedelta(hours=launched_hours_after_start)
+            ActivityLog.objects.create(
+                team_id=self.team.id,
+                scope="Experiment",
+                item_id=str(self.experiment.id),
+                activity="updated",
+                detail={"changes": [{"field": "start_date", "before": None, "after": launched_at.isoformat()}]},
+                created_at=launched_at,
+            )
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
@@ -2034,8 +2076,14 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             exposure_criteria=self.experiment.exposure_criteria,
         )
 
-        with time_machine.travel(now, tick=False):
-            response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+        lookup = patch(
+            "products.experiments.backend.health.launch_time.ActivityLog.objects.filter",
+            side_effect=OperationalError("the activity log is unavailable"),
+        )
+        with time_machine.travel(now, tick=False), lookup if launch_lookup_fails else nullcontext():
+            response = ExperimentExposuresQueryRunner(
+                team=self.team, query=query, user=self.user if reads_flag_history else None
+            ).calculate()
 
         self.assertEqual(response.total_exposures, {"control": 0, "test": 0})
         self.assertEqual([(finding.code, finding.subcode) for finding in response.health_findings or []], expected)

@@ -14,11 +14,16 @@ const ISSUE: HealthPanelFinding = {
 
 describe('resolveHealthPanelSelection', () => {
     it.each([
-        { name: 'opens the first issue without a pick', picked: null, expected: 'finding' },
+        { name: 'opens the overview without a pick, even with an issue', picked: null, expected: 'overview' },
         {
-            name: 'keeps the summary that the reader picked over an issue',
-            picked: { kind: 'summary' },
-            expected: 'summary',
+            name: 'keeps the issue that the reader picked',
+            picked: { kind: 'finding', key: 'srm:' },
+            expected: 'finding',
+        },
+        {
+            name: 'falls back to the overview when the picked issue is gone',
+            picked: { kind: 'finding', key: 'zero_exposures:' },
+            expected: 'overview',
         },
     ] as const)('$name', ({ picked, expected }) => {
         expect(resolveHealthPanelSelection(picked, [ISSUE], []).kind).toEqual(expected)

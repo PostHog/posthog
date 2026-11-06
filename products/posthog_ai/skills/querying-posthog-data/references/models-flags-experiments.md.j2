@@ -58,7 +58,7 @@ PostHog is moving these calls from `events` to `posthog.flag_evaluations`, one o
 
 Mode | Where the flag calls are | `posthog.flag_evaluations`
 --- | --- | ---
-0 | `events` | Unknown table
+0 | `events`, and `posthog.flag_evaluations` on PostHog Cloud | Queryable on PostHog Cloud only
 1 | `events` and `posthog.flag_evaluations` | Queryable
 2 | `posthog.flag_evaluations` only, for 90 days | Queryable
 
@@ -80,7 +80,7 @@ On mode 2, these shapes can go wrong:
 
 ### `posthog.flag_evaluations`
 
-One row per flag call. Query it directly only on modes 1 and 2.
+One row per flag call. On PostHog Cloud it is queryable on every mode. Self-hosted, it is queryable only on modes 1 and 2.
 Filter on `flag_key` rather than `properties.$feature_flag`: `flag_key` is in the table's sort key.
 
 {{ schema_columns('posthog.flag_evaluations') }}

@@ -31,7 +31,7 @@ from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyti
 from posthog.test.persons import create_person
 from posthog.test.test_journeys import journeys_for
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 
 
@@ -116,8 +116,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # skip its per-call Team+organization lookup. +1 for the saved-expressions fetch in the
         # HogQL database build. +1 each for the flag-cache TTL, projection kill-switch and
         # properties-narrowing instance settings, cold-cache here but TTL-cached per worker in production. +1 for the
-        # organization's flag_evaluations mode lookup in the HogQL database build.
-        with self.assertNumQueries(18):
+        # organization's flag_evaluations mode lookup in the HogQL database build. +1 for the MCP custom harness fetch in
+        # the HogQL database build.
+        with self.assertNumQueries(19):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
             assert response["results"][0]["event"] == "event_name"
 
@@ -155,7 +156,8 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # +1 for the saved-expressions fetch in the HogQL database build. +1 each for the flag-cache
         # TTL, projection kill-switch and properties-narrowing instance settings, cold-cache here but
         # TTL-cached per worker in production. +1 for the organization's flag_evaluations mode lookup in the HogQL database build.
-        expected_queries = 24 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 25
+        # +1 for the MCP custom harness fetch in the HogQL database build.
+        expected_queries = 25 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 26
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(
@@ -725,17 +727,17 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?before=4d").json()
             assert len(response["results"]) == 1
 
-        action = Action.objects.create(team=self.team, steps_json=[{"event": "sign up"}])
+        action = create_action(team=self.team, steps_json=[{"event": "sign up"}])
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/events/?after=2020-01-09T00:00:00.000Z&action_id=%s" % action.pk
+            f"/api/projects/{self.team.id}/events/?after=2020-01-09T00:00:00.000Z&action_id=%s" % action.id
         ).json()
         assert len(response["results"]) == 1
         assert response["results"][0]["id"] == event1_uuid
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/events/?after=2020-01-01T00:00:00.000Z&before=2020-01-09T00:00:00.000Z&action_id=%s"
-            % action.pk
+            % action.id
         ).json()
         assert len(response["results"]) == 1
         assert response["results"][0]["id"] == event2_uuid
@@ -923,9 +925,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert response["results"][0]["timestamp"] == "2026-06-30T20:44:19.407000+00:00"
 
     def test_action_no_steps(self):
-        action = Action.objects.create(team=self.team)
+        action = create_action(team=self.team)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/events/?action_id=%s" % action.pk)
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?action_id=%s" % action.id)
         assert response.status_code == 200
         assert len(response.json()["results"]) == 0
 

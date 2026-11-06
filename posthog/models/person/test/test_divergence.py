@@ -796,10 +796,14 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         stored = fake.stored_person(self.team.pk, str(person.uuid))
         assert stored is not None
         replica_view.CopyFrom(stored)
+        replica_ids = fake.get_distinct_ids_for_persons(
+            person_pb2.GetDistinctIdsForPersonsRequest(team_id=self.team.pk, person_ids=[stored.id])
+        )
         tombstone_persons_in_postgres(self.team.pk, [person.uuid])
 
-        with patch.object(
-            fake, "get_persons_by_uuids", return_value=person_pb2.PersonsResponse(persons=[replica_view])
+        with (
+            patch.object(fake, "get_persons_by_uuids", return_value=person_pb2.PersonsResponse(persons=[replica_view])),
+            patch.object(fake, "get_distinct_ids_for_persons", return_value=replica_ids),
         ):
             _, actions = self._repair(person.uuid)
 

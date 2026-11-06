@@ -345,6 +345,7 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.associate_user",
     "social_core.pipeline.social_auth.load_extra_data",
     "social_core.pipeline.user.user_details",
+    "posthog.api.authentication.social_grant_staff_to_google_workspace_members",
     "posthog.api.authentication.social_login_notification",
     # Must stay last: it grants the step-up window, so every step that can still refuse the re-auth
     # has to have run first
@@ -543,9 +544,10 @@ WHITENOISE_ADD_HEADERS_FUNCTION = static_varies_origin
 # cache-bust can hold a stale SDK bundle after a release.
 WHITENOISE_MAX_AGE = get_from_env("WHITENOISE_MAX_AGE", 3600, type_cast=int)
 
-# Per-IP signup throttle rate (see posthog.rate_limit.SignupIPThrottle). Overridable per-env so
-# non-prod (e.g. dev deploy smoke-tests) can raise it without weakening the prod default.
+# Per-IP signup throttle rates (see posthog.rate_limit). Overridable per-env so non-prod
+# (e.g. dev deploy smoke-tests) can raise them without weakening the prod defaults.
 SIGNUP_IP_THROTTLE_RATE = get_from_env("SIGNUP_IP_THROTTLE_RATE", "5/day")
+SIGNUP_ATTEMPT_IP_THROTTLE_RATE = get_from_env("SIGNUP_ATTEMPT_IP_THROTTLE_RATE", "10/hour")
 
 # Billing usage and spend exports stream a file from the billing service for as long as the
 # browser reads it, so both limits are per user (see ee.api.billing): how often an export may

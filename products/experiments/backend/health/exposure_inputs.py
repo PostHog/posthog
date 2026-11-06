@@ -13,6 +13,7 @@ from posthog.models.user import User
 
 from products.experiments.backend.facade.contracts import HealthExposureInputsStatus
 from products.experiments.backend.health.context import ExposureTotals
+from products.experiments.backend.health.launch_time import hours_since_launch
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import (
     ExperimentExposuresQueryRunner,
     build_experiment_exposure_query,
@@ -40,7 +41,9 @@ class ExposureInputs:
     error: str | None
 
 
-def load_exposure_inputs(experiment: Experiment, *, user: User | None, can_query_events: bool) -> ExposureInputs:
+def load_exposure_inputs(
+    experiment: Experiment, *, user: User | None, can_query_events: bool, can_read_flag_history: bool
+) -> ExposureInputs:
     """
     Reads the cached answer of the experiment's exposure query. A missing or stale answer starts a calculation in the
     background instead of blocking, because the query can run for minutes. Never raises.
@@ -95,7 +98,11 @@ def load_exposure_inputs(experiment: Experiment, *, user: User | None, can_query
             sample_ratio_expected={},
             daily_exposures={},
             # The checks read the hours at computation, not now.
-            hours_since_launch=(computed_at - experiment.start_date).total_seconds() / 3600 if computed_at else None,
+            hours_since_launch=(
+                hours_since_launch(experiment, computed_at, can_read_flag_history=can_read_flag_history)
+                if computed_at
+                else None
+            ),
             counts_groups=aggregates_by_group(runner.group_type_index),
             filters_test_accounts=applies_test_account_filters(experiment.team, query.exposure_criteria),
             has_positive_test_account_filter=has_positive_test_account_filter(experiment.team),

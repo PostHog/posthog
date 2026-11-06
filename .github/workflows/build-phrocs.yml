@@ -44,6 +44,9 @@ jobs:
             - name: Checkout repository
               # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
               uses: actions/checkout@v6.0.2
+              with:
+                  sparse-checkout: tools/phrocs
+                  sparse-checkout-cone-mode: false
 
             - name: Set up Go
               # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
@@ -135,7 +138,7 @@ jobs:
               # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
               uses: actions/create-github-app-token@v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_HOMEBREW_TAP_RELEASER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_HOMEBREW_TAP_RELEASER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_HOMEBREW_TAP_RELEASER_PRIVATE_KEY }}
                   owner: PostHog
                   repositories: homebrew-tap
