@@ -9,6 +9,7 @@ import { asRecord } from '@/lib/records'
 import type { DeviceRecentEntry, PinDisplay } from '@/model/views'
 
 import { useDemoMode } from './demoMode'
+import { DEMO_SQL_INSIGHTS } from './sqlCharts'
 
 // Views demo data. Every name, number and email is invented. Responses have the API shapes, so demo mode runs through
 // the same adapters, refresh rules and status line as live mode. Ids are stable because the Argent flow selects by them.
@@ -57,6 +58,7 @@ interface DemoInsightDef {
     aggregate?: (windowDays: number) => number
     /** A SQL insight's columns and rows. */
     sql?: DemoSqlResult
+    sqlData?: { columns: string[]; rows: (string | number | null)[][] }
     /** Funnel steps over 30 days, scaled to the window. `medianSeconds` is the time from the step before. */
     funnel?: { name: string; count: number; medianSeconds: number | null }[]
     /** Weekly cohorts: the size of an average cohort and the percent that comes back in each week after. */
@@ -138,6 +140,7 @@ const DEMO_SQL_COUNTRIES: DemoSqlCell[][] = [
 const signupsPerDay = daily(128, 1)
 
 const DEMO_INSIGHTS: DemoInsightDef[] = [
+    ...DEMO_SQL_INSIGHTS,
     {
         id: 9101,
         shortId: DEMO_INSIGHT_SIGNUPS,
@@ -409,6 +412,18 @@ interface DemoDashboardDef {
 
 const DEMO_DASHBOARDS: DemoDashboardDef[] = [
     {
+        id: 9006,
+        ref: 'demo-dash-shop',
+        name: 'Shop overview',
+        description: 'SQL charts with month labels and separate value scales.',
+        dateFrom: null,
+        tiles: [
+            ...DEMO_SQL_INSIGHTS.map((insight, index) => ({ id: index + 1, insight: insight.shortId })),
+            { id: 5, insight: 'demo-ins-paying' },
+            { id: 6, text: 'Review the estimates after month end.' },
+        ],
+    },
+    {
         id: 9001,
         ref: DEMO_DASHBOARD_KPIS,
         name: 'Product KPIs',
@@ -666,6 +681,9 @@ function breakdownResult(def: DemoInsightDef, window: DemoWindow, anchor: Date):
 }
 
 function demoResult(def: DemoInsightDef, window: DemoWindow, anchor: Date, compare: boolean): unknown {
+    if (def.sqlData) {
+        return def.sqlData.rows
+    }
     if (def.sql) {
         return def.sql.rows(window, anchor)
     }
@@ -735,6 +753,13 @@ function withRange(query: JsonRecord, dateFrom: string | null, dateTo: string | 
 
 /** The fields the server adds to a SQL insight's response. */
 function sqlFields(def: DemoInsightDef): Pick<InsightApi, 'columns' | 'types' | 'hasMore'> {
+    if (def.sqlData) {
+        return {
+            columns: def.sqlData.columns,
+            types: def.sqlData.columns.map((name) => [name, name === 'month' ? 'String' : 'Nullable(Float64)']),
+            hasMore: false,
+        }
+    }
     if (!def.sql) {
         return {}
     }
@@ -784,7 +809,7 @@ export function demoInsightResponse(request: DemoInsightRequest, anchor: number)
         ...sqlFields(def),
         ...demoFreshness(anchor, request.refreshedAt),
         timezone: 'UTC',
-        resolved_date_range: resolvedRange(window),
+        resolved_date_range: def.sqlData ? undefined : resolvedRange(window),
         created_by: DEMO_AUTHOR,
         created_at: '2026-03-03T10:00:00Z',
     }

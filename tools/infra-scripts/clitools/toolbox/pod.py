@@ -30,6 +30,17 @@ def _is_conflict(stderr: str) -> bool:
     return "Conflict" in stderr or "the object has been modified" in stderr
 
 
+def _list_pods(label_selector: str, *, namespace: str, context: str | None) -> list[dict]:
+    """Return the pods in ``namespace`` that match ``label_selector``."""
+    result = subprocess.run(
+        kubectl_cmd("get", "pods", "-n", namespace, "-l", label_selector, "-o", "json", context=context),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return json.loads(result.stdout)["items"]
+
+
 def get_toolbox_pod(
     user: str,
     check_claimed: bool = True,
@@ -50,20 +61,26 @@ def get_toolbox_pod(
         namespace: Kubernetes namespace the pool lives in.
         context: Optional kubernetes context to scope the kubectl call to.
         extra_selector: Optional additional label selector ANDed onto
-            ``app.kubernetes.io/name=<app_label>``. Used when other resources
-            in the namespace share the same name label (e.g. the golden chart
-            puts the toolbox's own pgbouncer pods under the same name) so we
-            need a second key like ``app.kubernetes.io/component=app`` to
-            pick out only the main pool.
+            ``app.kubernetes.io/name=<app_label>`` when looking for unclaimed
+            pods. Used when other resources in the namespace share the same
+            name label (e.g. the golden chart puts the toolbox's own pgbouncer
+            pods under the same name) so we need a second key like
+            ``app.kubernetes.io/component=app`` to pick out only the main pool.
+            The lookup for the user's own claimed pod does not use it.
 
     Returns:
         Tuple of (pod_name, is_already_claimed, resource_version). The
         resource_version reflects the pod state at observation time and is
         used by ``claim_pod`` for optimistic concurrency control.
     """
-    label_selector = f"app.kubernetes.io/name={app_label}"
+    # Get user ID from ARN and sanitize it
+    user_id = sanitize_label(user.split("/")[-1] if "/" in user else user)
+    pool_selector = f"app.kubernetes.io/name={app_label}"
+    # claim_pod removes every label outside KEPT_LABELS, extra_selector's label too, so a
+    # claimed pod no longer matches the pool selector. Find it by its claim label instead.
+    claimed_selector = f"{pool_selector},{claimed_label_key}={user_id}"
     if extra_selector:
-        label_selector = f"{label_selector},{extra_selector}"
+        pool_selector = f"{pool_selector},{extra_selector}"
     wait_start = datetime.now()
     max_wait = timedelta(minutes=5)
     update_interval = timedelta(seconds=30)
@@ -71,31 +88,11 @@ def get_toolbox_pod(
 
     while True:
         try:
-            result = subprocess.run(
-                kubectl_cmd(
-                    "get",
-                    "pods",
-                    "-n",
-                    namespace,
-                    "-l",
-                    label_selector,
-                    "-o",
-                    "json",
-                    context=context,
-                ),
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            pods = json.loads(result.stdout)["items"]
-
             if check_claimed:
-                # Get user ID from ARN and sanitize it
-                user_id = sanitize_label(user.split("/")[-1] if "/" in user else user)
                 # First look for pods already claimed by this user
                 claimed_pods = [
                     (pod["metadata"]["name"], pod["metadata"].get("resourceVersion", ""))
-                    for pod in pods
+                    for pod in _list_pods(claimed_selector, namespace=namespace, context=context)
                     if pod["status"]["phase"] == "Running"
                     and pod.get("metadata", {}).get("labels", {}).get(claimed_label_key) == user_id
                     and not pod.get("metadata", {}).get("deletionTimestamp")
@@ -109,7 +106,7 @@ def get_toolbox_pod(
             # Look for unclaimed pods
             available_pods = [
                 (pod["metadata"]["name"], pod["metadata"].get("resourceVersion", ""))
-                for pod in pods
+                for pod in _list_pods(pool_selector, namespace=namespace, context=context)
                 if pod["status"]["phase"] in ("Running", "Pending")
                 and claimed_label_key not in pod.get("metadata", {}).get("labels", {})
                 and "terminate-after" not in pod.get("metadata", {}).get("labels", {})

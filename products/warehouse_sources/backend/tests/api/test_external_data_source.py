@@ -3762,6 +3762,7 @@ class TestExternalDataSource(APIBaseTest):
                     "available_columns": [],
                     "source_column_metadata_available": False,
                     "history_table_name": None,
+                    "registered_history_table_name": None,
                     "source": None,
                     "api_version": None,
                     "api_version_deprecation": None,
@@ -6608,7 +6609,7 @@ class TestExternalDataSource(APIBaseTest):
                     "webhook_only": False,
                     "prefers_full_refresh": False,
                     "available_columns": [
-                        {"field": "id", "label": "id", "type": "integer", "nullable": True},
+                        {"field": "id", "label": "id", "type": "integer", "nullable": True, "sensitivity": None},
                     ],
                     "detected_primary_keys": ["id"],
                     "primary_key_detection_supported": True,
@@ -6688,7 +6689,7 @@ class TestExternalDataSource(APIBaseTest):
                     "webhook_only": False,
                     "prefers_full_refresh": False,
                     "available_columns": [
-                        {"field": "id", "label": "id", "type": "integer", "nullable": True},
+                        {"field": "id", "label": "id", "type": "integer", "nullable": True, "sensitivity": None},
                     ],
                     "detected_primary_keys": ["id"],
                     "primary_key_detection_supported": True,
