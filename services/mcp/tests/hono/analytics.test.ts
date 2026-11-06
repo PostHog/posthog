@@ -592,6 +592,13 @@ describe('Hono MCP analytics contexts', () => {
                 { to: 'ada@example.com', html: '<a href="https://example.com/reset?t=1">Reset</a>' },
                 false,
             ],
+            ['starting a provider import', 'provider-imports-create', { api_key: 're_key' }, false],
+            [
+                'a provider import through exec',
+                'exec',
+                { command: 'call provider-imports-create {"provider":"resend","api_key":"re_key"}' },
+                false,
+            ],
             ['executing an email send', 'workflows-send-email-execute', { confirmation: 'confirm' }, false],
             [
                 'an email send through exec',

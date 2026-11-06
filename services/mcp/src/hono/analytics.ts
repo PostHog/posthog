@@ -356,6 +356,18 @@ const EMAIL_RECIPIENT_TOOL_NAMES: ReadonlySet<string> = new Set([
 
 const EMAIL_SEND_TOOL_PREFIX = 'workflows-send-email'
 
+// Its input holds a vendor API key that can do anything in the customer's account. Key-based redaction misses it
+// when the call arrives as an exec command string. `$mcp_tool_call` still records the call.
+const PROVIDER_IMPORT_START_TOOL_NAME = 'provider-imports-create'
+
+function startsProviderImport(toolName: string, input: unknown): boolean {
+    if (toolName === PROVIDER_IMPORT_START_TOOL_NAME) {
+        return true
+    }
+    const command = (input as { command?: unknown } | null | undefined)?.command
+    return toolName === 'exec' && typeof command === 'string' && command.includes(PROVIDER_IMPORT_START_TOOL_NAME)
+}
+
 function sendsEmailContent(toolName: string, input: unknown): boolean {
     if (toolName.startsWith(EMAIL_SEND_TOOL_PREFIX)) {
         return true
@@ -383,6 +395,9 @@ function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
         return false
     }
     if (sendsEmailContent(toolName, input)) {
+        return false
+    }
+    if (startsProviderImport(toolName, input)) {
         return false
     }
     // A proxied third-party tool's args and result are the vendor's content — an issue

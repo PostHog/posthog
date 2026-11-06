@@ -197,6 +197,13 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 self.team_id, data["provider"], data["steps"], data.get("api_key"), request.user.id
             )
         except ProviderImportRejected as e:
+            report_user_action(
+                request.user,
+                "workflows import run",
+                {"source": data["provider"], "stage": "rejected", "dry_run": False},
+                team=self.team,
+                request=request,
+            )
             raise ValidationError(str(e)) from e
         except ProviderImportConflict as e:
             raise Conflict(str(e)) from e
@@ -207,6 +214,13 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             request.user,
             "messaging provider import started",
             {"provider": run.provider, "steps": [step.key for step in run.steps]},
+            team=self.team,
+            request=request,
+        )
+        report_user_action(
+            request.user,
+            "workflows import run",
+            {"source": run.provider, "stage": "started", "steps": [step.key for step in run.steps], "dry_run": False},
             team=self.team,
             request=request,
         )

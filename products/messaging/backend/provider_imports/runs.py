@@ -319,18 +319,35 @@ def _mark_completed(progress: dict[str, Any]) -> None:
 
 def _report_finished(run: ProviderImportRun) -> None:
     try:
+        team = Team.objects.get(id=run.team_id)
+        duration_seconds = int((run.finished_at - run.created_at).total_seconds()) if run.finished_at else None
         report_team_action(
-            Team.objects.get(id=run.team_id),
+            team,
             "messaging provider import finished",
             {
                 "provider": run.provider,
                 "status": run.status,
                 "steps": run.steps,
-                "duration_seconds": int((run.finished_at - run.created_at).total_seconds())
-                if run.finished_at
-                else None,
+                "duration_seconds": duration_seconds,
                 **{f"{step}_status": run.progress[step]["status"] for step in run.steps},
                 **{f"{step}_imported": run.progress[step]["imported"] for step in run.steps},
+            },
+        )
+        report_team_action(
+            team,
+            "workflows import run",
+            {
+                "source": run.provider,
+                "stage": "finished",
+                "dry_run": False,
+                "status": run.status,
+                "steps": run.steps,
+                "duration_seconds": duration_seconds,
+                "statuses": [run.progress[step]["status"] for step in run.steps],
+                "counts": {step: run.progress[step].get("counts", {}) for step in run.steps},
+                "note_count": sum(
+                    len(item.get("notes", [])) for step in run.steps for item in run.progress[step].get("items", [])
+                ),
             },
         )
     except Exception:
