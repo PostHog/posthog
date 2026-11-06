@@ -75,6 +75,10 @@ class UnsupportedSyncTypeError(ValueError):
     """The stored sync type is not a mode PostHog can run."""
 
 
+class HistoryTableDropRefusedError(Exception):
+    """A history table can't be dropped now. The message says why and can be shown to the user."""
+
+
 class UnreadableSourceInputsError(ValueError):
     """A source's stored inputs do not decode to a mapping. The message never holds the value, because the
     value can hold credentials."""
