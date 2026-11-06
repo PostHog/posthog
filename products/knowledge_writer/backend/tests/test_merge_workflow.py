@@ -2,6 +2,7 @@ import os
 import hmac
 import json
 from datetime import timedelta
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -155,7 +156,7 @@ def test_the_merge_pushes_endpoint_is_gone(client, team, user, writer_env) -> No
 
 
 class ClosedPullRequestPages:
-    def __init__(self, pages: list[list[dict[str, object]]]) -> None:
+    def __init__(self, pages: list[list[dict[str, Any]]]) -> None:
         self.pages = pages
         self.requested_pages: list[int] = []
 
@@ -172,7 +173,7 @@ class ClosedPullRequestPages:
 
 def _closed_pull_request(
     commit_sha: str, *, merged_hours_ago: float | None, updated_hours_ago: float, base_ref: str = "master"
-) -> dict[str, object]:
+) -> dict[str, Any]:
     now = timezone.now()
     merged_at = None if merged_hours_ago is None else (now - timedelta(hours=merged_hours_ago)).isoformat()
     return {
