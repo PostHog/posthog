@@ -2,6 +2,8 @@ import json
 import uuid
 import asyncio
 import datetime
+import contextlib
+from collections.abc import Awaitable, Callable
 from types import SimpleNamespace
 from typing import Any
 
@@ -14,9 +16,9 @@ from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
-from temporalio import activity
+from temporalio import activity, workflow
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Organization, Team, User
 from posthog.redis import TEST_clear_clients
@@ -212,7 +214,6 @@ class TestTickPair(_TickTest):
         for target, value in (
             ("products.signals.backend.personal_ranking.logic.build_openai_client", MagicMock(return_value=self.llm)),
             ("products.signals.backend.personal_ranking.logic.get_summary", MagicMock(return_value=summary)),
-            ("products.signals.backend.personal_ranking.serve.get_summary", MagicMock(return_value=summary)),
             ("products.signals.backend.personal_ranking.logic.ph_scoped_capture", scoped_capture),
             (
                 "products.signals.backend.personal_ranking.candidates.fetch_source_products_for_reports",
@@ -320,7 +321,10 @@ def _plan(pairs: int, **overrides: Any) -> PersonalRankingTickPlan:
 
 
 async def _run_tick(
-    plan: PersonalRankingTickPlan, pair_status: str
+    plan: PersonalRankingTickPlan,
+    pair_status: str | Callable[[TickPair], Awaitable[str]],
+    *,
+    sliding_window: bool = True,
 ) -> tuple[PersonalRankingTickResult, int, list[PersonalRankingTickResult]]:
     running = peak = 0
     captured: list[PersonalRankingTickResult] = []
@@ -334,17 +338,26 @@ async def _run_tick(
         nonlocal running, peak
         running += 1
         peak = max(peak, running)
-        await asyncio.sleep(0.01)
+        if isinstance(pair_status, str):
+            status = pair_status
+            await asyncio.sleep(0.01)
+        else:
+            status = await pair_status(pair)
         running -= 1
         return PersonalRankingPairResult(
-            status=pair_status,  # type: ignore[arg-type]
-            model_called=pair_status in ("built", "failed"),
-            changed_parts=["scores", "needs_you"] if pair_status == "built" else [],
+            status=status,  # type: ignore[arg-type]
+            model_called=status in ("built", "failed"),
+            changed_parts=["scores", "needs_you"] if status == "built" else [],
         )
 
     @activity.defn(name="capture_personal_ranking_tick_activity")
     async def fake_capture(result: PersonalRankingTickResult) -> None:
         captured.append(result)
+
+    original_patched = workflow.patched
+
+    def patched(patch_id: str) -> bool:
+        return sliding_window and original_patched(patch_id)
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -354,33 +367,41 @@ async def _run_tick(
             activities=[fake_plan, fake_pair, fake_capture],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            result = await env.client.execute_workflow(
-                PersonalRankingTickWorkflow.run,
-                PersonalRankingTickInput(),
-                id=f"personal-ranking-tick-{uuid.uuid4()}",
-                task_queue="personal-ranking-tick-test",
-            )
+            with patch.object(workflow, "patched", patched):
+                handle = await env.client.start_workflow(
+                    PersonalRankingTickWorkflow.run,
+                    PersonalRankingTickInput(),
+                    id=f"personal-ranking-tick-{uuid.uuid4()}",
+                    task_queue="personal-ranking-tick-test",
+                )
+                result = await handle.result()
+            history = await handle.fetch_history()
+    # A tick that runs during a deploy replays its history on the new code.
+    await Replayer(
+        workflows=[PersonalRankingTickWorkflow], workflow_runner=UnsandboxedWorkflowRunner()
+    ).replay_workflow(history)
     return result, peak, captured
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("sliding_window", [True, False])
 @pytest.mark.parametrize(
     "plan,pair_status,picked,stop_reason",
     [
         (_plan(5), "built", 5, None),
         (_plan(5), "unchanged", 5, None),
-        # The wave that met the limit finishes, and no later wave starts.
+        # The pairs running when the limit refused a build finish, and no later pair starts.
         (_plan(5), "tick_limited", 2, STOP_MAX_TICK_BUILDS_PER_DAY),
         (_plan(5), "shared_limited", 2, STOP_MAX_BUILDS_PER_DAY),
-        # The breaker waits for a sample of 10 model calls, which is five waves.
-        (_plan(20), "failed", 10, STOP_ERROR_RATE),
+        # The breaker waits for a sample of 10 model calls.
+        (_plan(20, max_concurrency=1), "failed", 10, STOP_ERROR_RATE),
         (_plan(5, time_budget_seconds=0.0), "built", 0, STOP_TIME_BUDGET),
     ],
 )
 async def test_the_tick_bounds_concurrency_and_stops_at_each_limit(
-    plan: PersonalRankingTickPlan, pair_status: str, picked: int, stop_reason: str | None
+    plan: PersonalRankingTickPlan, pair_status: str, picked: int, stop_reason: str | None, sliding_window: bool
 ) -> None:
-    result, peak, captured = await _run_tick(plan, pair_status)
+    result, peak, captured = await _run_tick(plan, pair_status, sliding_window=sliding_window)
 
     assert peak <= plan.max_concurrency
     assert (result.picked, result.statuses, result.stop_reason) == (
@@ -392,7 +413,41 @@ async def test_the_tick_bounds_concurrency_and_stops_at_each_limit(
     assert result.changed_parts == (
         {"scores": picked, "needs_you": picked} if pair_status == "built" and picked else {}
     )
+    timed = sliding_window and picked and pair_status in ("built", "unchanged")
+    assert (set(result.pair_seconds_p50), set(result.pair_seconds_p95)) == (
+        {pair_status} if timed else set(),
+        {pair_status} if timed else set(),
+    )
     assert captured == [result]
+
+
+@pytest.mark.asyncio
+async def test_fast_pairs_start_while_a_slow_pair_runs() -> None:
+    fast_done = asyncio.Event()
+    finished: list[int] = []
+
+    async def pair_status(pair: TickPair) -> str:
+        if pair.user_id == 0:
+            # A wave loop never starts the fast pairs behind this one, so the wait times out.
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(fast_done.wait(), timeout=5)
+            finished.append(pair.user_id)
+            return "built"
+        await asyncio.sleep(0.01)
+        finished.append(pair.user_id)
+        if len(finished) == 4:
+            fast_done.set()
+        return "unchanged"
+
+    result, peak, _ = await _run_tick(_plan(5), pair_status)
+
+    assert finished[-1] == 0
+    assert (result.picked, result.statuses, result.stop_reason, peak) == (
+        5,
+        {"built": 1, "unchanged": 4},
+        None,
+        2,
+    )
 
 
 @pytest.mark.asyncio

@@ -375,6 +375,7 @@ def reset_state():
     [
         (True, ClickHouseUser.ALERTS_PLATFORM_LOGS, "alerts_platform_logs", "logs-token"),
         (False, ClickHouseUser.ALERTS_PLATFORM_LOGS, "logs-user", "logs-static"),
+        (True, ClickHouseUser.ALERTS_PLATFORM_INSIGHT, "alerts_platform_insight", "logs-token"),
         (True, ClickHouseUser.DEFAULT, "logs-user", "logs-static"),
         (True, ClickHouseUser.APP, "logs-user", "logs-static"),
     ],
@@ -394,6 +395,9 @@ def test_logs_workload_uses_a_named_user_only_when_registered(
     if registered:
         users[ClickHouseUser.ALERTS_PLATFORM_LOGS] = ClickHouseCredentials(
             user="alerts_platform_logs", password="fallback", password_file=str(logs_token)
+        )
+        users[ClickHouseUser.ALERTS_PLATFORM_INSIGHT] = ClickHouseCredentials(
+            user="alerts_platform_insight", password="", password_file=str(logs_token)
         )
         users[ClickHouseUser.APP] = ClickHouseCredentials(user="app", password="app-static")
     monkeypatch.setattr(connection, "__user_dict", users)

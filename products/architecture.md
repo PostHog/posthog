@@ -82,6 +82,8 @@ Because this channel can't be enumerated, it is closed by construction rather th
    A model is reachable with no import: `apps.get_model("label", "Class")`, migrations, admin, fixtures.
    tach cannot see that, so a model or migration change always re-runs the full suite.
    `hogli product:lint` blocks a narrowing that leaves the surface out.
+4. Keep in the inputs every module that outside suites run without an import: a module with a signal receiver on a sender of core or another product, a module that a test outside the product names by dotted path, as a patch target does, and a module that core loads by name through `load_product_modules`.
+   `hogli product:lint` finds both and fails until each module is in the inputs.
 
 A product whose views still hold business logic is not soundly skippable even if nothing imports it.
 This is also why "no in-process callers, so we don't need a facade" is the wrong test: a product whose only consumers are over HTTP (node services, the generated TS/MCP types) is _not_ facade-optional — there the facade's whole job is sealing its own presentation.
@@ -451,16 +453,16 @@ If both presentation and logic need the same utility (caching, permissions, etc.
 User RBAC stays on the **viewset** — it depends on the authenticated `request`/`user`, which the facade doesn't have (facades also run from Celery, CLIs, and other products). Declare it the standard way: `scope_object` plus `scope_object_read_actions`/`scope_object_write_actions`, and let the shared permission classes (`APIScopePermission`, `AccessControlPermission`) on `TeamAndOrgViewSetMixin` enforce API-scope and resource access. See `products/visual_review/backend/presentation/views.py`.
 
 A view that fetches a contract from the facade has no model instance for DRF's `get_object()` to check.
-It still checks object access through the same permission stack, with an `ObjectAccessRef` from `products/access_control/backend/facade/contracts.py` in place of the instance:
+It still checks object access through the same permission stack:
 
-- Override `safely_get_object()` to fetch the contract through the facade. `TeamAndOrgViewSetMixin` forbids overriding `get_object()` itself.
-- Build `ObjectAccessRef(resource=..., id=..., team_id=..., created_by_id=...)` from the contract and return it. Return `None` for a missing object, which becomes a 404.
-- The mixin's `get_object()` then calls `check_object_permissions` on the reference. Every permission class on the view runs, and `AccessControlPermission` resolves the object's access from the reference.
-- `LogEntryMixin` and `AppMetricsMixin` read only `.id` from `get_object()`, so they keep working without the model.
-- An action that needs the contract itself can fetch it, build the reference, and call `self.check_object_permissions(self.request, ref)` directly.
+- Override `read_object()` to fetch the contract through the facade, filtered by team. Return `None` for a missing object, which becomes a 404. `TeamAndOrgViewSetMixin` forbids overriding `get_object()` itself.
+- The mixin's `get_object()` calls `check_object_permissions` on the contract and returns the contract. Actions, `LogEntryMixin`, `AppMetricsMixin` and DRF's detail `OPTIONS` metadata get the contract from `get_object()`.
+- `AccessControlPermission` needs an `ObjectAccessRef` (`products/access_control/backend/facade/contracts.py`) to resolve the object's access. Override `object_access_ref(record)` to build it from the contract. Set `fallback_parent` when the resource inherits access from a parent object (`RESOURCE_FALLBACK_MAP`).
+- When no access rule can name one record, for example when `scope_object` is not an access-control resource, set `records_have_object_access_rules = False` instead.
+- A view that does neither fails closed: the object check raises.
 
 Do not call `AccessControlPermission` methods by hand, and do not pass `UserAccessControl` or a required level into the facade.
-A resource that inherits access from a parent object (`RESOURCE_FALLBACK_MAP`) needs the model instance, and a reference for it raises.
+`UserAccessControl` object methods take a model instance only. They raise on a contract.
 
 The facade owns **tenant scoping** (`team_id` enforced via `for_team(team_id)` / a `ProductTeamModel` fail-closed manager) and **domain invariants** (state machines, idempotency) — these must hold for every caller, so they live below the HTTP boundary; user RBAC must not. Keeping RBAC in the shared DRF stack also lets cross-cutting permission tests enforce it consistently across products.
 
