@@ -3,13 +3,17 @@ import { type ReactElement, useCallback, useState } from 'react'
 import { Linking, RefreshControl, ScrollView, Text, View } from 'react-native'
 
 import type { ProjectScope } from '@/api/reports'
+import { changeNavPin } from '@/features/tabs/navPinActions'
+import { type NavChrome, useIsNavPinned } from '@/features/tabs/navPinStore'
+import { TabHeaderPublisher } from '@/features/tabs/TabHeaderPublisher'
+import { TABS_HEADER_BOTTOM } from '@/features/tabs/TabsHeader'
 import { HeaderMenu } from '@/features/views/screen/HeaderMenu'
 import { ViewChrome } from '@/features/views/screen/ViewChrome'
 import { useViewBack, ViewScreenFrame } from '@/features/views/screen/ViewScreenFrame'
 import { ViewSkeleton } from '@/features/views/screen/ViewSkeleton'
 import { useViewsContext } from '@/features/views/useViewsContext'
 import { ViewsReauthState } from '@/features/views/ViewsReauthState'
-import { useToasts, ViewsToast } from '@/features/views/ViewsToast'
+import { type Toasts, useToasts, ViewsToast } from '@/features/views/ViewsToast'
 import { viewWebUrl } from '@/features/views/webLinks'
 import { safeHttpsUrl } from '@/lib/urls'
 import { useNow } from '@/lib/useNow'
@@ -18,6 +22,7 @@ import type { ViewEntry } from '@/model/views'
 import { Eyebrow } from '@/ui/Eyebrow'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { PauseIcon } from '@/ui/icons/PauseIcon'
+import { PinIcon } from '@/ui/icons/PinIcon'
 import { PlayIcon } from '@/ui/icons/PlayIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { Pressable44 } from '@/ui/Pressable44'
@@ -25,7 +30,7 @@ import { StateView } from '@/ui/StateView'
 import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, layout, radii, type } from '@/ui/tokens'
-import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { bottomOffset, topOffset, useScreenInsets, useTabBottomOffset } from '@/ui/useScreenInsets'
 import { type ScrollTitleState, useScrollTitle } from '@/ui/useScrollTitle'
 
 import {
@@ -45,65 +50,104 @@ import { LiveStats } from './LiveStats'
 import type { LiveStatus } from './liveController'
 import { statusText } from './liveFormat'
 
+/** A pushed screen has no bottom bar, so the toast sits low. */
 const TOAST_BOTTOM = 48
 
-export function LiveScreen({ from }: { from: ViewEntry }): ReactElement {
+export function LiveScreen({ from, chrome }: { from: ViewEntry; chrome: NavChrome }): ReactElement {
+    const styles = useStyles()
     const { access, scope, identity } = useViewsContext()
     const scrollTitle = useScrollTitle('Live')
     const back = useViewBack()
+    const insets = useScreenInsets()
+    const tabBottom = useTabBottomOffset()
+    // The screen owns the toasts, so the More menu's pin change shows one whatever the body shows.
+    const toasts = useToasts()
+    const pinned = useIsNavPinned('live')
     const [menuOpen, setMenuOpen] = useState(false)
     const allowed = access.state === 'ok'
+    const tab = chrome === 'tab'
     useFocusEffect(
         useCallback(() => {
-            trackLiveOpened({ from })
-        }, [from])
+            trackLiveOpened({ from, chrome })
+        }, [from, chrome])
     )
     const webUrl = viewWebUrl(scope, '/web/live')
+    let body: ReactElement
+    if (allowed) {
+        body = <LiveBody key={identity} chrome={chrome} scope={scope} scrollTitle={scrollTitle} toasts={toasts} />
+    } else if (tab) {
+        body = (
+            <View
+                style={[styles.fill, { paddingTop: topOffset(insets, TABS_HEADER_BOTTOM), paddingBottom: tabBottom }]}
+            >
+                <TabHeaderPublisher tab="live" status={null} />
+                <ViewsReauthState access={access} />
+            </View>
+        )
+    } else {
+        body = <ViewsReauthState access={access} />
+    }
     return (
         <ViewScreenFrame
+            overlayHost={!tab}
             chrome={
-                <ViewChrome
-                    title={scrollTitle.title}
-                    onBack={back}
-                    onMore={allowed ? () => setMenuOpen(true) : undefined}
-                />
+                tab ? null : (
+                    <ViewChrome
+                        title={scrollTitle.title}
+                        onBack={back}
+                        onMore={allowed ? () => setMenuOpen(true) : undefined}
+                    />
+                )
             }
         >
-            {allowed ? (
-                <LiveBody key={identity} scope={scope} scrollTitle={scrollTitle} />
-            ) : (
-                <ViewsReauthState access={access} />
-            )}
-            <HeaderMenu
-                visible={menuOpen}
-                onClose={() => setMenuOpen(false)}
-                testID="live-menu"
-                items={[
-                    {
-                        key: 'web',
-                        label: 'Open on web',
-                        Icon: ExternalLinkIcon,
-                        disabled: !webUrl,
-                        meta: webUrl ? null : 'Not in the demo',
-                        onPress: () => {
-                            const safe = webUrl ? safeHttpsUrl(webUrl) : undefined
-                            if (safe) {
-                                trackLiveOpenedInWeb()
-                                Linking.openURL(safe).catch(() => undefined)
-                            }
+            {body}
+            {tab ? null : (
+                <HeaderMenu
+                    visible={menuOpen}
+                    onClose={() => setMenuOpen(false)}
+                    testID="live-menu"
+                    items={[
+                        {
+                            key: pinned ? 'unpin' : 'pin',
+                            label: pinned ? 'Unpin from navigation' : 'Pin to navigation',
+                            Icon: PinIcon,
+                            onPress: () => changeNavPin('live', !pinned, 'list_menu', toasts.show),
                         },
-                    },
-                ]}
-            />
+                        {
+                            key: 'web',
+                            label: 'Open on web',
+                            Icon: ExternalLinkIcon,
+                            disabled: !webUrl,
+                            meta: webUrl ? null : 'Not in the demo',
+                            onPress: () => {
+                                const safe = webUrl ? safeHttpsUrl(webUrl) : undefined
+                                if (safe) {
+                                    trackLiveOpenedInWeb()
+                                    Linking.openURL(safe).catch(() => undefined)
+                                }
+                            },
+                        },
+                    ]}
+                />
+            )}
+            <ViewsToast toast={toasts.toast} onHide={toasts.hide} bottom={tab ? undefined : TOAST_BOTTOM} />
         </ViewScreenFrame>
     )
 }
 
-function LiveBody({ scope, scrollTitle }: { scope: ProjectScope | null; scrollTitle: ScrollTitleState }): ReactElement {
+interface LiveBodyProps {
+    chrome: NavChrome
+    scope: ProjectScope | null
+    scrollTitle: ScrollTitleState
+    toasts: Toasts
+}
+
+function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const insets = useScreenInsets()
-    const toasts = useToasts()
+    const tabBottom = useTabBottomOffset()
+    const tab = chrome === 'tab'
     const feed = useLiveFeed((kind) => {
         if (kind === 'refresh_failed') {
             toasts.show("Couldn't update live data. Retrying…")
@@ -113,7 +157,8 @@ function LiveBody({ scope, scrollTitle }: { scope: ProjectScope | null; scrollTi
     const [sheetOpen, setSheetOpen] = useState(false)
     const [sheetEvent, setSheetEvent] = useState<LiveEventRow | null>(null)
     const { snapshot } = feed
-    const contentTop = topOffset(insets, SCREEN_CONTENT_TOP)
+    const contentTop = topOffset(insets, tab ? TABS_HEADER_BOTTOM : SCREEN_CONTENT_TOP)
+    const contentBottom = tab ? tabBottom : bottomOffset(insets, 48)
 
     const openEvent = useCallback((event: LiveEventRow) => {
         trackLiveEventSheetOpened({ kind: event.kind })
@@ -127,6 +172,7 @@ function LiveBody({ scope, scrollTitle }: { scope: ProjectScope | null; scrollTi
 
     const title = (
         <LiveTitle
+            tab={tab}
             status={feed.status}
             updatedAt={feed.updatedAt}
             paused={feed.paused}
@@ -191,11 +237,9 @@ function LiveBody({ scope, scrollTitle }: { scope: ProjectScope | null; scrollTi
 
     return (
         <View style={styles.fill}>
+            {tab ? <LiveTabStatus status={feed.status} updatedAt={feed.updatedAt} /> : null}
             <ScrollView
-                contentContainerStyle={[
-                    styles.content,
-                    { paddingTop: contentTop, paddingBottom: bottomOffset(insets, 48) },
-                ]}
+                contentContainerStyle={[styles.content, { paddingTop: contentTop, paddingBottom: contentBottom }]}
                 onScroll={scrollTitle.onScroll}
                 scrollEventThrottle={16}
                 refreshControl={
@@ -221,12 +265,13 @@ function LiveBody({ scope, scrollTitle }: { scope: ProjectScope | null; scrollTi
                 onClose={() => setSheetOpen(false)}
                 onNotice={toasts.show}
             />
-            <ViewsToast toast={toasts.toast} onHide={toasts.hide} bottom={TOAST_BOTTOM} />
         </View>
     )
 }
 
 interface LiveTitleProps {
+    /** On a tab the shared tabs header draws the title and the status line, so only the dot and Pause stay. */
+    tab: boolean
     status: LiveStatus
     updatedAt: number | null
     paused: boolean
@@ -235,9 +280,29 @@ interface LiveTitleProps {
     onTitleLayout: ScrollTitleState['onTitleLayout']
 }
 
-function LiveTitle({ status, updatedAt, paused, onPause, onResume, onTitleLayout }: LiveTitleProps): ReactElement {
+function LiveTitle({ tab, status, updatedAt, paused, onPause, onResume, onTitleLayout }: LiveTitleProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
+    const pauseButton = (
+        <Pressable44
+            onPress={paused ? onResume : onPause}
+            accessibilityLabel={paused ? 'Resume live updates' : 'Pause live updates'}
+            pressedBackground={colors.pressed}
+            style={styles.pauseButton}
+            testID="live-pause"
+        >
+            {paused ? <PlayIcon size={12} color={colors.ink} /> : <PauseIcon size={16} color={colors.ink} />}
+            <Text style={styles.pauseText}>{paused ? 'Resume' : 'Pause'}</Text>
+        </Pressable44>
+    )
+    if (tab) {
+        return (
+            <View style={[styles.titleBlock, styles.titleRow, styles.tabTitleRow]}>
+                <LiveDot on={status === 'live'} />
+                {pauseButton}
+            </View>
+        )
+    }
     return (
         <View style={styles.titleBlock}>
             <View onLayout={onTitleLayout}>
@@ -249,25 +314,18 @@ function LiveTitle({ status, updatedAt, paused, onPause, onResume, onTitleLayout
                         </Text>
                         <LiveDot on={status === 'live'} />
                     </View>
-                    <Pressable44
-                        onPress={paused ? onResume : onPause}
-                        accessibilityLabel={paused ? 'Resume live updates' : 'Pause live updates'}
-                        pressedBackground={colors.pressed}
-                        style={styles.pauseButton}
-                        testID="live-pause"
-                    >
-                        {paused ? (
-                            <PlayIcon size={12} color={colors.ink} />
-                        ) : (
-                            <PauseIcon size={16} color={colors.ink} />
-                        )}
-                        <Text style={styles.pauseText}>{paused ? 'Resume' : 'Pause'}</Text>
-                    </Pressable44>
+                    {pauseButton}
                 </View>
             </View>
             <LiveStatusLine status={status} updatedAt={updatedAt} />
         </View>
     )
+}
+
+/** The status line in the shared tabs header. Its own component, so the one-second clock re-renders only it. */
+function LiveTabStatus({ status, updatedAt }: { status: LiveStatus; updatedAt: number | null }): ReactElement {
+    const now = useNow(1000).getTime()
+    return <TabHeaderPublisher tab="live" status={statusText(status, updatedAt, now)} />
 }
 
 /** Its own component, so the one-second clock re-renders only this line. */
@@ -321,6 +379,9 @@ const useStyles = createStyles(({ colors }) => ({
         justifyContent: 'space-between',
         gap: 12,
         marginTop: 4,
+    },
+    tabTitleRow: {
+        marginTop: 0,
     },
     titleText: {
         flexDirection: 'row',

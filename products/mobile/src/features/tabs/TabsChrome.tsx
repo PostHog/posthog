@@ -15,10 +15,11 @@ import { useExitDemo, useSignOutAction } from '../settings/useSignOut'
 import { NativeTabChrome } from './NativeTabChrome'
 import { NavMenu } from './NavMenu'
 import { changeNavPin } from './navPinActions'
-import { useNavPins } from './navPinStore'
+import { isNavPin, useNavPins } from './navPinStore'
 import { useNavToasts } from './navToasts'
 import { TabsHeader } from './TabsHeader'
 import { useFocusedTabHeader } from './tabHeaderStore'
+import { navPinEnabled } from './visibleNavPins'
 
 export function TabsChrome(): ReactElement {
     const nativeRail = useNativeRail()
@@ -54,7 +55,7 @@ export function TabsChrome(): ReactElement {
     const pins = useNavPins()
     const productFlags = useMobileProductFlags()
     // A list unpinned from its own tab keeps its slot until the person leaves, but no longer offers Unpin.
-    const list = (tab === 'errors' || tab === 'replay') && productFlags[tab] && pins.includes(tab) ? tab : null
+    const list = isNavPin(tab) && navPinEnabled(tab, productFlags) && pins.includes(tab) ? tab : null
     const listUrl = list ? navListWebUrl(scope, list) : undefined
     const webUrl = listUrl ? safeHttpsUrl(listUrl) : undefined
     const navList = list && {

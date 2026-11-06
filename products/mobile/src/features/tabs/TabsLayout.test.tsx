@@ -84,8 +84,29 @@ function ReplayStub(): ReactElement {
     )
 }
 
+function WebAnalyticsStub(): ReactElement {
+    return (
+        <TabScene tab="web_analytics">
+            <View testID="web-analytics-screen" />
+        </TabScene>
+    )
+}
+
+function LiveStub(): ReactElement {
+    return (
+        <TabScene tab="live">
+            <View testID="live-screen" />
+        </TabScene>
+    )
+}
+
 // The layout always registers the pinnable lists' tabs.
-const LIST_TABS = { '(tabs)/errors': ErrorsStub, '(tabs)/replay': ReplayStub }
+const LIST_TABS = {
+    '(tabs)/errors': ErrorsStub,
+    '(tabs)/replay': ReplayStub,
+    '(tabs)/web-analytics': WebAnalyticsStub,
+    '(tabs)/live': LiveStub,
+}
 
 const LIST_SLOT: TabHeaderSlot = {
     hint: null,
@@ -193,7 +214,15 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
         'uses the %s logo as the refresh indicator only while the focused page refreshes',
         async (tab) => {
             useTabHeaderStore.setState({
-                slots: { inbox: LIST_SLOT, chats: LIST_SLOT, views: LIST_SLOT, errors: null, replay: null },
+                slots: {
+                    inbox: LIST_SLOT,
+                    chats: LIST_SLOT,
+                    views: LIST_SLOT,
+                    errors: null,
+                    replay: null,
+                    web_analytics: null,
+                    live: null,
+                },
             })
             await renderRouter(
                 {
@@ -241,6 +270,29 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
         act(() => setFeatureFlags({}))
         expect(screen.queryByTestId(`nav-pin-${pin}`)).toBeNull()
         expect(useNavPinStore.getState().pins).toEqual([pin])
+    })
+
+    test.each([
+        { pin: 'web_analytics', route: 'web-analytics', title: 'Web analytics' },
+        { pin: 'live', route: 'live', title: 'Live' },
+    ] as const)('shows a saved $pin pin with no release flag and opens its tab', async ({ pin, route, title }) => {
+        setNavPinned(pin, true)
+        setFeatureFlags({})
+        const router = await renderRouter(
+            {
+                '(tabs)/_layout': TabsLayout,
+                '(tabs)/inbox': InboxStub,
+                '(tabs)/chats': ChatsStub,
+                '(tabs)/views': ViewsStub,
+                ...LIST_TABS,
+            },
+            { initialUrl: '/inbox' }
+        )
+        fireEvent.press(screen.getByTestId(`nav-pin-${pin}`))
+
+        expect(router.getSegments()).toEqual(['(tabs)', route])
+        expect(screen.getByTestId('tabs-title').props.children).toBe(title)
+        expect(screen.getByTestId(`nav-pin-${pin}`).props.accessibilityState).toEqual({ selected: true })
     })
 
     test.each([

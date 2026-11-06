@@ -1,3 +1,4 @@
+import type { NavChrome } from '@/features/tabs/navPinStore'
 import { track } from '@/lib/analytics'
 import type { LiveBreakdownKind, LiveEventKind } from '@/model/live'
 import type { ViewEntry } from '@/model/views'
@@ -8,8 +9,8 @@ export type LivePauseTrigger = 'button' | 'background'
 export type LiveResumeTrigger = 'button' | 'foreground'
 export type LiveEventAction = 'view_person' | 'watch_recording' | 'copy_distinct_id'
 
-export function trackLiveOpened(props: { from: ViewEntry }): void {
-    track('mobile_live_opened', { from: props.from })
+export function trackLiveOpened(props: { from: ViewEntry; chrome: NavChrome }): void {
+    track('mobile_live_opened', { from: props.from, chrome: props.chrome })
 }
 
 export function trackLiveOpenedInWeb(): void {

@@ -7,6 +7,7 @@ import { markInsightViewed } from '@/api/insights'
 import { stableStringify } from '@/api/query'
 import { serverNow } from '@/api/serverClock'
 import { DEMO_READ_MS, demoActorsResponse } from '@/demo/views'
+import type { NavChrome } from '@/features/tabs/navPinStore'
 import { sleep } from '@/lib/sleep'
 import { ignoresRangeOverride } from '@/model/adapters/insightSnapshot'
 import { actorsFromResponse } from '@/model/adapters/webOverview'
@@ -134,30 +135,35 @@ export interface ViewOpenOptions {
     from: ViewEntry
     /** The pin's display mode when opened from a pin. */
     displayMode?: PinDisplayMode | null
+    /** `tab` when the screen is a navigation tab. A pushed view is `stack`. */
+    chrome?: NavChrome
+    /** The visit number from `useTabVisit`, so a tab that stays mounted counts each visit. */
+    visit?: number
 }
 
-/** Sends `mobile_view_opened` once per screen, with the age of the cached data at that moment. */
+/** Sends `mobile_view_opened` once per visit, with the age of the cached data at that moment. */
 export function useViewOpenedEvent(
     viewType: ViewKind,
     options: ViewOpenOptions,
     snapshots: () => readonly (Freshness | undefined)[]
 ): void {
-    const sent = useRef(false)
+    const sent = useRef<number | null>(null)
     const read = useRef(snapshots)
     read.current = snapshots
-    const { from, displayMode } = options
+    const { from, displayMode, chrome = 'stack', visit = 1 } = options
     useEffect(() => {
-        if (sent.current) {
+        if (sent.current === visit) {
             return
         }
-        sent.current = true
+        sent.current = visit
         trackViewOpened({
             viewType,
             from,
+            chrome,
             displayMode: displayMode ?? null,
             dataAgeSeconds: oldestAgeSeconds(read.current()),
         })
-    }, [viewType, from, displayMode])
+    }, [viewType, from, chrome, displayMode, visit])
 }
 
 /**

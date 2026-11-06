@@ -6,5 +6,5 @@ import { WebAnalyticsScreen } from '@/features/views/webAnalytics/WebAnalyticsSc
 
 export default function WebAnalyticsRoute(): ReactElement {
     const { from } = useLocalSearchParams<{ from?: string }>()
-    return <WebAnalyticsScreen from={viewEntryParam(from)} />
+    return <WebAnalyticsScreen from={viewEntryParam(from)} chrome="stack" />
 }
