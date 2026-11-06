@@ -28,11 +28,42 @@ _Values = frozenset[_Prefix]
 _UNKNOWN: _Values = frozenset({("", False)})
 _MAX_VALUES = 32
 _MAX_ITERATIONS = 64
+# Expression evaluations one analysis may make. The budget sits far above what real templates need, so
+# only a source written to be slow runs out, and the analysis then treats it as one it cannot pin down.
+_MAX_EVALUATIONS = 25_000
 _SCHEME = re.compile(r"(https?)://", re.IGNORECASE)
 _DEFAULT_PORTS = {"http": "80", "https": "443"}
 _UNSAFE_AUTHORITY = re.compile(r"[@\\%\s\x00-\x1f\x7f]")
 _NUMERIC_LABEL = re.compile(r"^(\d+|0x[0-9a-f]*)$")
 _BY_NAME_OPTIONS = frozenset({"secret_headers_input", "standard_webhooks", "aws_sigv4"})
+# Calls other than `fetch` that carry their arguments out of the function: into logs, events or other
+# PostHog records. The worker registers the async ones in nodejs/src/cdp/async-functions/.
+_EMITTING_CALLS = frozenset(
+    {
+        "print",
+        "postHogCapture",
+        "postHogAddToStaticCohort",
+        "postHogClassify",
+        "postHogCreateAccount",
+        "postHogCreateCustomerTask",
+        "postHogCreateTask",
+        "postHogGetAccount",
+        "postHogGetTicket",
+        "postHogOptOutOfMessages",
+        "postHogReplayVisionScan",
+        "postHogRunScout",
+        "postHogSendTicketMessage",
+        "postHogSetAccountProperties",
+        "postHogUpdateAccount",
+        "postHogUpdateTicket",
+        "produceToWarehouseWebhooks",
+        "sendEmail",
+        "sendPushNotification",
+    }
+)
+# Names the analysis gives a meaning to. Code that declares one of them replaces that meaning at runtime.
+_INTERPRETED_NAMES = frozenset({"inputs", "fetch", "concat", "coalesce", "ifNull", "if"}) | _EMITTING_CALLS
+_FRESH_CONTAINERS = (ast.Dict, ast.Array, ast.Tuple)
 
 
 class _CannotAnalyze(Exception):
@@ -133,29 +164,36 @@ def _flatten(value: Any) -> Iterator[ast.AST]:
             yield from _flatten(item)
 
 
-def _assignment_base(left: ast.Expr) -> tuple[str, bool]:
+def _assignment_base(left: ast.Expr) -> tuple[str, int]:
+    """The assigned name and how many member accesses lead from it to the assigned slot."""
+    depth = 0
     while isinstance(left, ast.ArrayAccess | ast.TupleAccess):
         left = left.array if isinstance(left, ast.ArrayAccess) else left.tuple
+        depth += 1
     if not isinstance(left, ast.Field) or not isinstance(left.chain[0], str):
         raise _CannotAnalyze
-    return left.chain[0], len(left.chain) == 1
+    return left.chain[0], depth + len(left.chain) - 1
 
 
 class _Analysis:
     def __init__(self, hog: str, input_sets: list[dict[str, Any]], secret_keys: set[str]) -> None:
         self.secret_keys = frozenset(secret_keys)
+        self.evaluations_left = _MAX_EVALUATIONS
         self.values: dict[str, _Values] = {}
         self.taints: dict[str, frozenset[str]] = {}
         self.return_values: dict[str, _Values] = {}
         self.return_taints: dict[str, frozenset[str]] = {}
         self.assignments: list[tuple[str, ast.Expr]] = []
-        self.member_assignments: list[tuple[str, ast.Expr]] = []
+        self.member_assignments: list[tuple[str, int, ast.Expr]] = []
+        self.shared_assignments: list[ast.Expr] = []
+        self.reads_all_inputs = False
         # Names bound by loops, lambdas and catch clauses, with the expressions that feed them, or
         # None when anything could.
         self.fed_names: list[tuple[str, list[ast.Expr] | None]] = []
         self.functions: dict[str, list[str]] = {}
         self.returns: list[tuple[str, ast.Expr]] = []
         self.calls: list[ast.Call] = []
+        self.thrown: list[ast.Expr] = []
         self.field_heads: set[str] = set()
         self.lambda_feeds: dict[int, list[ast.Expr]] = {}
 
@@ -169,10 +207,28 @@ class _Analysis:
             self._input(key, set())
 
         self._collect(parse_program(hog), None)
-        bound = {name for name, _ in self.assignments} | {name for name, _ in self.fed_names} | set(self.functions)
-        bound |= {param for params in self.functions.values() for param in params}
-        if bound & {"inputs", "fetch"} or self.field_heads & {"fetch", *self.functions}:
+        bound_elsewhere = {name for name, _ in self.fed_names}
+        bound_elsewhere |= {param for params in self.functions.values() for param in params}
+        variables = {name for name, _ in self.assignments} | bound_elsewhere
+        fresh = self._fresh_container_names() - bound_elsewhere
+        self.shared_assignments = [
+            expr for base, depth, expr in self.member_assignments if depth > 1 or base not in fresh
+        ]
+        if (
+            (variables | set(self.functions)) & _INTERPRETED_NAMES
+            or variables & set(self.functions)
+            or self.field_heads & {"fetch", *_EMITTING_CALLS, *self.functions}
+            # The analysis reads input values as configured, so code must not be able to replace them.
+            or any(base == "inputs" for base, _, _ in self.member_assignments)
+            or (self.reads_all_inputs and self.shared_assignments)
+        ):
             raise _CannotAnalyze
+
+    def _fresh_container_names(self) -> set[str]:
+        """Names only ever assigned a new dict, array or tuple. No other name reaches that object, so
+        taint from a member assignment on it is carried by reads of the name."""
+        stale = {name for name, expr in self.assignments if not isinstance(expr, _FRESH_CONTAINERS)}
+        return {name for name, _ in self.assignments} - stale
 
     def _input(self, key: str, resolving: set[str]) -> tuple[_Values, frozenset[str]]:
         if key in self.inputs:
@@ -222,9 +278,14 @@ class _Analysis:
         if isinstance(node, ast.VariableDeclaration) and node.expr is not None:
             self.assignments.append((node.name, node.expr))
         elif isinstance(node, ast.VariableAssignment):
-            base, plain = _assignment_base(node.left)
-            (self.assignments if plain else self.member_assignments).append((base, node.right))
+            base, depth = _assignment_base(node.left)
+            if depth == 0:
+                self.assignments.append((base, node.right))
+            else:
+                self.member_assignments.append((base, depth, node.right))
         elif isinstance(node, ast.Function):
+            if node.name in self.functions:
+                raise _CannotAnalyze
             self.functions[node.name] = node.params
             function = node.name
         elif isinstance(node, ast.Lambda):
@@ -236,13 +297,19 @@ class _Analysis:
             self.fed_names += [(name, [node.expr]) for name in (node.keyVar, node.valueVar) if name]
         elif isinstance(node, ast.TryCatchStatement):
             self.fed_names += [(name, None) for name, _, _ in node.catches if name]
+        elif isinstance(node, ast.ThrowStatement):
+            self.thrown.append(node.expr)
         elif isinstance(node, ast.Call):
             self.calls.append(node)
             for arg in node.args:
                 if isinstance(arg, ast.Lambda):
                     self.lambda_feeds[id(arg)] = [other for other in node.args if other is not arg]
+        elif isinstance(node, ast.ArrayAccess) and isinstance(node.array, ast.Field) and node.array.chain == ["inputs"]:
+            self._collect(node.property, function)
+            return
         elif isinstance(node, ast.Field):
             self.field_heads.add(str(node.chain[0]))
+            self.reads_all_inputs |= node.chain == ["inputs"]
         for child in _children(node):
             self._collect(child, function)
 
@@ -260,11 +327,15 @@ class _Analysis:
             raise _CannotAnalyze
 
         origins: dict[str, frozenset[str]] = dict.fromkeys(self.secret_keys, frozenset())
-        unbound: set[str] = set()
+        shared = self._union_taint(self.shared_assignments)
+        emits = bool(self.thrown) or any(call.name in _EMITTING_CALLS for call in self.calls)
+        unbound: set[str] = set(self._union_taint(self.thrown)) | (shared if emits else set())
         for call in self.calls:
+            if call.name in _EMITTING_CALLS:
+                unbound |= self._union_taint(call.args)
             if call.name != "fetch":
                 continue
-            carried = self._union_taint(call.args)
+            carried = self._union_taint(call.args) | shared
             if len(call.args) > 1 and not _names_no_input(call.args[1]):
                 carried = self.secret_keys
             if not carried:
@@ -290,7 +361,7 @@ class _Analysis:
 
         for name, expr in self.assignments:
             add(name, self._value(expr), self._taint(expr))
-        for name, expr in self.member_assignments:
+        for name, _, expr in self.member_assignments:
             add(name, _UNKNOWN, self._taint(expr))
         for name, feed in self.fed_names:
             add(name, _UNKNOWN, self.secret_keys if feed is None else self._union_taint(feed))
@@ -305,7 +376,13 @@ class _Analysis:
     def _union_taint(self, nodes: Iterable[ast.AST]) -> frozenset[str]:
         return frozenset().union(*(self._taint(node) for node in nodes))
 
+    def _spend_evaluation(self) -> None:
+        self.evaluations_left -= 1
+        if self.evaluations_left < 0:
+            raise _CannotAnalyze
+
     def _value(self, node: ast.Expr) -> _Values:
+        self._spend_evaluation()
         if isinstance(node, ast.Constant):
             return frozenset({(node.value, True)}) if isinstance(node.value, str) else _UNKNOWN
         input_key = _input_key(node)
@@ -326,6 +403,10 @@ class _Analysis:
         return _UNKNOWN
 
     def _taint(self, node: ast.AST) -> frozenset[str]:
+        self._spend_evaluation()
+        if isinstance(node, ast.Call) and node.name == "fetch":
+            # The response holds what the bound origin sends back, not the secrets sent to it.
+            return frozenset()
         if isinstance(node, ast.Constant):
             return frozenset({node.value}) & self.secret_keys if isinstance(node.value, str) else frozenset()
         input_key = _input_key(node)
