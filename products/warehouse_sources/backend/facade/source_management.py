@@ -43,6 +43,7 @@ _LAZY = {
     "reserved_column_names": "cdc.batcher",
     "BUFFER_LANE": "cdc.snapshot_lane",
     "CDC_RESET_PENDING_KEY": "cdc.snapshot_lane",
+    "CDC_SNAPSHOT_POSITION_KEY": "cdc.snapshot_lane",
     "hand_reset_to_capture": "cdc.snapshot_lane",
     "hand_reset_to_capture_if_sync_running": "cdc.snapshot_lane",
     "stage_handed_over_reset": "cdc.snapshot_lane",
