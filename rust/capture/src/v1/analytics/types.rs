@@ -503,7 +503,11 @@ impl Publishable for WrappedEvent {
 
     fn serialize(&self, ctx: &RequestContext) -> anyhow::Result<bytes::Bytes> {
         let sdk_lib = ctx.sdk_lib_and_version();
-        let spliced = self.build_spliced_properties(sdk_lib)?;
+        let spliced = if ctx.legacy_property_splice {
+            self.build_spliced_properties(sdk_lib)?
+        } else {
+            None
+        };
         let properties: &RawValue = spliced.as_deref().unwrap_or(&self.event.properties);
         let ingestion_data = IngestionData {
             event: &self.event.event,
@@ -1848,6 +1852,31 @@ mod tests {
         assert_eq!(data.properties["$lib"], "posthog-rs");
         assert_eq!(data.properties["$lib_version"], "1.0.0");
         assert_eq!(data.properties["custom_prop"], 42);
+    }
+
+    #[test]
+    fn serialize_without_splice_publishes_client_properties_untouched() {
+        #[derive(serde::Deserialize)]
+        struct DataProperties<'a> {
+            #[serde(borrow)]
+            properties: &'a RawValue,
+        }
+
+        let client_properties =
+            r#"{"$lib":"client-lib","$session_id":"client-sess","custom_prop":42}"#;
+        let mut wrapped = pageview_event();
+        wrapped.event.properties = raw_obj(client_properties);
+        let mut ctx = serialize_ctx();
+        ctx.legacy_property_splice = false;
+
+        let (captured, _) = serialize_and_parse(&wrapped, &ctx);
+
+        let data: DataProperties = serde_json::from_str(&captured.data).unwrap();
+        assert_eq!(data.properties.get(), client_properties);
+        let options = captured.options.expect("options ship with the splice off");
+        assert_eq!(options["session_id"], "sess-01jq9abc");
+        assert_eq!(options["process_person_profile"], true);
+        assert_eq!(options["req_lib"], "posthog-rs");
     }
 
     #[test]

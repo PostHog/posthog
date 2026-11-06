@@ -35,6 +35,8 @@ pub struct RequestContext {
     pub historical_migration: bool,
     /// AI-gateway provenance signature parsed from the request headers, if present.
     pub gateway_signature: Option<super::gateway_provenance::GatewaySignature>,
+    /// Set from `CAPTURE_V1_LEGACY_PROPERTY_SPLICE` when the batch is processed.
+    pub legacy_property_splice: bool,
 }
 
 /// Extracts a required header as &str, assuming presence was already checked.
@@ -200,6 +202,7 @@ impl RequestContext {
             capture_internal: false,
             historical_migration: false,
             gateway_signature,
+            legacy_property_splice: true,
         })
     }
 
