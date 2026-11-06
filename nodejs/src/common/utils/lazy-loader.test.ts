@@ -272,6 +272,67 @@ describe('LazyLoader', () => {
             expect(lazyLoader['cacheSize']).toBe(1)
         })
 
+        describe('a lookup still waiting when another lookup drops expired entries', () => {
+            const setupSlowLoader = (): {
+                lazy: LazyLoader<string>
+                release: (loadIndex: number, values: Record<string, string>) => Promise<void>
+            } => {
+                const releases: ((values: Record<string, string>) => void)[] = []
+                const lazy = new LazyLoader<string>({
+                    name: 'test',
+                    loader: () => new Promise((resolve) => releases.push(resolve)),
+                    refreshAgeMs: 30_000,
+                    refreshJitterMs: 0,
+                    bufferMs: 0,
+                })
+                const release = async (loadIndex: number, values: Record<string, string>): Promise<void> => {
+                    await delay(5)
+                    releases[loadIndex](values)
+                }
+                return { lazy, release }
+            }
+
+            const dropExpiredEntries = async (
+                lazy: LazyLoader<string>,
+                release: (loadIndex: number, values: Record<string, string>) => Promise<void>,
+                loadIndex: number
+            ): Promise<void> => {
+                jest.spyOn(Date, 'now').mockReturnValue(start + 40_000)
+                const lookup = lazy.get('other')
+                await release(loadIndex, { other: 'OTHER' })
+                await lookup
+            }
+
+            it('keeps a value it already had from the cache', async () => {
+                const { lazy, release } = setupSlowLoader()
+                const first = lazy.get('a')
+                await release(0, { a: 'A' })
+                await first
+
+                jest.spyOn(Date, 'now').mockReturnValue(start + 29_000)
+                const both = lazy.getMany(['a', 'b'])
+                await delay(5)
+                await dropExpiredEntries(lazy, release, 2)
+                await release(1, { b: 'B' })
+
+                expect({ ...(await both) }).toEqual({ a: 'A', b: 'B' })
+            })
+
+            it('keeps a value that finished loading before its other keys', async () => {
+                const { lazy, release } = setupSlowLoader()
+                const first = lazy.get('a')
+                await delay(5)
+                const both = lazy.getMany(['a', 'b'])
+
+                await release(0, { a: 'A' })
+                await first
+                await dropExpiredEntries(lazy, release, 2)
+                await release(1, { b: 'B' })
+
+                expect({ ...(await both) }).toEqual({ a: 'A', b: 'B' })
+            })
+        })
+
         it('respects custom refreshAge', async () => {
             const customLoader = new LazyLoader({
                 name: 'test',
