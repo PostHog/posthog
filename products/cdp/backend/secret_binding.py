@@ -47,9 +47,7 @@ class SecretBindingMetric(StrEnum):
     BOUND = "bound"
     KEPT = "kept"
     REFUSED = "refused"
-    # Refusals saved anyway because the flag is off, which the rollout reads to size enforcement.
     WOULD_REFUSE = "would_refuse"
-    # Refusals in a staged draft, which publishing checks again.
     STAGED = "staged"
 
 

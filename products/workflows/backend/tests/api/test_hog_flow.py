@@ -174,6 +174,16 @@ def _secret_input_template() -> dict:
     return template
 
 
+def _secret_binding_counts() -> dict[str, float]:
+    """Each secret binding outcome counted so far, summed over every surface."""
+    counts: dict[str, float] = {}
+    for metric in REGISTRY.collect():
+        for sample in metric.samples:
+            if sample.name == "posthog_cdp_secret_host_binding_total":
+                counts[sample.labels["outcome"]] = counts.get(sample.labels["outcome"], 0.0) + sample.value
+    return counts
+
+
 def _raw_encrypted_inputs(model_id) -> Optional[str]:
     # The stored (still-encrypted) column value, to prove secrets aren't persisted in plaintext.
     with connection.cursor() as cursor:
@@ -8216,27 +8226,54 @@ class TestHogFlowSecretInputs(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("stage_draft", lambda self, flow_id, moved: self._stage(flow_id, moved), True, 400, _SECRET_ATTR),
-            ("proposal", lambda self, flow_id, moved: self._propose(flow_id, moved), True, 400, "content"),
+            (
+                "stage_draft",
+                lambda self, flow_id, moved: self._stage(flow_id, moved),
+                True,
+                400,
+                _SECRET_ATTR,
+                {"refused": 1},
+            ),
+            (
+                "stage_draft_with_the_flag_off",
+                lambda self, flow_id, moved: self._stage(flow_id, moved),
+                False,
+                200,
+                None,
+                {"would_refuse": 1},
+            ),
+            (
+                "proposal",
+                lambda self, flow_id, moved: self._propose(flow_id, moved),
+                True,
+                400,
+                "content",
+                {"refused": 1},
+            ),
             (
                 "proposal_with_the_flag_off",
                 lambda self, flow_id, moved: self._propose(flow_id, moved),
                 False,
                 201,
                 None,
+                {"would_refuse": 1},
             ),
         ]
     )
     def test_a_staged_or_suggested_move_of_a_secret_needs_it_entered_again(
-        self, _name, write, flag_on, expected_status, expected_attr
+        self, _name, write, flag_on, expected_status, expected_attr, expected_counted
     ):
         flow_id = self._active_flow("https://example.com")
         moved = self._actions("https://evil.example.com", {"secret": True})
+        before = _secret_binding_counts()
 
         with patch("products.cdp.backend.secret_binding.posthoganalytics.feature_enabled", return_value=flag_on):
             res = write(self, flow_id, moved)
 
         assert res.status_code == expected_status, res.json()
+        after = _secret_binding_counts()
+        counted = {outcome: count - before.get(outcome, 0.0) for outcome, count in after.items()}
+        assert {outcome: count for outcome, count in counted.items() if count} == expected_counted
         if expected_status == 400:
             assert res.json()["attr"] == expected_attr
             assert HogFlow.objects.get(id=flow_id).draft is None
