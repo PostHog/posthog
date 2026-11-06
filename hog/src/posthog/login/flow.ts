@@ -15,9 +15,7 @@ import { loginFor, readSettings } from '@/posthog/settings'
 import { readLogin, writeLogin } from './stored'
 
 export const LOGIN_COMMAND = 'hog auth login'
-// Step-up: a new login with the scopes the current one has plus new ones.
 export const ADD_COMMAND = 'hog auth add'
-// Every command that ends in a device login, so logout can drop their pending approvals.
 export const LOGIN_COMMANDS = [LOGIN_COMMAND, ADD_COMMAND]
 
 export interface LoggedIn {
@@ -31,8 +29,7 @@ export interface LoggedIn {
     status: AccessKeyStatus
     // The project of the login this one replaced, when the person picked another one. Null otherwise.
     previousProjectId: ProjectId | null
-    // Whether PostHog revoked the login this one replaced. Null when it replaced none, or a key hog
-    // can't revoke.
+    // Null when nothing was replaced, or the replaced key can't be revoked.
     replacedRevoked: boolean | null
 }
 
@@ -71,8 +68,7 @@ export function loginFlow(
 // Each login probes the keychain again, so a login at the desk moves credentials out of the file a
 // login over SSH had to use. Clears every pending login too, so a later `--wait` of any login
 // command can't replace these credentials with an older approval.
-// `replace` is for a step-up. It gets the stored login and returns the key to save in its place.
-// The stored login is revoked once the new one is saved, so it doesn't linger in PostHog.
+// `replace` gives a step-up the stored login to build on. The stored login is revoked once the new one is saved.
 export async function saveLogin(
     runtime: Runtime,
     unverified: AccessKey,
@@ -117,9 +113,8 @@ export async function saveLogin(
         }
         return stored || undefined
     })
-    // Outside the lock: once the new login is stored, no renewal can rotate the replaced one. A
-    // failed revoke leaves the replaced login working until it expires, which is no reason to fail a
-    // step-up that already saved its tokens.
+    // Once the new login is stored, no renewal can rotate the replaced one, so this runs outside the
+    // lock. A failed revoke is reported, not fatal: the new tokens are already saved.
     const [revoked] = await Promise.all([
         replaced?.logout(runtime),
         ...LOGIN_COMMANDS.map((command) => clearPending(runtime, command)),

@@ -4,8 +4,7 @@ import { LEGACY_SCOPE_FALLBACKS, OAUTH_SCOPES_SUPPORTED } from '@posthog/mcp/src
 
 import { HogError } from '@/core/errors'
 
-// The scopes `hog auth add` takes: every scope PostHog lets a login ask for that grants access to
-// data. Identity scopes such as `openid` come with every login.
+// Identity scopes such as `openid` come with every login, so `hog auth add` takes only these.
 const RESOURCE_SCOPES = OAUTH_SCOPES_SUPPORTED.filter((scope) => scope.includes(':'))
 
 const ScopeSchema = z.enum(RESOURCE_SCOPES).brand<'Scope'>()

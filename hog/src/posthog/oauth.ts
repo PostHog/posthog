@@ -127,9 +127,8 @@ export class OAuthLogin implements AccessKey {
         })
     }
 
-    // A step-up that replaces `stored` in the same project keeps its id, so commands still running on
-    // it pick up these tokens instead of failing with `login_changed`. Only another OAuth login has an
-    // id to keep: a personal API key's login key is the secret itself, which settings.json must never hold.
+    // In the same project a step-up keeps the stored login's id, so running commands pick up these
+    // tokens. A personal API key's login key is the secret itself, which settings.json must never hold.
     continuing(stored: AccessKey): OAuthLogin {
         return stored instanceof OAuthLogin && stored.projectId === this.projectId
             ? new OAuthLogin({ ...this, loginId: stored.loginId })
