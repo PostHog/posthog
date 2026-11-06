@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { PostHogApiError } from '@/lib/errors'
 import { ExplainChartInputSchema } from '@/schema/tool-inputs'
 import { explainChartHandler } from '@/tools/insights/explainChart'
 import { findStoryRange, lastBucketInProgress } from '@/tools/insights/storyRanges'
 import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
+
+import { insightPageShowsStory } from 'products/product_analytics/mcp/apps/explainChart/storyDisplays'
 
 const DAYS = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05']
 const HOURS = ['2026-10-01 22:00:00', '2026-10-01 23:00:00', '2026-10-02 00:00:00', '2026-10-02 01:00:00']
@@ -11,20 +14,16 @@ const WEEKS = ['2026-09-21', '2026-09-28', '2026-10-05']
 const MONTHS = ['2025-12-01', '2026-01-01', '2026-02-01']
 const QUARTERS = ['2025-10-01', '2026-01-01', '2026-04-01']
 const YEARS = ['2024-01-01', '2025-01-01', '2026-01-01']
-// The displays the insight page draws an explanation over, so only these get a link.
-const INSIGHT_PAGE_DISPLAYS: string[] = [
-    'ActionsLineGraph',
-    'ActionsBar',
-    'ActionsUnstackedBar',
-    'ActionsAreaGraph',
-    'ActionsStackedBar',
-]
+
+function apiError(status: number): PostHogApiError {
+    return new PostHogApiError({ status, statusText: '', body: '', url: '', method: 'PUT' })
+}
 
 function createContext(
     query: Record<string, unknown>,
     response: Record<string, unknown> = {},
     saved: unknown = { success: true, data: { id: 'e1' } },
-    updated: unknown = { success: false, error: new Error('Not found') }
+    updated: unknown = { success: false, error: apiError(404) }
 ): Context {
     return {
         api: {
@@ -110,7 +109,8 @@ describe('explain-chart', () => {
 
     it.each([
         ['the explanation it saved', { success: true, data: { id: 'e1' } }, 'e1'],
-        ['an id it cannot update', { success: false, error: new Error('Not found') }, 'e2'],
+        ['an id it cannot update', { success: false, error: apiError(404) }, 'e2'],
+        ['an explanation the server failed to update', { success: false, error: apiError(500) }, null],
     ])('keeps the link when the agent fixes %s', async (_, updated, id) => {
         const context = createContext(
             { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } },
@@ -127,8 +127,10 @@ describe('explain-chart', () => {
             explanationId: '0190a3a4-0000-7000-8000-000000000001',
         })
 
-        expect(result._posthogUrl).toBe(`https://us.posthog.com/project/1/insights/abc12345?explanation=${id}`)
-        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain(`explanationId "${id}"`)
+        expect(result._posthogUrl).toBe(
+            `https://us.posthog.com/project/1/insights/abc12345${id ? `?explanation=${id}` : ''}`
+        )
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY].includes(`explanationId "${id}"`)).toBe(!!id)
     })
 
     it('links evidence to its query, insight or GitHub change, and saves no PostHog links', async () => {
@@ -236,7 +238,7 @@ describe('explain-chart', () => {
         expect(context.api.query({ projectId: '1' }).runQuery).toHaveBeenCalledWith({
             query: expect.objectContaining({ trendsFilter: { display: drawnAs } }),
         })
-        expect(result._posthogUrl?.includes('?explanation=')).toBe(INSIGHT_PAGE_DISPLAYS.includes(display))
+        expect(result._posthogUrl?.includes('?explanation=')).toBe(insightPageShowsStory(display))
     })
 
     it('draws each piece of evidence from the query behind it', async () => {

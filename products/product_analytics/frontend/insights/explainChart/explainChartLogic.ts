@@ -27,7 +27,8 @@ import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { compareQuery } from '~/queries/nodes/InsightViz/queryUtils'
-import type { TrendsFilter } from '~/queries/schema/schema-general'
+import { isInsightVizNode } from '~/queries/schema/node-guards'
+import type { InsightVizNode, TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, SidePanelTab } from '~/types'
 import type { InsightLogicProps, TrendResult } from '~/types'
 
@@ -44,6 +45,7 @@ import type { IndexedTrendResult } from 'products/product_analytics/frontend/ins
 import type { ExplainChartData } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
 import { insightPageShowsStory } from 'products/product_analytics/mcp/apps/explainChart/storyDisplays'
 import type { StoryPage } from 'products/product_analytics/mcp/apps/explainChart/storyPages'
+import { followedSeriesIndex } from 'products/product_analytics/mcp/apps/explainChart/storySeries'
 
 import type { CurrencyCode, Node } from '../../../../../frontend/src/queries/schema/schema-general'
 import type { InsightModel } from '../../../../../frontend/src/types'
@@ -69,6 +71,7 @@ export interface explainChartLogicValues {
     explainAvailable: boolean
     explainDisabledReason: string | null
     followUpContext: AttachedContextItem | null
+    followedChartIndex: number | null
     formatValue: (value: number) => string
     insightId: number | null
     investigating: boolean
@@ -201,12 +204,14 @@ export interface explainChartLogicMeta {
             unsavedDataChanges: boolean
         ) => string | null
         investigationPrompt: (insight: Partial<InsightModel<Node<Record<string, any>>>>) => string
+        followedChartIndex: (story: ExplainChartData | null, results: TrendResult[]) => number | null
         chartStory: (
             story: ExplainChartData | null,
             results: TrendResult[],
+            followedChartIndex: number | null,
             incompletenessOffsetFromEnd: number
         ) => ExplainChartData | null
-        storySeriesKey: (story: ExplainChartData | null, indexedResults: IndexedTrendResult[]) => string | null
+        storySeriesKey: (followedChartIndex: number | null, indexedResults: IndexedTrendResult[]) => string | null
         formatValue: (
             trendsFilter: TrendsFilter | null | undefined,
             baseCurrency: CurrencyCode
@@ -398,22 +403,29 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                 return `Explain why the insight ${insight.short_id} looks the way it does. I'm on the insight page, which opens your explain-chart result beside the chart as soon as the tool returns, so skip render-ui. In the chat, reply with one sentence naming the moment to read first, by its number and title. Leave the other findings to the explanation, and don't offer follow-up actions.`
             },
         ],
+        followedChartIndex: [
+            (s) => [s.story, s.results],
+            (story: ExplainChartData | null, results: TrendResult[]): number | null =>
+                story && followedSeriesIndex(story, results),
+        ],
         chartStory: [
-            (s) => [s.story, s.results, s.incompletenessOffsetFromEnd],
+            (s) => [s.story, s.results, s.followedChartIndex, s.incompletenessOffsetFromEnd],
             (
                 story: ExplainChartData | null,
                 results: TrendResult[],
+                followedChartIndex: number | null,
                 incompletenessOffsetFromEnd: number
-            ): ExplainChartData | null => story && storyOnChart(story, results, incompletenessOffsetFromEnd < 0),
+            ): ExplainChartData | null =>
+                story && storyOnChart(story, results, followedChartIndex, incompletenessOffsetFromEnd < 0),
         ],
         storySeriesKey: [
-            (s) => [s.story, s.indexedResults],
-            (story: ExplainChartData | null, indexedResults: IndexedTrendResult[]): string | null => {
-                if (!story) {
+            (s) => [s.followedChartIndex, s.indexedResults],
+            (followedChartIndex: number | null, indexedResults: IndexedTrendResult[]): string | null => {
+                if (followedChartIndex === null) {
                     return null
                 }
-                const rendered = indexedResults.find((result) => result.seriesIndex === story.seriesIndex)
-                return String(rendered?.id ?? story.seriesIndex)
+                const rendered = indexedResults.find((result) => result.seriesIndex === followedChartIndex)
+                return String(rendered?.id ?? followedChartIndex)
             },
         ],
         formatValue: [
@@ -428,7 +440,12 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
         loadLinkedExplanation: async () => {
             const explanationId = values.linkedExplanationId
             const insightId = values.insightId
-            if (!explanationId || !insightId || cache.linkedExplanationIdLoaded === explanationId) {
+            if (
+                !explanationId ||
+                !insightId ||
+                !values.storyAvailable ||
+                cache.linkedExplanationIdLoaded === explanationId
+            ) {
                 return
             }
             cache.linkedExplanationIdLoaded = explanationId
@@ -438,7 +455,7 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                     insightId,
                     explanationId
                 )
-                if (values.linkedExplanationId !== explanationId) {
+                if (cache.disposables.isDisposed || values.linkedExplanationId !== explanationId) {
                     return
                 }
                 if (explanation.data.shape !== 'time_series') {
@@ -449,11 +466,14 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                 }
                 actions.receiveStory(
                     withEvidenceLinks(explanation.data as ExplainChartData),
-                    values.savedInsight.query ?? null,
+                    explainedQuery(values.savedInsight.query, explanation.data.query),
                     'link'
                 )
                 actions.setStoryAuthor({ createdBy: explanation.created_by ?? null, createdAt: explanation.created_at })
             } catch {
+                if (cache.disposables.isDisposed) {
+                    return
+                }
                 if (cache.linkedExplanationIdLoaded === explanationId) {
                     cache.linkedExplanationIdLoaded = null
                 }
@@ -563,6 +583,7 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
     })),
     subscriptions(({ actions }) => ({
         insightId: () => actions.loadLinkedExplanation(),
+        storyAvailable: () => actions.loadLinkedExplanation(),
     })),
     urlToAction(({ actions, props }) => ({
         '/insights/:shortId': ({ shortId }, { explanation }) => {
@@ -572,6 +593,14 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
         },
     })),
 ])
+
+function explainedQuery(savedQuery: Node | null | undefined, explainedSource: Record<string, unknown>): Node | null {
+    if (!savedQuery || !isInsightVizNode(savedQuery)) {
+        return savedQuery ?? null
+    }
+    const explained: InsightVizNode = { ...savedQuery, source: explainedSource as unknown as InsightVizNode['source'] }
+    return explained
+}
 
 function dataDiffers(a: Node | null | undefined, b: Node | null | undefined): boolean {
     return !!a && !!b && !compareQuery(a, b, { ignoreVisualizationOnlyChanges: true })

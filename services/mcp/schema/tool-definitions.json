@@ -311,7 +311,8 @@
         "api_operations": [
             "GET /api/projects/{project_id}/insights/{id}/",
             "POST /api/projects/{project_id}/query/",
-            "POST /api/projects/{project_id}/insights/{insight_id}/explanations/"
+            "POST /api/projects/{project_id}/insights/{insight_id}/explanations/",
+            "PUT /api/projects/{project_id}/insights/{insight_id}/explanations/{id}/"
         ],
         "feature_flag": "investigate-insight",
         "annotations": {

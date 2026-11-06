@@ -5,6 +5,8 @@ import type { ReactNode } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+
 import type { InsightLogicProps } from '~/types'
 
 import {
@@ -48,8 +50,9 @@ export function InsightExplainChart({ insightProps, renderChart }: InsightExplai
         return (
             <>
                 <LemonBanner type="info" className="m-2">
-                    The explanation is hidden because your changes affect the chart's data. Undo them to see it again,
-                    or save and explain this version.
+                    {explainAvailable
+                        ? "The explanation is hidden because your changes affect the chart's data. Undo them to see it again, or save and explain this version."
+                        : "The explanation is hidden because your changes affect the chart's data. Undo them to see it again."}
                 </LemonBanner>
                 {renderChart()}
             </>
@@ -66,7 +69,9 @@ export function InsightExplainChart({ insightProps, renderChart }: InsightExplai
                     key={story.headline}
                     data={chartStory}
                     renderChart={(overlay) => <div data-not-quill>{renderChart(overlay)}</div>}
-                    openLink={(url) => window.open(url, '_blank', 'noopener')}
+                    openLink={(url) =>
+                        window.open(url.startsWith('/') ? addProjectIdIfMissing(url) : url, '_blank', 'noopener')
+                    }
                     openLinkLabel={
                         <>
                             Open

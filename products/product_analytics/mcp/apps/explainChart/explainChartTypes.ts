@@ -34,6 +34,7 @@ export interface StorySeriesResult {
     label?: string
     data?: number[]
     days?: string[]
+    compare_label?: 'current' | 'previous' | null
 }
 
 export interface StoryTrendsQuery {

@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import { wrapError } from '@/lib/errors'
+import { PostHogApiError, wrapError } from '@/lib/errors'
 import { withUiApp } from '@/resources/ui-apps'
 import { ExplainChartInputSchema } from '@/schema/tool-inputs'
 import { GENERATED_TOOLS } from '@/tools/generated/query-wrappers'
@@ -16,6 +16,8 @@ import type {
 } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
 import { sqlEvidenceChart } from 'products/product_analytics/mcp/apps/explainChart/sqlEvidenceChart'
 import { insightPageShowsStory } from 'products/product_analytics/mcp/apps/explainChart/storyDisplays'
+import { storyEvidenceNode } from 'products/product_analytics/mcp/apps/explainChart/storyEvidenceNode'
+import { storySeriesLabel } from 'products/product_analytics/mcp/apps/explainChart/storySeries'
 
 import { analyzeQuery } from '../shared'
 import { findStoryRange, lastBucketInProgress } from './storyRanges'
@@ -163,14 +165,7 @@ function asTrendsQuery(query: unknown): StoryTrendsQuery {
 }
 
 function newInsightPath(query: Record<string, unknown>): string {
-    const kind = query.kind
-    const node =
-        kind === 'HogQLQuery'
-            ? { kind: 'DataVisualizationNode', source: query }
-            : typeof kind === 'string' && kind.endsWith('Node')
-              ? query
-              : { kind: 'InsightVizNode', source: query }
-    return `/insights/new#q=${encodeURIComponent(JSON.stringify(node))}`
+    return `/insights/new#q=${encodeURIComponent(JSON.stringify(storyEvidenceNode(query)))}`
 }
 
 async function loadChart(context: Context, projectId: string, params: Params): Promise<StoryChart> {
@@ -202,9 +197,14 @@ function warningMessages(warnings: unknown[]): string[] {
 }
 
 // The page builds PostHog links from the query or insight id, so only GitHub links are stored.
-function withoutPostHogLinks(data: ExplainChartData): ExplainChartData {
+function storedExplanation(data: ExplainChartData): ExplainChartData {
     return {
         ...data,
+        results: data.results.map((result, index) =>
+            index === data.seriesIndex
+                ? { ...result, label: storySeriesLabel(result.label) }
+                : { label: storySeriesLabel(result.label) }
+        ),
         chapters: data.chapters.map((chapter) => ({
             ...chapter,
             evidence: chapter.evidence.map((item) =>
@@ -212,6 +212,10 @@ function withoutPostHogLinks(data: ExplainChartData): ExplainChartData {
             ),
         })),
     }
+}
+
+function isNotFound(error: unknown): boolean {
+    return error instanceof PostHogApiError && error.status === 404
 }
 
 type SavedExplanation = { id: string; path: string } | { error: string } | null
@@ -229,12 +233,15 @@ async function saveExplanation(
     const insightId = chart.linkableInsightId
     const insights = context.api.insights({ projectId })
     try {
-        // An id from another chart or another person cannot be updated, so the fix becomes a new explanation.
-        const stored = withoutPostHogLinks(data)
+        const stored = storedExplanation(data)
         const updated = explanationId
             ? await insights.updateExplanation({ insightId, explanationId, data: stored })
             : null
-        const saved = updated?.success ? updated : await insights.saveExplanation({ insightId, data: stored })
+        // An id from another chart or another person is not found, so that fix becomes a new explanation.
+        const saved =
+            updated && (updated.success || !isNotFound(updated.error))
+                ? updated
+                : await insights.saveExplanation({ insightId, data: stored })
         return saved.success
             ? { id: saved.data.id, path: `${chart.path}?explanation=${saved.data.id}` }
             : { error: saved.error.message }

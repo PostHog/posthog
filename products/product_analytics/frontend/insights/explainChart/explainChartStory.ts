@@ -2,7 +2,6 @@ import type { insightLogicValues } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 
 import type { AttachedContextItem } from '~/layout/ai/attachedContext'
-import { NodeKind } from '~/queries/schema/schema-general'
 import type { Node } from '~/queries/schema/schema-general'
 import type { InsightShortId } from '~/types'
 
@@ -10,6 +9,7 @@ import type {
     ExplainChartData,
     StorySeriesResult,
 } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
+import { storyEvidenceNode } from 'products/product_analytics/mcp/apps/explainChart/storyEvidenceNode'
 import type { StoryPage } from 'products/product_analytics/mcp/apps/explainChart/storyPages'
 
 const INSIGHT_ID_KEYS = ['insightId', 'insight_id', 'id', 'short_id', 'shortId']
@@ -45,34 +45,32 @@ export function withEvidenceLinks(story: ExplainChartData): ExplainChartData {
 }
 
 function evidenceInsightUrl(query: Record<string, unknown>): string {
-    const kind = typeof query.kind === 'string' ? query.kind : NodeKind.TrendsQuery
-    const node =
-        kind === NodeKind.HogQLQuery
-            ? { kind: NodeKind.DataVisualizationNode, source: query }
-            : kind.endsWith('Node')
-              ? query
-              : { kind: NodeKind.InsightVizNode, source: { ...query, kind } }
-    return urls.insightNew({ query: node as unknown as Node })
+    return urls.insightNew({ query: storyEvidenceNode(query) as unknown as Node })
 }
 
 export function storyOnChart(
     story: ExplainChartData,
     results: StorySeriesResult[],
+    chartIndex: number | null,
     lastPointInProgress: boolean
 ): ExplainChartData {
-    const savedDays = story.results[story.seriesIndex]?.days ?? []
-    const chartDays = results[story.seriesIndex]?.days
-    if (!chartDays || (chartDays.length === savedDays.length && chartDays.every((day, i) => day === savedDays[i]))) {
+    if (!results.length) {
         return story
     }
-    const chartIndex = new Map(chartDays.map((day, index) => [day, index]))
+    const chartDays = chartIndex === null ? undefined : results[chartIndex]?.days
+    if (chartIndex === null || !chartDays) {
+        return { ...story, chapters: story.chapters.map((chapter) => ({ ...chapter, range: null })) }
+    }
+    const savedDays = story.results[story.seriesIndex]?.days ?? []
+    const dayIndex = new Map(chartDays.map((day, index) => [day, index]))
     return {
         ...story,
         results,
-        lastPointInProgress,
+        seriesIndex: chartIndex,
+        lastPointInProgress: lastPointInProgress && results[chartIndex].compare_label !== 'previous',
         chapters: story.chapters.map((chapter) => {
-            const start = chapter.range ? chartIndex.get(savedDays[chapter.range[0]]) : undefined
-            const end = chapter.range ? chartIndex.get(savedDays[chapter.range[1]]) : undefined
+            const start = chapter.range ? dayIndex.get(savedDays[chapter.range[0]]) : undefined
+            const end = chapter.range ? dayIndex.get(savedDays[chapter.range[1]]) : undefined
             return { ...chapter, range: start !== undefined && end !== undefined ? [start, end] : null }
         }),
     }

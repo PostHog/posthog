@@ -1,6 +1,7 @@
 import type { insightLogicValues } from 'scenes/insights/insightLogic'
 
 import type { ExplainChartData } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
+import { followedSeriesIndex } from 'products/product_analytics/mcp/apps/explainChart/storySeries'
 
 import { explainChartStoryFor, storyOnChart, withEvidenceLinks } from './explainChartStory'
 
@@ -42,22 +43,47 @@ describe('explainChartStory', () => {
     test.each([
         [
             'the chart moved on a day',
-            ['2026-10-02', '2026-10-03', '2026-10-04'],
+            [{ label: 'Pageviews', days: ['2026-10-02', '2026-10-03', '2026-10-04'] }],
+            0,
             [
                 [0, 0],
                 [1, 1],
             ],
         ],
-        ['the chart moved past a chapter', ['2026-10-03', '2026-10-04', '2026-10-05'], [null, [0, 0]]],
+        [
+            'the chart moved past a chapter',
+            [{ label: 'Pageviews', days: ['2026-10-03', '2026-10-04', '2026-10-05'] }],
+            0,
+            [null, [0, 0]],
+        ],
         [
             'the chart is unchanged',
-            ['2026-10-01', '2026-10-02', '2026-10-03'],
+            [{ label: 'Pageviews', days: ['2026-10-01', '2026-10-02', '2026-10-03'] }],
+            0,
             [
                 [1, 1],
                 [2, 2],
             ],
         ],
-    ])('keeps each chapter on its saved date when %s', (_, days, expected) => {
+        [
+            'another series overtook the followed one',
+            [
+                { label: 'Signups', days: ['2026-10-01', '2026-10-02', '2026-10-03'] },
+                { label: 'Pageviews', days: ['2026-10-01', '2026-10-02', '2026-10-03'] },
+            ],
+            1,
+            [
+                [1, 1],
+                [2, 2],
+            ],
+        ],
+        [
+            'the followed series is gone',
+            [{ label: 'Signups', days: ['2026-10-01', '2026-10-02', '2026-10-03'] }],
+            0,
+            [null, null],
+        ],
+    ])('keeps each chapter on its saved date when %s', (_, chart, expectedIndex, expected) => {
         const story = {
             ...STORY,
             chapters: [
@@ -65,10 +91,10 @@ describe('explainChartStory', () => {
                 { title: 'A dip', range: [2, 2] },
             ],
         } as unknown as ExplainChartData
-        const chart = [{ label: 'Pageviews', data: [2, 3, 9], days }]
 
-        const shown = storyOnChart(story, chart, false)
+        const shown = storyOnChart(story, chart, followedSeriesIndex(story, chart), false)
 
+        expect(shown.seriesIndex).toBe(expectedIndex)
         expect(shown.chapters.map((chapter) => chapter.range)).toEqual(expected)
     })
 
