@@ -56,7 +56,7 @@ export const ConnectGithub: Story = {
     ],
     render: () => <ImplementButton report={report} />,
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByText('Implement'))
+        await userEvent.click(await within(canvasElement).findByLabelText('More implementation options'))
         const implement = await waitFor(() => {
             if (!reportGithubAccessLogic({ report }).values.repairNeeded) {
                 throw new Error('GitHub connection requirement has not resolved')

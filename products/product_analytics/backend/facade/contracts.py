@@ -192,9 +192,53 @@ class InsightDashboardContext:
 
 @dataclass(frozen=True)
 class OrganizationEventsRetention:
-    """The window an organization set for its projects, and the windows its admins can set, in months."""
+    """The period an organization set for its projects, its default, and the periods its admins can set, in months."""
 
     organization_months: int | None
+    default_months: int
+    default_is_grandfathered: bool
     plan_months: int
     min_months: int
     max_months: int
+    months_choices: list[int]
+    next_cleanup_on: date
+
+
+@dataclass(frozen=True)
+class ScheduledEventsDeletion:
+    deletes_on: date
+    deletes_before: date
+
+
+@dataclass(frozen=True)
+class ProjectEventsRetention:
+    project_months: int | None
+    next_deletion: ScheduledEventsDeletion | None
+    scheduled_pass_on: date | None
+    first_pass_on: date
+    default_period_deletes: bool
+
+
+@dataclass(frozen=True)
+class ChartExplanationAuthor:
+    """The person who saved a chart explanation, directly or through an agent."""
+
+    id: int
+    first_name: str
+    last_name: str
+    email: str
+
+
+@dataclass(frozen=True)
+class ChartExplanation:
+    """A saved walkthrough of one saved trends insight, which a link opens beside the chart.
+
+    ``data`` is the explanation document the insight page draws. The API validates its shape on
+    the way in, and the backend stores it without reading it.
+    """
+
+    id: UUID
+    insight_id: int
+    data: dict[str, Any]
+    created_by: ChartExplanationAuthor | None
+    created_at: datetime

@@ -65,7 +65,6 @@ from products.warehouse_sources.backend.facade.file_upload_sources import (
     can_replace_file,
     create_file_upload_source,
     discard_unused_upload,
-    file_upload_sources_enabled,
     has_file_upload_source,
     hosted_upload_in_use,
     is_legacy_upload_url,
@@ -460,7 +459,8 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
         ):
             raise serializers.ValidationError(
                 "PostHog manages where this table reads from, so its URL can't be changed. "
-                "To read from your own bucket, add it as a self-managed source with an access key and secret."
+                "To read from your own bucket, add a managed Amazon S3, Google Cloud Storage, "
+                "Azure Blob, or Cloudflare R2 source."
             )
 
         return url_pattern
@@ -782,11 +782,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         responses={200: OpenApiResponse(description="Schema refreshed from the table's underlying source")},
         summary="Refresh table schema from source",
         description=(
-            "Re-introspect a self-managed (manually linked) warehouse table's schema from its underlying "
+            "Re-introspect an existing direct-read warehouse table's schema from its underlying "
             "source files and overwrite its stored column list. Use when the source schema has evolved "
             "(e.g. new columns in the underlying Delta/Parquet/CSV files) but queries still can't see the "
             "new columns, because PostHog serves a cached column snapshot until the table is refreshed. "
-            "Not for tables managed by an external data source sync — those refresh on their own schedule."
+            "This applies only to existing direct-read tables. New direct-read tables cannot be created. "
+            "Tables managed by an external data source sync refresh on their own schedule."
         ),
     )
     @action(methods=["POST"], detail=True, required_scopes=["warehouse_table:write"])
@@ -821,7 +822,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             }
         },
         responses={201: FileUploadResponseSerializer},
-        summary="Upload a file for a new self-managed warehouse table",
+        summary="Upload a file for a new warehouse table and FileUpload source",
     )
     @action(
         methods=["POST"],
@@ -830,7 +831,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         parser_classes=[parsers.MultiPartParser, parsers.FormParser],
     )
     def upload_file(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        """Store an uploaded file in object storage so a self-managed table can be created from it.
+        """Store an uploaded file for a new warehouse table and FileUpload source.
 
         Uploading is a separate first step from `create_from_upload` so the create call stays JSON-only:
         this returns an `upload_id` the caller passes back to build the table. The file is written under
@@ -854,7 +855,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 data={
                     "message": f"Upload exceeds the maximum of {MAX_FILE_UPLOAD_SIZE_BYTES // (1024 * 1024)}MB. "
-                    "For larger files, connect the bucket they live in as a self-managed source instead."
+                    "For larger files, connect the bucket with a managed Amazon S3, Google Cloud Storage, "
+                    "Azure Blob, or Cloudflare R2 source."
                 },
             )
 
@@ -883,7 +885,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 status=status.HTTP_400_BAD_REQUEST,
                 data={
                     "message": f"File size exceeds the maximum of {MAX_FILE_UPLOAD_SIZE_BYTES // (1024 * 1024)}MB. "
-                    "For larger files, connect the bucket they live in as a self-managed source instead."
+                    "For larger files, connect the bucket with a managed Amazon S3, Google Cloud Storage, "
+                    "Azure Blob, or Cloudflare R2 source."
                 },
             )
 
@@ -912,15 +915,15 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
     @extend_schema(
         request=CreateTableFromUploadSerializer,
         responses={201: TableSerializer},
-        summary="Create a self-managed warehouse table from an uploaded file",
+        summary="Create a warehouse table and FileUpload source from an uploaded file",
     )
     @action(methods=["POST"], detail=False, required_scopes=["warehouse_table:write"])
     def create_from_upload(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        """Turn a previously uploaded file into a self-managed warehouse table.
+        """Turn a previously uploaded file into a warehouse table with a FileUpload source.
 
         The file already sits in PostHog's own bucket (see `upload_file`), so the table points straight
-        at it and is read in place — no import pipeline and no recurring sync, the same shape as a linked
-        S3/GCS bucket. The read location is always derived from the caller's own team, so a client-supplied
+        at it for the initial direct read. The source imports it on its first sync. The read location
+        is always derived from the caller's own team, so a client-supplied
         `upload_id` can only resolve inside that team's folder, and the table carries no credential (reads
         fall back to the node role, never a user-supplied key).
 
@@ -979,9 +982,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         table.save()
         log_table_activity(table, "created")
-        if file_upload_sources_enabled(self.team_id):
-            # The table reads the file in place until the source's first sync imports it.
-            create_file_upload_source(self.team_id, table.pk, upload, read_settings)
+        # The table reads the file in place until the source's first sync imports it.
+        create_file_upload_source(self.team_id, table.pk, upload, read_settings)
 
         validate_data_warehouse_table_columns.delay(self.team_id, str(table.id))
 
