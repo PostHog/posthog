@@ -37,7 +37,8 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.batch import BatchQueryResult
 from posthog.hogql.compilation import COMPILATION_TIMEOUT_SECONDS
-from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings
+from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings, LimitContext, get_default_limit_for_context
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.multi_query import MultiQueryPlanner
@@ -142,15 +143,24 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         else:
             self.assertEqual(split["0"].rows, (("action_a", 2, 1),))
             self.assertEqual(split["1"].rows, (("action_b", 2, 2), ("action_a", 2, 1)))
-        incompatible = HogQLQueryExecutor(
-            query=queries[1],
-            team=self.team,
-            placeholders={"excluded": ast.Constant(value=excluded)},
-            settings=HogQLGlobalSettings(max_execution_time=1),
-        ).prepare_for_sharing(query_id="different-budget", scope_key="test-refresh")
-        self.assertEqual(
-            len(MultiQueryPlanner([SameAggregationTopNRule()]).plan([prepared[0], incompatible]).groups), 2
-        )
+        for incompatible_executor in (
+            HogQLQueryExecutor(
+                query=queries[1],
+                team=self.team,
+                placeholders={"excluded": ast.Constant(value=excluded)},
+                settings=HogQLGlobalSettings(max_execution_time=1),
+            ),
+            HogQLQueryExecutor(
+                query=queries[1],
+                team=self.team,
+                placeholders={"excluded": ast.Constant(value=excluded)},
+                context=HogQLContext(team_id=self.team.pk, apply_events_retention_floor=False),
+            ),
+        ):
+            incompatible = incompatible_executor.prepare_for_sharing(query_id="incompatible", scope_key="test-refresh")
+            self.assertEqual(
+                len(MultiQueryPlanner([SameAggregationTopNRule()]).plan([prepared[0], incompatible]).groups), 2
+            )
         flag.side_effect = None
         flag.return_value = False
         disabled = executors[1].prepare_for_sharing(query_id="disabled", scope_key="test-refresh")
@@ -171,15 +181,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 query_id=str(index), scope_key="test-refresh"
             )
             for index, query in enumerate(
-                ("SELECT count() FROM events", "SELECT count() FROM events WHERE event = 'signup'")
+                (
+                    "SELECT count() FROM events",
+                    "SELECT count() FROM events WHERE event = 'signup'",
+                    "SELECT event FROM events",
+                )
             )
         ]
 
         plan = MultiQueryPlanner([CountFusionRule()]).plan(prepared)
 
-        self.assertEqual(len(plan.groups), 1, plan.rejections)
-        self.assertEqual(plan.groups[0].query_ids, ("0", "1"))
+        self.assertEqual([group.query_ids for group in plan.groups], [("0", "1"), ("2",)], plan.rejections)
         self.assertIsNone(plan.groups[0].query.limit)
+        self.assertEqual(
+            plan.groups[1].query.limit, ast.Constant(value=get_default_limit_for_context(LimitContext.QUERY))
+        )
 
     @parameterized.expand(
         [

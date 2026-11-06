@@ -196,6 +196,7 @@ class HogQLQueryExecutor:
     _sharing_ast: ast.SelectQuery | ast.SelectSetQuery | None = dataclasses.field(default=None, init=False, repr=False)
     _capture_sharing_ast: bool = dataclasses.field(default=False, init=False, repr=False)
     _sharing_default_top_level_limit: bool = dataclasses.field(default=False, init=False, repr=False)
+    _sharing_removed_limit: int | None = dataclasses.field(default=None, init=False, repr=False)
     clickhouse_prepared_ast: Optional[ast.AST] = None
     clickhouse_context: Optional[HogQLContext] = None
     clickhouse_sql: Optional[str] = None
@@ -418,6 +419,8 @@ class HogQLQueryExecutor:
                 # The executor injects a safety limit for ordinary queries. It does not affect a
                 # top-level count, but must not make it look like the caller supplied LIMIT.
                 if self._sharing_default_top_level_limit and isinstance(self._sharing_ast, ast.SelectQuery):
+                    if isinstance(self._sharing_ast.limit, ast.Constant) and type(self._sharing_ast.limit.value) is int:
+                        self._sharing_removed_limit = self._sharing_ast.limit.value
                     self._sharing_ast.limit = None
             self.hogql = print_prepared_ast(
                 select_query_hogql,
@@ -1146,12 +1149,15 @@ class HogQLQueryExecutor:
             raise ExposedHogQLError("Only ClickHouse-backed HogQL queries can share execution.")
         self._capture_sharing_ast = True
         self._sharing_default_top_level_limit = False
+        self._sharing_removed_limit = None
         try:
             prepared = self._prepare_execution()
             sharing_ast = self._sharing_ast
+            default_limit = self._sharing_removed_limit
         finally:
             self._capture_sharing_ast = False
             self._sharing_default_top_level_limit = False
+            self._sharing_removed_limit = None
             self._sharing_ast = None
         if prepared.engine != "clickhouse" or sharing_ast is None:
             raise ExposedHogQLError("Only ClickHouse-backed HogQL queries can share execution.")
@@ -1162,6 +1168,7 @@ class HogQLQueryExecutor:
                 self.user.pk if self.user else None,
                 id(self.context.user_access_control),
                 self.context.bypass_warehouse_access_control,
+                self.context.apply_events_retention_floor,
                 self.query_modifiers,
                 self.clickhouse_settings,
                 self.workload,
@@ -1178,6 +1185,7 @@ class HogQLQueryExecutor:
             context_key=context_key,
             output_columns=tuple(self.print_columns),
             sharing_enabled=is_query_sharing_enabled(self.team),
+            default_limit=default_limit,
         )
 
     @tracer.start_as_current_span("HogQLQueryExecutor.generate_clickhouse_sql")

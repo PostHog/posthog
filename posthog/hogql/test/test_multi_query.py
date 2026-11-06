@@ -114,6 +114,14 @@ class TestMultiQueryPlanner(SimpleTestCase):
                 "SELECT event, count() AS calls FROM events WHERE event IN (SELECT event FROM events) GROUP BY event ORDER BY calls LIMIT 2",
             ),
             (
+                "identifier_group",
+                "SELECT distinct_id, count() AS calls FROM events GROUP BY distinct_id ORDER BY calls LIMIT 2",
+            ),
+            (
+                "aliased_identifier_group",
+                "SELECT who, count() AS calls FROM (SELECT properties.$session_id AS who FROM events) GROUP BY who ORDER BY calls LIMIT 2",
+            ),
+            (
                 "window",
                 "SELECT event, count() AS calls, row_number() OVER () AS r FROM events GROUP BY event ORDER BY calls LIMIT 2",
             ),

@@ -256,7 +256,7 @@
     __sharing_ranked.calls AS calls,
     __sharing_ranked.people AS people,
     __sharing_consumer,
-    if(ifNull(equals(__sharing_consumer, 0), 0), __sharing_ranked.__sharing_rank_0, __sharing_ranked.__sharing_rank_1) AS __sharing_rank
+    if(equals(__sharing_consumer, 0), __sharing_ranked.__sharing_rank_0, __sharing_ranked.__sharing_rank_1) AS __sharing_rank
   FROM
   (
     SELECT
