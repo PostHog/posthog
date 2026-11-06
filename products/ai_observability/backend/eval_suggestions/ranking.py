@@ -1,7 +1,8 @@
 """Stage 6: validate every candidate in its exact configuration, score it, and pick at most three.
 
-There is no fixed failure-rate cutoff. A rare severe failure can win and a common harmless one can lose,
-because the score weighs credible weekly failures by severity, uncovered scope and running cost.
+A check that fails more than MAX_FAILURE_RATE of traces does not fit the app and is dropped. Among the
+rest, a rare severe failure can win and a common harmless one can lose, because the score weighs credible
+weekly failures by severity, uncovered scope and running cost.
 """
 
 import math
@@ -100,11 +101,22 @@ def judge_input_price(model: str) -> float | None:
 
 
 def judge_cost(weekly_units: float, mean_input_tokens: float | None, model: str) -> JudgeCost:
-    rollout = 100.0 if weekly_units <= WEEKLY_JUDGE_RUNS else max(1.0, round(100 * WEEKLY_JUDGE_RUNS / weekly_units))
+    # The scheduler samples in 0.01% steps, so the largest teams still land near WEEKLY_JUDGE_RUNS.
+    rollout = (
+        100.0 if weekly_units <= WEEKLY_JUDGE_RUNS else max(0.01, round(100 * WEEKLY_JUDGE_RUNS / weekly_units, 2))
+    )
     weekly_runs = round(weekly_units * rollout / 100)
     price = judge_input_price(model)
     cost = weekly_runs * mean_input_tokens * price if mean_input_tokens and price else None
     return JudgeCost(rollout_percentage=rollout, weekly_runs=weekly_runs, weekly_cost_usd=cost)
+
+
+def mean_unit_tokens(target: str, profile: TeamProfile, sample: TraceSample) -> float | None:
+    """Input tokens one judge run reads: a generation's own, or a whole trace's for trace and session judges."""
+    if target == "generation":
+        return profile.mean_input_tokens
+    totals = [s.input_tokens for s in sample.traces if s.input_tokens > 0]
+    return sum(totals) / len(totals) if totals else None
 
 
 def _score(severity: float, credible_weekly_failures: float, *, judge: bool, similar: bool) -> float:
@@ -147,11 +159,12 @@ def _validated(main: Sequence[Outcome], held_out: Sequence[Outcome]) -> Counts |
 
 
 def held_out_agrees(main: Counts, held_out: Counts) -> bool:
-    """The held-out day must not contradict the measurement: its rate stays under the fit limit, and its
-    interval reaches the main interval. A day with no failures passes for a rare failure, not a common one."""
+    """The held-out day must not contradict the measurement: its interval stays above the fit limit only when
+    it surely fails too often, and it reaches the main interval. Interval bounds keep a day with a handful of
+    traces from deciding alone. A day with no failures passes for a rare failure, not a common one."""
     if held_out.applicable == 0:
         return True
-    if held_out.failed / held_out.applicable > MAX_FAILURE_RATE:
+    if wilson_interval(held_out.failed, held_out.applicable).low > MAX_FAILURE_RATE:
         return False
     return (
         wilson_interval(held_out.failed, held_out.applicable).high >= wilson_interval(main.failed, main.applicable).low
@@ -294,7 +307,7 @@ def gap_proposal(
 - Return true if every item marked {values_text} is justified, or if no item has that level"""
     filters = [segment_filter(gap.segment_key, gap.segment_value, sample.traces)]
     weekly_units = profile.traces * _scope_share(filters, sample.traces)
-    cost = judge_cost(weekly_units, profile.mean_input_tokens, judge_model)
+    cost = judge_cost(weekly_units, mean_unit_tokens("trace", profile, sample), judge_model)
     sample_traces = max(len(sample.traces), 1)
     excess_per_week = (gap.segment_rate - gap.other_rate) * gap.segment_items * profile.traces / sample_traces
     text = cards.gap_text(gap, cards.cost_clause(cost.weekly_cost_usd, free=False))
@@ -347,6 +360,7 @@ class ScreeningResult:
 def screened_proposal(
     result: ScreeningResult,
     profile: TeamProfile,
+    sample: TraceSample,
     *,
     target: str,
     judge_model: str,
@@ -358,7 +372,7 @@ def screened_proposal(
     # Sentiment runs per generation, so it keeps the template's target whatever the traffic looks like.
     unit_target = template.target if template.evaluation_type == "sentiment" else target
     weekly_units = profile.generations if unit_target == "generation" else profile.traces
-    cost = judge_cost(weekly_units, profile.mean_input_tokens, judge_model)
+    cost = judge_cost(weekly_units, mean_unit_tokens(unit_target, profile, sample), judge_model)
     credible = len(result.flagged) / result.screened * profile.traces * SCREENING_PRECISION
     is_judge = template.evaluation_type == "llm_judge"
     text = cards.judge_text(template, unit_target, cards.cost_clause(cost.weekly_cost_usd, free=not is_judge))

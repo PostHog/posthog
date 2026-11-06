@@ -67,6 +67,8 @@ class TestCodeCheckValidation:
             ("no_failures", (0, 250), (0, 100), False),
             ("single_failure_is_not_enough", (1, 250), (0, 100), False),
             ("held_out_day_contradicts_a_common_failure", (40, 250), (0, 100), False),
+            ("a_tiny_held_out_day_cannot_reject_alone", (12, 240), (1, 3), True),
+            ("a_held_out_day_that_surely_fails_too_often", (12, 240), (20, 30), False),
         ]
     )
     def test_keeps_only_validated_checks(
@@ -173,3 +175,17 @@ def test_pick_keeps_cards_diverse_and_drops_unscored() -> None:
     ]
     assert [p.dedupe_key for p in ranking.pick(proposals)] == ["a", "b", "d"]
     assert ranking.pick([proposals[4]]) == []
+
+
+@parameterized.expand(
+    [
+        ("small_team_runs_on_everything", 500, 100.0, 500),
+        ("p99_team", 1_100_000, 0.09, 990),
+        ("largest_team", 26_000_000, 0.01, 2600),
+    ]
+)
+def test_judge_rollout_stays_near_the_weekly_budget(
+    _name: str, weekly_units: int, rollout: float, weekly_runs: int
+) -> None:
+    cost = ranking.judge_cost(weekly_units, None, ranking.DEFAULT_JUDGE_MODEL)
+    assert (cost.rollout_percentage, cost.weekly_runs) == (rollout, weekly_runs)
