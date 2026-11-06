@@ -45,7 +45,6 @@ const policyRequest = {
     resolved_by: null,
     resolved_at: null,
     policy_id: null,
-    confirm_issuer_host: null,
 }
 
 function renderWith(overrides: Record<string, unknown>): JSX.Element {
@@ -68,23 +67,5 @@ export const PendingForAMember: Story = {
             approvers: ['Olive Owner', 'Ada Admin'],
             requested_via: 'Example agent',
             requested_via_verified: false,
-        }),
-}
-
-export const CustomIssuerForAnAdmin: Story = {
-    render: () =>
-        renderWith({
-            can_approve: true,
-            approvers: [],
-            issuer: 'https://auth.example.com',
-            provider: 'custom',
-            provider_name: 'Custom OIDC provider',
-            subject_claim: 'sub',
-            subject_name_claim: '',
-            confirm_issuer_host: 'auth.example.com',
-            subject: 'deploy-bot',
-            subject_name: 'Deploy bot',
-            conditions: { env: 'production' },
-            claim_labels: { subject: 'sub', subject_name: 'Name', conditions: { env: 'env' } },
         }),
 }

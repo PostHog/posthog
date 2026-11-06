@@ -108,10 +108,6 @@ class WorkloadTrustPolicy(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     issuer = models.CharField(max_length=255)
     subject_name = models.CharField(max_length=255)
     subject = models.CharField(max_length=255)
-    # Set only for an issuer outside the provider registry, where the admin names the claims. Empty
-    # `subject_name_claim` makes `subject_name` a label that tokens aren't checked against.
-    subject_claim = models.CharField(max_length=100, blank=True, default="", db_default="")
-    subject_name_claim = models.CharField(max_length=100, blank=True, default="", db_default="")
     # Claim name to required value. Write it only through `normalize_workload_conditions`, which drops empty
     # values, so two policies with the same conditions always collide in the constraint.
     conditions = models.JSONField(default=dict, blank=True)
@@ -177,8 +173,6 @@ class WorkloadTrustPolicyRequest(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
     issuer = models.CharField(max_length=255)
     subject_name = models.CharField(max_length=255)
     subject = models.CharField(max_length=255)
-    subject_claim = models.CharField(max_length=100, blank=True, default="", db_default="")
-    subject_name_claim = models.CharField(max_length=100, blank=True, default="", db_default="")
     # Normalized like `WorkloadTrustPolicy.conditions`, so approving copies it unchanged.
     conditions = models.JSONField(default=dict, blank=True)
     scopes = ArrayField(models.CharField(max_length=100), default=list)

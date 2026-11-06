@@ -47,18 +47,10 @@ from posthog.models.workload_trust_policy import (
     workload_trust_policy_version,
 )
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
-from posthog.workload_identity.custom_issuer import (
-    CUSTOM_TOKEN_MAX_LIFETIME_SECONDS,
-    CustomIssuerError,
-    CustomIssuerUnavailable,
-    custom_checked_claims,
-    discover_custom_issuer,
-)
 from posthog.workload_identity.providers import (
     AudienceCheck,
     WorkloadClaim,
     WorkloadProvider,
-    WorkloadProviderKey,
     get_supported_workload_providers,
     get_workload_provider_by_issuer,
     normalize_issuer,
@@ -199,7 +191,7 @@ def _team_id_from_resource(resource: str) -> int:
     return int(match.group(1))
 
 
-def _unverified_issuer(subject_token: str) -> str:
+def _provider_for(subject_token: str) -> WorkloadProvider:
     try:
         # The issuer picks which provider's keys verify the token, so it has to be read before the
         # signature can be checked. Nothing else from this unverified read is trusted: the verified
@@ -208,17 +200,16 @@ def _unverified_issuer(subject_token: str) -> str:
         unverified = jwt.decode(subject_token, options={"verify_signature": False})
     except jwt.PyJWTError:
         raise WorkloadExchangeError(WorkloadExchangeErrorCode.TOKEN_INVALID, "subject_token is not a readable JWT.")
-    return str(unverified.get("iss") or "")
-
-
-def _issuer_not_allowed(issuer: str) -> WorkloadExchangeError:
-    supported = [provider.name for provider in get_supported_workload_providers()]
-    return WorkloadExchangeError(
-        WorkloadExchangeErrorCode.ISSUER_NOT_ALLOWED,
-        f"PostHog doesn't trust OIDC tokens from issuer {issuer!r}. Only the supported providers, and issuers a "
-        "project's custom OIDC provider policy names, are trusted.",
-        details={"issuer": issuer[:255], "supported_providers": supported},
-    )
+    issuer = str(unverified.get("iss") or "")
+    provider = get_workload_provider_by_issuer(issuer)
+    if provider is None:
+        supported = [provider.name for provider in get_supported_workload_providers()]
+        raise WorkloadExchangeError(
+            WorkloadExchangeErrorCode.ISSUER_NOT_ALLOWED,
+            f"PostHog doesn't trust OIDC tokens from issuer {issuer!r}. Only the supported providers are trusted.",
+            details={"issuer": issuer[:255], "supported_providers": supported},
+        )
+    return provider
 
 
 def _claim_string(value: Any) -> str | None:
@@ -249,13 +240,13 @@ def _required_claim(token_claims: dict[str, Any], claim: WorkloadClaim) -> str:
     return value
 
 
-def _signing_key(jwks_url: str, provider_name: str, subject_token: str, max_keys: int = JWKS_MAX_KEYS) -> PyJWK:
+def _signing_key(provider: WorkloadProvider, subject_token: str) -> PyJWK:
     try:
-        key = select_signing_key(jwks_url, subject_token, max_keys=max_keys)
+        key = select_signing_key(provider.jwks_url, subject_token, max_keys=provider.jwks_max_keys or JWKS_MAX_KEYS)
     except JWKSUnavailableError:
         raise WorkloadExchangeError(
             WorkloadExchangeErrorCode.PROVIDER_UNAVAILABLE,
-            f"Couldn't fetch {provider_name}'s signing keys. Try again in a minute.",
+            f"Couldn't fetch {provider.name}'s signing keys. Try again in a minute.",
             oauth_error="temporarily_unavailable",
             http_status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
@@ -272,11 +263,18 @@ def _signing_key(jwks_url: str, provider_name: str, subject_token: str, max_keys
     return key
 
 
-def _decode_subject_token(
-    subject_token: str, key: PyJWK, *, issuer: str, required: list[str], provider_key: str
-) -> tuple[dict[str, Any], int]:
-    """The verified claims of the OIDC token and its expiry, or raise. The audience is always this PostHog."""
-    audience = _site_url()
+def _expected_audience(provider: WorkloadProvider) -> str:
+    match provider.audience_check:
+        case AudienceCheck.SITE_URL:
+            return _site_url()
+        case _:
+            raise _not_configured()
+
+
+def _verify_subject_token(subject_token: str, provider: WorkloadProvider) -> tuple[VerifiedWorkload, int]:
+    """Verify the OIDC token and return what it says about the workload and its expiry, or raise."""
+    key = _signing_key(provider, subject_token)
+    audience = _expected_audience(provider)
     try:
         claims = jwt.decode(
             subject_token,
@@ -284,7 +282,9 @@ def _decode_subject_token(
             algorithms=[key.algorithm_name],
             audience=audience,
             leeway=WORKLOAD_TOKEN_CLOCK_SKEW_SECONDS,
-            options={"require": ["iss", "aud", "exp", *required]},
+            options={
+                "require": ["iss", "aud", "exp", "iat", provider.subject_claim.name, provider.subject_name_claim.name]
+            },
         )
     except jwt.ExpiredSignatureError:
         raise WorkloadExchangeError(WorkloadExchangeErrorCode.TOKEN_INVALID, "The OIDC token has expired.")
@@ -296,31 +296,17 @@ def _decode_subject_token(
     except jwt.MissingRequiredClaimError as e:
         raise WorkloadExchangeError(WorkloadExchangeErrorCode.TOKEN_INVALID, f"The OIDC token has no {e.claim} claim.")
     except jwt.PyJWTError as e:
-        logger.info("workload_token_exchange_rejected", provider=provider_key, error_type=type(e).__name__)
+        logger.info("workload_token_exchange_rejected", provider=provider.key, error_type=type(e).__name__)
         raise WorkloadExchangeError(WorkloadExchangeErrorCode.TOKEN_INVALID, "The OIDC token could not be verified.")
 
-    if normalize_issuer(str(claims.get("iss") or "")) != normalize_issuer(issuer):
+    if normalize_issuer(str(claims.get("iss") or "")) != normalize_issuer(provider.issuer):
         raise WorkloadExchangeError(WorkloadExchangeErrorCode.TOKEN_INVALID, "The OIDC token could not be verified.")
     expires_at = claims["exp"]
     if not isinstance(expires_at, int | float):
         raise WorkloadExchangeError(
             WorkloadExchangeErrorCode.TOKEN_INVALID, "The OIDC token's exp claim must be numeric."
         )
-    return claims, int(expires_at)
 
-
-def _verify_subject_token(subject_token: str, provider: WorkloadProvider) -> tuple[VerifiedWorkload, int]:
-    """Verify the OIDC token and return what it says about the workload and its expiry, or raise."""
-    if provider.audience_check != AudienceCheck.SITE_URL:
-        raise _not_configured()
-    key = _signing_key(provider.jwks_url, provider.name, subject_token, provider.jwks_max_keys or JWKS_MAX_KEYS)
-    claims, expires_at = _decode_subject_token(
-        subject_token,
-        key,
-        issuer=provider.issuer,
-        required=["iat", provider.subject_claim.name, provider.subject_name_claim.name],
-        provider_key=provider.key,
-    )
     subject = _required_claim(claims, provider.subject_claim)
     for name in provider.claims_equal_to_subject:
         if _claim_string(claims.get(name)) != subject:
@@ -335,74 +321,7 @@ def _verify_subject_token(subject_token: str, provider: WorkloadProvider) -> tup
         condition_claims=_claims_by_name(claims, provider.condition_claims),
         recorded_claims=_claims_by_name(claims, provider.recorded_claims),
     )
-    return workload, expires_at
-
-
-def _verify_custom_token(subject_token: str, issuer: str) -> tuple[dict[str, Any], int]:
-    """Verify a token from an issuer a custom policy names, with the keys its discovery document points to."""
-    try:
-        metadata = discover_custom_issuer(issuer)
-    except CustomIssuerUnavailable:
-        raise WorkloadExchangeError(
-            WorkloadExchangeErrorCode.PROVIDER_UNAVAILABLE,
-            "Couldn't fetch the issuer's OpenID configuration. Try again in a minute.",
-            oauth_error="temporarily_unavailable",
-            http_status=status.HTTP_503_SERVICE_UNAVAILABLE,
-        )
-    except CustomIssuerError as e:
-        raise WorkloadExchangeError(WorkloadExchangeErrorCode.TOKEN_INVALID, f"PostHog can't use the issuer: {e}")
-    key = _signing_key(metadata.jwks_uri, "the issuer", subject_token)
-    if metadata.signing_algorithms and key.algorithm_name not in metadata.signing_algorithms:
-        raise WorkloadExchangeError(
-            WorkloadExchangeErrorCode.TOKEN_INVALID, "The OIDC token uses an algorithm its issuer doesn't sign with."
-        )
-    claims, expires_at = _decode_subject_token(
-        subject_token, key, issuer=issuer, required=["iat"], provider_key=WorkloadProviderKey.CUSTOM
-    )
-    issued_at = claims["iat"]
-    if not isinstance(issued_at, int | float) or expires_at - issued_at > CUSTOM_TOKEN_MAX_LIFETIME_SECONDS:
-        raise WorkloadExchangeError(
-            WorkloadExchangeErrorCode.TOKEN_INVALID,
-            f"The OIDC token lives longer than {CUSTOM_TOKEN_MAX_LIFETIME_SECONDS // 60} minutes. Ask the issuer for "
-            "a shorter-lived token, so a leaked one can't keep minting PostHog tokens.",
-        )
-    return claims, expires_at
-
-
-def _custom_workload(
-    policy: WorkloadTrustPolicy | WorkloadTrustPolicyRequest, claims: dict[str, Any]
-) -> VerifiedWorkload | None:
-    """What the token says about the workload under one custom policy's claim names, or None when it doesn't
-    match. Every condition must equal the token's flat claim, like a registry provider's."""
-    subject = _claim_string(claims.get(policy.subject_claim))
-    subject_name = (
-        _claim_string(claims.get(policy.subject_name_claim)) if policy.subject_name_claim else policy.subject_name
-    )
-    if subject is None or subject != policy.subject or subject_name != policy.subject_name:
-        return None
-    condition_claims = {name: _claim_string(claims.get(name)) for name in policy.conditions}
-    if any(condition_claims[name] != value for name, value in policy.conditions.items()):
-        return None
-    recorded = [policy.subject_claim, policy.subject_name_claim, *policy.conditions]
-    return VerifiedWorkload(
-        subject=subject,
-        subject_name=policy.subject_name,
-        condition_claims={name: value for name, value in condition_claims.items() if value is not None},
-        recorded_claims={name: value for name in recorded if name and (value := _claim_string(claims.get(name)))},
-    )
-
-
-def _most_specific(candidates: list[Any]) -> list[Any]:
-    """More conditions first, then the oldest, so adding a broader policy never changes which one a workload
-    runs under."""
-    return sorted(candidates, key=lambda candidate: (-len(candidate.conditions), candidate.created_at))
-
-
-def _first_custom_match(candidates: list[Any], claims: dict[str, Any]) -> tuple[Any, VerifiedWorkload] | None:
-    return next(
-        ((candidate, workload) for candidate in candidates if (workload := _custom_workload(candidate, claims))),
-        None,
-    )
+    return workload, int(expires_at)
 
 
 def _charge_exchange(policy: WorkloadTrustPolicy) -> None:
@@ -429,7 +348,8 @@ def find_matching_policy(team_id: int, issuer: str, workload: VerifiedWorkload) 
     never changes which policy an existing workload runs under.
     """
     candidates = WorkloadTrustPolicy.objects.for_team(team_id).filter(**workload.match_filter(issuer), enabled=True)
-    matching = _most_specific(list(candidates))
+    matching = list(candidates)
+    matching.sort(key=lambda policy: (-len(policy.conditions), policy.created_at))
     return matching[0] if matching else None
 
 
@@ -478,65 +398,21 @@ def exchange_workload_token(*, subject_token: str, subject_token_type: str, reso
             oauth_error="invalid_request",
         )
     team_id = _team_id_from_resource(resource)
-    token_issuer = _unverified_issuer(subject_token)
+    provider = _provider_for(subject_token)
+    workload, oidc_expires_at = _verify_subject_token(subject_token, provider)
+
     team = Team.objects.select_related("organization").filter(pk=team_id).first()
     if team is not None and team.project_id != team.id:
         # Policies live on a project's own team, so an environment id never has one.
         team = None
 
-    registry_provider = get_workload_provider_by_issuer(token_issuer)
-    pending: WorkloadTrustPolicyRequest | None = None
-    policy: WorkloadTrustPolicy | None
-    workload: VerifiedWorkload | None
-    if registry_provider is not None:
-        provider_key: str = registry_provider.key
-        workload, oidc_expires_at = _verify_subject_token(subject_token, registry_provider)
-        issuer = normalize_issuer(registry_provider.issuer)
-        # A project that doesn't exist, or an environment id, reads like a project without a matching policy,
-        # so the exchange can't be used to find out which ids exist.
-        policy = find_matching_policy(team.id, issuer, workload) if team is not None else None
-        claims_sent = workload.claims_sent(registry_provider)
-        if team is not None and policy is None:
-            pending = _pending_request_for(team.id, issuer, workload)
-    else:
-        provider_key = WorkloadProviderKey.CUSTOM
-        # Only an issuer an enabled policy or a pending request of this project names is ever fetched, so a
-        # token can't point PostHog at an arbitrary URL. A request passed the same discovery check, throttled,
-        # when a member filed it.
-        policies: list[WorkloadTrustPolicy] = []
-        requests: list[WorkloadTrustPolicyRequest] = []
-        if team is not None:
-            policies = list(
-                WorkloadTrustPolicy.objects.for_team(team.id)
-                .filter(issuer=token_issuer, enabled=True)
-                .exclude(subject_claim="")
-            )
-            requests = list(
-                WorkloadTrustPolicyRequest.objects.for_team(team.id)
-                .filter(
-                    issuer=token_issuer,
-                    status=WorkloadTrustPolicyRequest.Status.PENDING,
-                    expires_at__gt=timezone.now(),
-                )
-                .exclude(subject_claim="")
-                .order_by("-created_at")
-            )
-        if not policies and not requests:
-            raise _issuer_not_allowed(token_issuer)
-        claims, oidc_expires_at = _verify_custom_token(subject_token, token_issuer)
-        match = _first_custom_match(_most_specific(policies), claims)
-        policy, workload = match if match else (None, None)
-        checked = {name for candidate in [*policies, *requests] for name in custom_checked_claims(candidate)}
-        claims_sent = {
-            "provider": provider_key,
-            "issuer": token_issuer,
-            "claims": {name: _claim_string(claims.get(name)) for name in sorted(checked)},
-        }
-        if policy is None:
-            pending_match = _first_custom_match(requests, claims)
-            pending = pending_match[0] if pending_match else None
-
-    if team is None or policy is None or workload is None:
+    issuer = normalize_issuer(provider.issuer)
+    # A project that doesn't exist, or an environment id, reads like a project without a matching policy,
+    # so the exchange can't be used to find out which ids exist.
+    policy = find_matching_policy(team.id, issuer, workload) if team is not None else None
+    if team is None or policy is None:
+        claims_sent = workload.claims_sent(provider)
+        pending = _pending_request_for(team.id, issuer, workload) if team is not None else None
         if pending is not None:
             approval_url = workload_trust_policy_request_url(team_id, str(pending.pk))
             raise WorkloadExchangeError(
@@ -588,7 +464,7 @@ def exchange_workload_token(*, subject_token: str, subject_token_type: str, reso
         "policy_version": workload_trust_policy_version(policy),
         "scope": " ".join(scopes),
         "workload": {
-            "provider": provider_key,
+            "provider": provider.key,
             "subject": workload.subject,
             "subject_name": workload.subject_name,
             "claims": workload.recorded_claims,

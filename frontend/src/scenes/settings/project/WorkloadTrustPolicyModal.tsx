@@ -8,12 +8,10 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { riskyScopeWarning } from 'lib/scopes'
 
 import { WorkloadConditionRows } from './WorkloadConditionRows'
-import { WorkloadCustomConditionRows } from './WorkloadCustomConditionRows'
-import { WorkloadCustomIssuerFields } from './WorkloadCustomIssuerFields'
 import { WorkloadProviderIcon } from './WorkloadProviderIcon'
 import { WorkloadSetupSnippet } from './WorkloadSetupSnippet'
 import { WorkloadSubjectFields } from './WorkloadSubjectFields'
-import { CUSTOM_PROVIDER_KEY, workloadTrustPoliciesLogic } from './workloadTrustPoliciesLogic'
+import { workloadTrustPoliciesLogic } from './workloadTrustPoliciesLogic'
 
 export function WorkloadTrustPolicyModal(): JSX.Element {
     const {
@@ -25,7 +23,6 @@ export function WorkloadTrustPolicyModal(): JSX.Element {
         scopeLevels,
         scopeSearchTerm,
         editingProvider,
-        isCustom,
         setupSnippet,
     } = useValues(workloadTrustPoliciesLogic)
     const { setEditingPolicyId, submitEditingPolicy, setScopeLevel, setScopeSearchTerm } =
@@ -79,41 +76,25 @@ export function WorkloadTrustPolicyModal(): JSX.Element {
                 }
             >
                 <div className="deprecated-space-y-4">
-                    <LemonField name="provider_key" label="Provider">
+                    <LemonField name="issuer" label="Provider">
                         <LemonSegmentedButton
                             fullWidth
-                            options={[
-                                ...(providers?.supported ?? []).map((provider) => ({
-                                    value: provider.key,
-                                    label: provider.name,
-                                    icon: <WorkloadProviderIcon providerKey={provider.key} />,
-                                    'data-attr': `workload-trust-policy-provider-${provider.key}`,
-                                })),
-                                ...(providers
-                                    ? [
-                                          {
-                                              value: CUSTOM_PROVIDER_KEY,
-                                              label: providers.custom.name,
-                                              icon: <WorkloadProviderIcon providerKey={CUSTOM_PROVIDER_KEY} />,
-                                              'data-attr': `workload-trust-policy-provider-${CUSTOM_PROVIDER_KEY}`,
-                                          },
-                                      ]
-                                    : []),
-                            ]}
+                            options={(providers?.supported ?? []).map((provider) => ({
+                                value: provider.issuer,
+                                label: provider.name,
+                                icon: <WorkloadProviderIcon providerKey={provider.key} />,
+                                'data-attr': `workload-trust-policy-provider-${provider.key}`,
+                            }))}
                         />
                     </LemonField>
-                    {isCustom ? <WorkloadCustomIssuerFields /> : <WorkloadSubjectFields />}
-                    {isCustom || editingProvider?.condition_claims.length ? (
+                    <WorkloadSubjectFields />
+                    {editingProvider?.condition_claims.length ? (
                         <LemonField
                             name="conditions"
                             label="Which runs can get a token"
-                            help={
-                                isCustom
-                                    ? 'Claims the token must carry with exactly these values. A token matches only when it meets every condition.'
-                                    : 'A token matches only when it meets every condition.'
-                            }
+                            help="A token matches only when it meets every condition."
                         >
-                            {() => (isCustom ? <WorkloadCustomConditionRows /> : <WorkloadConditionRows />)}
+                            {() => <WorkloadConditionRows />}
                         </LemonField>
                     ) : null}
                     <LemonField name="name" label="Name">

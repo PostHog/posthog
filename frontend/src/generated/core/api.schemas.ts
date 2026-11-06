@@ -5804,12 +5804,12 @@ export interface WorkloadTrustPolicyApi {
      */
     name: string
     /**
-     * The OIDC issuer of the workload provider. A supported provider's issuer, or any other HTTPS issuer together with subject_claim.
+     * The OIDC issuer of the workload provider, from the list of supported providers.
      * @maxLength 255
      */
     issuer: string
     /**
-     * The key of the workload provider the issuer belongs to, custom for another issuer.
+     * The key of the workload provider the issuer belongs to.
      * @nullable
      */
     readonly provider: string | null
@@ -5823,16 +5823,6 @@ export interface WorkloadTrustPolicyApi {
      * @maxLength 255
      */
     subject: string
-    /**
-     * For an issuer outside the supported providers: the claim that holds the workload's ID, like sub. Leave it empty for a supported provider, which names its own claims.
-     * @maxLength 100
-     */
-    subject_claim?: string
-    /**
-     * For an issuer outside the supported providers: an optional claim that holds the workload's name, matched against subject_name. When empty, subject_name is only a label.
-     * @maxLength 100
-     */
-    subject_name_claim?: string
     /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
     conditions?: WorkloadTrustPolicyApiConditions
     /** How the provider names the subject, the subject name and each condition claim, for display. */
@@ -5871,12 +5861,12 @@ export interface PatchedWorkloadTrustPolicyApi {
      */
     name?: string
     /**
-     * The OIDC issuer of the workload provider. A supported provider's issuer, or any other HTTPS issuer together with subject_claim.
+     * The OIDC issuer of the workload provider, from the list of supported providers.
      * @maxLength 255
      */
     issuer?: string
     /**
-     * The key of the workload provider the issuer belongs to, custom for another issuer.
+     * The key of the workload provider the issuer belongs to.
      * @nullable
      */
     readonly provider?: string | null
@@ -5890,16 +5880,6 @@ export interface PatchedWorkloadTrustPolicyApi {
      * @maxLength 255
      */
     subject?: string
-    /**
-     * For an issuer outside the supported providers: the claim that holds the workload's ID, like sub. Leave it empty for a supported provider, which names its own claims.
-     * @maxLength 100
-     */
-    subject_claim?: string
-    /**
-     * For an issuer outside the supported providers: an optional claim that holds the workload's name, matched against subject_name. When empty, subject_name is only a label.
-     * @maxLength 100
-     */
-    subject_name_claim?: string
     /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
     conditions?: PatchedWorkloadTrustPolicyApiConditions
     /** How the provider names the subject, the subject name and each condition claim, for display. */
@@ -5916,17 +5896,6 @@ export interface PatchedWorkloadTrustPolicyApi {
     readonly updated_at?: string
 }
 
-export interface CustomIssuerApi {
-    /** The issuer URL the discovery document confirmed. */
-    issuer: string
-    /** Where the issuer publishes the keys PostHog checks its tokens with. */
-    jwks_uri: string
-    /** The RSA and EC algorithms the issuer signs ID tokens with. Empty when it doesn't say. */
-    signing_algorithms: string[]
-    /** The audience the issuer's tokens must carry for PostHog. */
-    audience: string
-}
-
 /**
  * What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care.
  */
@@ -5936,7 +5905,6 @@ export type WorkloadProvidersResponseApiRiskyScopes = { [key: string]: string }
  * * `github_actions` - GitHub Actions
  * * `gitlab` - GitLab
  * * `depot_ci` - Depot CI
- * * `custom` - Custom OIDC provider
  */
 export type WorkloadProviderKeyEnumApi = (typeof WorkloadProviderKeyEnumApi)[keyof typeof WorkloadProviderKeyEnumApi]
 
@@ -5944,7 +5912,6 @@ export const WorkloadProviderKeyEnumApi = {
     GithubActions: 'github_actions',
     Gitlab: 'gitlab',
     DepotCi: 'depot_ci',
-    Custom: 'custom',
 } as const
 
 export interface WorkloadClaimApi {
@@ -5999,8 +5966,7 @@ export interface WorkloadProviderApi {
      *
      * * `github_actions` - GitHub Actions
      * * `gitlab` - GitLab
-     * * `depot_ci` - Depot CI
-     * * `custom` - Custom OIDC provider */
+     * * `depot_ci` - Depot CI */
     key: WorkloadProviderKeyEnumApi
     /** Display name of the provider. */
     name: string
@@ -6028,15 +5994,6 @@ export interface WorkloadProviderApi {
     readonly setup_snippet: string
 }
 
-export interface CustomProviderApi {
-    /** What the UI calls a policy for another OIDC issuer. */
-    name: string
-    /** Where to read how to set up another OIDC issuer. */
-    docs_url: string
-    /** The subject claim to suggest, sub in most issuers. */
-    default_subject_claim: string
-}
-
 export interface WorkloadJobSettingsApi {
     /** The PostHog address a job sends its token to, which is its audience. */
     host: string
@@ -6051,8 +6008,6 @@ export interface WorkloadJobSettingsApi {
 export interface WorkloadProvidersResponseApi {
     /** Providers a policy can trust. */
     supported: WorkloadProviderApi[]
-    /** Any other HTTPS OIDC issuer, which a policy trusts with the claims the admin names. */
-    custom: CustomProviderApi
     /** Where a job's host and project come from: posthog.json first, or HOG_HOST and HOG_PROJECT_ID. */
     job_settings: WorkloadJobSettingsApi
     /** Every scope a policy's ceiling may hold. */
@@ -6089,12 +6044,12 @@ export interface WorkloadTrustPolicyRequestApi {
      */
     name: string
     /**
-     * The OIDC issuer of the workload provider. A supported provider's issuer, or any other HTTPS issuer together with subject_claim.
+     * The OIDC issuer of the workload provider, from the list of supported providers.
      * @maxLength 255
      */
     issuer: string
     /**
-     * The key of the workload provider the issuer belongs to, custom for another issuer.
+     * The key of the workload provider the issuer belongs to.
      * @nullable
      */
     readonly provider: string | null
@@ -6113,16 +6068,6 @@ export interface WorkloadTrustPolicyRequestApi {
      * @maxLength 255
      */
     subject: string
-    /**
-     * For an issuer outside the supported providers: the claim that holds the workload's ID, like sub. Leave it empty for a supported provider, which names its own claims.
-     * @maxLength 100
-     */
-    subject_claim?: string
-    /**
-     * For an issuer outside the supported providers: an optional claim that holds the workload's name, matched against subject_name. When empty, subject_name is only a label.
-     * @maxLength 100
-     */
-    subject_name_claim?: string
     /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
     conditions?: WorkloadTrustPolicyRequestApiConditions
     /** How the provider names the subject, the subject name and each condition claim, for display. */
@@ -6168,11 +6113,6 @@ export interface WorkloadTrustPolicyRequestApi {
      * @nullable
      */
     readonly policy_id: string | null
-    /**
-     * For a custom OIDC provider, the issuer host the approver must type to approve. Null for supported providers.
-     * @nullable
-     */
-    readonly confirm_issuer_host: string | null
 }
 
 export interface PaginatedWorkloadTrustPolicyRequestListApi {
@@ -6182,14 +6122,6 @@ export interface PaginatedWorkloadTrustPolicyRequestListApi {
     /** @nullable */
     previous?: string | null
     results: WorkloadTrustPolicyRequestApi[]
-}
-
-export interface ApproveWorkloadTrustPolicyRequestApi {
-    /**
-     * The issuer host, typed by the approver. A custom OIDC provider request needs it to equal the request's confirm_issuer_host.
-     * @maxLength 255
-     */
-    confirm_issuer_host?: string
 }
 
 export interface ResolvedWorkloadSubjectApi {
@@ -7750,15 +7682,6 @@ export type WorkloadTrustPoliciesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
-}
-
-export type WorkloadTrustPoliciesCheckIssuerRetrieveParams = {
-    /**
-     * The issuer URL, exactly as the issuer's tokens carry it in the iss claim.
-     * @minLength 1
-     * @maxLength 255
-     */
-    issuer: string
 }
 
 export type WorkloadTrustPolicyRequestsListParams = {

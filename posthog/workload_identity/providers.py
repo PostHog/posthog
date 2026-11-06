@@ -66,17 +66,10 @@ class ConditionPreset:
         return any(PRESET_VALUE in value for _, value in self.conditions)
 
 
-# A policy compares claims exactly, so a value or claim name holding one of these would never match what the
-# admin meant.
-WILDCARD_CHARACTERS = frozenset("*?[]")
-
-
 class WorkloadProviderKey(models.TextChoices):
     GITHUB_ACTIONS = "github_actions", "GitHub Actions"
     GITLAB = "gitlab", "GitLab"
     DEPOT_CI = "depot_ci", "Depot CI"
-    # An issuer outside this registry, whose claims the policy names. See custom_issuer.py.
-    CUSTOM = "custom", "Custom OIDC provider"
 
 
 @frozen

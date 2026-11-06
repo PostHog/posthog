@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonLabel, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -15,7 +15,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { WorkloadProviderKeyEnumApi, type WorkloadTrustPolicyRequestApi } from '~/generated/core/api.schemas'
+import type { WorkloadTrustPolicyRequestApi } from '~/generated/core/api.schemas'
 
 import {
     WorkloadTrustPolicyRequestLogicProps,
@@ -119,80 +119,37 @@ function RequestDetailTable({
     // A claim the provider no longer offers still shows, so the admin sees every condition they approve.
     const conditionClaims = [...new Set([...Object.keys(claimLabels.conditions), ...Object.keys(conditions)])]
 
-    const custom = policyRequest.provider === WorkloadProviderKeyEnumApi.Custom
-
     return (
-        <div className="flex flex-col gap-3">
-            {custom ? (
-                <AuthBanner variant="warning">
-                    Approving trusts every token that <span className="font-mono">{policyRequest.issuer}</span> signs
-                    with these claims. Approve only when your organization controls that issuer.
-                </AuthBanner>
-            ) : null}
-            <div className="border rounded px-3">
-                {/* An approval link can switch the app into another organization, so name where the access goes. */}
-                <DetailRow label="Project">
-                    {currentTeam?.name} <span className="text-secondary">in {currentOrganization?.name}</span>
+        <div className="border rounded px-3">
+            {/* An approval link can switch the app into another organization, so name where the access goes. */}
+            <DetailRow label="Project">
+                {currentTeam?.name} <span className="text-secondary">in {currentOrganization?.name}</span>
+            </DetailRow>
+            <DetailRow label="Name">{policyRequest.name}</DetailRow>
+            <DetailRow label="Provider">{policyRequest.provider_name ?? policyRequest.issuer}</DetailRow>
+            <DetailRow label={claimLabels.subject_name}>
+                <span className="font-mono">{policyRequest.subject_name}</span>
+            </DetailRow>
+            <DetailRow label={claimLabels.subject}>
+                <span className="font-mono">{policyRequest.subject}</span>
+            </DetailRow>
+            {conditionClaims.map((claim) => (
+                <DetailRow key={claim} label={claimLabels.conditions[claim] ?? claim}>
+                    {conditions[claim] || <span className="text-secondary">Any value</span>}
                 </DetailRow>
-                <DetailRow label="Name">{policyRequest.name}</DetailRow>
-                <DetailRow label="Provider">{policyRequest.provider_name ?? policyRequest.issuer}</DetailRow>
-                {custom ? (
-                    <DetailRow label="Issuer">
-                        <span className="font-mono">{policyRequest.issuer}</span>
-                    </DetailRow>
-                ) : null}
-                <DetailRow
-                    label={
-                        custom && !policyRequest.subject_name_claim ? 'Label (not checked)' : claimLabels.subject_name
-                    }
-                >
-                    <span className="font-mono">{policyRequest.subject_name}</span>
-                </DetailRow>
-                <DetailRow label={claimLabels.subject}>
-                    <span className="font-mono">{policyRequest.subject}</span>
-                </DetailRow>
-                {conditionClaims.map((claim) => (
-                    <DetailRow key={claim} label={claimLabels.conditions[claim] ?? claim}>
-                        {conditions[claim] || <span className="text-secondary">Any value</span>}
-                    </DetailRow>
-                ))}
-                <DetailRow label="Scopes">
-                    <span className="flex flex-wrap gap-1">
-                        {policyRequest.scopes.map((scope) => (
-                            <LemonTag key={scope} type={scope in policyRequest.risky_scopes ? 'warning' : 'default'}>
-                                {scope}
-                            </LemonTag>
-                        ))}
-                    </span>
-                </DetailRow>
-                <DetailRow label={isPending ? 'Expires' : 'Requested'}>
-                    <TZLabel time={isPending ? policyRequest.expires_at : policyRequest.created_at} />
-                </DetailRow>
-            </div>
-        </div>
-    )
-}
-
-function ConfirmIssuerHost({ policyRequest }: { policyRequest: WorkloadTrustPolicyRequestApi }): JSX.Element {
-    const { confirmIssuerHost } = useValues(workloadTrustPolicyRequestLogic({ id: policyRequest.id }))
-    const { setConfirmIssuerHost } = useActions(workloadTrustPolicyRequestLogic({ id: policyRequest.id }))
-    return (
-        <div className="flex flex-col gap-1">
-            <LemonLabel htmlFor="workload-trust-policy-request-confirm-issuer-host">
-                <span>
-                    Type <span className="font-mono">{policyRequest.confirm_issuer_host}</span> to confirm you trust
-                    this issuer
+            ))}
+            <DetailRow label="Scopes">
+                <span className="flex flex-wrap gap-1">
+                    {policyRequest.scopes.map((scope) => (
+                        <LemonTag key={scope} type={scope in policyRequest.risky_scopes ? 'warning' : 'default'}>
+                            {scope}
+                        </LemonTag>
+                    ))}
                 </span>
-            </LemonLabel>
-            <LemonInput
-                id="workload-trust-policy-request-confirm-issuer-host"
-                value={confirmIssuerHost}
-                onChange={setConfirmIssuerHost}
-                autoComplete="off"
-                spellCheck={false}
-                className="font-mono"
-                data-attr="workload-trust-policy-request-confirm-issuer-host"
-            />
+            </DetailRow>
+            <DetailRow label={isPending ? 'Expires' : 'Requested'}>
+                <TZLabel time={isPending ? policyRequest.expires_at : policyRequest.created_at} />
+            </DetailRow>
         </div>
     )
 }
@@ -208,8 +165,6 @@ function RequestActions({
     onApprove: () => void
     onReject: () => void
 }): JSX.Element {
-    const { issuerHostConfirmed } = useValues(workloadTrustPolicyRequestLogic({ id: policyRequest.id }))
-
     if (!policyRequest.can_approve) {
         return (
             <AuthBanner variant="note">
@@ -222,7 +177,6 @@ function RequestActions({
 
     return (
         <div className="flex flex-col gap-2">
-            {policyRequest.confirm_issuer_host ? <ConfirmIssuerHost policyRequest={policyRequest} /> : null}
             <LemonButton
                 type="primary"
                 size="large"
@@ -230,13 +184,7 @@ function RequestActions({
                 center
                 onClick={onApprove}
                 loading={resolving === 'approve'}
-                disabledReason={
-                    resolving
-                        ? 'Saving'
-                        : !issuerHostConfirmed
-                          ? `Type ${policyRequest.confirm_issuer_host} to approve`
-                          : undefined
-                }
+                disabledReason={resolving ? 'Saving' : undefined}
                 data-attr="workload-trust-policy-request-approve"
             >
                 Approve

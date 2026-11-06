@@ -54,20 +54,7 @@ from posthog.rate_limit import (
 )
 from posthog.scopes import RISKY_SCOPE_WARNINGS
 from posthog.tasks.email import WorkloadTrustPolicyChange, send_workload_trust_policy_changed
-from posthog.workload_identity.custom_issuer import (
-    CUSTOM_PROVIDER_DOCS_URL,
-    CUSTOM_PROVIDER_NAME,
-    DEFAULT_SUBJECT_CLAIM,
-    CustomIssuerError,
-    CustomIssuerUnavailable,
-    custom_issuer_host,
-    custom_workload_provider,
-    discover_custom_issuer,
-    validate_claim_name,
-    validate_custom_issuer_url,
-)
 from posthog.workload_identity.providers import (
-    WILDCARD_CHARACTERS,
     ConditionPreset,
     WorkloadProvider,
     WorkloadProviderKey,
@@ -81,11 +68,9 @@ from products.access_control.backend.facade.subject_access_control import restri
 
 # A policy matches claim values exactly, so a character that reads as a pattern is refused rather than
 # taken literally: an admin who types `acme/*` expects every workload under `acme` to match, and none would.
+WILDCARD_CHARACTERS = frozenset("*?[]")
 DUPLICATE_POLICY_MESSAGE = "A policy for this workload with the same conditions already exists."
 UNSUPPORTED_ISSUER_MESSAGE = "This issuer isn't a supported workload provider."
-CUSTOM_ISSUER_NEEDS_SUBJECT_CLAIM = (
-    "This issuer isn't a supported workload provider. To trust it as a custom OIDC provider, name its subject claim."
-)
 FALLBACK_SUBJECT_LABEL = "Subject"
 FALLBACK_SUBJECT_NAME_LABEL = "Name"
 
@@ -152,95 +137,16 @@ def validate_condition_companions(conditions: dict[str, str], provider: Workload
             raise serializers.ValidationError({"conditions": f"{labels[alone]} needs {needed} too. {rule.reason}"})
 
 
-def policy_provider(policy: WorkloadTrustPolicy | WorkloadTrustPolicyRequest) -> WorkloadProvider | None:
-    """The registry provider of a stored policy or request, or the custom provider its claims describe."""
-    provider = get_workload_provider_by_issuer(policy.issuer)
-    if provider is not None or not policy.subject_claim:
-        return provider
-    return custom_workload_provider(
-        policy.issuer,
-        subject_claim=policy.subject_claim,
-        subject_name_claim=policy.subject_name_claim,
-        condition_claims=tuple(policy.conditions),
-    )
-
-
-def _validate_custom_policy(attrs: dict[str, Any], instance: Any | None) -> dict[str, Any]:
-    def current(field: str, default: Any = "") -> Any:
-        return attrs[field] if field in attrs else getattr(instance, field, default)
-
-    issuer, subject_claim, subject_name_claim = (
-        current("issuer"),
-        current("subject_claim"),
-        current("subject_name_claim"),
-    )
-    if not subject_claim:
-        raise serializers.ValidationError({"issuer": CUSTOM_ISSUER_NEEDS_SUBJECT_CLAIM})
-    try:
-        validate_custom_issuer_url(issuer)
-    except CustomIssuerError as e:
-        raise serializers.ValidationError({"issuer": str(e)})
-    claims = {
-        "subject_claim": (subject_claim, "subject claim"),
-        "subject_name_claim": (subject_name_claim, "name claim"),
-    }
-    for field, (value, what) in claims.items():
-        if value:
-            try:
-                validate_claim_name(value, what)
-            except CustomIssuerError as e:
-                raise serializers.ValidationError({field: str(e)})
-    if subject_name_claim == subject_claim:
-        raise serializers.ValidationError({"subject_name_claim": "Leave the name claim empty, or name another claim."})
-    raw_conditions = current("conditions", {})
-    if not isinstance(raw_conditions, dict):
-        raise serializers.ValidationError({"conditions": "Send conditions as an object of claim names and values."})
-    for name in raw_conditions:
-        try:
-            validate_claim_name(name, "condition claim")
-        except CustomIssuerError as e:
-            raise serializers.ValidationError({"conditions": str(e)})
-        if name in (subject_claim, subject_name_claim):
-            raise serializers.ValidationError({"conditions": f"{name} is the subject or name claim already."})
-    provider = custom_workload_provider(
-        issuer,
-        subject_claim=subject_claim,
-        subject_name_claim=subject_name_claim,
-        condition_claims=tuple(raw_conditions),
-    )
-    attrs["conditions"] = normalize_workload_conditions(raw_conditions, provider)
-    # The custom issuer's claims mean what that issuer says, so PostHog can't tell which ones single out runs.
-    # One condition at least keeps a policy from trusting every token the issuer signs for the subject.
-    if not attrs["conditions"]:
-        raise serializers.ValidationError(
-            {
-                "conditions": "Set at least one condition, so the policy doesn't trust every token the issuer signs for this subject."
-            }
-        )
-    if instance is None or "issuer" in attrs and attrs["issuer"] != instance.issuer:
-        try:
-            discover_custom_issuer(issuer, retry_failure=True)
-        except CustomIssuerError as e:
-            raise serializers.ValidationError({"issuer": str(e)})
-    return attrs
-
-
 def validate_workload_trust_conditions(attrs: dict[str, Any], *, instance: Any | None = None) -> dict[str, Any]:
     """Shared by policies and policy requests, so both enforce the same conditions. Normalizes
-    `attrs["conditions"]` against the issuer's provider whenever the issuer, the claims or the conditions change."""
-    changed = {"issuer", "conditions", "subject_claim", "subject_name_claim"} & attrs.keys()
-    if instance is not None and not changed:
+    `attrs["conditions"]` against the issuer's provider whenever the issuer or the conditions change."""
+    if instance is not None and "issuer" not in attrs and "conditions" not in attrs:
         # Disabling or renaming a policy stays possible after its provider leaves the registry.
         return attrs
     issuer = attrs["issuer"] if "issuer" in attrs else getattr(instance, "issuer", "")
     provider = get_workload_provider_by_issuer(issuer)
     if provider is None:
-        return _validate_custom_policy(attrs, instance)
-    for field in ("subject_claim", "subject_name_claim"):
-        if attrs.get(field, getattr(instance, field, "")):
-            raise serializers.ValidationError(
-                {field: f"{provider.name} names its own claims, so leave the claim fields empty."}
-            )
+        raise serializers.ValidationError({"issuer": UNSUPPORTED_ISSUER_MESSAGE})
     raw_conditions = attrs["conditions"] if "conditions" in attrs else getattr(instance, "conditions", {})
     attrs["conditions"] = normalize_workload_conditions(raw_conditions, provider)
     labels_by_claim = {claim.name: claim.label for claim in provider.condition_claims}
@@ -284,8 +190,8 @@ class WorkloadClaimLabelsSerializer(serializers.Serializer):
     )
 
 
-def workload_claim_labels(policy: WorkloadTrustPolicy | WorkloadTrustPolicyRequest) -> dict[str, Any]:
-    provider = policy_provider(policy)
+def workload_claim_labels(issuer: str) -> dict[str, Any]:
+    provider = get_workload_provider_by_issuer(issuer)
     if provider is None:
         return {"subject": FALLBACK_SUBJECT_LABEL, "subject_name": FALLBACK_SUBJECT_NAME_LABEL, "conditions": {}}
     return {
@@ -315,32 +221,9 @@ class CIScopeListField(serializers.ListField):
 class WorkloadConditionsSerializerMixin(serializers.Serializer):
     issuer = serializers.CharField(
         max_length=255,
-        help_text=(
-            "The OIDC issuer of the workload provider. A supported provider's issuer, or any other HTTPS issuer "
-            "together with subject_claim."
-        ),
+        help_text="The OIDC issuer of the workload provider, from the list of supported providers.",
     )
-    provider = serializers.SerializerMethodField(
-        help_text="The key of the workload provider the issuer belongs to, custom for another issuer."
-    )
-    subject_claim = serializers.CharField(
-        max_length=100,
-        required=False,
-        allow_blank=True,
-        help_text=(
-            "For an issuer outside the supported providers: the claim that holds the workload's ID, like sub. "
-            "Leave it empty for a supported provider, which names its own claims."
-        ),
-    )
-    subject_name_claim = serializers.CharField(
-        max_length=100,
-        required=False,
-        allow_blank=True,
-        help_text=(
-            "For an issuer outside the supported providers: an optional claim that holds the workload's name, "
-            "matched against subject_name. When empty, subject_name is only a label."
-        ),
-    )
+    provider = serializers.SerializerMethodField(help_text="The key of the workload provider the issuer belongs to.")
     subject_name = serializers.CharField(
         max_length=255,
         help_text=(
@@ -367,13 +250,11 @@ class WorkloadConditionsSerializerMixin(serializers.Serializer):
     )
 
     def get_provider(self, instance: WorkloadTrustPolicy | WorkloadTrustPolicyRequest) -> str | None:
-        provider = policy_provider(instance)
+        provider = get_workload_provider_by_issuer(instance.issuer)
         return provider.key if provider else None
 
     def validate_issuer(self, value: str) -> str:
-        # Another issuer is checked with its claims in `validate`.
-        provider = get_workload_provider_by_issuer(value)
-        return normalize_issuer(provider.issuer) if provider else value
+        return validate_supported_issuer(value)
 
     def validate_subject_name(self, value: str) -> str:
         return _validate_exact_value(value, FALLBACK_SUBJECT_NAME_LABEL)
@@ -383,7 +264,7 @@ class WorkloadConditionsSerializerMixin(serializers.Serializer):
 
     @extend_schema_field(WorkloadClaimLabelsSerializer)
     def get_claim_labels(self, instance: Any) -> dict[str, Any]:
-        return workload_claim_labels(instance)
+        return workload_claim_labels(instance.issuer)
 
 
 class WorkloadTrustPolicySerializer(WorkloadConditionsSerializerMixin, serializers.ModelSerializer):
@@ -408,8 +289,6 @@ class WorkloadTrustPolicySerializer(WorkloadConditionsSerializerMixin, serialize
             "provider",
             "subject_name",
             "subject",
-            "subject_claim",
-            "subject_name_claim",
             "conditions",
             "claim_labels",
             "scopes",
@@ -536,17 +415,8 @@ class WorkloadJobSettingsSerializer(serializers.Serializer):
     posthog_json = serializers.CharField(help_text="The posthog.json keys a job needs, as JSON.")
 
 
-class CustomProviderSerializer(serializers.Serializer):
-    name = serializers.CharField(help_text="What the UI calls a policy for another OIDC issuer.")
-    docs_url = serializers.CharField(help_text="Where to read how to set up another OIDC issuer.")
-    default_subject_claim = serializers.CharField(help_text="The subject claim to suggest, sub in most issuers.")
-
-
 class WorkloadProvidersResponseSerializer(serializers.Serializer):
     supported = WorkloadProviderSerializer(many=True, help_text="Providers a policy can trust.")
-    custom = CustomProviderSerializer(
-        help_text="Any other HTTPS OIDC issuer, which a policy trusts with the claims the admin names."
-    )
     job_settings = WorkloadJobSettingsSerializer(
         help_text="Where a job's host and project come from: posthog.json first, or HOG_HOST and HOG_PROJECT_ID."
     )
@@ -617,22 +487,6 @@ class BrowserSessionWritePermission(BasePermission):
         return isinstance(request.successful_authenticator, SessionAuthentication)
 
 
-class CheckCustomIssuerQuerySerializer(serializers.Serializer):
-    issuer = serializers.CharField(
-        max_length=255, help_text="The issuer URL, exactly as the issuer's tokens carry it in the iss claim."
-    )
-
-
-class CustomIssuerSerializer(serializers.Serializer):
-    issuer = serializers.CharField(help_text="The issuer URL the discovery document confirmed.")
-    jwks_uri = serializers.CharField(help_text="Where the issuer publishes the keys PostHog checks its tokens with.")
-    signing_algorithms = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="The RSA and EC algorithms the issuer signs ID tokens with. Empty when it doesn't say.",
-    )
-    audience = serializers.CharField(help_text="The audience the issuer's tokens must carry for PostHog.")
-
-
 @extend_schema(extensions={"x-product": "core"})
 class WorkloadTrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "workload_trust_policy"
@@ -663,47 +517,12 @@ class WorkloadTrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance.delete()
         notify_admins_of_policy_change(self.team_id, policy_id, name, "deleted", self.request.user.pk)
 
-    def get_throttles(self) -> list[Any]:
-        if self.action == "check_issuer":
-            return [WorkloadSubjectLookupThrottle()]
-        return super().get_throttles()
-
-    @validated_request(
-        query_serializer=CheckCustomIssuerQuerySerializer,
-        responses={
-            200: CustomIssuerSerializer,
-            400: OpenApiResponse(description="PostHog can't trust the issuer. The error says why."),
-            503: OpenApiResponse(description="The issuer didn't answer."),
-        },
-    )
-    @action(methods=["GET"], detail=False, required_scopes=["workload_trust_policy:read"])
-    def check_issuer(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
-        """Read an issuer's OpenID configuration, so an admin sees what a custom OIDC provider policy will trust."""
-        try:
-            metadata = discover_custom_issuer(request.validated_query_data["issuer"], refresh=True)
-        except CustomIssuerUnavailable as e:
-            raise WorkloadProviderUnavailable(str(e))
-        except CustomIssuerError as e:
-            raise serializers.ValidationError({"issuer": str(e)})
-        payload = {
-            "issuer": metadata.issuer,
-            "jwks_uri": metadata.jwks_uri,
-            "signing_algorithms": list(metadata.signing_algorithms),
-            "audience": (settings.SITE_URL or "").rstrip("/"),
-        }
-        return Response(CustomIssuerSerializer(payload).data)
-
     @extend_schema(responses={200: WorkloadProvidersResponseSerializer})
     @action(methods=["GET"], detail=False, required_scopes=["workload_trust_policy:read"], pagination_class=None)
     def providers(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         grantable = workload_trust_policy_grantable_scopes()
         payload = {
             "supported": get_supported_workload_providers(),
-            "custom": {
-                "name": CUSTOM_PROVIDER_NAME,
-                "docs_url": CUSTOM_PROVIDER_DOCS_URL,
-                "default_subject_claim": DEFAULT_SUBJECT_CLAIM,
-            },
             "job_settings": workload_job_settings(self.team.project_id),
             "grantable_scopes": sorted(grantable),
             "risky_scopes": {scope: warning for scope, warning in RISKY_SCOPE_WARNINGS.items() if scope in grantable},
@@ -744,9 +563,6 @@ class WorkloadTrustPolicyRequestSerializer(WorkloadConditionsSerializerMixin, se
     requested_by = UserBasicSerializer(read_only=True, allow_null=True)
     resolved_by = UserBasicSerializer(read_only=True, allow_null=True)
     policy_id = serializers.UUIDField(read_only=True, allow_null=True, help_text="The policy created on approval.")
-    confirm_issuer_host = serializers.SerializerMethodField(
-        help_text="For a custom OIDC provider, the issuer host the approver must type to approve. Null for supported providers."
-    )
 
     class Meta:
         model = WorkloadTrustPolicyRequest
@@ -758,8 +574,6 @@ class WorkloadTrustPolicyRequestSerializer(WorkloadConditionsSerializerMixin, se
             "provider_name",
             "subject_name",
             "subject",
-            "subject_claim",
-            "subject_name_claim",
             "conditions",
             "claim_labels",
             "scopes",
@@ -776,7 +590,6 @@ class WorkloadTrustPolicyRequestSerializer(WorkloadConditionsSerializerMixin, se
             "resolved_by",
             "resolved_at",
             "policy_id",
-            "confirm_issuer_host",
         ]
         read_only_fields = [
             "id",
@@ -796,7 +609,6 @@ class WorkloadTrustPolicyRequestSerializer(WorkloadConditionsSerializerMixin, se
             "resolved_by",
             "resolved_at",
             "policy_id",
-            "confirm_issuer_host",
         ]
         extra_kwargs = {
             "created_at": {"help_text": "When the request was made."},
@@ -813,7 +625,7 @@ class WorkloadTrustPolicyRequestSerializer(WorkloadConditionsSerializerMixin, se
         return bool(application.is_verified or application.is_first_party) if application else None
 
     def get_provider_name(self, policy_request: WorkloadTrustPolicyRequest) -> str | None:
-        provider = policy_provider(policy_request)
+        provider = get_workload_provider_by_issuer(policy_request.issuer)
         return provider.name if provider else None
 
     @extend_schema_field(serializers.ChoiceField(choices=WorkloadTrustPolicyRequest.Status.choices))
@@ -823,10 +635,6 @@ class WorkloadTrustPolicyRequestSerializer(WorkloadConditionsSerializerMixin, se
     @extend_schema_field(serializers.DictField(child=serializers.CharField()))
     def get_risky_scopes(self, policy_request: WorkloadTrustPolicyRequest) -> dict[str, str]:
         return {scope: RISKY_SCOPE_WARNINGS[scope] for scope in policy_request.scopes if scope in RISKY_SCOPE_WARNINGS}
-
-    @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_confirm_issuer_host(self, policy_request: WorkloadTrustPolicyRequest) -> str | None:
-        return custom_issuer_host(policy_request.issuer) if policy_request.subject_claim else None
 
     def get_approval_url(self, policy_request: WorkloadTrustPolicyRequest) -> str:
         return workload_trust_policy_request_url(policy_request.team_id, str(policy_request.pk))
@@ -839,15 +647,6 @@ class WorkloadTrustPolicyRequestSerializer(WorkloadConditionsSerializerMixin, se
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         return validate_workload_trust_conditions(attrs)
-
-
-class ApproveWorkloadTrustPolicyRequestSerializer(serializers.Serializer):
-    confirm_issuer_host = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        max_length=255,
-        help_text="The issuer host, typed by the approver. A custom OIDC provider request needs it to equal the request's confirm_issuer_host.",
-    )
 
 
 class WorkloadProviderUnavailable(APIException):
@@ -894,56 +693,20 @@ class WorkloadTrustPolicyRequestResolutionPermission(BasePermission):
         return membership.level >= OrganizationMembership.Level.ADMIN
 
 
-def _warm_custom_issuer(team_id: int, request_id: str) -> None:
-    """Fetch a custom request's issuer before approval locks the row, so the network call happens outside the
-    transaction. Approval checks the issuer again from the cache and reports any failure."""
-    policy_request = WorkloadTrustPolicyRequest.objects.for_team(team_id).filter(pk=request_id).first()
-    if policy_request is None or not policy_request.subject_claim:
-        return
-    try:
-        discover_custom_issuer(policy_request.issuer, retry_failure=True)
-    except CustomIssuerError:
-        pass
-
-
 def resolve_workload_trust_policy_request(
-    *,
-    team_id: int,
-    request_id: str,
-    approve: bool,
-    resolver: User,
-    policy_serializer_context: dict[str, Any],
-    confirm_issuer_host: str = "",
+    *, team_id: int, request_id: str, approve: bool, resolver: User, policy_serializer_context: dict[str, Any]
 ) -> WorkloadTrustPolicyRequest:
     """Approve or reject a pending request. Approving creates the policy from the request's own values,
     checked again against today's rules, in the same transaction that marks the request approved."""
-    if approve:
-        _warm_custom_issuer(team_id, request_id)
     with transaction.atomic():
         policy_request = WorkloadTrustPolicyRequest.objects.select_for_update().get(pk=request_id, team_id=team_id)
         if policy_request.effective_status != WorkloadTrustPolicyRequest.Status.PENDING:
             raise serializers.ValidationError(f"This request is {policy_request.effective_status} and can't change.")
-        # A custom issuer is any URL a member typed, so the admin proves they read it before PostHog trusts it.
-        if approve and policy_request.subject_claim:
-            expected_host = custom_issuer_host(policy_request.issuer)
-            if confirm_issuer_host != expected_host:
-                raise serializers.ValidationError(
-                    {"confirm_issuer_host": f"Type {expected_host} to confirm that you trust this issuer."}
-                )
         if approve:
             policy_serializer = WorkloadTrustPolicySerializer(
                 data={
                     field: getattr(policy_request, field)
-                    for field in (
-                        "name",
-                        "issuer",
-                        "subject_name",
-                        "subject",
-                        "subject_claim",
-                        "subject_name_claim",
-                        "conditions",
-                        "scopes",
-                    )
+                    for field in ("name", "issuer", "subject_name", "subject", "conditions", "scopes")
                 },
                 context=policy_serializer_context,
             )
@@ -1028,7 +791,7 @@ class WorkloadTrustPolicyRequestViewSet(
             requested_via_application=requesting_application(self.request),
         )
 
-    def _resolve(self, approve: bool, confirm_issuer_host: str = "") -> Response:
+    def _resolve(self, approve: bool) -> Response:
         policy_request = self.get_object()
         resolved = resolve_workload_trust_policy_request(
             team_id=policy_request.team_id,
@@ -1036,7 +799,6 @@ class WorkloadTrustPolicyRequestViewSet(
             approve=approve,
             resolver=cast(User, self.request.user),
             policy_serializer_context=self.get_serializer_context(),
-            confirm_issuer_host=confirm_issuer_host,
         )
         if resolved.policy is not None:
             notify_admins_of_policy_change(
@@ -1070,13 +832,10 @@ class WorkloadTrustPolicyRequestViewSet(
             raise WorkloadProviderUnavailable(str(e))
         return Response(ResolvedWorkloadSubjectSerializer(resolved).data)
 
-    @validated_request(
-        request_serializer=ApproveWorkloadTrustPolicyRequestSerializer,
-        responses={200: WorkloadTrustPolicyRequestSerializer},
-    )
+    @extend_schema(request=None, responses={200: WorkloadTrustPolicyRequestSerializer})
     @action(methods=["POST"], detail=True, required_scopes=["workload_trust_policy_request:write"])
-    def approve(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
-        return self._resolve(approve=True, confirm_issuer_host=request.validated_data.get("confirm_issuer_host", ""))
+    def approve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._resolve(approve=True)
 
     @extend_schema(request=None, responses={200: WorkloadTrustPolicyRequestSerializer})
     @action(methods=["POST"], detail=True, required_scopes=["workload_trust_policy_request:write"])

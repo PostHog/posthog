@@ -1344,10 +1344,6 @@ export const workloadTrustPoliciesCreateBodySubjectNameMax = 255
 
 export const workloadTrustPoliciesCreateBodySubjectMax = 255
 
-export const workloadTrustPoliciesCreateBodySubjectClaimMax = 100
-
-export const workloadTrustPoliciesCreateBodySubjectNameClaimMax = 100
-
 export const workloadTrustPoliciesCreateBodyScopesItemMax = 100
 
 export const WorkloadTrustPoliciesCreateBody = /* @__PURE__ */ zod.object({
@@ -1355,9 +1351,7 @@ export const WorkloadTrustPoliciesCreateBody = /* @__PURE__ */ zod.object({
     issuer: zod
         .string()
         .max(workloadTrustPoliciesCreateBodyIssuerMax)
-        .describe(
-            "The OIDC issuer of the workload provider. A supported provider's issuer, or any other HTTPS issuer together with subject_claim."
-        ),
+        .describe('The OIDC issuer of the workload provider, from the list of supported providers.'),
     subject_name: zod
         .string()
         .max(workloadTrustPoliciesCreateBodySubjectNameMax)
@@ -1369,20 +1363,6 @@ export const WorkloadTrustPoliciesCreateBody = /* @__PURE__ */ zod.object({
         .max(workloadTrustPoliciesCreateBodySubjectMax)
         .describe(
             "The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match."
-        ),
-    subject_claim: zod
-        .string()
-        .max(workloadTrustPoliciesCreateBodySubjectClaimMax)
-        .optional()
-        .describe(
-            "For an issuer outside the supported providers: the claim that holds the workload's ID, like sub. Leave it empty for a supported provider, which names its own claims."
-        ),
-    subject_name_claim: zod
-        .string()
-        .max(workloadTrustPoliciesCreateBodySubjectNameClaimMax)
-        .optional()
-        .describe(
-            "For an issuer outside the supported providers: an optional claim that holds the workload's name, matched against subject_name. When empty, subject_name is only a label."
         ),
     conditions: zod
         .record(zod.string(), zod.string())
@@ -1406,10 +1386,6 @@ export const workloadTrustPoliciesUpdateBodySubjectNameMax = 255
 
 export const workloadTrustPoliciesUpdateBodySubjectMax = 255
 
-export const workloadTrustPoliciesUpdateBodySubjectClaimMax = 100
-
-export const workloadTrustPoliciesUpdateBodySubjectNameClaimMax = 100
-
 export const workloadTrustPoliciesUpdateBodyScopesItemMax = 100
 
 export const WorkloadTrustPoliciesUpdateBody = /* @__PURE__ */ zod.object({
@@ -1417,9 +1393,7 @@ export const WorkloadTrustPoliciesUpdateBody = /* @__PURE__ */ zod.object({
     issuer: zod
         .string()
         .max(workloadTrustPoliciesUpdateBodyIssuerMax)
-        .describe(
-            "The OIDC issuer of the workload provider. A supported provider's issuer, or any other HTTPS issuer together with subject_claim."
-        ),
+        .describe('The OIDC issuer of the workload provider, from the list of supported providers.'),
     subject_name: zod
         .string()
         .max(workloadTrustPoliciesUpdateBodySubjectNameMax)
@@ -1431,20 +1405,6 @@ export const WorkloadTrustPoliciesUpdateBody = /* @__PURE__ */ zod.object({
         .max(workloadTrustPoliciesUpdateBodySubjectMax)
         .describe(
             "The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match."
-        ),
-    subject_claim: zod
-        .string()
-        .max(workloadTrustPoliciesUpdateBodySubjectClaimMax)
-        .optional()
-        .describe(
-            "For an issuer outside the supported providers: the claim that holds the workload's ID, like sub. Leave it empty for a supported provider, which names its own claims."
-        ),
-    subject_name_claim: zod
-        .string()
-        .max(workloadTrustPoliciesUpdateBodySubjectNameClaimMax)
-        .optional()
-        .describe(
-            "For an issuer outside the supported providers: an optional claim that holds the workload's name, matched against subject_name. When empty, subject_name is only a label."
         ),
     conditions: zod
         .record(zod.string(), zod.string())
@@ -1468,10 +1428,6 @@ export const workloadTrustPoliciesPartialUpdateBodySubjectNameMax = 255
 
 export const workloadTrustPoliciesPartialUpdateBodySubjectMax = 255
 
-export const workloadTrustPoliciesPartialUpdateBodySubjectClaimMax = 100
-
-export const workloadTrustPoliciesPartialUpdateBodySubjectNameClaimMax = 100
-
 export const workloadTrustPoliciesPartialUpdateBodyScopesItemMax = 100
 
 export const WorkloadTrustPoliciesPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -1484,9 +1440,7 @@ export const WorkloadTrustPoliciesPartialUpdateBody = /* @__PURE__ */ zod.object
         .string()
         .max(workloadTrustPoliciesPartialUpdateBodyIssuerMax)
         .optional()
-        .describe(
-            "The OIDC issuer of the workload provider. A supported provider's issuer, or any other HTTPS issuer together with subject_claim."
-        ),
+        .describe('The OIDC issuer of the workload provider, from the list of supported providers.'),
     subject_name: zod
         .string()
         .max(workloadTrustPoliciesPartialUpdateBodySubjectNameMax)
@@ -1500,20 +1454,6 @@ export const WorkloadTrustPoliciesPartialUpdateBody = /* @__PURE__ */ zod.object
         .optional()
         .describe(
             "The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match."
-        ),
-    subject_claim: zod
-        .string()
-        .max(workloadTrustPoliciesPartialUpdateBodySubjectClaimMax)
-        .optional()
-        .describe(
-            "For an issuer outside the supported providers: the claim that holds the workload's ID, like sub. Leave it empty for a supported provider, which names its own claims."
-        ),
-    subject_name_claim: zod
-        .string()
-        .max(workloadTrustPoliciesPartialUpdateBodySubjectNameClaimMax)
-        .optional()
-        .describe(
-            "For an issuer outside the supported providers: an optional claim that holds the workload's name, matched against subject_name. When empty, subject_name is only a label."
         ),
     conditions: zod
         .record(zod.string(), zod.string())
@@ -1538,10 +1478,6 @@ export const workloadTrustPolicyRequestsCreateBodySubjectNameMax = 255
 
 export const workloadTrustPolicyRequestsCreateBodySubjectMax = 255
 
-export const workloadTrustPolicyRequestsCreateBodySubjectClaimMax = 100
-
-export const workloadTrustPolicyRequestsCreateBodySubjectNameClaimMax = 100
-
 export const workloadTrustPolicyRequestsCreateBodyScopesItemMax = 100
 
 export const WorkloadTrustPolicyRequestsCreateBody = /* @__PURE__ */ zod.object({
@@ -1552,9 +1488,7 @@ export const WorkloadTrustPolicyRequestsCreateBody = /* @__PURE__ */ zod.object(
     issuer: zod
         .string()
         .max(workloadTrustPolicyRequestsCreateBodyIssuerMax)
-        .describe(
-            "The OIDC issuer of the workload provider. A supported provider's issuer, or any other HTTPS issuer together with subject_claim."
-        ),
+        .describe('The OIDC issuer of the workload provider, from the list of supported providers.'),
     subject_name: zod
         .string()
         .max(workloadTrustPolicyRequestsCreateBodySubjectNameMax)
@@ -1567,20 +1501,6 @@ export const WorkloadTrustPolicyRequestsCreateBody = /* @__PURE__ */ zod.object(
         .describe(
             "The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match."
         ),
-    subject_claim: zod
-        .string()
-        .max(workloadTrustPolicyRequestsCreateBodySubjectClaimMax)
-        .optional()
-        .describe(
-            "For an issuer outside the supported providers: the claim that holds the workload's ID, like sub. Leave it empty for a supported provider, which names its own claims."
-        ),
-    subject_name_claim: zod
-        .string()
-        .max(workloadTrustPolicyRequestsCreateBodySubjectNameClaimMax)
-        .optional()
-        .describe(
-            "For an issuer outside the supported providers: an optional claim that holds the workload's name, matched against subject_name. When empty, subject_name is only a label."
-        ),
     conditions: zod
         .record(zod.string(), zod.string())
         .optional()
@@ -1590,18 +1510,6 @@ export const WorkloadTrustPolicyRequestsCreateBody = /* @__PURE__ */ zod.object(
     scopes: zod
         .array(zod.string().max(workloadTrustPolicyRequestsCreateBodyScopesItemMax))
         .describe("The scopes the policy's tokens would carry."),
-})
-
-export const workloadTrustPolicyRequestsApproveCreateBodyConfirmIssuerHostMax = 255
-
-export const WorkloadTrustPolicyRequestsApproveCreateBody = /* @__PURE__ */ zod.object({
-    confirm_issuer_host: zod
-        .string()
-        .max(workloadTrustPolicyRequestsApproveCreateBodyConfirmIssuerHostMax)
-        .optional()
-        .describe(
-            "The issuer host, typed by the approver. A custom OIDC provider request needs it to equal the request's confirm_issuer_host."
-        ),
 })
 
 /**
