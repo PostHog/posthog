@@ -5,7 +5,6 @@ import contextlib
 from collections.abc import Iterable
 from typing import Any, Optional
 
-from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models
 
@@ -27,7 +26,7 @@ from posthog.models.integration import (
     POSTHOG_CONNECT_KIND,
     SANDBOX_EMAIL_PROVIDER,
     WAREHOUSE_SOURCE_TYPE_CONFIG_KEY,
-    is_sandbox_sender_domain,
+    sandbox_sender_configured,
 )
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -130,12 +129,6 @@ def _has_templated_sender_id(from_value: dict) -> bool:
     )
 
 
-def _sandbox_sender_configured() -> bool:
-    # Mirrors _sandbox_sender_configured() in the workflows sandbox_sender service, which imports this module.
-    from_domain = settings.SES_SANDBOX_FROM_ADDRESS.rpartition("@")[2]
-    return bool(settings.SES_SANDBOX_TENANT_NAME) and is_sandbox_sender_domain(from_domain)
-
-
 def _sandbox_email_sender_ids(context: dict[str, Any]) -> frozenset[int]:
     # One query per save, whatever the number of senders. A workflow validates each step with its own
     # context, and every step shares this holder.
@@ -175,7 +168,7 @@ def _matches_stored_email(email_value: dict, context: dict[str, Any]) -> bool:
 def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) -> None:
     # Every check returns before any query while the sandbox settings are empty. The project flag
     # only gates adoption: a sandbox sender the project already has keeps its limits with the flag off.
-    if not _sandbox_sender_configured():
+    if not sandbox_sender_configured():
         return
     if not isinstance(email_value, dict) or not isinstance(email_value.get("from"), dict):
         return
@@ -214,7 +207,7 @@ def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) 
         raise serializers.ValidationError(
             {
                 "input": "The sandbox sender can only be used in workflow email steps and test sends. "
-                "Select a sender on your own verified domain for destinations."
+                "Select a sender on your own verified domain."
             }
         )
     if len(integration_ids) != 1:
