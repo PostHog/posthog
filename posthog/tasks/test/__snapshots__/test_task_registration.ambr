@@ -146,6 +146,7 @@
     'posthog.tasks.tasks.redis_heartbeat',
     'posthog.tasks.tasks.redispatch_orphaned_queued_task_runs',
     'posthog.tasks.tasks.refresh_activity_log_fields_cache',
+    'posthog.tasks.tasks.report_upcoming_events_deletions',
     'posthog.tasks.tasks.send_org_usage_reports',
     'posthog.tasks.tasks.start_poll_query_performance',
     'posthog.tasks.tasks.stop_surveys_reached_target',
