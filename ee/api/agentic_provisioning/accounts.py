@@ -12,6 +12,8 @@ from django.db import IntegrityError, transaction
 from django.http import HttpRequest
 from django.utils import timezone
 
+from disposable_email_domains import blocklist as disposable_email_domains
+
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.signup import SIGNUP_BLOCKED_DETAIL, signup_refused
 from posthog.event_usage import report_user_signed_up
@@ -325,6 +327,12 @@ def apply_provisioned_onboarding_flags(user: User, team: Team) -> None:
         team.save(update_fields=["completed_snippet_onboarding"])
 
 
+def is_disposable_email(email: str) -> bool:
+    """Whether the email domain, or a parent of it, is a known disposable email provider."""
+    labels = email.rpartition("@")[2].lower().split(".")
+    return any(".".join(labels[i:]) in disposable_email_domains for i in range(len(labels) - 1))
+
+
 def handle_new_user(
     request: HttpRequest,
     request_id: str,
@@ -351,20 +359,28 @@ def handle_new_user(
         capture_provisioning_event("account_request", "access_blocked", partner=partner, region=region)
         raise ProvisioningError(SECURITY_REFUSAL_CODE, SIGNUP_BLOCKED_DETAIL, request_id=request_id, status=403)
 
-    try:
-        evaluate_auth_attempt(
-            request,
-            email,
-            RadarAction.SIGNUP,
-            RadarAuthMethod.OTHER,
-            challenge_allowed=False,
-            call_site="agentic_provisioning",
-        )
-    except SuspiciousAttemptBlocked as blocked:
-        capture_provisioning_event("account_request", "radar_blocked", partner=partner, region=region)
-        raise ProvisioningError(
-            SuspiciousAttemptBlocked.default_code, str(blocked.detail), request_id=request_id, status=403
-        )
+    if partner.is_verified:
+        # Radar scores the request IP and user agent, which belong to the partner server, not the
+        # end user. A busy partner therefore looks like a bot. PostHog staff vouch for a verified
+        # partner, so its users get an email-only check instead.
+        if is_disposable_email(email):
+            capture_provisioning_event("account_request", "disposable_email_blocked", partner=partner, region=region)
+            raise ProvisioningError(SECURITY_REFUSAL_CODE, SIGNUP_BLOCKED_DETAIL, request_id=request_id, status=403)
+    else:
+        try:
+            evaluate_auth_attempt(
+                request,
+                email,
+                RadarAction.SIGNUP,
+                RadarAuthMethod.OTHER,
+                challenge_allowed=False,
+                call_site="agentic_provisioning",
+            )
+        except SuspiciousAttemptBlocked as blocked:
+            capture_provisioning_event("account_request", "radar_blocked", partner=partner, region=region)
+            raise ProvisioningError(
+                SuspiciousAttemptBlocked.default_code, str(blocked.detail), request_id=request_id, status=403
+            )
 
     try:
         with transaction.atomic():

@@ -7,6 +7,8 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.contrib.auth.models import Group
+from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
 from django.test import Client, RequestFactory, SimpleTestCase, override_settings
@@ -14,15 +16,21 @@ from django.utils.html import format_html
 
 from parameterized import parameterized
 
-from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Owner, Panel, ReasonForm
+from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
+from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
 from posthog.admin.console.registry import ConsoleRegistry, console
-from posthog.admin.console.tools import Cell, ConsoleTool, Page, Row, Table
+from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Table
 from posthog.csp_middleware import CSPMiddleware
-from posthog.llm.gateway_internal_client import AIGatewayInternalError, CreditResult
+from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.ai_gateway.backend.facade.contracts import TeamCreditAdded, TeamCreditRefused
 from products.workflows.backend.facade.api import get_email_sending_state
+
+from ee.billing.quota_limiting import QuotaResource
 
 TEMPLATE_DIR = Path(settings.BASE_DIR) / "posthog" / "templates" / "admin_console"
 CONSOLE_ASSETS = Path(settings.BASE_DIR) / "frontend" / "public" / "admin-console"
@@ -95,9 +103,12 @@ class TestAdminConsoleAssets(SimpleTestCase):
         )
 
     def test_every_owner_crest_ships(self) -> None:
-        owners = [panel.owner for panel in console.panels_for("team")] + [tool.owner for tool in console.tools()]
         missing = sorted(
-            {owner.crest for owner in owners if not (CONSOLE_ASSETS / "crests" / f"{owner.crest}.svg").is_file()}
+            {
+                owner.crest
+                for owner in console.owners()
+                if not (CONSOLE_ASSETS / "crests" / f"{owner.crest}.svg").is_file()
+            }
         )
 
         assert not missing, (
@@ -138,8 +149,42 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 ),
                 "undo_hint",
             ),
+            (
+                "owner_gate_for_an_owner_without_a_staff_group",
+                lambda: Gate.owner().resolve(Owner(name="Dev experience", crest="dev-experience")),
+                "has no staff_group",
+            ),
             ("fact_with_markup", lambda: Fact(label="Plan", value=format_html("<b>{}</b>", "Scale")), "plain text"),
+            (
+                "fact_linking_off_site",
+                lambda: Fact(label="Docs", value="Read", href="//example.com/phish"),
+                "starts with /",
+            ),
+            (
+                "fact_linking_off_site_with_a_backslash",
+                lambda: Fact(label="Docs", value="Read", href="/\\example.com/phish"),
+                "starts with /",
+            ),
             ("unknown_tool_block", lambda: Page(blocks=(Fact(label="a", value="b"),)), "not a console block"),  # type: ignore[arg-type]
+            (
+                "live_block_with_a_key_that_is_not_a_slug",
+                lambda: Live(key="Runs list", block=Notice(text="a")),
+                "lowercase and dash-separated",
+            ),
+            (
+                "live_block_holding_paging",
+                lambda: Page(
+                    blocks=(
+                        Live(
+                            key="runs",
+                            block=Paging(  # type: ignore[arg-type]
+                                number=1, num_pages=1, summary="", previous_url=None, next_url=None
+                            ),
+                        ),
+                    )
+                ),
+                "not a table, notice or output",
+            ),
             (
                 "table_row_missing_a_cell",
                 lambda: Page(blocks=(Table(columns=("Team", "Months"), rows=(Row(cells=(Cell(text="a"),)),)),)),
@@ -152,6 +197,22 @@ class TestAdminConsoleAssets(SimpleTestCase):
     ) -> None:
         with self.assertRaisesRegex(ValueError, message):
             contribute()
+
+    @parameterized.expand(
+        [
+            ("fits", MAX_FACTS_PER_PANEL, MAX_FACTS_PER_PANEL, False),
+            ("overflows", MAX_FACTS_PER_PANEL + 1, MAX_FACTS_PER_PANEL, True),
+        ]
+    )
+    def test_billing_facts_count_the_limits_past_the_panel_cap(
+        self, _name: str, limited_count: int, expected_facts: int, mentions_more: bool
+    ) -> None:
+        limited: dict[QuotaResource, int | None] = dict.fromkeys(list(QuotaResource)[:limited_count])
+        with patch.object(QuotaLimits, "limited", return_value=limited):
+            facts = BillingPanel().facts(Organization(name="Many limits"))
+
+        assert len(facts) == expected_facts
+        assert (facts[-1].label == "More limits") == mentions_more
 
 
 class TestAdminConsoleTheme(SimpleTestCase):
@@ -228,6 +289,15 @@ class TestAdminConsoleViews(BaseTest):
         for panel in console.panels_for("team"):
             assert len(panel.facts(self.team)) <= MAX_FACTS_PER_PANEL, f"{panel.key} shows too many facts"
 
+        assert f"/admin/console/organizations/{self.organization.pk}/" in content
+
+        organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/")
+        assert organization_page.status_code == 200
+        organization_content = organization_page.content.decode()
+        for title in ("Overview", "Teams", "Billing"):
+            assert title in organization_content
+        assert f"/admin/console/teams/{self.team.pk}/" in organization_content
+
         home = self.client.get("/admin/console/").content.decode()
         assert "Recently opened" in home
         assert f"/admin/console/teams/{self.team.pk}/" in home
@@ -249,6 +319,35 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == 302
         assert response["Location"] == f"/admin/console/teams/{self.team.pk}/"
+
+    @parameterized.expand(
+        [
+            ("form_page_keeps_its_parameters", "team", "set-api-token/?from=ticket", "api-token/set/?from=ticket"),
+            ("button_action_lands_on_its_panel", "team", "rebuild-cache/", "#panel-remote-config"),
+            ("organization_action", "organization", "limit-product/?resource=events", "?resource=events#panel-billing"),
+            (
+                "deletion_request_form_page",
+                "datadeletionrequest",
+                "approve/?from=ticket",
+                "workflow/approve/?from=ticket",
+            ),
+        ]
+    )
+    def test_an_old_django_admin_action_url_lands_on_the_console(
+        self, _name: str, record: str, old: str, new: str
+    ) -> None:
+        obj: Model
+        if record == "team":
+            obj, plural = self.team, "teams"
+        elif record == "organization":
+            obj, plural = self.organization, "organizations"
+        else:
+            obj = DataDeletionRequest.objects.create(team_id=self.team.pk, request_type=RequestType.EVENT_REMOVAL)
+            plural = "deletion-requests"
+        response = self.client.get(f"/admin/posthog/{record}/{obj.pk}/{old}")
+
+        assert response.status_code == 302
+        assert response["Location"] == f"/admin/console/{plural}/{obj.pk}/{new}"
 
     def test_django_admin_team_page_points_moved_actions_to_the_console(self) -> None:
         response = self.client.get(f"/admin/posthog/team/{self.team.pk}/change/")
@@ -298,10 +397,35 @@ class TestAdminConsoleViews(BaseTest):
         state = get_email_sending_state(self.team.pk)
         assert (state is not None and state.suspended_at is not None) == expect_suspended
 
-    @patch("posthog.admin.admins.team_admin.add_credit")
+    @parameterized.expand(
+        [
+            ("new_token", "phc_console_new", 302, "phc_console_new"),
+            ("blank_token", "   ", 400, "phc_console_old"),
+            ("identical_token", "phc_console_old", 400, "phc_console_old"),
+            ("token_of_another_team", "phc_taken", 400, "phc_console_old"),
+        ]
+    )
+    @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
+    @patch("posthog.models.team.team.set_team_in_cache")
+    def test_set_api_token_changes_the_token_or_shows_the_form_again(
+        self, _name: str, new_token: str, expected_status: int, expected_token: str, *_mocks: MagicMock
+    ) -> None:
+        self.team.api_token = "phc_console_old"
+        self.team.save()
+        Team.objects.create(organization=self.organization, api_token="phc_taken")
+
+        response = self.client.post(
+            f"/admin/console/teams/{self.team.pk}/api-token/set/", {"new_token": new_token, "reason": "Leaked key"}
+        )
+
+        assert response.status_code == expected_status
+        self.team.refresh_from_db()
+        assert self.team.api_token == expected_token
+
+    @patch("products.ai_gateway.backend.facade.api.add_team_credit")
     def test_a_double_submitted_credit_form_reuses_its_idempotency_key(self, add_credit: MagicMock) -> None:
-        add_credit.return_value = CreditResult(
-            team_id=self.team.pk, entry_id="entry-1", amount_usd="25", balance_usd="25", duplicate=False
+        add_credit.return_value = TeamCreditAdded(
+            entry_id="entry-1", amount_usd="25", balance_usd="25", duplicate=False
         )
         form = self.client.get(f"/admin/console/teams/{self.team.pk}/ai-gateway/add-credit/").content.decode()
         nonce = re.search(r'name="form_nonce" value="([^"]+)"', form)
@@ -313,11 +437,14 @@ class TestAdminConsoleViews(BaseTest):
                 {"amount_usd": "25", "reason": "Outage goodwill", "form_nonce": nonce.group(1)},
             )
 
-        keys = {call.args[3] for call in add_credit.call_args_list}
+        nonces = {call.kwargs["form_nonce"] for call in add_credit.call_args_list}
         assert add_credit.call_count == 2
-        assert len(keys) == 1
+        assert nonces == {nonce.group(1)}
 
-    @patch("posthog.admin.admins.team_admin.add_credit", side_effect=AIGatewayInternalError("gateway down"))
+    @patch(
+        "products.ai_gateway.backend.facade.api.add_team_credit",
+        side_effect=TeamCreditRefused("Failed to add credit: gateway down"),
+    )
     def test_a_failed_operation_shows_the_form_again_with_what_staff_typed(self, _add_credit: MagicMock) -> None:
         response = self.client.post(
             f"/admin/console/teams/{self.team.pk}/ai-gateway/add-credit/",
@@ -328,6 +455,55 @@ class TestAdminConsoleViews(BaseTest):
         content = response.content.decode()
         assert "gateway down" in content
         assert "Outage goodwill" in content
+
+    @parameterized.expand(
+        [
+            ("limit_without_reason", "limit", {"resource": "events", "reason": " "}, True, 400, False),
+            ("limit_without_billing_period", "limit", {"resource": "events", "reason": "Abuse"}, False, 400, False),
+            ("limit", "limit", {"resource": "events", "reason": "Abuse"}, True, 302, True),
+            ("unlimit", "unlimit", {"resource": "events"}, True, 302, False),
+        ]
+    )
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_billing_operations_limit_and_unlimit_a_product(
+        self,
+        _name: str,
+        operation_key: str,
+        data: dict[str, str],
+        has_billing_period: bool,
+        expected_status: int,
+        expect_limited: bool,
+    ) -> None:
+        if has_billing_period:
+            self.organization.usage = {"period": ["2026-10-01T00:00:00Z", "2026-11-01T00:00:00Z"]}
+            self.organization.save()
+        if operation_key == "unlimit":
+            self.organization.limit_product_until_end_of_billing_cycle(QuotaResource.EVENTS)
+
+        response = self.client.post(
+            f"/admin/console/organizations/{self.organization.pk}/billing/{operation_key}/", data
+        )
+
+        assert response.status_code == expected_status
+        assert (QuotaResource.EVENTS in QuotaLimits.limited(self.organization)) == expect_limited
+
+    @parameterized.expand([("billing_staff", True, 302), ("other_staff", False, 403)])
+    @patch("posthog.admin.console.usage_reports_tool.call_command")
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_sending_usage_reports_needs_the_billing_team_group(
+        self, _name: str, in_group: bool, expected_status: int, call_command: MagicMock
+    ) -> None:
+        if in_group:
+            Group.objects.get_or_create(name="Billing Team")[0].user_set.add(self.user)
+
+        page = self.client.get("/admin/console/tools/usage-reports/").content.decode()
+        form = self.client.get("/admin/console/tools/usage-reports/send/")
+        response = self.client.post("/admin/console/tools/usage-reports/send/", {"report_date": "2026-10-19"})
+
+        assert ("Only members of the Billing Team group can run this" in page) != in_group
+        assert form.status_code == (200 if in_group else 403)
+        assert response.status_code == expected_status
+        assert call_command.called == in_group
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_events_retention_tool_lists_the_teams_of_an_organization_with_a_default(self) -> None:

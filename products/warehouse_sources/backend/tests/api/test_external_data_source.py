@@ -3762,6 +3762,7 @@ class TestExternalDataSource(APIBaseTest):
                     "available_columns": [],
                     "source_column_metadata_available": False,
                     "history_table_name": None,
+                    "registered_history_table_name": None,
                     "source": None,
                     "api_version": None,
                     "api_version_deprecation": None,
@@ -3900,7 +3901,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(source.status, "Running")
 
     @patch.object(StripeSource, "get_schemas")
-    def test_refresh_schemas_creates_new_schemas_and_returns_counts(self, mock_get_schemas):
+    def test_refresh_schemas_creates_new_schemas_and_returns_counts(self, mock_get_schemas: Mock) -> None:
         mock_get_schemas.return_value = [
             SourceSchema(name="table_a", supports_incremental=False, supports_append=False),
             SourceSchema(name="table_b", supports_incremental=False, supports_append=False),
@@ -3962,7 +3963,9 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow")
     @patch.object(StripeSource, "get_schemas")
-    def test_refresh_schemas_auto_enables_matching_new_schemas(self, mock_get_schemas, mock_schedule):
+    def test_refresh_schemas_auto_enables_matching_new_schemas(
+        self, mock_get_schemas: Mock, mock_schedule: Mock
+    ) -> None:
         mock_get_schemas.return_value = [
             SourceSchema(
                 name="raw_events",
@@ -4044,7 +4047,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertFalse(source.auto_sync_new_schemas)
 
     @patch.object(StripeSource, "get_schemas")
-    def test_refresh_schemas_creates_new_schemas_and_deletes_missing_schemas(self, mock_get_schemas):
+    def test_refresh_schemas_creates_new_schemas_and_deletes_missing_schemas(self, mock_get_schemas: Mock) -> None:
         mock_get_schemas.return_value = [
             SourceSchema(name="new_table", supports_incremental=False, supports_append=False),
         ]
@@ -4073,7 +4076,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertCountEqual(names, ["new_table"])
 
     @patch.object(StripeSource, "get_schemas")
-    def test_refresh_schemas_adds_only_new_schemas(self, mock_get_schemas):
+    def test_refresh_schemas_adds_only_new_schemas(self, mock_get_schemas: Mock) -> None:
         mock_get_schemas.return_value = [
             SourceSchema(name="existing", supports_incremental=False, supports_append=False),
             SourceSchema(name="new_table", supports_incremental=False, supports_append=False),
@@ -4099,7 +4102,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
     @patch.object(StripeSource, "get_schemas")
-    def test_refresh_schemas_idempotent_no_duplicates(self, mock_get_schemas):
+    def test_refresh_schemas_idempotent_no_duplicates(self, mock_get_schemas: Mock) -> None:
         mock_get_schemas.return_value = [
             SourceSchema(name="only_one", supports_incremental=False, supports_append=False),
         ]
@@ -4120,7 +4123,9 @@ class TestExternalDataSource(APIBaseTest):
         )
 
     @patch.object(StripeSource, "get_schemas")
-    def test_refresh_schemas_restores_deleted_schema_instead_of_creating_duplicate(self, mock_get_schemas):
+    def test_refresh_schemas_restores_deleted_schema_instead_of_creating_duplicate(
+        self, mock_get_schemas: Mock
+    ) -> None:
         mock_get_schemas.return_value = [
             SourceSchema(
                 name="restored_table",
@@ -4166,7 +4171,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(restored_schema.sync_type_config.get("legacy_key"), "keep")
 
     @patch.object(StripeSource, "get_schemas")
-    def test_refresh_schemas_updates_labels_on_existing_schemas(self, mock_get_schemas):
+    def test_refresh_schemas_updates_labels_on_existing_schemas(self, mock_get_schemas: Mock) -> None:
         mock_get_schemas.return_value = [
             SourceSchema(name="c123", label="general", supports_incremental=False, supports_append=False),
         ]
@@ -4184,7 +4189,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(schema.label, "general")
 
     @patch.object(StripeSource, "get_schemas")
-    def test_refresh_schemas_updates_changed_label(self, mock_get_schemas):
+    def test_refresh_schemas_updates_changed_label(self, mock_get_schemas: Mock) -> None:
         mock_get_schemas.return_value = [
             SourceSchema(name="c123", label="renamed-channel", supports_incremental=False, supports_append=False),
         ]
@@ -4202,7 +4207,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(schema.label, "renamed-channel")
 
     @patch.object(StripeSource, "get_schemas")
-    def test_refresh_schemas_sets_label_on_new_schema(self, mock_get_schemas):
+    def test_refresh_schemas_sets_label_on_new_schema(self, mock_get_schemas: Mock) -> None:
         mock_get_schemas.return_value = [
             SourceSchema(name="c456", label="random", supports_incremental=False, supports_append=False),
         ]
@@ -4217,7 +4222,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(schema.label, "random")
 
     @patch.object(StripeSource, "get_schemas")
-    def test_refresh_schemas_sets_label_on_restored_deleted_schema(self, mock_get_schemas):
+    def test_refresh_schemas_sets_label_on_restored_deleted_schema(self, mock_get_schemas: Mock) -> None:
         mock_get_schemas.return_value = [
             SourceSchema(name="c789", label="announcements", supports_incremental=False, supports_append=False),
         ]
@@ -4247,11 +4252,11 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertIn("configuration", response.json().get("message", ""))
 
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
-    def test_refresh_schemas_returns_400_when_get_schemas_raises(self, mock_get_source):
-        mock_get_source.return_value.parse_config.return_value = None
-        mock_get_source.return_value.get_non_retryable_errors.return_value = {"Connection failed": None}
-        mock_get_source.return_value.get_schemas.side_effect = Exception("Connection failed")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry")
+    def test_refresh_schemas_returns_400_when_get_schemas_raises(self, mock_source_registry):
+        mock_source_registry.get_source.return_value.parse_config.return_value = None
+        mock_source_registry.get_source.return_value.get_non_retryable_errors.return_value = {"Connection failed": None}
+        mock_source_registry.get_source.return_value.get_schemas.side_effect = Exception("Connection failed")
         source = self._create_external_data_source()
 
         response = self.client.post(
@@ -4262,7 +4267,9 @@ class TestExternalDataSource(APIBaseTest):
         self.assertIn("Could not fetch schemas from source", response.json().get("message", ""))
 
     @patch.object(StripeSource, "get_schemas")
-    def test_refresh_schemas_returns_zero_total_tables_seen_when_source_returns_nothing(self, mock_get_schemas):
+    def test_refresh_schemas_returns_zero_total_tables_seen_when_source_returns_nothing(
+        self, mock_get_schemas: Mock
+    ) -> None:
         mock_get_schemas.return_value = []
         source = self._create_external_data_source()
 
@@ -4277,13 +4284,13 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(data["total_tables_seen"], 0)
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.capture_exception")
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry")
     def test_refresh_schemas_returns_specific_message_without_capture_for_expected_source_error(
-        self, mock_get_source, mock_capture_exception
+        self, mock_source_registry, mock_capture_exception
     ):
-        mock_get_source.return_value.parse_config.return_value = None
-        mock_get_source.return_value.get_non_retryable_errors.return_value = {"timeout": None}
-        mock_get_source.return_value.get_schemas.side_effect = TimeoutError("connection timed out")
+        mock_source_registry.get_source.return_value.parse_config.return_value = None
+        mock_source_registry.get_source.return_value.get_non_retryable_errors.return_value = {"timeout": None}
+        mock_source_registry.get_source.return_value.get_schemas.side_effect = TimeoutError("connection timed out")
         source = self._create_external_data_source()
 
         response = self.client.post(
@@ -4298,12 +4305,12 @@ class TestExternalDataSource(APIBaseTest):
         mock_capture_exception.assert_not_called()
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.capture_exception")
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
-    def test_refresh_schemas_captures_unexpected_source_error(self, mock_get_source, mock_capture_exception):
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry")
+    def test_refresh_schemas_captures_unexpected_source_error(self, mock_source_registry, mock_capture_exception):
         error = RuntimeError("schema parser exploded")
-        mock_get_source.return_value.parse_config.return_value = None
-        mock_get_source.return_value.get_non_retryable_errors.return_value = {}
-        mock_get_source.return_value.get_schemas.side_effect = error
+        mock_source_registry.get_source.return_value.parse_config.return_value = None
+        mock_source_registry.get_source.return_value.get_non_retryable_errors.return_value = {}
+        mock_source_registry.get_source.return_value.get_schemas.side_effect = error
         source = self._create_external_data_source()
 
         response = self.client.post(
@@ -4373,10 +4380,10 @@ class TestExternalDataSource(APIBaseTest):
             [{"column": "user_id", "target_table": "posthog_user", "target_column": "id"}],
         )
 
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
-    def test_refresh_schemas_direct_postgres_soft_deletes_live_tables_for_deleted_schemas(self, mock_get_source):
-        mock_get_source.return_value.parse_config.return_value = None
-        mock_get_source.return_value.get_schemas.return_value = []
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry")
+    def test_refresh_schemas_direct_postgres_soft_deletes_live_tables_for_deleted_schemas(self, mock_source_registry):
+        mock_source_registry.get_source.return_value.parse_config.return_value = None
+        mock_source_registry.get_source.return_value.get_schemas.return_value = []
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -4413,10 +4420,10 @@ class TestExternalDataSource(APIBaseTest):
         self.assertTrue(DataWarehouseTable.raw_objects.filter(pk=table.pk, deleted=True).exists())
         self.assertTrue(ExternalDataSchema.objects.filter(pk=stale_schema.pk, deleted=True).exists())
 
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
-    def test_refresh_schemas_direct_postgres_keeps_disabled_schema_table_deleted(self, mock_get_source):
-        mock_get_source.return_value.parse_config.return_value = None
-        mock_get_source.return_value.get_schemas.return_value = [
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry")
+    def test_refresh_schemas_direct_postgres_keeps_disabled_schema_table_deleted(self, mock_source_registry):
+        mock_source_registry.get_source.return_value.parse_config.return_value = None
+        mock_source_registry.get_source.return_value.get_schemas.return_value = [
             SourceSchema(
                 name="Accounts",
                 supports_incremental=False,
@@ -4464,10 +4471,10 @@ class TestExternalDataSource(APIBaseTest):
         self.assertTrue(DataWarehouseTable.raw_objects.get(pk=table.pk).deleted)
         self.assertEqual(schema.sync_type_config["schema_metadata"]["columns"][0]["name"], "id")
 
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
-    def test_refresh_schemas_direct_postgres_new_schema_is_opt_in(self, mock_get_source):
-        mock_get_source.return_value.parse_config.return_value = None
-        mock_get_source.return_value.get_schemas.return_value = [
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry")
+    def test_refresh_schemas_direct_postgres_new_schema_is_opt_in(self, mock_source_registry):
+        mock_source_registry.get_source.return_value.parse_config.return_value = None
+        mock_source_registry.get_source.return_value.get_schemas.return_value = [
             SourceSchema(
                 name="Accounts",
                 supports_incremental=False,
@@ -4497,8 +4504,8 @@ class TestExternalDataSource(APIBaseTest):
         self.assertFalse(schema.should_sync)
         self.assertIsNone(schema.table)
 
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
-    def test_refresh_schemas_direct_postgres_preserves_disabled_schema_when_it_reappears(self, mock_get_source):
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry")
+    def test_refresh_schemas_direct_postgres_preserves_disabled_schema_when_it_reappears(self, mock_source_registry):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -4518,8 +4525,8 @@ class TestExternalDataSource(APIBaseTest):
             sync_type_config={"schema_metadata": {"columns": [], "foreign_keys": []}},
         )
 
-        mock_get_source.return_value.parse_config.return_value = None
-        mock_get_source.return_value.get_schemas.return_value = []
+        mock_source_registry.get_source.return_value.parse_config.return_value = None
+        mock_source_registry.get_source.return_value.get_schemas.return_value = []
         first_response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
         )
@@ -4528,7 +4535,7 @@ class TestExternalDataSource(APIBaseTest):
         schema.refresh_from_db()
         self.assertTrue(schema.deleted)
 
-        mock_get_source.return_value.get_schemas.return_value = [
+        mock_source_registry.get_source.return_value.get_schemas.return_value = [
             SourceSchema(
                 name="Accounts",
                 supports_incremental=False,
@@ -4547,8 +4554,8 @@ class TestExternalDataSource(APIBaseTest):
         self.assertFalse(schema.should_sync)
         self.assertIsNone(schema.table)
 
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
-    def test_refresh_schemas_direct_postgres_preserves_enabled_schema_when_it_reappears(self, mock_get_source):
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry")
+    def test_refresh_schemas_direct_postgres_preserves_enabled_schema_when_it_reappears(self, mock_source_registry):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -4569,8 +4576,8 @@ class TestExternalDataSource(APIBaseTest):
             sync_type_config={"schema_metadata": {"columns": [], "foreign_keys": []}},
         )
 
-        mock_get_source.return_value.parse_config.return_value = None
-        mock_get_source.return_value.get_schemas.return_value = [
+        mock_source_registry.get_source.return_value.parse_config.return_value = None
+        mock_source_registry.get_source.return_value.get_schemas.return_value = [
             SourceSchema(
                 name="Accounts",
                 supports_incremental=False,
@@ -4619,9 +4626,9 @@ class TestExternalDataSource(APIBaseTest):
             ),
         ]
     )
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry")
     def test_refresh_schemas_direct_postgres_updates_connection_metadata(
-        self, _name, access_method, expected_metadata, mock_get_source
+        self, _name, access_method, expected_metadata, mock_source_registry
     ):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
@@ -4637,9 +4644,9 @@ class TestExternalDataSource(APIBaseTest):
             connection_metadata={"database": "old_db", "available_functions": ["count"]},
         )
 
-        mock_get_source.return_value.parse_config.return_value = None
-        mock_get_source.return_value.get_connection_metadata.return_value = expected_metadata
-        mock_get_source.return_value.get_schemas.return_value = [
+        mock_source_registry.get_source.return_value.parse_config.return_value = None
+        mock_source_registry.get_source.return_value.get_connection_metadata.return_value = expected_metadata
+        mock_source_registry.get_source.return_value.get_schemas.return_value = [
             SourceSchema(
                 name="Accounts",
                 supports_incremental=False,
@@ -6043,13 +6050,13 @@ class TestExternalDataSource(APIBaseTest):
         schema = ExternalDataSchema.objects.get(team_id=self.team.pk, name="events")
         assert schema.enabled_columns == expected_persisted
 
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
-    def test_refresh_schemas_renames_legacy_direct_query_rows(self, mock_get_source):
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry")
+    def test_refresh_schemas_renames_legacy_direct_query_rows(self, mock_source_registry):
         # Direct-query mode opts in to eager renaming: the live `DataWarehouseTable` is rebuilt
         # from `schema_metadata` on every `refresh_schemas`, so renaming the row never orphans
         # data. This is the long-standing behavior we MUST preserve for direct sources.
-        mock_get_source.return_value.parse_config.return_value = None
-        mock_get_source.return_value.get_schemas.return_value = [
+        mock_source_registry.get_source.return_value.parse_config.return_value = None
+        mock_source_registry.get_source.return_value.get_schemas.return_value = [
             SourceSchema(
                 name="public.auth_group",
                 supports_incremental=False,
@@ -6608,7 +6615,7 @@ class TestExternalDataSource(APIBaseTest):
                     "webhook_only": False,
                     "prefers_full_refresh": False,
                     "available_columns": [
-                        {"field": "id", "label": "id", "type": "integer", "nullable": True},
+                        {"field": "id", "label": "id", "type": "integer", "nullable": True, "sensitivity": None},
                     ],
                     "detected_primary_keys": ["id"],
                     "primary_key_detection_supported": True,
@@ -6688,7 +6695,7 @@ class TestExternalDataSource(APIBaseTest):
                     "webhook_only": False,
                     "prefers_full_refresh": False,
                     "available_columns": [
-                        {"field": "id", "label": "id", "type": "integer", "nullable": True},
+                        {"field": "id", "label": "id", "type": "integer", "nullable": True, "sensitivity": None},
                     ],
                     "detected_primary_keys": ["id"],
                     "primary_key_detection_supported": True,

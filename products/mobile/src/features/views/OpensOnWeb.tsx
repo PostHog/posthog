@@ -12,7 +12,7 @@ import { useViewsContext } from './useViewsContext'
 import { viewWebUrl } from './webLinks'
 
 /** A kind the phone has no renderer for yet, such as a funnel or retention: the web shows it. */
-export function OpensOnWeb({ shortId }: { shortId: string | null }): ReactElement {
+export function OpensOnWeb({ shortId, reason }: { shortId: string | null; reason?: string | null }): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const { scope } = useViewsContext()
@@ -20,7 +20,11 @@ export function OpensOnWeb({ shortId }: { shortId: string | null }): ReactElemen
     const safe = url ? safeHttpsUrl(url) : undefined
     return (
         <View style={styles.web} testID="view-opens-on-web">
-            <Text style={styles.webText}>This chart opens on the web.</Text>
+            <Text style={styles.webText}>
+                {reason
+                    ? `${reason}. Open it on the web.`
+                    : 'This visualization is not supported on mobile yet. Open it on the web.'}
+            </Text>
             <Pressable44
                 onPress={() => {
                     if (!safe) {

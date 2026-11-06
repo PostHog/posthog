@@ -195,14 +195,14 @@ class SandboxWarmer:
         # `await_user_message` is stored literally (the field is alias-free in PostHogAIRunState); see the
         # comment there before adding an alias, which would silently break this filter and open the cap.
         warm_runs = TaskRun.objects.filter(
-            task__origin_product=origin_product,
+            origin_product=origin_product,
             status__in=cls._NON_TERMINAL_STATUSES,
             state__await_user_message=True,
         ).exclude(task__deleted=True)
 
         if warm_runs.filter(task__created_by_id=user.pk).count() >= caps.per_user:
             return True
-        return warm_runs.filter(task__team__organization_id=team.organization_id).count() >= caps.per_org
+        return warm_runs.filter(team__organization_id=team.organization_id).count() >= caps.per_org
 
     @classmethod
     def _active_session_caps(cls, origin_product: str, signal_report_id: UUID | str | None) -> ActiveSessionCaps | None:
