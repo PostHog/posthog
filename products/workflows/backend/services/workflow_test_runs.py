@@ -12,16 +12,10 @@ from uuid import UUID
 import requests
 
 from posthog.dataclasses import frozen
-from posthog.models.activity_logging.activity_log import (
-    ActivityContextBase,
-    ActivityLog,
-    Detail,
-    log_activity,
-    update_activity_context,
-)
-from posthog.plugins.plugin_server_api import invocation_test_request_origins
+from posthog.models.activity_logging.activity_log import ActivityContextBase, ActivityLog, Detail, log_activity
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.services.destination_test_runs import record_test_run_request_origins
 from products.workflows.backend.facade.contracts import WorkflowActor
 
 _INTEGRATION_INPUT_TYPES = ("integration", "integration_multi")
@@ -132,5 +126,4 @@ def log_workflow_test_run(
 
 
 def record_workflow_test_run_origins(row: Optional[ActivityLog], response: requests.Response) -> None:
-    if row is not None and (request_origins := invocation_test_request_origins(response)) is not None:
-        update_activity_context(row, request_origins=request_origins)
+    record_test_run_request_origins(row, response)

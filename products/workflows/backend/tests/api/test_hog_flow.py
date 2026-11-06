@@ -3578,13 +3578,32 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("saved_workflow_real_requests", True, False),
-            ("new_workflow_real_requests", False, False),
-            ("mocked_requests", True, True),
+            (
+                "saved_workflow_real_requests",
+                True,
+                False,
+                {"request_origins": ["https://slack.com"]},
+                ["https://slack.com"],
+            ),
+            (
+                "new_workflow_real_requests",
+                False,
+                False,
+                {"request_origins": ["https://slack.com"]},
+                ["https://slack.com"],
+            ),
+            ("mocked_requests", True, True, {"request_origins": []}, None),
+            ("reply_is_not_json", True, False, None, None),
+            ("reply_origins_not_a_list", True, False, {"request_origins": "https://slack.com"}, None),
         ]
     )
     def test_test_invocation_with_real_requests_is_logged_without_input_values(
-        self, _name: str, saved: bool, mock_async_functions: bool
+        self,
+        _name: str,
+        saved: bool,
+        mock_async_functions: bool,
+        reply: Optional[dict[str, Any]],
+        expected_origins: Optional[list[str]],
     ):
         workspace = Integration.objects.create(team=self.team, kind="slack", config={}, created_by=self.user)
         hog_flow, _ = self._create_hog_flow_with_action(
@@ -3616,9 +3635,11 @@ class TestHogFlowAPI(APIBaseTest):
         with patch(
             "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
         ) as mock_invoke:
-            mock_invoke.return_value = MagicMock(
-                status_code=500, json=lambda: {"error": "Worker failed", "request_origins": ["https://slack.com"]}
-            )
+            mock_invoke.return_value = MagicMock(status_code=500)
+            if reply is None:
+                mock_invoke.return_value.json.side_effect = ValueError("not JSON")
+            else:
+                mock_invoke.return_value.json.return_value = {"error": "Worker failed", **reply}
             self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/", data, format="json")
         assert mock_invoke.call_count == 1
 
@@ -3640,7 +3661,7 @@ class TestHogFlowAPI(APIBaseTest):
             if saved
             else ["channel", "slack_workspace", "text"],
             "integration_ids": [workspace.id],
-            "request_origins": ["https://slack.com"],
+            "request_origins": expected_origins,
         }
         assert "sent-by-the-test" not in json.dumps(detail)
         assert "stored-secret" not in json.dumps(detail)

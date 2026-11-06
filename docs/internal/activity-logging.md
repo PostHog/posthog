@@ -144,6 +144,8 @@ A workflow test step with `mock_async_functions` set to false writes a `HogFlow`
 Its context holds the step's id, type and template, its input keys, and the ids of the integrations its inputs name.
 After the worker answers, both rows get `request_origins`: the origins (scheme, host and port) of the requests the test sent.
 The worker records them in `cdpTrackedFetch`, so they come from what ran, not from the configuration.
+They cover HTTP requests only: an email step sends through the mail service, and its recipients are not listed.
+When the worker reply has no `request_origins`, the field stays null and Django logs `test_run.request_origins_missing`.
 The `$activity_log_entry_created` event goes out when the row is created, so a destination that streams the activity log does not get `request_origins`.
 Rows written before a field joined `field_with_masked_contents` still store its values.
 Guided Inbox onboarding first saves a draft when the sources step is completed; opening or editing that first step keeps the draft local.

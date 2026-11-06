@@ -731,7 +731,9 @@ export class CdpApi {
                     team_id: triggerGlobals.project.id,
                     now: '',
                 }
-                const response = await this.hogTransformer.transformEvent(pluginEvent, [compoundConfiguration])
+                const response = await recordRequestOrigins(requestOrigins, () =>
+                    this.hogTransformer.transformEvent(pluginEvent, [compoundConfiguration])
+                )
 
                 result = response.event
 
@@ -751,6 +753,7 @@ export class CdpApi {
                     status: errors.length > 0 ? 'error' : wasSkipped ? 'skipped' : 'success',
                     errors: errors.map((e) => String(e)),
                     logs: logs,
+                    request_origins: [...requestOrigins].sort(),
                 })
             } else if (compoundConfiguration.type === 'transformation_log') {
                 const mock = globals.record as Record<string, unknown>
@@ -802,6 +805,7 @@ export class CdpApi {
                         status: 'error',
                         errors: [String(e)],
                         logs,
+                        request_origins: [...requestOrigins].sort(),
                     })
                 }
 
@@ -846,6 +850,7 @@ export class CdpApi {
                     status: errors.length > 0 ? 'error' : 'success',
                     errors: errors.map((e) => String(e)),
                     logs: logs,
+                    request_origins: [...requestOrigins].sort(),
                 })
             } else {
                 return res.status(400).json({ error: 'Invalid function type' })

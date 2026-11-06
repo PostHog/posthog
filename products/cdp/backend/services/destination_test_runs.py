@@ -10,15 +10,20 @@ import re
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Optional
 
+import requests
+import structlog
+
 from posthog.hogql.parser import parse_string_template
 
 from posthog.dataclasses import frozen
-from posthog.models.activity_logging.activity_log import ActivityContextBase
+from posthog.models.activity_logging.activity_log import ActivityContextBase, ActivityLog, update_activity_context
 
 from products.cdp.backend.validation import collect_inputs
 
 if TYPE_CHECKING:
     from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+
+logger = structlog.get_logger(__name__)
 
 _CONTEXT_FIELDS = ("hog", "inputs", "inputs_schema", "mappings")
 # The worker runs these templates with their own executors, which send real requests even when the test mocks.
@@ -143,3 +148,19 @@ def destination_test_run_context(
         mapping_input_references={key: sorted(keys) for key, keys in sorted(mapping_input_references.items())},
         hog=effective.get("hog"),
     )
+
+
+def record_test_run_request_origins(row: Optional[ActivityLog], response: requests.Response) -> None:
+    """Add the origins the worker reports for a test run to the run's `tested` row."""
+    if row is None:
+        return
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    origins = body.get("request_origins") if isinstance(body, dict) else None
+    if not isinstance(origins, list) or not all(isinstance(origin, str) for origin in origins):
+        # The row then cannot say where the requests went, so the gap must be visible.
+        logger.warning("test_run.request_origins_missing", scope=row.scope, status_code=response.status_code)
+        return
+    update_activity_context(row, request_origins=origins)

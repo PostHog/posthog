@@ -41,12 +41,8 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
 )
 from posthog.models import Team, User
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity, update_activity_context
-from posthog.plugins.plugin_server_api import (
-    create_hog_invocation_test,
-    invocation_test_request_origins,
-    rerun_hog_invocations,
-)
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_hog_invocations
 from posthog.scopes import APIScopeObject
 
 from products.batch_exports.backend.facade import api as batch_exports_api
@@ -74,7 +70,11 @@ from products.cdp.backend.presentation.hog_invocations.rerun import (
     HogInvocationRerunRequestSerializer,
     HogInvocationRerunResponseSerializer,
 )
-from products.cdp.backend.services.destination_test_runs import destination_test_run_context, sends_real_requests
+from products.cdp.backend.services.destination_test_runs import (
+    destination_test_run_context,
+    record_test_run_request_origins,
+    sends_real_requests,
+)
 from products.cdp.backend.services.icons import CDPIconsService
 from products.cdp.backend.site_functions import get_transpiled_function
 from products.cdp.backend.validation import (
@@ -1481,8 +1481,7 @@ class HogFunctionViewSet(
             hog_function_id=str(hog_function.id) if hog_function else "new",
             payload=serializer.validated_data,
         )
-        if test_run_row is not None and (request_origins := invocation_test_request_origins(res)) is not None:
-            update_activity_context(test_run_row, request_origins=request_origins)
+        record_test_run_request_origins(test_run_row, res)
 
         if res.status_code != 200:
             # The worker's own message is the only description of the failure. Dropping it leaves the
