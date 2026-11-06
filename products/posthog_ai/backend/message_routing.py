@@ -456,7 +456,10 @@ class SandboxSession(BaseSandboxService):
             }
             extra_state.update(tasks_facade.get_resume_snapshot_carry_state(run.state))
 
-            new_run = task.create_run(mode="interactive", extra_state=extra_state)
+            try:
+                new_run = task.create_run(mode="interactive", extra_state=extra_state)
+            except tasks_facade.TaskDoneError as error:
+                raise Conflict(str(error)) from error
 
         # Same write scopes as the first message — the resumed agent keeps creating
         # insights/dashboards/notebooks on follow-up turns.
