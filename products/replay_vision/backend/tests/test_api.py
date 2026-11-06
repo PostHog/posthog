@@ -35,7 +35,7 @@ from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
 from products.replay_vision.backend.api.scanners import HighlightFeedQuerySerializer, ReplayScannerSerializer
@@ -250,6 +250,8 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", {"enabled": True}, format="json")
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertEqual(resp.json()["code"], "ai_data_processing_not_approved")
+        listed = self.client.get(self.scanners_url).json()["results"]
+        self.assertEqual([row["unrunnable_reason"] for row in listed], ["no_ai_consent"])
 
     @parameterized.expand(
         [
@@ -277,6 +279,10 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         if not creator_left:
             self.organization.members.add(creator)
         scanner = self._create_scanner(enabled=False, created_by=creator)
+        listed = self.client.get(self.scanners_url).json()["results"]
+        self.assertEqual(
+            [row["unrunnable_reason"] for row in listed], ["creator_lost_access" if creator_left else None]
+        )
 
         with patch(
             "products.replay_vision.backend.api.scanners.recording_viewer_access",
@@ -1679,12 +1685,12 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("app", {}, "ai", "ai"),
-            ("wizard", {"HTTP_USER_AGENT": "posthog/wizard 1.2.3"}, "scratch", "wizard"),
+            ("app", {}, "ai", "ai", "replay_filters"),
+            ("wizard", {"HTTP_USER_AGENT": "posthog/wizard 1.2.3"}, "scratch", "wizard", "wizard"),
         ]
     )
     def test_create_reports_how_the_scanner_was_built(
-        self, _name: str, headers: dict[str, Any], claimed: str, expected: str
+        self, _name: str, headers: dict[str, Any], claimed: str, expected: str, expected_entry_point: str
     ) -> None:
         # A metric comparing AI-built against hand-built scanners needs to know how the form was filled.
         #
@@ -1700,6 +1706,7 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
                     "scanner_config": {"prompt": "did checkout complete?"},
                     "model": ScannerModel.GEMINI_3_8_FLASH,
                     "creation_method": claimed,
+                    "entry_point": "replay_filters",
                 },
                 format="json",
                 **headers,
@@ -1710,8 +1717,13 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
             call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_scanner_created"
         ]
         self.assertEqual(created[0].kwargs["properties"]["creation_method"], expected)
+        # An entry point experiment compares creation by the surface the person started from, so only
+        # the app can claim one: any other caller reports itself, whatever it sends.
+        self.assertEqual(created[0].kwargs["properties"]["entry_point"], expected_entry_point)
         # Telemetry only: it must not reach the model, whose constructor would reject it.
-        self.assertFalse(hasattr(ReplayScanner.objects.get(id=resp.json()["id"]), "creation_method"))
+        scanner = ReplayScanner.objects.get(id=resp.json()["id"])
+        self.assertFalse(hasattr(scanner, "creation_method"))
+        self.assertFalse(hasattr(scanner, "entry_point"))
 
     def test_create_without_a_request_reports_the_declared_surface(self) -> None:
         # Max reaches the serializer directly, so there is no request to derive a surface from and
@@ -1749,13 +1761,14 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         with patch("posthoganalytics.capture") as capture:
             resp = self.client.patch(
                 f"{self.scanners_url}{scanner.id}/",
-                data={"name": "renamed", "creation_method": "template"},
+                data={"name": "renamed", "creation_method": "template", "entry_point": "replay_filters"},
                 format="json",
             )
 
         self.assertEqual(resp.status_code, 200, resp.json())
         edited = [call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_scanner_edited"]
         self.assertNotIn("creation_method", edited[0].kwargs["properties"])
+        self.assertNotIn("entry_point", edited[0].kwargs["properties"])
 
     @parameterized.expand(
         [
@@ -4311,7 +4324,7 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
-        action = Action.objects.create(team=self.team, name="Restricted", created_by=self.user)
+        action = create_action(team=self.team, name="Restricted", created_by=self.user)
         AccessControl.objects.create(team=self.team, resource="action", resource_id=str(action.id), access_level="none")
         member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
         self.client.force_login(member)

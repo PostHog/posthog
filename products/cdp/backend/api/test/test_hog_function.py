@@ -15,7 +15,8 @@ from rest_framework import status
 from posthog.models.integration import Integration
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_actions
+from products.actions.backend.facade.testing import create_action
 from products.cdp.backend.api.hog_function import (
     MAX_HOG_CODE_SIZE_BYTES,
     MAX_LOG_TRANSFORMATIONS_PER_TEAM,
@@ -490,8 +491,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Create the action referenced in EXAMPLE_FULL
         # Use a high ID to avoid conflicts with auto-incrementing sequence
-        if not Action.objects.filter(id=999999, team=self.team).exists():
-            Action.objects.create(id=999999, name="Test Action", team=self.team, created_by=self.user)
+        if not get_actions(action_ids=[999999], team_id=self.team.id):
+            create_action(id=999999, name="Test Action", team=self.team, created_by=self.user)
 
     def _get_function_activity(
         self,
@@ -1712,7 +1713,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
     )
     def test_filter_action_needs_viewer_access_unless_already_used(self, filter_list: str, id_type: type):
-        action = Action.objects.create(
+        action = create_action(
             team=self.team, name="restricted", steps_json=[{"event": "$pageview"}], created_by=self.user
         )
         AccessControl.objects.create(team=self.team, resource="action", resource_id=str(action.id), access_level="none")
@@ -1736,7 +1737,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert edited.status_code == status.HTTP_200_OK, edited.json()
 
     def test_generates_filters_bytecode(self, *args):
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="test action",
             steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
@@ -1988,13 +1989,13 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert filtered_actual_activities == expected_activities
 
     def test_list_with_filters_filter(self, *args):
-        action1 = Action.objects.create(
+        action1 = create_action(
             team=self.team,
             name="test action",
             steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
         )
 
-        action2 = Action.objects.create(
+        action2 = create_action(
             team=self.team,
             name="test action",
             steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
@@ -2046,7 +2047,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert len(response.json()["results"]) == 1
 
     def test_list_with_filter_groups_filter(self, *args):
-        action1 = Action.objects.create(
+        action1 = create_action(
             team=self.team,
             name="test action",
             steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
@@ -3794,8 +3795,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert len(response.json()["results"]) == 50, "With limit=50 and offset=100, should return last 50 items"
         assert response.json()["count"] == 150, "Total count should still be 150"
 
-    def _create_functions_from_template(self, count: int) -> None:
-        template = HogFunctionTemplate.get_template(template_slack.id)
+    def _create_functions_from_template(self, count: int, with_template_fk: bool) -> None:
+        template = HogFunctionTemplate.get_template(template_slack.id) if with_template_fk else None
         for i in range(count):
             HogFunction.objects.create(
                 team=self.team,
@@ -3814,13 +3815,16 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with CaptureQueriesContext(connection) as ctx:
             response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()["results"]) == expected_results
+        results = response.json()["results"]
+        assert len(results) == expected_results
+        assert {row["template"]["id"] for row in results} == {template_slack.id}
         return len(ctx.captured_queries)
 
-    def test_list_query_count_does_not_grow_with_function_count(self):
-        self._create_functions_from_template(2)
+    @parameterized.expand([("with_template_fk", True), ("template_id_only", False)])
+    def test_list_query_count_does_not_grow_with_function_count(self, _name: str, with_template_fk: bool) -> None:
+        self._create_functions_from_template(2, with_template_fk)
         few = self._list_query_count(2)
-        self._create_functions_from_template(4)
+        self._create_functions_from_template(4, with_template_fk)
         many = self._list_query_count(6)
 
         assert few == many, f"listing 6 functions cost {many} queries vs {few} for 2, so something N+1s"

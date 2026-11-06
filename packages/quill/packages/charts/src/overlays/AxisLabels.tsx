@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React from 'react'
 
 import { useChartLayout } from '../core/chart-context'
 import { TICK_GAP } from '../core/y-axis-gutters'
@@ -299,23 +299,16 @@ export const AxisLabels = React.memo(function AxisLabels({
     maxCategoryLabelWidth = 0,
 }: AxisLabelsProps): React.ReactElement | null {
     const { scales, dimensions, labels, yGutters } = useChartLayout()
-    const yTicks = scales.yTicks()
 
-    const visibleXLabels = useMemo(
-        () =>
-            hideXAxis || orientation === 'horizontal'
-                ? []
-                : computeVisibleXLabels(labels, scales.x, xTickFormatter, maxCategoryLabelWidth, xTickLabelRotation),
-        [hideXAxis, labels, scales.x, xTickFormatter, xTickLabelRotation, orientation, maxCategoryLabelWidth]
-    )
+    const visibleXLabels =
+        hideXAxis || orientation === 'horizontal'
+            ? []
+            : computeVisibleXLabels(labels, scales.x, xTickFormatter, maxCategoryLabelWidth, xTickLabelRotation)
 
-    // Mirror the vertical branch's memoization so an unrelated prop change (e.g. axisColor)
-    // doesn't re-run the per-tick `ctx.measureText` measurements in `dropOverlappingLabels`.
-    const visibleValueTicks = useMemo(
-        () =>
-            hideXAxis || orientation !== 'horizontal' ? [] : computeVisibleValueTicks(yTicks, scales.y, yTickFormatter),
-        [hideXAxis, orientation, yTicks, scales.y, yTickFormatter]
-    )
+    const visibleValueTicks =
+        hideXAxis || orientation !== 'horizontal'
+            ? []
+            : computeVisibleValueTicks(scales.yTicks(), scales.y, yTickFormatter)
 
     if (orientation === 'horizontal') {
         // In horizontal mode `scales.y` holds value→x-pixel and the label→y-pixel function lives

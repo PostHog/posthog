@@ -27,6 +27,7 @@ import { REPORT_AI_PANEL_ID, inboxTaskKickoffLogic } from '../inboxTaskKickoffLo
 import { EnrichedReviewer, SignalReport, SignalReportStatus } from '../types'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { ReportTaskEntry, implementationSlotClaim, inboxReportDetailLogic } from './inboxReportDetailLogic'
+import { reportSpendLogic } from './reportSpendLogic'
 
 const REPORT = { id: 'report-1', status: 'ready', title: 'Checkout errors spiked' } as unknown as SignalReport
 
@@ -39,6 +40,148 @@ const linkedTask = (purpose: ReportTaskPurpose, status: TaskRunStatus | null, pr
     }) as unknown as ReportTaskEntry
 
 describe('inboxReportDetailLogic', () => {
+    it.each([
+        { purpose: 'research', slowUsage: false },
+        { purpose: 'implementation', slowUsage: false },
+        { purpose: 'implementation', slowUsage: true },
+    ])(
+        'loads usage once and refreshes while $purpose runs and settles (slow usage: $slowUsage)',
+        async ({ purpose, slowUsage }) => {
+            jest.useFakeTimers({
+                doNotFake: [
+                    'Date',
+                    'performance',
+                    'queueMicrotask',
+                    'setTimeout',
+                    'clearTimeout',
+                    'setImmediate',
+                    'clearImmediate',
+                    'nextTick',
+                ],
+            })
+            let status = TaskRunStatus.IN_PROGRESS
+            let amount = 125
+            let releaseSignals!: () => void
+            const pendingSignals = new Promise<void>((resolve) => {
+                releaseSignals = resolve
+            })
+            let pendingUsage: Promise<void> | undefined
+            let releaseUsage: (() => void) | undefined
+            let notifyUsageStarted = (): void => {}
+            const usageRequest = jest.fn(async () => {
+                const requestedAmount = amount
+                notifyUsageStarted()
+                await pendingUsage
+                return {
+                    generation: { total_spend: purpose === 'research' ? requestedAmount : 0, incomplete: false },
+                    implementation: {
+                        total_spend: purpose === 'implementation' ? requestedAmount : null,
+                        incomplete: false,
+                    },
+                    shared_scout_runs: { total_spend: null, incomplete: false },
+                }
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': {
+                        results: [
+                            {
+                                id: 'task-run',
+                                type: 'task_run',
+                                content: { task_id: 'active-task', product: 'signals', type: purpose },
+                                created_at: '2026-01-01T00:00:00Z',
+                            },
+                        ],
+                    },
+                    '/api/projects/:team_id/tasks/:id/': () => ({
+                        id: 'active-task',
+                        latest_run: { id: 'active-run', status },
+                    }),
+                    '/api/projects/:team_id/signals/reports/:id/checks/': { results: [] },
+                    '/api/projects/:team_id/signals/reports/:id/signals/': async () => {
+                        await pendingSignals
+                        return { signals: [] }
+                    },
+                    '/api/projects/:team_id/signals/reports/:id/spend/': usageRequest,
+                    '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                },
+            })
+            initKeaTests()
+            const usage = reportSpendLogic({ teamId: MOCK_DEFAULT_TEAM.id, reportId: REPORT.id })
+            const logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+            usage.mount()
+            logic.mount()
+            try {
+                await expectLogic(usage).toDispatchActions(['loadSpendSuccess'])
+                expect(usageRequest).toHaveBeenCalledTimes(1)
+                releaseSignals()
+                await expectLogic(logic).toDispatchActions(['loadReportSignalsSuccess']).toFinishAllListeners()
+                await expectLogic(usage).toFinishAllListeners()
+                expect(usageRequest).toHaveBeenCalledTimes(1)
+
+                expect(logic.values.shouldPollReportTasks).toBe(true)
+                amount = 250
+                let usageStarted: Promise<void> | undefined
+                if (slowUsage) {
+                    usageStarted = new Promise<void>((resolve) => {
+                        notifyUsageStarted = resolve
+                    })
+                    pendingUsage = new Promise<void>((resolve) => {
+                        releaseUsage = resolve
+                    })
+                }
+                await expectLogic(logic, () => jest.advanceTimersByTime(5000)).toDispatchActions([
+                    'loadReportArtefacts',
+                    'loadReportTasksSuccess',
+                ])
+                if (slowUsage) {
+                    await usageStarted
+                    for (let poll = 0; poll < 2; poll++) {
+                        await expectLogic(logic, () => jest.advanceTimersByTime(5000)).toDispatchActions([
+                            'loadReportArtefacts',
+                            'loadReportTasksSuccess',
+                        ])
+                    }
+                    expect(usage.values.spendLoading).toBe(true)
+                } else {
+                    await expectLogic(usage).toFinishAllListeners()
+                }
+                expect(usageRequest).toHaveBeenCalledTimes(2)
+                expect(usage.values.spend?.[purpose === 'research' ? 'generation' : 'implementation'].total_spend).toBe(
+                    slowUsage ? 125 : 250
+                )
+
+                status = TaskRunStatus.COMPLETED
+                amount = 375
+                await expectLogic(logic, () => jest.advanceTimersByTime(5000)).toDispatchActions([
+                    'loadReportArtefacts',
+                    'loadReportTasksSuccess',
+                ])
+                if (slowUsage) {
+                    expect(usageRequest).toHaveBeenCalledTimes(2)
+                    pendingUsage = undefined
+                    releaseUsage?.()
+                }
+                await expectLogic(usage).toFinishAllListeners()
+                expect(usageRequest).toHaveBeenCalledTimes(3)
+                expect(usage.values.spend?.[purpose === 'research' ? 'generation' : 'implementation'].total_spend).toBe(
+                    375
+                )
+                expect(logic.values.shouldPollReportTasks).toBe(false)
+                jest.advanceTimersByTime(10000)
+                await expectLogic(logic).toFinishAllListeners()
+                expect(usageRequest).toHaveBeenCalledTimes(3)
+            } finally {
+                releaseSignals()
+                releaseUsage?.()
+                logic.unmount()
+                usage.unmount()
+                jest.useRealTimers()
+            }
+        }
+    )
+
     it.each([SignalReportStatus.READY, SignalReportStatus.MONITORING])(
         'orders report runs and refreshes settled tasks appropriately in %s',
         async (status) => {
@@ -365,7 +508,15 @@ describe('inboxReportDetailLogic', () => {
                 responsible_user: null,
             }) as unknown as NonNullable<SignalReport['assignee']>
 
-        it.each([
+        it.each<{
+            name: string
+            serverAssignee: NonNullable<SignalReport['assignee']>
+            expectedBodies: unknown[]
+            expectedToast: string | null
+            shownAssignee?: SignalReport['assignee']
+            takeover?: boolean
+            confirmedAssignee?: SignalReport['assignee']
+        }>([
             {
                 name: 'takes over the task claim the list row did not show',
                 serverAssignee: claimBy('task', 'claim-task'),
@@ -384,48 +535,73 @@ describe('inboxReportDetailLogic', () => {
                 expectedBodies: [{ takeover: false }],
                 expectedToast: 'Someone else is already working on this report.',
             },
-        ])('$name', async ({ serverAssignee, expectedBodies, expectedToast }) => {
-            const myClaim = claimBy('user', 'claim-mine', 'me')
-            const bodies: unknown[] = []
-            const claim = jest.fn(async ({ request }: MockResolverInfo): Promise<[number, unknown]> => {
-                const body = (await request.json()) as { takeover?: boolean }
-                bodies.push(body)
-                return body.takeover
-                    ? [200, { ...REPORT, assignee: myClaim, updated_at: '2026-01-02T00:00:00Z' }]
-                    : [409, { detail: 'This report already has an active claim.' }]
-            })
-            useMocks({
-                get: {
-                    '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
-                    '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
-                    '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
-                    '/api/projects/:team_id/signals/reports/:id/checks/': { results: [] },
-                    '/api/projects/:team_id/signals/reports/available_reviewers/': [],
-                    '/api/projects/:team_id/signals/reports/:id/': { ...REPORT, assignee: serverAssignee },
-                },
-                post: { '/api/projects/:team_id/signals/reports/:id/claim/': claim },
-            })
-            initKeaTests()
-            const errorToast = jest.spyOn(lemonToast, 'error')
-            const logic = inboxReportDetailLogic({ reportId: REPORT.id, report: { ...REPORT, assignee: null } })
-            logic.mount()
-            try {
-                await expectLogic(logic).toFinishAllListeners()
-                logic.actions.setReportClaimed(true)
-                await waitFor(() => expect(logic.values.claimSaving).toBe(false))
+            {
+                name: "takes over a teammate's claim the person confirmed",
+                serverAssignee: claimBy('user', 'claim-person', 'other-user'),
+                shownAssignee: claimBy('user', 'claim-person', 'other-user'),
+                takeover: true,
+                expectedBodies: [{ takeover: true, takeover_claim_id: 'claim-person' }],
+                expectedToast: null,
+            },
+            {
+                // The report refreshed to a newer claim while the dialog was open, so the takeover must name the
+                // claim the dialog showed and let the server refuse it.
+                name: 'takes over only the claim the dialog showed',
+                serverAssignee: claimBy('user', 'claim-person', 'other-user'),
+                shownAssignee: claimBy('user', 'claim-newer', 'third-user'),
+                confirmedAssignee: claimBy('user', 'claim-person', 'other-user'),
+                takeover: true,
+                expectedBodies: [{ takeover: true, takeover_claim_id: 'claim-person' }],
+                expectedToast: null,
+            },
+        ])(
+            '$name',
+            async ({ serverAssignee, expectedBodies, expectedToast, shownAssignee, takeover, confirmedAssignee }) => {
+                const myClaim = claimBy('user', 'claim-mine', 'me')
+                const bodies: unknown[] = []
+                const claim = jest.fn(async ({ request }: MockResolverInfo): Promise<[number, unknown]> => {
+                    const body = (await request.json()) as { takeover?: boolean }
+                    bodies.push(body)
+                    return body.takeover
+                        ? [200, { ...REPORT, assignee: myClaim, updated_at: '2026-01-02T00:00:00Z' }]
+                        : [409, { detail: 'This report already has an active claim.' }]
+                })
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
+                        '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
+                        '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
+                        '/api/projects/:team_id/signals/reports/:id/checks/': { results: [] },
+                        '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                        '/api/projects/:team_id/signals/reports/:id/': { ...REPORT, assignee: serverAssignee },
+                    },
+                    post: { '/api/projects/:team_id/signals/reports/:id/claim/': claim },
+                })
+                initKeaTests()
+                const errorToast = jest.spyOn(lemonToast, 'error')
+                const logic = inboxReportDetailLogic({
+                    reportId: REPORT.id,
+                    report: { ...REPORT, assignee: shownAssignee },
+                })
+                logic.mount()
+                try {
+                    await expectLogic(logic).toFinishAllListeners()
+                    logic.actions.setReportClaimed(true, takeover, confirmedAssignee)
+                    await waitFor(() => expect(logic.values.claimSaving).toBe(false))
 
-                expect(bodies).toEqual(expectedBodies)
-                if (expectedToast) {
-                    expect(errorToast).toHaveBeenCalledWith(expectedToast)
-                } else {
-                    expect(errorToast).not.toHaveBeenCalled()
-                    expect(logic.values.report?.assignee).toEqual(myClaim)
+                    expect(bodies).toEqual(expectedBodies)
+                    if (expectedToast) {
+                        expect(errorToast).toHaveBeenCalledWith(expectedToast)
+                    } else {
+                        expect(errorToast).not.toHaveBeenCalled()
+                        expect(logic.values.report?.assignee).toEqual(myClaim)
+                    }
+                } finally {
+                    errorToast.mockRestore()
+                    logic.unmount()
                 }
-            } finally {
-                errorToast.mockRestore()
-                logic.unmount()
             }
-        })
+        )
     })
 
     // A claim from the row menu writes a work-log entry, and a ready report without a running task does not poll
@@ -1027,7 +1203,46 @@ describe('inboxReportDetailLogic', () => {
                 message:
                     "GitHub can't read pull request checks. A project admin must reconnect GitHub and grant the Checks permission.",
                 remediationUrl: '/project/2/settings/project-integrations',
+                code: 'github_checks_permission_missing',
             })
+        })
+
+        it('links an inaccessible repository to the GitHub settings and stops polling its checks', async () => {
+            const inaccessible = {
+                code: 'github_repository_inaccessible',
+                error: "PostHog's GitHub connection can't access example/repo. A project admin must give the GitHub app access to this repository, or reconnect GitHub.",
+                remediation_url: '/project/2/settings/project-integrations',
+            }
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/pr_checks/': () => {
+                        prChecksRequests += 1
+                        return [404, inaccessible]
+                    },
+                    '/api/projects/:team_id/signals/reports/:id/pr_comments/': [404, inaccessible],
+                },
+            })
+            logic.unmount()
+            prChecksRequests = 0
+            jest.useFakeTimers()
+            logic = inboxReportDetailLogic({ reportId: PR_REPORT.id, report: PR_REPORT })
+            logic.mount()
+            try {
+                await jest.advanceTimersByTimeAsync(1000)
+                const expected = {
+                    message: inaccessible.error,
+                    remediationUrl: inaccessible.remediation_url,
+                    code: 'github_repository_inaccessible',
+                }
+                expect(logic.values.prChecksError).toEqual(expected)
+                expect(logic.values.prCommentsError).toEqual(expected)
+                expect(prChecksRequests).toBe(1)
+
+                await jest.advanceTimersByTimeAsync(15000 * 20)
+                expect(prChecksRequests).toBe(1)
+            } finally {
+                jest.useRealTimers()
+            }
         })
     })
 
@@ -1230,16 +1445,26 @@ describe('inboxReportDetailLogic', () => {
             expect(logic.values.reportTaskToOpen).toEqual(openTaskIndex === null ? null : tasks[openTaskIndex])
         })
 
-        it('refreshes the artefact log once a PR task starts', async () => {
+        it('refreshes the artefact log and the claimant once a PR task starts', async () => {
             await expectLogic(logic).toFinishAllListeners()
             const beforeKickoff = artefactRequests
+            const reloadReport = jest.fn()
+            const sceneSpy = jest.spyOn(inboxSceneLogic, 'findMounted').mockReturnValue({
+                values: { selectedReportId: REPORT.id, selectedReportLoading: false },
+                actions: { loadSelectedReport: reloadReport },
+            } as unknown as ReturnType<typeof inboxSceneLogic.build>)
 
-            // Without this the gate keeps reading the pre-kickoff task list, so a ready report offers
-            // Create PR a second time and the server answers the press with a 429.
-            logic.actions.createPrSuccess()
-            await expectLogic(logic).toFinishAllListeners()
+            try {
+                // Without this the gate keeps reading the pre-kickoff task list, so a ready report offers
+                // Create PR a second time and the server answers the press with a 429.
+                logic.actions.createPrSuccess()
+                await expectLogic(logic).toFinishAllListeners()
 
-            expect(artefactRequests).toBe(beforeKickoff + 1)
+                expect(artefactRequests).toBe(beforeKickoff + 1)
+                expect(reloadReport).toHaveBeenCalledWith({ id: REPORT.id })
+            } finally {
+                sceneSpy.mockRestore()
+            }
         })
 
         it.each([SignalReportStatus.RESOLVED, SignalReportStatus.CLOSED, SignalReportStatus.SUPPRESSED])(

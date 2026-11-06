@@ -160,7 +160,7 @@ class SignalReviewerExclusionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
     serializer_class = ReviewerExclusionSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
-    scope_object = "task"
+    scope_object = "inbox"
     pagination_class = None
 
     def _exclusion_id(self) -> UUID:
@@ -300,7 +300,7 @@ class SignalReviewerExclusionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         request=None,
         responses={200: ReviewerExclusionSerializer},
     )
-    @action(detail=True, methods=["post"], url_path="revoke", required_scopes=["task:write"])
+    @action(detail=True, methods=["post"], url_path="revoke", required_scopes=["inbox:write"])
     def revoke(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
             revoked = revoke_own_exclusion(

@@ -1,10 +1,10 @@
 @layer components {
     .quill-menu-label {
-        padding-block: 0.375rem;
+        padding-block: 0.25rem;
         padding-inline: 0.5rem;
         font-size: var(--text-xxs, 0.625rem);
         font-weight: 600;
-        line-height: 1.25rem;
+        line-height: 1rem;
         color: color-mix(in oklab, var(--muted-foreground) 50%, transparent);
         text-transform: uppercase;
         letter-spacing: 0.075em;

@@ -4,12 +4,11 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { SidePanelTab } from '~/types'
 
-import { SidePanelSupportIcon } from 'products/conversations/frontend/components/SidePanel/SidePanelSupportIcon'
-
 import { SidePanelActivityIcon } from './panels/activity/SidePanelActivityIcon'
 import { SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussionIcon'
 import { SidePanelExportsIcon } from './panels/exports/SidePanelExportsIcon'
 import { SidePanelInfo, SidePanelInfoIcon } from './panels/info/SidePanelInfo'
+import { LazySidePanelSupportIcon } from './panels/support/LazySidePanelSupportIcon'
 
 const SidePanelMax = lazyWithRetry(() => import('./panels/max/SidePanelMax').then((m) => ({ default: m.SidePanelMax })))
 const NotebookPanel = lazyWithRetry(() =>
@@ -52,7 +51,7 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
     },
     [SidePanelTab.Support]: {
         label: 'Support',
-        Icon: SidePanelSupportIcon,
+        Icon: LazySidePanelSupportIcon,
         Content: SidePanelSupport,
     },
     [SidePanelTab.Exports]: {

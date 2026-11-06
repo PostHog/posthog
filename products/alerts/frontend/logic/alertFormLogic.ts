@@ -8,7 +8,9 @@ import posthog from 'posthog-js'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
+import { openTakeOwnershipDialog, ownerUnavailableCause } from 'lib/components/openTakeOwnershipDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -24,7 +26,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { AvailableFeature, InsightLogicProps, IntervalType, InsightModel } from '~/types'
 
-import { alertsSimulateCreate } from 'products/alerts/frontend/generated/api'
+import { alertsSimulateCreate, alertsTakeOwnershipCreate } from 'products/alerts/frontend/generated/api'
 import {
     blockSubmitWithoutEntitlement,
     getDefaultSimulationRange,
@@ -564,7 +566,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         ],
     })),
 
-    forms(({ props, values, actions }) => ({
+    forms(({ props, values, actions, cache }) => ({
         alertForm: {
             defaults: props.alert
                 ? alertToFormType(props.alert, props.insightId)
@@ -692,6 +694,18 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         ? await api.alerts.create(payload)
                         : await api.alerts.update(existingAlertId, payload)
                 } catch (error: unknown) {
+                    const cause = ownerUnavailableCause(error)
+                    if (cause && existingAlertId !== undefined && !cache.takeOwnershipAfterSave) {
+                        // The other edits are saved first, with the alert still disabled, so the takeover that
+                        // enables it checks with the saved subscribers. The failure listener resubmits.
+                        cache.takeOwnershipAfterSave = {
+                            id: existingAlertId,
+                            cause,
+                            owner: alert.created_by ?? props.alert?.created_by ?? null,
+                            resubmitted: false,
+                        }
+                        throw error
+                    }
                     // `AlertViewSet` is a standard DRF ModelViewSet, so validation errors arrive as
                     // `{attr, detail}`. Anything else (network blip, non-ApiError thrown somehow) shouldn't
                     // be formatted with those fields or we end up with "undefined: undefined".
@@ -887,7 +901,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         ],
     })),
 
-    listeners(({ props, values, actions }) => {
+    listeners(({ props, values, actions, cache }) => {
         const discardSimulation = (): void => {
             actions.clearSimulation()
             getParentLogic()?.actions.clearSimulationAnomalyPoints()
@@ -956,6 +970,21 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     actions.setClearSnoozeLoading(false)
                 }
             },
+            submitAlertFormFailure: () => {
+                const pendingTakeover = cache.takeOwnershipAfterSave
+                if (!pendingTakeover) {
+                    return
+                }
+                if (pendingTakeover.resubmitted) {
+                    // The save that was to precede the takeover failed, so put the switch back as the user left it.
+                    cache.takeOwnershipAfterSave = undefined
+                    actions.setAlertFormValue('enabled', true)
+                    return
+                }
+                pendingTakeover.resubmitted = true
+                actions.setAlertFormValue('enabled', false)
+                actions.submitAlertForm()
+            },
             submitAlertForm: () => {
                 actions.setAlertFormSubmitAttempted()
                 const validationErrors = Object.values(values.alertFormValidationErrors).filter(
@@ -967,6 +996,23 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 }
             },
             submitAlertFormSuccess: async () => {
+                const pendingTakeover = cache.takeOwnershipAfterSave
+                if (pendingTakeover) {
+                    cache.takeOwnershipAfterSave = undefined
+                    void openTakeOwnershipDialog({
+                        resourceLabel: 'alert',
+                        resourceId: pendingTakeover.id,
+                        owner: pendingTakeover.owner,
+                        cause: pendingTakeover.cause,
+                        takeOwnership: async () => {
+                            await alertsTakeOwnershipCreate(String(getCurrentTeamId()), pendingTakeover.id)
+                        },
+                    }).then((taken) => {
+                        if (taken) {
+                            getParentLogic()?.actions.loadAlerts()
+                        }
+                    })
+                }
                 // Background sync to pick up any server-side changes
                 getParentLogic()?.actions.loadAlerts()
             },

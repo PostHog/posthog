@@ -7,6 +7,10 @@ selection runs here, in the worker, so the sandbox makes no request of its own f
 session boot path. The list is the acting user's, so it is resolved again whenever that user
 changes: a warm run activated by someone other than its creator, or a shared Slack task whose
 next message comes from another member.
+
+The same flag also turns on the ``phs`` bridge skill, which runs any store skill the user can read,
+including a teammate's skill that is not in the list. ``TaskRun.state["store_skills_bridge"]`` tells
+the sandbox to write it.
 """
 
 from typing import Any
@@ -25,7 +29,7 @@ from products.skills.backend.marketplace.adapters import (
 )
 from products.skills.backend.marketplace.packaging import DEFAULT_BUNDLE_SKILLS
 from products.skills.backend.models.skills import LLMSkill
-from products.tasks.backend.constants import STORE_SKILLS_STATE_KEY
+from products.tasks.backend.constants import STORE_SKILLS_BRIDGE_STATE_KEY, STORE_SKILLS_STATE_KEY
 from products.tasks.backend.models import TaskRun
 
 logger = structlog.get_logger(__name__)
@@ -35,10 +39,15 @@ logger = structlog.get_logger(__name__)
 STORE_SKILL_DESCRIPTION_MAX_CHARS = 300
 
 
-def resolve_store_skills(team: Team, user: User, *, run_id: str) -> list[dict[str, Any]] | None:
-    """The ``store_skills`` entries for a run, ``[]`` when the store is off for ``user``.
+def disabled_store_skills_state() -> dict[str, Any]:
+    """The run state updates that remove every store stub and the bridge from the sandbox."""
+    return {STORE_SKILLS_STATE_KEY: [], STORE_SKILLS_BRIDGE_STATE_KEY: False}
 
-    ``None`` means the flag service did not answer. The caller then leaves the key alone, so a
+
+def resolve_store_skills_state(team: Team, user: User, *, run_id: str) -> dict[str, Any] | None:
+    """The run state updates for a run's store skills: the ``store_skills`` entries and the bridge switch.
+
+    ``None`` means the flag service did not answer. The caller then leaves both keys alone, so a
     sandbox that resumes with stubs from an earlier session keeps them instead of losing them to an
     outage. ``user`` is whoever the sandbox's PostHog credential belongs to, because that is the
     identity ``skill-get`` will run as.
@@ -53,7 +62,7 @@ def resolve_store_skills(team: Team, user: User, *, run_id: str) -> list[dict[st
         logger.warning("store_skills_flag_unavailable", run_id=run_id, team_id=team.id)
         return None
     if not flag_value:
-        return []
+        return disabled_store_skills_state()
 
     readable_skills = UserAccessControl(user=user, team=team).filter_queryset_by_access_level(
         LLMSkill.objects.filter(team=team), resource="llm_skill"
@@ -67,33 +76,43 @@ def resolve_store_skills(team: Team, user: User, *, run_id: str) -> list[dict[st
         dropped=selection.dropped_count,
         skipped=selection.skipped_count,
     )
-    return [
-        {
-            "name": stub.name,
-            "description": " ".join(stub.description.split())[:STORE_SKILL_DESCRIPTION_MAX_CHARS],
-            "version": stub.version,
-        }
-        for stub in selection.stubs
-    ]
+    return {
+        STORE_SKILLS_STATE_KEY: [
+            {
+                "name": stub.name,
+                "description": " ".join(stub.description.split())[:STORE_SKILL_DESCRIPTION_MAX_CHARS],
+                "version": stub.version,
+            }
+            for stub in selection.stubs
+        ],
+        STORE_SKILLS_BRIDGE_STATE_KEY: True,
+    }
 
 
 def refresh_store_skills_state(task_run: TaskRun, user: User, *, reason: str) -> None:
-    """Rewrite ``store_skills`` for ``user`` on a run that already has a session.
+    """Rewrite ``store_skills`` and the bridge switch for ``user`` on a run that already has a session.
 
     Best-effort: the run goes on either way, and a failure only leaves the sandbox with the list it
     had. The sandbox re-reads the run after the transition and brings its stubs in line.
     """
     run_id = str(task_run.id)
     try:
-        store_skills = (
-            []
+        updates = (
+            disabled_store_skills_state()
             if (task_run.state or {}).get("include_live_context") is False
-            else resolve_store_skills(task_run.task.team, user, run_id=run_id)
+            or (task_run.state or {}).get("disable_skills") is True
+            else resolve_store_skills_state(task_run.task.team, user, run_id=run_id)
         )
-        if store_skills is None:
+        if updates is None:
             return
-        TaskRun.update_state_atomic(task_run.id, updates={STORE_SKILLS_STATE_KEY: store_skills})
+        TaskRun.update_state_atomic(task_run.id, updates=updates)
     except Exception:
         logger.warning("store_skills_refresh_failed", run_id=run_id, reason=reason, exc_info=True)
         return
-    logger.info("store_skills_refreshed", run_id=run_id, reason=reason, included=len(store_skills))
+    logger.info(
+        "store_skills_refreshed",
+        run_id=run_id,
+        reason=reason,
+        included=len(updates[STORE_SKILLS_STATE_KEY]),
+        bridge=updates[STORE_SKILLS_BRIDGE_STATE_KEY],
+    )

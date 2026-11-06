@@ -3,7 +3,8 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 
-import { canRenameVariant } from '~/toolbar/shared/experiments/webExperimentEditorContext'
+import { canRenameVariant, variantsWithUrlCondition } from '~/toolbar/shared/experiments/webExperimentEditorContext'
+import type { WebExperimentUrlMatchType } from '~/toolbar/shared/types'
 
 import { capturePageToolUsed } from '../../browser/extensionTelemetry'
 import { PageFormSync } from '../../messaging/pageFormSync'
@@ -90,6 +91,15 @@ export interface extensionExperimentsLogicActions {
         value: string
         variant: string
     }
+    setVariantUrlCondition: (
+        variant: string,
+        url: string,
+        urlMatchType: WebExperimentUrlMatchType
+    ) => {
+        url: string
+        urlMatchType: WebExperimentUrlMatchType
+        variant: string
+    }
     submitExperimentForm: () => {
         value: boolean
     }
@@ -150,6 +160,11 @@ export const extensionExperimentsLogic = kea<extensionExperimentsLogicType>([
             index,
             field,
             value,
+        }),
+        setVariantUrlCondition: (variant: string, url: string, urlMatchType: WebExperimentUrlMatchType) => ({
+            variant,
+            url,
+            urlMatchType,
         }),
         setSaveRequested: (saveRequested: boolean) => ({ saveRequested }),
     }),
@@ -229,6 +244,12 @@ export const extensionExperimentsLogic = kea<extensionExperimentsLogicType>([
                         ),
                     },
                 })
+            }
+        },
+        setVariantUrlCondition: ({ variant, url, urlMatchType }) => {
+            const nextVariants = variantsWithUrlCondition(values.experimentForm.variants, variant, url, urlMatchType)
+            if (nextVariants) {
+                actions.setExperimentFormValue('variants', nextVariants)
             }
         },
         renameVariant: ({ variant, newKey }) => {
