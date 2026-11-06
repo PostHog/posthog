@@ -96,11 +96,12 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                             // requires SDK version 3.32.0 or higher.
                                             config.sessionReplayConfig.captureLogcat = true
 
-                                            // Replays are recorded as masked screenshots, so mask anything sensitive.
-                                            // Before SDK version 4.0, also set config.sessionReplayConfig.screenshot = true,
-                                            // otherwise replays are recorded as wireframes.
+                                            // Whether replays are created using high quality screenshots. Default is false.
+                                            // If disabled, replays are created using wireframes instead.
+                                            // The screenshot may contain sensitive information, so use with caution
+                                            config.sessionReplayConfig.screenshot = false
 
-                                            // Experimental screenshot settings require SDK version 3.63.0 or higher.
+                                            // Experimental screenshot settings require SDK 3.63.0+ and screenshot = true.
                                             // We recommend the values below to balance performance and image quality.
                                             // Lower resolution and RGB_565 reduce capture time and memory use.
 
@@ -139,8 +140,7 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                     </Markdown>
                     <CalloutBox type="fyi" title="Requirements">
                         <Markdown>
-                            Requires Android API 26 or higher. SDK version 4.0 and later record Jetpack Compose screens
-                            as screenshots. Earlier versions only support Jetpack Compose if the `screenshot` option is
+                            Requires Android API 26 or higher. Jetpack Compose is only supported if `screenshot` is
                             enabled.
                         </Markdown>
                     </CalloutBox>
