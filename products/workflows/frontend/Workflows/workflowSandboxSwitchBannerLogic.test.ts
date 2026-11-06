@@ -111,7 +111,7 @@ describe('workflowSandboxSwitchBannerLogic', () => {
     let successToast: jest.SpyInstance
     let savedWorkflow: HogFlow
     let integrationsPayload: unknown[]
-    let savedPatch: Partial<HogFlow> & { stage_draft?: boolean }
+    let savedPatch: (Partial<HogFlow> & { stage_draft?: boolean }) | undefined
 
     const setSandboxFlag = (enabled: boolean): void => {
         featureFlagLogic.actions.setFeatureFlags(
@@ -134,6 +134,7 @@ describe('workflowSandboxSwitchBannerLogic', () => {
         status?: HogFlow['status']
     }): Promise<void> => {
         savedWorkflow = { ...makeWorkflow(steps), user_access_level: accessLevel, status }
+        savedPatch = undefined
         integrationsPayload = integrations
         initKeaTests()
         featureFlagLogic.mount()
@@ -286,32 +287,65 @@ describe('workflowSandboxSwitchBannerLogic', () => {
         expect(capture.mock.calls.filter(([event]) => event === 'workflows sandbox sender switched')).toHaveLength(1)
     })
 
-    it.each([
-        [
-            'active',
-            true,
-            'Updated 1\u00a0email step to hello@acme.example.com. Publish the changes to use this sender.',
-        ],
-        ['draft', false, 'Updated 1\u00a0email step to hello@acme.example.com.'],
-    ] as const)(
-        'saves the switch for a workflow in %s status and explains what remains',
-        async (status, stagesDraft, confirmation) => {
-            await mountWith({
-                steps: [emailStep('email_1', { integrationId: SANDBOX_SENDER_ID })],
-                integrations: [SANDBOX_SENDER, OWN_SENDER],
-                status,
-            })
-            jest.useFakeTimers()
+    it.each<{
+        case: string
+        status: HogFlow['status']
+        blockAutoSave?: (workflow: ReturnType<typeof workflowLogic.build>) => void
+        stagesDraft: boolean | null
+        confirmation: string
+    }>([
+        {
+            case: 'saves the switch for an active workflow and asks to publish it',
+            status: 'active',
+            stagesDraft: true,
+            confirmation:
+                'Updated 1\u00a0email step to hello@acme.example.com. Publish the changes to use this sender.',
+        },
+        {
+            case: 'saves the switch for a draft workflow',
+            status: 'draft',
+            stagesDraft: false,
+            confirmation: 'Updated 1\u00a0email step to hello@acme.example.com.',
+        },
+        {
+            case: 'asks to save and publish the switch for an active workflow with auto-save off',
+            status: 'active',
+            blockAutoSave: (workflow) => workflow.actions.setAutoSaveEnabled(false),
+            stagesDraft: null,
+            confirmation:
+                'Updated 1\u00a0email step to hello@acme.example.com. Save and publish the changes to use this sender.',
+        },
+        {
+            case: 'asks to save the switch for a draft workflow that cannot auto-save without a name',
+            status: 'draft',
+            blockAutoSave: (workflow) => workflow.actions.setWorkflowValues({ name: '' }),
+            stagesDraft: null,
+            confirmation: 'Updated 1\u00a0email step to hello@acme.example.com. Save the workflow to keep this change.',
+        },
+    ])('$case', async ({ status, blockAutoSave, stagesDraft, confirmation }) => {
+        await mountWith({
+            steps: [emailStep('email_1', { integrationId: SANDBOX_SENDER_ID })],
+            integrations: [SANDBOX_SENDER, OWN_SENDER],
+            status,
+        })
+        const workflow = workflowLogic({ id: WORKFLOW_ID })
+        blockAutoSave?.(workflow)
+        jest.useFakeTimers()
 
-            logic.actions.switchToOwnSender(OWN_SENDER_ID)
-            await jest.advanceTimersByTimeAsync(3500)
-            await expectLogic(workflowLogic({ id: WORKFLOW_ID })).toDispatchActions(['saveWorkflowSuccess'])
-
-            expect(senderOf(savedPatch as HogFlow, 'email_1')).toEqual({ integrationId: OWN_SENDER_ID })
-            expect(savedPatch.stage_draft === true).toBe(stagesDraft)
-            expect(successToast).toHaveBeenCalledWith(confirmation)
+        logic.actions.switchToOwnSender(OWN_SENDER_ID)
+        await jest.advanceTimersByTimeAsync(3500)
+        if (stagesDraft !== null) {
+            await expectLogic(workflow).toDispatchActions(['saveWorkflowSuccess'])
         }
-    )
+
+        expect(
+            savedPatch && {
+                sender: senderOf(savedPatch as HogFlow, 'email_1'),
+                stagesDraft: savedPatch.stage_draft === true,
+            }
+        ).toEqual(stagesDraft === null ? undefined : { sender: { integrationId: OWN_SENDER_ID }, stagesDraft })
+        expect(successToast).toHaveBeenCalledWith(confirmation)
+    })
 
     it('lets the user pick the own sender when several are verified', async () => {
         await mountWith({
@@ -347,14 +381,23 @@ describe('workflowSandboxSwitchBannerLogic', () => {
                 })
                 expect(workflowLogic({ id: WORKFLOW_ID }).values.isSyncingExternalEdit).toBe(true)
             },
+            reason: 'Wait for the workflow to finish syncing',
         },
         {
             case: 'a publish request is in flight',
             start: (): void => {
                 workflowLogic({ id: WORKFLOW_ID }).actions.setDraftActionPending('publish')
             },
+            reason: 'Publishing is in progress',
         },
-    ])('prevents switching while $case', async ({ start }) => {
+        {
+            case: 'a discard request is in flight',
+            start: (): void => {
+                workflowLogic({ id: WORKFLOW_ID }).actions.setDraftActionPending('discard')
+            },
+            reason: 'Discarding is in progress',
+        },
+    ])('prevents switching while $case', async ({ start, reason }) => {
         await mountWith({
             steps: [emailStep('email_1', { integrationId: SANDBOX_SENDER_ID })],
             integrations: [SANDBOX_SENDER, OWN_SENDER],
@@ -370,7 +413,7 @@ describe('workflowSandboxSwitchBannerLogic', () => {
         logic.actions.switchToOwnSender(OWN_SENDER_ID)
 
         expect(senderOf(workflow.values.workflow, 'email_1')).toEqual({ integrationId: SANDBOX_SENDER_ID })
-        expect(logic.values.switchDisabledReason).toBe('Wait for the workflow to finish syncing')
+        expect(logic.values.switchDisabledReason).toBe(reason)
         expect(successToast).not.toHaveBeenCalled()
     })
 
