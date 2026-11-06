@@ -346,6 +346,9 @@ If no suggested reviewer has access, the ready report still goes to the configur
 If the latest actionability judgment marks the report as already addressed, the system does not assign a fallback owner or send a reviewer push notification.
 Slack still sends the report to the configured team channel without reviewer mentions.
 The notification activity retries transient ClickHouse reads before it claims the report for delivery.
+The Slack notification's Implement button posts a request in the report thread and starts the Slack agent flow.
+The agent uses the clicking member's project access and can ask them to select a repository in Slack.
+Review in PostHog opens the report page.
 
 When an implementation pull request has one assignee, the worker requests that person's review, even when another person or team request exists.
 This makes the owner's work visible in both GitHub assignment and review-request lists.

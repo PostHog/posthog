@@ -14,8 +14,11 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.signals.backend.models import SignalReport, SignalReportSlackThread
+from products.slack_app.backend.facade.api import slack_report_implementation_button
 from products.slack_app.backend.logic.reply_suggestions import (
     REPLY_SUGGESTIONS_BLOCK_ID,
+    REPORT_IMPLEMENTATION_REPLY,
     clear_open_suggestions,
     remember_open_suggestions,
     reply_suggestions_block,
@@ -83,13 +86,36 @@ class TestReplySuggestionClick(TestCase):
             sensitive_config={"access_token": "xoxb-test"},
         )
 
-    def _click(self, slack_user_id: str, index: int = 0) -> Any:
+    def _link_report(self) -> None:
+        report = SignalReport.objects.create(team=self.team, title="Fix checkout errors")
+        SignalReportSlackThread.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=report,
+            integration=self.integration,
+            slack_workspace_id=self.slack_team_id,
+            channel=self.channel,
+            thread_ts=self.message_ts,
+            kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
+        )
+
+    def _click(self, slack_user_id: str, index: int = 0, *, report_implementation: bool = False) -> Any:
         block = reply_suggestions_block(self.integration.id, [OPEN_PR, KEEP_LOCAL], "trace-1")
-        action = block["elements"][index]
+        action = (
+            slack_report_implementation_button(self.integration.id)
+            if report_implementation
+            else block["elements"][index]
+        )
+        if report_implementation:
+            block = {
+                "type": "actions",
+                "block_id": "report_actions",
+                "elements": [action, {"type": "button", "url": "https://example.com/report"}],
+            }
         payload = {
             "type": "block_actions",
             "team": {"id": self.slack_team_id},
             "user": {"id": slack_user_id},
+            "response_url": "https://example.com/slack-response",
             "container": {
                 "type": "message",
                 "channel_id": self.channel,
@@ -104,6 +130,9 @@ class TestReplySuggestionClick(TestCase):
             },
             "actions": [{"action_id": action["action_id"], "block_id": block["block_id"], "value": action["value"]}],
         }
+        if report_implementation:
+            del payload["container"]["thread_ts"]
+            del payload["message"]["thread_ts"]
         body_str = f"payload={json.dumps(payload)}"
         signed = sign_slack_request(body_str.encode(), self.signing_secret)
         return self.client.post(
@@ -119,7 +148,12 @@ class TestReplySuggestionClick(TestCase):
             return_value={"user": {"profile": {"email": email}}},
         )
 
-    def test_click_sends_the_reply_to_the_agent_once(self, mock_slack_cls: MagicMock) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_click_sends_the_reply_to_the_agent_once(
+        self, mock_slack_cls: MagicMock, report_implementation: bool
+    ) -> None:
+        if report_implementation:
+            self._link_report()
         mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         slack_client = mock_slack_cls.return_value.client
         slack_client.conversations_info.return_value = {"channel": {"is_ext_shared": False}}
@@ -129,9 +163,10 @@ class TestReplySuggestionClick(TestCase):
             self._as_slack_user(self.member_user.email),
             patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
             patch("products.slack_app.backend.api.capture_slack_event") as mock_capture,
+            patch("products.slack_app.backend.services.inbox_interactivity.post_response_url") as mock_response,
         ):
-            first = self._click("U_BOB", index=1)
-            second = self._click("U_CAROL", index=0)
+            first = self._click("U_BOB", index=1, report_implementation=report_implementation)
+            second = self._click("U_CAROL", index=0, report_implementation=report_implementation)
 
         assert first.status_code == second.status_code == 200
         mock_start.assert_called_once()
@@ -140,29 +175,42 @@ class TestReplySuggestionClick(TestCase):
             "user": "U_BOB",
             "channel": self.channel,
             "ts": "1006.0000",
-            "thread_ts": self.thread_ts,
-            "text": KEEP_LOCAL.reply,
+            "thread_ts": self.message_ts if report_implementation else self.thread_ts,
+            "text": REPORT_IMPLEMENTATION_REPLY if report_implementation else KEEP_LOCAL.reply,
         }
-        # Without both, the click would face the classifier or start a new task in a thread with none.
-        assert mock_start.call_args.kwargs["untagged_followup"] is True
-        assert mock_start.call_args.kwargs["untagged_followup_confirmed"] is True
+        assert mock_start.call_args.kwargs["untagged_followup"] is not report_implementation
+        assert mock_start.call_args.kwargs["untagged_followup_confirmed"] is not report_implementation
+        assert mock_start.call_args.kwargs["is_reply_suggestion"] is True
         # The trace id joins the click to the generation that suggested it.
         mock_capture.assert_called_once()
-        assert mock_capture.call_args.kwargs["ai_trace_id"] == "trace-1"
+        assert mock_capture.call_args.kwargs["ai_trace_id"] == (None if report_implementation else "trace-1")
+        assert mock_capture.call_args.kwargs["reply_source"] == (
+            "report_implementation" if report_implementation else "suggested_reply"
+        )
         # The reply is its own message in the thread, carrying the full text the label stood for.
         posted = slack_client.chat_postMessage.call_args.kwargs
-        assert posted["thread_ts"] == self.thread_ts
-        assert KEEP_LOCAL.reply in posted["text"]
+        assert posted["thread_ts"] == (self.message_ts if report_implementation else self.thread_ts)
+        assert (REPORT_IMPLEMENTATION_REPLY if report_implementation else KEEP_LOCAL.reply) in posted["text"]
+        if report_implementation:
+            mock_response.assert_called_once()
+            updated_blocks = mock_response.call_args.args[1]["blocks"]
+            actions = next(block for block in updated_blocks if block["type"] == "actions")
+            assert actions["elements"] == [{"type": "button", "url": "https://example.com/report"}]
+        else:
+            mock_response.assert_not_called()
 
     @parameterized.expand(
         [
-            ("someone_outside_the_project", "stranger@example.com", False),
+            ("someone_outside_the_project", "stranger@example.com", False, False),
             # A typed reply here is dropped, so a click must not become the way around the approval.
-            ("unapproved_slack_connect_channel", "member@example.com", True),
+            ("unapproved_slack_connect_channel", "member@example.com", True, False),
+            ("report_outside_the_project", "stranger@example.com", False, True),
+            ("report_in_unapproved_shared_channel", "member@example.com", True, True),
+            ("report_thread_not_linked", "member@example.com", False, True),
         ]
     )
     def test_click_that_must_not_reach_the_agent(
-        self, mock_slack_cls: MagicMock, _name: str, email: str, ext_shared: bool
+        self, mock_slack_cls: MagicMock, _name: str, email: str, ext_shared: bool, report_implementation: bool
     ) -> None:
         mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         slack_client = mock_slack_cls.return_value.client
@@ -172,14 +220,19 @@ class TestReplySuggestionClick(TestCase):
             self._as_slack_user(email),
             patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
         ):
-            response = self._click("U_CLICKER")
+            response = self._click("U_CLICKER", report_implementation=report_implementation)
 
         assert response.status_code == 200
         mock_start.assert_not_called()
         slack_client.chat_postMessage.assert_not_called()
         slack_client.chat_postEphemeral.assert_called_once()
 
-    def test_a_failed_dispatch_leaves_the_buttons_usable(self, mock_slack_cls: MagicMock) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_a_failed_dispatch_leaves_the_buttons_usable(
+        self, mock_slack_cls: MagicMock, report_implementation: bool
+    ) -> None:
+        if report_implementation:
+            self._link_report()
         mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         slack_client = mock_slack_cls.return_value.client
         slack_client.conversations_info.return_value = {"channel": {"is_ext_shared": False}}
@@ -187,13 +240,14 @@ class TestReplySuggestionClick(TestCase):
 
         with (
             self._as_slack_user(self.member_user.email),
+            patch("products.slack_app.backend.services.inbox_interactivity.post_response_url"),
             patch(
                 "products.slack_app.backend.api._start_mention_workflow", side_effect=[RuntimeError("temporal"), None]
             ) as mock_start,
         ):
             with self.assertRaises(RuntimeError):
-                self._click("U_BOB")
-            self._click("U_BOB")
+                self._click("U_BOB", report_implementation=report_implementation)
+            self._click("U_BOB", report_implementation=report_implementation)
 
         assert mock_start.call_count == 2
         # The reply that never reached the agent does not stay in the thread.
