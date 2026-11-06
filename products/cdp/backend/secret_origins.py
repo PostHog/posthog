@@ -40,12 +40,16 @@ class _CannotAnalyze(Exception):
 
 
 def secret_origins(
-    hog: str, inputs: dict[str, Any], mapping_inputs: list[dict[str, Any]], secret_keys: set[str]
+    hog: str, inputs: dict[str, Any], mapping_input_sets: list[dict[str, Any]], secret_keys: set[str]
 ) -> dict[str, SecretOrigins]:
     try:
-        return _Analysis(hog, [inputs, *mapping_inputs], secret_keys).run()
+        return _Analysis(hog, [inputs, *mapping_input_sets], secret_keys).run()
     except (_CannotAnalyze, BaseHogQLError, RecursionError):
         return dict.fromkeys(secret_keys, UNBOUND)
+
+
+def mapping_inputs(mappings: Any) -> list[dict[str, Any]]:
+    return [mapping.get("inputs") or {} for mapping in mappings or [] if isinstance(mapping, dict)]
 
 
 def stored_origins(origins: SecretOrigins) -> str | list[str]:

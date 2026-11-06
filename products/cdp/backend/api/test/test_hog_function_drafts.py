@@ -11,13 +11,13 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.cdp.backend.api.hog_function import HogFunctionViewSet
-from products.cdp.backend.api.test.test_hog_function import (
+from products.cdp.backend.api.test.secret_sender import (
     MOVED_SENDER_HOG,
     MOVED_URL,
     SENDER_HOG,
     SENDER_URL,
-    _sender_inputs,
     secret_host_binding_flag,
+    sender_inputs,
 )
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
@@ -335,15 +335,15 @@ class TestHogFunctionDrafts(DraftTestCase):
 
     @parameterized.expand(
         [
-            ("moves_the_live_secret", [{"inputs": _sender_inputs(MOVED_URL)}], status.HTTP_400_BAD_REQUEST),
+            ("moves_the_live_secret", [{"inputs": sender_inputs(MOVED_URL)}], status.HTTP_400_BAD_REQUEST),
             (
                 "enters_the_secret_with_the_move",
-                [{"inputs": _sender_inputs(MOVED_URL, {"value": "new"})}],
+                [{"inputs": sender_inputs(MOVED_URL, {"value": "new"})}],
                 status.HTTP_200_OK,
             ),
             (
                 "enters_the_secret_after_staging_code",
-                [{"hog": MOVED_SENDER_HOG}, {"inputs": _sender_inputs(SENDER_URL, {"value": "new"})}],
+                [{"hog": MOVED_SENDER_HOG}, {"inputs": sender_inputs(SENDER_URL, {"value": "new"})}],
                 status.HTTP_200_OK,
             ),
         ]
@@ -416,7 +416,7 @@ class TestHogFunctionDrafts(DraftTestCase):
     )
     def test_test_invocation_that_sends_a_secret_to_a_new_host(self, _name: str, token: dict, expected_status: int):
         function_id = self._create(hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}})
-        configuration = {**BASE_FUNCTION, "hog": SENDER_HOG, "inputs": _sender_inputs(MOVED_URL, token)}
+        configuration = {**BASE_FUNCTION, "hog": SENDER_HOG, "inputs": sender_inputs(MOVED_URL, token)}
 
         with secret_host_binding_flag(True):
             response, mock_invoke = self._test_invoke(

