@@ -69,7 +69,7 @@ export function undefinedVariableReason(
 }
 
 export function variableOptions(mergeTags: Record<string, any> | undefined | null): EmailVariableOption[] {
-    return Object.values(mergeTags ?? {}).flatMap((tag: any) => {
+    const options = Object.values(mergeTags ?? {}).flatMap((tag: any) => {
         const match = typeof tag?.value === 'string' ? tag.value.match(EMAIL_LIQUID_OUTPUT) : null
         if (!match) {
             return []
@@ -82,4 +82,9 @@ export function variableOptions(mergeTags: Record<string, any> | undefined | nul
               : 'Person properties'
         return [{ label: String(tag.name ?? expression), expression, group }]
     })
+    // Properties people set come before the many that SDKs add on their own, like $initial_utm_source.
+    return [
+        ...options.filter((option) => !option.label.startsWith('$')),
+        ...options.filter((option) => option.label.startsWith('$')),
+    ]
 }

@@ -30,7 +30,11 @@ describe('unlayerToEmailDocument', () => {
         { type: 'menu', reason: 'menus' },
         { type: 'somethingNew', reason: 'somethingNew blocks' },
     ])('reports a $type block instead of dropping it', ({ type, reason }) => {
-        expect(unlayerToEmailDocument(design([content(type, {})]))).toEqual({ document: null, unsupported: [reason] })
+        expect(unlayerToEmailDocument(design([content(type, {})]))).toEqual({
+            document: null,
+            unsupported: [reason],
+            notKept: [],
+        })
     })
 
     it.each([
@@ -126,5 +130,57 @@ describe('unlayerToEmailDocument', () => {
         )
 
         expect(JSON.stringify(document?.doc)).toContain('"href":"{{ unsubscribe_url }}"')
+    })
+
+    it.each([
+        [
+            'a border on one side of a button',
+            content('button', { border: { borderTopWidth: '2px', borderTopStyle: 'solid' } }),
+            'buttons with a border on only some sides',
+        ],
+        ['right-to-left text', content('text', { text: '<p dir="rtl">x</p>' }), 'right-to-left text'],
+    ])('refuses %s rather than dropping it', (_name, block, reason) => {
+        const conversion = unlayerToEmailDocument(design([block]))
+        expect(conversion.document).toBeNull()
+        expect(conversion.unsupported).toContain(reason)
+    })
+
+    it('keeps what real emails rely on: preview text, web fonts, button width and border, column border, tables in text', () => {
+        const border = (width: string): Record<string, string> =>
+            Object.fromEntries(
+                ['Top', 'Right', 'Bottom', 'Left'].flatMap((side) => [
+                    [`border${side}Width`, width],
+                    [`border${side}Style`, 'solid'],
+                    [`border${side}Color`, '#123456'],
+                ])
+            )
+        const font = { label: 'Lato', value: 'Lato, sans-serif', url: 'https://fonts.example.com/lato.css' }
+        const source = design(
+            [
+                content('text', { text: '<p>Words</p>', fontFamily: font }),
+                content('text', { text: '<table><tr><td>Cell</td></tr></table>' }),
+                content('button', {
+                    text: 'Go',
+                    size: { autoWidth: false, width: '100%' },
+                    border: border('2px'),
+                    buttonColors: { backgroundColor: '#111111', hoverBackgroundColor: '#222222' },
+                }),
+            ],
+            {},
+            { border: border('1px') }
+        )
+        source.body.values = { preheaderText: 'Peek', fontFamily: font }
+
+        const conversion = unlayerToEmailDocument(source)
+        const doc = conversion.document?.doc as Record<string, any>
+        const [text, table, button] = doc.content[0].content[0].content
+
+        expect(doc.attrs.page).toMatchObject({ previewText: 'Peek', fontFamily: font.value, fontUrl: font.url })
+        expect(text.type).toBe('paragraph')
+        expect(text.attrs.emailStyle.fontUrl).toBe(font.url)
+        expect(table.type).toBe('emailHtml')
+        expect(table.attrs.html).toContain('<td>Cell</td>')
+        expect(button.attrs.emailStyle).toMatchObject({ buttonWidth: 100, borderWidth: 2, borderColor: '#123456' })
+        expect(conversion.notKept).toEqual(['button colors on hover'])
     })
 })

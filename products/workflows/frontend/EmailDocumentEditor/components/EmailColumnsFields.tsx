@@ -6,6 +6,7 @@ import { setBlockStyle, setColumnCount, setColumnRatios } from '../emailCommands
 import { EmailBlockStyle, EmailSides } from '../emailDocument'
 import { EmailColorField } from './fields/EmailColorField'
 import { EmailFieldRow } from './fields/EmailFieldRow'
+import { EmailNumberField } from './fields/EmailNumberField'
 import { EmailSectionTitle } from './fields/EmailSectionTitle'
 import { EmailSidesField } from './fields/EmailSidesField'
 
@@ -89,13 +90,30 @@ export function EmailColumnsFields({
                 attr="email-editor-columns-padding"
             />
             {column ? (
-                <EmailColorField
-                    label="This column"
-                    value={columnStyle.backgroundColor}
-                    placeholder=""
-                    onChange={(backgroundColor) => setBlockStyle(editor, columnPos, { backgroundColor })}
-                    attr="email-editor-column-background"
-                />
+                <>
+                    <EmailColorField
+                        label="Column color"
+                        value={columnStyle.backgroundColor}
+                        placeholder=""
+                        onChange={(backgroundColor) => setBlockStyle(editor, columnPos, { backgroundColor })}
+                        attr="email-editor-column-background"
+                    />
+                    <EmailNumberField
+                        label="Column border"
+                        value={columnStyle.borderWidth}
+                        placeholder={0}
+                        onChange={(borderWidth) => setBlockStyle(editor, columnPos, { borderWidth })}
+                        attr="email-editor-column-border"
+                    />
+                    {columnStyle.borderWidth ? (
+                        <EmailColorField
+                            label="Border color"
+                            value={columnStyle.borderColor}
+                            placeholder="#e5e5e5"
+                            onChange={(borderColor) => setBlockStyle(editor, columnPos, { borderColor })}
+                        />
+                    ) : null}
+                </>
             ) : null}
         </>
     )

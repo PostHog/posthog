@@ -1,11 +1,11 @@
 import type { Editor } from '@tiptap/core'
 
-import { LemonCollapse, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import { setPageStyle } from '../emailCommands'
-import { DEFAULT_EMAIL_PAGE_STYLE, EMAIL_SAFE_FONTS, EmailPageStyle, resolvePageStyle } from '../emailDocument'
+import { DEFAULT_EMAIL_PAGE_STYLE, EMAIL_FONTS, EmailPageStyle, fontOptions, resolvePageStyle } from '../emailDocument'
 import { EmailAlignField } from './fields/EmailAlignField'
 import { EmailColorField } from './fields/EmailColorField'
 import { EmailFieldRow } from './fields/EmailFieldRow'
@@ -35,6 +35,16 @@ export function EmailPageStyleFields({ editor }: { editor: Editor }): JSX.Elemen
                 onChange={required('padding')}
                 attr="email-editor-page-padding"
             />
+            <EmailFieldRow label="Preview text">
+                <LemonInput
+                    size="small"
+                    fullWidth
+                    placeholder="Shown after the subject"
+                    value={page.previewText}
+                    onChange={(previewText) => set({ previewText })}
+                    data-attr="email-editor-preview-text"
+                />
+            </EmailFieldRow>
             <LemonDivider className="my-1" />
             <EmailSectionTitle>Body</EmailSectionTitle>
             <EmailAlignField value={page.align} onChange={(align) => set({ align })} />
@@ -100,8 +110,14 @@ export function EmailPageStyleFields({ editor }: { editor: Editor }): JSX.Elemen
                                         size="small"
                                         fullWidth
                                         value={page.fontFamily}
-                                        options={EMAIL_SAFE_FONTS}
-                                        onChange={(fontFamily) => set({ fontFamily })}
+                                        options={fontOptions(page.fontFamily)}
+                                        onChange={(fontFamily) =>
+                                            set({
+                                                fontFamily,
+                                                fontUrl:
+                                                    EMAIL_FONTS.find((font) => font.value === fontFamily)?.url ?? '',
+                                            })
+                                        }
                                         data-attr="email-editor-theme-font"
                                     />
                                 </EmailFieldRow>

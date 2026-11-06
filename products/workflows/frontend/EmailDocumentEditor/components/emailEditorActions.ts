@@ -1,4 +1,5 @@
 import type { Editor, JSONContent } from '@tiptap/core'
+import { NodeSelection } from '@tiptap/pm/state'
 import posthog from 'posthog-js'
 
 import { EmailBlockOption } from '../emailBlockCatalog'
@@ -26,12 +27,15 @@ export function insertBlockOption(
 }
 
 export function insertVariableAtCursor(editor: Editor, expression: string): void {
-    editor
-        .chain()
-        .focus()
-        .insertContent([
-            { type: 'variable', attrs: { expression, fallback: '' } },
-            { type: 'text', text: ' ' },
-        ])
-        .run()
+    const inline: JSONContent[] = [
+        { type: 'variable', attrs: { expression, fallback: '' } },
+        { type: 'text', text: ' ' },
+    ]
+    const { selection } = editor.state
+    // With a block selected, inserting would replace the block.
+    if (selection instanceof NodeSelection && selection.node.isBlock) {
+        insertBlock(editor, { type: 'paragraph', content: inline })
+        return
+    }
+    editor.chain().focus().insertContent(inline).run()
 }

@@ -31,7 +31,7 @@ This shape does three things:
 | Anything else                               | Old, with a "Try the new editor" prompt |
 
 The prompt runs `unlayerToEmailDocument` and shows both versions side by side. Nothing changes until a person accepts.
-Anything it can't convert faithfully is reported, and the email stays on the old editor.
+Anything it can't convert faithfully is reported, and the email stays on the old editor. The one exception is a button's hover color, which the prompt says won't be kept before a person accepts.
 
 The new editor reaches `emailTemplaterLogic` through `emailEditorAdapter`, which implements the part of Unlayer's API the logic calls. Saving, live changes and external edits share one code path.
 

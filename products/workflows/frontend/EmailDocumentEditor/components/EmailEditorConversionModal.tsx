@@ -90,6 +90,11 @@ export function EmailEditorConversionPrompt(): JSX.Element {
                             Check that the new version looks right. Moving changes how this email is stored, and it may
                             look slightly different. Duplicate the template first if you want to keep a copy.
                         </p>
+                        {conversion?.notKept.length ? (
+                            <LemonBanner type="warning">
+                                The new version won't keep {conversion.notKept.join(', ')}.
+                            </LemonBanner>
+                        ) : null}
                         <div className="grid grid-cols-2 gap-2">
                             <div className="flex flex-col gap-1 min-w-0">
                                 <span className="text-xs font-semibold">Current</span>

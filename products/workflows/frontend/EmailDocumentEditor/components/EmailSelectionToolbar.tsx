@@ -3,9 +3,11 @@ import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonInput, Popover } from '@posthog/lemon-ui'
 
-import { IconBold, IconItalic, IconLink } from 'lib/lemon-ui/icons'
+import { IconLink } from 'lib/lemon-ui/icons'
 
 import { safeEmailLink } from '../renderEmailHtml'
+import { EmailFormatButton, EmailFormatButtons } from './EmailFormatButtons'
+import { useEscapeToClose } from './useEscapeToClose'
 
 /** Formatting for selected text. It's positioned from the selection, because the canvas scrolls independently of the page. */
 export function EmailSelectionToolbar({
@@ -20,6 +22,10 @@ export function EmailSelectionToolbar({
     const { selection } = editor.state
     const [linkOpen, setLinkOpen] = useState(false)
     const [href, setHref] = useState('')
+    useEscapeToClose(linkOpen, () => {
+        setLinkOpen(false)
+        editor.commands.focus()
+    })
     const visible = !selection.empty && !('node' in selection) && editor.isEditable && (editor.isFocused || linkOpen)
 
     useEffect(() => {
@@ -58,20 +64,6 @@ export function EmailSelectionToolbar({
         setLinkOpen(false)
     }
 
-    const mark = (name: string, label: string, content: JSX.Element, run: () => void): JSX.Element => (
-        <LemonButton
-            size="xsmall"
-            active={editor.isActive(name)}
-            aria-label={label}
-            tooltip={label}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={run}
-            data-attr={`email-editor-format-${name}`}
-        >
-            {content}
-        </LemonButton>
-    )
-
     return (
         <div
             className="absolute z-20 flex gap-0.5 p-0.5 border rounded bg-surface-primary shadow-sm"
@@ -80,17 +72,7 @@ export function EmailSelectionToolbar({
             aria-label="Format text"
             data-attr="email-editor-selection-toolbar"
         >
-            {mark('bold', 'Bold', <IconBold />, () => editor.chain().focus().toggleBold().run())}
-            {mark('italic', 'Italic', <IconItalic />, () => editor.chain().focus().toggleItalic().run())}
-            {mark('underline', 'Underline', <span className="underline px-1 text-xs">U</span>, () =>
-                editor.chain().focus().toggleUnderline().run()
-            )}
-            {mark('strike', 'Strikethrough', <span className="line-through px-1 text-xs">S</span>, () =>
-                editor.chain().focus().toggleStrike().run()
-            )}
-            {mark('code', 'Code', <span className="font-mono px-0.5 text-xs">{'<>'}</span>, () =>
-                editor.chain().focus().toggleCode().run()
-            )}
+            <EmailFormatButtons editor={editor} attrPrefix="email-editor-format" />
             <Popover
                 visible={linkOpen}
                 onClickOutside={() => setLinkOpen(false)}
@@ -102,11 +84,6 @@ export function EmailSelectionToolbar({
                             if (event.key === 'Enter') {
                                 event.preventDefault()
                                 applyLink()
-                            }
-                            if (event.key === 'Escape') {
-                                event.stopPropagation()
-                                setLinkOpen(false)
-                                editor.commands.focus()
                             }
                         }}
                     >
@@ -124,25 +101,24 @@ export function EmailSelectionToolbar({
                             type="primary"
                             onClick={applyLink}
                             data-attr="email-editor-link-apply"
+                            disabledReason={!href.trim() && !editor.isActive('link') ? 'Enter a link' : undefined}
                         >
-                            {href.trim() ? 'Apply' : 'Remove'}
+                            {href.trim() || !editor.isActive('link') ? 'Apply' : 'Remove'}
                         </LemonButton>
                     </div>
                 }
             >
-                <LemonButton
-                    size="xsmall"
+                <EmailFormatButton
                     active={editor.isActive('link')}
-                    aria-label="Link"
-                    tooltip="Link"
-                    icon={<IconLink />}
-                    onMouseDown={(event) => event.preventDefault()}
+                    label="Link"
+                    attr="email-editor-format-link"
                     onClick={() => {
                         setHref(editor.getAttributes('link').href ?? '')
                         setLinkOpen(!linkOpen)
                     }}
-                    data-attr="email-editor-format-link"
-                />
+                >
+                    <IconLink />
+                </EmailFormatButton>
             </Popover>
         </div>
     )

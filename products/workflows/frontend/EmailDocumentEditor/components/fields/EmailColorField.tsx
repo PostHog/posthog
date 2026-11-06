@@ -23,25 +23,30 @@ export function EmailColorField({
 }): JSX.Element {
     const [text, setText] = useState(value ?? '')
     useEffect(() => setText(value ?? ''), [value])
-    const shown = value || placeholder || '#ffffff'
+    const shown = value || placeholder || ''
     return (
         <EmailFieldRow label={label}>
-            <input
-                type="color"
-                aria-label={`${label} color`}
+            <span
                 className={clsx(
-                    'w-7 h-7 shrink-0 cursor-pointer rounded border p-0 bg-transparent',
-                    !value && 'opacity-50'
+                    'relative w-7 h-7 shrink-0 rounded border overflow-hidden focus-within:ring-2 ring-accent',
+                    !shown && 'EmailColorSwatch--none'
                 )}
-                value={HEX.test(shown) ? shown : '#ffffff'}
-                onChange={(event) => onChange(event.target.value)}
-                data-attr={attr ? `${attr}-swatch` : undefined}
-            />
+                style={shown ? { backgroundColor: shown } : undefined}
+            >
+                <input
+                    type="color"
+                    aria-label={`${label} color`}
+                    className="absolute inset-0 w-full h-full p-0 border-0 opacity-0 cursor-pointer"
+                    value={HEX.test(shown) ? shown : '#ffffff'}
+                    onChange={(event) => onChange(event.target.value)}
+                    data-attr={attr ? `${attr}-swatch` : undefined}
+                />
+            </span>
             <LemonInput
                 size="small"
                 fullWidth
                 value={text}
-                placeholder={placeholder}
+                placeholder={placeholder || 'None'}
                 onChange={(next) => {
                     setText(next)
                     if (next === '') {

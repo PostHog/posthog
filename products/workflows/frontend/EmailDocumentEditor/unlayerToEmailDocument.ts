@@ -24,6 +24,8 @@ export interface EmailDocumentConversion {
     document: EmailDocument | null
     /** Why it can't be converted, in words for the person who owns the template. Empty when it can. */
     unsupported: string[]
+    /** What a conversion leaves out, for the person to weigh up before accepting. */
+    notKept: string[]
 }
 
 function parsePx(value: unknown): number | undefined {
@@ -88,8 +90,37 @@ function textBlocks(html: string, style: EmailBlockStyle): JSONContent[] {
     })
 }
 
+const BORDER_SIDES = ['Top', 'Right', 'Bottom', 'Left']
+
+/** A border on every side, or null with none. Anything else can't be drawn the same way, so it's reported. */
+function uniformBorder(
+    border: Record<string, any> | undefined,
+    unsupported: Set<string>,
+    what: string
+): Pick<EmailBlockStyle, 'borderWidth' | 'borderColor'> | null {
+    const widths = BORDER_SIDES.map((side) =>
+        border?.[`border${side}Style`] === 'none' ? 0 : (parsePx(border?.[`border${side}Width`]) ?? 0)
+    )
+    if (widths.every((width) => width === 0)) {
+        return null
+    }
+    const colors = new Set(BORDER_SIDES.map((side) => border?.[`border${side}Color`]))
+    const styles = new Set(BORDER_SIDES.map((side) => border?.[`border${side}Style`] ?? 'solid'))
+    if (new Set(widths).size > 1 || colors.size > 1 || styles.size > 1 || !styles.has('solid')) {
+        unsupported.add(what)
+        return null
+    }
+    return { borderWidth: widths[0], borderColor: [...colors][0] }
+}
+
+function fontStyleFrom(values: Record<string, any>): Pick<EmailBlockStyle, 'fontFamily' | 'fontUrl'> {
+    return { fontFamily: values.fontFamily?.value || undefined, fontUrl: values.fontFamily?.url || undefined }
+}
+
 function textStyleFrom(values: Record<string, any>): EmailBlockStyle {
     return {
+        ...fontStyleFrom(values),
+        fontWeight: parsePx(values.fontWeight),
         color: values.color || undefined,
         fontSize: parsePx(values.fontSize),
         lineHeight: parsePx(values.lineHeight),
@@ -115,8 +146,40 @@ function socialIconsHtml(values: Record<string, any>): string {
     return `<table role="presentation" align="${align(values.align) ?? 'center'}" cellpadding="0" cellspacing="0" border="0"><tr>${cells}</tr></table>`
 }
 
-function convertContent(content: Record<string, any>, contentWidth: number, unsupported: Set<string>): JSONContent[] {
+/** Rich text with a table in it: the editor's text blocks can't hold a table, so it stays as the markup it already is. */
+function textAsHtmlBlock(html: string, style: EmailBlockStyle): JSONContent {
+    const textCss = [
+        style.fontFamily ? `font-family:${style.fontFamily.replace(/"/g, "'")}` : '',
+        style.fontSize ? `font-size:${style.fontSize}px` : '',
+        style.lineHeight ? `line-height:${style.lineHeight}%` : '',
+        style.color ? `color:${style.color}` : '',
+        style.textAlign ? `text-align:${style.textAlign}` : '',
+    ]
+        .filter(Boolean)
+        .join(';')
+    return {
+        type: 'emailHtml',
+        attrs: {
+            html: `<div style="${textCss}">${html}</div>`,
+            emailStyle: compact({ padding: style.padding, fontUrl: style.fontUrl }),
+        },
+    }
+}
+
+function isRightToLeft(values: Record<string, any>): boolean {
+    return values.direction === 'rtl' || /\bdir=["']?rtl/i.test(String(values.text ?? ''))
+}
+
+function convertContent(
+    content: Record<string, any>,
+    contentWidth: number,
+    unsupported: Set<string>,
+    notKept: Set<string>
+): JSONContent[] {
     const values = content.values ?? {}
+    if (isRightToLeft(values)) {
+        unsupported.add('right-to-left text')
+    }
     if (values.displayCondition) {
         unsupported.add('blocks shown on a condition')
     }
@@ -125,8 +188,12 @@ function convertContent(content: Record<string, any>, contentWidth: number, unsu
     }
     switch (content.type) {
         case 'text':
-        case 'paragraph':
-            return textBlocks(String(values.text ?? ''), textStyleFrom(values))
+        case 'paragraph': {
+            const text = String(values.text ?? '')
+            return /<table\b/i.test(text)
+                ? [textAsHtmlBlock(text, textStyleFrom(values))]
+                : textBlocks(text, textStyleFrom(values))
+        }
         case 'heading': {
             const level = Math.min(3, parseInt(String(values.headingType ?? 'h1').slice(1), 10) || 1)
             const inner = String(values.text ?? '')
@@ -135,6 +202,10 @@ function convertContent(content: Record<string, any>, contentWidth: number, unsu
         case 'button': {
             const colors = values.buttonColors ?? {}
             const inner = parseSides(values.padding)
+            const hover = colors.hoverBackgroundColor
+            if (hover && hover !== colors.backgroundColor) {
+                notKept.add('button colors on hover')
+            }
             const label =
                 chipsInText(
                     generateJSON(`<p>${String(values.text ?? '')}</p>`, buildEmailExtensions('')).content?.[0]?.content
@@ -147,6 +218,10 @@ function convertContent(content: Record<string, any>, contentWidth: number, unsu
                         emailStyle: compact({
                             backgroundColor: colors.backgroundColor || undefined,
                             color: colors.color || undefined,
+                            ...fontStyleFrom(values),
+                            ...uniformBorder(values.border, unsupported, 'buttons with a border on only some sides'),
+                            buttonWidth:
+                                values.size?.autoWidth === false ? (parsePx(values.size?.width) ?? 100) : undefined,
                             fontSize: parsePx(values.fontSize),
                             fontWeight: parsePx(values.fontWeight) ?? 400,
                             borderRadius: parsePx(values.borderRadius),
@@ -243,9 +318,10 @@ function convertContent(content: Record<string, any>, contentWidth: number, unsu
 export function unlayerToEmailDocument(design: Record<string, any> | null | undefined): EmailDocumentConversion {
     const body = design?.body
     if (!body || !Array.isArray(body.rows)) {
-        return { document: null, unsupported: ['a design this editor can’t read'] }
+        return { document: null, unsupported: ['a design this editor can’t read'], notKept: [] }
     }
     const unsupported = new Set<string>()
+    const notKept = new Set<string>()
     const bodyValues = body.values ?? {}
     const rows: any[] = [...(body.headers ?? []), ...body.rows, ...(body.footers ?? [])]
     const bodyWidth = parsePx(bodyValues.contentWidth) ?? 600
@@ -264,6 +340,8 @@ export function unlayerToEmailDocument(design: Record<string, any> | null | unde
         bodyPadding: { top: 0, right: 0, bottom: 0, left: 0 },
         align: align(bodyValues.contentAlign) ?? 'center',
         ...(bodyValues.fontFamily?.value ? { fontFamily: bodyValues.fontFamily.value } : {}),
+        ...(bodyValues.fontFamily?.url ? { fontUrl: bodyValues.fontFamily.url } : {}),
+        ...(bodyValues.preheaderText ? { previewText: bodyValues.preheaderText } : {}),
         ...(bodyValues.textColor ? { textColor: bodyValues.textColor } : {}),
         ...(bodyValues.linkStyle?.linkColor ? { linkColor: bodyValues.linkStyle.linkColor } : {}),
     }
@@ -294,7 +372,9 @@ export function unlayerToEmailDocument(design: Record<string, any> | null | unde
 
         const converted = columns.map((column, index) => {
             const width = (bodyWidth * (cells[index] ?? 1)) / totalCells
-            const blocks = (column.contents ?? []).flatMap((item: any) => convertContent(item, width, unsupported))
+            const blocks = (column.contents ?? []).flatMap((item: any) =>
+                convertContent(item, width, unsupported, notKept)
+            )
             const background = column.values?.backgroundColor
             const padding = parseSides(column.values?.padding)
             const hasPadding = padding && (padding.top || padding.right || padding.bottom || padding.left)
@@ -304,6 +384,7 @@ export function unlayerToEmailDocument(design: Record<string, any> | null | unde
                     backgroundColor: background && background !== page.bodyBackgroundColor ? background : undefined,
                     padding: hasPadding ? padding : undefined,
                     borderRadius: parsePx(column.values?.borderRadius) || undefined,
+                    ...uniformBorder(column.values?.border, unsupported, 'columns with a border on only some sides'),
                 }),
                 ratio: cells[index] ?? 1,
             }
@@ -331,7 +412,7 @@ export function unlayerToEmailDocument(design: Record<string, any> | null | unde
     }
 
     if (unsupported.size) {
-        return { document: null, unsupported: [...unsupported] }
+        return { document: null, unsupported: [...unsupported], notKept: [...notKept] }
     }
     return {
         document: {
@@ -339,5 +420,6 @@ export function unlayerToEmailDocument(design: Record<string, any> | null | unde
             doc: { type: 'doc', attrs: { page }, content: content.length ? content : [{ type: 'paragraph' }] },
         },
         unsupported: [],
+        notKept: [...notKept],
     }
 }

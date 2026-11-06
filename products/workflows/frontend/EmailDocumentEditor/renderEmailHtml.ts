@@ -1,9 +1,17 @@
 import type { JSONContent } from '@tiptap/core'
 
-import { EmailBlockStyle, EmailPageStyle, EmailSides, isEmailDocEmpty, resolvePageStyle } from './emailDocument'
+import {
+    EmailBlockStyle,
+    EmailPageStyle,
+    EmailSides,
+    emailFontUrls,
+    isEmailDocEmpty,
+    resolvePageStyle,
+} from './emailDocument'
 
 const LIQUID_SEGMENT = /(\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\})/g
-const ONLY_LIQUID_TAG = /^\s*\{%[\s\S]*%\}\s*$/
+const LIQUID_TAG = /\{%[\s\S]*?%\}/g
+const LIQUID_TAGS_BETWEEN_ROWS = /(<\/tr>|<table\b[^>]*>)\s*(?:\{%[\s\S]*?%\}\s*)+(?=<tr\b|<\/table>)/g
 const FULL_HTML_DOCUMENT = /<\s*(html|body|!doctype)\b/i
 const SAFE_LINK = /^(https?:|mailto:|tel:|#|\/)/i
 const SAFE_IMAGE = /^(https?:|\/)/i
@@ -15,6 +23,19 @@ const DEFAULT_BLOCK_SIDES: EmailSides = { top: 8, right: 0, bottom: 8, left: 0 }
 const NO_SIDES: EmailSides = { top: 0, right: 0, bottom: 0, left: 0 }
 const BUTTON_PADDING_X = 24
 const BUTTON_PADDING_Y = 12
+
+function isOnlyLiquidTags(text: string): boolean {
+    return text.trim().startsWith('{%') && text.replace(LIQUID_TAG, '').trim() === ''
+}
+
+export function isFullHtmlDocument(html: string): boolean {
+    return FULL_HTML_DOCUMENT.test(html)
+}
+
+/** Text between table rows gets moved out of the table by a browser, so a preview leaves out what Liquid would remove. */
+export function withoutLiquidBetweenRows(html: string): string {
+    return html.replace(LIQUID_TAGS_BETWEEN_ROWS, '$1')
+}
 
 function escapeOutsideLiquid(text: string, escape: (segment: string) => string): string {
     return text
@@ -119,7 +140,7 @@ function wrapMarks(html: string, node: JSONContent, ctx: RenderContext): string 
             case 'strike':
                 return `<s>${inner}</s>`
             case 'code':
-                return `<code style="font-family:'Courier New',Courier,monospace;background-color:#f2f2f2;padding:1px 4px;border-radius:3px">${inner}</code>`
+                return `<code style="font-family:'Courier New',Courier,monospace;color:#111111;background-color:#f2f2f2;padding:1px 4px;border-radius:3px">${inner}</code>`
             case 'textStyle': {
                 const style = css({
                     color: safeColor(mark.attrs?.color),
@@ -161,12 +182,16 @@ function renderInline(nodes: JSONContent[] | undefined, ctx: RenderContext): str
 
 function textProperties(style: EmailBlockStyle, ctx: RenderContext, fontSize: number): Record<string, any> {
     return {
-        'font-family': safeFont(ctx.page.fontFamily),
+        'font-family': safeFont(style.fontFamily ?? ctx.page.fontFamily),
+        'font-weight': style.fontWeight,
         'font-size': `${px(style.fontSize, fontSize)}px`,
         'line-height': `${px(style.lineHeight, ctx.page.lineHeight)}%`,
         color: safeColor(style.color, ctx.page.textColor),
         'letter-spacing': style.letterSpacing ? `${px(style.letterSpacing)}px` : undefined,
         'text-transform': style.uppercase ? 'uppercase' : undefined,
+        // A table grows to fit its longest word, so a long link would otherwise widen the whole email.
+        'overflow-wrap': 'anywhere',
+        'word-break': 'break-word',
     }
 }
 
@@ -246,12 +271,16 @@ function renderButton(node: JSONContent, ctx: RenderContext): string {
     const border = style.borderWidth
         ? `${px(style.borderWidth)}px solid ${safeColor(style.borderColor, background)}`
         : undefined
-    const label = renderInline(node.content, { ...ctx, page: { ...ctx.page, linkColor: color } }) || '&nbsp;'
+    const label = renderInline(node.content, { ...ctx, page: { ...ctx.page, linkColor: color } })
+    if (!label) {
+        return ''
+    }
+    const fullWidth = style.buttonWidth ? Math.min(px(style.buttonWidth), 100) : null
     const linkCss = css({
-        display: 'inline-block',
+        display: fullWidth ? 'block' : 'inline-block',
+        'text-align': 'center',
         padding: `${paddingY}px ${paddingX}px`,
-        ...textProperties({ ...style, color }, ctx, ctx.page.fontSize),
-        'font-weight': px(style.fontWeight, 600),
+        ...textProperties({ ...style, color, fontWeight: px(style.fontWeight, 600) }, ctx, ctx.page.fontSize),
         'text-decoration': 'none',
         'line-height': '120%',
         'border-radius': `${radius}px`,
@@ -266,7 +295,8 @@ function renderButton(node: JSONContent, ctx: RenderContext): string {
     const anchor = href
         ? `<a href="${escapeAttribute(href)}" target="_blank" style="${linkCss}">${label}</a>`
         : `<span style="${linkCss}">${label}</span>`
-    const button = `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="display:inline-table;border-collapse:separate"><tr><td align="center" bgcolor="${background}" style="${cellCss}">${anchor}</td></tr></table>`
+    const tableWidth = fullWidth ? ` width="${fullWidth}%"` : ''
+    const button = `<table role="presentation"${tableWidth} border="0" cellpadding="0" cellspacing="0" style="${fullWidth ? `width:${fullWidth}%;` : ''}display:inline-table;border-collapse:separate"><tr><td align="center" bgcolor="${background}" style="${cellCss}">${anchor}</td></tr></table>`
     return blockCell(
         { textAlign: style.textAlign, padding: style.padding ?? { ...DEFAULT_BLOCK_SIDES, top: 12, bottom: 12 } },
         button
@@ -306,6 +336,10 @@ function renderColumns(node: JSONContent, ctx: RenderContext): string {
                 'background-color': background,
                 'box-sizing': 'border-box',
                 padding: sides(columnPadding),
+                border: columnStyle.borderWidth
+                    ? `${px(columnStyle.borderWidth)}px solid ${safeColor(columnStyle.borderColor, '#e5e5e5')}`
+                    : undefined,
+                'border-radius': columnStyle.borderRadius ? `${px(columnStyle.borderRadius)}px` : undefined,
             })
             const before =
                 index === 0
@@ -338,7 +372,7 @@ function renderBlock(node: JSONContent, ctx: RenderContext): string {
         case 'paragraph': {
             const text = textFromNodes(node.content)
             // A Liquid tag alone on its line (`{% for %}`, `{% endif %}`) is structure, and it must not leave a gap.
-            if (ONLY_LIQUID_TAG.test(text)) {
+            if (isOnlyLiquidTags(text)) {
                 return text.trim()
             }
             const inner = renderInline(node.content, ctx) || '&nbsp;'
@@ -349,8 +383,7 @@ function renderBlock(node: JSONContent, ctx: RenderContext): string {
             const level = Math.min(3, Math.max(1, Number(node.attrs?.level) || 1))
             const headingCss = css({
                 margin: 0,
-                'font-weight': 700,
-                ...textProperties({ lineHeight: 125, ...style }, ctx, headingSize(level, ctx.page)),
+                ...textProperties({ lineHeight: 125, fontWeight: 700, ...style }, ctx, headingSize(level, ctx.page)),
             })
             return blockCell(
                 style,
@@ -361,10 +394,11 @@ function renderBlock(node: JSONContent, ctx: RenderContext): string {
         case 'orderedList':
             return blockCell(style, renderList(node, ctx))
         case 'blockquote': {
-            const inner = (node.content ?? [])
-                .map((child) =>
+            const children = node.content ?? []
+            const inner = children
+                .map((child, index) =>
                     child.type === 'paragraph'
-                        ? `<p style="${css({ margin: '0 0 8px 0', ...textProperties(style, ctx, ctx.page.fontSize) })}">${renderInline(child.content, ctx) || '&nbsp;'}</p>`
+                        ? `<p style="${css({ margin: index === children.length - 1 ? 0 : '0 0 8px 0', ...textProperties(style, ctx, ctx.page.fontSize) })}">${renderInline(child.content, ctx) || '&nbsp;'}</p>`
                         : renderBlockTable([child], ctx)
                 )
                 .join('')
@@ -466,6 +500,12 @@ export function renderEmailHtml(doc: JSONContent): string {
             ? `${px(page.bodyBorderWidth)}px solid ${safeColor(page.bodyBorderColor, '#e5e5e5')}`
             : undefined,
     })
+    const fontLinks = emailFontUrls(doc)
+        .map((url) => `<link rel="stylesheet" href="${escapeAttribute(url)}" />\n`)
+        .join('')
+    const previewText = page.previewText
+        ? `<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;font-size:1px;line-height:1px;mso-hide:all">${escapeText(page.previewText)}</div>\n`
+        : ''
     return `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" lang="en">
 <head>
@@ -474,13 +514,13 @@ export function renderEmailHtml(doc: JSONContent): string {
 <meta name="x-apple-disable-message-reformatting" />
 <meta name="color-scheme" content="light" />
 <meta name="supported-color-schemes" content="light" />
-<!--[if mso]><xml><o:OfficeDocumentSettings><o:AllowPNG/><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml><![endif]-->
+${fontLinks}<!--[if mso]><xml><o:OfficeDocumentSettings><o:AllowPNG/><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml><![endif]-->
 <style type="text/css">
 ${responsiveCss(page)}
 </style>
 </head>
 <body style="margin:0;padding:0;background-color:${pageBackground}">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${pageBackground}" style="background-color:${pageBackground}"><tr><td align="${page.align}" style="padding:${px(page.padding)}px">
+${previewText}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${pageBackground}" style="background-color:${pageBackground}"><tr><td align="${page.align}" style="padding:${px(page.padding)}px">
 <!--[if mso]><table role="presentation" width="${bodyWidth}" align="${page.align}" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
 <table class="ph-body" role="presentation" width="100%" align="${page.align}" cellpadding="0" cellspacing="0" border="0" bgcolor="${bodyBackground}" style="${bodyCss}"><tr><td style="padding:${sides(padding)}">
 ${renderBlockTable(nodes, ctx)}
@@ -541,7 +581,8 @@ function blockText(node: JSONContent): string {
             return String(node.attrs?.alt ?? '')
         case 'emailButton': {
             const href = safeEmailLink(node.attrs?.href)
-            return href ? `${inlineText(node.content)}: ${href}` : inlineText(node.content)
+            const label = inlineText(node.content)
+            return href && label ? `${label}: ${href}` : label
         }
         case 'emailColumns':
             return (node.content ?? []).map(blockText).filter(Boolean).join('\n\n')

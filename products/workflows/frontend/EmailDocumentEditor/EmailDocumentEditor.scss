@@ -30,9 +30,11 @@
         h1,
         h2,
         h3 {
+            font-family: inherit;
             font-weight: 700;
             line-height: 1.25;
             color: inherit;
+            letter-spacing: normal;
         }
 
         ul,
@@ -48,19 +50,32 @@
             list-style: decimal;
         }
 
+        li {
+            margin: 0 0 4px;
+        }
+
         li > p {
             padding: 0;
         }
 
         blockquote {
-            padding-left: 12px;
+            padding: 0 0 0 12px;
+            margin: 8px 0;
             border-left: 3px solid #d0d0d0;
+
+            > p {
+                padding: 0;
+            }
+
+            > p + p {
+                padding-top: 8px;
+            }
         }
 
         code {
             padding: 1px 4px;
             font-family: 'Courier New', Courier, monospace;
-            color: inherit;
+            color: #111;
             background: #f2f2f2;
             border-radius: 3px;
         }
@@ -75,10 +90,6 @@
             margin: 8px 0;
             border: 0;
             border-top: 1px solid #ddd;
-
-            &.ProseMirror-selectednode {
-                outline: 2px solid var(--color-accent);
-            }
         }
 
         p.is-empty::before,
@@ -93,10 +104,27 @@
         }
     }
 
-    .email-canvas-selected,
-    .ProseMirror-selectednode {
+    // Above its neighbors, which would otherwise cover the ring. Node views draw their own, because TipTap also marks
+    // them as selected inside a text selection.
+    .email-canvas-selected:not(.email-canvas-image),
+    .ProseMirror-selectednode:not(.react-renderer) {
+        position: relative;
+        z-index: 2;
         outline: 2px solid var(--color-accent);
-        outline-offset: 1px;
+        outline-offset: 2px;
+    }
+
+    // On the image itself, so the ring follows its corners and stays visible on an image of the same color.
+    .email-canvas-image.email-canvas-selected {
+        .email-canvas-image-frame {
+            z-index: 2;
+        }
+
+        img,
+        .email-canvas-image-empty {
+            outline: 2px solid var(--color-accent);
+            outline-offset: 2px;
+        }
     }
 
     .email-canvas-button-row {
@@ -117,30 +145,56 @@
         a {
             color: inherit;
         }
+
+        &:has(> br.ProseMirror-trailingBreak:only-child)::before {
+            content: 'Button text';
+            opacity: 0.6;
+        }
     }
 
     .email-canvas-columns {
         display: flex;
         gap: 16px;
+        align-items: flex-start;
 
         @container email-canvas (max-width: 380px) {
             flex-direction: column;
         }
     }
 
+    // An overlay rather than an outline, because a positioned image or the next section would paint over an outline.
     .email-canvas-column {
+        position: relative;
         min-width: 0;
-        outline: 1px dashed transparent;
-        outline-offset: 1px;
+
+        &::after {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            pointer-events: none;
+            content: '';
+            border: 1px dashed transparent;
+        }
+
+        // An empty column has nothing else to show where it is.
+        &:has(> p:only-child > br.ProseMirror-trailingBreak:only-child)::after {
+            border-color: rgb(128 128 128 / 35%);
+        }
     }
 
-    .email-canvas-columns:hover .email-canvas-column,
-    .email-canvas-column:focus-within {
-        outline-color: #bbb;
+    .email-canvas-columns:hover .email-canvas-column::after,
+    .email-canvas-column:focus-within::after {
+        border-color: rgb(128 128 128 / 70%);
     }
 
     .email-canvas-spacer {
-        background-image: repeating-linear-gradient(135deg, transparent, transparent 6px, #f0f0f0 6px, #f0f0f0 7px);
+        background-image: repeating-linear-gradient(
+            135deg,
+            transparent,
+            transparent 6px,
+            rgb(128 128 128 / 20%) 6px,
+            rgb(128 128 128 / 20%) 7px
+        );
     }
 
     .email-canvas-image img {
@@ -177,10 +231,10 @@
         justify-content: center;
         padding: 24px;
         font-size: 13px;
-        color: #666;
+        color: var(--color-text-secondary);
         text-align: center;
-        background: #f6f6f6;
-        border: 1px dashed #ccc;
+        background: var(--color-bg-surface-secondary);
+        border: 1px dashed var(--color-border-primary);
         border-radius: 4px;
     }
 
@@ -205,18 +259,21 @@
         display: inline-flex;
         gap: 4px;
         align-items: center;
+        max-width: 100%;
         padding: 0 4px;
         font-family: var(--font-mono, monospace);
         font-size: 0.85em;
         color: #333;
+        text-align: left;
         cursor: pointer;
         background: #f2f2f2;
         border: 1px solid #ddd;
         border-radius: 4px;
     }
 
-    .email-canvas-variable-selected {
+    .email-canvas-variable.email-canvas-variable-selected {
         border-color: var(--color-accent);
+        box-shadow: 0 0 0 1px var(--color-accent);
     }
 
     .email-canvas-variable-warning {
@@ -244,4 +301,34 @@
 
 .EmailDocumentEditor__body {
     container: email-canvas / inline-size;
+}
+
+.EmailEditor__square-button.LemonButton {
+    width: 2rem;
+    height: 2rem;
+
+    .LemonButton__chrome {
+        width: 100%;
+        height: 100%;
+    }
+}
+
+.EmailEditor__square-button--compact.LemonButton {
+    width: 1.5rem;
+    height: 1.5rem;
+
+    .LemonButton__content {
+        display: flex;
+        font-size: 1rem;
+    }
+}
+
+.EmailColorSwatch--none {
+    background: linear-gradient(
+        to top right,
+        transparent calc(50% - 1px),
+        var(--color-danger, #d94a1e) calc(50% - 1px),
+        var(--color-danger, #d94a1e) calc(50% + 1px),
+        transparent calc(50% + 1px)
+    );
 }

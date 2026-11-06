@@ -45,6 +45,8 @@ export function blockStyleToCanvasCss(style: EmailBlockStyle | null | undefined,
     const properties: Record<string, string | undefined> = {
         color: isButton ? undefined : style.color,
         'background-color': isButton ? undefined : style.backgroundColor,
+        'font-family': !isButton ? style.fontFamily : undefined,
+        'font-weight': !isButton && style.fontWeight ? String(style.fontWeight) : undefined,
         'font-size': !isButton && style.fontSize ? `${style.fontSize}px` : undefined,
         'line-height': !isButton && style.lineHeight ? `${style.lineHeight}%` : undefined,
         'letter-spacing': !isButton && style.letterSpacing ? `${style.letterSpacing}px` : undefined,
@@ -147,6 +149,9 @@ export const EmailButton = Node.create({
             style.color ? `color:${style.color}` : '',
             style.borderRadius !== undefined ? `border-radius:${style.borderRadius}px` : '',
             style.fontSize ? `font-size:${style.fontSize}px` : '',
+            style.fontFamily ? `font-family:${style.fontFamily}` : '',
+            style.fontWeight ? `font-weight:${style.fontWeight}` : '',
+            style.buttonWidth ? `width:${Math.min(style.buttonWidth, 100)}%;box-sizing:border-box` : '',
             style.borderWidth ? `border:${style.borderWidth}px solid ${style.borderColor ?? 'transparent'}` : '',
             style.innerPaddingX !== undefined || style.innerPaddingY !== undefined
                 ? `padding:${style.innerPaddingY ?? 12}px ${style.innerPaddingX ?? 24}px`

@@ -24,7 +24,7 @@ import { EmailStylePanel } from './components/EmailStylePanel'
 import { EMAIL_BLOCK_OPTIONS } from './emailBlockCatalog'
 import { EmailBlockKeymap, EmailLiquidHighlight } from './emailCanvasPlugins'
 import { hasUnsubscribeLink, insertBlock } from './emailCommands'
-import { resolvePageStyle } from './emailDocument'
+import { emailFontUrls, resolvePageStyle } from './emailDocument'
 import { createEmailEditorAdapter } from './emailEditorAdapter'
 import { EmailEditorContext, EmailEditorContextValue } from './emailEditorContext'
 import { buildEmailExtensions } from './emailExtensions'
@@ -401,6 +401,9 @@ export function EmailDocumentEditor(): JSX.Element {
                                     }
                                 >
                                     <style>{`.EmailDocumentCanvas .ProseMirror h1{font-size:${page.h1Size}px}.EmailDocumentCanvas .ProseMirror h2{font-size:${page.h2Size}px}.EmailDocumentCanvas .ProseMirror h3{font-size:${page.h3Size}px}`}</style>
+                                    {emailFontUrls(doc).map((url) => (
+                                        <link key={url} rel="stylesheet" href={url} />
+                                    ))}
                                     <EditorContent editor={editor} />
                                 </div>
                             </div>

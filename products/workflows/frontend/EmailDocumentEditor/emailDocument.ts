@@ -18,6 +18,9 @@ export type EmailTextAlign = 'left' | 'center' | 'right'
 export interface EmailBlockStyle {
     color?: string
     backgroundColor?: string
+    fontFamily?: string
+    /** The stylesheet a web font loads from. */
+    fontUrl?: string
     fontSize?: number
     lineHeight?: number
     letterSpacing?: number
@@ -31,6 +34,8 @@ export interface EmailBlockStyle {
     width?: number
     /** Divider only: its thickness and length are styled separately from the block box. */
     lineWidth?: number
+    /** Button only: a percentage of the space it sits in. Left out, it fits its label. */
+    buttonWidth?: number
     /** Button only: the padding inside the button. */
     innerPaddingX?: number
     innerPaddingY?: number
@@ -47,6 +52,10 @@ export interface EmailPageStyle {
     bodyBorderWidth: number
     bodyBorderColor: string
     fontFamily: string
+    /** The stylesheet a web font loads from. */
+    fontUrl: string
+    /** The hidden line that inboxes show after the subject. */
+    previewText: string
     textColor: string
     fontSize: number
     lineHeight: number
@@ -60,14 +69,42 @@ export interface EmailPageStyle {
     globalCss: string
 }
 
-export const EMAIL_SAFE_FONTS: { label: string; value: string }[] = [
+const GOOGLE_FONTS = 'https://fonts.googleapis.com/css2?display=swap&family='
+
+/** Web fonts fall back to the listed sans-serif or serif in email apps that don't load them, such as Outlook and Gmail. */
+export const EMAIL_FONTS: { label: string; value: string; url?: string }[] = [
     { label: 'System', value: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" },
     { label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
     { label: 'Georgia', value: "Georgia, 'Times New Roman', serif" },
     { label: 'Tahoma', value: 'Tahoma, Verdana, Segoe, sans-serif' },
     { label: 'Trebuchet MS', value: "'Trebuchet MS', Helvetica, sans-serif" },
     { label: 'Courier New', value: "'Courier New', Courier, monospace" },
+    { label: 'Inter', value: 'Inter, Helvetica, Arial, sans-serif', url: `${GOOGLE_FONTS}Inter:wght@400;600;700` },
+    { label: 'Lato', value: 'Lato, Helvetica, Arial, sans-serif', url: `${GOOGLE_FONTS}Lato:wght@400;700` },
+    {
+        label: 'Montserrat',
+        value: 'Montserrat, Helvetica, Arial, sans-serif',
+        url: `${GOOGLE_FONTS}Montserrat:wght@400;600;700`,
+    },
+    {
+        label: 'Open Sans',
+        value: "'Open Sans', Helvetica, Arial, sans-serif",
+        url: `${GOOGLE_FONTS}Open+Sans:wght@400;600;700`,
+    },
+    {
+        label: 'Playfair Display',
+        value: "'Playfair Display', Georgia, serif",
+        url: `${GOOGLE_FONTS}Playfair+Display:wght@400;700`,
+    },
+    { label: 'Roboto', value: 'Roboto, Helvetica, Arial, sans-serif', url: `${GOOGLE_FONTS}Roboto:wght@400;500;700` },
 ]
+
+/** The font list, plus the font this email already uses when it came from somewhere else. */
+export function fontOptions(current: string | undefined): { label: string; value: string }[] {
+    return !current || EMAIL_FONTS.some((font) => font.value === current)
+        ? EMAIL_FONTS
+        : [{ label: current.split(',')[0].replace(/['"]/g, ''), value: current }, ...EMAIL_FONTS]
+}
 
 export const DEFAULT_EMAIL_PAGE_STYLE: EmailPageStyle = {
     backgroundColor: '#ffffff',
@@ -79,7 +116,9 @@ export const DEFAULT_EMAIL_PAGE_STYLE: EmailPageStyle = {
     bodyBorderRadius: 0,
     bodyBorderWidth: 0,
     bodyBorderColor: '#e5e5e5',
-    fontFamily: EMAIL_SAFE_FONTS[0].value,
+    fontFamily: EMAIL_FONTS[0].value,
+    fontUrl: '',
+    previewText: '',
     textColor: '#111111',
     fontSize: 16,
     lineHeight: 150,
@@ -130,6 +169,24 @@ function isEmptyParagraph(node: JSONContent): boolean {
 /** True when there is nothing to send: a page style on its own is not content. */
 export function isEmailDocEmpty(doc: JSONContent): boolean {
     return (doc.content ?? []).every(isEmptyParagraph)
+}
+
+/** Every web font stylesheet the email needs, on the page or on a block. */
+export function emailFontUrls(doc: JSONContent): string[] {
+    const urls = new Set<string>()
+    const visit = (node: JSONContent): void => {
+        const url = node.attrs?.emailStyle?.fontUrl
+        if (url) {
+            urls.add(url)
+        }
+        node.content?.forEach(visit)
+    }
+    const pageUrl = doc.attrs?.page?.fontUrl
+    if (pageUrl) {
+        urls.add(pageUrl)
+    }
+    visit(doc)
+    return [...urls].filter((url) => /^https:\/\//i.test(url))
 }
 
 type DesignLike = Record<string, any> | null | undefined

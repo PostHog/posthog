@@ -1,3 +1,4 @@
+import { NodeSelection } from '@tiptap/pm/state'
 import { NodeViewProps, NodeViewWrapper } from '@tiptap/react'
 import clsx from 'clsx'
 import { useRef, useState } from 'react'
@@ -18,6 +19,7 @@ export function EmailImageBlockView({ node, selected, updateAttributes, editor, 
     const width = dragWidth ?? style.width ?? naturalWidth ?? undefined
     const padding = style.padding
     const align = style.textAlign ?? 'left'
+    const blockSelected = selected && editor.state.selection instanceof NodeSelection
 
     const startResize = (event: React.MouseEvent): void => {
         event.preventDefault()
@@ -51,7 +53,7 @@ export function EmailImageBlockView({ node, selected, updateAttributes, editor, 
 
     return (
         <NodeViewWrapper
-            className={clsx('email-canvas-image', selected && 'email-canvas-selected')}
+            className={clsx('email-canvas-image', blockSelected && 'email-canvas-selected')}
             data-drag-handle
             style={{
                 textAlign: align,
@@ -106,7 +108,7 @@ export function EmailImageBlockView({ node, selected, updateAttributes, editor, 
                             borderRadius: style.borderRadius ? `${style.borderRadius}px` : undefined,
                         }}
                     />
-                    {selected ? (
+                    {blockSelected ? (
                         <button
                             type="button"
                             className="email-canvas-image-resize"

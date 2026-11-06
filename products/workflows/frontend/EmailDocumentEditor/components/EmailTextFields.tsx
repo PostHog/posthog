@@ -2,8 +2,9 @@ import type { Editor } from '@tiptap/core'
 
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
-import { EmailBlockStyle, resolvePageStyle } from '../emailDocument'
+import { EMAIL_FONTS, EmailBlockStyle, fontOptions, resolvePageStyle } from '../emailDocument'
 import { useEmailEditorContext } from '../emailEditorContext'
+import { EmailFormatButton, EmailFormatButtons } from './EmailFormatButtons'
 import { EmailAlignField } from './fields/EmailAlignField'
 import { EmailColorField } from './fields/EmailColorField'
 import { EmailFieldRow } from './fields/EmailFieldRow'
@@ -28,18 +29,6 @@ export function EmailTextFields({
     const size =
         nodeType === 'heading' ? (level === 1 ? page.h1Size : level === 2 ? page.h2Size : page.h3Size) : page.fontSize
     const isTextBlock = nodeType === 'paragraph' || nodeType === 'heading'
-    const toggle = (name: string, label: string, content: JSX.Element, run: () => void): JSX.Element => (
-        <LemonButton
-            size="xsmall"
-            active={editor.isActive(name)}
-            aria-label={label}
-            tooltip={label}
-            onClick={run}
-            data-attr={`email-editor-panel-${name}`}
-        >
-            {content}
-        </LemonButton>
-    )
     return (
         <>
             {isTextBlock ? (
@@ -66,6 +55,21 @@ export function EmailTextFields({
                     />
                 </EmailFieldRow>
             ) : null}
+            <EmailFieldRow label="Font">
+                <LemonSelect
+                    size="small"
+                    fullWidth
+                    value={style.fontFamily ?? null}
+                    options={[{ value: null, label: 'Same as page' }, ...fontOptions(style.fontFamily)]}
+                    data-attr="email-editor-text-font"
+                    onChange={(fontFamily) =>
+                        set({
+                            fontFamily: fontFamily ?? undefined,
+                            fontUrl: EMAIL_FONTS.find((font) => font.value === fontFamily)?.url,
+                        })
+                    }
+                />
+            </EmailFieldRow>
             <EmailColorField
                 label="Color"
                 value={style.color}
@@ -98,36 +102,16 @@ export function EmailTextFields({
                 onChange={(letterSpacing) => set({ letterSpacing })}
             />
             <div className="flex flex-wrap gap-0.5 py-1">
-                {toggle('bold', 'Bold', <span className="font-bold px-1 text-xs">B</span>, () =>
-                    editor.chain().focus().toggleBold().run()
-                )}
-                {toggle('italic', 'Italic', <span className="italic px-1 text-xs">I</span>, () =>
-                    editor.chain().focus().toggleItalic().run()
-                )}
-                {toggle('underline', 'Underline', <span className="underline px-1 text-xs">U</span>, () =>
-                    editor.chain().focus().toggleUnderline().run()
-                )}
-                {toggle('strike', 'Strikethrough', <span className="line-through px-1 text-xs">S</span>, () =>
-                    editor.chain().focus().toggleStrike().run()
-                )}
-                {toggle('code', 'Code', <span className="font-mono px-0.5 text-xs">{'<>'}</span>, () =>
-                    editor.chain().focus().toggleCode().run()
-                )}
-                <LemonButton
-                    size="xsmall"
-                    active={!!style.uppercase}
-                    aria-label="Uppercase"
-                    tooltip="Uppercase"
-                    onClick={() => set({ uppercase: style.uppercase ? undefined : true })}
-                >
-                    <span className="px-0.5 text-xs">AB</span>
-                </LemonButton>
-                {toggle('bulletList', 'Bullet list', <span className="px-1 text-xs">•</span>, () =>
-                    editor.chain().focus().toggleBulletList().run()
-                )}
-                {toggle('orderedList', 'Numbered list', <span className="px-1 text-xs">1.</span>, () =>
-                    editor.chain().focus().toggleOrderedList().run()
-                )}
+                <EmailFormatButtons editor={editor} attrPrefix="email-editor-panel" lists>
+                    <EmailFormatButton
+                        active={!!style.uppercase}
+                        label="Uppercase"
+                        attr="email-editor-panel-uppercase"
+                        onClick={() => set({ uppercase: style.uppercase ? undefined : true })}
+                    >
+                        <span className="text-xxs font-semibold leading-none">AB</span>
+                    </EmailFormatButton>
+                </EmailFormatButtons>
             </div>
             <EmailAlignField value={style.textAlign} onChange={(textAlign) => set({ textAlign })} />
             {showLink ? (

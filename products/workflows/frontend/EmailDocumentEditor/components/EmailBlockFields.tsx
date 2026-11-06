@@ -104,17 +104,37 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                         attr="email-editor-button-radius"
                     />
                     <EmailNumberField
-                        label="Inner width"
-                        value={style.innerPaddingX}
-                        placeholder={24}
-                        onChange={(innerPaddingX) => set({ innerPaddingX })}
+                        label="Width"
+                        suffix="%"
+                        value={style.buttonWidth}
+                        placeholder="Auto"
+                        min={1}
+                        max={100}
+                        onChange={(buttonWidth) => set({ buttonWidth })}
+                        attr="email-editor-button-width"
                     />
-                    <EmailNumberField
-                        label="Inner height"
-                        value={style.innerPaddingY}
-                        placeholder={12}
-                        onChange={(innerPaddingY) => set({ innerPaddingY })}
-                    />
+                    <EmailFieldRow label="Inner padding">
+                        <LemonInput
+                            type="number"
+                            size="small"
+                            min={0}
+                            aria-label="Inner padding left and right"
+                            prefix={<span className="text-xs text-secondary">↔</span>}
+                            value={style.innerPaddingX ?? ('' as unknown as number)}
+                            placeholder="24"
+                            onChange={(innerPaddingX) => set({ innerPaddingX })}
+                        />
+                        <LemonInput
+                            type="number"
+                            size="small"
+                            min={0}
+                            aria-label="Inner padding top and bottom"
+                            prefix={<span className="text-xs text-secondary">↕</span>}
+                            value={style.innerPaddingY ?? ('' as unknown as number)}
+                            placeholder="12"
+                            onChange={(innerPaddingY) => set({ innerPaddingY })}
+                        />
+                    </EmailFieldRow>
                     <EmailNumberField
                         label="Border"
                         value={style.borderWidth}
@@ -186,7 +206,7 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                     <EmailNumberField
                         label="Width"
                         value={style.width}
-                        placeholder={node.attrs.naturalWidth ?? 'Full'}
+                        placeholder="Auto"
                         onChange={(width) => set({ width })}
                         attr="email-editor-image-width"
                     />

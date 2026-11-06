@@ -6,6 +6,7 @@ import { IconCopy, IconDrag, IconEllipsis, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { EmailBlockAt, blockAtPos, deleteBlock, duplicateBlock, moveBlock } from '../emailCommands'
+import { useEscapeToClose } from './useEscapeToClose'
 
 interface HandlePosition {
     top: number
@@ -23,6 +24,7 @@ export function EmailBlockHandle({
 }): JSX.Element | null {
     const [position, setPosition] = useState<HandlePosition | null>(null)
     const [menuOpen, setMenuOpen] = useState(false)
+    useEscapeToClose(menuOpen, () => setMenuOpen(false))
     const positionRef = useRef(position)
     positionRef.current = position
     const menuOpenRef = useRef(menuOpen)
@@ -110,7 +112,7 @@ export function EmailBlockHandle({
     return (
         <div
             data-email-handle
-            className="absolute z-10 flex items-center"
+            className="absolute z-10 flex items-center rounded border bg-surface-primary shadow-sm"
             style={{ top: position.top + 4, left: position.left - 22 }}
             contentEditable={false}
         >

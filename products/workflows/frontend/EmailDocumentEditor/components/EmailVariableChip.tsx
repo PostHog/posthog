@@ -1,3 +1,4 @@
+import { NodeSelection } from '@tiptap/pm/state'
 import { NodeViewProps, NodeViewWrapper } from '@tiptap/react'
 import clsx from 'clsx'
 import { useState } from 'react'
@@ -7,12 +8,24 @@ import { LemonButton, LemonInput, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { useEmailEditorContext } from '../emailEditorContext'
 import { undefinedVariableReason } from '../emailVariables'
+import { useEscapeToClose } from './useEscapeToClose'
 
-export function EmailVariableChip({ node, selected, updateAttributes, deleteNode }: NodeViewProps): JSX.Element {
+export function EmailVariableChip({
+    node,
+    selected,
+    updateAttributes,
+    deleteNode,
+    editor,
+}: NodeViewProps): JSX.Element {
     const { variableContext } = useEmailEditorContext()
     const [open, setOpen] = useState(false)
     const { expression, fallback } = node.attrs
     const warning = undefinedVariableReason(expression, fallback, variableContext)
+    const close = (): void => {
+        setOpen(false)
+        editor.commands.focus()
+    }
+    useEscapeToClose(open, close)
 
     const chip = (
         <button
@@ -20,7 +33,7 @@ export function EmailVariableChip({ node, selected, updateAttributes, deleteNode
             className={clsx(
                 'email-canvas-variable',
                 warning && 'email-canvas-variable-warning',
-                selected && 'email-canvas-variable-selected'
+                selected && editor.state.selection instanceof NodeSelection && 'email-canvas-variable-selected'
             )}
             data-attr="email-editor-variable-chip"
             translate="no"
@@ -38,7 +51,16 @@ export function EmailVariableChip({ node, selected, updateAttributes, deleteNode
                 onClickOutside={() => setOpen(false)}
                 placement="bottom-start"
                 overlay={
-                    <div className="flex flex-col gap-2 p-2 w-72" onKeyDown={(event) => event.stopPropagation()}>
+                    <div
+                        className="flex flex-col gap-2 p-2 w-72"
+                        onKeyDown={(event) => {
+                            event.stopPropagation()
+                            if (event.key === 'Enter') {
+                                event.preventDefault()
+                                close()
+                            }
+                        }}
+                    >
                         <label className="flex flex-col gap-1 text-xs font-semibold">
                             Variable
                             <LemonInput
@@ -64,7 +86,7 @@ export function EmailVariableChip({ node, selected, updateAttributes, deleteNode
                             <LemonButton size="xsmall" status="danger" onClick={deleteNode}>
                                 Remove
                             </LemonButton>
-                            <LemonButton size="xsmall" type="secondary" onClick={() => setOpen(false)}>
+                            <LemonButton size="xsmall" type="secondary" onClick={close}>
                                 Done
                             </LemonButton>
                         </div>

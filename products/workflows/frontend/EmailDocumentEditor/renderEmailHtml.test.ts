@@ -1,6 +1,6 @@
 import type { JSONContent } from '@tiptap/core'
 
-import { renderEmailHtml, renderEmailText } from './renderEmailHtml'
+import { renderEmailHtml, renderEmailText, withoutLiquidBetweenRows } from './renderEmailHtml'
 
 function doc(...content: JSONContent[]): JSONContent {
     return { type: 'doc', attrs: { page: {} }, content }
@@ -130,5 +130,39 @@ describe('renderEmailHtml', () => {
         )
 
         expect(text).toEqual('Hi\n\nGo: https://example.com\n\nOne\nTwo')
+    })
+
+    it('keeps text between Liquid tags in its place, and lets a tag alone on its line sit between rows', () => {
+        const paragraph = (text: string): Record<string, any> => ({
+            type: 'paragraph',
+            content: [{ type: 'text', text }],
+        })
+        const html = renderEmailHtml({
+            type: 'doc',
+            content: [
+                paragraph('{% if a %}Inline{% endif %}'),
+                paragraph('{% for x in y %}'),
+                paragraph('Row'),
+                paragraph('{% endfor %}'),
+            ],
+        })
+        expect(html).toMatch(/<p [^>]*>\{% if a %\}Inline\{% endif %\}<\/p>/)
+        expect(html).toMatch(/<\/tr>\{% for x in y %\}<tr>/)
+        expect(withoutLiquidBetweenRows(html)).not.toContain('{% for')
+        expect(withoutLiquidBetweenRows(html)).toContain('{% if a %}')
+    })
+
+    it('leaves out a button with no label and adds the preview text and font stylesheet', () => {
+        const html = renderEmailHtml({
+            type: 'doc',
+            attrs: { page: { previewText: 'Peek', fontUrl: 'https://fonts.example.com/a.css' } },
+            content: [
+                { type: 'emailButton', attrs: { href: 'https://example.com' } },
+                { type: 'paragraph', content: [{ type: 'text', text: 'Body' }] },
+            ],
+        })
+        expect(html).not.toContain('https://example.com"')
+        expect(html).toContain('>Peek</div>')
+        expect(html).toContain('<link rel="stylesheet" href="https://fonts.example.com/a.css"')
     })
 })

@@ -1,3 +1,4 @@
+import { NodeSelection } from '@tiptap/pm/state'
 import { NodeViewProps, NodeViewWrapper } from '@tiptap/react'
 import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
@@ -7,7 +8,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
-import { EmailBlockStyle } from '../emailDocument'
+import { EmailBlockStyle, emailFontUrls, resolvePageStyle } from '../emailDocument'
+import { isFullHtmlDocument } from '../renderEmailHtml'
 
 export function EmailHtmlBlockView({ node, selected, updateAttributes, editor }: NodeViewProps): JSX.Element {
     const [editing, setEditing] = useState(!node.attrs.html)
@@ -23,6 +25,16 @@ export function EmailHtmlBlockView({ node, selected, updateAttributes, editor }:
         }
     }, [editing, node.attrs.html])
 
+    const page = resolvePageStyle(editor.state.doc.attrs.page)
+    // The email gives a fragment the page's font and no margin. A full document keeps whatever it sets.
+    const srcDoc = isFullHtmlDocument(node.attrs.html)
+        ? node.attrs.html
+        : `${emailFontUrls(editor.state.doc.toJSON())
+              .map((url) => `<link rel="stylesheet" href="${url.replace(/"/g, '&quot;')}" />`)
+              .join(
+                  ''
+              )}<style>body{margin:0;font-family:${page.fontFamily};font-size:${page.fontSize}px;line-height:${page.lineHeight}%;color:${page.textColor}}</style>${node.attrs.html}`
+
     const measure = (): void => {
         const body = iframeRef.current?.contentDocument?.documentElement
         if (body) {
@@ -32,7 +44,10 @@ export function EmailHtmlBlockView({ node, selected, updateAttributes, editor }:
 
     return (
         <NodeViewWrapper
-            className={clsx('email-canvas-html', selected && 'email-canvas-selected')}
+            className={clsx(
+                'email-canvas-html',
+                selected && editor.state.selection instanceof NodeSelection && 'email-canvas-selected'
+            )}
             data-drag-handle
             style={{
                 padding: padding
@@ -47,7 +62,7 @@ export function EmailHtmlBlockView({ node, selected, updateAttributes, editor }:
                         ref={iframeRef}
                         title="Custom HTML block"
                         sandbox="allow-same-origin"
-                        srcDoc={node.attrs.html}
+                        srcDoc={srcDoc}
                         onLoad={measure}
                         className="w-full border-0 pointer-events-none block"
                         style={{ height }}

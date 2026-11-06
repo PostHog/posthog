@@ -1,53 +1,64 @@
 import type { Editor } from '@tiptap/core'
+import { useState } from 'react'
 
-import { IconImage, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { IconImage, IconPlus } from '@posthog/icons'
+import { LemonButton, LemonMenu, Popover } from '@posthog/lemon-ui'
 
 import { IconTextSize } from 'lib/lemon-ui/icons'
 
 import { EMAIL_BLOCK_OPTIONS, EmailBlockOption } from '../emailBlockCatalog'
 import { useEmailEditorContext } from '../emailEditorContext'
 import { insertBlockOption, insertVariableAtCursor } from './emailEditorActions'
+import { EmailVariablePicker } from './EmailVariablePicker'
+import { useEscapeToClose } from './useEscapeToClose'
+
+const SQUARE_BUTTON = {
+    size: 'small',
+    noPadding: true,
+    center: true,
+    className: 'EmailEditor__square-button',
+    tooltipPlacement: 'right',
+} as const
 
 export function EmailInsertToolbar({ editor }: { editor: Editor }): JSX.Element {
     const { pickImage, variableOptions } = useEmailEditorContext()
+    const [blocksOpen, setBlocksOpen] = useState(false)
+    const [variablesOpen, setVariablesOpen] = useState(false)
+    useEscapeToClose(blocksOpen, () => setBlocksOpen(false))
+    useEscapeToClose(variablesOpen, () => {
+        setVariablesOpen(false)
+        editor.commands.focus()
+    })
     const insert = (option: EmailBlockOption): void => insertBlockOption(editor, option, pickImage)
     const byKey = (key: string): EmailBlockOption => EMAIL_BLOCK_OPTIONS.find((option) => option.key === key)!
 
-    const groups = Object.entries(
-        variableOptions.reduce<Record<string, typeof variableOptions>>((all, option) => {
-            all[option.group] = [...(all[option.group] ?? []), option]
-            return all
-        }, {})
-    )
-
     return (
         <div
-            className="flex flex-col gap-1 p-1 border rounded bg-surface-primary shadow-sm"
+            className="flex flex-col items-center gap-1 p-1 border rounded bg-surface-primary shadow-sm"
             role="toolbar"
             aria-label="Add to email"
             data-attr="email-editor-insert-toolbar"
         >
             <LemonButton
-                size="small"
+                {...SQUARE_BUTTON}
                 icon={<IconTextSize />}
                 tooltip="Text"
                 aria-label="Add text"
-                tooltipPlacement="right"
                 data-attr="email-editor-insert-text"
                 onClick={() => insert(byKey('paragraph'))}
             />
             <LemonButton
-                size="small"
+                {...SQUARE_BUTTON}
                 icon={<IconImage />}
                 tooltip="Image"
                 aria-label="Add image"
-                tooltipPlacement="right"
                 data-attr="email-editor-insert-image"
                 onClick={() => insert(byKey('image'))}
             />
             <LemonMenu
                 placement="right-start"
+                visible={blocksOpen}
+                onVisibilityChange={setBlocksOpen}
                 items={EMAIL_BLOCK_OPTIONS.filter((option) => option.key !== 'paragraph' && option.key !== 'image').map(
                     (option) => ({
                         label: option.title,
@@ -58,39 +69,42 @@ export function EmailInsertToolbar({ editor }: { editor: Editor }): JSX.Element 
                 )}
             >
                 <LemonButton
-                    size="small"
-                    icon={<IconPlusSmall />}
-                    tooltip="More blocks"
+                    {...SQUARE_BUTTON}
+                    icon={<IconPlus />}
+                    tooltip={blocksOpen ? undefined : 'More blocks'}
                     aria-label="More blocks"
-                    tooltipPlacement="right"
                     data-attr="email-editor-insert-more"
                     sideIcon={null}
                 />
             </LemonMenu>
-            <LemonMenu
+            <Popover
+                visible={variablesOpen}
+                onClickOutside={() => setVariablesOpen(false)}
                 placement="right-start"
-                items={groups.map(([group, options]) => ({
-                    title: group,
-                    items: options.slice(0, 40).map((option) => ({
-                        label: option.label,
-                        'data-attr': 'email-editor-insert-variable-option',
-                        onClick: () => insertVariableAtCursor(editor, option.expression),
-                    })),
-                }))}
+                overlay={
+                    <EmailVariablePicker
+                        options={variableOptions}
+                        onPick={(option) => {
+                            setVariablesOpen(false)
+                            insertVariableAtCursor(editor, option.expression)
+                        }}
+                    />
+                }
             >
                 <LemonButton
-                    size="small"
-                    tooltip="Variables"
-                    aria-label="Add a variable"
-                    tooltipPlacement="right"
-                    data-attr="email-editor-insert-variable"
+                    {...SQUARE_BUTTON}
+                    active={variablesOpen}
                     sideIcon={null}
+                    tooltip={variablesOpen ? undefined : 'Variables'}
+                    aria-label="Add a variable"
+                    data-attr="email-editor-insert-variable"
+                    onClick={() => setVariablesOpen(!variablesOpen)}
                 >
-                    <span className="font-mono text-xs px-0.5" translate="no">
+                    <span className="font-mono text-xs" translate="no">
                         {'{x}'}
                     </span>
                 </LemonButton>
-            </LemonMenu>
+            </Popover>
         </div>
     )
 }

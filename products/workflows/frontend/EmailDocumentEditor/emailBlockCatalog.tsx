@@ -1,6 +1,16 @@
 import type { JSONContent } from '@tiptap/core'
 
-import { IconButton, IconCode, IconColumns, IconImage, IconList, IconMinus, IconQuote } from '@posthog/icons'
+import {
+    IconBell,
+    IconButton,
+    IconCode,
+    IconColumns,
+    IconExpand,
+    IconImage,
+    IconList,
+    IconMinus,
+    IconQuote,
+} from '@posthog/icons'
 
 import { IconTextSize } from 'lib/lemon-ui/icons'
 
@@ -88,7 +98,7 @@ export const EMAIL_BLOCK_OPTIONS: EmailBlockOption[] = [
         key: 'spacer',
         title: 'Spacer',
         detail: 'Empty vertical space',
-        icon: <IconMinus />,
+        icon: <IconExpand />,
         keywords: 'spacer space gap',
         content: { type: 'emailSpacer', attrs: { height: 24 } },
     },
@@ -128,7 +138,7 @@ export const EMAIL_BLOCK_OPTIONS: EmailBlockOption[] = [
         key: 'unsubscribe',
         title: 'Unsubscribe link',
         detail: 'A line with the recipient’s unsubscribe link',
-        icon: <IconMinus />,
+        icon: <IconBell />,
         keywords: 'unsubscribe footer opt out',
         content: UNSUBSCRIBE_LINE,
     },
