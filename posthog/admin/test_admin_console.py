@@ -251,6 +251,11 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "starts with /",
             ),
             (
+                "notice_linking_off_site_with_a_backslash",
+                lambda: Notice(text="Moved", link_text="Open", href="/\\example.com/phish"),
+                "starts with /",
+            ),
+            (
                 "fact_linking_off_site_with_a_backslash",
                 lambda: Fact(label="Docs", value="Read", href="/\\example.com/phish"),
                 "starts with /",

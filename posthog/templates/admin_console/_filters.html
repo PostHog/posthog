@@ -1,6 +1,11 @@
 {# A Filters block: a GET form with its fields in one card per group. #}
 <form method="get" class="flex flex-col gap-4 max-w-xl">
-    {% for hidden in filters.form.hidden_fields %}{{ hidden }}{% endfor %}
+    {% for hidden in filters.form.hidden_fields %}
+        {{ hidden }}
+        {% for error in hidden.errors %}
+            <p class="quill-field__error m-0" role="alert">{{ error }}</p>
+        {% endfor %}
+    {% endfor %}
     {% for error in filters.form.non_field_errors %}
         <p class="quill-field__error m-0" role="alert">{{ error }}</p>
     {% endfor %}

@@ -59,7 +59,7 @@ class Notice:
     href: str | None = None
 
     def __post_init__(self) -> None:
-        if self.href is not None and (not self.href.startswith("/") or self.href.startswith("//")):
+        if self.href is not None and (not self.href.startswith("/") or self.href.startswith(("//", "/\\"))):
             raise ValueError(f"Notice links to {self.href!r}. Link to a PostHog path that starts with /.")
 
 
