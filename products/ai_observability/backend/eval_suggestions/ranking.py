@@ -11,6 +11,8 @@ from collections.abc import Sequence
 from typing import Any
 
 from posthog.dataclasses import frozen
+from posthog.temporal.ai_observability.run_session_evaluation import JUDGE_SESSION_MAX_CHARS
+from posthog.temporal.ai_observability.run_trace_evaluation import JUDGE_TRACE_MAX_CHARS
 
 from products.ai_observability.backend.models.eval_suggestions import EvalSuggestionKind
 
@@ -20,6 +22,9 @@ from .coverage import EvalFix
 from .measure import Measurement, Outcome, SampledTrace, TraceSample
 from .profile import StructuredGap, TeamProfile, normalize_segment_value
 from .stats import wilson_interval
+
+# Roughly how many characters one input token covers, to turn the judge's transcript caps into tokens.
+CHARS_PER_TOKEN = 4
 
 MAX_SUGGESTIONS = 3
 MAX_PER_KIND = 2
@@ -112,11 +117,21 @@ def judge_cost(weekly_units: float, mean_input_tokens: float | None, model: str)
 
 
 def mean_unit_tokens(target: str, profile: TeamProfile, sample: TraceSample) -> float | None:
-    """Input tokens one judge run reads: a generation's own, or a whole trace's for trace and session judges."""
+    """Input tokens one judge run reads: a generation's own, or a trace's or conversation's transcript.
+
+    Summed input tokens count history once per step, and the judge reads a transcript cut to a fixed length, so
+    a trace or session reads at most that transcript.
+    """
     if target == "generation":
         return profile.mean_input_tokens
     totals = [s.input_tokens for s in sample.traces if s.input_tokens > 0]
-    return sum(totals) / len(totals) if totals else None
+    if not totals:
+        return None
+    per_trace = min(sum(totals) / len(totals), JUDGE_TRACE_MAX_CHARS / CHARS_PER_TOKEN)
+    if target == "session":
+        traces_per_session = profile.traces / profile.sessions if profile.sessions else 1.0
+        return min(per_trace * traces_per_session, JUDGE_SESSION_MAX_CHARS / CHARS_PER_TOKEN)
+    return per_trace
 
 
 def _score(severity: float, credible_weekly_failures: float, *, judge: bool, similar: bool) -> float:
@@ -211,7 +226,10 @@ def filter_for(
 
 
 def segment_filter(key: str, value: str, traces: Sequence[SampledTrace]) -> dict[str, Any]:
-    raw_values = sorted({s.raw_segments[key] for s in traces if s.segments.get(key) == value and key in s.raw_segments})
+    """An exact filter on every value, as sent, that normalizes to `value`."""
+    raw_values = sorted(
+        {raw for s in traces for raw in s.raw_segment_values.get(key, ()) if normalize_segment_value(raw) == value}
+    )
     return {"key": key, "value": raw_values or [value], "operator": "exact", "type": "event"}
 
 
@@ -221,9 +239,7 @@ def _sent(sampled: SampledTrace, key: str, value: str) -> bool:
 
 def _in_scope(filters: list[dict[str, Any]], sampled: SampledTrace) -> bool:
     """Whether the live evaluation would run on this trace: some generation matches every filter."""
-    return all(
-        any(_sent(sampled, prop["key"], normalize_segment_value(value)) for value in prop["value"]) for prop in filters
-    )
+    return all(bool(sampled.raw_segment_values.get(prop["key"], frozenset()) & set(prop["value"])) for prop in filters)
 
 
 def _scope_share(filters: list[dict[str, Any]], traces: Sequence[SampledTrace]) -> float:
@@ -313,7 +329,8 @@ def gap_proposal(
 - Return true if every item marked {values_text} is justified, or if no item has that level"""
     filters = [segment_filter(gap.segment_key, gap.segment_value, sample.traces)]
     weekly_units = profile.traces * _scope_share(filters, sample.traces)
-    cost = judge_cost(weekly_units, mean_unit_tokens("trace", profile, sample), judge_model)
+    unit_tokens = mean_unit_tokens("trace", profile, sample)
+    cost = judge_cost(weekly_units, unit_tokens, judge_model)
     sample_traces = max(len(sample.traces), 1)
     excess_per_week = (gap.segment_rate - gap.other_rate) * gap.segment_items * profile.traces / sample_traces
     text = cards.gap_text(gap, cards.cost_clause(cost.weekly_cost_usd, free=False))
@@ -349,7 +366,7 @@ def gap_proposal(
         ),
         estimated_weekly_runs=cost.weekly_runs,
         estimated_weekly_cost_usd=cost.weekly_cost_usd,
-        mean_input_tokens=round(profile.mean_input_tokens) if profile.mean_input_tokens else None,
+        mean_input_tokens=round(unit_tokens) if unit_tokens else None,
         judge_model=judge_model,
         similar_evaluation_id=similar_evaluation_id,
     )
@@ -378,7 +395,8 @@ def screened_proposal(
     # Sentiment runs per generation, so it keeps the template's target whatever the traffic looks like.
     unit_target = template.target if template.evaluation_type == "sentiment" else target
     weekly_units = {"generation": profile.generations, "session": profile.sessions}.get(unit_target, profile.traces)
-    cost = judge_cost(weekly_units, mean_unit_tokens(unit_target, profile, sample), judge_model)
+    unit_tokens = mean_unit_tokens(unit_target, profile, sample)
+    cost = judge_cost(weekly_units, unit_tokens, judge_model)
     credible = len(result.flagged) / result.screened * profile.traces * SCREENING_PRECISION
     is_judge = template.evaluation_type == "llm_judge"
     text = cards.judge_text(template, unit_target, cards.cost_clause(cost.weekly_cost_usd, free=not is_judge))
@@ -411,7 +429,7 @@ def screened_proposal(
         ),
         estimated_weekly_runs=cost.weekly_runs,
         estimated_weekly_cost_usd=cost.weekly_cost_usd if is_judge else 0.0,
-        mean_input_tokens=round(profile.mean_input_tokens) if profile.mean_input_tokens else None,
+        mean_input_tokens=round(unit_tokens) if unit_tokens else None,
         judge_model=judge_model if is_judge else "",
         similar_evaluation_id=similar_evaluation_id,
     )

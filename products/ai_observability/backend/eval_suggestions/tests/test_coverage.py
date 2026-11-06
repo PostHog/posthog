@@ -171,11 +171,22 @@ class TestFetchCoverage(ClickhouseTestMixin, APIBaseTest):
             [(str(no_match.id), None), (str(no_conditions.id), None)]
         )
 
-    @parameterized.expand([("same_reasoning_for_both_answers", True), ("distinct_reasoning", False)])
-    def test_one_outcome_needs_shared_reasoning(self, _name: str, shared: bool) -> None:
+    @parameterized.expand(
+        [
+            ("same_reasoning_for_both_answers", True, 40, True),
+            ("distinct_reasoning", False, 40, False),
+            # The runs mostly judged the version before the edit, so they say nothing about the current one.
+            ("edited_within_the_window", True, 10, False),
+        ]
+    )
+    def test_one_outcome_needs_shared_reasoning(
+        self, _name: str, shared: bool, edited_days_ago: int, expected_fix: bool
+    ) -> None:
         end = timezone.now() - timedelta(minutes=30)
         evaluation = self._evaluation("Always passes", None, evaluation_type="hog")
-        Evaluation.objects.filter(pk=evaluation.pk).update(conditions=ALL_TRAFFIC)
+        Evaluation.objects.filter(pk=evaluation.pk).update(
+            conditions=ALL_TRAFFIC, updated_at=timezone.now() - timedelta(days=edited_days_ago)
+        )
         for index in range(210):
             result = index >= 5
             reasoning = "The answer cites its data correctly." if shared else f"Run {index}: the answer is {result}."
@@ -193,7 +204,7 @@ class TestFetchCoverage(ClickhouseTestMixin, APIBaseTest):
 
         coverage = fetch_coverage(self.team, end - timedelta(days=7), end)
 
-        assert [fix.problem for fix in coverage.fixes] == (["one_outcome"] if shared else [])
+        assert [fix.problem for fix in coverage.fixes] == (["one_outcome"] if expected_fix else [])
 
     def test_a_built_in_sentiment_eval_counts_as_the_sentiment_template(self) -> None:
         end = timezone.now() - timedelta(minutes=30)

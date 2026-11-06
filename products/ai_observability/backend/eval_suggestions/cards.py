@@ -16,7 +16,7 @@ from .catalog import EvalTemplate
 from .coverage import EvalFix
 from .profile import StructuredGap
 
-FREE = "Free, and you see results on recent traffic right away."
+FREE = "No AI provider cost, and you see results on recent traffic right away."
 # Below 1 in 10, "1 in N" reads more easily than a percentage.
 ONE_IN_N_BELOW = 0.1
 # Below this ratio, "N× more often" overstates the difference, so the card gives both shares instead.
