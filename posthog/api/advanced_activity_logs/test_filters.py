@@ -261,7 +261,7 @@ class TestFiltersMatchChangeValues(SimpleTestCase):
             ("after_by_negative_index", {"detail_filters": {"changes.-1.after": {"value": "x"}}}, True),
             ("nested_after", {"detail_filters": {"changes[].after.plan": {"value": "x"}}}, True),
             ("whole_changes", {"detail_filters": {"changes[]": {"operation": "contains", "value": "x"}}}, True),
-            ("change_field", {"detail_filters": {"changes[].field": {"value": "x"}}}, False),
+            ("change_field", {"detail_filters": {"changes[].field": {"operation": "contains", "value": "x"}}}, True),
             ("name", {"detail_filters": {"name": {"value": "x"}}}, False),
             ("unset_value", {"detail_filters": {"changes[].after": {"value": None}}}, False),
         ]
