@@ -884,11 +884,13 @@ describe('SourceWebhooksConsumer', () => {
                     return manualHogFlow
                 }
 
-                const mintManualRunToken = (claims: { teamId: number; hogFlowId: string }) =>
+                type ManualRunClaims = { teamId: number; hogFlowId: string; userId: string }
+                const mintManualRunToken = (claims: ManualRunClaims) =>
                     new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_MANUAL_RUN, hub.WORKFLOWS_CANCEL_JWT_SECRET).mint(
                         {
                             team_id: claims.teamId,
                             hog_flow_id: claims.hogFlowId,
+                            user_id: claims.userId,
                         }
                     )
 
@@ -896,7 +898,7 @@ describe('SourceWebhooksConsumer', () => {
                     teamId: number,
                     hogFlowId: string,
                     body: Record<string, any>,
-                    tokenClaims: { teamId: number; hogFlowId: string } | null = { teamId, hogFlowId }
+                    tokenClaims: ManualRunClaims | null = { teamId, hogFlowId, userId: body.user_id }
                 ) => {
                     const request = supertest(app)
                         .post(`/api/projects/${teamId}/hog_flows/${hogFlowId}/manual_invocations`)
@@ -931,13 +933,18 @@ describe('SourceWebhooksConsumer', () => {
                     teamOffset: number
                     trigger: 'manual' | 'webhook'
                     status: HogFlow['status']
-                    token: 'valid' | 'none' | 'other workflow'
+                    token: 'valid' | 'none' | 'other workflow' | 'other user'
                 }
                 it.each<[string, RefusalCase, number]>([
                     ['without a token', { teamOffset: 0, trigger: 'manual', status: 'active', token: 'none' }, 401],
                     [
                         "with another workflow's token",
                         { teamOffset: 0, trigger: 'manual', status: 'active', token: 'other workflow' },
+                        401,
+                    ],
+                    [
+                        "with another user's token",
+                        { teamOffset: 0, trigger: 'manual', status: 'active', token: 'other user' },
                         401,
                     ],
                     ['another team', { teamOffset: 1, trigger: 'manual', status: 'active', token: 'valid' }, 404],
@@ -952,9 +959,10 @@ describe('SourceWebhooksConsumer', () => {
                         options.trigger === 'webhook' ? hogFlow : await buildManualHogFlow({ status: options.status })
                     const teamId = team.id + options.teamOffset
                     const tokenClaims = {
-                        valid: { teamId, hogFlowId: target.id },
+                        valid: { teamId, hogFlowId: target.id, userId: 'user@example.com' },
                         none: null,
-                        'other workflow': { teamId, hogFlowId: hogFlow.id },
+                        'other workflow': { teamId, hogFlowId: hogFlow.id, userId: 'user@example.com' },
+                        'other user': { teamId, hogFlowId: target.id, userId: 'someone-else@example.com' },
                     }[options.token]
 
                     const res = await doManualRequest(teamId, target.id, { user_id: 'user@example.com' }, tokenClaims)
