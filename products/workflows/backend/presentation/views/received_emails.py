@@ -93,24 +93,28 @@ class ReceivedEmailSerializer(serializers.Serializer):
     )
     content_status = serializers.ChoiceField(
         choices=InboundEmailContentStatus.choices,
-        help_text="`too_large` keeps no body or raw message. `parse_failed` keeps only the raw message.",
+        help_text="`too_large` keeps no body or raw message. `parse_failed` keeps only the raw message. `not_stored` "
+        "is filtered mail that keeps only its details.",
     )
     sender_verified = serializers.BooleanField(
-        help_text="True when the mail server checks prove the From domain. When false, the From may be forged."
+        help_text="True when the message has one plainly written From address and the mail server checks prove its "
+        "domain. When false, the From may be forged."
     )
     auto_submitted = serializers.BooleanField(help_text="True when a machine wrote this, such as an out-of-office.")
     attachment_count = serializers.IntegerField(help_text="How many attachments the email has.")
     size_bytes = serializers.IntegerField(help_text="The size of the raw message.")
     spam_verdict = serializers.CharField(
-        help_text="What the spam scan found: `pass`, `fail`, `gray` or `processing_failed`. Mail that fails is kept "
-        "as filtered and fires no event."
+        help_text="What the spam scan found: `pass`, `fail`, `gray` or `processing_failed`. Mail that fails keeps only "
+        "its details, as filtered, and fires no event."
     )
     person = ReceivedEmailPersonSerializer(
         allow_null=True,
         help_text="The person who sent this. Only set when `sender_verified` is true, so a forged From never matches.",
     )
     original_send = ReceivedEmailOriginalSendSerializer(
-        allow_null=True, help_text="The transactional email this answers. Null when none was matched."
+        allow_null=True,
+        help_text="The transactional email this answers, matched from headers the sender controls, so it's a hint "
+        "about the thread and not proof. Null when none was matched.",
     )
 
 
@@ -132,7 +136,9 @@ class ReceivedEmailAttachmentSerializer(serializers.Serializer):
     size = serializers.IntegerField(help_text="The size in bytes.")
     content_id = serializers.CharField(help_text="The Content-ID that HTML can reference. Empty when there is none.")
     inline = serializers.BooleanField(help_text="True when the email shows it in the body rather than attaching it.")
-    download_url = serializers.CharField(allow_null=True, help_text="A short-lived link that downloads the file.")
+    download_url = serializers.CharField(
+        allow_null=True, help_text="A short-lived link that downloads the file. Null unless the virus scan passed."
+    )
     expires_at = serializers.DateTimeField(help_text="When `download_url` stops working.")
 
 
@@ -144,7 +150,10 @@ class ReceivedEmailAuthenticationSerializer(serializers.Serializer):
 
 class ReceivedEmailVerdictsSerializer(serializers.Serializer):
     spam = serializers.CharField(help_text="`pass`, `fail`, `gray` or `processing_failed`.")
-    virus = serializers.CharField(help_text="`pass`, `gray` or `processing_failed`. A virus is never kept.")
+    virus = serializers.CharField(
+        help_text="`pass`, `gray` or `processing_failed`. A virus is never kept. Files can only be downloaded after "
+        "`pass`."
+    )
 
 
 class ReceivedEmailHeaderSerializer(serializers.Serializer):
@@ -153,7 +162,10 @@ class ReceivedEmailHeaderSerializer(serializers.Serializer):
 
 
 class ReceivedEmailRawSerializer(serializers.Serializer):
-    download_url = serializers.CharField(allow_null=True, help_text="A short-lived link to the raw MIME message.")
+    download_url = serializers.CharField(
+        allow_null=True,
+        help_text="A short-lived link to the raw MIME message. Null unless it was kept and the virus scan passed.",
+    )
     expires_at = serializers.DateTimeField(help_text="When `download_url` stops working.")
 
 

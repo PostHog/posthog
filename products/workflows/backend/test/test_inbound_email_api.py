@@ -105,8 +105,22 @@ class TestInboundEmailDomains(APIBaseTest):
             check = self.client.post(f"{self.url}{domain_id}/verify/").json()
         self.assertEqual((check["state"], check["domain"]["status"]), ("lookup_failed", "active"))
 
+    def test_check_says_when_no_sending_domain_covers_the_domain(self, _flag) -> None:
+        with patch(LOOKUP, return_value=MxLookup(records=(), answered=True)):
+            domain_id = self._add("inbound.acme.example").json()["domain"]["id"]
+        Integration.objects.filter(team=self.team, kind="email").delete()
+        with patch(LOOKUP, return_value=MxLookup(records=((10, MX_HOST),), answered=True)):
+            check = self.client.post(f"{self.url}{domain_id}/verify/").json()
+        self.assertEqual((check["state"], check["domain"]["status"]), ("no_sending_domain", "pending"))
+
     def test_a_domain_another_project_receives_on_cannot_be_taken(self, _flag) -> None:
         other = self.create_team_with_organization(organization=self.organization)
+        Integration.objects.create(
+            team=other,
+            kind="email",
+            integration_id="b@acme.example",
+            config={"domain": "acme.example", "verified": True},
+        )
         InboundEmailDomain.objects.for_team(other.pk).create(
             team_id=other.pk,
             domain="inbound.acme.example",
@@ -130,6 +144,37 @@ class TestReceivedEmails(APIBaseTest):
             "from_address": "dana@sender.example",
         }
         return ReceivedEmail.objects.for_team(team_id).create(team_id=team_id, **{**defaults, **fields})
+
+    @parameterized.expand(
+        [
+            ("pass", "PASS", True),
+            ("gray", "GRAY", False),
+            ("processing_failed", "PROCESSING_FAILED", False),
+            ("missing", "", False),
+        ]
+    )
+    def test_files_are_only_downloadable_after_a_passed_virus_scan(
+        self, _flag, _name: str, verdict: str, downloadable: bool
+    ) -> None:
+        email = self._email(content_status=InboundEmailContentStatus.AVAILABLE, virus_verdict=verdict)
+        attachment = {"index": 0, "filename": "a.txt", "content_type": "text/plain", "size": 1}
+        reads = "products.workflows.backend.services.inbound_email.reads.storage"
+        with (
+            patch(f"{reads}.read_content", return_value={"attachments": [attachment]}),
+            patch(f"{reads}.download_link", return_value="https://storage.example/link"),
+        ):
+            url = f"/api/projects/{self.team.pk}/received_emails/{email.id}/"
+            detail = self.client.get(url).json()
+            single = self.client.get(f"{url}attachments/0/").json()
+        expected = "https://storage.example/link" if downloadable else None
+        self.assertEqual(detail["raw"]["download_url"], expected)
+        self.assertEqual(detail["attachments"][0]["download_url"], expected)
+        self.assertEqual(single["download_url"], expected)
+
+    def test_mail_kept_without_content_offers_no_raw_message(self, _flag) -> None:
+        email = self._email(content_status=InboundEmailContentStatus.NOT_STORED, virus_verdict="PASS")
+        detail = self.client.get(f"/api/projects/{self.team.pk}/received_emails/{email.id}/").json()
+        self.assertEqual((detail["content_status"], detail["raw"]["download_url"]), ("not_stored", None))
 
     def test_another_projects_email_is_not_found(self, _flag) -> None:
         other = self.create_team_with_organization(organization=self.organization)

@@ -58339,6 +58339,7 @@ export namespace Schemas {
      * * `missing` - No MX record
      * * `conflict` - Another MX record takes the mail
      * * `taken` - Another project holds the domain
+     * * `no_sending_domain` - No verified sending domain covers the domain
      * * `lookup_failed` - DNS did not answer
      */
     export type InboundDomainCheckStateEnum = typeof InboundDomainCheckStateEnum[keyof typeof InboundDomainCheckStateEnum];
@@ -58349,6 +58350,7 @@ export namespace Schemas {
       Missing: 'missing',
       Conflict: 'conflict',
       Taken: 'taken',
+      NoSendingDomain: 'no_sending_domain',
       LookupFailed: 'lookup_failed',
     } as const;
 
@@ -58361,6 +58363,7 @@ export namespace Schemas {
        * * `missing` - No MX record
        * * `conflict` - Another MX record takes the mail
        * * `taken` - Another project holds the domain
+       * * `no_sending_domain` - No verified sending domain covers the domain
        * * `lookup_failed` - DNS did not answer */
       state: InboundDomainCheckStateEnum;
       /** The MX records found, as `priority host`. */
@@ -58425,6 +58428,7 @@ export namespace Schemas {
      * * `available` - Available
      * * `too_large` - Too large
      * * `parse_failed` - Parse failed
+     * * `not_stored` - Not stored
      */
     export type InboundEmailContentStatusEnum = typeof InboundEmailContentStatusEnum[keyof typeof InboundEmailContentStatusEnum];
 
@@ -58433,6 +58437,7 @@ export namespace Schemas {
       Available: 'available',
       TooLarge: 'too_large',
       ParseFailed: 'parse_failed',
+      NotStored: 'not_stored',
     } as const;
 
     /**
@@ -99228,13 +99233,14 @@ export namespace Schemas {
        * * `auto_reply` - Auto-reply
        * * `rate_limited` - Rate limited */
       filter_reason: typeof ReceivedEmailFilterReason[keyof typeof ReceivedEmailFilterReason];
-      /** `too_large` keeps no body or raw message. `parse_failed` keeps only the raw message.
+      /** `too_large` keeps no body or raw message. `parse_failed` keeps only the raw message. `not_stored` is filtered mail that keeps only its details.
        *
        * * `available` - Available
        * * `too_large` - Too large
-       * * `parse_failed` - Parse failed */
+       * * `parse_failed` - Parse failed
+       * * `not_stored` - Not stored */
       content_status: InboundEmailContentStatusEnum;
-      /** True when the mail server checks prove the From domain. When false, the From may be forged. */
+      /** True when the message has one plainly written From address and the mail server checks prove its domain. When false, the From may be forged. */
       sender_verified: boolean;
       /** True when a machine wrote this, such as an out-of-office. */
       auto_submitted: boolean;
@@ -99242,11 +99248,11 @@ export namespace Schemas {
       attachment_count: number;
       /** The size of the raw message. */
       size_bytes: number;
-      /** What the spam scan found: `pass`, `fail`, `gray` or `processing_failed`. Mail that fails is kept as filtered and fires no event. */
+      /** What the spam scan found: `pass`, `fail`, `gray` or `processing_failed`. Mail that fails keeps only its details, as filtered, and fires no event. */
       spam_verdict: string;
       /** The person who sent this. Only set when `sender_verified` is true, so a forged From never matches. */
       person: ReceivedEmailPerson | null;
-      /** The transactional email this answers. Null when none was matched. */
+      /** The transactional email this answers, matched from headers the sender controls, so it's a hint about the thread and not proof. Null when none was matched. */
       original_send: ReceivedEmailOriginalSend | null;
     }
 
@@ -99264,7 +99270,7 @@ export namespace Schemas {
       /** True when the email shows it in the body rather than attaching it. */
       inline: boolean;
       /**
-         * A short-lived link that downloads the file.
+         * A short-lived link that downloads the file. Null unless the virus scan passed.
          * @nullable
          */
       download_url: string | null;
@@ -99285,7 +99291,7 @@ export namespace Schemas {
     export interface ReceivedEmailVerdicts {
       /** `pass`, `fail`, `gray` or `processing_failed`. */
       spam: string;
-      /** `pass`, `gray` or `processing_failed`. A virus is never kept. */
+      /** `pass`, `gray` or `processing_failed`. A virus is never kept. Files can only be downloaded after `pass`. */
       virus: string;
     }
 
@@ -99298,7 +99304,7 @@ export namespace Schemas {
 
     export interface ReceivedEmailRaw {
       /**
-         * A short-lived link to the raw MIME message.
+         * A short-lived link to the raw MIME message. Null unless it was kept and the virus scan passed.
          * @nullable
          */
       download_url: string | null;
@@ -99336,13 +99342,14 @@ export namespace Schemas {
        * * `auto_reply` - Auto-reply
        * * `rate_limited` - Rate limited */
       filter_reason: typeof ReceivedEmailDetailFilterReason[keyof typeof ReceivedEmailDetailFilterReason];
-      /** `too_large` keeps no body or raw message. `parse_failed` keeps only the raw message.
+      /** `too_large` keeps no body or raw message. `parse_failed` keeps only the raw message. `not_stored` is filtered mail that keeps only its details.
        *
        * * `available` - Available
        * * `too_large` - Too large
-       * * `parse_failed` - Parse failed */
+       * * `parse_failed` - Parse failed
+       * * `not_stored` - Not stored */
       content_status: InboundEmailContentStatusEnum;
-      /** True when the mail server checks prove the From domain. When false, the From may be forged. */
+      /** True when the message has one plainly written From address and the mail server checks prove its domain. When false, the From may be forged. */
       sender_verified: boolean;
       /** True when a machine wrote this, such as an out-of-office. */
       auto_submitted: boolean;
@@ -99350,11 +99357,11 @@ export namespace Schemas {
       attachment_count: number;
       /** The size of the raw message. */
       size_bytes: number;
-      /** What the spam scan found: `pass`, `fail`, `gray` or `processing_failed`. Mail that fails is kept as filtered and fires no event. */
+      /** What the spam scan found: `pass`, `fail`, `gray` or `processing_failed`. Mail that fails keeps only its details, as filtered, and fires no event. */
       spam_verdict: string;
       /** The person who sent this. Only set when `sender_verified` is true, so a forged From never matches. */
       person: ReceivedEmailPerson | null;
-      /** The transactional email this answers. Null when none was matched. */
+      /** The transactional email this answers, matched from headers the sender controls, so it's a hint about the thread and not proof. Null when none was matched. */
       original_send: ReceivedEmailOriginalSend | null;
       /** The return path. Empty for a bounce or an auto-reply. */
       envelope_from: string;

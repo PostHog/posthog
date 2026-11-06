@@ -31,6 +31,7 @@ from products.workflows.backend.services.inbound_email import (
 from products.workflows.backend.services.inbound_email.retention import RETENTION_DAYS, retention_cutoff
 
 MX_PRIORITY = 10
+VIRUS_SCAN_PASSED = "PASS"
 
 
 def list_received_emails(
@@ -74,7 +75,8 @@ def get_received_email(team_id: int, email_id: UUID) -> ReceivedEmailDetail | No
     if email.content_status == InboundEmailContentStatus.AVAILABLE:
         content = storage.read_content(team_id, email_id) or {}
     expires_at = _link_expiry()
-    has_raw = email.content_status != InboundEmailContentStatus.TOO_LARGE
+    has_raw = email.content_status not in (InboundEmailContentStatus.TOO_LARGE, InboundEmailContentStatus.NOT_STORED)
+    downloadable = _downloadable(email)
     return ReceivedEmailDetail(
         summary=_summary(email),
         envelope_from=email.envelope_from,
@@ -90,23 +92,27 @@ def get_received_email(team_id: int, email_id: UUID) -> ReceivedEmailDetail | No
         body_truncated=bool(content.get("body_truncated")),
         headers=tuple((header["name"], header["value"]) for header in content.get("headers", [])),
         attachments=tuple(
-            _attachment(team_id, email_id, attachment, expires_at) for attachment in content.get("attachments", [])
+            _attachment(team_id, email_id, attachment, expires_at, downloadable=downloadable)
+            for attachment in content.get("attachments", [])
         ),
         attachments_dropped=int(content.get("attachments_dropped") or 0),
         raw_download_url=(
-            storage.download_link(storage.raw_key(team_id, email_id), f"{email_id}.eml") if has_raw else None
+            storage.download_link(storage.raw_key(team_id, email_id), f"{email_id}.eml")
+            if has_raw and downloadable
+            else None
         ),
         raw_expires_at=expires_at,
     )
 
 
 def get_received_email_attachment(team_id: int, email_id: UUID, attachment_id: int) -> ReceivedEmailAttachment | None:
-    if not _in_retention(team_id).filter(pk=email_id).exists():
+    email = _in_retention(team_id).filter(pk=email_id).first()
+    if email is None:
         return None
     content = storage.read_content(team_id, email_id) or {}
     for attachment in content.get("attachments", []):
         if attachment["index"] == attachment_id:
-            return _attachment(team_id, email_id, attachment, _link_expiry())
+            return _attachment(team_id, email_id, attachment, _link_expiry(), downloadable=_downloadable(email))
     return None
 
 
@@ -178,8 +184,13 @@ def _link_expiry() -> datetime:
     return timezone.now() + timedelta(seconds=storage.LINK_EXPIRY_SECONDS)
 
 
+def _downloadable(email: ReceivedEmail) -> bool:
+    """A scan that couldn't finish says nothing about the content, so only a pass offers its files."""
+    return email.virus_verdict == VIRUS_SCAN_PASSED
+
+
 def _attachment(
-    team_id: int, email_id: UUID, attachment: dict[str, Any], expires_at: datetime
+    team_id: int, email_id: UUID, attachment: dict[str, Any], expires_at: datetime, *, downloadable: bool
 ) -> ReceivedEmailAttachment:
     return ReceivedEmailAttachment(
         id=attachment["index"],
@@ -188,8 +199,12 @@ def _attachment(
         size=attachment["size"],
         content_id=attachment.get("content_id", ""),
         inline=bool(attachment.get("inline")),
-        download_url=storage.download_link(
-            storage.attachment_key(team_id, email_id, attachment["index"]), attachment["filename"]
+        download_url=(
+            storage.download_link(
+                storage.attachment_key(team_id, email_id, attachment["index"]), attachment["filename"]
+            )
+            if downloadable
+            else None
         ),
         expires_at=expires_at,
     )
