@@ -31478,7 +31478,7 @@ export namespace Schemas {
          * The effective access level the user has for this object
          * @nullable
          */
-      readonly user_access_level: string | null;
+      readonly user_access_level?: string | null;
     }
 
     /**

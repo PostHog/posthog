@@ -117,7 +117,9 @@ from posthog.utils import (
     variables_override_requested_by_client,
 )
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import (
+    AccessControlLevel,
     UserAccessControl,
     access_level_satisfied_for_resource,
 )
@@ -1239,11 +1241,8 @@ class InsightResultSerializer(InsightSerializer):
         # Skip InsightSerializer.to_representation which references fields
         # (dashboard_tiles, dashboards, etc.) we've excluded from this narrow serializer,
         # but keep its dashboard-context access check so a restricted insight never renders a result.
-        user_access_control = self.user_access_control
-        if self.context.get("dashboard") and user_access_control:
-            # Dashboards are project-wide, so the insight can belong to a sibling environment whose own rules decide.
-            insight_access = user_access_control.for_team_ids([instance.team_id])[instance.team_id]
-            user_access_level = insight_access.get_user_access_level(instance)
+        if self.context.get("dashboard"):
+            user_access_level = self._insight_access_level(instance)
             if user_access_level and not access_level_satisfied_for_resource("insight", user_access_level, "viewer"):
                 return {
                     "id": instance.id,
@@ -1251,6 +1250,18 @@ class InsightResultSerializer(InsightSerializer):
                     "user_access_level": user_access_level,
                 }
         return serializers.ModelSerializer.to_representation(self, instance)
+
+    def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
+        if isinstance(obj, Insight):
+            return self._insight_access_level(obj)
+        return super().get_user_access_level(obj)
+
+    def _insight_access_level(self, insight: Insight) -> Optional[AccessControlLevel]:
+        user_access_control = self.user_access_control
+        if user_access_control is None:
+            return None
+        # Dashboards are project-wide, so the insight can belong to a sibling environment whose own rules decide.
+        return user_access_control.for_team_ids([insight.team_id])[insight.team_id].get_user_access_level(insight)
 
 
 class InsightResultSerializerExtension(OpenApiSerializerExtension):
@@ -1260,8 +1271,8 @@ class InsightResultSerializerExtension(OpenApiSerializerExtension):
         schema: dict[str, Any] = auto_schema._map_serializer(self.target, direction, bypass_extensions=True)
         required = schema.get("required")
         if isinstance(required, list):
-            # An insight the caller cannot view comes back as only its identifiers and access level.
-            schema["required"] = [name for name in required if name in {"id", "short_id", "user_access_level"}]
+            # A restricted insight and a "Not run" budget marker each carry only some of the fields.
+            schema["required"] = [name for name in required if name in {"id", "short_id"}]
         return schema
 
 
