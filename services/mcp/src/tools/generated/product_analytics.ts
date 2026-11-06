@@ -431,7 +431,7 @@ const eventsRetentionUpdatePrepare = (): ToolBase<
             purpose: 'events-retention-update',
             actionLabel: 'set events retention period',
             messageTemplate:
-                "About to change this project's events retention period. If the new period is shorter, events older than it are deleted at a later cleanup and can't be restored. Reply 'confirm' to proceed.\n",
+                "About to change how long this project keeps events. If the new period is shorter, events in this project that are older than it will be deleted, and deleted events can't be restored. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
             stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
@@ -968,7 +968,7 @@ const organizationEventsRetentionUpdatePrepare = (): ToolBase<
             purpose: 'organization-events-retention-update',
             actionLabel: 'set organization events retention period',
             messageTemplate:
-                "About to change the events retention period for projects in this organization that don't have their own period. If the new period is shorter, events older than it are deleted at a later cleanup and can't be restored. Reply 'confirm' to proceed.\n",
+                "About to change how long projects without their own period keep events. If the new period is shorter, events in those projects that are older than it will be deleted, and deleted events can't be restored. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
             stash: __runtime.stash,
             boundScope: { orgId: String(__scopeOrgId) },

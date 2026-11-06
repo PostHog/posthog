@@ -77,8 +77,8 @@ tools:
 
 
             `retention_months` and `retained_from` say how far back queries return events right now. Both are null while
-            retention isn't enforced for the project, but a period set for the project or organization still deletes
-            events. `next_deletion_on` is the date of the next cleanup that deletes this project's events, and
+            queries still return events older than the period, but a period set for the project or organization still
+            deletes events. `next_deletion_on` is the date of the next cleanup that deletes this project's events, and
             `next_deletion_before` is the date it deletes events before. Both are null while no deletion is scheduled.
 
 
@@ -102,18 +102,17 @@ tools:
             admins only. Requires human typed confirmation.
 
 
-            A shorter period permanently deletes events, and deleted events can't be restored. A longer period doesn't
-            bring back events that were already deleted. Deletion isn't instant. A period set for the project or the
-            organization is applied by a cleanup that runs once a month, on `next_monthly_cleanup_on`. The cleanup
-            deletes a whole calendar month only once every event in it is older than the period, so some events are kept
-            up to about a month longer than the period.
+            Events in this project that are older than the new period will be deleted, and deleted events can't be
+            restored. A longer period doesn't bring back events that were already deleted. Deletion isn't instant. A
+            cleanup runs once a month, on `next_monthly_cleanup_on`, and deletes whole months of events, so some events
+            are kept up to about a month past the period.
 
 
-            When you remove the project's period and the organization has one, the organization's period applies at the
-            next monthly cleanup. With no period set for the project or the organization, the project uses the default
-            period. Events past the default period are deleted only by a cleanup every 3 months, and only while
-            `default_period_deletes` is true. When the default period is shorter than the period the project kept
-            before, the first of these cleanups is at least 3 months away, on `first_pass_on` or later.
+            Null makes the project use the organization's period, which the monthly cleanup applies. When the
+            organization has no period either, the project uses the default period. If the default period is shorter
+            than the project's current period, a cleanup every 3 months deletes events past the default period, a whole
+            month at a time, so some events are kept a few months past it. The first one is at least 3 months from now,
+            on `first_pass_on` or later.
 
 
             Before you prepare the change, call events-retention-get and tell the user the current and new period. If
@@ -128,8 +127,9 @@ tools:
                     period, or the default period when the organization has none.
         confirmed_action:
             message: >
-                About to change this project's events retention period. If the new period is shorter, events older than
-                it are deleted at a later cleanup and can't be restored. Reply 'confirm' to proceed.
+                About to change how long this project keeps events. If the new period is shorter, events in this project
+                that are older than it will be deleted, and deleted events can't be restored. Reply 'confirm' to
+                proceed.
             action_label: set events retention period
     insight-create:
         operation: insights_create
@@ -584,17 +584,15 @@ tools:
             value is rejected. Organization admins only. Requires human typed confirmation.
 
 
-            A shorter period permanently deletes events in every project without its own period, and deleted events
-            can't be restored. A longer period doesn't bring back events that were already deleted. Deletion isn't
-            instant. The organization's period is applied by a cleanup that runs once a month, on
-            `next_monthly_cleanup_on`. The cleanup deletes a whole calendar month only once every event in it is older
-            than the period, so some events are kept up to about a month longer than the period.
+            Events in projects without their own period that are older than the new period will be deleted, and deleted
+            events can't be restored. A longer period doesn't bring back events that were already deleted. Deletion
+            isn't instant. A cleanup runs once a month, on `next_monthly_cleanup_on`, and deletes whole months of
+            events, so some events are kept up to about a month past the period.
 
 
-            Null makes projects without their own period use the default period. Events past the default period are
-            deleted only by a cleanup every 3 months, and only for projects where it is turned on (see
-            `default_period_deletes` in events-retention-get). When the default period is shorter than the
-            organization's period was, the first cleanup is at least 3 months away.
+            Null makes projects without their own period use the default period. If the default period is shorter than
+            the organization's current period, a cleanup every 3 months deletes events past the default period, a whole
+            month at a time, so some events are kept a few months past it. The first one is at least 3 months from now.
 
 
             Before you prepare the change, call organization-events-retention-get and tell the user the current and new
@@ -610,7 +608,7 @@ tools:
                     their own period use the default period.
         confirmed_action:
             message: >
-                About to change the events retention period for projects in this organization that don't have their own
-                period. If the new period is shorter, events older than it are deleted at a later cleanup and can't be
-                restored. Reply 'confirm' to proceed.
+                About to change how long projects without their own period keep events. If the new period is shorter,
+                events in those projects that are older than it will be deleted, and deleted events can't be restored.
+                Reply 'confirm' to proceed.
             action_label: set organization events retention period
