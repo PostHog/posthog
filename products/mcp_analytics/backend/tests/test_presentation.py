@@ -662,6 +662,9 @@ class TestMCPCustomHarnessEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
             ("empty_pattern", {"name": "Ok", "match_pattern": " "}),
             ("reserved_other", {"name": "other", "match_pattern": "ok"}),
             ("reserved_unidentified", {"name": "Unidentified client", "match_pattern": "ok"}),
+            ("built_in_harness_label", {"name": " cursor ", "match_pattern": "ok"}),
+            ("name_the_frontend_gives_a_mark", {"name": "Slack", "match_pattern": "ok"}),
+            ("icon_not_an_image", {"name": "Ok", "match_pattern": "ok", "icon": "data:text/plain;base64,aGk="}),
         ]
     )
     def test_create_rejects_unsafe_values(self, _name: str, payload: dict[str, str]) -> None:
@@ -679,6 +682,45 @@ class TestMCPCustomHarnessEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         )
         over_limit = self.client.post(self._url(), {"name": "Extra", "match_pattern": "extra"}, format="json")
         assert over_limit.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("same_case", "Acme", "Acme"),
+            ("other_case_and_spaces", "Acme", " ACME "),
+            ("first_name_sent_with_spaces", "Acme ", "acme"),
+        ]
+    )
+    def test_create_rejects_a_name_another_rule_uses(self, _name: str, first_name: str, duplicate_name: str) -> None:
+        self.client.post(self._url(), {"name": first_name, "match_pattern": "acme"}, format="json")
+
+        response = self.client.post(self._url(), {"name": duplicate_name, "match_pattern": "acme-cli"}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "name"
+
+    @parameterized.expand([("built_in_name", "Cursor"), ("name_another_rule_uses", "Acme")])
+    def test_update_accepts_an_unchanged_name_saved_before_names_were_checked(self, _name: str, name: str) -> None:
+        older, _ = MCPCustomHarness.objects.bulk_create(
+            [
+                MCPCustomHarness(team=self.team, name=name, match_pattern="one"),
+                MCPCustomHarness(team=self.team, name="Acme", match_pattern="two"),
+            ]
+        )
+
+        response = self.client.patch(self._url(f"{older.id}/"), {"name": name, "icon": ""}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_update_keeps_its_own_name_but_cannot_take_another_rules_name(self) -> None:
+        first = self.client.post(self._url(), {"name": "Acme", "match_pattern": "acme"}, format="json").json()
+        self.client.post(self._url(), {"name": "Beta", "match_pattern": "beta"}, format="json")
+
+        same_name = self.client.patch(self._url(f"{first['id']}/"), {"name": "acme"}, format="json")
+        taken_name = self.client.patch(self._url(f"{first['id']}/"), {"name": "Beta"}, format="json")
+
+        assert same_name.status_code == status.HTTP_200_OK
+        assert taken_name.status_code == status.HTTP_400_BAD_REQUEST
+        assert taken_name.json()["attr"] == "name"
 
     def test_a_redis_outage_falls_back_to_postgres_without_reporting_an_exception(self) -> None:
         MCPCustomHarness.objects.create(team=self.team, name="One", match_pattern="one")

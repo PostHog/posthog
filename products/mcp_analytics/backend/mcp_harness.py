@@ -250,3 +250,7 @@ HARNESS_LABELS: tuple[str, ...] = (
     "PostHog CLI",
     "Other",
 )
+
+# Client names the classifier keeps as they are, but that the frontend shows with a brand mark
+# (`HARNESS_BY_LABEL` in harnessRegistry.ts). A frontend test pins that map to these two tuples.
+MARKED_CLIENT_NAMES: tuple[str, ...] = ("PostHog AI", "Slack")

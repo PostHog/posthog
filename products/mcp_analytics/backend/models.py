@@ -6,6 +6,8 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
+from products.mcp_analytics.backend.custom_harness_icons import validate_harness_icon
+
 
 class MCPIntentClusterSnapshot(TeamScopedRootMixin):
     class Status(models.TextChoices):
@@ -139,6 +141,7 @@ class MCPCustomHarness(UUIDModel, TeamScopedRootMixin):
         max_length=100,
         validators=[RegexValidator(r"^[a-z0-9._ /-]+$", "Use lowercase letters, numbers, spaces and . _ / - only.")],
     )
+    icon = models.TextField(blank=True, default="", validators=[validate_harness_icon])
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

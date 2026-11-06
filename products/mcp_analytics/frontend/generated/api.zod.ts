@@ -29,6 +29,12 @@ export const McpAnalyticsCustomHarnessesCreateBody = /* @__PURE__ */ zod.object(
         .describe(
             'Text to look for in the client name or User-Agent product that the harness reports. Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent\/1.2`.'
         ),
+    icon: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional icon shown next to the harness name. A base64 data URI of a PNG, GIF or WebP image with a transparent background, 16 KB or smaller and at most 256 by 256 pixels. The icon shows in one color, like the built-in harness logos. An empty string means no icon.'
+        ),
 })
 
 /**
@@ -50,6 +56,12 @@ export const McpAnalyticsCustomHarnessesUpdateBody = /* @__PURE__ */ zod.object(
         .max(mcpAnalyticsCustomHarnessesUpdateBodyMatchPatternMax)
         .describe(
             'Text to look for in the client name or User-Agent product that the harness reports. Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent\/1.2`.'
+        ),
+    icon: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional icon shown next to the harness name. A base64 data URI of a PNG, GIF or WebP image with a transparent background, 16 KB or smaller and at most 256 by 256 pixels. The icon shows in one color, like the built-in harness logos. An empty string means no icon.'
         ),
 })
 
@@ -74,6 +86,12 @@ export const McpAnalyticsCustomHarnessesPartialUpdateBody = /* @__PURE__ */ zod.
         .optional()
         .describe(
             'Text to look for in the client name or User-Agent product that the harness reports. Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent\/1.2`.'
+        ),
+    icon: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional icon shown next to the harness name. A base64 data URI of a PNG, GIF or WebP image with a transparent background, 16 KB or smaller and at most 256 by 256 pixels. The icon shows in one color, like the built-in harness logos. An empty string means no icon.'
         ),
 })
 
