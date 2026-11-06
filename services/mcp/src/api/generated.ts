@@ -21436,6 +21436,25 @@ export namespace Schemas {
       results: BulkObserveResult[];
     }
 
+    export interface BulkRemoveSuppressionsRequest {
+      /**
+         * The email addresses to remove, at most 100 per request.
+         * @minItems 1
+         * @maxItems 100
+         * @items.maxLength 512
+         */
+      identifiers: string[];
+      /** Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400. */
+      confirm_complaints?: boolean;
+    }
+
+    export interface BulkRemoveSuppressionsResponse {
+      /** Addresses removed from the suppression list. */
+      removed: string[];
+      /** Addresses that were not on the suppression list. */
+      not_found: string[];
+    }
+
     /**
      * * `new` - New
      * * `open` - Open
@@ -44846,8 +44865,8 @@ export namespace Schemas {
          * @nullable
          */
       not_checked_reason: string | null;
-      /** When the experiment launched. */
-      launched_at: string;
+      /** The experiment's start date. The flag history counts changes from it, as the results count exposures from it. */
+      start_date: string;
       /** The project's time zone, which the findings use for times. */
       team_timezone: string;
       /** Every change since launch that can move exposed people, of every kind, in time order. A bucketing change is one per setting and save. A rollout change alone is no release-condition change. Empty for 'no_history_access', which does not read them. */
@@ -99319,6 +99338,16 @@ export namespace Schemas {
       identifier: string;
       /** Optional message category key. If omitted, the recipient is opted back in to all marketing messages. */
       category_key?: string;
+    }
+
+    export interface RemoveSuppressionRequest {
+      /**
+         * The email address to remove.
+         * @maxLength 512
+         */
+      identifier: string;
+      /** Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400. */
+      confirm_complaints?: boolean;
     }
 
     export interface ReorderTilesRequest {
