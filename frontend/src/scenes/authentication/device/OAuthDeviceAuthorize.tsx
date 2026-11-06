@@ -37,6 +37,7 @@ export function OAuthDeviceAuthorize(): JSX.Element {
         adjustableScopeRows,
         scopeGroups,
         allScopesRequired,
+        requiredScopesNote,
         scopeSummary,
         keptScopes,
     } = useValues(oauthDeviceAuthorizeLogic)
@@ -186,13 +187,9 @@ export function OAuthDeviceAuthorize(): JSX.Element {
                                 ),
                                 content: (
                                     <div className="flex flex-col gap-3">
-                                        {requiredScopeRows.length > 0 && (
+                                        {requiredScopesNote && (
                                             <p className="m-0 text-secondary" data-attr="oauth-device-required-note">
-                                                {deviceGrant.client_name} needs{' '}
-                                                {allScopesRequired
-                                                    ? 'all of these permissions'
-                                                    : 'the permissions marked Required'}
-                                                , so you can't remove them. To refuse them, deny the login.
+                                                {requiredScopesNote}
                                             </p>
                                         )}
                                         <OAuthScopeList
