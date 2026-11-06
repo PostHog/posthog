@@ -2,7 +2,7 @@ import re
 
 from django.utils.module_loading import autodiscover_modules
 
-from posthog.admin.console.panels import Panel
+from posthog.admin.console.panels import Owner, Panel
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.tools import ConsoleTool
 
@@ -66,6 +66,14 @@ class ConsoleRegistry:
         self.discover()
         tool_class = self._tools.get(key)
         return tool_class() if tool_class else None
+
+    def owners(self) -> set[Owner]:
+        self.discover()
+        panel_owners = {panel_class.owner for panels in self._panels.values() for panel_class in panels.values()}
+        return panel_owners | {tool_class.owner for tool_class in self._tools.values()}
+
+    def staff_groups(self) -> set[str]:
+        return {owner.staff_group for owner in self.owners() if owner.staff_group is not None}
 
     def discover(self) -> None:
         if self._discovered:
