@@ -9,6 +9,13 @@ import type { StoryEvidence } from 'products/product_analytics/mcp/apps/explainC
 import { StoryEvidenceChart } from 'products/product_analytics/mcp/apps/explainChart/StoryEvidenceChart'
 import { isSeriesNamedIn } from 'products/product_analytics/mcp/apps/explainChart/storyNamedSeries'
 
+// A breakdown or a second series draws several lines, which only a legend tells apart.
+function drawsSeveralLines(query: Record<string, unknown>): boolean {
+    const breakdownFilter = query.breakdownFilter as { breakdown?: unknown; breakdowns?: unknown[] } | undefined
+    const series = query.series as unknown[] | undefined
+    return !!breakdownFilter?.breakdown || !!breakdownFilter?.breakdowns?.length || (series?.length ?? 0) > 1
+}
+
 function seriesNames(result: TrendResult): string[] {
     return [result.label ?? '', ...[result.breakdown_value ?? []].flat().map(String)]
 }
@@ -23,7 +30,13 @@ export function ExplainChartEvidenceChart({ item }: { item: StoryEvidence }): JS
     }
     const query: InsightVizNode = {
         kind: NodeKind.InsightVizNode,
-        source: { kind: NodeKind.TrendsQuery, ...item.query } as unknown as InsightVizNode['source'],
+        source: {
+            kind: NodeKind.TrendsQuery,
+            ...item.query,
+            ...(drawsSeveralLines(item.query)
+                ? { trendsFilter: { ...(item.query.trendsFilter as object | undefined), showLegend: true } }
+                : {}),
+        } as unknown as InsightVizNode['source'],
         full: false,
         showHeader: false,
         showTable: false,
