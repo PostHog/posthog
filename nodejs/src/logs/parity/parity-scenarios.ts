@@ -2,13 +2,21 @@ import avro from 'avsc'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
+import { compileHog } from '~/cdp/templates/compiler'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { getDefaultLogsIngestionConsumerConfig, getDefaultTracesIngestionConsumerConfig } from '../config'
 import { INTERNAL_LOGS_HEADER, signInternalLogs } from '../internal-logs'
 import { encodeLogRecords } from '../log-record-avro'
 import { librdKafkaError } from './parity-harness'
-import type { ParityError, ParityHeader, ParityMessage, ParityScenario, ParityTeam } from './parity-types'
+import type {
+    ParityError,
+    ParityHeader,
+    ParityHogFunction,
+    ParityMessage,
+    ParityScenario,
+    ParityTeam,
+} from './parity-types'
 
 // Every Avro container gets a random sync marker, so a re-record rewrites the input bytes even when nothing else changed.
 // No scenario relies on concurrent order: a sampling `rate_limit` bucket shared in one batch, or a metric-rule exemplar across messages.
@@ -380,8 +388,34 @@ export const rateRule = (id: string, config: Rec): Rec => ({
     config,
 })
 
+let hogFunctionCount = 0
+
+async function hogFunction(
+    team: ParityTeam,
+    name: string,
+    hog: string,
+    overrides: Partial<ParityHogFunction> = {}
+): Promise<ParityHogFunction> {
+    hogFunctionCount++
+    return {
+        id: `00000000-0000-4000-a000-${String(hogFunctionCount).padStart(12, '0')}`,
+        team_id: team.id,
+        name,
+        type: 'transformation_log',
+        execution_order: hogFunctionCount,
+        created_at: '2025-01-01 00:00:00+00',
+        bytecode: await compileHog(hog),
+        inputs: {},
+        encrypted_inputs: null,
+        ...overrides,
+    }
+}
+
+const PARITY_SECRET = 'parity-secret-token'
+
 export async function buildParityScenarios(): Promise<ParityScenario[]> {
     setGeneratorClock()
+    hogFunctionCount = 0
     const scenarios: ParityScenario[] = []
     const [plain, json, pii, both, attr, ret7] = TEAMS
 
@@ -1006,6 +1040,110 @@ export async function buildParityScenarios(): Promise<ParityScenario[]> {
             [await f.logs(plain, 2), await f.logs(json, 1), await f.logs(json, 1)],
             [await f.logs(plain, 1), await f.logs(both, 1)],
         ]
+        scenarios.push(finish(s))
+    }
+    {
+        const rng = new Rng(18)
+        const f = new MessageFactory(rng)
+        const s = baseScenario(
+            'transformations',
+            'Hog log transformations: mutate, drop, fail open, input templates, secret redaction and monitoring outputs.',
+            {
+                LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '101,102,104,105',
+                LOGS_SAMPLING_ENABLED_TEAMS: '102',
+                // Generous budgets, so the outcome never depends on how fast the machine is.
+                LOGS_TRANSFORMATIONS_HOG_TIMEOUT_MS: 2000,
+                LOGS_TRANSFORMATIONS_MESSAGE_BUDGET_MS: 60_000,
+                LOGS_TRANSFORMATIONS_BATCH_BUDGET_MS: 600_000,
+                LOGS_TRANSFORMATIONS_MAX_ERROR_LOGS_PER_FUNCTION: 2,
+            }
+        )
+        const secret = { apiKey: { value: PARITY_SECRET, order: 1 } }
+        s.sampling_rules = { 102: [severityRule('t-sev', { DEBUG: { type: 'drop' } })] }
+        s.hog_functions = [
+            await hogFunction(
+                plain,
+                'Scrub emails',
+                `let rec := record\nrec.body := replaceAll(rec.body, 'alice@example.com', inputs.replacement)\nrec.attributes.scrubbed_by := inputs.apiKey\nreturn rec`,
+                { inputs: { replacement: { value: '[email]', order: 0 } }, encrypted_inputs: secret }
+            ),
+            await hogFunction(
+                plain,
+                'Drop debug',
+                `if (record.severity_text == 'DEBUG') {\n    return null\n}\nreturn record`
+            ),
+            await hogFunction(
+                plain,
+                'Fails on k',
+                `if (record.attributes.k != null) {\n    print('k is', record.attributes.k, inputs.apiKey)\n    throw Error(f'bad k {inputs.apiKey}')\n}\nreturn record`,
+                { encrypted_inputs: secret }
+            ),
+            await hogFunction(plain, 'A destination', `return null`, { type: 'destination' }),
+            await hogFunction(
+                plain,
+                'Service tag',
+                `let rec := record\nrec.attributes.svc := inputs.svc\nrec.attributes.project := project.url\nrec.attributes.trace := record.trace_id\nreturn rec`,
+                {
+                    inputs: {
+                        svc: {
+                            value: 'svc={record.service_name}',
+                            bytecode: await compileHog(`return f'svc={record.service_name}'`),
+                            order: 0,
+                        },
+                    },
+                }
+            ),
+            await hogFunction(
+                json,
+                'Second by created_at',
+                `let rec := record\nrec.attributes.order := f'{rec.attributes.order}b'\nreturn rec`,
+                { execution_order: null, created_at: '2025-01-02 00:00:00+00' }
+            ),
+            await hogFunction(
+                json,
+                'First by created_at',
+                `let rec := record\nrec.attributes.order := 'a'\nrec.attributes.half := record.severity_number / 2\nrec.attributes.keys := keys(record.attributes)\nrec.attributes.obj := {'n': 1.5, 'list': [1, null], '1': 'i'}\nrec.attributes['0'] := record.timestamp % 1000\nreturn rec`,
+                { execution_order: null, created_at: '2025-01-01 00:00:00+00' }
+            ),
+            await hogFunction(both, 'Bad result', `return 'nope'`),
+            await hogFunction(
+                both,
+                'Drop workers',
+                `if (record.service_name == 'worker') {\n    return null\n}\nreturn record`
+            ),
+            await hogFunction(both, 'Bad template', `return record`, {
+                inputs: { t: { value: '', bytecode: await compileHog(`throw Error('template boom')`), order: 0 } },
+            }),
+            await hogFunction(attr, 'Drop all', `return null`),
+            await hogFunction(pii, 'Gated off', `return null`),
+        ]
+        s.batches = [
+            [
+                await f.logs(plain, 6),
+                await f.logs(plain, 4, {}, { body: 'user alice@example.com logged in', severity_text: 'DEBUG' }),
+                await f.logs(json, 5),
+                await f.logs(both, 4),
+                await f.logs(attr, 3),
+                await f.logs(pii, 2),
+            ],
+            [await f.logs(plain, 8), await f.logs(both, 3, {}, { service_name: 'worker' }), await f.logs(json, 2)],
+        ]
+        scenarios.push(finish(s))
+    }
+    {
+        const rng = new Rng(19)
+        const f = new MessageFactory(rng)
+        const s = baseScenario(
+            'transformations-budget',
+            'An exhausted message budget skips every record, annotates it and counts it per function.',
+            { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*', LOGS_TRANSFORMATIONS_MESSAGE_BUDGET_MS: 0 }
+        )
+        s.hog_functions = [
+            await hogFunction(plain, 'Never runs', `return null`),
+            await hogFunction(plain, 'Never runs either', `return null`),
+            await hogFunction(json, 'Also skipped', `return record`),
+        ]
+        s.batches = [[await f.logs(plain, 3), await f.logs(json, 2), await f.logs(ret7, 2)]]
         scenarios.push(finish(s))
     }
     return scenarios

@@ -1,6 +1,9 @@
 import { createHash } from 'crypto'
 import { Message } from 'node-rdkafka'
 
+import { HogFunctionManagerService } from '~/cdp/services/managers/hog-function-manager.service'
+import { HogFunctionMonitoringService } from '~/cdp/services/monitoring/hog-function-monitoring.service'
+import { HogFunctionType } from '~/cdp/types'
 import { MessageKey } from '~/common/kafka/producer'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { IngestionOutputMessage } from '~/common/outputs/types'
@@ -16,9 +19,11 @@ import { type MetricRuleRow, compileMetricRules } from '../metrics-rules/compile
 import { type RetentionRuleRow, compileRetentionRuleSet } from '../retention/compile-retention-rules'
 import { type SamplingRuleRow, compileRuleSet } from '../sampling/compile-rules'
 import { TracesIngestionConsumer, TracesIngestionConsumerDeps } from '../traces-ingestion-consumer'
+import { LogsTransformerService } from '../transformations/logs-transformer.service'
 import type {
     ParityError,
     ParityExpected,
+    ParityHogFunction,
     ParityMessage,
     ParityOutputMessage,
     ParityScenario,
@@ -196,6 +201,11 @@ async function canonicalizeValue(
         const raw = value.toString('utf8')
         return { kind: 'json', raw, json: canonicalizeAvroValue(parseJSON(raw)) }
     }
+    if (output === 'log_entries') {
+        // Each message run mints a random `instance_id`, so the fixture keeps its position but not its value.
+        const raw = JSON.stringify({ ...parseJSON(value.toString('utf8')), instance_id: PARITY_INSTANCE_ID })
+        return { kind: 'json', raw, json: canonicalizeAvroValue(parseJSON(raw)) }
+    }
     return { kind: 'bytes', sha256: createHash('sha256').update(value).digest('hex'), length: value.length }
 }
 
@@ -211,6 +221,28 @@ function compareCanonical(a: unknown, b: unknown): number {
     const left = JSON.stringify(a)
     const right = JSON.stringify(b)
     return left < right ? -1 : left > right ? 1 : 0
+}
+
+export const PARITY_INSTANCE_ID = '<instance_id>'
+export const PARITY_SITE_URL = 'http://localhost:8010'
+
+/** The manager sorts by `execution_order`, then `created_at`, as `getHogFunctionsForTeams` does. */
+function parityHogFunctionManager(functions: ParityHogFunction[]): HogFunctionManagerService {
+    const forTeam = (teamId: number): HogFunctionType[] =>
+        functions
+            .filter((fn) => fn.team_id === teamId && fn.type === 'transformation_log')
+            .map((fn) => ({ ...fn, enabled: true, deleted: false }) as unknown as HogFunctionType)
+            .sort((a, b) =>
+                a.execution_order === b.execution_order
+                    ? a.created_at.localeCompare(b.created_at)
+                    : (a.execution_order ?? Infinity) - (b.execution_order ?? Infinity)
+            )
+    return {
+        getHogFunctionsForTeams: (teamIds: number[]) =>
+            Promise.resolve(Object.fromEntries(teamIds.map((id) => [id, forTeam(id)]))),
+        getHogFunctionIdsForTeams: (teamIds: number[]) =>
+            Promise.resolve(Object.fromEntries(teamIds.map((id) => [id, forTeam(id).map((fn) => fn.id)]))),
+    } as unknown as HogFunctionManagerService
 }
 
 /** These follow concurrent message completion, so they are sorted. A histogram's bucket arrays are positional and keep their order. */
@@ -422,6 +454,22 @@ export function buildParityConsumer(
     }
     for (const dep of scenario.omit_deps) {
         delete deps[dep]
+    }
+    if (scenario.hog_functions) {
+        const setting = (key: string): number => Number(scenario.config[key])
+        deps.logsTransformer = new LogsTransformerService(
+            parityHogFunctionManager(scenario.hog_functions),
+            new HogFunctionMonitoringService(
+                outputs as unknown as ConstructorParameters<typeof HogFunctionMonitoringService>[0]
+            ),
+            {
+                siteUrl: PARITY_SITE_URL,
+                hogTimeoutMs: setting('LOGS_TRANSFORMATIONS_HOG_TIMEOUT_MS'),
+                messageBudgetMs: setting('LOGS_TRANSFORMATIONS_MESSAGE_BUDGET_MS'),
+                batchBudgetMs: setting('LOGS_TRANSFORMATIONS_BATCH_BUDGET_MS'),
+                maxErrorLogsPerFunctionPerMessage: setting('LOGS_TRANSFORMATIONS_MAX_ERROR_LOGS_PER_FUNCTION'),
+            }
+        )
     }
 
     const config = { ...scenario.config, LOGS_REDIS_HOST: PARITY_REDIS_URL, TRACES_REDIS_HOST: PARITY_REDIS_URL } as any
