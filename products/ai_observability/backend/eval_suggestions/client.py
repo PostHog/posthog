@@ -23,9 +23,10 @@ from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exist
 COORDINATOR_WORKFLOW_NAME = "llma-eval-suggestions-coordinator"
 TEAM_WORKFLOW_NAME = "llma-eval-suggestions-team"
 SCHEDULE_ID = "llma-eval-suggestions-coordinator-schedule"
-COORDINATOR_TIMEOUT = timedelta(hours=20)
-# Room for the start, two 15-minute execute attempts a minute apart, and the cleanup that marks a run failed.
-TEAM_TIMEOUT = timedelta(minutes=45)
+# Runs weekly with overlaps skipped, so it can take most of the week: 2,000 teams of 3 minutes at 4 at a time is 25 hours.
+COORDINATOR_TIMEOUT = timedelta(days=6)
+# Room for each activity's schedule-to-close deadline in turn: start, both execute attempts, then the fail-run cleanup.
+TEAM_TIMEOUT = timedelta(minutes=50)
 
 
 @frozen
@@ -79,6 +80,7 @@ async def create_eval_suggestions_schedule(client: Client) -> None:
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
     if await a_schedule_exists(client, SCHEDULE_ID):
-        await a_update_schedule(client, SCHEDULE_ID, schedule)
+        # An operator's pause holds across deploys.
+        await a_update_schedule(client, SCHEDULE_ID, schedule, keep_paused=True)
     else:
         await a_create_schedule(client, SCHEDULE_ID, schedule, trigger_immediately=False)

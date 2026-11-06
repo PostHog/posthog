@@ -1,5 +1,6 @@
 """Weekly coordinator and per-team workflow. Activities pass ids and counts, never trace content."""
 
+import time
 import uuid
 import asyncio
 from datetime import timedelta
@@ -76,8 +77,10 @@ async def fail_eval_suggestions_run_activity(inputs: FailRunInputs) -> None:
 async def execute_eval_suggestions_run_activity(inputs: ExecuteRunInputs) -> int:
     async with Heartbeater():
         suggestion_settings = await on_asyncify_pool(load_settings)()
+        # A minute short of the attempt's timeout, so the run stops itself before Temporal starts a retry.
+        deadline = time.monotonic() + RUN_ATTEMPT_TIMEOUT.total_seconds() - 60
         return await on_asyncify_pool(execute_run)(
-            inputs.run_id, include_paid=inputs.include_paid, settings=suggestion_settings
+            inputs.run_id, include_paid=inputs.include_paid, settings=suggestion_settings, deadline=deadline
         )
 
 
@@ -92,6 +95,8 @@ class EvalSuggestionsTeamWorkflow(PostHogWorkflow):
             start_eval_suggestions_run_activity,
             StartRunInputs(run=inputs, run_id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"{info.workflow_id}/{info.run_id}"))),
             start_to_close_timeout=timedelta(minutes=1),
+            # Each activity has a schedule-to-close deadline, so worker queue time cannot outlast the workflow.
+            schedule_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         try:
@@ -99,6 +104,7 @@ class EvalSuggestionsTeamWorkflow(PostHogWorkflow):
                 execute_eval_suggestions_run_activity,
                 ExecuteRunInputs(run_id=run_id, include_paid=inputs.include_paid),
                 start_to_close_timeout=RUN_ATTEMPT_TIMEOUT,
+                schedule_to_close_timeout=RUN_ATTEMPT_TIMEOUT * 2 + timedelta(minutes=8),
                 heartbeat_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=2, initial_interval=timedelta(minutes=1)),
             )
@@ -108,6 +114,7 @@ class EvalSuggestionsTeamWorkflow(PostHogWorkflow):
                 fail_eval_suggestions_run_activity,
                 FailRunInputs(run_id=run_id, error=str(error.cause or error)),
                 start_to_close_timeout=timedelta(minutes=1),
+                schedule_to_close_timeout=timedelta(minutes=3),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             raise
@@ -133,28 +140,36 @@ class EvalSuggestionsCoordinatorWorkflow(PostHogWorkflow):
             team_ids, concurrency, batch_id = inputs.remaining_team_ids, inputs.max_concurrent_teams, inputs.batch_id
 
         succeeded = failed = 0
-        for start in range(0, len(team_ids), concurrency):
-            batch = team_ids[start : start + concurrency]
-            handles = [
-                await workflow.start_child_workflow(
-                    EvalSuggestionsTeamWorkflow.run,
-                    TeamRunInputs(team_id=team_id, trigger="scheduled", include_paid=True, batch_id=batch_id),
-                    id=f"{TEAM_WORKFLOW_NAME}-{team_id}-{batch_id}",
-                    execution_timeout=TEAM_TIMEOUT,
-                    parent_close_policy=workflow.ParentClosePolicy.TERMINATE,
+        queue = list(team_ids)
+        running: set[asyncio.Future[int]] = set()
+        # A slot refills as soon as one team finishes, so a slow team holds one slot, not the whole batch.
+        while queue or running:
+            while queue and len(running) < concurrency and not workflow.info().is_continue_as_new_suggested():
+                team_id = queue.pop(0)
+                running.add(
+                    await workflow.start_child_workflow(
+                        EvalSuggestionsTeamWorkflow.run,
+                        TeamRunInputs(team_id=team_id, trigger="scheduled", include_paid=True, batch_id=batch_id),
+                        id=f"{TEAM_WORKFLOW_NAME}-{team_id}-{batch_id}",
+                        execution_timeout=TEAM_TIMEOUT,
+                        parent_close_policy=workflow.ParentClosePolicy.TERMINATE,
+                    )
                 )
-                for team_id in batch
-            ]
-            for outcome in await asyncio.gather(*handles, return_exceptions=True):
-                if isinstance(outcome, BaseException):
-                    failed += 1
-                else:
+            if not running:
+                break
+            done, pending = await workflow.wait(running, return_when=asyncio.FIRST_COMPLETED)
+            running = set(pending)
+            for handle in done:
+                if handle.exception() is None:
                     succeeded += 1
-            remaining = team_ids[start + concurrency :]
-            if remaining and workflow.info().is_continue_as_new_suggested():
-                workflow.continue_as_new(
-                    CoordinatorInputs(remaining_team_ids=remaining, batch_id=batch_id, max_concurrent_teams=concurrency)
-                )
+                else:
+                    failed += 1
+        if queue:
+            # History grew too long. Children end with their parent, so the rest start in a fresh run once all
+            # running ones finished.
+            workflow.continue_as_new(
+                CoordinatorInputs(remaining_team_ids=queue, batch_id=batch_id, max_concurrent_teams=concurrency)
+            )
         return {"teams_succeeded": succeeded, "teams_failed": failed}
 
 
