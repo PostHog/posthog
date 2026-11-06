@@ -23,9 +23,11 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.api import get_actions
 from products.actions.backend.facade.testing import create_action
 from products.cdp.backend.api.hog_function import (
+    INTEGRATION_ORIGIN_MESSAGE,
     MAX_HOG_CODE_SIZE_BYTES,
     MAX_LOG_TRANSFORMATIONS_PER_TEAM,
     MAX_TRANSFORMATIONS_PER_TEAM,
+    SECRET_REENTRY_MESSAGE,
     comparable_content,
 )
 from products.cdp.backend.api.test.secret_sender import (
@@ -1841,6 +1843,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
                 "inputs__conn",
                 "integration_origin_refused",
+                INTEGRATION_ORIGIN_MESSAGE,
             ),
             (
                 "mapping_value_for_a_top_level_connection",
@@ -1858,6 +1861,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
                 "inputs__conn",
                 "integration_origin_refused",
+                INTEGRATION_ORIGIN_MESSAGE,
             ),
             (
                 "schema_change_alone_makes_an_input_a_connection",
@@ -1868,6 +1872,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 lambda ids: {"inputs_schema": [{"key": "conn", "type": "integration", "integration": "slack"}]},
                 "inputs__conn",
                 "integration_origin_refused",
+                INTEGRATION_ORIGIN_MESSAGE,
             ),
             (
                 "schema_change_alone_moves_a_secret",
@@ -1888,6 +1893,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
                 "inputs__token",
                 "secret_reentry_required",
+                SECRET_REENTRY_MESSAGE,
             ),
             (
                 "secret_connection_moved_shows_the_integration_refusal",
@@ -1899,6 +1905,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 lambda ids: {"hog": CONNECTION_LEAKING_HOG},
                 "inputs__conn",
                 "integration_origin_refused",
+                INTEGRATION_ORIGIN_MESSAGE,
             ),
             (
                 "connection_of_another_kind_than_the_code_sends_to",
@@ -1910,6 +1917,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 lambda ids: {"inputs": {"conn": {"value": ids["hubspot"]}}},
                 "inputs__conn",
                 "integration_origin_refused",
+                INTEGRATION_ORIGIN_MESSAGE,
             ),
         ]
     )
@@ -1920,6 +1928,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         change: Callable[[dict], dict],
         expected_attr: str,
         expected_code: str,
+        expected_message: str,
     ) -> None:
         ids = {
             kind: Integration.objects.create(
@@ -1949,7 +1958,11 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 res = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{function.id}", data=change(ids))
 
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
-        assert (res.json()["attr"], res.json()["code"]) == (expected_attr, expected_code)
+        assert (res.json()["attr"], res.json()["code"], res.json()["detail"]) == (
+            expected_attr,
+            expected_code,
+            expected_message,
+        )
 
     @parameterized.expand(
         [
