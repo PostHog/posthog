@@ -222,6 +222,17 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(data["installation_status"], "unavailable")
         self.assertEqual(data["repositories"], [{"id": 1, "name": "repo1", "full_name": "octocat/repo1"}])
 
+    @parameterized.expand([("GET", "repos/"), ("POST", "repos/refresh/")])
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.sync_repository_cache")
+    def test_github_repos_ask_to_reconnect_when_the_user_token_is_unusable(self, method, path, mock_sync):
+        mock_sync.side_effect = ReauthorizationRequired("GitHub rejected the stored user token.")
+        _create_user_integration(self.user)
+
+        response = self.client.generic(method, f"/api/users/@me/integrations/github/12345/{path}")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "Your GitHub connection has expired. Reconnect GitHub in settings.")
+
     @parameterized.expand([("GET", "repos/"), ("POST", "repos/refresh/"), ("GET", "branches/?repo=octocat/repo1")])
     def test_github_installation_endpoints_reject_a_flagged_link(self, method, path):
         integration = _create_user_integration(self.user)

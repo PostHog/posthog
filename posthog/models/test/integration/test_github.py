@@ -53,7 +53,7 @@ from posthog.models.integration import (
     invalidate_github_repository_caches_for_installation,
 )
 from posthog.models.integration.github import _MAX_FILE_CONTENTS_BYTES
-from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.redis import get_client as get_redis_client
 
 
@@ -3348,3 +3348,108 @@ class TestGitHubIntegrationPullRequestCiStatuses(BaseTest):
 
         assert mock_graphql.call_count == 2
         assert len(mock_graphql.call_args_list[1].args[1]) == 3  # owner/repo/number of the one leftover
+
+
+class TestUserGitHubIntegrationScopedAccessToken(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+        self.integration = UserIntegration.objects.create(
+            user=self.user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="INSTALL",
+            config={"installation_id": "INSTALL", "credential_version": "v1"},
+            sensitive_config={"access_token": "FULL_TOKEN", "user_access_token": "USER_TOKEN"},
+        )
+
+    def _github(self) -> UserGitHubIntegration:
+        return UserGitHubIntegration(self.integration, source="test", priority=Priority.CRITICAL)
+
+    @staticmethod
+    def _response(status_code: int, body: dict[str, Any]) -> MagicMock:
+        response = MagicMock(status_code=status_code, headers={})
+        response.json.return_value = body
+        return response
+
+    def _user_repositories(self, names: list[str], total_count: int | None = None) -> MagicMock:
+        return self._response(
+            200,
+            {
+                "total_count": len(names) if total_count is None else total_count,
+                "repositories": [{"name": name} for name in names],
+            },
+        )
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_reads_use_a_token_limited_to_the_users_repositories(
+        self, mock_github_request: MagicMock, mock_client_request: MagicMock
+    ) -> None:
+        mock_github_request.return_value = self._user_repositories(["visible-a", "visible-b"])
+        mock_client_request.return_value = self._response(201, {"token": "SCOPED_TOKEN"})
+
+        assert self._github().get_access_token() == "SCOPED_TOKEN"
+        assert self._github().get_access_token() == "SCOPED_TOKEN"
+
+        assert mock_github_request.call_args.kwargs["headers"] == {"Authorization": "Bearer USER_TOKEN"}
+        mock_client_request.assert_called_once_with(
+            "installations/INSTALL/access_tokens",
+            method="POST",
+            json_body={"repositories": ["visible-a", "visible-b"]},
+        )
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_a_user_without_repositories_gets_no_token(
+        self, mock_github_request: MagicMock, mock_client_request: MagicMock
+    ) -> None:
+        mock_github_request.return_value = self._user_repositories([])
+
+        with pytest.raises(GitHubIntegrationError):
+            self._github().get_access_token()
+
+        mock_client_request.assert_not_called()
+
+    @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_a_rejected_user_token_asks_for_reconnection_instead_of_using_the_installation_token(
+        self, mock_github_request: MagicMock, mock_client_request: MagicMock
+    ) -> None:
+        mock_github_request.return_value = self._response(401, {"message": "Bad credentials"})
+
+        with pytest.raises(ReauthorizationRequired):
+            self._github().get_access_token()
+
+        mock_client_request.assert_not_called()
+        self.integration.refresh_from_db()
+        assert self._github().needs_reauthorization
+        assert "user_access_token" not in self.integration.sensitive_config
+
+    @parameterized.expand(
+        [
+            ("user_sees_every_repository", 600, "FULL_TOKEN"),
+            ("user_sees_a_subset", 700, None),
+        ]
+    )
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_more_repositories_than_one_scoped_token_holds(
+        self,
+        _name: str,
+        installation_total: int,
+        expected_token: str | None,
+        mock_github_request: MagicMock,
+        mock_client_request: MagicMock,
+    ) -> None:
+        mock_github_request.side_effect = [
+            self._user_repositories(["repo"], total_count=600),
+            self._response(200, {"total_count": installation_total, "repositories": []}),
+        ]
+
+        if expected_token is None:
+            with pytest.raises(GitHubIntegrationError):
+                self._github().get_access_token()
+        else:
+            assert self._github().get_access_token() == expected_token
+        mock_client_request.assert_not_called()

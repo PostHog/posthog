@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
+from django.core.cache import cache
 from django.db import models, transaction
 from django.utils.functional import Promise
 
@@ -12,7 +13,11 @@ import structlog
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
 from posthog.helpers.encrypted_fields import EncryptedJSONField
-from posthog.models.github_integration_base import GitHubIntegrationBase, github_app_oauth_credentials
+from posthog.models.github_integration_base import (
+    GitHubIntegrationBase,
+    GitHubIntegrationError,
+    github_app_oauth_credentials,
+)
 from posthog.models.integration import github_account_type, invalidate_github_repository_caches_for_installation
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.utils import UUIDModel
@@ -35,6 +40,10 @@ _GITHUB_UNRECOVERABLE_REFRESH_ERRORS = {
 NEEDS_REAUTHORIZATION_AT_CONFIG_KEY = "needs_reauthorization_at"
 # A flagged GitHub row keeps its installation token, so `.exclude(sensitive_config={})` does not filter it out.
 NEEDS_REAUTHORIZATION_Q = models.Q(config__has_key=NEEDS_REAUTHORIZATION_AT_CONFIG_KEY)
+
+USER_SCOPED_ACCESS_TOKEN_CACHE_TTL_SECONDS = 10 * 60
+MAX_SCOPED_TOKEN_REPOSITORIES = 500
+_USER_REPOSITORIES_PAGE_SIZE = 100
 
 
 def user_integration_kind_choices() -> list[tuple[str, str | Promise]]:
@@ -180,8 +189,9 @@ class UserGitHubIntegration(GitHubIntegrationBase):
 
     Manages two token types:
     - Installation access token (sensitive_config["access_token"]):
-      app-level token for repo operations (listing repos, checking access).
-      Refreshed via the GitHub App JWT, same as team-level `GitHubIntegration`.
+      app-level token for the whole installation, refreshed via the GitHub App JWT, same as
+      team-level `GitHubIntegration`. Repo operations do not send it as is: `get_access_token`
+      mints a short-lived copy limited to the repositories the GitHub user can open.
     - User-to-server token (sensitive_config["user_access_token"]):
       acts as the user in repos covered by the installation. Used for creating PRs, commits, etc.
         Refreshed via the OAuth refresh-token flow.
@@ -369,6 +379,97 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             self.refresh_user_access_token()
         token = self.user_access_token
         assert token is not None, "user_access_token cleared unexpectedly after refresh"
+        return token
+
+    # --- Installation token scoped to the user's repositories ---
+
+    def _scoped_access_token_cache_key(self) -> str:
+        credential_version = (self.integration.config or {}).get("credential_version")
+        return f"github_user_integration:scoped_access_token:{self.integration.id}:{credential_version}"
+
+    def get_access_token(self) -> str:
+        cached = cache.get(self._scoped_access_token_cache_key())
+        if isinstance(cached, str) and cached:
+            return cached
+
+        listing = self._user_installation_repositories(self.get_usable_user_access_token())
+        if listing is None:
+            self.refresh_user_access_token()
+            listing = self._user_installation_repositories(self.get_usable_user_access_token())
+        if listing is None:
+            self._mark_needs_reauthorization("user token rejected by GitHub")
+            raise ReauthorizationRequired("GitHub rejected the stored user token.")
+
+        repositories, total_count = listing
+        if total_count == 0:
+            raise GitHubIntegrationError("The GitHub user cannot access any repository in this installation.")
+        if total_count > MAX_SCOPED_TOKEN_REPOSITORIES:
+            token = self._installation_token_if_user_sees_every_repository(total_count)
+        else:
+            token = self.mint_scoped_installation_token(None, repositories=repositories)
+        cache.set(self._scoped_access_token_cache_key(), token, timeout=USER_SCOPED_ACCESS_TOKEN_CACHE_TTL_SECONDS)
+        return token
+
+    def refresh_access_token(self) -> None:
+        super().refresh_access_token()
+        cache.delete(self._scoped_access_token_cache_key())
+
+    def _user_installation_repositories(self, user_access_token: str) -> tuple[list[str], int] | None:
+        names: list[str] = []
+        total_count = 0
+        for page in range(1, MAX_SCOPED_TOKEN_REPOSITORIES // _USER_REPOSITORIES_PAGE_SIZE + 2):
+            response = github_request(
+                "GET",
+                f"https://api.github.com/user/installations/{self.github_installation_id}/repositories",
+                source=self.source,
+                headers={"Authorization": f"Bearer {user_access_token}"},
+                endpoint="/user/installations/{installation_id}/repositories",
+                params={"per_page": _USER_REPOSITORIES_PAGE_SIZE, "page": page},
+                timeout=10,
+                priority=self.priority,
+            )
+            raise_if_github_rate_limited(response)
+            if response.status_code == 401:
+                return None
+            if response.status_code != 200:
+                raise GitHubIntegrationError(
+                    f"Failed to list the user's installation repositories: HTTP {response.status_code}",
+                    status_code=response.status_code,
+                )
+            data = response.json()
+            total_count = int(data.get("total_count") or 0)
+            if total_count > MAX_SCOPED_TOKEN_REPOSITORIES:
+                return names, total_count
+            repositories = data.get("repositories") or []
+            names.extend(repo["name"] for repo in repositories if isinstance(repo, dict) and repo.get("name"))
+            if len(repositories) < _USER_REPOSITORIES_PAGE_SIZE or len(names) >= total_count:
+                break
+        return names, total_count
+
+    def _installation_token_if_user_sees_every_repository(self, user_repository_count: int) -> str:
+        token = super().get_access_token()
+        response = github_request(
+            "GET",
+            "https://api.github.com/installation/repositories",
+            source=self.source,
+            headers={"Authorization": f"Bearer {token}"},
+            installation_id=self.github_installation_id,
+            endpoint="/installation/repositories",
+            params={"per_page": 1},
+            timeout=10,
+            priority=self.priority,
+        )
+        raise_if_github_rate_limited(response)
+        if response.status_code != 200:
+            raise GitHubIntegrationError(
+                f"Failed to count the installation repositories: HTTP {response.status_code}",
+                status_code=response.status_code,
+            )
+        if user_repository_count < int(response.json().get("total_count") or 0):
+            raise GitHubIntegrationError(
+                f"The GitHub user can access more than {MAX_SCOPED_TOKEN_REPOSITORIES} repositories but not all "
+                "repositories in this installation, so PostHog cannot limit a token to them."
+            )
         return token
 
     def create_pull_request_review_comment(
