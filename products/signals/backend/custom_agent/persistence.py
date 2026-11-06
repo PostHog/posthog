@@ -21,6 +21,7 @@ from products.signals.backend.report_generation.reviewer_telemetry import captur
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
+from products.signals.backend.trial.funding import direct_report_funding_snapshot
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,7 @@ def create_custom_agent_ready_report(
         report = SignalReport.objects.create(
             id=report_id,
             team_id=team_id,
+            self_driving_funding=direct_report_funding_snapshot(team_id),
             status=SignalReport.Status.READY,
             title=final_report.title,
             summary=final_report.description,

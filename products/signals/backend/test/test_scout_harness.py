@@ -3245,6 +3245,58 @@ def _stubbed_spawn_dependencies():
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize("kind", ["canonical", "edited", "ordinary"])
+async def test_scout_trial_funding_respects_system_exemption_before_run_creation(ateam, kind):
+    from products.signals.backend.models import SignalSpend
+    from products.signals.backend.trial.policy import TrialPolicy
+
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    skill_name = "signals-scout-errors" if kind == "ordinary" else "signals-scout-health-checks"
+
+    def prepare():
+        skill = LLMSkill.objects.create(
+            team=ateam, name=skill_name, description="Scout", body="scout", metadata={"seeded_by": HARNESS_SEEDED_BY}
+        )
+        skill.metadata["canonical_hash"] = _compute_row_hash(skill, [])
+        if kind == "edited":
+            skill.body += " edited"
+        skill.save()
+        return TrialPolicy(ateam).claim(user_id=42)
+
+    async def start(*args, before_task_dispatch=None, **kwargs):
+        def create_session():
+            task = Task.objects.create(team=ateam, title="scout", origin_product=Task.OriginProduct.SIGNALS_SCOUT)
+            session = MagicMock()
+            session.task_run = task.create_run(environment=TaskRun.Environment.CLOUD)
+            session.end = AsyncMock()
+            result = MagicMock()
+            result.summary = "ok"
+            return session, result
+
+        session, result = await database_sync_to_async(create_session)()
+        if before_task_dispatch is not None:
+            await database_sync_to_async(before_task_dispatch)(session.task_run.id)
+        return session, result
+
+    with (
+        patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True),
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=start),
+        patch("products.signals.backend.scout_harness.runner.sync_canonical_skills"),
+        _stubbed_spawn_dependencies(),
+    ):
+        grant = await database_sync_to_async(prepare)()
+        result = await arun_signals_scout(team_id=ateam.id, skill_name=skill_name)
+
+    assert result.task_run_id is not None
+    run = await TaskRun.objects.aget(id=result.task_run_id)
+    assert run.state["self_driving_funding"]["funding"] == ("existing" if kind == "canonical" else "trial")
+    receipt = await SignalSpend.objects.for_team(ateam.id, canonical=True).aget(task_run_id=run.id)
+    assert receipt.trial_grant_id == (None if kind == "canonical" else grant.id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_failure_streak_pauses_scout_once_and_a_success_resumes_it(ateam, aerrors_skill):
     TaskRun = apps.get_model("tasks", "TaskRun")
     # The wedge this exists for: a (team, skill) lane that can never succeed stays due every

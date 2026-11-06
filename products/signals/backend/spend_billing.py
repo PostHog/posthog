@@ -24,15 +24,20 @@ def system_source_exempt(source_product: str | None) -> bool:
     return source_product in {SignalSourceProduct.HEALTH_CHECKS, SignalSourceProduct.ENGINEERING_ANALYTICS}
 
 
-def scout_spend_exempt(scout: SignalScoutRun) -> bool:
+def scout_skill_spend_exempt(team_id: int, skill_name: str, skill_version: int | None) -> bool:
     from products.signals.backend.billing import (  # noqa: PLC0415 — billing uses this module for aggregation
         BILLING_EXEMPT_SCOUT_SKILLS,
         _scout_skill_is_canonical,
     )
 
-    return scout.trial_state is not None or (
-        scout.skill_name in BILLING_EXEMPT_SCOUT_SKILLS
-        and _scout_skill_is_canonical(scout.team_id, scout.skill_name, version=scout.skill_version)
+    return skill_name in BILLING_EXEMPT_SCOUT_SKILLS and _scout_skill_is_canonical(
+        team_id, skill_name, version=skill_version
+    )
+
+
+def scout_spend_exempt(scout: SignalScoutRun) -> bool:
+    return scout.trial_state is not None or scout_skill_spend_exempt(
+        scout.team_id, scout.skill_name, scout.skill_version
     )
 
 

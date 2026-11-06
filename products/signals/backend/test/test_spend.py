@@ -1259,4 +1259,3 @@ class TestSignalSpendGenerations(NonAtomicBaseTest):
             assert rows[0]["spend"] == (Decimal("0.0123") if request_id_available else 0)
             assert rows[0]["accounting_failed"] is (not request_id_available)
             client.messages.create.assert_awaited_once()
-

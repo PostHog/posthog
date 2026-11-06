@@ -684,8 +684,9 @@ class TestTrialExecution(BaseTest):
                     token_cost_microusd=10_000_001,
                     trial_grant_id=str(grant.id),
                 )
-            with patch("products.signals.backend.trial.reports.paid_trial_continuation_authorized", return_value=True):
-                prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="accepted")
+            prepare_report_pass(
+                team=self.team, report_id=str(report.id), operation_key="accepted", paid_authorized=True
+            )
             report.refresh_from_db()
         elif funding is not None:
             report.self_driving_funding = TrialFunding(funding="existing", report_pass_key="accepted").as_dict()

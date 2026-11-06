@@ -2,7 +2,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import AsyncMock, patch
@@ -20,8 +20,15 @@ from posthog.llm.gateway_client import AIGatewayConfig
 from posthog.llm.gateway_usage import GatewayRequestCost
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.custom_agent.persistence import create_custom_agent_ready_report
+from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
+from products.signals.backend.facade.trial import task_trial_admission
 from products.signals.backend.llm_spend import generate_with_spend
-from products.signals.backend.models import InvalidStatusTransition, SignalReport, SignalSpend
+from products.signals.backend.models import ArtefactAttribution, InvalidStatusTransition, SignalReport, SignalSpend
+from products.signals.backend.report_generation.research import ActionabilityAssessment, ActionabilityChoice
+from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT
+from products.signals.backend.scout_report import ScoutReportSignal, create_scout_report
 from products.signals.backend.spend import (
     begin_report_spend,
     complete_signal_pipeline,
@@ -30,18 +37,30 @@ from products.signals.backend.spend import (
 )
 from products.signals.backend.system_one_decision import run_model_decision
 from products.signals.backend.system_one_prompts import bundled_prompt
+from products.signals.backend.task_run_artefacts import record_report_task
 from products.signals.backend.temporal.summary import (
     CheckReportQuotaGateInput,
     MarkReportInProgressInput,
     check_report_quota_gate_activity,
     mark_report_in_progress_activity,
 )
-from products.signals.backend.trial.direct_reports import trial_report_reservation, trial_report_reservation_sync
+from products.signals.backend.trial.direct_reports import (
+    custom_report_reservation,
+    trial_report_reservation,
+    trial_report_reservation_sync,
+)
 from products.signals.backend.trial.funding import TrialFunding, direct_report_funding
 from products.signals.backend.trial.llm_execution import TrialLLMExecution
 from products.signals.backend.trial.models import SignalTrialGrant, SignalTrialReportReservation
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
-from products.signals.backend.trial.reports import prepare_report_pass, report_trial_context, task_trial_context
+from products.signals.backend.trial.reports import (
+    implementation_requires_trial_opt_in,
+    prepare_report_pass,
+    report_pass_paid_authorized,
+    report_trial_context,
+    requires_trial_accounting,
+    task_trial_context,
+)
 from products.tasks.backend.facade.api import get_task_run
 from products.tasks.backend.models import Task, TaskRun
 
@@ -60,6 +79,86 @@ class TestTrialReportExecution(NonAtomicBaseTest):
 
     def claim(self) -> SignalTrialGrant:
         return self.policy.claim(user_id=self.user.pk)
+
+    def _exhaust_grant(self, grant: SignalTrialGrant) -> None:
+        record_llm_spend(
+            "exhaust",
+            team_id=self.team.id,
+            signal_id=str(uuid4()),
+            stage="research",
+            token_cost_microusd=grant.allowance_microusd + 1,
+            trial_grant_id=str(grant.id),
+        )
+        self.flag_mock.return_value = False
+
+    def _assert_report_continues_with_grant(self, report_id: str, grant: SignalTrialGrant) -> None:
+        report = SignalReport.objects.get(id=report_id, team=self.team)
+        funding = TrialFunding.from_dict(report.self_driving_funding)
+        assert funding is not None and funding.grant_id == grant.id
+        task = Task.objects.create(
+            team=self.team, title="Accepted implementation", origin_product="signal_report", signal_report=report
+        )
+        record_report_task(
+            team_id=self.team.id, report_id=report_id, task_id=str(task.id), relationship="implementation"
+        )
+        with task_trial_admission(
+            team=self.team, origin="signal_report", report_id=report.id, continue_admitted_pipeline=True
+        ):
+            run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        assert run.state["self_driving_funding"]["grant_id"] == str(grant.id)
+        receipt = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
+        assert receipt.trial_grant_id == grant.id and receipt.billing_exempt
+
+    def test_scout_report_keeps_funding_after_exhaustion_and_rollout_off(self) -> None:
+        grant = self.claim()
+        task = Task.objects.create(team=self.team, title="Scout", origin_product="signals_scout")
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        self._exhaust_grant(grant)
+        with trial_report_reservation_sync(team=self.team, run_id=run.id, emission_key="accepted-scout") as report_id:
+            assert isinstance(report_id, UUID)
+            result = create_scout_report(
+                team_id=self.team.id,
+                title="Synthetic scout report",
+                summary="A finding from an accepted scout.",
+                signals=[
+                    ScoutReportSignal(description="Synthetic finding", source_id="fixture", weight=SCOUT_SIGNAL_WEIGHT)
+                ],
+                attribution=ArtefactAttribution.system(),
+                reserved_report_id=report_id,
+                emit_signals=False,
+            )
+        self._assert_report_continues_with_grant(result.report_id, grant)
+
+    def test_custom_report_keeps_funding_across_async_persistence(self) -> None:
+        grant = self.claim()
+
+        async def persist() -> str:
+            async with custom_report_reservation(
+                team=self.team, run_id=None, emission_key="accepted-custom-agent"
+            ) as report_id:
+                assert isinstance(report_id, UUID)
+                await database_sync_to_async(self._exhaust_grant)(grant)
+                result = await database_sync_to_async(create_custom_agent_ready_report)(
+                    team_id=self.team.id,
+                    final_report=CustomAgentFinalReport(
+                        title="Synthetic agent report",
+                        description="A finding from accepted work.",
+                        actionability=ActionabilityAssessment(
+                            explanation="A verified fixture",
+                            actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                            already_addressed=False,
+                        ),
+                        assignees=[],
+                        priority=None,
+                    ),
+                    repo_selection=RepoSelectionResult(repository=None, reason="No repository"),
+                    agent_identifier=("test", "synthetic"),
+                    reserved_report_id=report_id,
+                )
+                return result.report_id
+
+        report_id = async_to_sync(persist)()
+        self._assert_report_continues_with_grant(report_id, grant)
 
     @parameterized.expand([(True,), (False,)])
     def test_grouping_settlement_and_report_start_share_lock_order(self, existing_spend: bool) -> None:
@@ -139,6 +238,57 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         if not enabled:
             assert TrialLLMExecution.prepare(team_id=self.team.id, gateway=None) is None
 
+    @parameterized.expand([(reason,) for reason in SignalReport.BillingExemptReason.values])
+    def test_system_report_does_not_consume_exhausted_trial(self, reason: str) -> None:
+        grant = self.claim()
+        self._exhaust_grant(grant)
+        self.flag_mock.return_value = True
+        report = SignalReport.objects.create(team=self.team, billing_exempt_reason=reason)
+        assert not report_pass_paid_authorized(team=self.team, report_id=str(report.id), operation_key="free-pass")
+        prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="free-pass")
+        assert not implementation_requires_trial_opt_in(self.team.id, str(report.id))
+        task = Task.objects.create(
+            team=self.team, title="System repair", origin_product="signal_report", signal_report=report
+        )
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship="implementation"
+        )
+        with task_trial_admission(
+            team=self.team, origin="signal_report", report_id=report.id, continue_admitted_pipeline=True
+        ):
+            run = task.create_run(environment=TaskRun.Environment.CLOUD)
+        assert run.state["self_driving_funding"]["funding"] == "existing"
+        receipt = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
+        assert receipt.trial_grant_id is None and receipt.billing_exempt
+        assert not SignalTrialReportReservation.objects.for_team(self.team.id).filter(report_id=report.id).exists()
+        grant.refresh_from_db()
+        assert grant.settled_microusd == grant.allowance_microusd + 1
+
+    def test_free_generation_keeps_cost_outside_exhausted_trial(self) -> None:
+        grant = self.claim()
+        self._exhaust_grant(grant)
+        self.flag_mock.return_value = True
+        signal_id = str(uuid4())
+        generation = AsyncMock(return_value=SimpleNamespace(_request_id="free-system-generation"))
+        with patch(
+            "products.signals.backend.llm_spend._wait_for_gateway_cost",
+            new=AsyncMock(return_value=GatewayRequestCost(model="model", provider="provider", cost_microusd=123)),
+        ):
+            async_to_sync(generate_with_spend)(
+                generation(),
+                gateway=AIGatewayConfig(url="https://gateway.example.com/v1", api_key="test-key"),
+                team_id=self.team.id,
+                signal_id=signal_id,
+                stage="summarization",
+                billing_exempt=True,
+            )
+        receipt = SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id)
+        assert receipt.trial_grant_id is None and receipt.billing_exempt and receipt.spend > 0
+        assert not requires_trial_accounting(self.team.id, signal_id)
+        grant.refresh_from_db()
+        assert grant.settled_microusd == grant.allowance_microusd + 1
+        assert grant.incomplete_sources == 0
+
     def test_failed_generation_registration_prevents_provider_request(self) -> None:
         self.claim()
         generation = AsyncMock()
@@ -168,6 +318,7 @@ class TestTrialReportExecution(NonAtomicBaseTest):
             self.flag_mock.return_value = False
         else:
             self.claim()
+        assert requires_trial_accounting(self.team.id, signal_id) is trial
         execution = TrialLLMExecution.prepare(
             team_id=self.team.id,
             gateway=AIGatewayConfig(url="https://gateway.example.com/v1", api_key="test-key"),
@@ -224,12 +375,15 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         )
         prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="first-pass")
         task = Task.objects.create(
-            team=self.team, title="Research", origin_product="signal_report", signal_report_id=report.id, internal=True
+            team=self.team,
+            title="Research",
+            origin_product="signal_report",
+            signal_report_id=report.id,
+            internal=True,
         )
-        run = task.create_run(extra_state={"ai_stage": "research"})
-        run.state["sandbox_provisioning_started"] = True
+        run = task.create_run(environment=TaskRun.Environment.CLOUD, extra_state={"ai_stage": "research"})
         run.status = TaskRun.Status.COMPLETED
-        run.save(update_fields=["state", "status"])
+        run.save(update_fields=["status"])
         record_llm_spend(
             "exhaust",
             team_id=self.team.id,
@@ -247,8 +401,8 @@ class TestTrialReportExecution(NonAtomicBaseTest):
                 team_id=self.team.id, gateway=AIGatewayConfig(url="https://gateway.example.com/v1", api_key="test-key")
             )
             assert finalization is not None and finalization.funding.grant_id == grant.id
-            with self.assertRaisesMessage(TrialRefused, "cost_limit"):
-                task.create_run(extra_state={"ai_stage": "research"})
+            continued = task.create_run(environment=TaskRun.Environment.CLOUD, extra_state={"ai_stage": "research"})
+            assert continued.state["self_driving_funding"]["grant_id"] == str(grant.id)
         finally:
             report_trial_context.reset(context)
         report.status = SignalReport.Status.READY
@@ -257,14 +411,18 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         self.flag_mock.return_value = enabled
         prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="second-pass", paid_authorized=True)
         SignalReport.objects.filter(id=report.id, team_id=self.team.id).update(status=SignalReport.Status.IN_PROGRESS)
-        paid_run = task.create_run(extra_state={"ai_stage": "research"})
+        context = report_trial_context.set((self.team.id, str(report.id)))
+        try:
+            paid_run = task.create_run(environment=TaskRun.Environment.CLOUD, extra_state={"ai_stage": "research"})
+        finally:
+            report_trial_context.reset(context)
         assert paid_run.state["self_driving_funding"]["funding"] == ("paid" if enabled else "existing")
         assert run.state["self_driving_funding"]["funding"] == "trial"
 
     def test_paid_direct_retry_does_not_consume_released_trial_slot(self) -> None:
         grant = self.claim()
         task = Task.objects.create(team=self.team, title="Scout", origin_product="signals_scout")
-        trial_run = task.create_run()
+        trial_run = task.create_run(environment=TaskRun.Environment.CLOUD)
         with trial_report_reservation_sync(
             team=self.team, run_id=trial_run.id, emission_key="same-report"
         ) as report_id:
@@ -280,7 +438,7 @@ class TestTrialReportExecution(NonAtomicBaseTest):
             trial_grant_id=str(grant.id),
         )
         with patch("products.signals.backend.facade.trial.paid_trial_continuation_authorized", return_value=True):
-            paid_run = task.create_run()
+            paid_run = task.create_run(environment=TaskRun.Environment.CLOUD)
         with trial_report_reservation_sync(team=self.team, run_id=paid_run.id, emission_key="same-report"):
             report = SignalReport.objects.create(id=report_id, team=self.team, status=SignalReport.Status.READY)
         slot.refresh_from_db()
@@ -293,7 +451,7 @@ class TestTrialReportExecution(NonAtomicBaseTest):
     ) -> None:
         grant = self.claim()
         task = Task.objects.create(team=self.team, title="Scout", origin_product="signals_scout")
-        run = task.create_run()
+        run = task.create_run(environment=TaskRun.Environment.CLOUD)
         run_dto = get_task_run(run.id, team_id=self.team.id)
         outer_task = (self.team.id, uuid4())
         outer_funding = (self.team.id, TrialFunding(funding="existing"))

@@ -139,7 +139,9 @@ def lock_signal_spend(*, team_id: int, signal_id: str) -> None:
         )
 
 
-def _locked_ad_hoc_spend(*, team_id: int, signal_id: str, trial_grant_id: str | None = None) -> SignalSpend:
+def _locked_ad_hoc_spend(
+    *, team_id: int, signal_id: str, trial_grant_id: str | None = None, billing_exempt: bool = False
+) -> SignalSpend:
     lock_signal_spend(team_id=team_id, signal_id=signal_id)
     spend, _ = SignalSpend.objects.for_team(team_id).get_or_create(
         team_id=team_id,
@@ -148,7 +150,7 @@ def _locked_ad_hoc_spend(*, team_id: int, signal_id: str, trial_grant_id: str | 
         # get_or_create calls callable defaults only when it creates the row, so the trial lookup is
         # skipped for existing rows. django-stubs types defaults as plain field values.
         defaults={
-            "billing_exempt": lambda: bool(trial_grant_id) or trial_spend_exempt(team_id),
+            "billing_exempt": lambda: billing_exempt or bool(trial_grant_id) or trial_spend_exempt(team_id),
             "trial_grant_id": trial_grant_id,
             "usage_billing": lambda: uses_spend_billing(team_id),
         },  # type: ignore[misc]
@@ -156,9 +158,9 @@ def _locked_ad_hoc_spend(*, team_id: int, signal_id: str, trial_grant_id: str | 
     return SignalSpend.objects.for_team(team_id).select_for_update().get(id=spend.id)
 
 
-def begin_signal_spend(*, team_id: int, signal_id: str) -> None:
+def begin_signal_spend(*, team_id: int, signal_id: str, billing_exempt: bool = False) -> None:
     with transaction.atomic():
-        _locked_ad_hoc_spend(team_id=team_id, signal_id=signal_id)
+        _locked_ad_hoc_spend(team_id=team_id, signal_id=signal_id, billing_exempt=billing_exempt)
 
 
 def _save_ad_hoc_spend(spend: SignalSpend, *, finalize: bool = False) -> None:
