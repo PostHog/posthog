@@ -90,7 +90,8 @@ export function ModelBarChart({
             className="min-w-0 flex-1"
             title="Share of calls by model"
             action={
-                <div className="flex items-center gap-1">
+                // Negative margin keeps the header as tall as its title-only neighbours.
+                <div className="-my-1 flex items-center gap-1">
                     {expanded || sortedRows.some((row) => isFoldedModelsLabel(row.model)) ? (
                         <LemonButton
                             type="secondary"

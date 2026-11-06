@@ -113,7 +113,7 @@ export function ToolPivotTable(): JSX.Element {
                                 onClick={() => selectTool(tool.tool)}
                                 role="button"
                                 tabIndex={0}
-                                aria-pressed={selectedToolName === tool.tool}
+                                aria-current={selectedToolName === tool.tool ? 'true' : undefined}
                                 onKeyDown={(e) => {
                                     // Tooltip triggers inside the row are focusable too, so only the row itself reacts.
                                     if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {

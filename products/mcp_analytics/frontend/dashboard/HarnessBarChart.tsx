@@ -70,7 +70,9 @@ export function HarnessBarChart({
             title="Share of calls by harness"
             action={
                 rows.length > 0 && (
+                    // Negative margin keeps the header as tall as a title-only header, so it doesn't jump when data loads.
                     <LemonButton
+                        className="-my-1"
                         type="secondary"
                         size="xsmall"
                         data-attr="mcp-dashboard-show-all-harnesses"
