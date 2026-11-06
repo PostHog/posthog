@@ -172,7 +172,8 @@ def _drafted_proposals(
         }
         return [replace(templated, draft=drafted_judge)]
     check = AdaptedCheck(
-        key=f"drafted_{gap.segment_key}",
+        # The dedupe key names the gap. This key only has to fit template_key, so it stays fixed.
+        key="drafted_gap",
         name=draft.name,
         description=draft.description,
         source=draft.body,
