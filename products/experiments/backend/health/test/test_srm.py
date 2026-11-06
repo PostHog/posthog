@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import replace
 
 from unittest import TestCase
@@ -37,12 +38,16 @@ def _version(library: str, version: str, control: int, test: int) -> ExposureSeg
     return replace(_segment(LIBRARY_VERSION, version, control, test), library=library)
 
 
-def _exposures(segments: tuple[ExposureSegment, ...] | None) -> ExposureTotals:
+def _exposures(
+    segments: tuple[ExposureSegment, ...] | None,
+    exposed: Mapping[str, int] | None = None,
+    expected: Mapping[str, float] | None = None,
+) -> ExposureTotals:
     return ExposureTotals(
-        total_exposures={"control": 600, "test": 900},
+        total_exposures=exposed or {"control": 600, "test": 900},
         multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
         sample_ratio_mismatch_p_value=0.00001,
-        sample_ratio_expected={"control": 750, "test": 750},
+        sample_ratio_expected=expected or {"control": 750, "test": 750},
         daily_exposures={},
         hours_since_launch=72,
         counts_groups=False,
@@ -149,13 +154,37 @@ class TestSrmSegments(TestCase):
             (
                 "a_page_that_one_variant_reaches",
                 (
-                    _segment(LIBRARY, "web", 600, 900),
-                    _segment(PAGE, "/plans", 595, 405),
+                    _segment(LIBRARY, "web", 900, 600),
+                    _segment(PAGE, "/plans", 895, 105),
                     _segment(PAGE, "/plans-redesign", 5, 495),
                 ),
                 "variant_segments",
                 f'{MISMATCH} Users first exposed on the page "/plans-redesign" are almost all in "test", so the '
                 f"variants send their exposures from different places. {OWN_PAGE}",
+                {"control": 900, "test": 600},
+            ),
+            (
+                "a_page_of_the_variant_in_excess",
+                (
+                    _segment(LIBRARY, "web", 600, 900),
+                    _segment(PAGE, "/plans", 595, 405),
+                    _segment(PAGE, "/plans-redesign", 5, 495),
+                ),
+                None,
+                NO_LOCATION,
+            ),
+            (
+                "a_page_far_from_an_uneven_split",
+                (
+                    _segment(LIBRARY, "web", 7600, 2400),
+                    _segment(PAGE, "/pricing", 2850, 2150),
+                    _segment(PAGE, "/checkout", 2375, 125),
+                    _segment(PAGE, "/cart", 2375, 125),
+                ),
+                None,
+                NO_LOCATION,
+                {"control": 7600, "test": 2400},
+                {"control": 8000, "test": 2000},
             ),
             (
                 "the_largest_page_of_each_variant",
@@ -193,9 +222,15 @@ class TestSrmSegments(TestCase):
         ]
     )
     def test_names_the_segment_with_the_mismatch(
-        self, _name: str, segments: tuple[ExposureSegment, ...] | None, reason: str | None, detail: str
+        self,
+        _name: str,
+        segments: tuple[ExposureSegment, ...] | None,
+        reason: str | None,
+        detail: str,
+        exposed: Mapping[str, int] | None = None,
+        expected: Mapping[str, float] | None = None,
     ) -> None:
-        outcome = srm(replace(RUNNING_CONTEXT, exposures=_exposures(segments)))
+        outcome = srm(replace(RUNNING_CONTEXT, exposures=_exposures(segments, exposed, expected)))
 
         assert isinstance(outcome, ExperimentHealthFinding)
         self.assertEqual(
@@ -368,6 +403,18 @@ class TestSrmCauses(TestCase):
                 (None, True),
                 f'{MISMATCH} The mismatch comes from users whose first exposure was sent by the "posthog-node" '
                 f"library. {NEXT_STEP}",
+            ),
+            (
+                "override_and_a_page_per_variant",
+                [_pinned_to("test"), EVERYONE],
+                False,
+                (
+                    _segment(LIBRARY, "web", 600, 900),
+                    _segment(PAGE, "/plans", 590, 5),
+                    _segment(PAGE, "/plans-redesign", 10, 895),
+                ),
+                ("some_conditions_pinned", True),
+                PINNED_TEST,
             ),
             (
                 "override_of_the_other_variant",

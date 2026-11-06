@@ -59,9 +59,8 @@ UNIFORM_SEGMENT_MINIMUM_SIZE = 1000
 SEGMENT_LABEL_MAX_LENGTH = 60
 # The detail names the located segments furthest from the split, up to this many.
 NAMED_SEGMENTS = 2
-# A one-variant segment must also fail the test on its own, so that a skewed split doesn't produce one by chance.
-ONE_VARIANT_SHARE = 0.95
-# Below this share of its expected count a variant is barely exposed, and the segments the others fill are a symptom.
+# One variant fills a segment when the other variants have less than this share of their expected count in it. The
+# expected count comes from the split, so on a 90/10 split a segment at 95% control doesn't count as filled by control.
 BARELY_EXPOSED_SHARE = 0.1
 
 # pinned: the subcode is sent as `finding_subcode` on the health finding events, so insights group on it.
@@ -478,6 +477,10 @@ class _SegmentTest:
     # None when the segment holds too few persons or groups for the test.
     p_value: float | None
 
+    @property
+    def fails(self) -> bool:
+        return self.p_value is not None and self.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
+
 
 @frozen
 class _Verdict:
@@ -499,7 +502,9 @@ class _SegmentCause:
 
     @property
     def locates_the_mismatch(self) -> bool:
-        return self.reason is not None and self.reason != SrmReason.UNIFORM
+        # A variant override also sends the users it matches to segments that one variant fills, so the override
+        # finding comes before `variant_segments`.
+        return self.reason not in (None, SrmReason.UNIFORM, SrmReason.VARIANT_SEGMENTS)
 
 
 def _segment_cause(exposures: ExposureTotals, unit: str) -> _SegmentCause:
@@ -537,11 +542,7 @@ def _verdict(tests: list[_SegmentTest], dimension: ExposureSegmentDimension, wei
     powered = sum(1 for row in table if sum(row) >= UNIFORM_SEGMENT_MINIMUM_SIZE) >= 2
     located: ExposureSegment | None = None
     if homogeneity_p_value < SAMPLE_RATIO_MISMATCH_P_VALUE:
-        failing = [
-            test.segment
-            for test in compared
-            if test.p_value is not None and test.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
-        ]
+        failing = [test.segment for test in compared if test.fails]
         # The detail says the mismatch comes from the segment, which reads as if the other segments match the split.
         located = failing[0] if len(failing) == 1 else None
     return _Verdict(
@@ -570,27 +571,26 @@ def _share_off_split(exposed_by_variant: Mapping[str, int], weights: Mapping[str
 
 def _variant_segments(tests: list[_SegmentTest], exposures: ExposureTotals) -> list[tuple[ExposureSegment, str]]:
     """The segments that one variant fills, each with its variant, the largest segment of each variant first. Empty
-    when a variant is barely exposed at all."""
+    unless one of them belongs to a variant with fewer exposures than expected."""
     expected = exposures.sample_ratio_expected
-    if any(
-        exposures.total_exposures.get(variant, 0) < BARELY_EXPOSED_SHARE * count for variant, count in expected.items()
-    ):
-        return []
     total_expected = sum(expected.values())
     found: dict[str, ExposureSegment] = {}
     for test in tests:
         segment = test.segment
-        failing = test.p_value is not None and test.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
-        if not failing or segment.value == BREAKDOWN_OTHER_STRING_LABEL:
+        # The segment must also fail the test on its own, so that a small segment doesn't count by chance.
+        if not test.fails or segment.value == BREAKDOWN_OTHER_STRING_LABEL:
             continue
         compared = sum(segment.exposed_by_variant.get(variant, 0) for variant in expected)
         variant = max(expected, key=lambda key: segment.exposed_by_variant.get(key, 0))
-        if (
-            segment.exposed_by_variant.get(variant, 0) >= ONE_VARIANT_SHARE * compared
-            and expected[variant] < ONE_VARIANT_SHARE * total_expected
-        ):
+        others = compared - segment.exposed_by_variant.get(variant, 0)
+        if others < BARELY_EXPOSED_SHARE * compared * (1 - expected[variant] / total_expected):
             found.setdefault(variant, segment)
-    return [(segment, variant) for variant, segment in found.items()][:NAMED_SEGMENTS]
+    named = [(segment, variant) for variant, segment in found.items()][:NAMED_SEGMENTS]
+    # The detail says that users are missing from a variant that sends its exposure from its own place. When every
+    # named variant has more exposures than expected, something else, such as a variant override, fills the segments.
+    if not any(exposures.total_exposures.get(variant, 0) < expected[variant] for _, variant in named):
+        return []
+    return named
 
 
 def _cause(
