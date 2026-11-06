@@ -130,8 +130,8 @@ print(result.id)`,
                 </li>
                 {sentKey && language === 'api' ? (
                     <li>
-                        <code>template_key</code> names this template. The key is the same in every project that has
-                        the template.
+                        <code>template_key</code> names this template. The key is the same in every project that has the
+                        template.
                     </li>
                 ) : null}
                 <li>
