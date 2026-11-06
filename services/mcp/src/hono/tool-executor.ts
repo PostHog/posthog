@@ -90,6 +90,7 @@ interface ResolvedTool {
 interface ExecMetricState {
     innerToolName: string | undefined
     innerResult: unknown
+    innerRejected: boolean
     innerOutputFormat: ExecInnerCallProperties['output_format'] | undefined
     /** What the agent asked for, merged onto the event whichever verb ran. */
     commandMeta: ExecCommandMeta | undefined
@@ -663,6 +664,7 @@ export class ToolExecutor {
         const execMetrics: ExecMetricState = {
             innerToolName: undefined,
             innerResult: undefined,
+            innerRejected: false,
             innerOutputFormat: undefined,
             commandMeta: undefined,
             innerFailure: undefined,
@@ -730,8 +732,9 @@ export class ToolExecutor {
         const analyticsToolName = (): string => execMetrics.innerToolName ?? attemptedCallTarget(execShape) ?? 'exec'
         // Only a resolved inner tool has a name to apply the capture policy to. Otherwise the
         // arguments are the agent's raw command string, which key-based redaction can't see into.
+        // A rejected shape can likewise hide a credential inside a string.
         const execAnalyticsMeta = (): ToolCallAnalyticsMeta =>
-            execMetrics.innerToolName
+            execMetrics.innerToolName && !execMetrics.innerRejected
                 ? {
                       ...analyticsMeta,
                       parameters: parseExecCallInnerArgs(validation.data.command),
@@ -901,6 +904,7 @@ export class ToolExecutor {
             // derived from it) already carries this call, so a second emit would double-count.
             execMetrics.innerToolName = toolName
             execMetrics.innerResult = properties.result
+            execMetrics.innerRejected = properties.validation_error === true
             execMetrics.innerOutputFormat = properties.output_format
             if (!properties.success) {
                 execMetrics.innerFailure = { error: properties.error }

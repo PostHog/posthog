@@ -282,7 +282,7 @@ describe('ToolExecutor analytics capture', () => {
         capture.mockRestore()
     })
 
-    it('sends no arguments for a call its schema rejects', async () => {
+    it.each(['direct', 'exec'])('sends no arguments for a %s call its schema rejects', async (mode) => {
         const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
         const tool = {
             name: 'switch-project',
@@ -299,10 +299,13 @@ describe('ToolExecutor analytics capture', () => {
             rawInputSchema: undefined,
             definition: undefined,
         })
-        const state = makeToolExecutorState([tool], { suppressAnalytics: false })
+        const state = makeToolExecutorState([tool], { useSingleExec: mode === 'exec', suppressAnalytics: false })
+        const projectId = '{"password":"canary-secret"}'
 
         await executor.handleToolCall(
-            { name: tool.name, arguments: { projectId: '{"password":"canary-secret"}' } },
+            mode === 'exec'
+                ? { name: 'exec', arguments: { command: `call switch-project ${JSON.stringify({ projectId })}` } }
+                : { name: tool.name, arguments: { projectId } },
             state
         )
 
