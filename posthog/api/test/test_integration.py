@@ -8337,6 +8337,8 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         assert link.call_args.kwargs["installation_id_param"] is None
 
 
+# Sources here point at rows by hand, so a raw save keeps the reference that the test sets.
+@pytest.mark.raw_warehouse_source_credentials
 class TestWarehouseSourceIntegrationKind(APIBaseTest):
     def _credentials_row(self, kind: str, auth_type: str = "credentials") -> IntegrationRecord:
         rows = IntegrationManager.source(kind)
