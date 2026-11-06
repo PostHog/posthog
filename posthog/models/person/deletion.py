@@ -7,6 +7,7 @@ from uuid import UUID
 import structlog
 
 from posthog.clickhouse.client import sync_execute
+from posthog.dataclasses import frozen
 from posthog.models.person.util import (
     PERSONHOG_BATCH_SIZE,
     PersonTombstone,
@@ -14,6 +15,7 @@ from posthog.models.person.util import (
     PersonVersionFloor,
     VersionFloorOutcome,
     ensure_person_version_floors,
+    get_distinct_id_rows,
     get_person_tombstones,
     get_persons_by_uuids,
 )
@@ -180,6 +182,121 @@ def tombstone_orphaned_ch_persons(
     if publication.failures:
         raise publication.failures[0].error
     return result
+
+
+# Mirrors isDistinctIdIllegal in nodejs/src/common/persons/person-utils.ts. Unrelated people share these ids, and
+# replay stores them unchanged, so deleting recordings by one reaches every person who sent it.
+_SHARED_DISTINCT_IDS_ANY_CASE = frozenset(
+    {
+        "anonymous",
+        "guest",
+        "distinctid",
+        "distinct_id",
+        "id",
+        "not_authenticated",
+        "email",
+        "undefined",
+        "true",
+        "false",
+    }
+)
+_SHARED_DISTINCT_IDS_EXACT_CASE = frozenset(
+    {"[object Object]", "NaN", "None", "none", "null", "0", "undefined", "$posthog_cookieless"}
+)
+
+
+def _is_shared_distinct_id(distinct_id: str) -> bool:
+    if not distinct_id.strip():
+        return True
+    quoted = len(distinct_id) >= 2 and distinct_id[0] == distinct_id[-1] and distinct_id[0] in "'\""
+    bare = distinct_id[1:-1] if quoted else distinct_id
+    return bare.lower() in _SHARED_DISTINCT_IDS_ANY_CASE or bare in _SHARED_DISTINCT_IDS_EXACT_CASE
+
+
+@frozen
+class OrphanDataErasure:
+    """The data of repaired orphans that an erasure request may delete."""
+
+    person_uuids: list[str]
+    recording_distinct_ids: list[str]
+    # Distinct ids that a live person or an unnamed person holds now, so deleting by them would reach that person's
+    # recordings. Recordings these persons made under the id stay.
+    excluded_distinct_ids: list[str]
+    # Distinct ids that nothing ties to one person. A person delete and a detach leave identical rows, and a shared
+    # id belongs to many people, so deleting by them could reach other people.
+    unconfirmed_distinct_ids: list[str]
+    # Persons with no distinct id left in either store, so nothing shows whether they still have recordings.
+    persons_without_distinct_ids: list[str]
+    # Named persons with no persons-DB tombstone, so nothing of theirs was erased. Such a person is live, or the
+    # cleanup drain already removed its tombstone after the deletion sweep.
+    not_erasable_uuids: list[str]
+
+
+def plan_orphan_data_erasure(
+    team_id: int,
+    requested_uuids: list[str],
+    *,
+    pending_uuids: Optional[list[str]] = None,
+    with_recordings: bool = True,
+) -> OrphanDataErasure:
+    """Work out what an erasure may delete from the persons-DB tombstones, not from the orphans of this run.
+
+    A live person has no tombstone, so a person the repair skipped as live never qualifies. A tombstoned person
+    is no longer an orphan, so a rerun after a crash still finds every person the first run tombstoned.
+
+    A distinct id is safe to delete by only when ClickHouse maps it to an erasable person, the persons DB has no row
+    for it, and it is not an id people share. A tombstone that stores distinct ids publishes deleted mappings, and
+    the deletion sweep removes mappings, so those ids come back as unconfirmed. A person the sweep reached with no
+    stored distinct ids has nothing left to look up, and comes back in ``persons_without_distinct_ids``.
+
+    ``pending_uuids`` are orphans a dry run has not tombstoned, counted as if it had. Without ``with_recordings``
+    the plan names only the persons, and skips the ClickHouse and persons-DB distinct id reads.
+    """
+    tombstones = get_person_tombstones(team_id, [UUID(u) for u in requested_uuids])
+    erasable = {str(t.uuid) for t in tombstones} | set(pending_uuids or [])
+    not_erasable_uuids = sorted({str(UUID(u)) for u in requested_uuids} - erasable)
+    if not erasable or not with_recordings:
+        return OrphanDataErasure(
+            person_uuids=sorted(erasable),
+            recording_distinct_ids=[],
+            excluded_distinct_ids=[],
+            unconfirmed_distinct_ids=[],
+            persons_without_distinct_ids=[],
+            not_erasable_uuids=not_erasable_uuids,
+        )
+
+    mappings = _ch_mappings_for_persons(team_id, erasable)
+    mapped_live = {m.distinct_id for m in mappings if m.winner_person_id in erasable and not m.winner_is_deleted}
+    candidates = {d for d in mapped_live if not _is_shared_distinct_id(d)}
+    held_by_someone_else = {m.distinct_id for m in mappings if m.winner_person_id not in erasable}
+    unconfirmed = (
+        (
+            {m.distinct_id for m in mappings if m.winner_person_id in erasable and m.winner_is_deleted}
+            | {d.id for t in tombstones for d in t.distinct_ids}
+            | (mapped_live - candidates)
+        )
+        - candidates
+        - held_by_someone_else
+    )
+    # A strong read, because a lagging replica could hide a live owner and cost that owner their recordings.
+    rows = get_distinct_id_rows(team_id, sorted(candidates | unconfirmed), strong=True)
+    # person_is_deleted is unset on a row that outlived its person, and an unset bool reads as False.
+    owned_by_live_person = {
+        row.distinct_id
+        for row in rows
+        if not row.is_deleted and row.HasField("person_is_deleted") and not row.person_is_deleted
+    }
+    # The persons DB records a detach before ClickHouse consumes it, so a live ClickHouse mapping does not clear these.
+    other_persons_db_rows = {row.distinct_id for row in rows} - owned_by_live_person
+    with_distinct_ids = {m.winner_person_id for m in mappings} | {str(t.uuid) for t in tombstones if t.distinct_ids}
+    return OrphanDataErasure(
+        person_uuids=sorted(erasable),
+        recording_distinct_ids=sorted(candidates - owned_by_live_person - other_persons_db_rows),
+        excluded_distinct_ids=sorted(owned_by_live_person | held_by_someone_else),
+        unconfirmed_distinct_ids=sorted((unconfirmed | other_persons_db_rows) - owned_by_live_person),
+        persons_without_distinct_ids=sorted(erasable - with_distinct_ids),
+        not_erasable_uuids=not_erasable_uuids,
+    )
 
 
 _LIVE_PERSONS_BASE = """
