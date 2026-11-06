@@ -89,7 +89,7 @@ export function ServiceMapDetails(): JSX.Element | null {
                 <Link onClick={() => showServiceEndpoints(selectedMapServiceName)} data-attr="apm-map-endpoints">
                     Endpoints
                 </Link>
-                <TelemetryLinks serviceName={selectedMapServiceName} timeRange={timeRange} />
+                <TelemetryLinks serviceName={selectedMapServiceName} timeRange={timeRange} source="map" />
             </div>
         </div>
     )
