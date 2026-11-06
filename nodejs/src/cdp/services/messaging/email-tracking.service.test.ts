@@ -758,7 +758,7 @@ describe('EmailTrackingService', () => {
                 ])
             })
 
-            it('records a notification once and skips the mark when Redis cannot answer the check', async () => {
+            it('records a notification and does not mark it when Redis cannot answer the check', async () => {
                 const service = api['emailTrackingService'] as any
                 const useClient = jest.spyOn(service.redis, 'useClient').mockReturnValue(new Promise(() => {}))
 

@@ -748,7 +748,7 @@ export class EmailTrackingService {
     }
 
     // 'unknown' when Redis cannot answer. The caller then records the notification, because a double count beats a
-    // lost event.
+    // lost event, and does not mark it, so a dead Redis costs one wait and not two.
     private async sesNotificationDedup(snsMessageId: string): Promise<'recorded' | 'new' | 'unknown'> {
         if (!this.redis) {
             return 'new'
@@ -756,7 +756,10 @@ export class EmailTrackingService {
         const exists = await this.redisCall('ses-notification-recorded-check', (client) =>
             client.exists(sesNotificationRecordedKey(snsMessageId))
         )
-        return exists === null ? 'unknown' : exists === 1 ? 'recorded' : 'new'
+        if (exists === null) {
+            return 'unknown'
+        }
+        return exists === 1 ? 'recorded' : 'new'
     }
 
     private async markSesNotificationRecorded(snsMessageId: string): Promise<void> {
