@@ -21,6 +21,7 @@ import {
     signalsReportsSourceMetadataCreate,
 } from 'products/signals/frontend/generated/api'
 import type {
+    PaginatedSignalReportListListApi,
     ReviewerRemovalReasonEnumApi,
     SignalReportMetricSnapshotsApi,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -69,14 +70,15 @@ export interface ReportListRequestContext {
 }
 
 /** A list response stamped with the query params and display context that produced it (see the loader). */
-export type ReportListResponse = CountedPaginatedResponse<SignalReport> & {
-    /** The ranker the server used for `sort=recommended`. Null for every other sort. */
-    ranker?: string | null
-    /** Whether the client shows a ranking score pill on each card, for `sort=recommended`. Null for every other sort. */
-    ranking_pill?: boolean | null
-    requestParams?: Record<string, unknown>
-    requestContext?: ReportListRequestContext
-}
+export type ReportListResponse = CountedPaginatedResponse<SignalReport> &
+    Pick<PaginatedSignalReportListListApi, 'count_is_capped'> & {
+        /** The ranker the server used for `sort=recommended`. Null for every other sort. */
+        ranker?: string | null
+        /** Whether the client shows a ranking score pill on each card, for `sort=recommended`. Null for every other sort. */
+        ranking_pill?: boolean | null
+        requestParams?: Record<string, unknown>
+        requestContext?: ReportListRequestContext
+    }
 
 /**
  * The list request for the API. `created_window` stays a preset key in `listApiParams`, so the
@@ -222,6 +224,7 @@ export interface reportListLogicValues {
     user: UserType | null // userLogic
     claimSavingReportIds: string[]
     count: number | null
+    countIsCapped: boolean
     countLoading: boolean
     countSettled: boolean
     hasMore: boolean
@@ -422,11 +425,13 @@ export interface reportListLogicActions {
     setReportClaimed: (
         report: SignalReport,
         claimed: boolean,
-        surface: InboxReportActionSurface
+        surface: InboxReportActionSurface,
+        takeover?: boolean
     ) => {
         claimed: boolean
         report: SignalReport
         surface: InboxReportActionSurface
+        takeover: boolean
     }
     setReportClaimedFinished: (reportId: string) => {
         reportId: string
@@ -487,6 +492,7 @@ export interface reportListLogicMeta {
         isLoaded: (reportsResponse: ReportListResponse | null) => boolean
         livePrReportIds: (reports: SignalReport[]) => string[]
         totalCount: (reportsResponse: ReportListResponse | null) => number | null
+        countIsCapped: (reportsResponse: ReportListResponse | null) => boolean
         loadedQueryKey: (reportsResponse: ReportListResponse | null) => string | null
         countSettled: (
             countLoading: boolean,
@@ -583,10 +589,16 @@ export const reportListLogic = kea<reportListLogicType>([
             reason,
         }),
         unassignMeFinished: (reportId: string) => ({ reportId }),
-        setReportClaimed: (report: SignalReport, claimed: boolean, surface: InboxReportActionSurface) => ({
+        setReportClaimed: (
+            report: SignalReport,
+            claimed: boolean,
+            surface: InboxReportActionSurface,
+            takeover: boolean = false
+        ) => ({
             report,
             claimed,
             surface,
+            takeover,
         }),
         setReportClaimedFinished: (reportId: string) => ({ reportId }),
         setSuggestedToMe: (reportIds: string[], isSuggested: boolean) => ({ reportIds, isSuggested }),
@@ -683,10 +695,6 @@ export const reportListLogic = kea<reportListLogicType>([
                     const requestContext = requestContextFromValues(values)
                     const firstPageRequestId = cache.firstPageRequestId
                     const current = values.reportsResponse?.results ?? []
-                    // `removeReport` records ids here while the request is in flight. `current` predates
-                    // those removals, so filter them out or a removed report comes back when the page lands.
-                    const removedWhilePending = new Set<string>()
-                    cache.removedWhilePageLoads = removedWhilePending
                     // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
                     const response = await api.signalReports.list({
                         ...listRequestParams(params),
@@ -698,9 +706,10 @@ export const reportListLogic = kea<reportListLogicType>([
                     if (cache.firstPageRequestId !== firstPageRequestId && values.reportsResponse) {
                         return values.reportsResponse
                     }
+                    const latest = values.reportsResponse?.results ?? []
                     return {
                         ...response,
-                        results: [...current.filter((r) => !removedWhilePending.has(r.id)), ...response.results],
+                        results: [...latest, ...keepRowFieldsWrittenDuringFetch(response.results, current, latest)],
                         requestParams: params,
                         requestContext,
                     }
@@ -902,6 +911,11 @@ export const reportListLogic = kea<reportListLogicType>([
             (s) => [s.reportsResponse],
             (reportsResponse: ReportListResponse | null): number | null => reportsResponse?.count ?? null,
         ],
+        // A search stops counting past a cap, so `count` is a lower bound when this is true.
+        countIsCapped: [
+            (s) => [s.reportsResponse],
+            (reportsResponse: ReportListResponse | null): boolean => reportsResponse?.count_is_capped === true,
+        ],
         // Stable key for the query that produced the loaded response. Unlike `listApiParams`, this
         // only changes when a response fetched with the new params actually lands, so consumers
         // never associate the new query with rows from the previous one.
@@ -1005,9 +1019,6 @@ export const reportListLogic = kea<reportListLogicType>([
             } finally {
                 requested.forEach((id) => inFlight.delete(id))
             }
-        },
-        removeReport: ({ reportId }) => {
-            cache.removedWhilePageLoads?.add(reportId)
         },
         // One page of ids per request, sent one after the other so a page open never fans out into
         // parallel query bursts. A newer page load supersedes an in-flight refresh at the breakpoint.
@@ -1214,9 +1225,17 @@ export const reportListLogic = kea<reportListLogicType>([
             // The list that started the request can unmount while it runs, for example when triage closes.
             inboxBulkActionsLogic.findMounted()?.actions.unassignedMe([reportId])
         },
-        setReportClaimed: async ({ report, claimed, surface }) => {
-            captureInboxReportAction({ report, actionType: claimed ? 'claim' : 'unclaim', surface })
-            const outcome = await requestReportClaim(String(values.currentTeamId), report, claimed)
+        setReportClaimed: async ({ report, claimed, surface, takeover }) => {
+            captureInboxReportAction({
+                report,
+                actionType: claimed ? 'claim' : 'unclaim',
+                surface,
+                extra: takeover ? { takeover: true } : undefined,
+            })
+            const outcome = await requestReportClaim(String(values.currentTeamId), report, claimed, {
+                currentUserUuid: values.user?.uuid ?? null,
+                takeover,
+            })
             actions.setReportClaimedFinished(report.id)
             if (!outcome.ok) {
                 lemonToast.error(outcome.message)

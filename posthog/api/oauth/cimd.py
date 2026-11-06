@@ -30,11 +30,13 @@ from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import (
+    OIDC_SIGNING_KEY_MISSING_MESSAGE,
     CIMDVerificationToken,
     OAuthApplication,
     TokenEndpointAuthMethod,
     find_cimd_verification_token,
     normalize_cimd_url,
+    oidc_signing_key_configured,
     revoke_application_sessions,
 )
 from posthog.ph_client import ph_scoped_capture
@@ -86,6 +88,17 @@ class CIMDValidationError(Exception):
     """Raised when the CIMD metadata document fails validation."""
 
     pass
+
+
+class CIMDSigningKeyMissingError(CIMDValidationError):
+    """The instance cannot store any CIMD client, so the metadata document is not at fault.
+
+    Subclasses CIMDValidationError so every caller that already handles a rejected document also
+    handles this case without a 500. The /authorize path catches it first to answer server_error.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(OIDC_SIGNING_KEY_MISSING_MESSAGE)
 
 
 class CIMDBurstThrottle(IPThrottle):
@@ -1005,6 +1018,9 @@ def fetch_and_upsert_cimd_application(
     that fails model validation a ``CIMDValidationError`` rather than a kept row, so nothing is
     granted off metadata we could not store; see ``_update_cimd_application``.
     """
+    if not oidc_signing_key_configured():
+        raise CIMDSigningKeyMissingError()
+
     # Refused before the fetch so that PostHog sends no request to the host.
     if is_throwaway_host(url):
         capture_ph_event(

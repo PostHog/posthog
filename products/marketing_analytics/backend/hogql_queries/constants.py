@@ -502,8 +502,11 @@ MARKETING_ANALYTICS_SCHEMA = {
 # Valid native marketing sources - derived from generated enum
 VALID_NATIVE_MARKETING_SOURCES = [source.value for source in NativeMarketingSource]
 
-# Valid non-native marketing sources (managed external sources like BigQuery)
-VALID_NON_NATIVE_MARKETING_SOURCES = ["BigQuery"]
+# Managed sources that import spend data from files: a storage bucket or an uploaded file.
+VALID_FILE_MARKETING_SOURCES = ["AmazonS3", "GoogleCloudStorage", "AzureBlob", "CloudflareR2", "FileUpload"]
+
+# Valid non-native marketing sources (managed external sources that need a column mapping)
+VALID_NON_NATIVE_MARKETING_SOURCES = ["BigQuery", *VALID_FILE_MARKETING_SOURCES]
 
 # Valid self-managed marketing sources (mirrors frontend types)
 VALID_SELF_MANAGED_MARKETING_SOURCES = ["aws", "google-cloud", "cloudflare-r2", "azure"]

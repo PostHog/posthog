@@ -34,6 +34,7 @@ import {
     isPlatformAndSupportAddon,
     randomizeReasons,
 } from './billingProductLogic'
+import { EventsRetentionDowngradeNotice } from './EventsRetentionDowngradeNotice'
 
 const HedgehogHeart = pngHoggie(heartPng)
 
@@ -44,9 +45,15 @@ export const UnsubscribeSurveyModal = ({
 }): JSX.Element | null => {
     const { trigger, HogfettiComponent } = useHogfetti()
 
-    const { surveyID, surveyResponse, isAddonProduct, unsubscribeModalStep, unsubscribeReasonQuestions } = useValues(
-        billingProductLogic({ product, hogfettiTrigger: trigger })
-    )
+    const {
+        surveyID,
+        surveyResponse,
+        isAddonProduct,
+        unsubscribeModalStep,
+        unsubscribeReasonQuestions,
+        productsToDeactivate,
+        eventsRetentionPlansAfterUnsubscribe,
+    } = useValues(billingProductLogic({ product, hogfettiTrigger: trigger }))
     const {
         setSurveyResponse,
         toggleSurveyReason,
@@ -81,7 +88,7 @@ export const UnsubscribeSurveyModal = ({
             setUnsubscribeModalStep(2)
             triggerMoreHedgehogs()
         } else {
-            deactivateProduct(billing?.subscription_level === 'paid' && !isAddonProduct ? 'all_products' : product.type)
+            deactivateProduct(productsToDeactivate)
         }
     }
 
@@ -106,9 +113,7 @@ export const UnsubscribeSurveyModal = ({
                     loading={billingLoading}
                     onClick={() => {
                         setHedgehogSatisfied(true)
-                        deactivateProduct(
-                            billing?.subscription_level === 'paid' && !isAddonProduct ? 'all_products' : product.type
-                        )
+                        deactivateProduct(productsToDeactivate)
                     }}
                 >
                     Never enough, proceed with {action}
@@ -213,6 +218,9 @@ export const UnsubscribeSurveyModal = ({
                         )}
 
                         {isPlatformAndSupportAddon(product) && <AddonFeatureLossNotice product={product} />}
+                        {eventsRetentionPlansAfterUnsubscribe && (
+                            <EventsRetentionDowngradeNotice plansAfterChange={eventsRetentionPlansAfterUnsubscribe} />
+                        )}
 
                         <LemonLabel>
                             {billing?.subscription_level === 'paid'

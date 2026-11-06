@@ -60,6 +60,8 @@ _REFERENCE_ACCESSORS: frozenset[str] = frozenset(
         "featureflagoverride_set",
         "featureflagdashboards_set",
         "access",
+        # A code analysis reads where the repository checks the flag. It doesn't own the flag.
+        "code_analyses",
     }
 )
 

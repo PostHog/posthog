@@ -21,7 +21,7 @@ from posthog.schema import (
 )
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, PropertyDefinition
+from posthog.models import OrganizationMembership
 from posthog.models.scoping import team_scope
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
@@ -39,6 +39,7 @@ from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
 )
+from products.event_definitions.backend.models import PropertyDefinition
 from products.experiments.backend.facade.testing import acreate_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight

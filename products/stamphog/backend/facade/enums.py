@@ -28,6 +28,18 @@ class RoutingMode(LabeledStrEnum):
     FALLBACK = "fallback", "When stamphog does not approve"
 
 
+class RoutingStatus(LabeledStrEnum):
+    """The phase of a pull request's latest reviewer routing record."""
+
+    # FALLBACK only: the head waits for stamphog's verdict or for the safety net.
+    WAITING = "waiting", "Waiting for stamphog's verdict"
+    # A task holds the claim and has not requested anybody yet.
+    ROUTING = "routing", "Routing"
+    # The review requests went out and the routing comment is not finished yet.
+    REQUESTED = "requested", "Requested"
+    DONE = "done", "Done"
+
+
 class OwnersFileStatus(LabeledStrEnum):
     """Whether a repository's default branch has the root owners.yaml that reviewer routing reads."""
 
