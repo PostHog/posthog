@@ -11,6 +11,7 @@ use crate::metric_rules::{
 use crate::normalize::{sniff_json_log_attributes, LogsSettings};
 use crate::record::LogRecord;
 use crate::retention::RETENTION_EXPIRED_STAGE_NAME;
+use crate::transformations::TransformationBatchBudget;
 
 use super::buffer::{BufferValue, RecordsVisitor};
 use super::context::{
@@ -34,6 +35,8 @@ pub type MetricTalliesByTeam = Arc<Mutex<Vec<(i64, Arc<Mutex<MetricRuleBatchStat
 pub struct LogsProcessingPass {
     pub usage: Arc<Mutex<UsageStatsByTeam>>,
     pub metric_tallies: MetricTalliesByTeam,
+    /// Shared by both passes of a batch.
+    pub transformation_budget: Option<Arc<TransformationBatchBudget>>,
 }
 
 pub struct LogsProcessingInput {
@@ -193,8 +196,15 @@ async fn process_log_message(
     {
         buffer_settings.json_parse_logs_attribute_key = None;
     }
-    let resolved =
-        resolve_log_buffer(context, message, &buffer_settings, retention_days, visitor).await?;
+    let resolved = resolve_log_buffer(
+        context,
+        message,
+        &buffer_settings,
+        retention_days,
+        visitor,
+        pass.transformation_budget.clone(),
+    )
+    .await?;
 
     context.usage_metrics.queue_usage_metric(
         team_id,
