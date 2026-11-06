@@ -490,18 +490,20 @@ class TestSecretHosts(SimpleTestCase):
                 {"token": _origins("https://api.example.com")},
             ),
             (
+                # The Node VM reads an input shaped like a date as a date, and its date library quotes
+                # an invalid year in the error it throws.
                 "secret_converted_to_an_integer",
-                "fetch('https://api.example.com', {'body': {'id': toInt(inputs.token)}})",
-                _inputs(token="t"),
+                "fetch('https://api.example.com', {'body': {'id': toInt(inputs.when)}})",
+                _inputs(when={"__hogDate__": True, "year": "{inputs.token}", "month": 1, "day": 1}, token="t"),
                 {"token"},
-                {"token": _origins("https://api.example.com")},
+                {"token": UNBOUND},
             ),
             (
                 "secret_converted_to_a_float",
-                "fetch('https://api.example.com', {'body': {'rate': toFloat(inputs.token)}})",
-                _inputs(token="t"),
+                "fetch('https://api.example.com', {'body': {'rate': toFloat(inputs.when)}})",
+                _inputs(when={"__hogDate__": True, "year": "{inputs.token}", "month": 1, "day": 1}, token="t"),
                 {"token"},
-                {"token": _origins("https://api.example.com")},
+                {"token": UNBOUND},
             ),
             (
                 "fetch_in_an_inline_element_callback",
