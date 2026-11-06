@@ -21,6 +21,7 @@ from posthog.constants import DEFAULT_SURVEY_APPEARANCE, AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
+from products.approvals.backend.exceptions import ApprovalRequired
 from products.surveys.backend.api.survey import SurveySerializerCreateUpdateOnly
 from products.surveys.backend.models import MAX_ITERATION_COUNT, MAX_ITERATION_FREQUENCY_DAYS, Survey
 from products.surveys.backend.summarization.fetch import fetch_responses
@@ -201,6 +202,20 @@ def _save_through_survey_api(tool: MaxTool, data: dict[str, Any], survey: Survey
     )
     serializer.is_valid(raise_exception=True)
     return serializer.save()
+
+
+def _approval_required_result(error: ApprovalRequired) -> tuple[str, dict[str, Any]]:
+    change_request = error.change_request
+    return (
+        f"{error.message} Change request {change_request.id} for this {change_request.resource_type} "
+        "is pending approval. Tell the user, and don't retry until it is approved.",
+        {
+            "error": "approval_required",
+            "error_message": error.message,
+            "change_request_id": str(change_request.id),
+            "resource_type": change_request.resource_type,
+        },
+    )
 
 
 def _validation_error_result(error: serializers.ValidationError) -> tuple[str, dict[str, Any]]:
@@ -457,7 +472,7 @@ class CreateSurveyTool(MaxTool):
             survey_data["responses_limit"] = responses_limit
 
         # Hosted (external) surveys are standalone pages with no in-app display context, so the
-        # backend rejects flag/URL/device targeting on them. Skip targeting entirely for those.
+        # backend rejects flag/URL/device targeting and a popup delay on them. Skip those entirely.
         if survey_type != Survey.SurveyType.EXTERNAL_SURVEY:
             if linked_flag_id is not None:
                 survey_data["linked_flag_id"] = linked_flag_id
@@ -469,6 +484,8 @@ class CreateSurveyTool(MaxTool):
                 survey_data["conditions"] = conditions
 
             survey_data.update(_build_schedule_fields(schedule, iteration_count, iteration_frequency_days))
+        else:
+            survey_data["appearance"].pop("surveyPopupDelaySeconds", None)
 
         if self.context.get("insight_id"):
             survey_data["linked_insight_id"] = self.context["insight_id"]
@@ -545,6 +562,8 @@ class CreateSurveyTool(MaxTool):
 
         except serializers.ValidationError as e:
             return _validation_error_result(e)
+        except ApprovalRequired as e:
+            return _approval_required_result(e)
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to create survey: {str(e)}", {"error": "creation_failed", "details": str(e)}
@@ -814,6 +833,8 @@ class EditSurveyTool(MaxTool):
 
         except serializers.ValidationError as e:
             return _validation_error_result(e)
+        except ApprovalRequired as e:
+            return _approval_required_result(e)
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to edit survey: {str(e)}", {"error": "edit_failed", "details": str(e)}

@@ -12,9 +12,11 @@ from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Project, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
@@ -1500,25 +1502,51 @@ class TestSurveyToolsSaveThroughSurveyAPI(BaseTest):
 
     @parameterized.expand(
         [
-            (
-                "script_in_html",
-                {"thankYouMessageHeader": "<script>alert(1)</script>Thanks"},
-                "thankYouMessageHeader",
-                "Thanks",
-            ),
-            ("white_label_without_the_feature", {"whiteLabel": True}, "whiteLabel", None),
+            ("script_in_html", {"thankYouMessageHeader": "<script>x</script>Thanks"}, "popover", "Thanks"),
+            ("white_label_without_the_feature", {"whiteLabel": True}, "popover", None),
+            ("popup_delay_on_a_hosted_survey", {"surveyPopupDelaySeconds": 5}, "external_survey", None),
         ]
     )
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_create_applies_team_default_appearance_safely(self, _name, team_appearance, key, expected):
+    async def test_create_applies_team_default_appearance_safely(self, _name, team_appearance, survey_type, expected):
         self.team.survey_config = {"appearance": team_appearance}
         await self.team.asave()
 
-        content, artifact = await self._run("create", name="Appearance")
+        content, artifact = await self._run("create", name="Appearance", survey_type=survey_type)
 
         survey = await Survey.objects.aget(id=artifact["survey_id"])
+        [key] = team_appearance
         assert survey.appearance.get(key) == expected, content
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_reports_a_pending_change_request_when_a_flag_write_needs_approval(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        await self.organization.asave()
+        _, created = await self._run("create", name="Gated")
+        edit_tool = EditSurveyTool(
+            team=self.team, user=self.user, config={"configurable": {"team": self.team, "user": self.user}}
+        )
+        await ApprovalPolicy.objects.acreate(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.update",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id], "roles": []},
+            allow_self_approve=True,
+            bypass_org_membership_levels=[],
+            created_by=self.user,
+        )
+
+        with patch("products.approvals.backend.ownership.scope_by_owner_enabled", return_value=False):
+            content, artifact = await edit_tool._arun_impl(survey_id=str(created["survey_id"]), wait_period_days=7)
+
+        assert artifact["error"] == "approval_required", content
+        change_request = await ChangeRequest.objects.aget(id=artifact["change_request_id"])
+        assert change_request.action_key == "feature_flag.update"
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
