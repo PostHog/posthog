@@ -27,8 +27,8 @@ describe('sandbox setup in the channel catalog', () => {
         logic?.unmount()
     })
 
-    it.each([404, 500])('starts setup on mount and recovers from a %s through Try again', async (failureStatus) => {
-        let status = failureStatus
+    it('starts setup on mount and recovers from a failure through Try again', async () => {
+        let status = 500
         let requests = 0
         const sandbox = {
             id: 9,
@@ -66,6 +66,68 @@ describe('sandbox setup in the channel catalog', () => {
         expect(await screen.findByText('Acme via PostHog <hello@sandbox.example.com>')).toBeInTheDocument()
         expect(requests).toBe(2)
         expect(screen.queryByText('Could not set up your sandbox sender.')).not.toBeInTheDocument()
+    })
+
+    it('shows nothing when the project is not offered the sandbox sender', async () => {
+        let requests = 0
+        useMocks({
+            get: { '/api/projects/:team_id/integrations/': () => [200, { results: [] }] },
+            post: {
+                '/api/projects/:team_id/integrations/email_sandbox_sender/': () => {
+                    requests++
+                    return [404, { detail: 'The sandbox sender is not available for this project.' }]
+                },
+            },
+        })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
+            [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
+        })
+        logic = channelCatalogLogic()
+        logic.mount()
+        await waitFor(() => expect(requests).toBe(1))
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(integrationsLogic).toFinishAllListeners()
+
+        expect(logic.values.sandboxSetupError).toBeNull()
+        render(createElement(MessageChannels))
+        expect(screen.queryByText('Try again')).not.toBeInTheDocument()
+    })
+
+    it('shows no load failure while setup has not succeeded yet', async () => {
+        let loads = 0
+        let finishSetup: () => void = () => {}
+        const sandbox = { id: 9, kind: 'email', config: { provider: 'sandbox', verified: true } }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': () => {
+                    loads++
+                    return loads === 1 ? [200, { results: [] }] : [500, { detail: 'Could not load your channels.' }]
+                },
+            },
+            post: {
+                '/api/projects/:team_id/integrations/email_sandbox_sender/': () =>
+                    new Promise((resolve) => {
+                        finishSetup = () => resolve([200, sandbox])
+                    }),
+            },
+        })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
+            [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
+        })
+        integrationsLogic.mount()
+        await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
+        logic = channelCatalogLogic()
+        logic.mount()
+        await expectLogic(integrationsLogic, () => integrationsLogic.actions.loadIntegrations()).toDispatchActions([
+            'loadIntegrationsFailure',
+        ])
+
+        expect(logic.values.sandboxProvisionErrorLoading).toBe(true)
+        expect(logic.values.sandboxSetupError).toBeNull()
+
+        finishSetup()
+        await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsFailure'])
+        expect(logic.values.sandboxSetupError).toBe('Could not load the sandbox sender.')
     })
 
     it('drops a failed setup once the sandbox flag turns off', async () => {

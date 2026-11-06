@@ -110,6 +110,7 @@ class TestSandboxSenderAPI(APIBaseTest):
             ("flag off", {}, False),
             ("domain unset", {"WORKFLOWS_SANDBOX_SENDER_DOMAIN": ""}, True),
             ("from address unset", {"SES_SANDBOX_FROM_ADDRESS": ""}, True),
+            ("from address off the sandbox domain", {"SES_SANDBOX_FROM_ADDRESS": "hello@example.org"}, True),
             ("tenant name unset", {"SES_SANDBOX_TENANT_NAME": ""}, True),
         ]
     )
