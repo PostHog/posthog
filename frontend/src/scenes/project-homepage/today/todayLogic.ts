@@ -117,7 +117,12 @@ const plain =
     () =>
         text
 
-const LATE_NIGHT: Greeting[] = [withName('You’re up late'), plain('Chat, is this real?')]
+const LATE_NIGHT: Greeting[] = [
+    withName('You’re up late'),
+    plain('Chat, is this real?'),
+    plain('U should go to sleep.'),
+]
+const EARLY_MORNING: Greeting[] = [plain('Riiiseee and shiiinee.'), plain('Good morning, sunshine.')]
 const WEDNESDAY: Greeting[] = [plain('It’s Wednesday, my dudes.'), plain('Lemon, it’s Wednesday.')]
 const FRIDAY_AFTERNOON: Greeting[] = [plain('Ladies and gentlemen, the weekend.'), plain('It’s Friday, Friday.')]
 const WEEKEND: Greeting[] = [plain('Ladies and gentlemen, the weekend.'), withName('Working the weekend')]
@@ -137,11 +142,19 @@ const ANY_TIME: Greeting[] = [
     plain('Look at you, perceiving things.'),
     plain('Are we doing things today, or just looking at them?'),
     plain('You’re doing great. (Probably.)'),
+    plain('Nice of u to show up again.'),
+    withName('HELLOOO'),
+    withName('Hiiii'),
+    plain('Heyyy 💗'),
+    plain('Look who it is.'),
 ]
 
 function greetingPool(day: number, hour: number): Greeting[] {
     if (hour < 5) {
         return LATE_NIGHT
+    }
+    if (hour < 9) {
+        return EARLY_MORNING
     }
     if (day === 0 || day === 6) {
         return WEEKEND

@@ -549,9 +549,14 @@ describe('todayLogic', () => {
             new Date(2026, 10, 6, 15),
             ['Ladies and gentlemen, the weekend.', 'It’s Friday, Friday.'],
         ],
-        ['a Monday morning', new Date(2026, 10, 2, 9), ['We are so back, Ada.']],
+        ['a Monday morning', new Date(2026, 10, 2, 10), ['We are so back, Ada.']],
         ['a Saturday', new Date(2026, 10, 7, 11), ['Ladies and gentlemen, the weekend.', 'Working the weekend, Ada.']],
-        ['the small hours', new Date(2026, 10, 4, 2), ['You’re up late, Ada.', 'Chat, is this real?']],
+        [
+            'the small hours',
+            new Date(2026, 10, 4, 2),
+            ['You’re up late, Ada.', 'Chat, is this real?', 'U should go to sleep.'],
+        ],
+        ['an early morning', new Date(2026, 10, 4, 7), ['Riiiseee and shiiinee.', 'Good morning, sunshine.']],
     ])('greets %s with a greeting for that day and hour', (_, date, expected) => {
         expect(expected).toContain(greetingFor(date, 'Ada'))
     })
