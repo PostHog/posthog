@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { ApiConfig, ApiError } from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { urls } from 'scenes/urls'
 
 import {
@@ -159,6 +160,13 @@ function toLoadFailure(error: unknown): LoadFailure {
     return error instanceof ApiError && error.status === 404 ? 'not_found' : 'failed'
 }
 
+function needsRead(current: NodeLoad | undefined, trigger: NodeLoadTrigger): boolean {
+    if (!current) {
+        return true
+    }
+    return current.status === 'error' && (trigger === 'selection' || trigger === 'navigation')
+}
+
 export function elapsedMs(since: number): number {
     return Math.round(performance.now() - since)
 }
@@ -298,7 +306,8 @@ export const traceViewLogic = kea<traceViewLogicType>([
             loadTraceSuccess: ({ trace }) => {
                 posthog.capture('llma trace view loaded', {
                     trace_load_ms: elapsedMs(cache.traceRequestedAt),
-                    node_count: trace.timeline.length,
+                    // The timeline lists every step but the root.
+                    node_count: trace.timeline.length + 1,
                 })
                 for (const nodeId of trace.threadNodeIds) {
                     actions.loadNode(nodeId, 'thread')
@@ -309,10 +318,7 @@ export const traceViewLogic = kea<traceViewLogicType>([
                 if (trigger === 'selection' && current?.status !== 'ready') {
                     selectedAt()[nodeId] ??= performance.now()
                 }
-                if (current?.status === 'loading' || current?.status === 'ready') {
-                    return
-                }
-                if (current?.status === 'error' && trigger !== 'selection' && trigger !== 'navigation') {
+                if (!needsRead(current, trigger)) {
                     return
                 }
                 if (trigger === 'prefetch') {
@@ -335,7 +341,13 @@ export const traceViewLogic = kea<traceViewLogicType>([
                     hint ? { timestamp_hint: hint } : undefined
                 ).then(
                     (node: TraceNodeDetailApi) => ({ node }),
-                    (error: unknown) => ({ failure: toLoadFailure(error) })
+                    (error: unknown) => {
+                        const failure = toLoadFailure(error)
+                        if (failure === 'failed' && shouldReportApiFailure(error)) {
+                            posthog.captureException(error)
+                        }
+                        return { failure }
+                    }
                 )
                 // A read can answer after the view closed, and a reopened view of the trace shares its actions.
                 if (cache.disposables.isDisposed) {

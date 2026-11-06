@@ -68,9 +68,11 @@ class CustomerAnalyticsConfig(AppConfig):
         """
         from products.warehouse_sources.backend.facade.hooks import (
             PersonPropertySourceProjection,
+            PersonPropertySyncProgress,
             PersonPropertySyncRunRecord,
             PersonPropertySyncSource,
             register_person_property_projection,
+            register_person_property_sync_progress_recorder,
             register_person_property_sync_recorder,
             register_person_property_sync_sources,
             register_saved_query_property_sources,
@@ -102,7 +104,15 @@ class CustomerAnalyticsConfig(AppConfig):
 
             return saved_queries_with_property_sources(team_id, saved_query_ids)
 
+        def _progress_recorder(progress: PersonPropertySyncProgress) -> None:
+            from products.customer_analytics.backend.logic.person_property_runs import (  # noqa: PLC0415
+                record_sync_progress,
+            )
+
+            record_sync_progress(progress)
+
         register_person_property_projection(_projection_resolver)
         register_person_property_sync_sources(_sync_sources_resolver)
         register_person_property_sync_recorder(_run_recorder)
         register_saved_query_property_sources(_saved_query_sources_resolver)
+        register_person_property_sync_progress_recorder(_progress_recorder)

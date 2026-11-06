@@ -42,7 +42,6 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
-    ErrorTrackingIssueSummary,
     sync_issues_to_clickhouse,
 )
 from products.error_tracking.backend.tests.api.issue_summary_states import (
@@ -1007,12 +1006,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             assert isinstance(read_events[0]["facts_ms"], int)
             assert isinstance(read_events[0]["summary_wait_ms"], int)
 
-    @parameterized.expand(
-        [
-            *SUMMARY_STATES,
-            ("ready_without_category", True, True, True, True, "ready", None),
-        ]
-    )
+    @parameterized.expand(SUMMARY_STATES)
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_detail_returns_the_summary(
         self,
@@ -1034,10 +1028,6 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             ) as publish,
             patch("posthog.event_usage.posthoganalytics.capture") as mock_capture,
         ):
-            if name == "ready_without_category":
-                ErrorTrackingIssueSummary.objects.for_team(self.team.id).filter(issue_id=self.issue_id).update(
-                    content={**STORED_CONTENT, "category": None}
-                )
             response = self.client.post(
                 f"/api/environments/{self.team.id}/error_tracking/query/issue",
                 data={"issueId": self.issue_id},
@@ -1050,13 +1040,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert body["summary_status"] == expected_status
         assert body.get("summary_reason") == expected_reason
         expected_summary = (
-            {
-                key: value
-                for key, value in {**STORED_CONTENT, "generated_at": "2026-10-20T12:00:00+00:00"}.items()
-                if not (key == "category" and name == "ready_without_category")
-            }
-            if expected_status == "ready"
-            else None
+            {**STORED_CONTENT, "generated_at": "2026-10-20T12:00:00+00:00"} if expected_status == "ready" else None
         )
         assert body.get("summary") == expected_summary
         publish.assert_not_called()

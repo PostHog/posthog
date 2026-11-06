@@ -5,8 +5,8 @@ import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { CompareFilter, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import type { TeamPublicType, TeamType } from '~/types'
 
-// Not a root table, so the `posthog.` prefix is part of the name. A team on the Events mode has no
-// such table. Queries on it fail to resolve for that team.
+// Not a root table, so the `posthog.` prefix is part of the name. On a self-hosted instance, a team on the
+// Events mode has no such table. Queries on it fail to resolve for that team.
 export const FLAG_EVALUATIONS_TABLE = 'posthog.flag_evaluations'
 
 export const FEATURE_FLAG_CALLED_EVENT = '$feature_flag_called'

@@ -150,7 +150,7 @@ There is no runtime image download.
 From `products/mobile` on macOS:
 
 ```sh
-swiftc targets/HedgehogWidget/{Choreography,HedgehogTimelineProvider}.swift scripts/check_hedgehog_timeline.swift -o /tmp/check-hoglet
+swiftc targets/HedgehogWidget/{AppGroup,Choreography,HedgehogTimelineProvider}.swift scripts/check_hedgehog_timeline.swift -o /tmp/check-hoglet
 /tmp/check-hoglet [choreography.json ...]
 ```
 
