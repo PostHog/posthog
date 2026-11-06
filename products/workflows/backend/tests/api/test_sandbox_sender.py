@@ -62,11 +62,17 @@ class TestSandboxSenderAPI(APIBaseTest):
     def test_ensure_keeps_one_row_per_project_and_refreshes_its_name(self) -> None:
         self.organization.name = "Acme"
         self.organization.save()
+        other_organization = Organization.objects.create(name="Other")
+        OrganizationMembership.objects.create(organization=other_organization, user=self.user)
+        self.user.current_organization = other_organization
+        self.user.save()
 
         with patch("products.workflows.backend.services.sandbox_sender.reload_integrations_on_workers") as reload:
             first = self._ensure()
             assert first.status_code == status.HTTP_200_OK, first.json()
-            assert len(self._provisioned_events()) == 1
+            assert [c.kwargs["groups"]["organization"] for c in self._provisioned_events()] == [
+                str(self.organization.id)
+            ]
             reload.assert_not_called()
             self.organization.name = "Acme Rockets"
             self.organization.save()
