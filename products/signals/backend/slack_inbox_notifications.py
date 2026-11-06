@@ -7,6 +7,7 @@ suggested reviewer is also routed to one destination: their own configured targe
 by their min-priority), otherwise the team-default channel. A personal target is either a channel
 or the reviewer's own Slack account, which Slack delivers as a direct message. Reviewers sharing a
 destination get a single post mentioning only the reviewers routed there.
+Already-addressed reports still reach the team channel, but do not notify suggested reviewers.
 All sends are best-effort.
 """
 
@@ -37,6 +38,8 @@ from posthog.slack.formatting import (
 from posthog.slack.markdown import slack_markdown_block as _markdown_block
 
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
+from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
@@ -54,7 +57,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
     resolve_org_users_by_uuid,
 )
-from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.report_urls import ReportLinkAction, ReportLinkSource, build_report_url
 from products.signals.backend.scout_authorship import report_is_hidden_from_inbox
 from products.signals.backend.slack_formatting import (
     first_sentence as _first_sentence,
@@ -65,7 +68,10 @@ from products.signals.backend.slack_formatting import (
 )
 from products.signals.backend.slack_notification_targets import is_slack_member_target, lookup_slack_user_id_by_email
 from products.signals.backend.slack_report_threads import record_report_slack_thread
+from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
+from products.signals.backend.typed_report_links import incoming_links
 from products.slack_app.backend.facade.api import slack_followup_invite
+from products.tasks.backend.facade import api as tasks_facade
 
 # Actionability values shown in the inbox Reports tab. Slack notifications mirror that tab, so a
 # report notifies iff its latest actionability judgment is one of these (and it's READY).
@@ -92,6 +98,14 @@ _PRIORITY_ORDER: tuple[str, ...] = (
     AutonomyPriority.P3,
     AutonomyPriority.P4,
 )
+# Keep in sync with PRIORITY_TAG_TYPE in frontend/inbox/filterOptions.tsx, so Slack and the inbox agree.
+_PRIORITY_EMOJI: dict[str, str] = {
+    AutonomyPriority.P0: "🔴",
+    AutonomyPriority.P1: "🟠",
+    AutonomyPriority.P2: "🟡",
+    AutonomyPriority.P3: "🔵",
+    AutonomyPriority.P4: "⚪️",
+}
 
 # Report titles are PR-style ("fix(scope): Description"). The inbox shows only the description, so
 # Slack does too. Keep in sync with CONVENTIONAL_COMMIT_TITLE in frontend/inbox/utils/reportPresentation.ts.
@@ -146,22 +160,55 @@ def _latest_priority(report: SignalReport) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _latest_actionability(report: SignalReport) -> str | None:
+def _latest_actionability_judgment(report: SignalReport) -> dict:
     art = (
         report.artefacts.filter(type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT)
         .order_by("-created_at")
         .first()
     )
     if art is None:
-        return None
+        return {}
     try:
         data = json.loads(art.content)
     except (json.JSONDecodeError, TypeError, ValueError):
-        return None
-    if not isinstance(data, dict):
-        return None
-    value = data.get("actionability")
-    return value if isinstance(value, str) else None
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _offers_implementation(judgment: dict) -> bool:
+    """Whether the message offers Implement: the research says the fix is ready and nobody has started it."""
+    return (
+        judgment.get("actionability") == ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value
+        and judgment.get("already_addressed") is not True
+    )
+
+
+def _implementation_underway(report: SignalReport) -> bool:
+    """Whether the report has a pull request or an implementation run that has not ended.
+
+    The inbox then shows View task instead of the Implement choices, so the message must not offer
+    Implement. Auto-start often opens the pull request before the notification goes out.
+    """
+    report_id = str(report.id)
+    if fetch_implementation_prs_for_reports([report_id], team_id=report.team_id, using="default").get(report_id):
+        return True
+    task_ids = [
+        run.task_id
+        for run in SignalReport.associated_task_runs(
+            report_id=report_id, team_id=report.team_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
+        )
+    ]
+    return any(not run.is_terminal for run in tasks_facade.get_latest_run_by_task(task_ids).values())
+
+
+def _should_offer_implementation(report: SignalReport, judgment: dict) -> bool:
+    """Whether the message offers Implement, matching when the inbox offers its Implement choices."""
+    if not _offers_implementation(judgment):
+        return False
+    # A plan parent has no run of its own: the reports that are part of it do the work.
+    if incoming_links(team_id=report.team_id, report_id=report.id, kinds=(ReportLinkKind.PART_OF,)):
+        return False
+    return not _implementation_underway(report)
 
 
 def resolve_org_suggested_reviewer_user_ids(*, team_id: int, report_ids: Collection[str]) -> dict[str, set[int]]:
@@ -355,7 +402,12 @@ def _section_body(markdown: str) -> str:
 
 
 def _build_message_blocks(
-    report: SignalReport, *, reviewer_mentions: list[str], use_section_blocks: bool = False
+    report: SignalReport,
+    *,
+    reviewer_mentions: list[str],
+    use_section_blocks: bool = False,
+    priority: str | None = None,
+    offer_implementation: bool = False,
 ) -> tuple[list[dict], str]:
     title_line = _display_title(report.title)
     header_text = (
@@ -390,23 +442,34 @@ def _build_message_blocks(
         body_block,
     ]
 
+    context_parts: list[str] = []
+    if priority_emoji := _PRIORITY_EMOJI.get(priority or ""):
+        context_parts.append(f"{priority_emoji} *{priority}*")
     # Plain-text blocks would show the raw mention token instead of resolving the user.
     if reviewer_mentions:
         owner_label = "Suggested owner" if len(reviewer_mentions) == 1 else "Suggested owners"
-        blocks.append(
+        context_parts.append(f"👤 {owner_label}: {' '.join(reviewer_mentions)}")
+    if context_parts:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(context_parts)}]})
+
+    action_elements: list[dict] = []
+    # A link, not an interactive button: the inbox runs its own access, quota and repository checks.
+    if offer_implementation:
+        action_elements.append(
             {
-                "type": "context",
-                "elements": [{"type": "mrkdwn", "text": f"👤 {owner_label}: {' '.join(reviewer_mentions)}"}],
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Implement", "emoji": True},
+                "style": "primary",
+                "url": build_report_url(report.team_id, report.id, ReportLinkSource.SLACK, ReportLinkAction.IMPLEMENT),
             }
         )
-
-    action_elements: list[dict] = [
+    action_elements.append(
         {
             "type": "button",
             "text": {"type": "plain_text", "text": "Review in PostHog", "emoji": True},
             "url": build_report_url(report.team_id, report.id, ReportLinkSource.SLACK),
         }
-    ]
+    )
     blocks.append({"type": "actions", "elements": action_elements})
 
     return blocks, _escape_mrkdwn(title_line)
@@ -502,7 +565,9 @@ def _build_reviewer_routes(
     its own reviewers. The team-default channel (if configured) receives every report, with no
     mentions when no reviewer is routed there.
     """
-    reviewer_user_ids = resolve_suggested_reviewer_user_ids(report)
+    reviewer_user_ids = (
+        set() if report.latest_already_addressed is True else resolve_suggested_reviewer_user_ids(report)
+    )
     reviewer_users = {user.id: user for user in User.objects.filter(id__in=reviewer_user_ids)}
     own_configs = _own_target_configs_by_user(report.team_id, reviewer_user_ids)
 
@@ -534,6 +599,8 @@ def _deliver_route_notification(
     route: _ChannelRoute,
     *,
     trigger: str,
+    priority: str | None,
+    offer_implementation: bool,
 ) -> bool:
     """Post one report notification to a route's destination.
 
@@ -562,6 +629,8 @@ def _deliver_route_notification(
             report,
             reviewer_mentions=mentions,
             use_section_blocks=organization_inbox_slack_section_blocks_enabled(report.team.organization_id),
+            priority=priority,
+            offer_implementation=offer_implementation,
         )
         # Added here rather than inside the block builder, which stays free of the integration so it
         # can be tested without one. Approval is read now, not assumed from generation time: a
@@ -598,11 +667,15 @@ def _deliver_to_routes(
     routes: list[_ChannelRoute],
     *,
     trigger: str,
+    priority: str | None,
+    offer_implementation: bool,
 ) -> int:
     """Post the report to every route, returning how many top-level messages were sent."""
     sent = 0
     for route in routes:
-        if _deliver_route_notification(report, route, trigger=trigger):
+        if _deliver_route_notification(
+            report, route, trigger=trigger, priority=priority, offer_implementation=offer_implementation
+        ):
             sent += 1
     return sent
 
@@ -669,7 +742,8 @@ def dispatch_inbox_item_notifications(report_id: str, team_id: int) -> int:
     # Mirror the inbox Reports tab: notify only for actionable reports (READY is enforced upstream
     # in the notification activity). Priority is read below for min-priority routing, but
     # it's optional now — an actionable report notifies even without a priority.
-    if _latest_actionability(report) not in _ACTIONABLE_VALUES:
+    actionability = _latest_actionability_judgment(report)
+    if actionability.get("actionability") not in _ACTIONABLE_VALUES:
         logger.info(
             "dispatch_inbox_item_notifications: report not actionable, skipping",
             extra={"report_id": report_id, "team_id": team_id},
@@ -702,7 +776,13 @@ def dispatch_inbox_item_notifications(report_id: str, team_id: int) -> int:
         )
         return 0
 
-    sent = _deliver_to_routes(report, routes, trigger="report_ready")
+    sent = _deliver_to_routes(
+        report,
+        routes,
+        trigger="report_ready",
+        priority=priority,
+        offer_implementation=_should_offer_implementation(report, actionability),
+    )
     logger.info(
         "dispatch_inbox_item_notifications: complete",
         extra={"report_id": report_id, "team_id": team_id, "messages_sent": sent, "routes": len(routes)},
@@ -800,7 +880,8 @@ def dispatch_reviewer_added_notifications(
     # Mirror the initial notification's gate: only reports actually surfaced in the inbox
     # (READY and actionable) notify. Status is checked here because — unlike the generation
     # pipeline — this path has no upstream READY guarantee.
-    if report.status != SignalReport.Status.READY or _latest_actionability(report) not in _ACTIONABLE_VALUES:
+    actionability = _latest_actionability_judgment(report)
+    if report.status != SignalReport.Status.READY or actionability.get("actionability") not in _ACTIONABLE_VALUES:
         return 0
 
     user_ids = _resolve_added_reviewer_user_ids(
@@ -814,7 +895,13 @@ def dispatch_reviewer_added_notifications(
     if not routes:
         return 0
 
-    sent = _deliver_to_routes(report, routes, trigger="reviewer_added")
+    sent = _deliver_to_routes(
+        report,
+        routes,
+        trigger="reviewer_added",
+        priority=priority,
+        offer_implementation=_should_offer_implementation(report, actionability),
+    )
     logger.info(
         "dispatch_reviewer_added_notifications: complete",
         extra={"report_id": report_id, "team_id": team_id, "messages_sent": sent, "routes": len(routes)},

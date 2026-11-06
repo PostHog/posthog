@@ -67,6 +67,7 @@ def test_built_in_agent_origins_use_restricted_oauth_scope(
     "origin, state",
     [
         (Task.OriginProduct.POSTHOG_AI, {}),
+        (Task.OriginProduct.FEATURE_FLAGS, {}),
         (Task.OriginProduct.SIGNAL_REPORT, {"billing_product": "posthog_ai"}),
         (Task.OriginProduct.SIGNALS_SCOUT, {"billing_product": "posthog_ai"}),
     ],
