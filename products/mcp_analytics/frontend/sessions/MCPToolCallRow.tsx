@@ -49,6 +49,70 @@ function CapturedJson({ label, json, property }: { label: string; json: string; 
     )
 }
 
+function MCPToolCallDetails({ toolCall, sessionId }: { toolCall: MCPToolCallApi; sessionId: string }): JSX.Element {
+    const failure = toolCall.is_error && toolCall.tool_name ? errorContext(toolCall, sessionId) : null
+
+    return (
+        <div className="flex flex-col gap-2 pl-5 pt-1">
+            <CapturedJson label="Arguments" json={toolCall.parameters} property="$mcp_parameters" />
+            <CapturedJson label="Result" json={toolCall.response} property="$mcp_response" />
+            <div className="flex flex-wrap items-center gap-1">
+                {toolCall.event_id ? (
+                    <LemonButton
+                        size="xsmall"
+                        to={urls.event(toolCall.event_id, toolCall.timestamp)}
+                        data-attr="mcp-session-tool-call-view-event"
+                    >
+                        View event
+                    </LemonButton>
+                ) : null}
+                {failure ? (
+                    <>
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconCopy />}
+                            tooltip="Copy the failure, arguments, result and links for a coding agent"
+                            onClick={() => void copyToClipboard(formatErrorContext(failure), 'error context')}
+                            data-attr="mcp-session-tool-call-copy-context"
+                        >
+                            Copy context
+                        </LemonButton>
+                        <CreateFixTaskButton context={failure} />
+                    </>
+                ) : null}
+            </div>
+        </div>
+    )
+}
+
+function MCPToolCallTitle({ toolCall, dateFilter }: { toolCall: MCPToolCallApi; dateFilter: DateFilter }): JSX.Element {
+    return (
+        <div className="flex items-center gap-1.5 min-w-0">
+            {toolCall.is_error ? (
+                <IconWarning className="text-danger shrink-0 text-xs" />
+            ) : (
+                <IconBolt className="text-accent shrink-0 text-xs" />
+            )}
+            {toolCall.tool_name ? (
+                <Link
+                    to={mcpToolReportUrl(toolCall.tool_name, dateFilter)}
+                    className="font-mono font-semibold truncate"
+                    tooltip="Open this tool's report"
+                >
+                    {toolCall.tool_name}
+                </Link>
+            ) : (
+                <span className="font-mono font-semibold truncate">unknown</span>
+            )}
+            {toolCall.is_error ? (
+                <LemonTag type="danger" size="small">
+                    error
+                </LemonTag>
+            ) : null}
+        </div>
+    )
+}
+
 export function MCPToolCallRow({
     toolCall,
     sessionId,
@@ -61,8 +125,6 @@ export function MCPToolCallRow({
     dateFilter: DateFilter
 }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
-    const failure = toolCall.is_error && toolCall.tool_name ? errorContext(toolCall, sessionId) : null
-
     return (
         <li
             className={`relative flex flex-col gap-1 rounded border bg-surface-primary px-2 py-1.5 ${
@@ -70,29 +132,7 @@ export function MCPToolCallRow({
             }`}
         >
             <div className="flex items-center justify-between gap-2 text-xs">
-                <div className="flex items-center gap-1.5 min-w-0">
-                    {toolCall.is_error ? (
-                        <IconWarning className="text-danger shrink-0 text-xs" />
-                    ) : (
-                        <IconBolt className="text-accent shrink-0 text-xs" />
-                    )}
-                    {toolCall.tool_name ? (
-                        <Link
-                            to={mcpToolReportUrl(toolCall.tool_name, dateFilter)}
-                            className="font-mono font-semibold truncate"
-                            tooltip="Open this tool's report"
-                        >
-                            {toolCall.tool_name}
-                        </Link>
-                    ) : (
-                        <span className="font-mono font-semibold truncate">unknown</span>
-                    )}
-                    {toolCall.is_error ? (
-                        <LemonTag type="danger" size="small">
-                            error
-                        </LemonTag>
-                    ) : null}
-                </div>
+                <MCPToolCallTitle toolCall={toolCall} dateFilter={dateFilter} />
                 <div className="flex items-center gap-2 text-secondary whitespace-nowrap font-mono text-[11px]">
                     {toolCall.duration_ms != null ? <span>{formatDuration(toolCall.duration_ms)} ·</span> : null}
                     <span>{formatRelativeOffset(sessionStart, toolCall.timestamp)}</span>
@@ -116,37 +156,7 @@ export function MCPToolCallRow({
                 <div className="text-xs text-danger font-mono pl-5 break-all">{toolCall.error_message}</div>
             ) : null}
 
-            {expanded ? (
-                <div className="flex flex-col gap-2 pl-5 pt-1">
-                    <CapturedJson label="Arguments" json={toolCall.parameters} property="$mcp_parameters" />
-                    <CapturedJson label="Result" json={toolCall.response} property="$mcp_response" />
-                    <div className="flex flex-wrap items-center gap-1">
-                        {toolCall.event_id ? (
-                            <LemonButton
-                                size="xsmall"
-                                to={urls.event(toolCall.event_id, toolCall.timestamp)}
-                                data-attr="mcp-session-tool-call-view-event"
-                            >
-                                View event
-                            </LemonButton>
-                        ) : null}
-                        {failure ? (
-                            <>
-                                <LemonButton
-                                    size="xsmall"
-                                    icon={<IconCopy />}
-                                    tooltip="Copy the failure, arguments, result and links for a coding agent"
-                                    onClick={() => void copyToClipboard(formatErrorContext(failure), 'error context')}
-                                    data-attr="mcp-session-tool-call-copy-context"
-                                >
-                                    Copy context
-                                </LemonButton>
-                                <CreateFixTaskButton context={failure} />
-                            </>
-                        ) : null}
-                    </div>
-                </div>
-            ) : null}
+            {expanded ? <MCPToolCallDetails toolCall={toolCall} sessionId={sessionId} /> : null}
         </li>
     )
 }

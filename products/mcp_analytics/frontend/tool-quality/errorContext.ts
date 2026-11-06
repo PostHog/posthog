@@ -45,6 +45,10 @@ export function formatCapturedJson(json: string): string {
     }
 }
 
+function capturedJsonSection(label: string, json: string | undefined): string[] {
+    return json ? ['', `${label}:`, '', ...indentedBlock(formatCapturedJson(json))] : []
+}
+
 /**
  * Paste-ready markdown block describing one MCP tool failure, aimed at handing to a coding
  * agent ("please fix") or seeding a task description. Shared by the occurrences drill-down's
@@ -70,17 +74,13 @@ export function formatErrorContext(ctx: MCPErrorContext): string {
     if (ctx.intent && ctx.intent !== '{}') {
         lines.push('', 'Agent intent:', '', ...indentedBlock(ctx.intent))
     }
-    if (ctx.parameters) {
-        lines.push('', 'Arguments:', '', ...indentedBlock(formatCapturedJson(ctx.parameters)))
-    }
+    lines.push(...capturedJsonSection('Arguments', ctx.parameters))
     if (ctx.errorMessage) {
         lines.push('', 'Error message:', '', ...indentedBlock(ctx.errorMessage))
     } else {
         lines.push('', 'Error message: not captured (no $mcp_error_message on this event).')
     }
-    if (ctx.response) {
-        lines.push('', 'Result:', '', ...indentedBlock(formatCapturedJson(ctx.response)))
-    }
+    lines.push(...capturedJsonSection('Result', ctx.response))
     lines.push('', `Tool report: ${absoluteUrl(urls.mcpAnalyticsTool(ctx.toolName))}`)
     if (ctx.sessionId) {
         lines.push(`Session log: ${absoluteUrl(mcpSessionUrl(ctx.sessionId))}`)
