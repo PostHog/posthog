@@ -124,6 +124,7 @@ from products.growth.backend.temporal.signup_enrichment.schedule import (
     create_harmonic_status_poll_schedule,
     create_icp_reenrichment_sweep_schedule,
 )
+from products.knowledge_writer.backend.facade.temporal import create_knowledge_writer_merge_reconcile_schedule
 from products.logs.backend.facade.temporal import disable_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
 from products.metrics.backend.facade.temporal import create_suggested_dashboards_discovery_schedule
@@ -159,9 +160,6 @@ from products.web_analytics.backend.temporal.weekly_digest.types import WAWeekly
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 
 logger = structlog.get_logger(__name__)
-
-# The retired summarization sweep created one schedule per team under this prefix.
-LEGACY_SUMMARIZATION_TEAM_SCHEDULE_PREFIX = "session-summarization-team-"
 
 
 async def cleanup_sync_vectors_schedule(client: Client):
@@ -673,30 +671,6 @@ async def create_replay_count_metrics_schedule(client: Client) -> None:
         )
 
 
-async def cleanup_legacy_session_summarization_schedules(client: Client):
-    """Delete legacy schedules. Any in-flight runs die on their own execution_timeout."""
-    legacy_schedule_ids = [
-        "video-segment-clustering-coordinator-schedule",
-        "session-summarization-sweep-schedule",
-        "session-summarization-sweep-reconciler-schedule",
-        # Swept Gemini files uploaded by the session-summary workflow; nothing uploads them now.
-        "session-summary-cleanup-sweep-schedule",
-    ]
-    for schedule_id in legacy_schedule_ids:
-        if await a_schedule_exists(client, schedule_id):
-            await a_delete_schedule(client, schedule_id)
-
-    # The sweep also created one schedule per team, and the reconciler that used to reap them is gone.
-    # Left alone they fire every few minutes forever against a workflow type no worker registers.
-    try:
-        async for schedule in await client.list_schedules():
-            if schedule.id.startswith(LEGACY_SUMMARIZATION_TEAM_SCHEDULE_PREFIX):
-                await a_delete_schedule(client, schedule.id)
-    except Exception:
-        # Reaping is best effort: a listing failure must not stop the rest of schedule setup.
-        logger.exception("temporal.cleanup_legacy_summarization_team_schedules_failed")
-
-
 async def cleanup_cohort_calculation_schedules(client: Client):
     """Delete the realtime cohort calculation and precalculated-data reconcile schedules.
 
@@ -983,7 +957,6 @@ schedules = [
     create_count_trigger_schedule,
     create_evaluation_sampler_schedule,
     create_evaluation_clustering_schedule,
-    cleanup_legacy_session_summarization_schedules,
     create_surfacing_score_export_sweep_schedule,
     create_surfacing_scoring_sweep_schedule,
     create_ducklake_compaction_schedule,
@@ -1041,6 +1014,7 @@ schedules = [
     create_replay_vision_highlight_rebuild_schedule,
     create_github_job_logs_coordinator_schedule,
     create_review_hog_finding_outcomes_schedule,
+    create_knowledge_writer_merge_reconcile_schedule,
     create_ci_signals_coordinator_schedule,
     create_cleanup_data_quality_check_runs_schedule,
     create_reconcile_metric_schedules_schedule,

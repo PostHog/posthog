@@ -152,6 +152,7 @@ from products.workflows.backend.facade.activity import (
     bulk_delete_archived_workflows,
     log_workflow_activity,
     log_workflow_schedule_activity,
+    log_workflow_test_run,
     resume_workflow_email_sending,
 )
 from products.workflows.backend.facade.api import (
@@ -185,6 +186,7 @@ from products.workflows.backend.facade.broadcast_conversion import (
 )
 from products.workflows.backend.facade.content import DRAFT_CONTENT_FIELDS, deep_merge, snapshot_content
 from products.workflows.backend.facade.contracts import (
+    EMAIL_FROM_CODE_FLAG,
     EmailDesignRenderFailed,
     EmailDesignRenderingNotConfigured,
     StaffPausedError,
@@ -391,6 +393,22 @@ def _cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
         )
     except Exception:
         return False
+
+
+LISTED_ORIGIN_PRODUCTS: list[str] = [
+    origin for origin in HogFlowOriginProduct.values if origin != HogFlowOriginProduct.TRANSACTIONAL_EMAIL_KEYS
+]
+
+
+def _code_sends_rolled_out(team: Any) -> bool:
+    organization_id = str(team.organization_id)
+    return feature_enabled_or_false(
+        EMAIL_FROM_CODE_FLAG,
+        str(team.uuid),
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id}},
+        send_feature_flag_events=False,
+    )
 
 
 def _authored_condition(condition: Optional[dict]) -> Optional[dict]:
@@ -2998,13 +3016,9 @@ class EmailSendingAllowanceSerializer(serializers.Serializer):
     max_tier = serializers.IntegerField(
         read_only=True, help_text="The highest tier there is, so the current tier can be shown as progress."
     )
-    emails_per_hour = serializers.IntegerField(read_only=True, help_text="How many emails this tier allows per hour.")
     emails_per_day = serializers.IntegerField(read_only=True, help_text="How many emails this tier allows per day.")
     max_batch_audience = serializers.IntegerField(
         read_only=True, help_text="The largest audience this tier allows for a single batch send."
-    )
-    emails_sent_last_hour = serializers.IntegerField(
-        read_only=True, help_text="Emails sent by this project's workflows in the last hour."
     )
     emails_sent_last_day = serializers.IntegerField(
         read_only=True, help_text="Emails sent by this project's workflows in the last 24 hours."
@@ -3346,7 +3360,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         required=False,
         allow_null=True,
         help_text="Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when "
-        "creating a workflow. Filter the list with `?origin_product=`.",
+        "creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. "
+        "Filter the list with `?origin_product=`.",
     )
     source_record = serializers.RegexField(
         r"^[a-z_]+:[A-Za-z0-9_-]+$",
@@ -3723,6 +3738,11 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "email_sending_resumed_at",
             "last_run",
         ]
+
+    def validate_origin_product(self, value: str | None) -> str | None:
+        if value == HogFlowOriginProduct.TRANSACTIONAL_EMAIL_KEYS:
+            raise serializers.ValidationError("A code send key's workflow is made by its first send.")
+        return value
 
     def validate(self, data):
         instance = cast(Optional[WorkflowEditState], self.instance)
@@ -4977,6 +4997,11 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
                 description="Only workflows someone turned suggestions on for.",
             ),
             OpenApiParameter(
+                "name",
+                OpenApiTypes.STR,
+                description="Only workflows whose name contains this text, ignoring case. Unlike `search`, it never reads descriptions, tags or step content.",
+            ),
+            OpenApiParameter(
                 "search",
                 OpenApiTypes.STR,
                 description="Case-insensitive search. Matches workflow name, description and tag names first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.",
@@ -4999,7 +5024,7 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
             OpenApiParameter(
                 "origin_product",
                 OpenApiTypes.STR,
-                enum=HogFlowOriginProduct.values,
+                enum=LISTED_ORIGIN_PRODUCTS,
                 description="Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
             ),
             OpenApiParameter(
@@ -5311,10 +5336,8 @@ class HogFlowViewSet(
                 )
 
         origin_product = params.get("origin_product")
-        if origin_product and origin_product not in HogFlowOriginProduct.values:
-            raise exceptions.ValidationError(
-                {"origin_product": f"Must be one of: {', '.join(HogFlowOriginProduct.values)}"}
-            )
+        if origin_product and origin_product not in LISTED_ORIGIN_PRODUCTS:
+            raise exceptions.ValidationError({"origin_product": f"Must be one of: {', '.join(LISTED_ORIGIN_PRODUCTS)}"})
 
         trigger = self._trigger_filter()
         tags = self._tags_filter()
@@ -5456,7 +5479,6 @@ class HogFlowViewSet(
         `person:read` and `group:read` on top of `hog_flow:write`.
         """
         hog_flow = self._workflow_ref()
-
         serializer = HogInvocationRerunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self._require_replay_vision_caller_access(request, self._edit_state().actions)
@@ -5470,7 +5492,7 @@ class HogFlowViewSet(
             team_id=self.team_id,
             function_kind="hog_flow",
             function_id=str(hog_flow.id),
-            payload=serializer.data,
+            payload={**serializer.data, "replay_code_sends": _code_sends_rolled_out(self.team)},
         )
 
         if res.status_code != 200:
@@ -6623,8 +6645,16 @@ class HogFlowViewSet(
 
         if not payload.get("mock_async_functions", True):
             configuration = payload.get("configuration") or {}
-            self._require_replay_vision_caller_access(
-                request, configuration.get("actions") if configuration else (hog_flow.actions if hog_flow else [])
+            # The worker runs `{...stored, ...configuration}`, so a field the request omits runs as stored.
+            actions = configuration["actions"] if "actions" in configuration else (hog_flow.actions if hog_flow else [])
+            self._require_replay_vision_caller_access(request, actions)
+            log_workflow_test_run(
+                actor=self._activity_actor(),
+                workflow_id=hog_flow.id if hog_flow else None,
+                name=configuration.get("name") or (hog_flow.name if hog_flow else None),
+                actions=actions,
+                current_action_id=payload.get("current_action_id"),
+                encrypted_inputs=hog_flow.encrypted_inputs if hog_flow and "actions" not in configuration else None,
             )
 
         res = create_hog_flow_invocation_test(

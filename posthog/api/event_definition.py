@@ -44,7 +44,7 @@ from posthog.constants import EventDefinitionType
 from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import EventDefinition, ObjectMediaPreview, TaggedItem, Team
+from posthog.models import ObjectMediaPreview, TaggedItem, Team
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
 from posthog.models.tagged_item_registry import content_type_for
 from posthog.models.user import User
@@ -67,6 +67,7 @@ from posthog.taxonomy.scout_writes import check_scout_event_definition_write
 from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
+from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer

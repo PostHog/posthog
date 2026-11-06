@@ -23,7 +23,7 @@ import { OriginProduct, Task, TaskAssigneeFilter, TaskListParams, TaskUpsertProp
 import { taskEventsLogic } from './taskEventsLogic'
 import { taskHistoryLogic } from './taskHistoryLogic'
 
-export function hasTasksFlag(featureFlags: FeatureFlagsSet): boolean {
+function hasTasksFlag(featureFlags: FeatureFlagsSet): boolean {
     return !!(featureFlags[FEATURE_FLAGS.TASKS] || featureFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE])
 }
 

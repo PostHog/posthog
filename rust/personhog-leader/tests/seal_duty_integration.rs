@@ -60,10 +60,12 @@ async fn a_pod_seals_the_partitions_it_owns_by_assignment_without_a_capture() {
     let migration = MigrationState {
         id: "m-1".to_string(),
         from: ChangelogTarget {
+            cluster: None,
             topic: old.topic.clone(),
             partitions: 2,
         },
         to: ChangelogTarget {
+            cluster: None,
             topic: format!("{}_g2", old.topic),
             partitions: 4,
         },
@@ -117,10 +119,12 @@ async fn a_registered_peers_partition_is_sealed_once_the_seal_is_overdue() {
     let migration = MigrationState {
         id: "m-2".to_string(),
         from: ChangelogTarget {
+            cluster: None,
             topic: old.topic.clone(),
             partitions: 2,
         },
         to: ChangelogTarget {
+            cluster: None,
             topic: format!("{}_g2", old.topic),
             partitions: 4,
         },
@@ -185,10 +189,12 @@ async fn each_seal_is_acked_before_the_pass_ends() {
     let migration = MigrationState {
         id: "m-1".to_string(),
         from: ChangelogTarget {
+            cluster: None,
             topic: old.topic.clone(),
             partitions: 2,
         },
         to: ChangelogTarget {
+            cluster: None,
             topic: format!("{}_g2", old.topic),
             partitions: 4,
         },
@@ -245,10 +251,12 @@ async fn a_swept_preconnect_is_dialed_again_on_the_next_pass() {
     let migration = MigrationState {
         id: "m-1".to_string(),
         from: ChangelogTarget {
+            cluster: None,
             topic: old.topic.clone(),
             partitions: 1,
         },
         to: ChangelogTarget {
+            cluster: None,
             topic: format!("{}_g2", old.topic),
             partitions: 2,
         },

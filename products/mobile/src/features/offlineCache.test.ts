@@ -91,7 +91,7 @@ describe('authenticated offline-cache lifecycle', () => {
         mockDigestGates.clear()
         mockValues.clear()
         mockReads.length = 0
-        useScopeErrorStore.setState({ reported: { views: null, errors: null, replay: null } })
+        useScopeErrorStore.setState({ reported: { views: null, errors: null, replay: null, inbox: null } })
         queryClient.clear()
         useItemErrors.setState({ errors: {} })
         useAuthStore.setState({
@@ -272,11 +272,11 @@ describe('authenticated offline-cache lifecycle', () => {
         mockValues.set(`${account()}.2`, JSON.stringify(saved))
         let stop = installOfflineCache()
         await waitFor(() => expect(queryClient.getQueryData(first)).toBeDefined())
-        useScopeErrorStore.setState({ reported: { views: 'insights:read', errors: null, replay: null } })
+        useScopeErrorStore.setState({ reported: { views: 'insights:read', errors: null, replay: null, inbox: null } })
         await waitFor(() => expect(mockValues.get(`${account()}.2`)).not.toContain('"views"'))
         stop()
         queryClient.clear()
-        useScopeErrorStore.setState({ reported: { views: null, errors: null, replay: null } })
+        useScopeErrorStore.setState({ reported: { views: null, errors: null, replay: null, inbox: null } })
         useAuthStore.setState({ projectId: 2 })
         stop = installOfflineCache()
         await waitFor(() => expect(queryClient.getQueryData(inbox)).toBeDefined())
@@ -287,7 +287,7 @@ describe('authenticated offline-cache lifecycle', () => {
 
     it('does not rehydrate views when the existing access gate reports a missing scope', async () => {
         const key = seed(1)
-        useScopeErrorStore.setState({ reported: { views: 'insights:read', errors: null, replay: null } })
+        useScopeErrorStore.setState({ reported: { views: 'insights:read', errors: null, replay: null, inbox: null } })
         const stop = installOfflineCache()
         await waitFor(() => expect(JSON.parse(mockValues.get(`${account()}.1`) ?? '[]')).toEqual([]))
         expect(queryClient.getQueryData(key)).toBeUndefined()

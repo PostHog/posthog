@@ -4,12 +4,12 @@ import React, { ReactNode, useEffect, useRef, useState } from 'react'
 
 import { IconArrowRight, IconCheck, IconPencil, IconPlus, IconStopFilled, IconTrash, IconX } from '@posthog/icons'
 import { LemonTextArea } from '@posthog/lemon-ui'
-import { Button, Spinner, Switch, Text } from '@posthog/quill'
+import { Button, Kbd, Spinner, Switch, Text } from '@posthog/quill'
 
 import { cn } from 'lib/utils/css-classes'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
-import { QuillComposerLayout } from 'products/posthog_ai/frontend/api/composer'
+import { QuillComposerLayout, ReplySuggestionHint } from 'products/posthog_ai/frontend/api/composer'
 
 import { ContextTags, ContextToolInfoTags, SandboxContextTags } from '../Context'
 import { maxThreadLogic } from '../maxThreadLogic'
@@ -159,6 +159,7 @@ export const QuillQuestionInput = React.forwardRef<HTMLDivElement, QuillQuestion
         handleQuestionChange,
         fillInHint,
         showFillInHint,
+        replySuggestion,
         promptLength,
         isOverLengthLimit,
         maxMessageLength,
@@ -287,7 +288,18 @@ export const QuillQuestionInput = React.forwardRef<HTMLDivElement, QuillQuestion
                             chips={!isSharedThread && showContextUI ? <QuillContextChips /> : undefined}
                             field={
                                 <>
-                                    {!inputValue && (
+                                    {replySuggestion !== null ? (
+                                        <div
+                                            data-slot="composer-placeholder"
+                                            id="question-input-hint"
+                                            className="pointer-events-none absolute right-0 text-muted-foreground"
+                                        >
+                                            <ReplySuggestionHint
+                                                suggestion={replySuggestion}
+                                                acceptHint={<Kbd>Tab to accept</Kbd>}
+                                            />
+                                        </div>
+                                    ) : !inputValue ? (
                                         <div
                                             data-slot="composer-placeholder"
                                             id="question-input-hint"
@@ -295,7 +307,7 @@ export const QuillQuestionInput = React.forwardRef<HTMLDivElement, QuillQuestion
                                         >
                                             {placeholderText}
                                         </div>
-                                    )}
+                                    ) : null}
                                     {/* Postfix cue after a fill-in suggestion's typed-in prefix. */}
                                     {showFillInHint && fillInHint && (
                                         <div className="pointer-events-none absolute inset-x-0 top-2 overflow-hidden">

@@ -99,6 +99,10 @@ class TestS3Compression(SimpleTestCase):
     def test_build_function_call_reads_a_delta_table_in_a_br_folder(self, table_format: str) -> None:
         build_function_call("https://b.example.com/lake/table.br", table_format, None, "key", "secret")
 
+    def test_empty_format_is_preserved(self) -> None:
+        result = build_function_call("http://url.com", "", access_key="key", access_secret="secret")
+        assert result == "s3('http://url.com', 'key', 'secret', '')"
+
 
 class TestS3Table(BaseTest):
     def _events_from_sql(self) -> str:

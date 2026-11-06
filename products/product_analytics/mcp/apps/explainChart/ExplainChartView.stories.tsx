@@ -31,6 +31,7 @@ const BY_REFERRER: Series[] = [
 ]
 
 const story: ExplainChartData = {
+    shape: 'time_series',
     query: { kind: 'TrendsQuery', interval: 'day', series: [{ kind: 'EventsNode', event: 'signed_up' }] },
     results: [{ label: 'signed_up', data: VALUES, days: DAYS }],
     seriesIndex: 0,

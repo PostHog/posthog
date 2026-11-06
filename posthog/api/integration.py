@@ -115,6 +115,7 @@ from posthog.models.integration import (
     GitHubIntegration,
     GitHubIntegrationError,
     GitLabIntegration,
+    GitLabIntegrationError,
     GoogleAdsIntegration,
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
@@ -146,6 +147,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
+    DenyWorkloadAccessToken,
     TeamMemberAccessPermission,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
@@ -719,6 +721,15 @@ SLACK_CHANNELS_CACHE_SECONDS = 60 * 60
 # quota. A re-check spends one per channel it warned about, well inside the cap.
 SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE = 30
 
+
+def take_slack_channels_info_budget(integration_id: int) -> None:
+    _take_slack_lookup_budget(
+        f"slack/{integration_id}/channels_info_budget",
+        SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE,
+        "Too many Slack channel lookups. Try again in a minute.",
+    )
+
+
 # Server-side floor between forced member-list refreshes, matching the picker's visible cooldown.
 SLACK_USERS_MIN_REFRESH_SECONDS = 30
 
@@ -1076,9 +1087,12 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             project_id = config.get("project_id")
             project_access_token = config.get("project_access_token")
 
-            instance = GitLabIntegration.create_integration(
-                hostname, project_id, project_access_token, team_id, request.user
-            )
+            try:
+                instance = GitLabIntegration.create_integration(
+                    hostname, project_id, project_access_token, team_id, request.user
+                )
+            except GitLabIntegrationError as e:
+                raise ValidationError(str(e))
             return instance
 
         elif validated_data["kind"] == "anthropic":
@@ -1602,6 +1616,23 @@ class PersonalConnectionRecentAuthPermission(BasePermission):
         return True
 
 
+_GITHUB_LINKING_ACTIONS = frozenset(
+    {"github_available_installations", "github_link_existing", "github_oauth_authorize"}
+)
+
+
+class DenyWorkloadTokenGitHubLinking(DenyWorkloadAccessToken):
+    """Linking reuses a GitHub installation from another project, or one the creator's personal GitHub
+    access can see. A workload token is confined to one project and has no personal access to lend."""
+
+    message = "Workload tokens can't link GitHub installations."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if getattr(view, "action", None) not in _GITHUB_LINKING_ACTIONS:
+            return True
+        return super().has_permission(request, view)
+
+
 class IntegrationFilterSet(filters.FilterSet):
     kind = filters.ChoiceFilter(choices=PUBLIC_INTEGRATION_KIND_CHOICES)
 
@@ -1660,7 +1691,11 @@ class IntegrationViewSet(
         "request_access",
         "push_tokens",
     ]
-    permission_classes = [IntegrationManagementPermission, PersonalConnectionRecentAuthPermission]
+    permission_classes = [
+        IntegrationManagementPermission,
+        PersonalConnectionRecentAuthPermission,
+        DenyWorkloadTokenGitHubLinking,
+    ]
     # LimitOffsetPagination needs a total order, or Postgres can return a row on neither side of a
     # page boundary. Clients page this list to find one kind, so a dropped row reads as
     # "not configured". Order oldest-first: several clients take the first row of a kind as their
@@ -1701,6 +1736,7 @@ class IntegrationViewSet(
             AccessControlPermission(),
             TeamMemberAccessPermission(),
             PersonalConnectionRecentAuthPermission(),
+            DenyWorkloadTokenGitHubLinking(),
         ]
         # Adding an integration only requires project membership. Every edit and removal uses the
         # viewset permission class, including the creator exception for Google account removal.
@@ -1709,6 +1745,12 @@ class IntegrationViewSet(
         if self.action == "refresh_github_repos":
             return [*base_permissions, TeamMemberLightManagementPermission()]
         raise NotImplementedError()
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # Importing devices writes person properties and tells which distinct IDs have a person.
+        if self.action == "push_tokens":
+            return ["integration:write", "person:write"]
+        return None
 
     def get_throttles(self):
         if self.action == "refresh_github_repos":
@@ -2003,11 +2045,7 @@ class IntegrationViewSet(
                             return Response({"channels": [channel], "next": None, "previous": None})
             # Past the cached list every lookup reaches Slack, and a forced one skips the list
             # altogether, so the same per-minute budget the member lookup uses applies here.
-            _take_slack_lookup_budget(
-                f"slack/{instance.id}/channels_info_budget",
-                SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE,
-                "Too many Slack channel lookups. Try again in a minute.",
-            )
+            take_slack_channels_info_budget(instance.id)
             try:
                 channel = slack.get_channel_by_id(channel_id, should_include_private_channels, authed_user)
             except SlackApiError as e:
@@ -2864,17 +2902,35 @@ class IntegrationViewSet(
         },
         summary="Import push device tokens",
         description="Register existing device tokens, for example exported from another provider, on this push "
-        "channel. Each token is stored encrypted on its person, as the mobile SDK stores it.",
+        "channel. Each token is stored encrypted on its person, as the mobile SDK stores it. A row fails when no "
+        "person has its distinct ID, unless create_missing_persons is set, or when the token is the wrong kind for "
+        "the channel. Send dry_run first to see every failure without storing anything.",
     )
     @action(methods=["POST"], detail=True, url_path="push_tokens")
     def push_tokens(self, request: ValidatedRequest, **kwargs) -> Response:
+        # Session users skip API scopes, and access control checks only the integration scope_object.
+        if not self.user_access_control.check_access_level_for_resource("person", "editor"):
+            raise PermissionDenied("You need edit access to persons to import push devices.")
         integration = self.get_object()
         if not push_channel_app_id(integration):
             raise ValidationError("Device tokens can only be imported into an APNs or Firebase push channel.")
-        result = import_push_tokens(integration, request.validated_data["subscriptions"], integration.team.api_token)
+        data = request.validated_data
+        result = import_push_tokens(
+            integration,
+            data["subscriptions"],
+            integration.team.api_token,
+            dry_run=data["dry_run"],
+            create_missing_persons=data["create_missing_persons"],
+            import_id=data["import_id"],
+        )
         return Response(
             PushTokenImportResponseSerializer(
-                {"imported": result.imported, "failed_distinct_ids": result.failed_distinct_ids}
+                {
+                    "imported": result.imported,
+                    "dry_run": result.dry_run,
+                    "failed": result.failed,
+                    "failed_distinct_ids": result.failed_distinct_ids,
+                }
             ).data
         )
 

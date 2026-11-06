@@ -89,6 +89,13 @@ LATEST_COMPLETED_RUN_FAILED = (
     f"argMaxIf(conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}), {LATEST_RUN_ORDER}, status = 'completed')"
 )
 
+# The slack a date-only floor subtracts from the window start.
+_DATE_FLOOR_SLACK = timedelta(days=1)
+
+# A date-only floor reaches back past the slack it subtracts: up to a day for the day rounding, and up
+# to a day more for the window's offset from the UTC strings it compares with.
+_DATE_FLOOR_REACH = timedelta(days=2)
+
 
 def run_started_floor_constant(window_start: datetime) -> ast.Constant:
     """Raw-string scan floor for the runs builder's {run_started_floor} placeholder: a date-only
@@ -96,7 +103,7 @@ def run_started_floor_constant(window_start: datetime) -> ast.Constant:
     ISO timestamp ('2026-07-11' < '2026-07-11T...'), and the one-day slack absorbs any timezone
     offset between the window's zone and the UTC strings GitHub lands, so the coarse floor can
     never cut rows the precise parsed {date_from} filter would keep."""
-    return ast.Constant(value=(window_start - timedelta(days=1)).strftime("%Y-%m-%d"))
+    return _date_floor(window_start, _DATE_FLOOR_SLACK)
 
 
 # How far below a window start the jobs-scan floor sits, by what the window actually filters.
@@ -118,8 +125,12 @@ def run_started_floor_constant(window_start: datetime) -> ast.Constant:
 # the copy is only recognisable while its original attempt is inside the scan, so a tight floor under a
 # late re-run would turn the copy back into an execution. Queries that keep copies (red/green reads)
 # can use the tight floor.
-_JOB_FLOOR_SLACK_ON_JOB_CREATED = timedelta(days=1)
-_JOB_FLOOR_SLACK_ON_RUN_STARTED = timedelta(days=7)
+_JOB_FLOOR_SLACK_ON_JOB_CREATED = _DATE_FLOOR_SLACK
+JOB_FLOOR_SLACK_ON_RUN_STARTED = timedelta(days=7)
+
+# The furthest any scan floor reaches below its window start. A read whose window start is at least
+# this far after the stored coverage start scans only stored rows.
+WIDEST_SCAN_FLOOR_SLACK = JOB_FLOOR_SLACK_ON_RUN_STARTED + _DATE_FLOOR_REACH
 
 
 def _date_floor(window_start: datetime, slack: timedelta) -> ast.Constant:
@@ -138,8 +149,8 @@ def run_windowed_job_created_floor_constant(window_start: datetime) -> ast.Const
     """Raw-string scan floor for the jobs builder's {job_created_floor} placeholder, for a query that
     windows the RUN's start (every cost surface does). Wider than the job-created floor because a
     re-run's earlier attempts were created before its run_started_at — see
-    ``_JOB_FLOOR_SLACK_ON_RUN_STARTED``."""
-    return _date_floor(window_start, _JOB_FLOOR_SLACK_ON_RUN_STARTED)
+    ``JOB_FLOOR_SLACK_ON_RUN_STARTED``."""
+    return _date_floor(window_start, JOB_FLOOR_SLACK_ON_RUN_STARTED)
 
 
 def branch_filter_clause(
