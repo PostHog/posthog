@@ -62,6 +62,13 @@ class TestStructuredGaps:
                 20,
                 "findings[].priority. Always return true",
             ),
+            (
+                "field_path_ending_in_a_newline",
+                ["P0", "P1", "P2", "P3"],
+                ["P2", "P3", "P3", "P2"],
+                20,
+                "findings[].priority\n",
+            ),
             # 200 items on each side, but each from a single response, so nothing independent backs the gap.
             (
                 "one_long_response_per_segment",
