@@ -362,6 +362,10 @@ class SandboxSession(BaseSandboxService):
         `_meta.attached_context` so the persisted ACP log stays a complete record.
         """
         try:
+            tasks_facade.check_wake_by_task_id(run.task_id, source="posthog_ai_follow_up")
+        except tasks_facade.TaskDoneError as error:
+            raise Conflict(str(error)) from error
+        try:
             signal_task_followup_message(run.workflow_id, wrapped, artifact_ids=[])
         except Exception as e:
             # Status race: the run still reads in-progress but its workflow has already finished or

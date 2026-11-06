@@ -1,6 +1,8 @@
+import json
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime
+from enum import StrEnum
 from itertools import batched
 from typing import Any
 from uuid import UUID
@@ -11,10 +13,17 @@ from django.db.models.functions import Coalesce
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from posthog.dataclasses import frozen
+import structlog
+import posthoganalytics
 
-from products.tasks.backend.metrics import observe_task_status_outside_transitions
-from products.tasks.backend.models import Task, TaskRun, TaskStatusChange
+from posthog.dataclasses import frozen
+from posthog.models.team.team import Team
+
+from products.tasks.backend.facade.profiles import find_task_profile
+from products.tasks.backend.metrics import observe_task_done, observe_task_status_outside_transitions
+from products.tasks.backend.models import TASK_RUN_FINISH_REPORT_STATE_KEY, Task, TaskRun, TaskStatusChange
+
+logger = structlog.get_logger(__name__)
 
 TRANSITIONS: dict[str, frozenset[str]] = {
     Task.Status.QUEUED: frozenset({Task.Status.RUNNING, Task.Status.IDLE, Task.Status.DONE}),
@@ -23,13 +32,31 @@ TRANSITIONS: dict[str, frozenset[str]] = {
     Task.Status.DONE: frozenset(),
 }
 
+_DONE_ONLY_REASONS: frozenset[str | None] = frozenset(
+    {Task.StatusReason.FINISHED, Task.StatusReason.CLOSED, Task.StatusReason.CANCELLED}
+)
+REASONS: dict[str, frozenset[str | None]] = {
+    Task.Status.QUEUED: frozenset({None}),
+    Task.Status.RUNNING: frozenset({None}),
+    Task.Status.IDLE: frozenset({None, *Task.StatusReason}) - _DONE_ONLY_REASONS,
+    Task.Status.DONE: _DONE_ONLY_REASONS,
+}
+
 RUN_SYNC_ACTOR = "task_run"
 BACKFILL_ACTOR = "backfill"
+SHADOW_ACTOR_PREFIX = "shadow:"
+DONE_FLAG = "tasks-task-done"
 
 _DERIVED_FROM_RUN_FIELDS = frozenset({"status", "scheduled_at", "error_message"})
 _LIVE_TASK_STATUSES = (Task.Status.QUEUED, Task.Status.RUNNING)
 _OPEN_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
 _QUERY_CHUNK = 1000
+
+
+class DoneMode(StrEnum):
+    OFF = "off"
+    SHADOW = "shadow"
+    ENFORCE = "enforce"
 
 
 @frozen
@@ -38,6 +65,7 @@ class LatestRun:
     status: str
     scheduled_at: datetime | None
     error_message: str | None
+    finish_report_saved: bool = False
 
 
 @frozen
@@ -47,9 +75,13 @@ class TaskStatusValue:
     detail: str | None = None
 
 
+_TURN_CLOSED = TaskStatusValue(status=Task.Status.IDLE, reason=Task.StatusReason.TURN_CLOSED)
+
+
 @frozen
 class StoredTaskStatus:
     team_id: int
+    profile: str | None
     value: TaskStatusValue | None
 
 
@@ -91,10 +123,18 @@ def latest_runs(task_ids: Iterable[UUID | str]) -> dict[UUID, LatestRun]:
             TaskRun.objects.filter(task_id__in=chunk)
             .order_by("task_id", "-created_at", "-id")
             .distinct("task_id")
-            .values_list("task_id", "id", "status", "scheduled_at", "error_message")
+            .values_list(
+                "task_id", "id", "status", "scheduled_at", "error_message", f"state__{TASK_RUN_FINISH_REPORT_STATE_KEY}"
+            )
         )
-        for task_id, run_id, status, scheduled_at, error_message in rows:
-            runs[task_id] = LatestRun(id=run_id, status=status, scheduled_at=scheduled_at, error_message=error_message)
+        for task_id, run_id, status, scheduled_at, error_message, finish_report_saved in rows:
+            runs[task_id] = LatestRun(
+                id=run_id,
+                status=status,
+                scheduled_at=scheduled_at,
+                error_message=error_message,
+                finish_report_saved=finish_report_saved is True,
+            )
     return runs
 
 
@@ -133,12 +173,12 @@ def _stored_task_status(task_id: UUID | str, *, lock: bool) -> StoredTaskStatus 
     tasks = Task.objects.filter(pk=task_id)
     if lock:
         tasks = tasks.select_for_update(no_key=True)
-    row = tasks.values_list("team_id", "status", "status_reason", "status_detail").first()
+    row = tasks.values_list("team_id", "profile", "status", "status_reason", "status_detail").first()
     if row is None:
         return None
-    team_id, status, reason, detail = row
+    team_id, profile, status, reason, detail = row
     value = None if status is None else TaskStatusValue(status=status, reason=reason, detail=detail)
-    return StoredTaskStatus(team_id=team_id, value=value)
+    return StoredTaskStatus(team_id=team_id, profile=profile, value=value)
 
 
 def _latest_run(task_id: UUID | str) -> LatestRun | None:
@@ -151,6 +191,121 @@ def _legacy_columns(task_id: UUID | str) -> dict[str, Any]:
     if branch := head_branches_from_runs([key]).get(key):
         columns["head_branch"] = Coalesce("head_branch", Value(branch))
     return columns
+
+
+def done_mode(profile_key: str | None, team_id: int) -> DoneMode:
+    if not profile_key:
+        return DoneMode.OFF
+    try:
+        team = Team.objects.only("uuid", "organization_id").get(pk=team_id)
+        organization_id = str(team.organization_id)
+        payload = posthoganalytics.get_feature_flag_payload(
+            DONE_FLAG,
+            distinct_id=str(team.uuid),
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+    except Exception:
+        logger.warning("task_done_mode_unresolved", profile=profile_key, team_id=team_id, exc_info=True)
+        return DoneMode.OFF
+    value = payload.get(profile_key) if isinstance(payload, dict) else None
+    try:
+        return DoneMode(str(value))
+    except ValueError:
+        return DoneMode.OFF
+
+
+def _record_change(
+    team_id: int, task_id: UUID | str, value: TaskStatusValue, *, run_id: UUID | None, changed_by: str
+) -> None:
+    TaskStatusChange.objects.for_team(team_id, canonical=True).create(
+        team_id=team_id,
+        task_id=task_id,
+        run_id=run_id,
+        status=value.status,
+        reason=value.reason,
+        detail=value.detail,
+        changed_by=changed_by,
+    )
+
+
+def _write_status(
+    stored: StoredTaskStatus,
+    task_id: UUID | str,
+    value: TaskStatusValue,
+    *,
+    run_id: UUID | None,
+    changed_by: str,
+    extra_columns: dict[str, Any] | None = None,
+) -> None:
+    Task.objects.filter(pk=task_id).update(
+        status=value.status,
+        status_reason=value.reason,
+        status_detail=value.detail,
+        status_changed_by=changed_by,
+        **(extra_columns or {}),
+    )
+    _record_change(stored.team_id, task_id, value, run_id=run_id, changed_by=changed_by)
+
+
+def transition(
+    task_id: UUID | str,
+    to: str,
+    *,
+    reason: str | None,
+    actor: str,
+    detail: str | None = None,
+    expected: str | None = None,
+    run_id: UUID | None = None,
+) -> bool:
+    if reason not in REASONS[to]:
+        raise ValueError(f"{reason} is not a reason for {to}")
+    with transaction.atomic():
+        stored = _stored_task_status(task_id, lock=True)
+        if stored is None or stored.value is None or to not in TRANSITIONS[stored.value.status]:
+            return False
+        if expected is not None and stored.value.status != expected:
+            return False
+        if run_id is not None and (latest := _latest_run(task_id)) is not None and latest.id != run_id:
+            return False
+        _write_status(
+            stored, task_id, TaskStatusValue(status=to, reason=reason, detail=detail), run_id=run_id, changed_by=actor
+        )
+    return True
+
+
+def mark_done(
+    task_id: UUID | str, *, reason: str, actor: str, run_id: UUID | None = None, expected: str | None = None
+) -> bool:
+    stored = _stored_task_status(task_id, lock=False)
+    if stored is None:
+        return False
+    mode = done_mode(stored.profile, stored.team_id)
+    if mode == DoneMode.OFF:
+        return False
+    observe_task_done(profile=stored.profile or "none", reason=reason, mode=mode)
+    if mode == DoneMode.SHADOW:
+        _record_change(
+            stored.team_id,
+            task_id,
+            TaskStatusValue(status=Task.Status.DONE, reason=reason),
+            run_id=run_id,
+            changed_by=f"{SHADOW_ACTOR_PREFIX}{actor}",
+        )
+        logger.info("task_would_mark_done", task_id=str(task_id), profile=stored.profile, reason=reason, actor=actor)
+        return False
+    return transition(task_id, Task.Status.DONE, reason=reason, actor=actor, run_id=run_id, expected=expected)
+
+
+def _done_on_turn_close(profile_key: str | None, run: LatestRun) -> bool:
+    profile = find_task_profile(profile_key)
+    if profile is None:
+        return False
+    return profile.done_on_turn_close or (profile.finish_tool and run.finish_report_saved)
 
 
 def sync_task_status(task_id: UUID | str, *, changed_by: str = RUN_SYNC_ACTOR) -> bool:
@@ -166,23 +321,25 @@ def sync_task_status(task_id: UUID | str, *, changed_by: str = RUN_SYNC_ACTOR) -
         previous = stored.value
         if previous == derived:
             return False
+        if (
+            previous is not None
+            and previous.status == Task.Status.DONE
+            and done_mode(stored.profile, stored.team_id) == DoneMode.ENFORCE
+        ):
+            return False
         if previous is not None and derived.status not in {previous.status, *TRANSITIONS[previous.status]}:
             observe_task_status_outside_transitions(from_status=previous.status, to_status=derived.status)
-        Task.objects.filter(pk=task_id).update(
-            status=derived.status,
-            status_reason=derived.reason,
-            status_detail=derived.detail,
-            status_changed_by=changed_by,
-            **(_legacy_columns(task_id) if previous is None else {}),
-        )
-        TaskStatusChange.objects.for_team(stored.team_id, canonical=True).create(
-            team_id=stored.team_id,
-            task_id=task_id,
+        _write_status(
+            stored,
+            task_id,
+            derived,
             run_id=run.id if run else None,
-            status=derived.status,
-            reason=derived.reason,
-            detail=derived.detail,
             changed_by=changed_by,
+            extra_columns=_legacy_columns(task_id) if previous is None else None,
+        )
+    if run is not None and derived == _TURN_CLOSED and _done_on_turn_close(stored.profile, run):
+        mark_done(
+            task_id, reason=Task.StatusReason.FINISHED, actor=changed_by, run_id=run.id, expected=Task.Status.IDLE
         )
     return True
 
@@ -243,7 +400,7 @@ def collect_status_mismatches(*, limit: int = 10_000) -> list[StatusMismatch]:
     counts = Counter(
         (status, derived)
         for task_id, status in stored.items()
-        if status != (derived := derive_task_status(runs.get(task_id)).status)
+        if status != Task.Status.DONE and status != (derived := derive_task_status(runs.get(task_id)).status)
     )
     return [
         StatusMismatch(stored_status=status, derived_status=derived, count=count)

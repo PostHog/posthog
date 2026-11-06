@@ -386,6 +386,13 @@ SESSION_LOG_PAGE_MAX_BYTES = 16 * 1024 * 1024
 SESSION_LOG_PAGE_ENVELOPE_BYTES = 2
 
 
+def _task_done_response() -> Response:
+    return Response(
+        TaskRunErrorResponseSerializer({"error": str(tasks_facade.TaskDoneError())}).data,
+        status=status.HTTP_409_CONFLICT,
+    )
+
+
 def _is_internal_debug_team(team_id: int | None) -> bool:
     if settings.DEBUG and not settings.TEST:
         return team_id == 1
@@ -1255,6 +1262,50 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             task = tasks_facade.handoff_task(pk, self.team_id, user_id, target_user_id=request.validated_data["user"])
         except tasks_facade.TaskHandoffError as e:
             raise ValidationError({"user": str(e)}) from e
+        if task is None:
+            raise NotFound()
+        return Response(TaskSerializer(task).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: TaskSerializer,
+            400: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Closing is not available for this task yet."
+            ),
+            403: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Only a user may close a task."),
+            404: OpenApiResponse(description="Task not found"),
+            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The task is not idle."),
+        },
+        summary="Close a task",
+        description=(
+            "Mark an idle task as done. A done task refuses new runs and follow-up messages, so start a new task "
+            "to keep working on it."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="close", required_scopes=["task:write"])
+    def close(self, request, pk=None, **kwargs):
+        if is_sandbox_oauth_request(request) or is_mcp_built_in_agent_oauth_request(request):
+            raise PermissionDenied("Only a user can close a task. Sign in to continue.")
+        user_id = self._user_id()
+        if user_id is None:
+            raise NotFound()
+        outcome = tasks_facade.close_task(pk, self.team_id, user_id)
+        if outcome == "not_found":
+            raise NotFound()
+        if outcome == "not_enabled":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Closing isn't available for this task yet."}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if outcome == "not_idle":
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": "Only an idle task can be closed. Wait for the current run to finish."}
+                ).data,
+                status=status.HTTP_409_CONFLICT,
+            )
+        task = tasks_facade.get_task_detail(pk, self.team_id, user_id)
         if task is None:
             raise NotFound()
         return Response(TaskSerializer(task).data)
@@ -2382,6 +2433,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
             ),
             404: OpenApiResponse(description="Task run not found"),
+            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The task is done"),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
             ),
@@ -2471,6 +2523,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 ).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if outcome == "task_done":
+            return _task_done_response()
 
         if started_task_id is None:
             raise NotFound()
@@ -3839,6 +3893,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
             except ComputeBillingLimitExceeded as error:
                 return compute_quota_limit_response(error.reason)
+            except tasks_facade.TaskDoneError:
+                return _task_done_response()
             except Exception:
                 logger.warning("Failed to queue user message for task run %s", pk)
                 return Response(
@@ -4266,6 +4322,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
             ),
+            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The task is done"),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
             ),
@@ -4302,6 +4359,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         outcome, run, _ = tasks_facade.resume_task_run_in_cloud(pk, task_id, self.team_id, self._user_id())
         if outcome == "not_found":
             raise NotFound()
+        if outcome == "task_done":
+            return _task_done_response()
         if outcome == "already_active":
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Run is already active in cloud"}).data,

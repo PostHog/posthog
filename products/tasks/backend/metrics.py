@@ -664,6 +664,27 @@ def observe_task_status_outside_transitions(*, from_status: str, to_status: str)
     TASK_STATUS_OUTSIDE_TRANSITIONS_TOTAL.labels(from_status=from_status, to_status=to_status).inc()
 
 
+TASK_DONE_TOTAL = Counter(
+    "posthog_tasks_done_total",
+    "Tasks moved to done, or that would move under shadow mode, by profile, reason and done mode",
+    labelnames=["profile", "reason", "mode"],
+)
+
+TASK_WAKE_REFUSED_TOTAL = Counter(
+    "posthog_tasks_wake_refused_total",
+    "Wakes refused because the task is done, or that would be refused under shadow mode",
+    labelnames=["profile", "source", "mode"],
+)
+
+
+def observe_task_done(*, profile: str, reason: str, mode: str) -> None:
+    TASK_DONE_TOTAL.labels(profile=profile, reason=reason, mode=mode).inc()
+
+
+def observe_task_wake_refused(*, profile: str, source: str, mode: str) -> None:
+    TASK_WAKE_REFUSED_TOTAL.labels(profile=profile, source=source, mode=mode).inc()
+
+
 def observe_contract_violation(*, check: str, profile: str) -> None:
     TASK_CONTRACT_VIOLATION_TOTAL.labels(check=check, profile=profile).inc()
 
