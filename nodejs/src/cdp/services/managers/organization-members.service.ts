@@ -62,7 +62,7 @@ export class OrganizationMembersService {
         }
         let snapshot = await this.cachedSnapshot(id)
         if (blockedBy(snapshot, recipients).length && Date.now() - snapshot.loadedAt > BLOCK_RECHECK_AGE_MS) {
-            this.snapshots.markForRefresh(id)
+            await this.snapshots.reload(id)
             snapshot = await this.cachedSnapshot(id)
         }
         return blockedBy(snapshot, recipients)
