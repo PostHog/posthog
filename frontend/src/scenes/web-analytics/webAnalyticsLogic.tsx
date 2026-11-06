@@ -1308,7 +1308,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                               key: Scene.WebAnalytics,
                               name: 'AI visibility',
                               path: urls.aiVisibility(),
-                              iconType: 'web_analytics',
+                              iconType: 'ai_visibility',
                           }
                         : {
                               key: Scene.WebAnalytics,

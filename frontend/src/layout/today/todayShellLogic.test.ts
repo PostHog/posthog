@@ -36,6 +36,7 @@ describe('todayShellLogic', () => {
         ['/project/1/feature-flags', 'products'],
         ['/project/1/data-management/destinations', 'products'],
         ['/project/1/web', 'analytics'],
+        ['/project/1/ai-visibility/bots', 'analytics'],
         ['/project/1/marketing', 'analytics'],
         ['/project/1/mcp-analytics', 'analytics'],
         ['/project/1/sql', 'products'],
