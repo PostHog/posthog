@@ -32,6 +32,12 @@ Terminals and agents you open in that space run on the devbox.
 The first run copies `hc` onto the box; later runs show the same space again.
 The devbox must be running, so run `hogli devbox:start` first.
 Stopping the devbox ends its terminals, and Herdr gives each pane a new shell after the next start.
+Deleting a devbox with `hogli devbox:destroy` or a worktree cleanup command also removes its Herdr machine.
+
+Herdr users pick one of two ways to work:
+
+- **Agents on the devbox.** Run `hogli devbox:open --herdr` and create worktrees from that space. They live on the devbox, and nothing syncs. The worktrees share one devbox, so only one of them runs the dev stack at a time.
+- **Agents on your laptop.** Run `hogli devbox:worktree --auto herdr`. Each worktree that Herdr creates on your laptop gets its own devbox, with its own dev stack. The mirror copies your edits to the box, so edit locally. `hogli devbox:open --herdr <label>` opens a space on a worktree's box to run the stack and tests there.
 
 **Running the dev stack in detached mode** —
 Start the PostHog dev stack in the background without an interactive terminal:
@@ -68,7 +74,7 @@ hogli devbox:sync --status                           # check sync state
 hogli devbox:sync --terminate                        # tear down when done
 ```
 
-`devbox:open --vscode` / `--cursor` / `--herdr` warns when sync is active, since editing over Remote-SSH while the mirror is live would conflict with the local source of truth.
+`devbox:open --vscode` / `--cursor` / `--herdr` warns when sync is active, since editing over Remote-SSH while the mirror is live would conflict with the local source of truth. For a worktree's devbox, the warning names the worktree to edit instead.
 
 **One devbox per git worktree** —
 Run `hogli devbox:worktree` from a linked worktree to give it its own labeled box and sync mirror. The label comes from the branch name, shortened with a hash when it would push the workspace name past Coder's 32-character limit. Re-running reuses the same box and mirror. `--clone-from <label>` creates the box with `devbox:clone`, and `--dry-run` prints the plan.
