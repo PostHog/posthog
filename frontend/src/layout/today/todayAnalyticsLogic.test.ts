@@ -8,7 +8,23 @@ import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import type { AnalyticsSidebarApi } from 'products/today/frontend/generated/api.schemas'
+
 import { DEFAULT_COLLAPSED_SECTIONS, todayAnalyticsLogic } from './todayAnalyticsLogic'
+
+const CUSTOM_SIDEBAR: AnalyticsSidebarApi = {
+    customized: true,
+    layout: {
+        version: 1,
+        sections: [
+            { id: 'growth', title: 'Growth', items: [{ type: 'metric', insight: 'aB3dE5fG', label: 'Signups' }] },
+        ],
+    },
+}
+const DEFAULT_SIDEBAR: AnalyticsSidebarApi = {
+    customized: false,
+    layout: { version: 1, sections: [{ id: 'pinned', title: 'Pinned', items: [{ type: 'list', source: 'pinned' }] }] },
+}
 
 describe('todayAnalyticsLogic', () => {
     beforeEach(() => {
@@ -22,7 +38,10 @@ describe('todayAnalyticsLogic', () => {
                 '/api/projects/:team_id/file_system_shortcut/': {
                     results: [{ id: 'sc-pinned', type: 'insight/trends', path: 'Retention', ref: 'i2' }],
                 },
+                '/api/projects/:team_id/today/analytics_sidebar/': CUSTOM_SIDEBAR,
             },
+            put: { '/api/projects/:team_id/today/analytics_sidebar/': CUSTOM_SIDEBAR },
+            delete: { '/api/projects/:team_id/today/analytics_sidebar/': DEFAULT_SIDEBAR },
         })
         initKeaTests()
         recentItemsModel.mount()
@@ -76,5 +95,31 @@ describe('todayAnalyticsLogic', () => {
 
         recentItemsModel.actions.loadRecentsSuccess([])
         expect(logic.values.recentAnalytics).toEqual([])
+    })
+
+    it('shows the saved layout, and puts it back after a reset when asked', async () => {
+        const logic = todayAnalyticsLogic()
+        logic.mount()
+        const shown = (): [boolean, string[] | undefined] => [
+            logic.values.sidebarCustomized,
+            logic.values.sidebarLayout?.sections.map((section) => section.id),
+        ]
+        await expectLogic(logic).toDispatchActions(['loadSidebarSuccess'])
+        const loaded = shown()
+
+        await expectLogic(logic, () => logic.actions.resetSidebar(CUSTOM_SIDEBAR.layout)).toDispatchActions([
+            'resetSidebarSuccess',
+        ])
+        const reset = shown()
+
+        await expectLogic(logic, () => logic.actions.restoreSidebar(CUSTOM_SIDEBAR.layout)).toDispatchActions([
+            'restoreSidebarSuccess',
+        ])
+
+        expect([loaded, reset, shown()]).toEqual([
+            [true, ['growth']],
+            [false, ['pinned']],
+            [true, ['growth']],
+        ])
     })
 })

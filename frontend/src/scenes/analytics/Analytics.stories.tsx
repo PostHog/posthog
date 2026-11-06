@@ -291,6 +291,68 @@ export const ListError: Story = {
     parameters: { pageUrl: urls.analyticsList() },
 }
 
+const SIGNUPS_TRENDS = {
+    id: 9001,
+    short_id: 'aB3dE5fG',
+    name: 'Daily signups',
+    query: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } },
+    result: [
+        {
+            count: 1284,
+            data: [140, 162, 158, 171, 190, 214, 249],
+            labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+        },
+    ],
+}
+
+export const ListCustomSidebar: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/analytics_sidebar/': {
+                    customized: true,
+                    layout: {
+                        version: 1,
+                        sections: [
+                            {
+                                id: 'growth',
+                                title: 'Growth',
+                                icon: 'rocket',
+                                items: [
+                                    { type: 'metric', insight: SIGNUPS_TRENDS.short_id, label: 'Signups this week' },
+                                    {
+                                        type: 'link',
+                                        to: { kind: 'dashboard', id: DASHBOARDS[0].id },
+                                        label: 'Revenue overview',
+                                        icon: 'dashboard',
+                                    },
+                                    { type: 'link', to: { kind: 'page', page: 'web_analytics' } },
+                                    {
+                                        type: 'button',
+                                        to: { kind: 'page', page: 'new_insight' },
+                                        label: 'New insight',
+                                        variant: 'primary',
+                                    },
+                                ],
+                            },
+                            { id: 'pinned', title: 'Pinned', items: [{ type: 'list', source: 'pinned' }] },
+                            { id: 'recents', title: 'Recents', items: [{ type: 'list', source: 'recents' }] },
+                        ],
+                    },
+                },
+                '/api/projects/:team_id/insights/': ({ request }) =>
+                    new URL(request.url).searchParams.get('short_id') === SIGNUPS_TRENDS.short_id
+                        ? [200, { results: [SIGNUPS_TRENDS], next: null, count: 1 }]
+                        : [200, { results: INSIGHTS, next: null, count: INSIGHTS.length }],
+            },
+        }),
+    ],
+    parameters: {
+        pageUrl: urls.analyticsList(),
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.PHAI_SANDBOX_MODE],
+    },
+}
+
 export const ListSpace: Story = {
     parameters: { pageUrl: urls.analyticsList({ folder: 'Growth' }) },
 }
