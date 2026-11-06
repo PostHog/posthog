@@ -532,6 +532,51 @@ describe('SQL charts across dashboard tiles and native charts', () => {
             result: fixture.sqlData.rows,
         })
 
+    test.each(['String', 'Date'])('keeps unformatted SQL counts neutral with a %s axis', (type) => {
+        const api = response()
+        api.types = api.columns?.map((name) => [name, name === 'month' ? type : 'Float64'])
+        api.result = [['2026-02-01', 2400, 300, null, 34]]
+        api.query = {
+            ...fixture.query,
+            chartSettings: {
+                xAxis: fixture.query.chartSettings.xAxis,
+                yAxis: [
+                    fixture.query.chartSettings.yAxis[0],
+                    { column: 'orders', settings: { display: { yAxisPosition: 'right' } } },
+                ],
+            },
+        }
+        const snapshot = insightSnapshot(api, undefined, CONTEXT)
+        const series = snapshotChartSeries(snapshot, themes.light.chartPalette)
+        const axes = chartAxes(series, 'bar', 'grouped', snapshotFormatter(snapshot))
+        expect(axes.left.formatValue(2400)).toBe('$2,400')
+        expect(axes.right?.formatValue(34)).toBe('34')
+        expect(tooltipPoint(series, [], 0, 'day')?.rows.map((row) => row.formattedValue)).toEqual(['$2,400', '34'])
+    })
+
+    test.each(['String', 'Date'])('resolves automatic SQL series from the saved chart with a %s axis', (type) => {
+        const api = response()
+        api.types = api.columns?.map((name) => [name, name === 'month' ? type : 'Float64'])
+        api.result = [['2026-02-01', 2400, 300, null, 34]]
+        api.query = {
+            ...fixture.query,
+            display: 'ActionsLineGraph',
+            chartSettings: {
+                xAxis: fixture.query.chartSettings.xAxis,
+                yAxis: [
+                    fixture.query.chartSettings.yAxis[0],
+                    { column: 'orders', settings: { display: { displayType: 'auto' } } },
+                ],
+            },
+        }
+        const snapshot = insightSnapshot(api, undefined, CONTEXT)
+        expect(snapshot.chartKind).toBe('bar')
+        expect(snapshotChartSeries(snapshot, themes.light.chartPalette).map((series) => series.kind)).toEqual([
+            'bar',
+            'line',
+        ])
+    })
+
     test('preserves saved labels, columns, mixed series, separate scales, percentage units and null gaps', () => {
         const api = response()
         const snapshot = insightSnapshot(api, undefined, CONTEXT)

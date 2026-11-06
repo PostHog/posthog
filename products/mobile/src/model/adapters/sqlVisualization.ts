@@ -363,7 +363,7 @@ function seriesPresentation(
         area: display?.displayType === 'area' || savedDisplay(query) === 'ActionsAreaGraph',
         startAtZero:
             typeof axisSettings?.startAtZero === 'boolean' ? axisSettings.startAtZero : settings?.yAxisAtZero === true,
-        format: sqlPresentation(saved) ?? column.format,
+        format: sqlPresentation(saved) ?? column.format ?? { kind: 'sql', style: null, prefix: '', suffix: '' },
     }
 }
 
@@ -519,8 +519,9 @@ export function sqlSeriesViews(query: unknown, table: SqlTableView): InsightSeri
     }
     const { x, y } = sqlAxes(query, table.columns)
     const xIndex = columnIndex(table, x)
-    const kind = sqlChartKind(query, table) ?? 'line'
-    const cumulative = effectiveSqlDisplay(query, table) === 'ActionsLineGraphCumulative'
+    const display = effectiveSqlDisplay(query, table)
+    const kind = BAR_DISPLAYS.has(display ?? '') ? 'bar' : 'line'
+    const cumulative = display === 'ActionsLineGraphCumulative'
     if (!x?.isDate) {
         return y.map((column, seriesIndex) => {
             const columnIndex = table.columns.indexOf(column)
