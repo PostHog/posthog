@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from urllib.parse import quote
 
 from django.conf import settings
 
@@ -15,10 +16,13 @@ import requests
 import structlog
 
 from posthog.egress.github.transport import GitHubRateLimitError, github_request
+from posthog.egress.gitlab.transport import gitlab_request
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
+from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import GitHubIntegrationError, _is_safe_github_repo_path
 from posthog.models.integration.github import GitHubIntegration
+from posthog.models.integration.gitlab import GitLabIntegration
 from posthog.models.integration.model import Integration
 from posthog.workload_identity.subjects import (
     ResolvedWorkloadSubject,
@@ -28,7 +32,7 @@ from posthog.workload_identity.subjects import (
 
 logger = structlog.get_logger(__name__)
 
-GITHUB_EGRESS_SOURCE = "workload_identity"
+EGRESS_SOURCE = "workload_identity"
 GITHUB_REPOSITORY_ENDPOINT = "/repos/{owner}/{repo}"
 GITHUB_UNAVAILABLE = "GitHub didn't answer. Try again in a minute, or enter the repository ID by hand."
 
@@ -51,7 +55,7 @@ def _through_integration(team_id: int, repository: str) -> tuple[ResolvedWorkloa
     installed on. Also says whether an installation couldn't answer, because then a miss proves nothing."""
     unavailable = False
     for integration in Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
-        github = GitHubIntegration(integration, source=GITHUB_EGRESS_SOURCE, priority=Priority.NORMAL)
+        github = GitHubIntegration(integration, source=EGRESS_SOURCE, priority=Priority.NORMAL)
         try:
             response = github.api_request("GET", f"/repos/{repository}", endpoint=GITHUB_REPOSITORY_ENDPOINT)
         except (EgressBudgetExhausted, GitHubRateLimitError, GitHubIntegrationError):
@@ -70,7 +74,7 @@ def _public(repository: str) -> ResolvedWorkloadSubject:
         response = github_request(
             "GET",
             f"https://api.github.com/repos/{repository}",
-            source=GITHUB_EGRESS_SOURCE,
+            source=EGRESS_SOURCE,
             headers=headers,
             priority=Priority.NORMAL,
             endpoint=GITHUB_REPOSITORY_ENDPOINT,
@@ -113,3 +117,65 @@ def resolve_github_repository(team_id: int, name: str) -> ResolvedWorkloadSubjec
         if integration_unavailable:
             raise WorkloadSubjectLookupUnavailable(GITHUB_UNAVAILABLE)
         raise
+
+
+GITLAB_COM = "https://gitlab.com"
+GITLAB_PROJECT_ENDPOINT = "/api/v4/projects/{id}"
+GITLAB_UNAVAILABLE = "GitLab didn't answer. Try again in a minute, or enter the project ID by hand."
+# A GitLab path is a namespace, any number of subgroups, and a project name.
+_GITLAB_PROJECT_PATH = re.compile(r"^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$")
+
+
+def _gitlab_subject(body: Any, found_via: str) -> ResolvedWorkloadSubject | None:
+    if not isinstance(body, dict) or not isinstance(body.get("id"), int):
+        return None
+    path = body.get("path_with_namespace")
+    if not isinstance(path, str):
+        return None
+    return ResolvedWorkloadSubject(subject=str(body["id"]), subject_name=path, found_via=found_via)
+
+
+def _gitlab_project(token: str, path: str) -> requests.Response:
+    return gitlab_request(
+        "GET",
+        f"{GITLAB_COM}/api/v4/projects/{quote(path, safe='')}",
+        token=token,
+        source=EGRESS_SOURCE,
+        endpoint=GITLAB_PROJECT_ENDPOINT,
+        allow_redirects=False,
+        timeout=10,
+    )
+
+
+def resolve_gitlab_project(team_id: int, name: str) -> ResolvedWorkloadSubject:
+    path = name.strip().removeprefix(f"{GITLAB_COM}/").removesuffix(".git").strip("/")
+    if ".." in path or not _GITLAB_PROJECT_PATH.fullmatch(path):
+        raise WorkloadSubjectNotFound("Enter the project path, like group/project or group/subgroup/project.")
+    try:
+        # Only gitlab.com issues tokens PostHog trusts, so a self-managed integration can't help.
+        for integration in IntegrationManager.gitlab.token.list(team_id):
+            gitlab = GitLabIntegration(integration)
+            token = gitlab.integration.sensitive_config.get("access_token")
+            if gitlab.hostname.rstrip("/") != GITLAB_COM or not token:
+                continue
+            response = _gitlab_project(token, path)
+            if response.status_code == 200 and (found := _gitlab_subject(response.json(), "your GitLab integration")):
+                return found
+        if settings.GITLAB_TOKEN:
+            response = _gitlab_project(settings.GITLAB_TOKEN, path)
+            body = response.json() if response.status_code == 200 else None
+            # PostHog's token may see projects that aren't public.
+            if (
+                isinstance(body, dict)
+                and body.get("visibility") == "public"
+                and (found := _gitlab_subject(body, "GitLab"))
+            ):
+                return found
+            if response.status_code not in (200, 404):
+                raise WorkloadSubjectLookupUnavailable(GITLAB_UNAVAILABLE)
+    except (requests.RequestException, ValueError):
+        raise WorkloadSubjectLookupUnavailable(GITLAB_UNAVAILABLE)
+    raise WorkloadSubjectNotFound(
+        f"PostHog can't see a GitLab project at {path}. For a private project, connect the GitLab integration, "
+        "or enter the project ID by hand."
+    )

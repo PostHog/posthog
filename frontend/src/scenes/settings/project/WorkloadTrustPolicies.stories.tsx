@@ -73,6 +73,43 @@ const providers = {
             setup_snippet:
                 'permissions:\n  id-token: write # lets hog get an OIDC token for PostHog\n  contents: read\nenv:\n  HOG_HOST: https://us.posthog.com\n  HOG_PROJECT_ID: "997"\n',
         },
+        {
+            key: 'gitlab',
+            name: 'GitLab',
+            issuer: 'https://gitlab.com',
+            docs_url: 'https://posthog.com/docs/api/workload-identity/gitlab',
+            subject_claim: {
+                name: 'project_id',
+                label: 'Project ID',
+                help_text: "GitLab's number for the project. PostHog looks it up from the project path.",
+                placeholder: '12345678',
+            },
+            subject_name_claim: {
+                name: 'project_path',
+                label: 'Project path',
+                help_text: 'The full path, as GitLab shows it, with any subgroups.',
+                placeholder: 'group/project',
+            },
+            condition_claims: [
+                { name: 'ref', label: 'Branch or tag', help_text: 'The short name.', placeholder: 'main' },
+                { name: 'ref_type', label: 'Ref type', help_text: 'branch or tag.', placeholder: 'branch' },
+                { name: 'environment', label: 'Environment', help_text: '', placeholder: 'production' },
+            ],
+            condition_presets: [
+                {
+                    key: 'branch',
+                    label: 'A branch',
+                    help_text: 'Pipelines that run on this branch.',
+                    conditions: { ref: '{value}', ref_type: 'branch' },
+                    takes_value: true,
+                    placeholder: 'main',
+                    default_value: 'main',
+                },
+            ],
+            can_resolve_subject: true,
+            setup_snippet:
+                'your-job:\n  id_tokens:\n    HOG_ID_TOKEN:\n      aud: https://us.posthog.com\n  variables:\n    HOG_HOST: https://us.posthog.com\n    HOG_PROJECT_ID: "997"\n',
+        },
     ],
     grantable_scopes: [
         'annotation:read',
