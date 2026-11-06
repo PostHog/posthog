@@ -1,5 +1,4 @@
 from dataclasses import replace
-from datetime import datetime
 
 from posthog.dataclasses import frozen
 from posthog.models.user import User
@@ -30,8 +29,6 @@ class HealthInputs:
     reader_access: ExperimentHealthReaderAccess
     # None when the experiment has no flag, or the flag has no version.
     flag_version: int | None
-    # The flag's latest recorded call. None when the experiment has no flag, or the flag has no recorded call.
-    flag_last_called_at: datetime | None
     project: ProjectSetupFacts
 
 
@@ -50,10 +47,14 @@ def load_experiment_health_inputs(
     experiment = _load_experiment(team_id, experiment_id)
     return HealthInputs(
         context=_health_context(experiment, reader_access, user),
-        exposures=load_exposure_inputs(experiment, user=user, can_query_events=reader_access.can_query_events),
+        exposures=load_exposure_inputs(
+            experiment,
+            user=user,
+            can_query_events=reader_access.can_query_events,
+            can_read_flag_history=reader_access.can_read_flag_history,
+        ),
         reader_access=reader_access,
         flag_version=experiment.feature_flag.version if experiment.feature_flag_id else None,
-        flag_last_called_at=experiment.feature_flag.last_called_at if experiment.feature_flag_id else None,
         project=build_project_setup_facts(
             experiment.team,
             can_query_events=reader_access.can_query_events,

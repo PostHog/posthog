@@ -563,6 +563,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     "label": "Formula (B / A)",
                     "breakdown_value": "Paris",
                     "order": 0,
+                    "custom_name": None,
                 },
                 {
                     "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -590,6 +591,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     "label": "Formula (B / A)",
                     "breakdown_value": "London",
                     "order": 0,
+                    "custom_name": None,
                 },
             ],
         )

@@ -15,6 +15,8 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 
+WAREHOUSE_ALERTS_FLAG: Final = "platform-alerts-source-warehouse"
+
 WAREHOUSE_ALERT_DESTINATION_TYPES: Final = (
     DestinationType.SLACK,
     DestinationType.WEBHOOK,

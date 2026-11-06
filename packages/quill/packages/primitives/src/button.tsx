@@ -20,6 +20,7 @@ const buttonVariants = cva(
                 destructive: 'quill-button--variant-destructive',
                 'destructive-outline': 'quill-button--variant-destructive-outline',
                 link: 'quill-button--variant-link',
+                'link-foreground': 'quill-button--variant-link-foreground',
                 'link-muted': 'quill-button--variant-link-muted',
             },
             size: {

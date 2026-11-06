@@ -110,6 +110,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
     DEFAULT_LIMIT,
     SUBSCRIPTION_PAGE_LIMIT,
+    V2_LIST_PAGE_LIMIT,
     StripeAuthenticationError,
     StripeNestedResource,
     StripeResource,
@@ -241,44 +242,6 @@ class TestStripeGetRowsIncrementalCursor:
         assert [row["id"] for row in rows] == [f"ch_{i}" for i in range(5)]
         assert len(tables) > 1
 
-    @pytest.mark.parametrize(
-        "skip_full_listing,last_value,expected_ids",
-        [
-            (True, None, []),
-            (True, "1700000050", ["ch_2"]),
-            (False, None, ["ch_2", "ch_1"]),
-        ],
-    )
-    def test_skip_full_listing_keeps_the_incremental_poll(self, skip_full_listing, last_value, expected_ids):
-        objects = [
-            {"id": "ch_2", "created": 1700000100},
-            {"id": "ch_1", "created": 1700000040},
-        ]
-        method = MagicMock(side_effect=lambda params: _FakeStripeList(objects))
-        resumable_source_manager = mock.MagicMock()
-        resumable_source_manager.can_resume.return_value = False
-
-        with mock.patch.object(
-            stripe_module, "_build_resources", return_value={"charge": StripeResource(method=method)}
-        ):
-            tables = list(
-                get_rows(
-                    api_key="sk_test_123",
-                    endpoint="charge",
-                    account_id=None,
-                    db_incremental_field_last_value=last_value,
-                    db_incremental_field_earliest_value=None,
-                    logger=mock.MagicMock(),
-                    resumable_source_manager=resumable_source_manager,
-                    api_version=STRIPE_API_VERSION_ACACIA,
-                    should_use_incremental_field=True,
-                    skip_full_listing=skip_full_listing,
-                )
-            )
-
-        assert [row["id"] for table in tables for row in table.to_pylist()] == expected_ids
-        assert method.called is bool(expected_ids)
-
 
 NOW = 1_800_000_000
 
@@ -360,6 +323,9 @@ class TestStripeApiVersionDispatch:
         assert [row["id"] for table in result.rows for row in table.to_pylist()] == ["obp_2", "obp_1"]
         assert result.paths == [path, path]
         assert {request.headers["stripe-version"] for request in result.requests} == {STRIPE_API_VERSION_ENDIVE}
+        # The v2 Money Management list endpoints reject DEFAULT_LIMIT (100) with "Limit must be
+        # between 1 and 50" — the first request must ask for the v2-specific page size instead.
+        assert result.requests[0].param("limit") == str(V2_LIST_PAGE_LIMIT)
         # A saved cursor would mark the next attempt as resumed, and a resumed full refresh appends.
         assert result.saved_states == []
 
@@ -1579,7 +1545,6 @@ class TestWebhookOnlyResponseWiring:
     def _make_manager(self, enabled: bool) -> MagicMock:
         manager = MagicMock(spec=WebhookSourceManager)
         manager.webhook_enabled = mock.AsyncMock(return_value=enabled)
-        manager.webhook_unregistered = mock.AsyncMock(return_value=False)
         return manager
 
     def _source(self, endpoint: str, manager: MagicMock) -> Any:
@@ -1610,16 +1575,52 @@ class TestWebhookOnlyResponseWiring:
         manager.webhook_enabled.assert_awaited_once_with(webhook_only=False)
 
     @parameterized.expand(
-        [("unregistered_webhook_skips_full_poll", True, []), ("no_webhook_schema_polls", False, ["cus_1"])]
+        [
+            ("listing_without_cursor", CUSTOMER_RESOURCE_NAME, False, True, False, None, "full_refresh"),
+            ("incremental_without_value", CUSTOMER_RESOURCE_NAME, False, True, True, None, "full_refresh"),
+            ("cursor_poll", CUSTOMER_RESOURCE_NAME, False, True, True, 1700000000, "incremental"),
+            (
+                "nested_lists_every_parent",
+                CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+                False,
+                True,
+                True,
+                1700000000,
+                "full_refresh",
+            ),
+            ("webhook_only_endpoint", DISCOUNT_RESOURCE_NAME, False, True, False, None, None),
+            ("webhook_present_or_poll_by_design", CUSTOMER_RESOURCE_NAME, False, False, False, None, None),
+            ("webhook_active", CUSTOMER_RESOURCE_NAME, True, False, False, None, None),
+        ]
     )
-    def test_unregistered_webhook_poll(self, _name: str, unregistered: bool, expected_ids: list[str]) -> None:
-        manager = self._make_manager(enabled=False)
-        manager.webhook_unregistered = mock.AsyncMock(return_value=unregistered)
-        resource = StripeResource(method=lambda params: cast(ListObject[Any], _FakeStripeList([{"id": "cus_1"}])))
-        with mock.patch.object(stripe_module, "_build_resources", return_value={CUSTOMER_RESOURCE_NAME: resource}):
-            response = self._source(CUSTOMER_RESOURCE_NAME, manager)
-            tables = list(response.items())
-        assert [row["id"] for table in tables for row in table.to_pylist()] == expected_ids
+    def test_records_webhook_fallback(
+        self,
+        _name: str,
+        endpoint: str,
+        enabled: bool,
+        webhook_missing: bool,
+        should_use_incremental_field: bool,
+        last_value: int | None,
+        expected: str | None,
+    ) -> None:
+        manager = self._make_manager(enabled=enabled)
+        manager.webhook_missing = webhook_missing
+        stripe_module.stripe_source(
+            api_key="sk_test_123",
+            account_id=None,
+            endpoint=endpoint,
+            db_incremental_field_last_value=last_value,
+            db_incremental_field_earliest_value=last_value,
+            logger=MagicMock(adebug=mock.AsyncMock()),
+            resumable_source_manager=MagicMock(can_resume=MagicMock(return_value=False)),
+            webhook_source_manager=manager,
+            api_version=STRIPE_API_VERSION_ACACIA,
+            should_use_incremental_field=should_use_incremental_field,
+        )
+        if expected is None:
+            manager.record_webhook_fallback.assert_not_awaited()
+        else:
+            manager.record_webhook_fallback.assert_awaited_once_with(expected)
 
     def test_discount_partitions_on_start_not_created(self) -> None:
         # Discount objects carry `start`/`end`, not `created`. If the incremental-field entry is
@@ -1643,7 +1644,6 @@ class TestCustomerPaymentMethodHistory:
     def _make_manager(self, enabled: bool) -> MagicMock:
         manager = MagicMock(spec=WebhookSourceManager)
         manager.webhook_enabled = mock.AsyncMock(return_value=enabled)
-        manager.webhook_unregistered = mock.AsyncMock(return_value=False)
         return manager
 
     def _source(self, endpoint: str, manager: MagicMock) -> Any:
@@ -2060,7 +2060,6 @@ class TestWebhookRefetch:
         )
         webhooks = MagicMock(spec=WebhookSourceManager)
         webhooks.webhook_enabled = mock.AsyncMock(return_value=True)
-        webhooks.webhook_unregistered = mock.AsyncMock(return_value=False)
         events = table_from_py_list([_event_row("evt_1", "invoice.paid", 1700000100, _INCOMPLETE_INVOICE)])
 
         with scripted_network(lambda request: ScriptedResponse(json=_stripe_list(_ALL_LINES, request.path))):
@@ -2113,7 +2112,6 @@ class TestPartitioningAndColumnHints:
     def _source(self, endpoint: str) -> Any:
         manager = MagicMock(spec=WebhookSourceManager)
         manager.webhook_enabled = mock.AsyncMock(return_value=False)
-        manager.webhook_unregistered = mock.AsyncMock(return_value=False)
         return stripe_module.stripe_source(
             api_key="sk_test_123",
             account_id=None,
@@ -2924,7 +2922,6 @@ class _PipelineAroundTheSweep:
         )
         webhooks = MagicMock(spec=WebhookSourceManager)
         webhooks.webhook_enabled = mock.AsyncMock(return_value=False)
-        webhooks.webhook_unregistered = mock.AsyncMock(return_value=False)
         with (
             patch.object(stripe_module, "StripeClient"),
             patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 1),
