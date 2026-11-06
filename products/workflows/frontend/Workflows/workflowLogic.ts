@@ -45,7 +45,7 @@ import {
 } from '../Broadcasts/broadcastLifecycle'
 import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
-import { resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
+import { resolveDefaultEmailSender, teamDefaultEmailSenderId } from '../Channels/defaultEmailSender'
 import {
     AiEmailDraftResult,
     aiEmailDraftFailureMessage,
@@ -213,10 +213,9 @@ async function withDefaultEmailSender(workflow: HogFlow): Promise<WithDefaultEma
                 sandboxSenderId: firstRun.sender?.reason === 'sandbox_sender' ? firstRun.sender.integrationId : null,
             }
         }
-        const team = teamLogic.findMounted()?.values.currentTeam
         const sender = resolveDefaultEmailSender(
             (await api.integrations.list()).results,
-            team && 'workflows_config' in team ? team.workflows_config?.default_email_integration_id : null
+            teamDefaultEmailSenderId(teamLogic.findMounted()?.values.currentTeam)
         )
         if (!sender) {
             return { workflow, sandboxSenderId: null }

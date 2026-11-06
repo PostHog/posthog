@@ -23,7 +23,11 @@ import type {
     TeamType,
     UserBasicType,
 } from '../../../../../frontend/src/types'
-import { DefaultEmailSender, resolveDefaultEmailSender } from '../../Channels/defaultEmailSender'
+import {
+    DefaultEmailSender,
+    resolveDefaultEmailSender,
+    teamDefaultEmailSenderId,
+} from '../../Channels/defaultEmailSender'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../../OptOuts/optOutCategoriesLogic'
 import { insertedStepNeedsSenderLookup, resolveInsertedStepSender, stepTakesSender } from '../firstRunSender'
@@ -2654,14 +2658,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             : {}),
                     } as HogFlowAction
 
-                    const team = values.currentTeam
                     const sender =
                         !isHogFlowActionNode && takesOwnSender(builtAction)
                             ? resolveDefaultEmailSender(
                                   values.integrations,
-                                  team && 'workflows_config' in team
-                                      ? team.workflows_config?.default_email_integration_id
-                                      : null
+                                  teamDefaultEmailSenderId(values.currentTeam)
                               )
                             : null
                     const newAction = sender ? withStepSender(builtAction, sender.integrationId) : builtAction
