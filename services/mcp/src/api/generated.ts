@@ -20,6 +20,11 @@ export namespace Schemas {
       cited: boolean;
       /** The engine did not answer. When true, 'cited' is false and says nothing about citations. */
       check_failed: boolean;
+      /**
+         * 1-based rank of the first target-domain URL among the answer's cited URLs. Null when the answer did not cite one.
+         * @nullable
+         */
+      target_best_position: number | null;
       /** When the check ran. */
       checked_at: string;
     }
@@ -188,6 +193,11 @@ export namespace Schemas {
       mentioned: number;
       /** Checks that day where the engine did not answer. */
       failed: number;
+      /**
+         * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+         * @nullable
+         */
+      avg_position: number | null;
     }
 
     export interface AEOPromptEngineDomainShare {
@@ -235,6 +245,11 @@ export namespace Schemas {
       mentioned: number;
       /** Checks where the engine did not answer. */
       failed: number;
+      /**
+         * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+         * @nullable
+         */
+      avg_position: number | null;
       /** When the engine first ran the prompt. */
       first_checked_at: string;
       /** When the engine last ran the prompt. */
@@ -280,6 +295,11 @@ export namespace Schemas {
       prompts: number;
       /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
       prompts_cited: number;
+      /**
+         * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+         * @nullable
+         */
+      avg_position: number | null;
     }
 
     export interface AEOPromptSetDomain {
@@ -316,6 +336,11 @@ export namespace Schemas {
       prompts: number;
       /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
       prompts_cited: number;
+      /**
+         * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+         * @nullable
+         */
+      avg_position: number | null;
       /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
       engine: string;
     }
@@ -343,6 +368,11 @@ export namespace Schemas {
       prompts: number;
       /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
       prompts_cited: number;
+      /**
+         * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+         * @nullable
+         */
+      avg_position: number | null;
       /** Topic the checks ran with. Empty for prompts that have no topic. A prompt moved to another topic keeps its past checks under the old one. */
       topic: string;
       /** Prompts that are on, not archived, and have this topic now. */
@@ -31477,12 +31507,17 @@ export namespace Schemas {
       readonly id: number;
       readonly short_id: string;
       /** @nullable */
-      readonly name: string | null;
+      readonly name?: string | null;
       /** @nullable */
-      readonly derived_name: string | null;
-      readonly result: unknown;
+      readonly derived_name?: string | null;
+      readonly result?: unknown;
       /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
-      readonly warnings: _InsightResultWarnings | null;
+      readonly warnings?: _InsightResultWarnings | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     /**
@@ -48090,6 +48125,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly history_table_name: string | null;
+      /** For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table. */
+      drop_history_table?: boolean;
+      /**
+         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table`, a name means the history table was kept, for example because a sync started meanwhile.
+         * @nullable
+         */
+      readonly registered_history_table_name: string | null;
       /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          * @nullable
@@ -48889,7 +48931,7 @@ export namespace Schemas {
       value: unknown;
       /** Property type (person, group, etc.) */
       type: string;
-      /** Actual property value from user */
+      /** Actual property value from user. Null when the property is not set, or when property access control hides it from the requesting user. */
       actual_value: unknown;
       /** Whether this property condition matched */
       matched: boolean;
@@ -49113,7 +49155,7 @@ export namespace Schemas {
     }
 
     /**
-     * Person properties at the time of evaluation (for historical evaluations)
+     * Person properties at the time of evaluation (for historical evaluations). Properties that property access control hides from the requesting user are omitted.
      */
     export type FeatureFlagTestEvaluationResponsePersonProperties = { [key: string]: unknown };
 
@@ -49136,7 +49178,7 @@ export namespace Schemas {
       condition_index: number | null;
       /** Payload associated with the flag result, if any */
       payload: unknown;
-      /** Person properties at the time of evaluation (for historical evaluations) */
+      /** Person properties at the time of evaluation (for historical evaluations). Properties that property access control hides from the requesting user are omitted. */
       person_properties: FeatureFlagTestEvaluationResponsePersonProperties;
       /**
          * The distinct_id used for rollout/variant bucketing. Echoes the caller-provided distinct_id when one was sent; null on the person_id path so the endpoint doesn't leak the person's other distinct_ids to a feature_flag:read-only token.
@@ -57969,6 +58011,101 @@ export namespace Schemas {
       source: string;
       /** Optional tag whitelist. Leave empty to allow any tag returned by the Hog code. */
       tags?: TagDefinition[];
+    }
+
+    export interface HoglakeConnect {
+      /** The hoglake catalog (warehouse) these credentials reach */
+      catalog: string;
+      /** Hoglake's public REST catalog URL */
+      hoglake_url?: string;
+      /** OAuth token endpoint (client_credentials grant) */
+      token_url?: string;
+    }
+
+    export interface HoglakeCredential {
+      /** The OAuth client_id, hlc_… */
+      client_id: string;
+      name: string;
+      /** read or write */
+      scope: string;
+      /** org: reaches the whole catalog. team: a member's personal credential, limited to the projects in team_ids that its owner can still see. */
+      kind?: string;
+      /** A personal credential's owner */
+      owner_user_uuid?: string;
+      /** The owner's email, while they are a member */
+      owner_email?: string;
+      /** The owner's name, while they are a member */
+      owner_name?: string;
+      /** A personal credential's projects */
+      team_ids?: number[];
+      created_at: string;
+      last_rotated_at: string;
+      expires_at: string;
+      /**
+         * Set once revoked
+         * @nullable
+         */
+      revoked_at?: string | null;
+    }
+
+    /**
+     * * `read` - Read
+     * * `write` - Read & write
+     */
+    export type HoglakeCredentialScopeEnum = typeof HoglakeCredentialScopeEnum[keyof typeof HoglakeCredentialScopeEnum];
+
+
+    export const HoglakeCredentialScopeEnum = {
+      Read: 'read',
+      Write: 'write',
+    } as const;
+
+    export interface HoglakeCredentialCreateRequest {
+      /**
+         * A label for the client using this credential, e.g. 'laptop' or 'airflow'. It appears in hoglake's audit log. Letters, digits, spaces and ._:@/- only; at most 64 characters.
+         * @pattern ^[A-Za-z0-9][A-Za-z0-9 ._:@/-]{0,63}$
+         */
+      name: string;
+      /** read lists and reads tables; write can also commit to them.
+       *
+       * * `read` - Read
+       * * `write` - Read & write */
+      scope: HoglakeCredentialScopeEnum;
+      /**
+         * Lifetime in seconds, from one hour to a year. Defaults to 90 days.
+         * @minimum 3600
+         * @maximum 31536000
+         */
+      ttl_seconds?: number;
+    }
+
+    export interface HoglakeCredentialIssued {
+      /** The OAuth client_id, hlc_… */
+      client_id: string;
+      /** The client secret — returned only here, never again */
+      client_secret: string;
+      name: string;
+      scope: string;
+      expires_at: string;
+      /** org or team */
+      kind?: string;
+    }
+
+    export interface HoglakeCredentialListResponse {
+      hoglake_credentials: HoglakeCredential[];
+      connect: HoglakeConnect;
+    }
+
+    export interface HoglakeCredentialRevoked {
+      /** The revoked client_id */
+      revoked: string;
+    }
+
+    export interface HoglakeProject {
+      id: number;
+      name: string;
+      /** read or write: the most a credential gets on this project */
+      access: string;
     }
 
     export interface HoneybadgerFaultSignalExtra {
@@ -68246,6 +68383,39 @@ export namespace Schemas {
     export interface MyFlagsResponse {
       feature_flag: MinimalFeatureFlag;
       value: unknown;
+    }
+
+    export interface MyHoglakeCredentialCreateRequest {
+      /**
+         * A label for the client using this credential, e.g. 'laptop' or 'airflow'. It appears in hoglake's audit log. Letters, digits, spaces and ._:@/- only; at most 64 characters.
+         * @pattern ^[A-Za-z0-9][A-Za-z0-9 ._:@/-]{0,63}$
+         */
+      name: string;
+      /** read lists and reads tables; write can also commit to them.
+       *
+       * * `read` - Read
+       * * `write` - Read & write */
+      scope: HoglakeCredentialScopeEnum;
+      /**
+         * Lifetime in seconds, from one hour to a year. Defaults to 90 days.
+         * @minimum 3600
+         * @maximum 31536000
+         */
+      ttl_seconds?: number;
+      /**
+         * The projects this credential reaches, each one you can see. Its tokens get your current access on each, so losing a project's access takes it out of the next token.
+         * @minItems 1
+         * @maxItems 200
+         * @items.minimum 1
+         */
+      team_ids: number[];
+    }
+
+    export interface MyHoglakeCredentialListResponse {
+      hoglake_credentials: HoglakeCredential[];
+      connect: HoglakeConnect;
+      /** The projects you can put in a credential */
+      projects: HoglakeProject[];
     }
 
     export interface NoMatchMetadata {
@@ -83663,6 +83833,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly history_table_name?: string | null;
+      /** For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table. */
+      drop_history_table?: boolean;
+      /**
+         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table`, a name means the history table was kept, for example because a sync started meanwhile.
+         * @nullable
+         */
+      readonly registered_history_table_name?: string | null;
       /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          * @nullable
@@ -129296,6 +129473,14 @@ export namespace Schemas {
     };
 
     export type ExternalDataSchemasCancelCreate400 = {
+      detail?: string;
+    };
+
+    export type ExternalDataSchemasHistoryTableDestroy400 = {
+      detail?: string;
+    };
+
+    export type ExternalDataSchemasHistoryTableDestroy503 = {
       detail?: string;
     };
 

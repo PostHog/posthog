@@ -87,7 +87,7 @@ from products.tasks.backend.facade.access import (
     compute_quota_limit_response,
     usage_limit_response,
 )
-from products.tasks.backend.facade.api import asks_for_run, idempotent_request
+from products.tasks.backend.facade.api import asks_for_run, idempotent_request, uses_public_create
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
 from products.tasks.backend.facade.client_provenance import (
     TASK_CLIENT_PROVENANCE_HEADER,
@@ -114,7 +114,7 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_token_routed,
 )
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
-from products.tasks.backend.facade.profiles import find_task_profile
+from products.tasks.backend.facade.profiles import find_task_profile, public_profile_for_origin
 from products.tasks.backend.facade.run_config import (
     WARMABLE_ORIGIN_PRODUCTS,
     RunSource,
@@ -900,7 +900,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         can_activate_warm_run = (
             "branch" in validated_data
             and origin_product in WARMABLE_ORIGIN_PRODUCTS
-            and "profile" not in validated_data
+            and not uses_public_create(validated_data)
         )
         # An agent run never activates a warm run (see `run_task`), so only a create without a run is refused.
         if can_activate_warm_run and not start_run and is_sandbox_origin_request(request):
@@ -1840,7 +1840,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if is_sandbox_origin_request(request):
             return _sandbox_run_disabled_response()
         origin_product = request.validated_data["origin_product"]
-        if not self._warm_enabled(origin_product):
+        profile = public_profile_for_origin(origin_product)
+        if profile is None or not self._warm_enabled(origin_product):
             return Response(status=status.HTTP_200_OK)
 
         # Every warmable origin's submit path gates on Desktop access too — POSTHOG_AI is not in
@@ -1881,7 +1882,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             sandbox_environment_id=request.validated_data.get("sandbox_environment_id"),
             custom_image_id=request.validated_data.get("custom_image_id"),
             client_provenance=get_task_client_provenance(request),
-            origin_product=request.validated_data["origin_product"],
+            profile=profile,
             initial_permission_mode=request.validated_data.get("initial_permission_mode"),
             signal_report_id=signal_report.id if signal_report is not None else None,
             code_access_allowed=code_access_allowed,
