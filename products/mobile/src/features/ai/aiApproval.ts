@@ -64,8 +64,12 @@ export async function refreshAiOrganization(
     signal?: AbortSignal,
     targetProject?: AiProject
 ): Promise<ProjectOrganization> {
-    const auth = useAuthStore.getState()
-    const project = auth.projects.find((candidate) => candidate.id === aiProjectId(targetProject))
+    const projectId = aiProjectId(targetProject)
+    // A link can open a report in a project the account was cached before, so a stale list is not the last word.
+    if (projectId !== null && !useAuthStore.getState().projects.some((candidate) => candidate.id === projectId)) {
+        await useAuthStore.getState().reloadAccount()
+    }
+    const project = useAuthStore.getState().projects.find((candidate) => candidate.id === projectId)
     if (!project || currentAiIdentity() !== identity) {
         throw new Error('No current project')
     }
