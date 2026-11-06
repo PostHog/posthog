@@ -83,6 +83,7 @@ import type {
     PaginatedUserGitHubIntegrationListResponseListApi,
     PaginatedUserListApi,
     PaginatedWorkloadTrustPolicyListApi,
+    PaginatedWorkloadTrustPolicyRequestListApi,
     PatchedCIMDVerificationTokenUpdateApi,
     PatchedEnterprisePropertyDefinitionApi,
     PatchedFileSystemApi,
@@ -142,6 +143,8 @@ import type {
     WorkloadProvidersResponseApi,
     WorkloadTrustPoliciesListParams,
     WorkloadTrustPolicyApi,
+    WorkloadTrustPolicyRequestApi,
+    WorkloadTrustPolicyRequestsListParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -196,7 +199,7 @@ export const getOauthDeviceApproveCreateUrl = () => {
 }
 
 /**
- * Approve a device grant for one project. The token gets the scopes `lookup` showed.
+ * Approve a device grant for one project. The token gets the requested scopes the person kept.
  */
 export const oauthDeviceApproveCreate = async (
     deviceApprovalApi: DeviceApprovalApi,
@@ -3117,6 +3120,101 @@ export const workloadTrustPoliciesProvidersRetrieve = async (
     return apiMutator<WorkloadProvidersResponseApi>(getWorkloadTrustPoliciesProvidersRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getWorkloadTrustPolicyRequestsListUrl = (
+    projectId: string,
+    params?: WorkloadTrustPolicyRequestsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/workload_trust_policy_requests/?${stringifiedParams}`
+        : `/api/projects/${projectId}/workload_trust_policy_requests/`
+}
+
+export const workloadTrustPolicyRequestsList = async (
+    projectId: string,
+    params?: WorkloadTrustPolicyRequestsListParams,
+    options?: RequestInit
+): Promise<PaginatedWorkloadTrustPolicyRequestListApi> => {
+    return apiMutator<PaginatedWorkloadTrustPolicyRequestListApi>(
+        getWorkloadTrustPolicyRequestsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWorkloadTrustPolicyRequestsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workload_trust_policy_requests/`
+}
+
+export const workloadTrustPolicyRequestsCreate = async (
+    projectId: string,
+    workloadTrustPolicyRequestApi: NonReadonly<WorkloadTrustPolicyRequestApi>,
+    options?: RequestInit
+): Promise<WorkloadTrustPolicyRequestApi> => {
+    return apiMutator<WorkloadTrustPolicyRequestApi>(getWorkloadTrustPolicyRequestsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(workloadTrustPolicyRequestApi),
+    })
+}
+
+export const getWorkloadTrustPolicyRequestsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/workload_trust_policy_requests/${id}/`
+}
+
+export const workloadTrustPolicyRequestsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WorkloadTrustPolicyRequestApi> => {
+    return apiMutator<WorkloadTrustPolicyRequestApi>(getWorkloadTrustPolicyRequestsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkloadTrustPolicyRequestsApproveCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/workload_trust_policy_requests/${id}/approve/`
+}
+
+export const workloadTrustPolicyRequestsApproveCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WorkloadTrustPolicyRequestApi> => {
+    return apiMutator<WorkloadTrustPolicyRequestApi>(getWorkloadTrustPolicyRequestsApproveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getWorkloadTrustPolicyRequestsRejectCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/workload_trust_policy_requests/${id}/reject/`
+}
+
+export const workloadTrustPolicyRequestsRejectCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WorkloadTrustPolicyRequestApi> => {
+    return apiMutator<WorkloadTrustPolicyRequestApi>(getWorkloadTrustPolicyRequestsRejectCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

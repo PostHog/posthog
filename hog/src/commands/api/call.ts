@@ -1,31 +1,22 @@
+import { z } from 'zod'
+
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
-import { apiConnection, findTool, grantedScopes, missingScopesError, toHogError } from '@/posthog/api-tools'
+import { parseJson } from '@/core/json'
+import { findTool, grantedScopes, missingScopesError, toHogError, withApiConnection } from '@/posthog/api-tools'
+import { parseOrganizationId, parseProjectId } from '@/posthog/ids'
+
+const ToolInput = z.record(z.string(), z.unknown(), { error: 'The input must be a JSON object.' })
 
 function parseInput(text: string | undefined): Record<string, unknown> {
     if (text === undefined) {
         return {}
     }
-    let input: unknown
-    try {
-        input = JSON.parse(text)
-    } catch (error) {
-        throw new HogError(
-            'invalid_json',
-            `The input isn't valid JSON: ${(error as Error).message}`,
-            'Pass one JSON object, like \'{"limit": 10}\'.',
-            EXIT_USAGE
-        )
-    }
-    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
-        throw new HogError(
-            'invalid_json',
-            'The input must be a JSON object.',
-            'Pass one JSON object, like \'{"limit": 10}\'.',
-            EXIT_USAGE
-        )
-    }
-    return input as Record<string, unknown>
+    return parseJson(text, ToolInput, {
+        code: 'invalid_json',
+        hint: 'Pass one JSON object, like \'{"limit": 10}\'.',
+        exitCode: EXIT_USAGE,
+    })
 }
 
 export default defineCommand({
@@ -37,10 +28,16 @@ export default defineCommand({
     options: {
         dryRun: { type: 'boolean', description: 'Check the input against the schema without calling the tool' },
         confirm: { type: 'boolean', description: 'Allow a tool that changes or deletes data it cannot restore' },
-        projectId: { type: 'string', placeholder: 'id', description: 'Call the tool in this project instead' },
+        projectId: {
+            type: 'string',
+            placeholder: 'id',
+            parse: parseProjectId,
+            description: 'Call the tool in this project instead',
+        },
         organizationId: {
             type: 'string',
             placeholder: 'id',
+            parse: parseOrganizationId,
             description: 'The organization for organization-level tools',
         },
     },
@@ -74,8 +71,9 @@ export default defineCommand({
             )
         }
 
-        const connection = await apiConnection(ctx, options)
-        const result = await library.call(tool.name, validation.input, connection, options.confirm === true)
+        const result = await withApiConnection(ctx, options, tool.readOnly || tool.idempotent, (connection) =>
+            library.call(tool.name, validation.input, connection, options.confirm === true)
+        )
         await library.flush()
         if (result.ok) {
             return result.value
