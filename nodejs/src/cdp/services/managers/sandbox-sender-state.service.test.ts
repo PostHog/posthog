@@ -92,7 +92,7 @@ describe('SandboxSenderStateService', () => {
     const heldLookups = (): {
         service: SandboxSenderStateService
         lookups: () => number
-        settleNext: (outcome: unknown) => Promise<void>
+        settleNext: (outcome: unknown, position?: number) => Promise<void>
     } => {
         const held: { resolve: (value: unknown) => void; reject: (error: unknown) => void }[] = []
         const query = jest.fn((_tx: unknown, sql: string) =>
@@ -105,14 +105,14 @@ describe('SandboxSenderStateService', () => {
             'sandbox-tenant',
             pubSub
         )
-        const settleNext = async (outcome: unknown): Promise<void> => {
-            for (let tick = 0; held.length === 0; tick++) {
+        const settleNext = async (outcome: unknown, position = 0): Promise<void> => {
+            for (let tick = 0; held.length <= position; tick++) {
                 if (tick > 100) {
                     throw new Error('No sandbox sender state lookup started')
                 }
                 await new Promise((resolve) => setImmediate(resolve))
             }
-            const lookup = held.shift()!
+            const [lookup] = held.splice(position, 1)
             if (outcome instanceof Error) {
                 lookup.reject(outcome)
             } else {
@@ -143,6 +143,33 @@ describe('SandboxSenderStateService', () => {
         await expect(laterFresh).rejects.toThrow('relation does not exist')
         await expect(service.isPaused()).resolves.toBe(false)
         expect(lookups()).toBe(4)
+    })
+
+    it('serves the newest successful read when overlapping reads finish out of order', async () => {
+        const { service, lookups, settleNext } = heldLookups()
+        const first = service.isPaused()
+        await settleNext(row(false))
+        await expect(first).resolves.toBe(false)
+
+        const earlier = service.isPaused({ fresh: true })
+        const later = service.isPaused({ fresh: true })
+        await settleNext(failure(), 1)
+        await settleNext(row(true))
+        await expect(later).rejects.toThrow('relation does not exist')
+        await expect(earlier).resolves.toBe(true)
+        await expect(service.isPaused()).resolves.toBe(true)
+
+        const older = service.isPaused({ fresh: true })
+        const newer = service.isPaused({ fresh: true })
+        await settleNext(row(false), 1)
+        await settleNext(row(true))
+        await expect(newer).resolves.toBe(false)
+        await expect(older).resolves.toBe(true)
+        const failing = service.isPaused({ fresh: true })
+        await settleNext(failure())
+        await expect(failing).rejects.toThrow('relation does not exist')
+        await expect(service.isPaused()).resolves.toBe(false)
+        expect(lookups()).toBe(6)
     })
 
     it('reads again when a cached read and an overlapping fresh read both fail', async () => {
