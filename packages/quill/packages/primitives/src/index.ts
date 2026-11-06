@@ -125,7 +125,6 @@ export {
     ComboboxTrigger,
     ComboboxValue,
     useComboboxAnchor,
-    useComboboxFilteredItems,
 } from './combobox'
 export {
     ContextMenu,
@@ -177,7 +176,11 @@ export {
     DropdownMenuPortal,
     DropdownMenuTrigger,
     DropdownMenuContent,
+    DropdownMenuEmpty,
+    DropdownMenuFilterProvider,
     DropdownMenuGroup,
+    DropdownMenuInput,
+    DropdownMenuList,
     DropdownMenuLabel,
     DropdownMenuItem,
     DropdownMenuCheckboxItem,
