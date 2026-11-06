@@ -83,7 +83,11 @@ function SessionRows({
         )
     }
     if (sessions.length === 0) {
-        return <TableEmpty className="py-6 text-secondary">No sessions were flagged in this period.</TableEmpty>
+        return (
+            <TableEmpty className="py-6 text-secondary">
+                No sessions were flagged in this date range. Try a wider range.
+            </TableEmpty>
+        )
     }
     return (
         <TableBody aria-busy={loading} className={cn('transition-opacity', loading && 'opacity-50')}>

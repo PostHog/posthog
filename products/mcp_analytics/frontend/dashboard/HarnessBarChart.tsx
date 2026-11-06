@@ -102,7 +102,7 @@ export function HarnessBarChart({
                 }
                 empty={
                     <div className="flex flex-1 items-center justify-center text-xs text-secondary">
-                        No harness data yet.
+                        No harness data in this date range. Try a wider range.
                     </div>
                 }
             >

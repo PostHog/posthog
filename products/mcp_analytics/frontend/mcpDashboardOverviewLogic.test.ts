@@ -547,6 +547,27 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(logic.values.feedbackLoadFailed).toBe(false)
         })
 
+        it('ignores a failure from a request that a newer load already replaced', async () => {
+            let rejectFirst: (error: unknown) => void = () => {}
+            let usersCalls = 0
+            mockApi.query.mockImplementation((node: any) => {
+                if (node.query?.includes('current_users') && ++usersCalls === 1) {
+                    return new Promise((_, reject) => (rejectFirst = reject)) as any
+                }
+                return Promise.resolve({ results: [] }) as any
+            })
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic, () => {
+                logic.actions.setDateFilter('-30d', null)
+            }).toDispatchActions(['loadUsersSuccess'])
+
+            rejectFirst({ status: 504, detail: 'Query timed out' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.failedLoads.users).toBeFalsy()
+        })
+
         it('reloads every tile when the date filter changes', async () => {
             const logic = mcpDashboardOverviewLogic()
             logic.mount()
