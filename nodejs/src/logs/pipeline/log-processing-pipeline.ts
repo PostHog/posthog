@@ -20,9 +20,14 @@ function arrayBytes(values: string[] | null | undefined): number {
     return total
 }
 
+function bufferBytes(value: Buffer | null | undefined): number {
+    return value?.length ?? 0
+}
+
 /** Span columns that decode into the same record type. A log record has none of them. */
 type SpanPayload = {
     name?: string | null
+    parent_span_id?: Buffer | null
     status_message?: string | null
     trace_state?: string | null
     events?: string[] | null
@@ -53,9 +58,16 @@ export function measureContentWeights(records: LogRecord[]): Map<LogRecord, numb
     records.forEach((record, i) => {
         const { resource, scope } = keys[i]
         const span = record as SpanPayload
+        // Capture writes every span's ids at full width, so they give a span with no strings a nonzero
+        // weight. Without them a byte rate limit charges that span nothing and always admits it.
+        const spanIdBytes =
+            span.parent_span_id === undefined
+                ? 0
+                : bufferBytes(record.trace_id) + bufferBytes(record.span_id) + bufferBytes(span.parent_span_id)
         weights.set(
             record,
             stringBytes(record.body) +
+                spanIdBytes +
                 stringBytes(span.name) +
                 stringBytes(span.status_message) +
                 stringBytes(span.trace_state) +

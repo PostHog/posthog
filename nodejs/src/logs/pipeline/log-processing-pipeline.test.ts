@@ -114,6 +114,19 @@ describe('runPipelineStages', () => {
         expect(weights.get(heavy)! - weights.get(bare)!).toBe(1700)
     })
 
+    it('weighs a span that has no strings by its ids, so a byte rate limit still charges it', () => {
+        const empty = {
+            ...rec('s'),
+            body: null,
+            name: null,
+            trace_id: Buffer.alloc(16),
+            span_id: Buffer.alloc(8),
+            parent_span_id: Buffer.alloc(8),
+        } as unknown as LogRecord
+
+        expect(measureContentWeights([empty]).get(empty)).toBe(16 + 8 + 8)
+    })
+
     it('stops running stages once every record is dropped', async () => {
         let laterRan = false
         const dropAll: PipelineStage = {
