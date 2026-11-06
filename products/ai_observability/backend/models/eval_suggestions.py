@@ -122,7 +122,7 @@ class EvalSuggestion(TeamScopedRootMixin, UUIDModel):
         ]
 
 
-class EvalSuggestionTeamState(models.Model):
+class EvalSuggestionTeamState(TeamScopedRootMixin):
     """Team extension: when someone last loaded the suggestions, and the day of the last first-visit run."""
 
     team = models.OneToOneField(

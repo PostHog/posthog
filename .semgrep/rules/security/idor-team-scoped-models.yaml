@@ -489,6 +489,9 @@ rules:
                               |EmailChannel
                               |EvaluationReport
                               |EvaluationBackfill
+                              |EvalSuggestion
+                              |EvalSuggestionRun
+                              |EvalSuggestionTeamState
                               |Text
                               |Threshold
                               |ToleratedHash
@@ -1006,6 +1009,9 @@ rules:
                         |EmailChannel
                         |EvaluationReport
                         |EvaluationBackfill
+                        |EvalSuggestion
+                        |EvalSuggestionRun
+                        |EvalSuggestionTeamState
                         |Text
                         |Threshold
                         |ToleratedHash
