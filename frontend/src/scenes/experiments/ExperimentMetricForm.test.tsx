@@ -4,6 +4,9 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import {
     ExperimentMetric,
     ExperimentMetricType,
@@ -11,9 +14,11 @@ import {
     ExperimentWarehouseNativeMathType,
     NodeKind,
 } from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
 import { ExperimentMetricMathType, FunnelConversionWindowTimeUnit } from '~/types'
 
 import { ExperimentMetricForm } from './ExperimentMetricForm'
+import { getDefaultExperimentMetric } from './utils'
 
 jest.mock('~/queries/query', () => ({
     performQuery: jest.fn().mockResolvedValue({ results: [] }),
@@ -41,7 +46,7 @@ jest.mock('scenes/insights/filters/ActionFilter/ActionFilter', () => ({
                 ])
             }
         >
-            {dataWarehousePopoverFields.map(({ key }: { key: string }) => key).join(',')}
+            {(dataWarehousePopoverFields ?? []).map(({ key }: { key: string }) => key).join(',')}
         </button>
     ),
 }))
@@ -51,6 +56,12 @@ jest.mock('lib/monaco/CodeEditorResizable', () => ({
 }))
 
 describe('ExperimentMetricForm', () => {
+    beforeEach(() => {
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.EXPERIMENTS_QUANTILE_METRICS]: true })
+    })
+
     it('updates a funnel metric from the data warehouse popover fields', async () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
@@ -190,6 +201,24 @@ describe('ExperimentMetricForm', () => {
                 }),
             })
         )
+    })
+
+    it.each([
+        ['offered', true, ExperimentMetricType.MEAN, true],
+        ['hidden', false, ExperimentMetricType.MEAN, false],
+        ['kept', false, ExperimentMetricType.QUANTILE, true],
+    ])('the percentile type is %s when the flag is %s and the metric is %s', (_, flagEnabled, metricType, shown) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.EXPERIMENTS_QUANTILE_METRICS]: flagEnabled })
+
+        const { container } = render(
+            <ExperimentMetricForm
+                metric={getDefaultExperimentMetric(metricType)}
+                handleSetMetric={jest.fn()}
+                filterTestAccounts={false}
+            />
+        )
+
+        expect(!!container.querySelector('[data-attr="experiment-metric-type-quantile"]')).toBe(shown)
     })
 
     it('edits a warehouse-native metric and keeps every source warehouse-native when its type changes', async () => {
