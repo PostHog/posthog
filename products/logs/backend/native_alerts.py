@@ -106,7 +106,6 @@ def create_native(
     Raises `PlatformAlertCreateRefused` at the team's cap, and `InvalidPlatformAlertEdit` for settings the
     platform's logs schema rejects.
     """
-    # An unsaved logs row carries the fields onto the platform the way a copy's row does.
     edit = platform_edit_of(LogsAlertConfiguration(**fields), grouping if grouping is not None else Grouping())
     view = create_configuration(
         team_id=team_id, source_kind=SourceKind.LOGS, edit=edit, created_by_id=created_by_id, natively=True

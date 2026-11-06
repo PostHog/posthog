@@ -240,5 +240,4 @@ def creates_native_alert(team_id: int) -> bool:
         },
         send_feature_flag_events=False,
     )
-    # The flag first, so a team with it off skips the query over its alerts.
     return bool(flag_on) and takes_new_alert(team_id, new_alert_id=None)
