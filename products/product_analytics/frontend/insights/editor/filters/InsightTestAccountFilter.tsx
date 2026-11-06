@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 
+import { QuillTestAccountFilterSwitch } from 'lib/components/QuillTestAccountFilterSwitch'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -19,15 +21,17 @@ export function InsightTestAccountFilter({
 }: TestAccountFilterProps): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { setLocalDefault } = useActions(filterTestAccountsDefaultsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
-    return (
-        <TestAccountFilterSwitch
-            checked={hasFilters ? !!query.filterTestAccounts : false}
-            onChange={(checked: boolean) => {
-                setQuery({ ...query, filterTestAccounts: checked })
-                setLocalDefault(checked)
-            }}
-            disabledReason={disabledReason}
-        />
+    const checked = hasFilters ? !!query.filterTestAccounts : false
+    const onChange = (checked: boolean): void => {
+        setQuery({ ...query, filterTestAccounts: checked })
+        setLocalDefault(checked)
+    }
+
+    return todayRailNav ? (
+        <QuillTestAccountFilterSwitch checked={checked} onChange={onChange} disabledReason={disabledReason} />
+    ) : (
+        <TestAccountFilterSwitch checked={checked} onChange={onChange} disabledReason={disabledReason} />
     )
 }
