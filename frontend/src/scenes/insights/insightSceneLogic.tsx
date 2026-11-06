@@ -43,7 +43,7 @@ import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { DataVisualizationRenderer, InsightVizRenderer } from '~/queries/Query/queryNodeRenderers'
-import { isDataTableNode, isInsightVizNode } from '~/queries/schema/node-guards'
+import { isDataTableNode, isHogQLQuery, isInsightVizNode } from '~/queries/schema/node-guards'
 import { checkLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     DashboardFilter,
@@ -96,8 +96,12 @@ function newInsightUrlOutsideScene(q: unknown, dashboard: unknown, tileGroup: un
     if (!opensOutsideInsightScene(query)) {
         return null
     }
+    // The SQL editor keeps only a visualization node's source, so carry table settings and filters inside one
+    const editorQuery = isHogQLQuery(query)
+        ? { kind: NodeKind.DataVisualizationNode, source: query }
+        : convertDataTableNodeToDataVisualizationNode(query as Node)
     return urls.insightNew({
-        query: query as Node,
+        query: editorQuery as Node,
         dashboardId: dashboard ? Number(dashboard) : undefined,
         tileGroupKey: typeof tileGroup === 'string' ? tileGroup : undefined,
     })

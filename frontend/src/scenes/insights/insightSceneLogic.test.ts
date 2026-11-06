@@ -268,9 +268,33 @@ describe('insightSceneLogic', () => {
         source: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
         display: 'ActionsTable',
     }
+    const sqlWithFilters = {
+        kind: NodeKind.HogQLQuery,
+        query: 'SELECT 1',
+        filters: { dateRange: { date_from: '-7d' } },
+    }
     it.each([
         ['a SQL chart', sqlChart, sqlChart],
-        ['a bare SQL query', { kind: NodeKind.HogQLQuery, query: 'SELECT 1' }, 'SELECT 1'],
+        [
+            'a bare SQL query with filters',
+            sqlWithFilters,
+            { kind: NodeKind.DataVisualizationNode, source: sqlWithFilters },
+        ],
+        [
+            'a SQL table with column settings',
+            {
+                kind: NodeKind.DataTableNode,
+                source: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+                columns: ['a', 'b'],
+                hiddenColumns: ['b'],
+            },
+            {
+                kind: NodeKind.DataVisualizationNode,
+                source: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+                display: 'ActionsTable',
+                tableSettings: { columns: [{ column: 'a' }] },
+            },
+        ],
     ])('sends a hand-built /insights/new link holding %s to the SQL editor', async (_, query, expectedOpenQuery) => {
         router.actions.push(combineUrl('/insights/new', { dashboard: 5 }, { q: JSON.stringify(query) }).url)
         logic = insightSceneLogic()
