@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { fireEvent, within } from '@testing-library/dom'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { LemonInput } from '@posthog/lemon-ui'
 
@@ -65,7 +66,8 @@ export const LoadingRememberedView: Story = {
 }
 export const Menu: Story = {
     play: async ({ canvasElement }) => {
-        fireEvent.click(within(canvasElement).getByText('Renewal notes'))
+        await userEvent.click(await within(canvasElement).findByText('Renewal notes'))
+        await within(document.body).findByText('Save as new view...')
     },
 }
 export const Narrow: Story = {
