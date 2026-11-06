@@ -283,6 +283,40 @@ def _operation_context(
     }
 
 
+class ConfirmStep:
+    """The form data an operation runs with: the submitted form, or the input a confirmed preview showed."""
+
+    def __init__(self, request: HttpRequest, confirmation: ConfirmationToken) -> None:
+        self.confirmation = confirmation
+        self.token = request.POST.get("confirm_token") if request.method == "POST" else None
+        submitted = request.POST if request.method == "POST" else None
+        self.data: QueryDict | None = confirmation.load(self.token) if self.token is not None else submitted
+
+    @property
+    def confirmed(self) -> bool:
+        return self.token is not None
+
+    @property
+    def expired(self) -> bool:
+        return self.confirmed and self.data is None
+
+    def render_expired(self, request: HttpRequest) -> HttpResponse:
+        messages.error(request, "This confirmation expired or was made for something else. Review the change again.")
+        return redirect(request.get_full_path())
+
+    def render_preview(
+        self, request: HttpRequest, context: dict[str, object], form: forms.Form, preview: Callable[[], Page]
+    ) -> HttpResponse:
+        page = preview()
+        if form.errors:
+            return render(request, "admin_console/operation.html", context, status=400)
+        return render(
+            request,
+            "admin_console/confirm.html",
+            {**context, "page": page, "confirm_token": self.confirmation.sign(form)},
+        )
+
+
 def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str, operation_key: str) -> HttpResponse:
     record_type = _record_type(record)
     obj = get_object_or_404(record_type.queryset(), pk=pk)
@@ -305,9 +339,13 @@ def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str,
     if request.method == "GET" and operation.form_class is None:
         return redirect(record_url)
 
+    # The panel is part of the target, so a confirmation for one record or panel cannot confirm another.
+    step = ConfirmStep(request, ConfirmationToken(request, f"{record_type.key}:{obj.pk}:{panel.key}", operation.key))
+    if step.expired:
+        return step.render_expired(request)
     form = None
     if operation.form_class is not None:
-        form = operation.form_class(request.POST if request.method == "POST" else None, initial=operation.form_initial)
+        form = operation.form_class(step.data, initial=operation.form_initial)
     title = record_type.title(obj)
     target = OperationTarget(
         kicker="This acts on",
@@ -327,6 +365,10 @@ def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str,
         return render(request, "admin_console/operation.html", context)
     if form is not None and not form.is_valid():
         return render(request, "admin_console/operation.html", context, status=400)
+
+    preview = operation.preview
+    if preview is not None and form is not None and not step.confirmed:
+        return step.render_preview(request, context, form, lambda: preview(request, obj, form))
 
     audit = audit.bind(reason=form.cleaned_data.get("reason") if form is not None else None)
     response = _audited(audit, lambda: operation.handler(request, obj, form))
@@ -432,35 +474,22 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
         breadcrumbs=(RecordLink(label=tool.title, href=tool_url),),
         is_record=False,
     )
-    confirmation = ConfirmationToken(request, f"tool:{tool.key}", operation.key)
-    data: QueryDict | None = request.POST if request.method == "POST" else None
-    confirm_token = request.POST.get("confirm_token") if request.method == "POST" else None
-    if confirm_token is not None:
-        data = confirmation.load(confirm_token)
-        if data is None:
-            messages.error(
-                request, "This confirmation expired or was made for something else. Review the change again."
-            )
-            return redirect(request.get_full_path())
+    step = ConfirmStep(request, ConfirmationToken(request, f"tool:{tool.key}", operation.key))
+    if step.expired:
+        return step.render_expired(request)
 
     form = None
     if operation.form_class is not None:
-        form = operation.form_class(data, initial=operation.form_initial)
+        form = operation.form_class(step.data, initial=operation.form_initial)
     context = _operation_context(target, operation, form, request)
     if request.method == "GET":
         return render(request, "admin_console/operation.html", context)
     if form is not None and not form.is_valid():
         return render(request, "admin_console/operation.html", context, status=400)
 
-    if operation.preview is not None and form is not None and confirm_token is None:
-        preview = operation.preview(request, form)
-        if form.errors:
-            return render(request, "admin_console/operation.html", context, status=400)
-        return render(
-            request,
-            "admin_console/confirm.html",
-            {**context, "page": preview, "confirm_token": confirmation.sign(form)},
-        )
+    preview = operation.preview
+    if preview is not None and form is not None and not step.confirmed:
+        return step.render_preview(request, context, form, lambda: preview(request, form))
 
     audit = audit.bind(reason=form.cleaned_data.get("reason") if form is not None else None)
     result = _audited(audit, lambda: operation.handler(request, form))
