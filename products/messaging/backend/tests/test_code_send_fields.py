@@ -100,6 +100,13 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
                 {"attachments": [_attachment(content=base64.b64encode(b"x" * 300_000).decode())] * 2},
                 "attachments",
             ),
+            ("reserved_header", {"headers": {"X-PostHog-Tracking-Code": "forged"}}, "headers"),
+            ("reserved_header_in_another_case", {"headers": {"x-ses-tenant": "team-2"}}, "headers"),
+            ("header_outside_the_list", {"headers": {"Sender": "a@example.com"}}, "headers"),
+            ("header_name_with_a_colon", {"headers": {"X-A: b\r\nBcc": "a@example.com"}}, "headers"),
+            ("header_value_with_a_line_break", {"headers": {"X-Note": "a\r\nBcc: b@example.com"}}, "headers"),
+            ("header_set_twice", {"headers": {"X-Note": "a", "x-note": "b"}}, "headers"),
+            ("too_many_headers", {"headers": {f"X-Note-{i}": "a" for i in range(11)}}, "headers"),
         ]
     )
     def test_refuses_an_extra_field_it_cannot_send(self, _name: str, fields: dict[str, Any], attr: str) -> None:

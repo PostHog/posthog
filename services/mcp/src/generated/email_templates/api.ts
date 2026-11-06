@@ -68,6 +68,18 @@ export const MessagingSendEmailCreateBody = () => zod.strictObject({
         .max(messagingSendEmailCreateBodyReplyToMax)
         .optional()
         .describe('Addresses replies to the email your code rendered go to.'),
+    headers: zod
+        .record(zod.string(), zod.string())
+        .nullish()
+        .describe(
+            "Extra headers for the email your code rendered, as an object of name and value: up to 10 of `In-Reply-To`, `References`, `List-Unsubscribe`, `List-Unsubscribe-Post`, `List-Id` and your own `X-` headers. `X-PostHog-` and `X-SES-` are reserved. Doesn't apply to a send with `template_id`, which refuses any header here."
+        ),
+    track_opens_and_clicks: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether opens and clicks of the email your code rendered are tracked. Defaults to true. When false, the email goes out with no open pixel and no link tracking at all.'
+        ),
     capture_engagement: zod
         .boolean()
         .optional()

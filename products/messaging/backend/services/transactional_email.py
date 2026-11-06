@@ -559,7 +559,11 @@ def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
             {"subject": email.subject, "html": email.html, "text": email.text or text_from_html(email.html)}
         ),
         "from": _without_empty(_code_send_sender(team_id, email.sender)),
-        "tracking": {"captureEngagement": email.capture_engagement},
+        "tracking": {
+            "captureEngagement": email.capture_engagement,
+            # Left out when true, so a send that keeps the default stays readable by an older pipeline.
+            **({} if email.track_opens_and_clicks else {"trackOpensAndClicks": False}),
+        },
     }
     if email.reply_to:
         accepted["replyTo"] = list(email.reply_to)
@@ -569,6 +573,8 @@ def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
         accepted["bcc"] = list(email.bcc)
     if email.attachments:
         accepted["attachments"] = [_accepted_attachment(attachment) for attachment in email.attachments]
+    if email.headers:
+        accepted["headers"] = dict(email.headers)
     return accepted
 
 

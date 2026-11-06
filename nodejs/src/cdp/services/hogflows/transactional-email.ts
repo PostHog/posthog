@@ -193,6 +193,46 @@ const AttachmentsSchema = z
     .readonly()
     .optional()
 
+export const MAX_CUSTOM_HEADERS = 10
+
+const CUSTOM_HEADER_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9-]{0,76}$/
+const ALLOWED_CUSTOM_HEADERS: ReadonlySet<string> = new Set([
+    'in-reply-to',
+    'references',
+    'list-unsubscribe',
+    'list-unsubscribe-post',
+    'list-id',
+])
+const RESERVED_CUSTOM_HEADER_RE = /^x-(posthog|ses)-/
+
+const isAllowedCustomHeader = (name: string): boolean => {
+    const lowered = name.toLowerCase()
+    return (
+        CUSTOM_HEADER_NAME_RE.test(name) &&
+        !RESERVED_CUSTOM_HEADER_RE.test(lowered) &&
+        (ALLOWED_CUSTOM_HEADERS.has(lowered) || lowered.startsWith('x-'))
+    )
+}
+
+const CustomHeadersSchema = z
+    .record(
+        z.string(),
+        z
+            .string()
+            .min(1)
+            .max(998)
+            .regex(/^[^\x00-\x1F\x7F]*$/)
+    )
+    .refine((headers) => Object.keys(headers).length <= MAX_CUSTOM_HEADERS, { message: 'too many headers' })
+    .refine((headers) => Object.keys(headers).every(isAllowedCustomHeader), { message: 'header not allowed' })
+    .refine(
+        (headers) =>
+            new Set(Object.keys(headers).map((name) => name.toLowerCase())).size === Object.keys(headers).length,
+        { message: 'duplicate header' }
+    )
+    .readonly()
+    .optional()
+
 export const AcceptedSendSchema = z
     .object({
         content: z
@@ -218,7 +258,11 @@ export const AcceptedSendSchema = z
         cc: CopyRecipientsSchema,
         bcc: CopyRecipientsSchema,
         attachments: AttachmentsSchema,
-        tracking: z.object({ captureEngagement: z.boolean() }).strict().readonly(),
+        headers: CustomHeadersSchema,
+        tracking: z
+            .object({ captureEngagement: z.boolean(), trackOpensAndClicks: z.boolean().optional() })
+            .strict()
+            .readonly(),
     })
     .strict()
     .readonly()
@@ -271,6 +315,7 @@ export const acceptedSendEmailFields = (
     ...(send?.cc && { cc: send.cc.join(', ') }),
     ...(send?.bcc && { bcc: send.bcc.join(', ') }),
     ...(send?.attachments && { attachments: send.attachments.map((file) => ({ ...file })) }),
+    ...(send?.headers && { headers: { ...send.headers } }),
 })
 
 // What Django sends to run a transactional email's workflow once.

@@ -696,6 +696,23 @@ class TestTransactionalEmail(APIBaseTest):
                     ],
                 },
             ),
+            (
+                "tracking_off",
+                {"track_opens_and_clicks": False},
+                {
+                    "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
+                    "tracking": {"captureEngagement": True, "trackOpensAndClicks": False},
+                },
+            ),
+            (
+                "custom_headers",
+                {"headers": {"X-Entity-Ref-ID": "order-1", "In-Reply-To": "<a@example.com>"}},
+                {
+                    "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
+                    "tracking": {"captureEngagement": True},
+                    "headers": {"X-Entity-Ref-ID": "order-1", "In-Reply-To": "<a@example.com>"},
+                },
+            ),
         ]
     )
     def test_a_code_send_carries_what_the_caller_set(self, mock_post, _flag, _capture, _name, fields, sent):
@@ -779,6 +796,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("cc", "copy@example.com", "invalid_request"),
             ("bcc", ["audit@example.com"], "invalid_request"),
             ("attachments", [{"filename": "notes.txt", "content": "aGk="}], "invalid_request"),
+            ("headers", {"X-Entity-Ref-ID": "order-1"}, "invalid_request"),
         ]
     )
     def test_refuses_code_fields_on_a_template_send(self, mock_post, _flag, _capture, field, value, error_type):

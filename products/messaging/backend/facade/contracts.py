@@ -151,6 +151,8 @@ class CodeEmail:
     cc: tuple[str, ...] = ()
     bcc: tuple[str, ...] = ()
     attachments: tuple[EmailAttachment, ...] = ()
+    headers: tuple[tuple[str, str], ...] = ()
+    track_opens_and_clicks: bool = True
 
 
 class DeliveryUnavailable(Exception):

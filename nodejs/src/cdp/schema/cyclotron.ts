@@ -184,6 +184,7 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     text: z.string().optional(),
     html: z.string(),
     attachments: z.array(EmailAttachmentMetadataSchema).max(MAX_EMAIL_ATTACHMENTS).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
 })
 
 export const CyclotronInvocationQueueParametersSendPushNotificationSchema = z.object({

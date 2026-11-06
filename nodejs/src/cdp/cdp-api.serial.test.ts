@@ -2585,6 +2585,9 @@ describe('CDP API', () => {
             ],
             ['a file field this version does not know', { ...codeSend, attachments: [attachment({ size: 11 })] }],
             ['more than 10 files', { ...codeSend, attachments: Array.from({ length: 11 }, () => attachment()) }],
+            ['a header PostHog sets itself', { ...codeSend, headers: { 'X-PostHog-Tracking-Code': 'forged' } }],
+            ['a header outside the list', { ...codeSend, headers: { Sender: 'someone@example.com' } }],
+            ['a header value with a line break', { ...codeSend, headers: { 'X-Note': 'a\r\nBcc: b@example.com' } }],
             [
                 'files over 512 KB in total',
                 {

@@ -2143,6 +2143,45 @@ describe('EmailService', () => {
             expect(headerNames).toContain('X-PostHog-Tracking-Code')
         })
 
+        it('sends the headers a code send set, and keeps the ones the send path owns', async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            invocation.hogFunction.metadata = { message_category_type: 'marketing' }
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                headers: {
+                    'X-Entity-Ref-ID': 'order-1',
+                    'X-Note': 'héllo',
+                    'list-unsubscribe': '<https://example.com/caller>',
+                },
+            })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            const sentHeaders = (sendEmailSpy.mock.calls[0][0] as { input: any }).input.Content.Simple.Headers
+            expect(sentHeaders).toEqual(
+                expect.arrayContaining([
+                    { Name: 'X-Entity-Ref-ID', Value: 'order-1' },
+                    { Name: 'X-Note', Value: '=?UTF-8?Q?h=C3=A9llo?=' },
+                ])
+            )
+            expect(sentHeaders.map((header: { Name: string }) => header.Name)).not.toContain('list-unsubscribe')
+        })
+
+        it('sends through the untracked configuration set when a code send turns tracking off', async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            service['sesConfig'].sesUntrackedConfigurationSet = 'untracked-set'
+            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+            invocation.state.send = { tracking: { captureEngagement: false, trackOpensAndClicks: false } }
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            const input = (sendEmailSpy.mock.calls[0][0] as { input: any }).input
+            expect(input.ConfigurationSetName).toEqual('untracked-set')
+            expect(input.Content.Simple.Body.Html?.Data ?? '').not.toContain('ph_id')
+        })
+
         it.each(['transactional', 'marketing'])(
             'marks a %s send as auto-generated so autoresponders do not answer it',
             async (categoryType) => {

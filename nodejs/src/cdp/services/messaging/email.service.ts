@@ -421,6 +421,22 @@ function toNodemailerAddress(name: string | undefined, email: string): { name: s
     return { name: cleanDisplayName(name), address: email }
 }
 
+// A header the send path sets itself wins, so a caller's List-Unsubscribe can't replace the one marketing mail needs.
+function customMessageHeaders(
+    headers: Record<string, string> | undefined,
+    ownHeaders: MessageHeader[]
+): MessageHeader[] {
+    const own = new Set(ownHeaders.map((header) => header.Name?.toLowerCase()))
+    return Object.entries(headers ?? {})
+        .filter(([name]) => !own.has(name.toLowerCase()))
+        .map(([Name, value]) => ({
+            Name,
+            Value: PRINTABLE_ASCII.test(value)
+                ? value
+                : mimeFuncs.encodeWords(value, 'Q', RFC_2047_MAX_ENCODED_WORD_LENGTH),
+        }))
+}
+
 export function parseAddressList(value?: string): string[] | undefined {
     if (!value || !value.trim()) {
         return undefined
@@ -1038,6 +1054,9 @@ export class EmailService {
         if (invocation.hogFunction?.metadata?.tracking_enabled === false) {
             return false
         }
+        if (invocation.state?.send?.tracking.trackOpensAndClicks === false) {
+            return false
+        }
         if (invocation.hogFunction?.metadata?.message_category_type === 'transactional') {
             return true
         }
@@ -1212,7 +1231,7 @@ export class EmailService {
             to: toNodemailerAddress(params.to.name, params.to.email),
             subject: sanitizeEmailSubject(params.subject),
             ...(params.text ? { text: params.text } : {}),
-            headers: { [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value! },
+            headers: { ...params.headers, [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value! },
             ...(params.html
                 ? {
                       html: trackingEnabled
@@ -1355,7 +1374,12 @@ export class EmailService {
                       preferencesTokenSourceForInvocation(result.invocation)
                   )
                 : []
-            sendEmailParams.Content.Simple.Headers = [...unsubscribeHeaders, trackingHeader, AUTO_SUBMITTED_HEADER]
+            sendEmailParams.Content.Simple.Headers = [
+                ...customMessageHeaders(params.headers, unsubscribeHeaders),
+                ...unsubscribeHeaders,
+                trackingHeader,
+                AUTO_SUBMITTED_HEADER,
+            ]
             if (files.length) {
                 sendEmailParams.Content.Simple.Attachments = files.map((file) => ({
                     RawContent: file.content,

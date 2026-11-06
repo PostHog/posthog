@@ -106205,6 +106205,12 @@ export namespace Schemas {
      */
     export type SendEmailMessageData = {[key: string]: unknown};
 
+    /**
+     * Extra headers for the email your code rendered, as an object of name and value: up to 10 of `In-Reply-To`, `References`, `List-Unsubscribe`, `List-Unsubscribe-Post`, `List-Id` and your own `X-` headers. `X-PostHog-` and `X-SES-` are reserved. Doesn't apply to a send with `template_id`, which refuses any header here.
+     * @nullable
+     */
+    export type SendEmailHeaders = {[key: string]: string} | null;
+
     export interface SendEmail {
       /** Email address of the recipient. */
       to: string;
@@ -106245,6 +106251,13 @@ export namespace Schemas {
          * @nullable
          */
       attachments?: EmailAttachment[] | null;
+      /**
+         * Extra headers for the email your code rendered, as an object of name and value: up to 10 of `In-Reply-To`, `References`, `List-Unsubscribe`, `List-Unsubscribe-Post`, `List-Id` and your own `X-` headers. `X-PostHog-` and `X-SES-` are reserved. Doesn't apply to a send with `template_id`, which refuses any header here.
+         * @nullable
+         */
+      headers?: SendEmailHeaders;
+      /** Whether opens and clicks of the email your code rendered are tracked. Defaults to true. When false, the email goes out with no open pixel and no link tracking at all. */
+      track_opens_and_clicks?: boolean;
       /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
       capture_engagement?: boolean;
       /**

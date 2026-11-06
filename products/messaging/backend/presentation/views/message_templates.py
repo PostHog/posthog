@@ -90,6 +90,7 @@ from products.messaging.backend.presentation.views.code_send_fields import (
     CODE_SEND_EXTRA_FIELDS,
     AddressListField,
     AttachmentListField,
+    CustomHeadersField,
     field_not_accepted_refusal,
     template_send_refusal,
     validate_pipeline_address,
@@ -464,6 +465,7 @@ CODE_SEND_FIELDS = (
     "from",
     "reply_to",
     "capture_engagement",
+    "track_opens_and_clicks",
     *CODE_SEND_EXTRA_FIELDS,
 )
 CODE_BODY_MAX_BYTES = 5 * 1024 * 1024
@@ -537,6 +539,19 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         help_text="Files attached to the email your code rendered: up to 10, and at most 512 KB in total after "
         "decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with "
         "`template_id`, which refuses any file here.",
+    )
+    headers = CustomHeadersField(
+        required=False,
+        allow_null=True,
+        help_text="Extra headers for the email your code rendered, as an object of name and value: up to 10 of "
+        "`In-Reply-To`, `References`, `List-Unsubscribe`, `List-Unsubscribe-Post`, `List-Id` and your own `X-` "
+        "headers. `X-PostHog-` and `X-SES-` are reserved. Doesn't apply to a send with `template_id`, which refuses "
+        "any header here.",
+    )
+    track_opens_and_clicks = serializers.BooleanField(
+        required=False,
+        help_text="Whether opens and clicks of the email your code rendered are tracked. Defaults to true. When "
+        "false, the email goes out with no open pixel and no link tracking at all.",
     )
     capture_engagement = serializers.BooleanField(
         required=False,
@@ -1323,9 +1338,11 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             sender=data.get("from"),
             reply_to=tuple(data.get("reply_to", ())),
             capture_engagement=data.get("capture_engagement", True),
+            track_opens_and_clicks=data.get("track_opens_and_clicks", True),
             cc=tuple(data.get("cc") or ()),
             bcc=tuple(data.get("bcc") or ()),
             attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
+            headers=tuple((data.get("headers") or {}).items()),
         )
         return self._queue_send(
             request,

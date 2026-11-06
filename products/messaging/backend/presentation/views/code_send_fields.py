@@ -33,8 +33,17 @@ MIME_TYPE_WITHOUT_PARAMETERS = re.compile(
 )
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
 
+MAX_CUSTOM_HEADERS = 10
+MAX_CUSTOM_HEADER_VALUE_LENGTH = 998
+CUSTOM_HEADER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,76}")
+ALLOWED_CUSTOM_HEADERS = frozenset(
+    {"in-reply-to", "references", "list-unsubscribe", "list-unsubscribe-post", "list-id"}
+)
+# PostHog reads these to attribute delivery, so a caller must not be able to set them.
+RESERVED_CUSTOM_HEADER_PREFIXES = ("x-posthog-", "x-ses-")
+
 ADDRESS_FIELDS = ("cc", "bcc")
-CODE_SEND_EXTRA_FIELDS = (*ADDRESS_FIELDS, "attachments")
+CODE_SEND_EXTRA_FIELDS = (*ADDRESS_FIELDS, "attachments", "headers")
 
 
 def validate_pipeline_address(address: str) -> None:
@@ -163,6 +172,42 @@ class AttachmentListField(serializers.ListField):
         return attachments
 
 
+def _custom_header_allowed(name: str) -> bool:
+    lowered = name.lower()
+    if lowered.startswith(RESERVED_CUSTOM_HEADER_PREFIXES):
+        return False
+    return lowered in ALLOWED_CUSTOM_HEADERS or lowered.startswith("x-")
+
+
+@extend_schema_field(
+    {"type": "object", "additionalProperties": {"type": "string"}, "maxProperties": MAX_CUSTOM_HEADERS}
+)
+class CustomHeadersField(serializers.DictField):
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(child=serializers.CharField(trim_whitespace=False, allow_blank=False), **kwargs)
+
+    def to_internal_value(self, data: Any) -> dict[str, str]:
+        headers = super().to_internal_value(data)
+        if len(headers) > MAX_CUSTOM_HEADERS:
+            raise serializers.ValidationError(f"Send at most {MAX_CUSTOM_HEADERS} headers.", code="too_many_headers")
+        seen: set[str] = set()
+        for name, value in headers.items():
+            if not CUSTOM_HEADER_NAME.fullmatch(name) or not _custom_header_allowed(name):
+                raise serializers.ValidationError(
+                    f"PostHog can't send the `{name[:80]}` header.", code="header_not_allowed"
+                )
+            if name.lower() in seen:
+                raise serializers.ValidationError(f"The `{name}` header is set twice.", code="duplicate_header")
+            seen.add(name.lower())
+            if CONTROL_CHARACTERS.search(value) or len(value) > MAX_CUSTOM_HEADER_VALUE_LENGTH:
+                raise serializers.ValidationError(
+                    f"The `{name}` header needs a value of at most {MAX_CUSTOM_HEADER_VALUE_LENGTH} characters, "
+                    "with no line breaks.",
+                    code="invalid_header_value",
+                )
+        return headers
+
+
 @frozen
 class _Reason:
     why: str
@@ -182,6 +227,16 @@ _ATTACHMENT_LIMIT_REASON = _Reason(
     fix=f"Send at most {MAX_ATTACHMENTS} files and {MAX_ATTACHMENTS_BYTES // 1024} KB in total, or link to "
     "larger files from the email body.",
 )
+_HEADER_NAME_REASON = _Reason(
+    why="PostHog sets the headers that decide who an email is from and how its delivery is tracked.",
+    fix="Send `In-Reply-To`, `References`, `List-Unsubscribe`, `List-Unsubscribe-Post`, `List-Id` or your own "
+    "`X-` header, but not `X-PostHog-` or `X-SES-`.",
+)
+_HEADER_SHAPE_REASON = _Reason(
+    why="Each header goes into the email as one line, and mailbox providers refuse emails with malformed headers.",
+    fix=f"Send at most {MAX_CUSTOM_HEADERS} headers, each once, with a value of at most "
+    f"{MAX_CUSTOM_HEADER_VALUE_LENGTH} characters and no line breaks.",
+)
 _COPY_LIMIT_REASON = _Reason(
     why="A transactional email goes to one recipient, with copies for a few others.",
     fix=f"Send at most {MAX_ADDRESSES_PER_FIELD} addresses in each of `cc` and `bcc`. To reach more people, send "
@@ -200,6 +255,10 @@ _HEADER_LENGTH_REASONS = {
 }
 _LIST_LIMIT_REASONS = {"cc": _COPY_LIMIT_REASON, "bcc": _COPY_LIMIT_REASON, "attachments": _ATTACHMENT_LIMIT_REASON}
 _REASONS_BY_CODE = {
+    "header_not_allowed": _HEADER_NAME_REASON,
+    "too_many_headers": _HEADER_SHAPE_REASON,
+    "duplicate_header": _HEADER_SHAPE_REASON,
+    "invalid_header_value": _HEADER_SHAPE_REASON,
     "not_base64": _Reason(
         why="Attachment content travels as base64 text inside the JSON body.",
         fix="Encode the file as standard base64, without line breaks.",
@@ -262,7 +321,8 @@ def with_code_send_reason(body: dict[str, Any]) -> dict[str, Any]:
     elif code == "max_length" and path[-1] in _HEADER_LENGTH_REASONS:
         reason = _HEADER_LENGTH_REASONS[path[-1]]
     else:
-        reason = _REASONS_BY_CODE.get(code, _ADDRESS_REASON if path[0] in ADDRESS_FIELDS else _ATTACHMENT_REASON)
+        fallback = {"attachments": _ATTACHMENT_REASON, "headers": _HEADER_SHAPE_REASON}.get(path[0], _ADDRESS_REASON)
+        reason = _REASONS_BY_CODE.get(code, fallback)
     attr = "__".join(path)
     return {
         **body,

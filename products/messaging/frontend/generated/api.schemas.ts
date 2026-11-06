@@ -88,6 +88,12 @@ export interface TopicPreferencesApi {
  */
 export type SendEmailApiMessageData = { [key: string]: unknown }
 
+/**
+ * Extra headers for the email your code rendered, as an object of name and value: up to 10 of `In-Reply-To`, `References`, `List-Unsubscribe`, `List-Unsubscribe-Post`, `List-Id` and your own `X-` headers. `X-PostHog-` and `X-SES-` are reserved. Doesn't apply to a send with `template_id`, which refuses any header here.
+ * @nullable
+ */
+export type SendEmailApiHeaders = { [key: string]: string } | null
+
 export interface EmailAttachmentApi {
     /**
      * File name the recipient sees, such as `invoice.pdf`. No path and no line breaks. A file type mailbox providers block, such as `.exe`, is refused.
@@ -148,6 +154,13 @@ export interface SendEmailApi {
      * @nullable
      */
     attachments?: EmailAttachmentApi[] | null
+    /**
+     * Extra headers for the email your code rendered, as an object of name and value: up to 10 of `In-Reply-To`, `References`, `List-Unsubscribe`, `List-Unsubscribe-Post`, `List-Id` and your own `X-` headers. `X-PostHog-` and `X-SES-` are reserved. Doesn't apply to a send with `template_id`, which refuses any header here.
+     * @nullable
+     */
+    headers?: SendEmailApiHeaders
+    /** Whether opens and clicks of the email your code rendered are tracked. Defaults to true. When false, the email goes out with no open pixel and no link tracking at all. */
+    track_opens_and_clicks?: boolean
     /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
     capture_engagement?: boolean
     /**
