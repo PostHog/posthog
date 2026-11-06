@@ -1,6 +1,8 @@
 import json
 from typing import Any
 
+import structlog
+
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.personhog_client import consistency_to_read_options
 from posthog.personhog_client.client import personhog_call, require_personhog_client
@@ -10,6 +12,8 @@ from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdReques
 from products.groups.backend.facade.contracts import GroupType, GroupTypeEdit, GroupTypeNotFound, GroupTypesUnavailable
 
 CALLER_TAG = "groups/staff_console"
+
+logger = structlog.get_logger(__name__)
 
 
 def _group_type(mapping: dict[str, Any]) -> GroupType:
@@ -54,11 +58,19 @@ def changed_fields(current: GroupType, edit: GroupTypeEdit) -> list[str]:
     return [field for field, (before, after) in candidates.items() if before != after]
 
 
-def update_group_type(project_id: int, index: int, edit: GroupTypeEdit) -> list[str]:
-    """Writes the fields that differ from what personhog holds now, and returns their names."""
-    fields = changed_fields(read_group_type(project_id, index), edit)
+def _field_values(item: GroupType | GroupTypeEdit, fields: list[str]) -> dict[str, Any]:
+    values = {field: getattr(item, field) for field in fields}
+    if values.get("created_at") is not None:
+        values["created_at"] = values["created_at"].isoformat()
+    return values
+
+
+def update_group_type(project_id: int, index: int, edit: GroupTypeEdit) -> GroupType:
+    """Writes the fields that differ from what personhog holds now, and returns the group type as it was before."""
+    previous = read_group_type(project_id, index)
+    fields = changed_fields(previous, edit)
     if not fields:
-        return []
+        return previous
 
     # A field in the update mask without a value tells personhog to set the column to null.
     request: dict[str, Any] = {"project_id": project_id, "group_type_index": index, "update_mask": fields}
@@ -78,4 +90,13 @@ def update_group_type(project_id: int, index: int, edit: GroupTypeEdit) -> list[
         reraise_as=GroupTypesUnavailable,
     )
     invalidate_group_types_cache(project_id)
-    return fields
+    # Personhog keeps no history, so this line is the only record of the old values that an undo needs.
+    logger.info(
+        "group_type_updated",
+        project_id=project_id,
+        group_type_index=index,
+        fields=fields,
+        before=_field_values(previous, fields),
+        after=_field_values(edit, fields),
+    )
+    return previous

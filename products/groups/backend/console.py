@@ -131,19 +131,22 @@ class GroupTypeEditor:
 
     def save(self, request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
         assert isinstance(obj, Team) and isinstance(form, EditGroupTypeForm)
+        edit = form.edit()
         try:
-            fields = api.update_group_type(obj.project_id, self.index, form.edit())
+            previous = api.update_group_type(obj.project_id, self.index, edit)
         except GroupTypeNotFound:
             messages.error(request, f"This project has no group type with index {self.index} anymore.")
             return HttpResponse(status=404)
         except GroupTypesUnavailable:
             messages.error(request, "Could not save the group type, because personhog did not answer. Try again.")
             return HttpResponse(status=503)
+        fields = api.group_type_changes(previous, edit)
         if not fields:
             messages.info(request, "Nothing changed, so nothing was saved.")
             return None
-        changed = ", ".join(FIELD_LABELS[field].lower() for field in fields)
-        messages.success(request, f"Saved group type {self.index} for team '{obj.name}': {changed}.")
+        before, after = _display_values(previous), _display_values(edit)
+        changes = "; ".join(f"{FIELD_LABELS[field]}: {before[field]} to {after[field]}" for field in fields)
+        messages.success(request, f"Saved group type {self.index} for team '{obj.name}'. {changes}.")
         return None
 
 
@@ -195,5 +198,5 @@ class GroupTypesPanel(Panel):
                 "created_at": format_created_at(group_type.created_at),
             },
             description=f"The team sees the new names in the app. {CREATED_AT_EFFECT}",
-            undo_hint="To undo, edit the group type again and enter the values from the Now column.",
+            undo_hint="To undo, edit the group type again and enter the old values. The message after saving lists them.",
         )

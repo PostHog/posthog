@@ -51,6 +51,9 @@ def group_type_changes(current: contracts.GroupType, edit: contracts.GroupTypeEd
     return group_types.changed_fields(current, edit)
 
 
-def update_group_type(project_id: int, index: int, edit: contracts.GroupTypeEdit) -> list[str]:
-    """Saves the fields that differ from what is stored and returns their names. Raises like get_group_type."""
+def update_group_type(project_id: int, index: int, edit: contracts.GroupTypeEdit) -> contracts.GroupType:
+    """Saves the fields that differ from what is stored and returns the group type as it was before.
+
+    Raises like get_group_type.
+    """
     return group_types.update_group_type(project_id, index, edit)

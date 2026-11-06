@@ -155,6 +155,32 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
         assert result is None
         assert source == "db"
 
+    @parameterized.expand(
+        [
+            ("redis_hit", ["redis"], {"key": "value", "nested": {"data": "test"}}, "redis"),
+            ("s3_hit", ["s3"], {"key": "value", "nested": {"data": "test"}}, "s3"),
+            ("cached_as_missing", None, None, "redis"),
+            ("miss", [], None, None),
+        ]
+    )
+    def test_peek_from_cache_reads_the_tiers_without_loading_or_writing(
+        self, _name, filled_tiers, expected_data, expected_source
+    ):
+        if filled_tiers is None:
+            self.hypercache.set_cache_value(self.team_id, HyperCacheStoreMissing())
+        else:
+            self.hypercache.set_cache_value(self.team_id, self.sample_data)
+            self.hypercache.clear_cache(self.team_id, kinds=[k for k in ("redis", "s3") if k not in filled_tiers])
+        load_fn = Mock(return_value={"default": "data"})
+        hypercache = HyperCache(namespace="test_namespace", value="test_value", load_fn=load_fn)
+        redis_before = cache.get(hypercache.get_cache_key(self.team_id))
+
+        result, source = hypercache.peek_from_cache_with_source(self.team_id)
+
+        assert (result, source) == (expected_data, expected_source)
+        load_fn.assert_not_called()
+        assert cache.get(hypercache.get_cache_key(self.team_id)) == redis_before
+
 
 class TestHyperCacheRedisFailureDegrades(HyperCacheTestBase):
     """A Redis outage on a primary read must degrade to the next tier, never bubble a 500."""

@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.contrib.auth.models import Group
+from django.contrib.messages import get_messages
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
@@ -535,7 +536,7 @@ class TestAdminConsoleViews(BaseTest):
     @parameterized.expand(
         [
             ("cached_config", ({"token": "phc_cached_config"}, "redis"), "phc_cached_config"),
-            ("team_cached_as_missing", (None, "s3"), "says that this team does not exist"),
+            ("team_cached_as_missing", (None, "redis"), "says that this team does not exist"),
             ("nothing_cached", (None, None), "Nothing is cached for this team"),
         ]
     )
@@ -544,7 +545,7 @@ class TestAdminConsoleViews(BaseTest):
         self, _name: str, cached: tuple[object, str | None], expected: str, get_hypercache: MagicMock
     ) -> None:
         get_hypercache.return_value.get_cache_key.return_value = "cache/team_tokens/config.json"
-        get_hypercache.return_value.get_from_cache_with_source.return_value = cached
+        get_hypercache.return_value.peek_from_cache_with_source.return_value = cached
 
         response = self.client.get(f"/admin/posthog/team/{self.team.pk}/view-cache/", follow=True)
 
@@ -556,21 +557,45 @@ class TestAdminConsoleViews(BaseTest):
 
     @parameterized.expand(
         [
-            ("rename_keeps_the_created_time", {"name_singular": "Company"}, ["name_singular"], None),
+            (
+                "rename_keeps_the_created_time",
+                {"name_singular": "Company"},
+                ["name_singular"],
+                None,
+                "Singular name: Not set to Company",
+            ),
             (
                 "created_time_to_the_millisecond",
                 {"created_at": "2026-02-20 08:15:00.456"},
                 ["created_at"],
                 int(datetime(2026, 2, 20, 8, 15, tzinfo=UTC).timestamp() * 1000) + 456,
+                "Created (UTC): 2026-01-15 10:30:00.123 to 2026-02-20 08:15:00.456",
             ),
-            ("cleared_created_time", {"created_at": ""}, ["created_at"], None),
-            ("cleared_default_columns", {"default_columns": ""}, ["default_columns"], None),
-            ("unchanged_form", {}, None, None),
-            ("invalid_created_time", {"created_at": "not-a-datetime"}, None, None),
+            (
+                "cleared_created_time",
+                {"created_at": ""},
+                ["created_at"],
+                None,
+                "Created (UTC): 2026-01-15 10:30:00.123 to Not set",
+            ),
+            (
+                "cleared_default_columns",
+                {"default_columns": ""},
+                ["default_columns"],
+                None,
+                'Default columns: ["name"] to Not set',
+            ),
+            ("unchanged_form", {}, None, None, ""),
+            ("invalid_created_time", {"created_at": "not-a-datetime"}, None, None, ""),
         ]
     )
     def test_editing_a_group_type_previews_then_writes_only_the_changed_fields(
-        self, _name: str, changes: dict[str, str], expected_mask: list[str] | None, expected_created_at: int | None
+        self,
+        _name: str,
+        changes: dict[str, str],
+        expected_mask: list[str] | None,
+        expected_created_at: int | None,
+        expected_message: str,
     ) -> None:
         create_group_type_mapping(
             team=self.team,
@@ -600,3 +625,4 @@ class TestAdminConsoleViews(BaseTest):
         assert list(updates[0].update_mask) == expected_mask
         if "created_at" in expected_mask:
             assert (updates[0].created_at if updates[0].HasField("created_at") else None) == expected_created_at
+        assert expected_message in " ".join(str(message) for message in get_messages(saved.wsgi_request))

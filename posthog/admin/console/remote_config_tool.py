@@ -17,12 +17,11 @@ def _cached_config(team: Team) -> Page:
     heading = Notice(
         text=f"Team '{team.name}' ({team.pk}). Cache key: {cache_key}", link_text="Back to the team", href=team_url
     )
-    # The source tells a cached "team is missing" entry (Redis or S3) apart from a cache miss (no source).
-    cached_data, source = hypercache.get_from_cache_with_source(team.api_token)
-    if cached_data is None and source in ("redis", "s3"):
-        return Page(blocks=(heading, Notice(text=f"The cache in {source} says that this team does not exist.")))
-    if cached_data is None:
+    cached_data, source = hypercache.peek_from_cache_with_source(team.api_token)
+    if source is None:
         return Page(blocks=(heading, Notice(text="Nothing is cached for this team. Rebuild the cache to fill it.")))
+    if cached_data is None:
+        return Page(blocks=(heading, Notice(text=f"The cache in {source} says that this team does not exist.")))
     return Page(
         blocks=(
             heading,
