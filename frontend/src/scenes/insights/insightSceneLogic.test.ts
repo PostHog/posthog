@@ -263,6 +263,25 @@ describe('insightSceneLogic', () => {
         await expectLogic(logic).toDispatchActions(['upgradeQuery']).toFinishAllListeners()
     })
 
+    const sqlChart = {
+        kind: NodeKind.DataVisualizationNode,
+        source: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+        display: 'ActionsTable',
+    }
+    it.each([
+        ['a SQL chart', sqlChart, sqlChart],
+        ['a bare SQL query', { kind: NodeKind.HogQLQuery, query: 'SELECT 1' }, 'SELECT 1'],
+    ])('sends a hand-built /insights/new link holding %s to the SQL editor', async (_, query, expectedOpenQuery) => {
+        // MCP, PostHog AI and backend links build this URL by hand, skipping urls.insightNew()
+        router.actions.push(combineUrl('/insights/new', { dashboard: 5 }, { q: JSON.stringify(query) }).url)
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toEqual(addProjectIdIfMissing('/sql', MOCK_TEAM_ID))
+        expect(router.values.searchParams).toEqual({ dashboard: 5, open_query: expectedOpenQuery })
+    })
+
     it('retains the #q= query hash after navigating to /insights/new (persons modal drill-down)', async () => {
         // Mirrors PersonsModal's "View events" / "Open as new insight" navigation: a DataTableNode
         // query encoded in the #q= hash must survive the post-load URL sync, otherwise both buttons

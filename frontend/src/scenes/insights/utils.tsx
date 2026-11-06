@@ -24,6 +24,7 @@ import {
     containsHogQLQuery,
     isBIVisualizationNode,
     isDataTableNode,
+    isDataVisualizationNode,
     isEventsNode,
     isGroupNode,
     isHogQLQuery,
@@ -660,6 +661,21 @@ export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>,
 
 export function parseDraftQueryFromURL(query: string): Node<Record<string, any>> | null {
     return parseQuery(query)
+}
+
+/**
+ * Whether `urls.insightNew()` routes this query to the SQL editor or the BI scene instead of the insight scene.
+ * The insight scene has no SQL editing for these queries, so an unsaved one opened there is a dead end.
+ */
+export function opensOutsideInsightScene(query: Node | null | undefined): boolean {
+    if (!query) {
+        return false
+    }
+    return (
+        isBIVisualizationNode(query) ||
+        isHogQLQuery(query) ||
+        ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source))
+    )
 }
 
 export function crushDraftQueryForURL(query: Node<Record<string, any>>): string {

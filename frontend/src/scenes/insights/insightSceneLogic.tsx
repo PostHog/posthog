@@ -78,7 +78,7 @@ import type { QuerySchema } from '../../queries/schema/schema-general'
 import type { TeamPublicType, TeamType } from '../../types'
 import { insightDataLogic } from './insightDataLogic'
 import type { insightDataLogicType } from './insightDataLogic'
-import { getInsightIconTypeFromQuery, parseDraftQueryFromURL } from './utils'
+import { getInsightIconTypeFromQuery, opensOutsideInsightScene, parseDraftQueryFromURL } from './utils'
 
 const NEW_INSIGHT = 'new' as const
 let insightStartedTimeout: ReturnType<typeof setTimeout> | undefined
@@ -862,6 +862,22 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             // for a non-existent short_id.
             if (shortId === 'quick-start') {
                 return
+            }
+            // Links built by hand (MCP, PostHog AI, backend URLs) can put a SQL query on
+            // `/insights/new#q=`, where it renders with no way to see or edit the SQL.
+            // Send it where `urls.insightNew()` would have.
+            if (shortId === 'new' && q) {
+                const parsedQuery = typeof q === 'string' ? parseDraftQueryFromURL(q) : q
+                if (opensOutsideInsightScene(parsedQuery)) {
+                    router.actions.replace(
+                        urls.insightNew({
+                            query: parsedQuery,
+                            dashboardId: dashboard ? Number(dashboard) : undefined,
+                            tileGroupKey: searchParams.tile_group,
+                        })
+                    )
+                    return
+                }
             }
             const insightMode =
                 mode === 'subscriptions'
