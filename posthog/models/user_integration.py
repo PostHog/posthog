@@ -17,6 +17,7 @@ from posthog.models.github_integration_base import (
     GitHubIntegrationBase,
     GitHubIntegrationError,
     ReauthorizationRequired,
+    _jsonb_merge,
     github_app_oauth_credentials,
 )
 from posthog.models.integration import github_account_type, invalidate_github_repository_caches_for_installation
@@ -46,6 +47,7 @@ USER_SCOPED_ACCESS_TOKEN_CACHE_TTL_SECONDS = 10 * 60
 MAX_SCOPED_TOKEN_REPOSITORIES = 500
 _USER_REPOSITORIES_PAGE_SIZE = 100
 _TRANSIENT_STATUS_CODES = {502, 503, 504}
+USER_SCOPED_REPOSITORY_CACHE_AT_CONFIG_KEY = "user_scoped_repository_cache_at"
 
 
 class NoAccessibleRepositories(GitHubIntegrationError):
@@ -405,6 +407,24 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         except NoAccessibleRepositories:
             return []
 
+    def _get_stored_repository_list(self) -> list[dict] | None:
+        updated_at = self.integration.repository_cache_updated_at
+        scoped_at = (self.integration.config or {}).get(USER_SCOPED_REPOSITORY_CACHE_AT_CONFIG_KEY)
+        if updated_at is None or scoped_at != updated_at.isoformat():
+            return None
+        return super()._get_stored_repository_list()
+
+    def sync_repository_cache(
+        self, min_refresh_interval_seconds: int | None = None, *, priority: Priority | None = None
+    ) -> list[dict]:
+        repositories = super().sync_repository_cache(min_refresh_interval_seconds, priority=priority)
+        updated_at = self.integration.repository_cache_updated_at
+        if updated_at is not None:
+            patch = {USER_SCOPED_REPOSITORY_CACHE_AT_CONFIG_KEY: updated_at.isoformat()}
+            UserIntegration.objects.filter(pk=self.integration.pk).update(config=_jsonb_merge("config", patch))
+            self.integration.config = {**(self.integration.config or {}), **patch}
+        return repositories
+
     def installation_can_access_repository(self, repository: str, *, raise_on_transient: bool = False) -> bool:
         try:
             if not self.user_can_open_repository(repository):
@@ -496,6 +516,8 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             )
             if response.status_code == 401:
                 return None
+            if response.status_code == 404:
+                raise NoAccessibleRepositories("The GitHub user cannot access this installation.")
             if response.status_code != 200:
                 raise GitHubIntegrationError(
                     f"Failed to list the user's installation repositories: HTTP {response.status_code}",

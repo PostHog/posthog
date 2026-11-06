@@ -53,7 +53,12 @@ from posthog.models.integration import (
     invalidate_github_repository_caches_for_installation,
 )
 from posthog.models.integration.github import _MAX_FILE_CONTENTS_BYTES
-from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
+from posthog.models.user_integration import (
+    USER_SCOPED_REPOSITORY_CACHE_AT_CONFIG_KEY,
+    ReauthorizationRequired,
+    UserGitHubIntegration,
+    UserIntegration,
+)
 from posthog.redis import get_client as get_redis_client
 
 
@@ -3371,6 +3376,42 @@ class TestUserGitHubIntegrationScopedAccessToken(BaseTest):
         response.json.return_value = body
         return response
 
+    def _store_user_scoped_snapshot(
+        self, repositories: list[dict[str, Any]], *, days_old: int, marked: bool = True
+    ) -> None:
+        cached_at = timezone.now() - timedelta(days=days_old)
+        self.integration.repository_cache = repositories
+        self.integration.repository_cache_updated_at = cached_at
+        if marked:
+            self.integration.config = {
+                **self.integration.config,
+                USER_SCOPED_REPOSITORY_CACHE_AT_CONFIG_KEY: cached_at.isoformat(),
+            }
+        self.integration.save()
+
+    @parameterized.expand(
+        [("saved_by_the_scoped_sync", True, ["web-app", "secret"]), ("saved_before_the_fix", False, ["web-app"])]
+    )
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.list_all_repositories")
+    def test_only_repository_lists_saved_with_the_user_scope_are_served(
+        self, _name: str, marked: bool, expected: list[str], mock_list_all_repositories: MagicMock
+    ) -> None:
+        mock_list_all_repositories.return_value = [{"id": 1, "name": "web-app", "full_name": "acme/web-app"}]
+        self._store_user_scoped_snapshot(
+            [
+                {"id": 1, "name": "web-app", "full_name": "acme/web-app"},
+                {"id": 2, "name": "secret", "full_name": "acme/secret"},
+            ],
+            days_old=0,
+            marked=marked,
+        )
+
+        repositories, _ = self._github().list_cached_repositories()
+
+        assert [repo["name"] for repo in repositories] == expected
+        assert self._github().count_cached_repositories() == len(expected)
+        assert mock_list_all_repositories.called is not marked
+
     def _user_repositories(self, names: list[str], total_count: int | None = None) -> MagicMock:
         return self._response(
             200,
@@ -3448,16 +3489,25 @@ class TestUserGitHubIntegrationScopedAccessToken(BaseTest):
         assert mock_github_request.call_args.kwargs["headers"] == {"Authorization": "Bearer USER_TOKEN"}
         mock_oauth_post.assert_not_called()
 
-    @parameterized.expand([("zero_total", 0), ("total_without_names", 3)])
+    @parameterized.expand(
+        [
+            ("zero_total", 200, {"total_count": 0, "repositories": []}),
+            ("total_without_names", 200, {"total_count": 3, "repositories": []}),
+            ("installation_access_denied", 404, {"message": "Not Found"}),
+        ]
+    )
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     @patch("posthog.models.user_integration.github_request")
     def test_a_user_without_repositories_gets_no_token(
-        self, _name: str, total_count: int, mock_github_request: MagicMock, mock_client_request: MagicMock
+        self,
+        _name: str,
+        status_code: int,
+        body: dict[str, Any],
+        mock_github_request: MagicMock,
+        mock_client_request: MagicMock,
     ) -> None:
-        mock_github_request.return_value = self._user_repositories([], total_count=total_count)
-        self.integration.repository_cache = [{"id": 1, "name": "old-repo", "full_name": "acme/old-repo"}]
-        self.integration.repository_cache_updated_at = timezone.now() - timedelta(days=1)
-        self.integration.save()
+        mock_github_request.return_value = self._response(status_code, body)
+        self._store_user_scoped_snapshot([{"id": 1, "name": "old-repo", "full_name": "acme/old-repo"}], days_old=1)
 
         with pytest.raises(GitHubIntegrationError):
             self._github().get_access_token()

@@ -40,6 +40,7 @@ from posthog.models.integration import (
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.user_integration import (
     NEEDS_REAUTHORIZATION_AT_CONFIG_KEY,
+    USER_SCOPED_REPOSITORY_CACHE_AT_CONFIG_KEY,
     GitHubInstallRequest,
     ReauthorizationRequired,
     UserGitHubIntegration,
@@ -211,8 +212,14 @@ class TestUserIntegrationEndpoints(APIBaseTest):
     def test_github_repos_refresh_reports_unavailable_installation(self, mock_sync):
         mock_sync.side_effect = GitHubIntegrationError("token refresh after 401 failed")
         integration = _create_user_integration(self.user)
-        integration.config = {**integration.config, "installation_unavailable_since": 1704110400}
+        cached_at = timezone.now() - timedelta(days=1)
+        integration.config = {
+            **integration.config,
+            "installation_unavailable_since": 1704110400,
+            USER_SCOPED_REPOSITORY_CACHE_AT_CONFIG_KEY: cached_at.isoformat(),
+        }
         integration.repository_cache = [{"id": 1, "name": "repo1", "full_name": "octocat/repo1"}]
+        integration.repository_cache_updated_at = cached_at
         integration.save()
 
         response = self.client.post("/api/users/@me/integrations/github/12345/repos/refresh/")
