@@ -214,7 +214,7 @@ async function refuseWithoutRequiredScopes(
     await login.logout(runtime)
     throw new HogError(
         'scopes_not_granted',
-        `The approved login doesn't have ${missing.join(', ')}, so hog kept your current login.`,
+        `The approval didn't include ${missing.join(', ')}, so hog kept your current login.`,
         `Run \`${command} ${missing.join(' ')}\` and keep these scopes when you approve it.`
     )
 }

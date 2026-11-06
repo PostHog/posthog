@@ -874,6 +874,32 @@ describe('hog auth login', () => {
     })
 
     test.each([
+        ['rejected', 'access_denied', 'login_rejected'],
+        ['expired', 'expired_token', 'login_expired'],
+    ])('add --wait %s tells an agent the command that asks for the same scopes again', async (_name, error, code) => {
+        const result = await runHog(['auth', 'add', '--wait'], {
+            env: { CLAUDECODE: '1' },
+            files: {
+                ...OAUTH_LOGIN.files,
+                [ADD_PENDING_FILE]: JSON.stringify({
+                    ...(readJson(PENDING) as object),
+                    scopes: ['openid', 'insight:read', 'insight:write', 'dashboard:write'],
+                    requiredScopes: ['insight:write', 'dashboard:write'],
+                }),
+            },
+            keychain: OAUTH_LOGIN.keychain,
+            respond: deviceFlow(0, { status: 400, body: { error } }),
+        })
+
+        expect(result.error()).toMatchObject({
+            code,
+            hint: expect.stringContaining('`hog auth add insight:write dashboard:write`'),
+        })
+        expect(result.keychain[EU]).toBe(OAUTH_LOGIN.keychain[EU])
+        expect(result.files[ADD_PENDING_FILE]).toBeUndefined()
+    })
+
+    test.each([
         [
             'an object without an access level',
             ['insight'],
