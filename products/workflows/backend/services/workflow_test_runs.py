@@ -5,7 +5,7 @@ integrations its inputs name. The record keeps who ran which step with which int
 input value: values can hold secrets.
 """
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from typing import Any, Optional
 from uuid import UUID
 
@@ -36,15 +36,18 @@ def _integration_ids_in_value(value: Any) -> Iterable[int]:
             yield candidate
 
 
-def _integration_ids(template_id: Any, inputs: Mapping[str, Any]) -> list[int]:
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _integration_ids(template_id: Optional[str], inputs: dict[str, Any]) -> list[int]:
     # A function step takes its inputs schema from its template, as the worker does when it loads the step.
-    template = HogFunctionTemplate.get_template(template_id) if isinstance(template_id, str) else None
+    template = HogFunctionTemplate.get_template(template_id) if template_id else None
     ids: set[int] = set()
     for schema in (template.inputs_schema if template else None) or []:
         if isinstance(schema, dict) and schema.get("type") in _INTEGRATION_INPUT_TYPES:
-            entry = inputs.get(schema.get("key"))
-            if isinstance(entry, dict):
-                ids.update(_integration_ids_in_value(entry.get("value")))
+            entry = _as_dict(inputs.get(str(schema.get("key"))))
+            ids.update(_integration_ids_in_value(entry.get("value")))
     return sorted(ids)
 
 
@@ -59,13 +62,13 @@ def _tested_action(actions: Any, current_action_id: Optional[str]) -> dict[str, 
 
 def workflow_test_run_context(actions: Any, current_action_id: Optional[str]) -> WorkflowTestRunContext:
     action = _tested_action(actions, current_action_id)
-    config = action.get("config") if isinstance(action.get("config"), dict) else {}
-    inputs = config.get("inputs") if isinstance(config.get("inputs"), dict) else {}
-    template_id = config.get("template_id")
+    config = _as_dict(action.get("config"))
+    inputs = _as_dict(config.get("inputs"))
+    template_id = config.get("template_id") if isinstance(config.get("template_id"), str) else None
     return WorkflowTestRunContext(
         action_id=action.get("id"),
         action_type=action.get("type"),
-        template_id=template_id if isinstance(template_id, str) else None,
+        template_id=template_id,
         input_keys=sorted(inputs.keys()),
         integration_ids=_integration_ids(template_id, inputs),
     )
