@@ -2808,6 +2808,8 @@ class TestTaskAPI(BaseTaskAPITest):
             custom_image_id=None,
             initial_permission_mode=None,
             signal_report_id=None,
+            task_runtime=None,
+            json_schema=None,
         )
 
         update = self.client.patch(

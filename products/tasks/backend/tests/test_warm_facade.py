@@ -1074,14 +1074,20 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         assert Task.objects.filter(team=self.team, deleted=False).count() == 2
         assert str(dto.origin_product) == submit_origin
 
-    def test_permission_mode_mismatch_creates_a_new_cold_task(self):
-        # The mode is read when the agent session is constructed, so a warm booted on one mode can't
-        # serve a submit that asked for another.
+    @parameterized.expand(
+        [
+            ("permission_mode_mismatch", {"initial_permission_mode": "bypassPermissions"}, 2),
+            ("task_runtime_mismatch", {"runtime": Task.Runtime.PI}, 2),
+            ("output_schema_requested", {"json_schema": {"type": "object"}}, 2),
+            ("matching_task_runtime", {"runtime": Task.Runtime.ACP}, 1),
+        ]
+    )
+    def test_warm_reuse_requires_matching_run_settings(self, _name, requested, expected_tasks):
         self._warm_run(extra_state={"initial_permission_mode": "default"})
         with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
-            self._create(initial_permission_mode="bypassPermissions")
+            self._create(**requested)
 
-        assert Task.objects.filter(team=self.team, deleted=False).count() == 2
+        assert Task.objects.filter(team=self.team, deleted=False).count() == expected_tasks
 
     def test_creates_a_cold_task_when_warm_release_is_still_pending(self) -> None:
         warm_task, _ = self._warm_run(extra_state={"cancel_requested_at": "2026-01-01T00:00:00Z"})
