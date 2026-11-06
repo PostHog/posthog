@@ -1465,3 +1465,19 @@ export const HomePulseEmptyAndError: Story = {
         }),
     ],
 }
+
+const NEWS_FLAGS = [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS, FEATURE_FLAGS.TODAY_NEWS]
+
+export const HomeWithNews: Story = {
+    decorators: [keepNumbers([])],
+    parameters: { featureFlags: NEWS_FLAGS },
+}
+
+export const HomeWithNewsOpen: Story = {
+    decorators: [keepNumbers([])],
+    parameters: { featureFlags: NEWS_FLAGS },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByRole('button', { name: /The news/ }))
+        await within(document.body).findByRole('dialog')
+    },
+}

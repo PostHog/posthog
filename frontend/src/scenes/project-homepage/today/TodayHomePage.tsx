@@ -2,12 +2,17 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useLayoutEffect, useRef } from 'react'
 
-import { Skeleton, Text } from '@posthog/quill'
+import { Skeleton, Text, cn } from '@posthog/quill'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { TodayExplore } from './TodayExplore'
 import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
+import { TodayHomeComposer } from './TodayHomeComposer'
 import { reportIdFromPath, todayLogic } from './todayLogic'
+import { TodayNewsButton } from './TodayNewsButton'
+import { TodayNewsDialog } from './TodayNewsDialog'
 import { TodayPulse } from './TodayPulse'
 import { TodayPulseEditor } from './TodayPulseEditor'
 import { TodayRecents } from './TodayRecents'
@@ -65,6 +70,7 @@ export function TodayHomePage(): JSX.Element {
     } = useValues(todayHighlightsLogic)
     const { pulseViewMounted, pulseViewUpdated, pulseViewUnmounted } = useActions(todayHighlightsLogic)
     const rootRef = useRef<HTMLDivElement>(null)
+    const todayNews = useFeatureFlag('TODAY_NEWS')
 
     useLayoutEffect(() => {
         pulseViewMounted(useSampleData)
@@ -111,24 +117,38 @@ export function TodayHomePage(): JSX.Element {
     }, [returnFocusReportId, setReturnFocusReportId])
 
     return (
-        <div ref={rootRef} className="TodayHome Today__page" data-quill>
+        <div ref={rootRef} className={cn('TodayHome Today__page', todayNews && 'TodayHome--news')} data-quill>
             <TodaySampleBanner />
             <section className="TodayHome__intro" aria-label="Today">
                 <div className="TodayHome__greeting">
                     <Text render={<h1 />} className="m-0 text-[21px] font-[560] tracking-[-0.015em]">
                         {greeting}
                     </Text>
+                    {todayNews ? <TodayNewsButton /> : null}
                 </div>
                 <div className="TodayHome__metaRow">
                     <TodayMetaLine />
-                    {!pulsePending && highlights && pulsePinsLoaded ? <TodayPulseEditor /> : null}
+                    {!todayNews && !pulsePending && highlights && pulsePinsLoaded ? <TodayPulseEditor /> : null}
                 </div>
+                {todayNews ? <TodayHomeComposer /> : null}
             </section>
+            {todayNews ? <TodayNewsDialog /> : null}
             <div className="TodayHome__body">
                 {pulsePending ? (
                     <TodayPulseSkeleton />
                 ) : highlights && pulseSlots?.length > 0 ? (
-                    <TodayPulse metrics={pulseTiles} slots={pulseSlots} />
+                    todayNews ? (
+                        <div className="TodayHome__pulse">
+                            <TodayPulse metrics={pulseTiles} slots={pulseSlots} />
+                            {pulsePinsLoaded ? (
+                                <div className="TodayHome__pulseEdit">
+                                    <TodayPulseEditor />
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : (
+                        <TodayPulse metrics={pulseTiles} slots={pulseSlots} />
+                    )
                 ) : highlights?.status === 'ready' ? (
                     <Text size="sm" variant="muted" render={<p />} className="m-0">
                         Key numbers show here when you or your team open a few trend insights.
