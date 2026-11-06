@@ -22,7 +22,6 @@ from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import GitHubIntegrationError, _is_safe_github_repo_path
 from posthog.models.integration.github import GitHubIntegration
-from posthog.models.integration.model import Integration
 from posthog.workload_identity.subjects import (
     ResolvedWorkloadSubject,
     WorkloadSubjectLookupUnavailable,
@@ -53,7 +52,7 @@ def _through_integration(team_id: int, repository: str) -> tuple[ResolvedWorkloa
     """Ask GitHub through the team's GitHub integrations, which also see the private repositories they were
     installed on. Also says whether an installation couldn't answer, because then a miss proves nothing."""
     unavailable = False
-    for integration in Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
+    for integration in IntegrationManager.github.oauth.list(team_id):
         github = GitHubIntegration(integration, source=EGRESS_SOURCE, priority=Priority.NORMAL)
         try:
             response = github.api_request("GET", f"/repos/{repository}", endpoint=GITHUB_REPOSITORY_ENDPOINT)

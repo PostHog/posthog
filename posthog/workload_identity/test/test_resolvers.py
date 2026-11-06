@@ -71,11 +71,12 @@ class TestResolveGitHubRepository(SimpleTestCase):
         else:
             github.api_request.return_value = integration
         with (
-            patch("posthog.workload_identity.resolvers.Integration") as model,
+            patch(
+                "posthog.workload_identity.resolvers.IntegrationManager.github.oauth.list", return_value=integrations
+            ),
             patch("posthog.workload_identity.resolvers.GitHubIntegration", return_value=github),
             patch("posthog.workload_identity.resolvers.github_request", return_value=public_response) as public,
         ):
-            model.objects.filter.return_value.order_by.return_value = integrations
             if isinstance(expected, type):
                 with self.assertRaises(expected):
                     resolve_github_repository(1, "acme/web")
@@ -86,7 +87,7 @@ class TestResolveGitHubRepository(SimpleTestCase):
 
     def test_refuses_a_name_that_could_reach_another_github_endpoint(self) -> None:
         with (
-            patch("posthog.workload_identity.resolvers.Integration") as integration,
+            patch("posthog.workload_identity.resolvers.IntegrationManager.github.oauth.list") as integration,
             patch("posthog.workload_identity.resolvers.github_request") as public,
         ):
             with self.assertRaises(WorkloadSubjectNotFound):
