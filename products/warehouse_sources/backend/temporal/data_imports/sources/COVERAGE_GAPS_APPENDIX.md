@@ -10894,14 +10894,14 @@ Diffed against: <https://developer.servicem8.com/llms.txt>
 
 - [x] `Materials (GET /api_1.0/material.json)` — resolve JobMaterial.material_uuid and Staff.labour_material_uuid to inventory records, labour rates, costs, and stock levels (high)
 - [x] `Tax Rates (GET /api_1.0/taxrate.json)` — resolve tax_rate_uuid on job materials and clients to named tax rates (high)
-- [ ] `Job Queues (GET /api_1.0/queue.json)` — resolve Job.queue_uuid to queue names for backlog and dispatch analysis (high)
-- [ ] `Badges (GET /api_1.0/badge.json)` — resolve badge UUIDs on jobs and clients to meaningful business classifications (high)
-- [ ] `Job Material Bundles (GET /api_1.0/jobmaterialbundle.json)` — resolve JobMaterial.job_material_bundle_uuid and analyze the bundled work sold on each job (high)
+- [x] `Job Queues (GET /api_1.0/queue.json)` — resolve Job.queue_uuid to queue names for backlog and dispatch analysis (high)
+- [x] `Badges (GET /api_1.0/badge.json)` — resolve badge UUIDs on jobs and clients to meaningful business classifications (high)
+- [x] `Job Material Bundles (GET /api_1.0/jobmaterialbundle.json)` — resolve JobMaterial.job_material_bundle_uuid and analyze the bundled work sold on each job (high)
 - [x] `Staff Time Events (GET /api_1.0/stafftimeevent.json)` — measure working hours and breaks beyond time recorded against individual jobs (high)
 - [x] `Feedback (GET /api_1.0/feedback.json)` — measure customer satisfaction and connect feedback to completed jobs (high)
 - [ ] `Job Allocations (GET /api_1.0/joballocation.json)` — compare scheduled work, staff assignments, and actual job activity (medium)
 - [ ] `Forms and Form Responses (GET /api_1.0/form.json; GET /api_1.0/formresponse.json)` — analyze inspection results and completed forms by job, staff member, and asset (medium)
-- [ ] `Job Contacts (GET /api_1.0/jobcontact.json)` — connect job and billing contacts to jobs instead of relying on company contacts alone (medium)
+- [x] `Job Contacts (GET /api_1.0/jobcontact.json)` — connect job and billing contacts to jobs instead of relying on company contacts alone (medium)
 
 Note: Fetched the official llms index and parsed the OpenAPI definitions embedded in its collection-reference Markdown pages. Checked job, material, client, and staff fields for missing ID lookups. These additions use flat collections with record UUIDs, rather than requests for each job. Excluded templates, webhook plumbing, attachment transfers, and write operations.
 
@@ -10954,19 +10954,21 @@ Note: Diffed Microsoft's v1.0 references for drive items, list items, sites, and
 
 ## Shipmail — **thin**
 
-Today (4): `domains`, `mailboxes`, `messages`, `suppressions`
+Today (8): `audience_subscribers`, `domains`, `mailboxes`, `members`, `messages`, `newsletters`, `suppressions`, `threads`
 
 Diffed against: <https://shipmail.to/openapi.json>
 
-- [ ] `Threads (GET /api/v1/threads)` — resolve message thread_id values and compare conversation volumes, message counts, and recent activity (high)
-- [ ] `Newsletters (GET /api/v1/newsletters)` — measure newsletter deliveries, opens, clicks, bounces, and complaints, which the current message projection does not expose (high)
+- [x] `Threads (GET /api/v1/threads)` — resolve message thread_id values and compare conversation volumes, message counts, and recent activity (high)
+- [x] `Newsletters (GET /api/v1/newsletters)` — measure newsletter deliveries, opens, clicks, bounces, and complaints, which the current message projection does not expose (high)
 - [ ] `Audiences (GET /api/v1/audiences)` — analyze audience growth, subscription counts, and consent sources (medium)
-- [ ] `Audience subscribers (GET /api/v1/audiences/{id}/subscribers)` — analyze audience membership and subscriber status alongside newsletter results (medium)
+- [x] `Audience subscribers (GET /api/v1/audiences/{id}/subscribers)` — analyze audience membership and subscriber status alongside newsletter results (medium)
 - [ ] `Mailbox inbox thread attention states (GET /api/v1/mailboxes/{id}/inbox/threads)` — measure unanswered conversations, follow-up dates, assignments, and completed threads (medium)
-- [ ] `Members (GET /api/v1/members)` — analyze person roles and mailbox access alongside team email activity (medium)
+- [x] `Members (GET /api/v1/members)` — analyze person roles and mailbox access alongside team email activity (medium)
 - [ ] `Calendar events (GET /api/v1/calendar/events)` — connect meeting activity and recurring appointments to mailbox communication (medium)
 
 Note: Parsed all GET paths and relevant response schemas in the official OpenAPI JSON. The messages table uses /messages/analytics, whose projection omits newsletter engagement counters and thread attention states. Threads, subscriber lists, inbox states, and calendars need mailbox or audience inputs; attention states can change during pagination. Excluded credentials, DNS configuration, routing rules, webhooks, uploads, and message-body field differences.
+
+Threads and audience subscribers use paginated mailbox and audience listings as parents. Audiences remain an internal lookup, without a separate table. All four additions use full refresh because their list endpoints have no time filter. Threads require both `threads:read` and `mailboxes:read`; subscribers require `audiences:read`. Member mailbox access lists can omit mailboxes outside the API key's access.
 
 ## Shippo — gaps
 
