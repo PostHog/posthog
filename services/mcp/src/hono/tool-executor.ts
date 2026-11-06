@@ -9,6 +9,7 @@ import {
     toolResultAnalyticsProperties,
     type ToolResultPayload,
 } from '@/lib/build-tool-result'
+import { isEmptyToolResult } from '@/lib/empty-tool-result'
 import {
     ExecCommandError,
     handleToolError,
@@ -27,6 +28,7 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
+import { challengeStepUpBeforeRun } from '@/lib/missing-scope'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeErrorToken } from '@/lib/posthog/analytics'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
@@ -40,6 +42,7 @@ import {
     formatInputValidationError,
     getDeprecatedToolRedirect,
     markNoncanonicalMetricRun,
+    missingToolScopeError,
     parseExecCallInnerArgs,
     parseExecCallInnerToolName,
     repairArgumentNesting,
@@ -244,6 +247,7 @@ export class ToolExecutor {
         }
 
         const rawArgs = (params?.arguments ?? {}) as Record<string, unknown>
+        challengeStepUpForGatedTool(toolName, rawArgs, state)
         const originalTool = this.findOriginalTool(toolName, state)
         const rawRequestMeta = params?._meta
         const requestMeta =
@@ -344,6 +348,11 @@ export class ToolExecutor {
 
         if (!state.allTools.some((t) => t.name === toolName)) {
             toolCallsTotal.inc({ tool: toolName, status: 'error' })
+            const scopeGatedTool = state.findScopeGatedTool(toolName)
+            if (scopeGatedTool) {
+                const error = missingToolScopeError(scopeGatedTool, state.context, state.oauthClientId)
+                return handleToolError(error, toolName, state.distinctId, undefined, state.suppressAnalytics)
+            }
             const text = getDeprecatedToolRedirect(toolName, state.allTools) ?? `Tool ${toolName} not found`
             return { content: [{ type: 'text', text }], isError: true }
         }
@@ -501,6 +510,7 @@ export class ToolExecutor {
                 toolName: tool.name,
                 args: validation.data,
                 isError: false,
+                resultEmpty: isEmptyToolResult(handlerResult, tool.name),
             })
 
             let response: ToolResultPayload
@@ -742,6 +752,7 @@ export class ToolExecutor {
                 execVerb: typeof execShape.$mcp_exec_verb === 'string' ? execShape.$mcp_exec_verb : undefined,
                 args: execMetrics.innerToolName ? parseExecCallInnerArgs(validation.data.command) : validation.data,
                 isError: innerFailure !== undefined,
+                resultEmpty: execMetrics.resultEmpty,
             })
 
             void trackToolCall(
@@ -1100,6 +1111,23 @@ function classifyToolError(error: unknown, toolName: string): ToolErrorClassific
     const classification = resolveToolErrorClassification(error)
     toolErrorsTotal.inc({ tool: toolName, error_type: classification.errorType })
     return classification
+}
+
+// Runs first in a tool call, before analytics, guidance, interview recruitment or the tool itself,
+// so a step-up client that replays the call after re-consent repeats nothing.
+function challengeStepUpForGatedTool(toolName: string, args: Record<string, unknown>, state: ResolvedState): void {
+    if (!state.supportsStepUp || state.viaMcpStore) {
+        return
+    }
+    const targetToolName =
+        toolName === 'exec' && typeof args.command === 'string' ? parseExecCallInnerToolName(args.command) : toolName
+    if (!targetToolName || state.allTools.some((tool) => tool.name === targetToolName)) {
+        return
+    }
+    const scopeGatedTool = state.findScopeGatedTool(targetToolName)
+    if (scopeGatedTool) {
+        challengeStepUpBeforeRun(scopeGatedTool.requiredScopes, state.supportsStepUp)
+    }
 }
 
 function resolveToolErrorClassification(error: unknown): ToolErrorClassification {

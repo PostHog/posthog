@@ -1,41 +1,30 @@
 # Toolbar browser extension
 
 The extension gives the toolbar tools to a page without the floating toolbar.
-It opens from the extension button as a side panel in Chrome and as a sidebar in Firefox, and shows `panel.html`.
+It opens from the extension button as a side panel in Chrome, and shows `panel.html`.
 The panel follows the active tab of its window.
 
 ## Build and install
 
-Build both browser folders from `frontend/`:
+Build it from `frontend/`:
 
 ```sh
 pnpm build:toolbar-extension        # one build
 pnpm watch:toolbar-extension        # rebuild on change
 ```
 
-The build writes `dist/toolbar-extension/chrome/` and `dist/toolbar-extension/firefox/`.
-Only `manifest.json` is different between them.
-It also zips each folder into `dist/toolbar-extension/posthog-toolbar-<browser>-<version>.zip`.
+The build writes `dist/toolbar-extension/chrome/`, and zips it into `dist/toolbar-extension/posthog-toolbar-chrome-<version>.zip` for the Chrome Web Store.
 
 A pull request that changes the extension runs the "Toolbar extension" workflow.
 Download the `toolbar-extension` artifact from the run to install that build without building it yourself.
 
-### Chrome (116 or later)
+The extension needs Chrome 116 or later.
 
 1. Open `chrome://extensions` and turn on **Developer mode**.
-2. Click **Load unpacked** and select `frontend/dist/toolbar-extension/chrome`, or the unzipped Chrome folder from the artifact.
+2. Click **Load unpacked** and select `frontend/dist/toolbar-extension/chrome`, or the unzipped folder from the artifact.
 3. Pin the extension, then click its button to open the side panel.
 
 After a rebuild, click the reload icon on the extension card, then close and open the side panel.
-
-### Firefox (140 or later)
-
-1. Open `about:debugging#/runtime/this-firefox`.
-2. Click **Load Temporary Add-on** and select `frontend/dist/toolbar-extension/firefox/manifest.json`, or the Firefox zip from the artifact.
-3. Click the extension button to open the sidebar.
-
-Firefox removes a temporary add-on when it quits.
-A permanent install needs an add-on signed by addons.mozilla.org.
 
 ## Permissions
 
@@ -44,31 +33,28 @@ A permanent install needs an add-on signed by addons.mozilla.org.
 | `http://*/*`, `https://*/*` | The side panel reads the URL of the active tab and runs scripts in it when the user switches tabs. The same grant calls the PostHog API with your PostHog login, on Cloud and on a self-hosted host. |
 | `scripting`                 | Injects the content script, and reads the page's posthog-js settings in the page's world.                                                                                                            |
 | `storage`                   | Saves the PostHog host and the toolbar's OAuth tokens for each project.                                                                                                                              |
-| `sidePanel` (Chrome)        | Shows the side panel.                                                                                                                                                                                |
+| `sidePanel`                 | Shows the side panel.                                                                                                                                                                                |
 
 The manifest also lists `content.css` and its fonts in `web_accessible_resources`, because the content script links them into its shadow root on the page.
 
 ### Site access
 
-Both browsers let the user take site access back from an extension.
+Chrome lets the user take site access back from an extension.
 When the extension can't reach the PostHog host, the panel asks for access to it.
 When it can't reach the site, the panel asks the user to reload the page and try again.
 
 ## Data collection
 
-Firefox shows the extension's data collection at install, from `data_collection_permissions` in the Firefox manifest (`buildToolbarExtensionManifest` in `frontend/toolbar-config.mjs`).
-The Chrome Web Store asks for the same facts in the item's privacy tab.
-Update both when the extension starts to send new data.
+The Chrome Web Store asks what data the extension sends, in the item's privacy tab.
+Update the answers there when the extension starts to send new data.
 
-| Category                             | What the extension sends                                                                                                                       | Where                     |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| `authenticationInfo` (required)      | The PostHog session cookie, and the OAuth code, PKCE verifier and access and refresh tokens of the toolbar sign-in.                            | The user's PostHog host   |
-| `browsingActivity` (required)        | The active tab's URL, when the panel connects the toolbar to a project and when it loads heatmap and web vitals data for the page.             | The user's PostHog host   |
-| `websiteContent` (required)          | Element selectors and text in a saved action, variant HTML in a saved experiment, and page screenshots in a saved heatmap or event screenshot. | The user's PostHog host   |
-| `technicalAndInteraction` (optional) | Usage events from the panel, such as the tools the user opens, with the user's PostHog distinct ID.                                            | PostHog's usage analytics |
+| Category                   | What the extension sends                                                                                                                       | Where                     |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| Authentication information | The PostHog session cookie, and the OAuth code, PKCE verifier and access and refresh tokens of the toolbar sign-in.                            | The user's PostHog host   |
+| Web history                | The active tab's URL, when the panel connects the toolbar to a project and when it loads heatmap and web vitals data for the page.             | The user's PostHog host   |
+| Website content            | Element selectors and text in a saved action, variant HTML in a saved experiment, and page screenshots in a saved heatmap or event screenshot. | The user's PostHog host   |
+| User activity              | Usage events from the panel, such as the tools the user opens, with the user's PostHog distinct ID.                                            | PostHog's usage analytics |
 
-The panel sends usage events only when the user allows `technicalAndInteraction`.
-Firefox lets the user change this in the add-on's settings, and the panel applies the change right away.
 The content script never sends usage events or logs, because it mounts the toolbar without `instrument`.
 
 ## Store listing images
@@ -85,16 +71,17 @@ node src/toolbar/extension/store-listing/generate.mjs [path/to/unpacked/extensio
 
 The path defaults to `dist/toolbar-extension/chrome`. Point it at the unzipped release build to show exactly what the store item ships.
 
-Each screenshot shows a browser window with a website on the left and the side panel on the right:
+The first screenshot is the marquee design at 1280×800.
+Each of the other four shows the PostHog logo and a headline above a browser window, with a website on the left and the side panel on the right:
 
 - The website comes from a capture of an invented site with the page tools running. The script downloads each capture from the `PostHog/pr-assets` repository and hides the old panel in it.
 - The panel is a fresh render of the built `panel.html` with a fake `browser` API, like `ExtensionPanel.stories.tsx`. `store-listing/panelStates.mjs` holds the state of each tool, and it matches what the capture shows.
 
 To change an image:
 
-- **Headline or caption:** edit `SCREENSHOTS` in `generate.mjs`.
+- **Headline, caption or order:** edit `SCREENSHOTS` in `generate.mjs`. The store shows the screenshots in the order you upload them, so keep the number in each file name.
 - **Panel UI:** rebuild the extension and run the script again. A change to the state shape of a tool also needs an update in `panelStates.mjs`.
-- **Tile color, tagline or hedgehog:** edit `TILE_COLOR`, `TILE_TAGLINE` or the `@posthog/brand` import in `generate.mjs`.
+- **Tile color, tagline or hedgehog:** edit `TILE_COLOR`, `TILE_TAGLINE` or the `@posthog/brand` import in `generate.mjs`. The change applies to the first screenshot and both promo tiles.
 - **Website side:** take a new capture with the extension on the site, upload it with `hogli pr:upload-image`, and replace the `capture` URL. A capture must be 1681×864 points at 2x, with a 44-point browser bar on top and the panel in the right 401 points.
 
 Upload the new images to the store item by hand. The store doesn't take them from this folder.
@@ -155,7 +142,7 @@ flowchart LR
 
 ## Check the flows by hand
 
-Use a site in the project's authorized URLs. Do these steps in Chrome and in Firefox.
+Use a site in the project's authorized URLs.
 
 1. Open the panel on the site. The panel connects the toolbar to the project: a tab opens and closes by itself.
 2. Click the Inspect icon and hover an element. The panel shows its selector and actions. Click the element to keep it selected.
@@ -173,3 +160,24 @@ Use a site in the project's authorized URLs. Do these steps in Chrome and in Fir
 14. Click **Experiments** and open an experiment. Open a variant: the page shows it. Edit its HTML: the page changes as you type. Close the variant, then go back: the page shows its original state.
 15. Create an experiment, pick an element for a transformation with **Select element**, edit it, and save it. Open a page whose snippet sets `disable_web_experiments`: **Experiments** shows a warning.
 16. Switch the browser to dark mode. The panel follows it.
+
+## Future: Firefox
+
+We might publish the extension on addons.mozilla.org (AMO) later. It is Chrome only for now, because AMO's review process blocks it:
+
+- **Source upload.** AMO needs the source code of a bundled or minified add-on, as one archive of at most 200 MB.
+  The whole repository is larger than that, so a release would need a trimmed archive that still builds the extension.
+- **Identical rebuild.** AMO reviewers build the add-on from that archive and compare the result with the submitted file, and any difference fails the review.
+  The extension build isn't reproducible across machines: the minified names in the shared chunks change with the absolute path of the source folder.
+  A Firefox release has to be built from the source archive in a fixed folder, with instructions that pin the folder, Node and pnpm.
+
+To bring Firefox back:
+
+- [ ] Make the build output independent of the source folder path, or document a fixed build folder.
+- [ ] Script a trimmed source archive under 200 MB, with build instructions, and check that it rebuilds the submitted zip byte for byte.
+- [ ] Restore the Firefox manifest: `sidebar_action`, `background.scripts`, and `browser_specific_settings.gecko` with the add-on ID, `strict_min_version: '140.0'` and `data_collection_permissions`.
+- [ ] Restore the `sidebarAction.toggle()` fallback in `openPanelFromToolbarButton`.
+- [ ] Declare usage events as the optional `technicalAndInteraction` category, and send them only while the user allows it. Opt out again when the user revokes it.
+- [ ] Add the Firefox folder and zip back to the build and the CI artifact.
+
+`git log -S sidebar_action -- frontend/toolbar-config.mjs` finds the commits that had the Firefox build.

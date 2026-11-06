@@ -129,19 +129,22 @@ def generate_symbol_set_upload_presigned_urls(file_key: str, content_length: int
     return urls
 
 
-def upload_content(content: bytearray) -> tuple[str, str]:
-    content_hash = hashlib.sha512(content).hexdigest()
+def check_upload_size(size: int) -> None:
+    if size > ONE_HUNDRED_MEGABYTES:
+        raise ValidationError(
+            code="file_too_large", detail="Combined source map and symbol set must be less than 100MB"
+        )
 
+
+def upload_content(content: bytearray) -> tuple[str, str]:
     if not settings.OBJECT_STORAGE_ENABLED:
         raise ValidationError(
             code="object_storage_required",
             detail="Object storage must be available to allow source map uploads.",
         )
 
-    if len(content) > ONE_HUNDRED_MEGABYTES:
-        raise ValidationError(
-            code="file_too_large", detail="Combined source map and symbol set must be less than 100MB"
-        )
+    check_upload_size(len(content))
+    content_hash = hashlib.sha512(content).hexdigest()
 
     upload_path = generate_symbol_set_file_key()
     object_storage.write(upload_path, bytes(content))

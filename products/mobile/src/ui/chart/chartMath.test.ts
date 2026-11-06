@@ -1,7 +1,11 @@
+import { getCalendars } from 'expo-localization'
+
+import { barPageSize, barSegments, barWindow } from './barLayout'
 import { barSpan, yPosition } from './chartGeometry'
 import {
     formatAxisDate,
     formatChange,
+    formatPagerDate,
     formatTooltipDate,
     nearestIndex,
     snapToValue,
@@ -9,9 +13,52 @@ import {
     xTickIndices,
     yAxisTicks,
 } from './chartMath'
-import type { ChartInterval, ChartKind } from './types'
+import type { ChartInterval, ChartKind, ChartSeries } from './types'
 
 describe('chartMath', () => {
+    afterEach(() => {
+        jest.mocked(getCalendars).mockReturnValue([{ ...getCalendars()[0], uses24hourClock: false }])
+    })
+
+    test.each(['grouped', 'stacked'] as const)('bar windows cover every bucket at a readable width: %s', (layout) => {
+        const size = barPageSize(300, 6, layout)
+        const indices: number[] = []
+        for (let page = 0; page < Math.ceil(31 / size); page++) {
+            const { start, end } = barWindow(31, size, page * size)
+            expect(((300 / (end - start)) * 0.75) / (layout === 'stacked' ? 1 : 6)).toBeGreaterThanOrEqual(
+                layout === 'stacked' ? 14 : 6
+            )
+            indices.push(...Array.from({ length: end - start }, (_, index) => start + index))
+        }
+        expect(indices.sort((a, b) => a - b)).toEqual(Array.from({ length: 31 }, (_, index) => index))
+        expect(barWindow(31, size, 99)).toEqual({ start: 0, end: 1 })
+        expect(barWindow(31, size + 2, size).end).toBe(barWindow(31, size, size).end)
+    })
+
+    test('stacks fit the sum, keep negative values below zero, and exclude gaps and previous periods', () => {
+        const series: ChartSeries[] = [
+            [2, -3, 0],
+            [5, -2, Number.NaN],
+            [4, 1, 0],
+        ].map((values, index) => ({
+            key: String(index),
+            label: String(index),
+            color: '#000000',
+            points: values.map((value) => ({ at: 0, value })),
+        }))
+        series.splice(1, 0, { ...(series[0] as ChartSeries), key: 'previous', compareOf: '0' })
+        const stacked = barSegments(series, 'stacked')
+        expect(stacked[2]).toEqual({ starts: [2, -3, 0], ends: [7, -5, Number.NaN] })
+        expect(stacked[3]).toEqual({ starts: [7, 0, 0], ends: [11, 1, 0] })
+        expect(
+            barSegments(
+                series.filter((s) => s.key !== '0'),
+                'stacked'
+            )[1]?.ends
+        ).toEqual([5, -2, Number.NaN])
+        expect(barSegments(series, 'grouped')[2]).toEqual({ starts: [0, 0, 0], ends: [5, -2, Number.NaN] })
+    })
+
     test.each<[string, number[], ChartKind, [number, number], number[]]>([
         ['small counts never get fractional ticks', [0, 1, 2, 1], 'bar', [0, 2], [0, 1, 2]],
         ['signed bars include zero', [-10, 0, 20], 'bar', [-10, 20], [-10, 0, 10, 20]],
@@ -62,15 +109,28 @@ describe('chartMath', () => {
         expect(tooltipLeft(anchorX, 100, containerWidth, 10)).toBe(expected)
     })
 
-    test.each<[ChartInterval, string, string]>([
-        ['hour', '09:05', 'Tue, Oct 13, 09:05'],
-        ['day', 'Oct 13', 'Tue, Oct 13, 2026'],
-        ['week', 'Oct 13', 'Oct 13 – 19, 2026'],
-        ['month', 'Oct 2026', 'Oct 2026'],
-    ])('formats %s dates for the axis and the tooltip', (interval, axis, tooltip) => {
+    test.each<[ChartInterval, string, string, string]>([
+        ['hour', '9:05 AM', 'Tue, Oct 13, 9:05 AM', 'Oct 13, 9:05 AM'],
+        ['day', 'Oct 13', 'Tue, Oct 13, 2026', 'Oct 13'],
+        ['week', 'Oct 13', 'Oct 13 – 19, 2026', 'Oct 13'],
+        ['month', 'Oct 2026', 'Oct 2026', 'Oct 2026'],
+    ])('formats %s dates for the axis, tooltip and pager', (interval, axis, tooltip, pager) => {
         const at = new Date(2026, 9, 13, 9, 5).getTime()
         expect(formatAxisDate(at, interval)).toBe(axis)
         expect(formatTooltipDate(at, interval)).toBe(tooltip)
+        expect(formatPagerDate(at, interval)).toBe(pager)
+    })
+
+    test.each([
+        [false, '4:07 PM'],
+        [true, '16:07'],
+    ])('hourly chart labels follow the 24-hour preference %s', (uses24hourClock, clock) => {
+        jest.mocked(getCalendars).mockReturnValue([{ ...getCalendars()[0], uses24hourClock }])
+        const at = new Date(2026, 9, 13, 16, 7).getTime()
+        expect(formatPagerDate(at, 'hour')).toBe(`Oct 13, ${clock}`)
+        expect(formatAxisDate(at, 'hour')).toBe(clock)
+        expect(formatTooltipDate(at, 'hour', true)).toBe(clock)
+        expect(formatTooltipDate(at, 'hour')).toBe(`Tue, Oct 13, ${clock}`)
     })
 
     test.each<[string, Date, boolean, string]>([

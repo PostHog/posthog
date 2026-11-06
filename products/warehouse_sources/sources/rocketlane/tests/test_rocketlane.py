@@ -1,5 +1,7 @@
 from typing import Any
 
+import time_machine
+
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.rocketlane._config import RocketlaneSourceConfig
@@ -84,6 +86,27 @@ class TestFanout:
                 [None, None, None, None],
                 [{"invoiceLineItemId": 10, "invoiceId": 1}, {"invoiceLineItemId": 11, "invoiceId": 1}],
             ),
+            (
+                "spaces",
+                "projects",
+                "projectId",
+                ["/api/1.0/projects", "/api/1.0/spaces", "/api/1.0/spaces", "/api/1.0/spaces"],
+                [None, "1", "1", "2"],
+                [{"spaceId": 10}, {"spaceId": 11}],
+            ),
+            (
+                "invoice_payments",
+                "invoices",
+                "invoiceId",
+                [
+                    "/api/1.0/invoices",
+                    "/api/1.0/invoices/1/payments",
+                    "/api/1.0/invoices/1/payments",
+                    "/api/1.0/invoices/2/payments",
+                ],
+                [None, None, None, None],
+                [{"paymentId": 10, "invoiceId": 1}, {"paymentId": 11, "invoiceId": 1}],
+            ),
         ]
     )
     def test_walks_child_pages_per_parent_and_skips_missing_parent(
@@ -155,6 +178,39 @@ class TestFanout:
         assert result.saved_states[-1].fanout_state["completed"] == ["/phases?projectId=1", "/phases?projectId=2"]
 
 
+class TestRequestParams:
+    @parameterized.expand(
+        [
+            ("projects", None, None, None),
+            ("resource_allocations", "true", "2000-01-01", "2036-12-31"),
+            ("time_offs", "true", None, None),
+        ]
+    )
+    @time_machine.travel("2026-11-03", tick=False)
+    def test_sends_endpoint_params(
+        self,
+        endpoint: str,
+        include_all_fields: str | None,
+        start_date: str | None,
+        end_date: str | None,
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                _response([{"id": 1}], has_more=True, next_token="t2"),
+                _response([{"id": 2}], has_more=False, next_token=None),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.params("pageSize") == ["100", "100"]
+        assert result.params("pageToken") == [None, "t2"]
+        # Required params must stay on every page, not only the first.
+        assert result.params("includeAllFields") == [include_all_fields] * 2
+        assert result.params("startDate") == [start_date] * 2
+        assert result.params("endDate") == [end_date] * 2
+
+
 class TestRocketlaneSourceResponse:
     @parameterized.expand(
         [
@@ -167,6 +223,10 @@ class TestRocketlaneSourceResponse:
             ("invoice_line_items", ["invoiceId", "invoiceLineItemId"], None),
             ("time_entry_categories", ["categoryId"], None),
             ("phases", ["phaseId"], "createdAt"),
+            ("resource_allocations", ["allocationId"], "createdAt"),
+            ("time_offs", ["timeOffId"], "createdAt"),
+            ("spaces", ["spaceId"], "createdAt"),
+            ("invoice_payments", ["invoiceId", "paymentId"], None),
         ]
     )
     def test_response_uses_endpoint_primary_key(

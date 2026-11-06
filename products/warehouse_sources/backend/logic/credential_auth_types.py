@@ -34,6 +34,15 @@ def typed_in_auth_type(source_type: str) -> AuthType:
     return auth_type
 
 
+def has_typed_in_credentials(source_type: str) -> bool:
+    """False for a source type without a typed-in row: an OAuth-only source, or one without a kind (Custom)."""
+    try:
+        typed_in_auth_type(source_type)
+    except (ValueError, KeyError):
+        return False
+    return True
+
+
 def credentials_accessor(source_type: str) -> AuthAccessor:
     """The SDK accessor of the typed-in rows of the source type: its kind, its auth type, marked rows only."""
     rows = IntegrationManager.source(credential_kind(source_type))

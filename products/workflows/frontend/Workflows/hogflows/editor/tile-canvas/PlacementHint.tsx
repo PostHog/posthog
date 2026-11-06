@@ -6,10 +6,10 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { tileCanvasLogic } from './tileCanvasLogic'
 
 export function PlacementHint(): JSX.Element | null {
-    const { nodeToBeAdded, isMovingNode, isCopyingNode, isDraggingStep } = useValues(tileCanvasLogic)
+    const { nodeToBeAdded, isMovingNode, isCopyingNode, isDraggingStep, isDraggingNewStep } = useValues(tileCanvasLogic)
     const { cancel } = useActions(tileCanvasLogic)
     const action = isMovingNode ? 'move the step there' : isCopyingNode ? 'copy the step there' : null
-    const verb = isDraggingStep ? 'Drop on' : 'Click'
+    const verb = isDraggingStep || isDraggingNewStep ? 'Drop on' : 'Click'
     if (!action && !nodeToBeAdded) {
         return null
     }
@@ -22,7 +22,7 @@ export function PlacementHint(): JSX.Element | null {
                     </>
                 ) : (
                     <>
-                        Click a highlighted + to add{' '}
+                        {verb} a highlighted + to add{' '}
                         <strong>
                             {nodeToBeAdded && 'data' in nodeToBeAdded ? nodeToBeAdded.data.name : nodeToBeAdded?.name}
                         </strong>

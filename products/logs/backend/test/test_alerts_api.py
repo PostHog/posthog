@@ -24,6 +24,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import get_configuration, list_configurations, upsert_configuration
@@ -76,7 +77,9 @@ def _make_log_row(*, team_id: int, service: str, uuid: str, ts: datetime, body: 
 # Where a request-side delivery meets Temporal and the transports, which the tests stand in for.
 _WEB_START = "products.alerts_platform.backend.temporal.web_start"
 _ALERTS_API = "products.logs.backend.presentation.views.alerts_api"
-_NATIVE_PAGERDUTY_DELIVER = "products.alerts_platform.backend.delivery.pagerduty.PagerDutyTransport.deliver"
+# A native send leaves through the pinned adapter, so a stub there counts native sends with no network.
+_PINNED_URL_CHECK = "posthog.security.pinned_requests.validate_url_and_pin_ips"
+_PINNED_SEND = "posthog.security.pinned_requests.PinnedIPAdapter.send"
 
 
 class TestLogsAlertAPI(APIBaseTest):
@@ -487,6 +490,22 @@ class TestLogsAlertAPI(APIBaseTest):
         copy = next((view for view in copies if str(view.legacy_configuration_id) == alert_id), None)
         assert (copy.enabled if copy else None) is copy_enabled
 
+    def test_deleting_an_alert_logs_owns_deletes_its_copy_and_no_other(self) -> None:
+        self._keep_the_team_on_logs()
+        deleted = self._create_via_api(name="Deleted")
+        kept = self._create_via_api(name="Kept")
+        backfill_platform_alert_configurations(team_id=self.team.id)
+
+        response = self.client.delete(f"{self.base_url}{deleted['id']}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        with team_scope(self.team.id):
+            copies = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], limit=10, offset=0
+            ).configurations
+        copied = {str(view.legacy_configuration_id) for view in copies}
+        assert kept["id"] in copied and deleted["id"] not in copied
+
     def test_a_copy_an_operator_retired_by_name_stays_off_when_its_alert_comes_back_on(self) -> None:
         self._keep_the_team_on_logs()
         self._create_via_api(name="Already on the platform")
@@ -710,19 +729,36 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("capped", False, status.HTTP_400_BAD_REQUEST, MAX_ALERTS_PER_TEAM),
-            ("uncapped", True, status.HTTP_201_CREATED, MAX_ALERTS_PER_TEAM + 1),
+            ("capped", False, "logs_rows", status.HTTP_400_BAD_REQUEST, 0),
+            ("uncapped", True, "logs_rows", status.HTTP_201_CREATED, 1),
+            ("capped_by_alerts_only_on_the_platform", False, "platform_only", status.HTTP_400_BAD_REQUEST, 0),
+            ("not_capped_by_copies_of_deleted_alerts", False, "copies_of_deleted_rows", status.HTTP_201_CREATED, 1),
         ]
     )
-    def test_per_team_limit(self, _name, uncapped, expected_status, expected_count):
+    def test_per_team_limit(
+        self, _name: str, uncapped: bool, existing: str, expected_status: int, created: int
+    ) -> None:
         for i in range(MAX_ALERTS_PER_TEAM):
-            LogsAlertConfiguration.objects.create(
-                team=self.team,
-                name=f"Alert {i}",
-                threshold_count=1,
-                created_by=self.user,
-                filters={"severityLevels": ["error"]},
-            )
+            if existing != "logs_rows":
+                with team_scope(self.team.id):
+                    platform_testing.create_configuration(
+                        team_id=self.team.id,
+                        name=f"Alert {i}",
+                        source_kind="logs",
+                        source_config={},
+                        check_interval_minutes=5,
+                        owner="platform" if existing == "platform_only" else "source",
+                        legacy_configuration_id=uuid4() if existing == "copies_of_deleted_rows" else None,
+                    )
+            else:
+                LogsAlertConfiguration.objects.create(
+                    team=self.team,
+                    name=f"Alert {i}",
+                    threshold_count=1,
+                    created_by=self.user,
+                    filters={"severityLevels": ["error"]},
+                )
+        logs_rows_before = LogsAlertConfiguration.objects.filter(team=self.team).count()
 
         patched_ids = frozenset({self.team.id}) if uncapped else frozenset()
         with patch("products.logs.backend.alert_creation.UNCAPPED_ALERT_TEAM_IDS", patched_ids):
@@ -732,7 +768,7 @@ class TestLogsAlertAPI(APIBaseTest):
                 format="json",
             )
         assert response.status_code == expected_status
-        assert LogsAlertConfiguration.objects.filter(team=self.team).count() == expected_count
+        assert LogsAlertConfiguration.objects.filter(team=self.team).count() == logs_rows_before + created
 
     # --- Read-only fields ---
 
@@ -2873,7 +2909,8 @@ class TestLogsAlertAPI(APIBaseTest):
             patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True),
             # Sends the resolve inline, so the test sees which path delivered it.
             patch(f"{_WEB_START}.async_connect", AsyncMock(side_effect=RuntimeError("temporal unreachable"))),
-            patch(_NATIVE_PAGERDUTY_DELIVER, return_value=None) as native,
+            patch(_PINNED_URL_CHECK, return_value=PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set())),
+            patch(_PINNED_SEND, return_value=MagicMock(status_code=202)) as native,
             patch("products.logs.backend.platform_alert_legacy_events.emit_alert_internal_events") as emit,
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -3619,7 +3656,7 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
 
     def test_falls_back_to_the_logs_row_when_clickhouse_fails(self) -> None:
         with patch(
-            "products.logs.backend.presentation.views.alerts_api.history_by_legacy_id",
+            "products.logs.backend.presentation.views.alerts_api.history_by_public_id",
             side_effect=Exception("ClickHouse is down"),
         ):
             [row] = self._rows("list")

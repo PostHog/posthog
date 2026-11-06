@@ -154,6 +154,35 @@ There is no `series` or `labels`.
   It does not validate its input: the checks above run in `computeSankeyLayout`, so a host that calls the engine directly validates its own graph.
   Links resolve their endpoints by array index by default; for links that name string node ids, call `sankeyLayout().nodeId((node) => node.id)` first.
 
+## Gauge
+
+One value between a min and a max, as an arc on a track: Apdex, error budget, CPU.
+Takes `value`, `min`, `max`, and `thresholds`, not `series`, and fills its container at a fixed aspect ratio.
+
+```tsx
+<Gauge
+  value={0.91}
+  min={0}
+  max={1}
+  thresholds={[
+    { value: 0, color: 'var(--danger)', label: 'Poor' },
+    { value: 0.85, color: 'var(--success)', label: 'Good' },
+  ]}
+  target={{ value: 0.94, label: 'SLO' }}
+  label="Apdex"
+  theme={theme}
+/>
+```
+
+- `null` draws an empty track and a dash. It never reads as 0.
+- A threshold colors values from its `value` upward, and the lowest one also colors everything below it. Order does not matter. The arc and the value text take the color of the band the value is in, and with two or more thresholds the bands draw as a thin ring outside the track (`showThresholdBands`). Threshold colors may be `var(--…)`; the gauge resolves them, and an unresolvable one falls back to `color`.
+- A missing `min` is the lowest threshold, else 0. A value or target below it widens the range to 0, or to the value when it is negative, so a healthy value under an alert ladder does not read empty. A missing `max` is the highest threshold, else the larger of `min + 1` and 0, and grows to contain the value and the target, so the max label always agrees with where the arc ends. `resolveGaugeBounds` exports the same rule for a host that formats the bounds itself. An explicit range clamps the arc but the number still prints as-is. Inverted bounds swap, and `min === max` reads empty below the value and full at or above it.
+- `config.valueFormatter` formats the value, the min and max labels, and the tooltip. `buildYTickFormatter` builds one from the axis format options (`duration`, `duration_ms`, `percentage`, `currency`, prefix, suffix, decimals).
+- `config.sweepAngle` runs from 180 (a half circle) to 360 (a ring that starts at 12 o'clock); default 240. `config.thickness` is a fraction of the radius, so the look holds from 80px to 400px wide.
+- Text sizes with the radius. The value shrinks to fit the inner circle and truncates only below 9px. The label drops out when it no longer fits under the value, and the min and max labels hide when they would overlap or the sweep passes 300°. The full text stays in the tooltip and the canvas `aria-label`.
+- A value change eases over `config.animationMs` (default 500), and the arc color follows the bands as it passes them. The first render, `animationMs: 0`, and reduced motion snap.
+- The tooltip shows the value, the range, the threshold band (its `label`, else its range), and the target. A `tooltip` render prop receives `GaugeTooltipContext`: the `TooltipContext` plus the value, the range, the band, and the target. `formatGaugeBand` formats a band the way the default tooltip does.
+
 ## Sparkline
 
 An axis-less preset over `LineChart` (default, gradient-filled line) or stacked bars via `type: 'bar'`.
@@ -164,6 +193,9 @@ Bars use `hitArea: 'band'`.
 `minBarSize` is not exposed.
 
 ## MetricCard
+
+Deprecated: use `Metric` from `@posthog/quill-components/metric`.
+`MetricCard` stays only so apps that pin an older version can upgrade without a break.
 
 A left-aligned tile: headline number, change pill, sparkline.
 
@@ -177,6 +209,5 @@ A left-aligned tile: headline number, change pill, sparkline.
 - `changeTooltip` shows a styled hover tooltip on the change pill, using the host's tooltip surface tokens with chart-surface fallbacks.
 - `change.value` is a percent, so `8` reads as +8%. Its sign sets the pill's direction, and `goodDirection` decides whether that direction is good. `change.label` replaces the formatted text, for example `+1.1 pts` for a change in percentage points.
 
-The composable form is `Metric` in `@posthog/quill-components` (it needs `Card` and `Badge` from primitives, which charts cannot depend on).
+`Metric` lives in `@posthog/quill-components` because it needs `Card` and `Badge` from primitives, which charts cannot depend on.
 It is built on `Sparkline` plus the headless helpers this package exports: `resolveDelta` and `computeFallbackChangePercent` (delta math), `useAnimatedNumber` (count-up headline), `useHoverIntent` (hover dwell), and the `MetricChange` and `ResolvedDelta` types.
-Reach for `Metric` for a custom layout; use `MetricCard` for the default self-contained tile.

@@ -92,3 +92,14 @@ class TestSimilarwebSource:
         else:
             assert result.paths != [V5_ENGAGEMENT_PATH]
             assert result.params("api_key") == ["key-123"]
+
+    @parameterized.expand(
+        [
+            "Similarweb API returned status 400 for https://api.similarweb.com/v1/website/example.com/global-rank/global-rank",
+            "Similarweb API returned status 400 for https://api.similarweb.com/v5/website-analysis/websites/traffic-and-engagement",
+            "Similarweb API returned status 403 for https://api.similarweb.com/v1/website/example.com/total-traffic-and-engagement/visits",
+        ]
+    )
+    def test_non_retryable_errors_match_client_errors(self, observed_error: str) -> None:
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable)

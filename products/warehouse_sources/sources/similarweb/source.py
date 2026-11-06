@@ -66,6 +66,14 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
                 "Similarweb rejected the API key, or the account is out of data credits. "
                 "Check both on the API management page in your Similarweb account."
             ),
+            # Similarweb's documented cause for 400 is a request parameter outside what the
+            # account can answer — most commonly a start month earlier than the account's plan
+            # has history for. Retrying sends the exact same invalid window every time, so stop.
+            "Similarweb API returned status 400": (
+                "Similarweb rejected the request. This usually means the configured start month "
+                "is earlier than your plan's available history. Check the start month in the "
+                "source settings, then re-run the sync."
+            ),
             NO_DOMAINS_ERROR: "Add one or more domains in the source settings, then re-run the sync.",
         }
 

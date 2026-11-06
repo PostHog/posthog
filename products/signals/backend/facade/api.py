@@ -31,15 +31,23 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.signals.backend.activity_summary import read as activity_summary_read
+from products.signals.backend.activity_summary import (
+    read as activity_summary_read,
+    render as activity_summary_render,
+    search as activity_summary_search,
+)
+from products.signals.backend.activity_summary.prompt import ActivitySummaryMode as ActivitySummaryMode
 from products.signals.backend.activity_summary.read import (
+    ActivitySummaryStatus as ActivitySummaryStatus,
     ActivitySummaryTheme as ActivitySummaryTheme,
     ActivitySummaryVersionView as ActivitySummaryVersionView,
     ActivitySummaryView as ActivitySummaryView,
 )
 from products.signals.backend.activity_summary.search import (
     ActivitySummarySearchResult as ActivitySummarySearchResult,
-    SearchMode,
+    MatchKind as MatchKind,
+    SearchMode as SearchMode,
+    SemanticSearchUnavailable as SemanticSearchUnavailable,
     search_summaries,
 )
 from products.signals.backend.anomaly_scores import search as anomaly_search
@@ -143,6 +151,11 @@ logger = structlog.get_logger(__name__)
 
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
 MAX_SIGNAL_REMEDIATION_TOKENS = 16000
+
+ActivitySummaryProductKey = activity_summary_render.Product
+ACTIVITY_SUMMARY_VERSIONS_DEFAULT_LIMIT = activity_summary_read.DEFAULT_VERSIONS_LIMIT
+ACTIVITY_SUMMARY_SEARCH_DEFAULT_LIMIT = activity_summary_search.DEFAULT_LIMIT
+ACTIVITY_SUMMARY_SEARCH_MAX_LIMIT = activity_summary_search.MAX_LIMIT
 
 
 @frozen
@@ -1768,7 +1781,7 @@ def enable_scout_for_product(
     fit the project's enabled-scout limit, and only a project admin or the person the runs act as
     may give a new scout more than the default scopes or widen an existing grant.
     Returns False without writing when a rule refuses, when the organization has not approved AI data processing, when the scout
-    is paused by a person or by the system, or when another product owns its config.
+    is paused by a person or by the system.
     """
     from posthog.temporal.oauth import (  # noqa: PLC0415 — keeps the token module off the facade's import path
         SCOUT_DEFAULT_WRITE_SCOPES,
@@ -1830,10 +1843,11 @@ def enable_scout_for_product(
             )
             if created:
                 return True
-        # A config this product did not create is somebody's own scout, and its write access is theirs to grant.
         # A paused config stays paused, whether a person or a system breaker paused it.
-        if config.source_product != source_product or not config.enabled:
+        if not config.enabled:
             return False
+        # A scout a person set up keeps its other settings. It still gains this product's scopes when the person
+        # may grant them, because without them its runs cannot do what the person just asked the product for.
         granted = sorted(set(config.write_scopes or []) | set(scopes))
         if granted != sorted(config.write_scopes or []):
             if not _may_grant_scout_scopes(team=team, skill_name=skill_name, config=config, acting_user=acting_user):

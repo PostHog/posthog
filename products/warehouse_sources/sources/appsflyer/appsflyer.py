@@ -15,9 +15,16 @@ from products.warehouse_sources.sources.appsflyer.settings import (
     AppsFlyerEndpointConfig,
     AppsFlyerReportKind,
 )
-from products.warehouse_sources.sources.sdk import SourceResponse, frozen, make_tracked_session, retry_with_deadline
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    retry_with_deadline,
+)
 
 APPSFLYER_BASE_URL = "https://hq1.appsflyer.com"
+QUOTA_EXHAUSTED_MARKER = "limit reached"
 # Aggregate pull requests cap the date range at ~1000 days.
 MAX_WINDOW_DAYS = 999
 # AppsFlyer doesn't finalize data until ~48h after the UTC day; re-fetch the
@@ -52,6 +59,12 @@ REPORT_CHUNK_BYTES = 1 << 16
 # Keep AppsFlyer's rejection reason short enough to read in a setup error.
 MAX_REJECTION_REASON_CHARS = 300
 _HTML_MARKUP = re.compile(r"<\s*(!doctype|html|head|body)\b", re.IGNORECASE)
+
+
+@frozen
+class AppsFlyerResumeConfig:
+    # The first day of the next request window, as an ISO date.
+    next_window_start: str
 
 
 @frozen
@@ -137,6 +150,11 @@ def _rejection_reason(response: requests.Response, api_token: str) -> str | None
 def _credentials_error(message: str, response: requests.Response, api_token: str) -> AppsFlyerCredentialsError:
     reason = _rejection_reason(response, api_token)
     return AppsFlyerCredentialsError(f"{message} AppsFlyer said: {reason}" if reason else message)
+
+
+def _is_quota_exhausted(response: requests.Response) -> bool:
+    """AppsFlyer answers 403 (sometimes 429) with a "limit reached" body once the daily report quota is spent."""
+    return response.status_code in (403, 429) and QUOTA_EXHAUSTED_MARKER in response.text.lower()
 
 
 def _normalize_header(header: str) -> str:
@@ -254,7 +272,7 @@ def _request_windows(kind: AppsFlyerReportKind, start: date, end: date) -> Itera
 def _open_report(session: requests.Session, url: str, logger: FilteringBoundLogger) -> requests.Response:
     response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
 
-    if response.status_code == 429 or response.status_code >= 500:
+    if response.status_code == 429 or response.status_code >= 500 or _is_quota_exhausted(response):
         response.close()
         raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status={response.status_code}, url={url}")
 
@@ -309,6 +327,11 @@ def validate_credentials(api_token: str, app_id: str) -> bool:
         f"?{urlencode({'from': today, 'to': today})}",
         timeout=30,
     )
+    if _is_quota_exhausted(response):
+        raise AppsFlyerCredentialsError(
+            "Your AppsFlyer account has used up its daily report API quota. "
+            "Try connecting again after your daily quota resets."
+        )
     if response.status_code == 429 or response.status_code >= 500:
         raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status={response.status_code}")
     if response.status_code == 200:
@@ -351,6 +374,7 @@ def get_rows(
     app_id: str,
     endpoint: str,
     logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AppsFlyerResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
@@ -360,6 +384,13 @@ def get_rows(
 
     today = datetime.now(UTC).date()
     start = _window_start(config, today, should_use_incremental_field, db_incremental_field_last_value)
+    # A full refresh appends, so the part of a window read before a hand-off would load twice.
+    resume = manager.load_state() if should_use_incremental_field and manager.can_resume() else None
+    if resume is not None:
+        # Never earlier than the computed start, which keeps a raw pull inside its lookback limit.
+        start = max(start, date.fromisoformat(resume.next_window_start))
+        if start > today:
+            return
 
     chunk: list[dict[str, Any]] = []
     for window in _request_windows(config.kind, start, today):
@@ -379,8 +410,14 @@ def get_rows(
                 window_end=window.end.isoformat(),
                 row_cap=RAW_MAX_ROWS,
             )
-    if chunk:
-        yield chunk
+        # A window is the resume unit: rows have no documented order inside one, so a resume reads
+        # a part-way window again. The rest of the window goes out with the cursor past it.
+        manager.save_state(AppsFlyerResumeConfig(next_window_start=(window.end + timedelta(days=1)).isoformat()))
+        if chunk:
+            yield chunk
+            chunk = []
+        else:
+            manager.safe_point()
 
 
 def appsflyer_source(
@@ -388,6 +425,7 @@ def appsflyer_source(
     app_id: str,
     endpoint: str,
     logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[AppsFlyerResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
@@ -395,11 +433,13 @@ def appsflyer_source(
 
     return SourceResponse(
         name=endpoint,
+        on_complete=resumable_source_manager.clear_state,
         items=lambda: get_rows(
             api_token=api_token,
             app_id=app_id,
             endpoint=endpoint,
             logger=logger,
+            manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
@@ -409,6 +449,7 @@ def appsflyer_source(
         partition_mode="datetime",
         partition_format=config.partition_format,
         partition_keys=[config.partition_key],
+        supports_resume=should_use_incremental_field,
         # Dimension keys can collide (e.g. blank campaign values) — an expected trait of report
         # data, not something the user can fix. Don't set has_duplicate_primary_keys: that flag
         # tells validate_incremental_sync to block incremental syncing altogether. The merge's own

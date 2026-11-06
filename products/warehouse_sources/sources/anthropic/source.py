@@ -156,12 +156,12 @@ The group, group membership and custom role tables come from the Claude Enterpri
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
         # The report endpoints share one organization rate limit, and Anthropic can ask for a wait of
-        # up to an hour once it is spent. A schedule shorter than that keeps hitting the same limit,
-        # so the generic "short problem on the source's side" copy sends the customer nowhere.
+        # up to an hour once it is spent. Every client of the organization draws on that limit, so
+        # the action the customer has is to stop the other tools that read the same reports.
         return {
             "HTTP 429 for https://api.anthropic.com": (
-                "Anthropic's API rate limit for your organization ran out before this sync finished. "
-                "Set this table to sync less often, such as every 6 hours, so each run stays within the limit."
+                "Your organization's Anthropic report rate limit ran out, and PostHog retries on its own. "
+                "Pause other tools that read your usage or cost reports to free it up."
             ),
         }
 

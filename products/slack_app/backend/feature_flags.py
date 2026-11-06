@@ -49,6 +49,7 @@ logger = structlog.get_logger(__name__)
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
 SLACK_APP_BYOS_FLAG = "slack-app-byos"
+SLACK_APP_ONBOARDING_FLAG = "slack-app-onboarding"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -180,4 +181,14 @@ def is_slack_app_forking_enabled(integration: IntegrationRecord) -> bool:
         SLACK_APP_FORKING_FLAG,
         integration,
         failure_log_key="slack_app_forking_feature_flag_check_failed",
+    )
+
+
+def is_slack_app_onboarding_enabled(integration: IntegrationRecord) -> bool:
+    """Keyed on the workspace, because most people who get the onboarding thread are not linked to a PostHog user
+    yet. Each step checks its own scopes."""
+    return _workspace_flag_enabled(
+        SLACK_APP_ONBOARDING_FLAG,
+        integration,
+        failure_log_key="slack_app_onboarding_feature_flag_check_failed",
     )

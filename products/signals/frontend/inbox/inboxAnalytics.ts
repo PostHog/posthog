@@ -10,10 +10,13 @@ import type { ReportTaskPurpose } from './components/detail/artefactTypes'
 import type { ReportDiscussionIntent } from './inboxTaskKickoffLogic'
 import {
     InboxReportSectionKey,
+    SignalAlertScope,
     SignalReport,
     SignalReportActionability,
     SignalReportPriority,
     SignalRunKind,
+    SignalSourceProduct,
+    SignalSourceType,
 } from './types'
 import { rankingPillLifts } from './utils/reportOrdering'
 import { reportPullRequests } from './utils/reportPullRequests'
@@ -65,6 +68,7 @@ export const INBOX_EVENTS = {
     SOURCE_CATALOG_SOURCE_SELECTED: 'Signal source catalog source selected',
     SOURCE_STEERING_CHANGED: 'Signal source steering changed',
     SOURCE_FILTERS_CHANGED: 'Signal source filters changed',
+    SOURCE_ALERT_SCOPE_CHANGED: 'Signal source alert scope changed',
     // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
     // clients union in one project; desktop sends no `inbox_client`, so its rows read as null.
     SCOUT_FLEET_VIEWED: 'Scout fleet viewed',
@@ -190,6 +194,7 @@ export type InboxReportActionType =
     | 'claim'
     | 'unclaim'
     | 'expand_preview'
+    | 'add_note'
 
 /**
  * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as
@@ -235,10 +240,10 @@ export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limi
 export type InboxPanelName = 'runs' | 'config' | 'sources' | 'scratchpad' | 'findings' | 'triage' | 'onboarding'
 
 /** A panel read that carries its own timeout, named so each one's stall rate reads separately. */
-export type InboxPanelLoad = 'scout_notes' | 'scout_memory'
+export type InboxPanelLoad = 'scout_notes' | 'scout_memory' | 'report_notes'
 
 /** A report write that carries its own timeout. `state` covers dismiss, resolve, restore, and monitoring. */
-export type InboxWrite = 'claim' | 'priority' | 'state'
+export type InboxWrite = 'claim' | 'note' | 'priority' | 'retire_note' | 'state'
 
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
 export type InboxQueryChange =
@@ -254,7 +259,7 @@ export type InboxQueryChange =
     | 'created_window'
 
 /** Surface a scout-management event fired from. Matches the desktop values. */
-export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner'
+export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner' | 'report_detail'
 
 /**
  * Scout-management actions. The first block matches desktop's enum; the trailing block is
@@ -946,6 +951,24 @@ export function captureSignalSourceFiltersChanged(params: {
         filter: params.filter,
         selected_count: params.selectedCount,
         reads_everything: params.selectedCount === 0,
+        success: params.success,
+    })
+}
+
+/**
+ * The product analytics source switched between investigated alerts only and all firing alerts.
+ * Fired once the request settles, so `success` separates a saved change from a rejected one.
+ */
+export function captureSignalSourceAlertScopeChanged(params: {
+    alertScope: SignalAlertScope
+    previousAlertScope: SignalAlertScope
+    success: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_ALERT_SCOPE_CHANGED, {
+        source_product: SignalSourceProduct.Analytics,
+        source_type: SignalSourceType.AnomalyInvestigation,
+        alert_scope: params.alertScope,
+        previous_alert_scope: params.previousAlertScope,
         success: params.success,
     })
 }

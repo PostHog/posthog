@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -26,6 +27,7 @@ def _registration(**overrides: Any) -> HealthCheckRegistration:
         "max_concurrent": 1,
         "rollout_percentage": 1.0,
         "not_processed_threshold": 0.1,
+        "execution_timeout": timedelta(hours=12),
         "dry_run": False,
         "active_since_days": 90,
         "product": None,
@@ -59,9 +61,10 @@ def test_accepts_fractional_values(field: str, value: float) -> None:
         ("rollout_percentage", 50.0),
         ("not_processed_threshold", -0.1),
         ("not_processed_threshold", 2.0),
+        ("execution_timeout", timedelta(0)),
     ],
 )
-def test_rejects_out_of_range_fractions(field: str, value: float) -> None:
+def test_rejects_out_of_range_values(field: str, value: Any) -> None:
     with pytest.raises(ValueError, match=field):
         _registration(**{field: value})
 

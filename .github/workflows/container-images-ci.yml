@@ -177,8 +177,9 @@ jobs:
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
                   push-image: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
-                  # PR-only publish role: any branch, but can ONLY push to posthog-cloud-prs (not posthog-cloud).
-                  aws-role-to-assume: ${{ vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
+                  # PR publish role in the shared-services ECR: any branch, but it can push only to the
+                  # *-prs repositories (posthog-cloud-prs here), never to posthog-cloud.
+                  aws-role-to-assume: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
                   pr-number: ${{ !startsWith(github.head_ref, 'trunk-merge/') && github.event.number || '' }}
@@ -222,7 +223,7 @@ jobs:
             - name: Configure AWS credentials
               uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
               with:
-                  role-to-assume: ${{ vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
+                  role-to-assume: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
                   aws-region: us-east-1
 
             - name: Login to Amazon ECR

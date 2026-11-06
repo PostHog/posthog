@@ -11,6 +11,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from prometheus_client.metrics import MetricWrapperBase
 from structlog.testing import capture_logs
 
 from products.wizard.backend.facade.contracts import (
@@ -217,9 +218,16 @@ def test_observability_does_not_hide_programming_errors() -> None:
         observability.run_created(run)
 
 
+def test_metrics_do_not_use_the_scrape_environment_label() -> None:
+    wizard_metrics = [value for value in vars(metrics).values() if isinstance(value, MetricWrapperBase)]
+
+    assert wizard_metrics
+    assert [metric for metric in wizard_metrics if "environment" in metric._labelnames] == []
+
+
 def test_cloud_creation_records_created_and_initial_stage_metrics() -> None:
     run = _cloud_run()
-    created_labels = {"environment": "cloud"}
+    created_labels = {"run_environment": "cloud"}
     stage_labels = {"stage": "dispatching"}
     created_before = _sample("posthog_wizard_runs_created_total", created_labels)
     stage_before = _sample("posthog_wizard_run_stage_entered_total", stage_labels)
@@ -275,16 +283,16 @@ def test_failure_metrics_record_stage_and_error_code() -> None:
         finished_at=datetime(2026, 8, 25, 12, 2, tzinfo=UTC),
     )
     finished_labels = {
-        "environment": "cloud",
+        "run_environment": "cloud",
         "status": "failed",
         "error_code": "execution_failed",
     }
     failure_labels = {
-        "environment": "cloud",
+        "run_environment": "cloud",
         "stage": "executing_wizard",
         "error_code": "execution_failed",
     }
-    duration_labels = {"environment": "cloud", "status": "failed"}
+    duration_labels = {"run_environment": "cloud", "status": "failed"}
     finished_before = _sample("posthog_wizard_runs_finished_total", finished_labels)
     failure_before = _sample("posthog_wizard_run_failures_total", failure_labels)
     duration_before = _sample("posthog_wizard_run_duration_seconds_sum", duration_labels)
@@ -305,8 +313,8 @@ def test_failure_metrics_bound_unknown_error_code() -> None:
         started_at=datetime(2026, 8, 25, 12, 1, tzinfo=UTC),
         finished_at=datetime(2026, 8, 25, 12, 2, tzinfo=UTC),
     )
-    bounded_labels = {"environment": "cloud", "status": "failed", "error_code": "other"}
-    raw_labels = {"environment": "cloud", "status": "failed", "error_code": "PHW_SOME_PINNED_VERSION_CODE"}
+    bounded_labels = {"run_environment": "cloud", "status": "failed", "error_code": "other"}
+    raw_labels = {"run_environment": "cloud", "status": "failed", "error_code": "PHW_SOME_PINNED_VERSION_CODE"}
     bounded_before = _sample("posthog_wizard_runs_finished_total", bounded_labels)
 
     metrics.report_run_finished(run, WizardRunStage.EXECUTING_WIZARD)
@@ -433,7 +441,7 @@ def test_reliability_metrics_record_artifacts_cleanup_and_deadlines() -> None:
     )
     artifact_labels = {"type": "git_diff"}
     cleanup_labels = {"outcome": "succeeded"}
-    deadline_labels = {"environment": "cloud"}
+    deadline_labels = {"run_environment": "cloud"}
     artifact_before = _sample("posthog_wizard_artifacts_created_total", artifact_labels)
     cleanup_before = _sample("posthog_wizard_worker_cleanups_total", cleanup_labels)
     deadline_before = _sample("posthog_wizard_runs_past_deadline_total", deadline_labels)

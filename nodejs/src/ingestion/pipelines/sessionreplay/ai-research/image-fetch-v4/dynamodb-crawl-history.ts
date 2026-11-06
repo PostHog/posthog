@@ -20,7 +20,7 @@ import {
     HttpCacheMetadata,
     UrlCrawlHistoryItem,
 } from './crawl-history'
-import { isUrlHistoryValue } from './politeness-key'
+import { isUrlHistoryValue } from './v4-native'
 
 const KEY_ATTRIBUTE = 'key'
 const EXPIRES_AT_ATTRIBUTE = 'expires_at'

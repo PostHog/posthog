@@ -4,7 +4,7 @@ import time
 import hashlib
 from collections.abc import Callable
 from contextlib import nullcontext
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import parse_qs, quote, urlencode, urlparse
 from uuid import uuid4
@@ -972,6 +972,43 @@ class TestDatabricksIntegration:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == NOT_A_DATABRICKS_HOST_MESSAGE
         assert not Integration.objects.filter(team=self.team, kind="databricks").exists()
+
+
+class TestGitLabIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    @patch("requests.request")
+    @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
+    def test_create_returns_400_when_the_host_does_not_return_json(
+        self, _mock_is_url_allowed, mock_request, client: HttpClient
+    ):
+        mock_request.return_value = MagicMock(
+            status_code=200, **{"json.side_effect": requests.JSONDecodeError("Expecting value", "", 0)}
+        )
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "gitlab",
+                "config": {
+                    "hostname": "https://gitlab.example.com",
+                    "project_id": "1",
+                    "project_access_token": "token123",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "isn't JSON" in response.json()["detail"]
+        assert not Integration.objects.filter(team=self.team, kind="gitlab").exists()
 
 
 class TestGoogleCloudServiceAccountIntegration:
@@ -7067,6 +7104,54 @@ class TestSlackPostHogCodeKindDeprecated:
         assert "kind" in serializer.errors
 
 
+class TestLinearWebhookReconnectField:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    @pytest.mark.parametrize(
+        "created_at,config,webhook_secret,expected",
+        [
+            pytest.param("2026-01-01T00:00:00Z", {}, "secret", True, id="connected_before_webhooks"),
+            pytest.param("2026-11-01T00:00:00Z", {}, "secret", False, id="connected_after_webhooks"),
+            pytest.param(
+                "2026-01-01T00:00:00Z",
+                {"authorized_at": int(datetime(2026, 11, 1, tzinfo=UTC).timestamp())},
+                "secret",
+                False,
+                id="reconnected_after_webhooks",
+            ),
+            pytest.param(
+                "2026-01-01T00:00:00Z",
+                {"authorized_at": int(datetime(2026, 2, 1, tzinfo=UTC).timestamp())},
+                "secret",
+                True,
+                id="reconnected_before_webhooks",
+            ),
+            pytest.param("2026-01-01T00:00:00Z", {}, "", None, id="instance_without_the_linear_app_webhook"),
+        ],
+    )
+    def test_needs_webhook_reconnect(
+        self, created_at: str, config: dict, webhook_secret: str, expected: bool | None, client: HttpClient
+    ):
+        with time_machine.travel(created_at, tick=False):
+            integration = Integration.objects.create(
+                team=self.team, kind="linear", integration_id="linear-org-1", config=config, sensitive_config={}
+            )
+
+        client.force_login(self.user)
+        with override_settings(LINEAR_APP_WEBHOOK_SECRET=webhook_secret):
+            response = client.get(f"/api/environments/{self.team.pk}/integrations/?kind=linear")
+
+        assert response.status_code == status.HTTP_200_OK
+        row = next(row for row in response.json()["results"] if row["id"] == integration.id)
+        assert row["needs_webhook_reconnect"] is expected
+
+
 class TestGitHubIntegrationListStatusFields:
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):
@@ -7153,6 +7238,7 @@ class TestGitHubIntegrationListStatusFields:
         row = next(row for row in response.json()["results"] if row["id"] == integration.id)
         assert row["installation_shared"] is None
         assert row["installation_status"] is None
+        assert row["needs_webhook_reconnect"] is None
 
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_list_heals_a_placeholder_account_name(self, mock_client_request, client: HttpClient):

@@ -15,7 +15,12 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 from posthog.schema_enums import AlertState
 
-from products.alerts_platform.backend.facade.contracts import DeliveryPath, DestinationType, IncidentAction
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDeliveryRequest,
+    DeliveryPath,
+    DestinationType,
+    IncidentAction,
+)
 from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 # The internal event an insight alert's destinations fire on. Do not take it from
@@ -92,10 +97,9 @@ class HogFunctionPathReason(StrEnum):
     # A function takes the source's alert events without being bound to one alert. Native
     # delivery reads destinations per alert, so it would never send to it.
     UNBOUND = "unbound"
-    # A stock webhook whose team receives the platform body natively. Its receiver parses the
-    # body the HogFunction sends.
-    NEW_WEBHOOK_BODY = "new_webhook_body"
     WEBHOOK_BODY_UNKNOWN = "webhook_body_unknown"
+    # Native delivery cannot send this source's legacy webhook body, and the team keeps it.
+    LEGACY_WEBHOOK_BODY_NOT_NATIVE = "legacy_webhook_body_not_native"
     # Native delivery sends PagerDuty incident actions only, never the firing event.
     PAGERDUTY_NOT_NATIVE = "pagerduty_not_native"
 
@@ -197,6 +201,11 @@ class MovedAlertCheck:
     triggered_dates: tuple[str, ...] = ()
     interval: str | None = None
     triggered_metadata: dict[str, Any] | None = None
+    investigation_status: str | None = None
+    investigation_verdict: str | None = None
+    investigation_summary: str | None = None
+    investigation_notebook_short_id: str | None = None
+    notification_suppressed_by_agent: bool = False
 
 
 @frozen
@@ -208,3 +217,13 @@ class MovedAlertCheckPage:
 
 class PlatformCannotOwn(ValueError):
     """An edit that would leave an alert the platform owns in a shape the platform cannot evaluate."""
+
+
+@frozen
+class InvestigationRelease:
+    """What a finished investigation of a platform evaluation hands back to the agent's workflow."""
+
+    # What the workflow starts: the held firing when the verdict let it go out, or the
+    # announcement of a changed verdict on a firing that already went out.
+    deliveries: tuple[AlertDeliveryRequest, ...]
+    previous_verdict: str | None

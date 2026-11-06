@@ -6,13 +6,19 @@ from parameterized import parameterized
 from products.warehouse_sources.sources.rootly._config import RootlySourceConfig
 from products.warehouse_sources.sources.rootly.rootly import (
     ROOTLY_BASE_URL,
+    RootlyResumeConfig,
     _build_url,
     _clamp_future_value_to_now,
     _format_incremental_value,
     probe_credentials,
 )
 from products.warehouse_sources.sources.rootly.source import RootlySource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 
 
 def _response(
@@ -22,6 +28,10 @@ def _response(
     if not drop_data:
         body["data"] = items or []
     return ScriptedResponse(json=body)
+
+
+def _feed_response(items: list[dict[str, Any]], next_cursor: str | None) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": items, "meta": {"next_cursor": next_cursor}})
 
 
 def _driver() -> SourceDriver:
@@ -113,6 +123,13 @@ class TestIncrementalParams:
                 {"page[size]": "100"},
             ),
             (
+                "cursor_feed_sorts_and_filters_on_created_at",
+                "alert_events",
+                True,
+                datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+                {"page[size]": "50", "sort": "created_at", "filter[created_at][gt]": "2026-03-04T02:58:14+00:00"},
+            ),
+            (
                 "full_refresh_endpoint_never_sorts_or_filters",
                 "users",
                 True,
@@ -131,11 +148,88 @@ class TestIncrementalParams:
     ) -> None:
         inputs: dict[str, Any] = {"db_incremental_field_last_value": last_value}
         if should_use_incremental_field:
-            inputs["incremental_field"] = "updated_at"
+            inputs["incremental_field"] = "created_at" if endpoint == "alert_events" else "updated_at"
 
         result = _driver().run(endpoint, [_response([{"id": "1", "attributes": {}}])], **inputs)
 
         assert {name: values[0] for name, values in result.queries[0].items()} == expected_params
+
+
+class TestCursorFeed:
+    def test_walks_next_cursor_and_keeps_the_incremental_window(self) -> None:
+        result = _driver().run(
+            "alert_events",
+            [
+                _feed_response([{"id": "e1", "type": "alert_events", "attributes": {"action": "paged"}}], "c2"),
+                _feed_response([{"id": "e2", "type": "alert_events", "attributes": {"action": "resolved"}}], None),
+            ],
+            incremental_field="created_at",
+            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert [(row["id"], row["action"]) for row in result.rows] == [("e1", "paged"), ("e2", "resolved")]
+        assert result.paths == ["/v1/alert_events", "/v1/alert_events"]
+        assert result.params("page[after]") == [None, "c2"]
+        assert result.params("filter[created_at][gt]") == ["2026-03-04T00:00:00+00:00"] * 2
+        assert result.params("sort") == ["created_at"] * 2
+        assert result.saved_states == [RootlyResumeConfig(cursor="c2")]
+
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "alert_events",
+            [_feed_response([{"id": "e9", "attributes": {}}], None)],
+            resume_state=RootlyResumeConfig(cursor="c9"),
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["e9"]
+        assert result.params("page[after]") == ["c9"]
+
+
+def _incident_events_script(request: RecordedRequest) -> ScriptedResponse:
+    second_page = f"{ROOTLY_BASE_URL}/incidents/inc-1/events?page%5Bnumber%5D=2"
+    if request.path == "/v1/incidents":
+        return _response([{"id": "inc-1", "type": "incidents"}, {"id": "inc-2", "type": "incidents"}])
+    if request.path == "/v1/incidents/inc-1/events" and request.param("page[number]") == "2":
+        return _response([{"id": "ev-2", "type": "incident_events", "attributes": {"event": "Mitigated"}}])
+    if request.path == "/v1/incidents/inc-1/events":
+        return _response(
+            [{"id": "ev-1", "type": "incident_events", "attributes": {"event": "Started"}}], next_url=second_page
+        )
+    if request.path == "/v1/incidents/inc-2/events":
+        return ScriptedResponse(status=404, json={"errors": [{"title": "Not found", "status": "404"}]})
+    raise AssertionError(f"unexpected request {request.url}")
+
+
+class TestIncidentEventsFanout:
+    def test_fans_out_over_incidents_and_tags_rows_with_the_incident(self) -> None:
+        result = _driver().run("incident_events", _incident_events_script)
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": "ev-1", "type": "incident_events", "event": "Started", "incident_id": "inc-1"},
+            {"id": "ev-2", "type": "incident_events", "event": "Mitigated", "incident_id": "inc-1"},
+        ]
+        assert result.paths == [
+            "/v1/incidents",
+            "/v1/incidents/inc-1/events",
+            "/v1/incidents/inc-1/events",
+            "/v1/incidents/inc-2/events",
+        ]
+        assert result.response is not None
+        assert result.response.primary_keys == ["incident_id", "id"]
+
+    def test_resume_skips_incidents_already_synced(self) -> None:
+        result = _driver().run(
+            "incident_events",
+            _incident_events_script,
+            resume_state=RootlyResumeConfig(completed=["/incidents/inc-1/events"]),
+        )
+
+        assert result.raised is None
+        assert result.rows == []
+        assert result.paths == ["/v1/incidents", "/v1/incidents/inc-2/events"]
 
 
 class TestProbeCredentials:
@@ -143,3 +237,17 @@ class TestProbeCredentials:
     def test_returns_status_code(self, _name: str, status_code: int) -> None:
         with scripted_network([ScriptedResponse(status=status_code)]):
             assert probe_credentials("rootly_test", "incidents") == status_code
+
+    @parameterized.expand(
+        [
+            ("top_level_endpoint", "statuses", "/v1/statuses"),
+            # The child path needs an incident id, so the scope check probes the parent collection.
+            ("fanout_endpoint_probes_parent", "incident_events", "/v1/incidents"),
+            ("no_endpoint", None, "/v1/users"),
+        ]
+    )
+    def test_probes_a_concrete_collection(self, _name: str, endpoint: str | None, expected_path: str) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert probe_credentials("rootly_test", endpoint) == 200
+
+        assert [request.path for request in network.requests_log] == [expected_path]

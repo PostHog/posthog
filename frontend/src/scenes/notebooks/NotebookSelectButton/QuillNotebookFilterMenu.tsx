@@ -1,12 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@posthog/quill'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    FilterMenuTrigger,
+} from '@posthog/quill'
 
 import { fullName } from 'lib/utils/strings'
 import { userLogic } from 'scenes/userLogic'
 
-import { TodayFilterMenuTrigger } from '~/layout/today/TodayFilterMenuTrigger'
 import { TodayRecentRadioSubmenu } from '~/layout/today/TodayRecentRadioSubmenu'
 import { membersLogic } from '~/models/membersLogic'
 
@@ -38,7 +43,7 @@ export function QuillNotebookFilterMenu({
 
     return (
         <DropdownMenu onOpenChange={(open) => open && ensureAllMembersLoaded()}>
-            <TodayFilterMenuTrigger active={createdBy !== null} dataAttr="notebooks-select-button-filter" />
+            <FilterMenuTrigger active={createdBy !== null} dataAttr="notebooks-select-button-filter" />
             <DropdownMenuContent align="end" className="min-w-56">
                 <TodayRecentRadioSubmenu
                     label="Created by"

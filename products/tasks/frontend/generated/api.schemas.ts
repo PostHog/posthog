@@ -1486,6 +1486,7 @@ export interface PaginatedTaskListItemListApi {
  * * `metrics_import` - Metrics Import
  * * `knowledge_writer` - Knowledge Writer
  * * `context_layer` - Context Layer
+ * * `feature_flags` - Feature Flags
  */
 export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof typeof TaskOriginProductEnumApi]
 
@@ -1518,6 +1519,7 @@ export const TaskOriginProductEnumApi = {
     MetricsImport: 'metrics_import',
     KnowledgeWriter: 'knowledge_writer',
     ContextLayer: 'context_layer',
+    FeatureFlags: 'feature_flags',
 } as const
 
 /**
@@ -1600,7 +1602,8 @@ export interface TaskCreateApi {
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
-     * * `context_layer` - Context Layer */
+     * * `context_layer` - Context Layer
+     * * `feature_flags` - Feature Flags */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1838,7 +1841,8 @@ export interface TaskWriteApi {
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
-     * * `context_layer` - Context Layer */
+     * * `context_layer` - Context Layer
+     * * `feature_flags` - Feature Flags */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1977,7 +1981,8 @@ export interface PatchedTaskWriteApi {
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
-     * * `context_layer` - Context Layer */
+     * * `context_layer` - Context Layer
+     * * `feature_flags` - Feature Flags */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -3191,6 +3196,7 @@ export const RunStatusEnumApi = {
  * * `subscription_usage_limit` - subscription_usage_limit
  * * `task_spend_limit` - task_spend_limit
  * * `agent_error` - agent_error
+ * * `ActiveSessionCapError` - ActiveSessionCapError
  */
 export type ErrorTypeEnumApi = (typeof ErrorTypeEnumApi)[keyof typeof ErrorTypeEnumApi]
 
@@ -3211,6 +3217,7 @@ export const ErrorTypeEnumApi = {
     SubscriptionUsageLimit: 'subscription_usage_limit',
     TaskSpendLimit: 'task_spend_limit',
     AgentError: 'agent_error',
+    ActiveSessionCapError: 'ActiveSessionCapError',
 } as const
 
 export interface PatchedTaskRunUpdateApi {
@@ -3263,7 +3270,8 @@ export interface PatchedTaskRunUpdateApi {
      * * `turn_ended_without_response` - turn_ended_without_response
      * * `subscription_usage_limit` - subscription_usage_limit
      * * `task_spend_limit` - task_spend_limit
-     * * `agent_error` - agent_error */
+     * * `agent_error` - agent_error
+     * * `ActiveSessionCapError` - ActiveSessionCapError */
     error_type?: ErrorTypeEnumApi | null
 }
 
@@ -5015,6 +5023,7 @@ export interface SlackThreadContextResponseApi {
  * * `error_tracking` - error_tracking
  * * `eval_clusters` - eval_clusters
  * * `experiments` - experiments
+ * * `feature_flags` - feature_flags
  * * `hogdesk` - hogdesk
  * * `image_builder` - image_builder
  * * `knowledge_writer` - knowledge_writer
@@ -5046,6 +5055,7 @@ export const TaskListSourceEnumApi = {
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     Experiments: 'experiments',
+    FeatureFlags: 'feature_flags',
     Hogdesk: 'hogdesk',
     ImageBuilder: 'image_builder',
     KnowledgeWriter: 'knowledge_writer',
@@ -5259,6 +5269,7 @@ export type SandboxCustomImagesListParams = {
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
+     * * `feature_flags` - Feature Flags
      * @minLength 1
      */
     origin_product?: SandboxCustomImagesListOriginProduct
@@ -5296,6 +5307,7 @@ export const SandboxCustomImagesListOriginProduct = {
     MetricsImport: 'metrics_import',
     KnowledgeWriter: 'knowledge_writer',
     ContextLayer: 'context_layer',
+    FeatureFlags: 'feature_flags',
 } as const
 
 export type SandboxListParams = {
@@ -5445,6 +5457,7 @@ export type TasksListParams = {
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
+     * * `feature_flags` - Feature Flags
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct
@@ -5597,6 +5610,7 @@ export const TasksListExcludeOriginProduct = {
     MetricsImport: 'metrics_import',
     KnowledgeWriter: 'knowledge_writer',
     ContextLayer: 'context_layer',
+    FeatureFlags: 'feature_flags',
 } as const
 
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]
@@ -5629,6 +5643,7 @@ export const TasksListPrState = {
  * * `error_tracking` - error_tracking
  * * `eval_clusters` - eval_clusters
  * * `experiments` - experiments
+ * * `feature_flags` - feature_flags
  * * `hogdesk` - hogdesk
  * * `image_builder` - image_builder
  * * `knowledge_writer` - knowledge_writer
@@ -5660,6 +5675,7 @@ export const TasksListSourcesItem = {
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     Experiments: 'experiments',
+    FeatureFlags: 'feature_flags',
     Hogdesk: 'hogdesk',
     ImageBuilder: 'image_builder',
     KnowledgeWriter: 'knowledge_writer',

@@ -1,7 +1,8 @@
 import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
 
 import { PostHogApi } from '@/posthog/api'
-import { resolveCredentials, type ResolvedCredentials } from '@/posthog/credentials'
+import { resolveCredentials, type Credentials } from '@/posthog/credentials'
+import { KeySession } from '@/posthog/key-session'
 
 import type { Mode } from './agent'
 import type { CommandTree } from './command'
@@ -15,7 +16,8 @@ import { Telemetry } from './telemetry'
 // purpose: `run` returns data, and the command's `human` and `agent` views print it.
 export class Context {
     private api?: PostHogApi
-    private resolved?: ResolvedCredentials
+    private credentialsRequest?: Promise<Credentials>
+    private keySession?: Promise<KeySession>
     private loaded?: Promise<LoadedConfig | undefined>
     private tools?: Promise<ApiToolLibrary>
 
@@ -40,7 +42,7 @@ export class Context {
     // The PostHog API client. Credentials resolve on first use, so commands that never call
     // the API work without them.
     async posthog(): Promise<PostHogApi> {
-        this.api ??= new PostHogApi(await this.credentials(), this.runtime.fetch)
+        this.api ??= new PostHogApi(await this.session(), this.runtime.fetch)
         return this.api
     }
 
@@ -57,11 +59,28 @@ export class Context {
     }
 
     // Throws `not_authenticated` when there are none.
-    async credentials(): Promise<ResolvedCredentials> {
-        this.resolved ??= await resolveCredentials(this.runtime, {
-            ...this.globals,
-            configHost: (await this.config())?.config.host,
-        })
-        return this.resolved
+    credentials(): Promise<Credentials> {
+        this.credentialsRequest ??= this.config().then((loaded) =>
+            resolveCredentials(this.runtime, { ...this.globals, configHost: loaded?.config.host })
+        )
+        return this.credentialsRequest
+    }
+
+    // The key every client of this command sends, so they share its renewals.
+    session(): Promise<KeySession> {
+        this.keySession ??= this.credentials().then(
+            (credentials) =>
+                new KeySession(
+                    this.runtime,
+                    credentials.key,
+                    credentials.source === 'store' ? credentials.storage : null
+                )
+        )
+        return this.keySession
+    }
+
+    // The credentials the command already asked for, so telemetry doesn't read the keychain a second time.
+    get requestedCredentials(): Promise<Credentials> | undefined {
+        return this.credentialsRequest
     }
 }

@@ -39,5 +39,7 @@ export function experimentScannerBody(experiment: Experiment): ReplayScannerApi 
         model: DEFAULT_MODEL,
         query: experimentScannerQuery(experiment),
         enabled: false,
+        // Pinned: reported on replay_vision_scanner_created to attribute scanners to this wizard.
+        entry_point: 'experiment_create_wizard',
     })
 }

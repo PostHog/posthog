@@ -22,7 +22,12 @@ import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
 import { hasScope } from '../src/lib/api'
-import { discoverDefinitions, isQueryWrappersConfig } from './lib/definitions.mjs'
+import {
+    discoverDefinitions,
+    isQueryWrappersConfig,
+    modulesWithStrictBodies,
+    operationIdToPascal,
+} from './lib/definitions.mjs'
 import { type JsonSchemaRoot, generateZodFromSchemaRef, getEntryVarName } from './lib/json-schema-to-zod'
 import {
     type CategoryConfig,
@@ -448,14 +453,6 @@ function parseEnrichUrl(enrichUrl: string): {
     }
 }
 
-/** Convert operationId (snake_case) to PascalCase for Orval schema names */
-function operationIdToPascal(operationId: string): string {
-    return operationId
-        .split(/[_.]/)
-        .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-        .join('')
-}
-
 // ------------------------------------------------------------------
 // Schema composition — determine Orval imports and build expressions
 // ------------------------------------------------------------------
@@ -507,7 +504,8 @@ function composeToolSchema(
     config: ToolConfig,
     resolved: ResolvedOperation,
     spec: OpenApiSpec,
-    getQuerySchema: () => JsonSchemaRoot
+    getQuerySchema: () => JsonSchemaRoot,
+    hasStrictBody = false
 ): SchemaComposition {
     const pascal = operationIdToPascal(config.operation)
     const orvalImports: string[] = []
@@ -525,6 +523,7 @@ function composeToolSchema(
      * Path params are omitted (always required).
      */
     const optionalParamNames = new Set<string>()
+    let composesBody = false
 
     const excludeSet = new Set(config.exclude_params ?? [])
     const includeSet = config.include_params ? new Set(config.include_params) : undefined
@@ -607,6 +606,7 @@ function composeToolSchema(
         const bodySchemaRef = resolved.operation.requestBody?.content?.['application/json']?.schema
         if (bodySchemaRef) {
             const importName = `${pascal}Body`
+            composesBody = true
             orvalImports.push(importName)
 
             const bodyOmitFields = new Set<string>()
@@ -685,6 +685,9 @@ function composeToolSchema(
         schemaExpr = schemaParts[0]!
         for (let i = 1; i < schemaParts.length; i++) {
             schemaExpr += `.extend(${schemaParts[i]}.shape)`
+        }
+        if (hasStrictBody && composesBody) {
+            schemaExpr += '.strict()'
         }
     }
 
@@ -1136,7 +1139,8 @@ function generateToolCode(
     category: CategoryConfig,
     spec: OpenApiSpec,
     knownTypes: Set<string>,
-    getQuerySchema: () => JsonSchemaRoot
+    getQuerySchema: () => JsonSchemaRoot,
+    hasStrictBody = false
 ): {
     code: string
     orvalImports: string[]
@@ -1159,7 +1163,7 @@ function generateToolCode(
         return generateCustomSchemaToolCode(toolName, config, resolved, category, schemaName, factoryName, knownTypes)
     }
 
-    const composition = composeToolSchema(config, resolved, spec, getQuerySchema)
+    const composition = composeToolSchema(config, resolved, spec, getQuerySchema, hasStrictBody)
     let responseType = config.response_type ?? resolveResponseType(resolved.operation, knownTypes)
 
     // Soft-delete overrides the HTTP method: use PATCH instead of DELETE.
@@ -1951,7 +1955,16 @@ function generateCategoryFile(
     const requiredToolUtilsValueImports = new Set<string>()
 
     for (const [name, config, resolved] of enabledTools) {
-        const result = generateToolCode(name, config, resolved, category, spec, knownTypes, getQuerySchema)
+        const result = generateToolCode(
+            name,
+            config,
+            resolved,
+            category,
+            spec,
+            knownTypes,
+            getQuerySchema,
+            modulesWithStrictBodies.has(moduleName)
+        )
         toolCodes.push(result.code)
         for (const imp of result.orvalImports) {
             allOrvalImports.add(imp)
@@ -2232,6 +2245,18 @@ function generateDefinitionsJson(
             const supersededBy = toolConfig.superseded_by
             const hiddenWhenFlagOn = toolConfig.hidden_when_flag_on
             const redirectHint = toolConfig.redirect_hint
+            const optionalFields = {
+                ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
+                ...(featureFlag ? { feature_flag: featureFlag } : {}),
+                ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
+                ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
+                ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
+                ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
+                ...(redirectHint ? { redirect_hint: redirectHint } : {}),
+                ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                ...(toolConfig.search_keywords?.length ? { search_keywords: toolConfig.search_keywords } : {}),
+            }
             // The endpoint the handler calls. The Django API reads it to refuse a write that a
             // sandbox run did not pick a tool for (posthog/mcp_tool_operations.py).
             const apiOperations = [`${handlerHttpMethod(toolConfig, resolved).toUpperCase()} ${resolved.path}`]
@@ -2258,15 +2283,7 @@ function generateDefinitionsJson(
                         openWorldHint: true,
                         readOnlyHint: true,
                     },
-                    ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
-                    ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
-                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
-                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
-                    ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
-                    ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
-                    ...(redirectHint ? { redirect_hint: redirectHint } : {}),
-                    ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                    ...optionalFields,
                 }
                 definitions[`${name}-execute`] = {
                     description:
@@ -2286,15 +2303,7 @@ function generateDefinitionsJson(
                         openWorldHint: true,
                         readOnlyHint: toolConfig.annotations.readOnly,
                     },
-                    ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
-                    ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
-                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
-                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
-                    ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
-                    ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
-                    ...(redirectHint ? { redirect_hint: redirectHint } : {}),
-                    ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                    ...optionalFields,
                 }
             } else {
                 definitions[name] = {
@@ -2311,15 +2320,7 @@ function generateDefinitionsJson(
                         openWorldHint: true,
                         readOnlyHint: toolConfig.annotations.readOnly,
                     },
-                    ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
-                    ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
-                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
-                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
-                    ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
-                    ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
-                    ...(redirectHint ? { redirect_hint: redirectHint } : {}),
-                    ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                    ...optionalFields,
                 }
             }
         }
@@ -2356,6 +2357,7 @@ function generateDefinitionsJson(
                 ...(wrapperConfig.superseded_by?.length ? { superseded_by: wrapperConfig.superseded_by } : {}),
                 ...(wrapperConfig.redirect_hint ? { redirect_hint: wrapperConfig.redirect_hint } : {}),
                 ...(wrapperConfig.system_prompt_hint ? { system_prompt_hint: wrapperConfig.system_prompt_hint } : {}),
+                ...(wrapperConfig.search_keywords?.length ? { search_keywords: wrapperConfig.search_keywords } : {}),
             }
         }
     }
@@ -2536,6 +2538,7 @@ function generateQueryWrapperDefinitionsJson(
             ...(toolConfig.superseded_by?.length ? { superseded_by: toolConfig.superseded_by } : {}),
             ...(toolConfig.redirect_hint ? { redirect_hint: toolConfig.redirect_hint } : {}),
             ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+            ...(toolConfig.search_keywords?.length ? { search_keywords: toolConfig.search_keywords } : {}),
         }
     }
     return definitions

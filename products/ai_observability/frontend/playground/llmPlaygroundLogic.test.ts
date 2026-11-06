@@ -241,6 +241,12 @@ describe('llmPlaygroundLogic', () => {
                         }
                         return [200, MOCK_MODEL_OPTIONS]
                     },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        if (params.key_id === 'openrouter-key-1') {
+                            return [200, byokModels]
+                        }
+                        return [200, MOCK_MODEL_OPTIONS]
+                    },
                 },
             })
 
@@ -282,6 +288,12 @@ describe('llmPlaygroundLogic', () => {
                     },
                     '/api/llm_proxy/models/': ({ request }) => {
                         if (new URL(request.url).searchParams.get('provider_key_id') === 'openrouter-key-1') {
+                            return [200, byokModels]
+                        }
+                        return [200, MOCK_MODEL_OPTIONS]
+                    },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        if (params.key_id === 'openrouter-key-1') {
                             return [200, byokModels]
                         }
                         return [200, MOCK_MODEL_OPTIONS]
@@ -328,6 +340,12 @@ describe('llmPlaygroundLogic', () => {
                     },
                     '/api/llm_proxy/models/': ({ request }) => {
                         if (new URL(request.url).searchParams.get('provider_key_id') === 'openrouter-key-1') {
+                            return [200, byokModels]
+                        }
+                        return [200, MOCK_MODEL_OPTIONS]
+                    },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        if (params.key_id === 'openrouter-key-1') {
                             return [200, byokModels]
                         }
                         return [200, MOCK_MODEL_OPTIONS]
@@ -385,6 +403,23 @@ describe('llmPlaygroundLogic', () => {
                         }
                         return [200, MOCK_MODEL_OPTIONS]
                     },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        const providerKeyId = params.key_id
+                        if (providerKeyId === 'openrouter-key-z' || providerKeyId === 'openrouter-key-a') {
+                            return [
+                                200,
+                                [
+                                    {
+                                        id: byokModelId,
+                                        name: 'Claude Sonnet 4',
+                                        provider: 'openrouter',
+                                        description: '',
+                                    },
+                                ],
+                            ]
+                        }
+                        return [200, MOCK_MODEL_OPTIONS]
+                    },
                 },
             })
 
@@ -426,6 +461,12 @@ describe('llmPlaygroundLogic', () => {
                     },
                     '/api/llm_proxy/models/': ({ request }) => {
                         if (new URL(request.url).searchParams.get('provider_key_id') === 'openrouter-key-1') {
+                            return [200, byokModels]
+                        }
+                        return [200, MOCK_MODEL_OPTIONS]
+                    },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        if (params.key_id === 'openrouter-key-1') {
                             return [200, byokModels]
                         }
                         return [200, MOCK_MODEL_OPTIONS]
@@ -781,6 +822,12 @@ describe('llmPlaygroundLogic', () => {
                     },
                     '/api/llm_proxy/models/': ({ request }) => {
                         if (new URL(request.url).searchParams.get('provider_key_id') === 'key-1') {
+                            return [200, byokModels]
+                        }
+                        return [200, MOCK_MODEL_OPTIONS]
+                    },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        if (params.key_id === 'key-1') {
                             return [200, byokModels]
                         }
                         return [200, MOCK_MODEL_OPTIONS]

@@ -5,8 +5,10 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
+    SEARCH_CONSOLE_PERFORMANCE_URL,
     CampaignStats,
     OrganicQueryStats,
+    RankingPage,
     RecommendationInputs,
     SearchTermStats,
     TermKeywordStats,
@@ -51,9 +53,11 @@ def _inputs(
     terms: tuple[SearchTermStats, ...] = (),
     organic: tuple[OrganicQueryStats, ...] = (),
     term_keywords: tuple[TermKeywordStats, ...] = (),
+    ranking_pages: tuple[RankingPage, ...] = (),
 ) -> RecommendationInputs:
     return RecommendationInputs(
         term_keywords=term_keywords,
+        ranking_pages=ranking_pages,
         campaigns=campaigns,
         search_terms=terms,
         organic_queries=organic,
@@ -126,6 +130,92 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert (leak.subject, leak.action) == ("Generic", 'Add "example" as a negative keyword')
         assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["Generic", '"example"']
         assert not any(rec.rule == "scale_campaign" and rec.subject == "Generic" for rec in recs)
+
+    def test_review_campaign_steps_start_with_the_searches_that_waste_spend(self) -> None:
+        good = _campaign(id="c1", name="Good", cost=1000, conversions=10)
+        costly = _campaign(id="c2", name="Costly", cost=2000, conversions=2)
+        terms = (
+            _term("product analytics", "c1", cost=1000, conversions=10),
+            _term("drain small", "c2", cost=300, conversions=0),
+            _term("drain big", "c2", cost=400, conversions=0),
+            _term("drain too small", "c2", cost=20, conversions=0),
+            replace(_term("already a keyword", "c2", cost=500, conversions=0), status="ADDED"),
+            _term("example login", "c2", cost=600, conversions=0),
+            _term("cheap keeper", "c2", cost=50, conversions=1),
+            replace(_term("cheap but excluded", "c2", cost=40, conversions=1), status="EXCLUDED"),
+            _term("costly converter", "c2", cost=300, conversions=1),
+        )
+
+        review = next(rec for rec in recommend(_inputs((good, costly), terms)) if rec.rule == "review_campaign")
+
+        steps = review.steps or []
+        assert review.subject == "Costly"
+        assert [step.copyValue for step in steps if step.copyValue] == ["Costly", "[drain big]\n[drain small]"]
+        assert '"cheap keeper"' in steps[2].text
+        assert "costly converter" not in steps[2].text and "cheap but excluded" not in steps[2].text
+        assert all(step.linkText and step.linkText in step.text for step in steps if step.url)
+
+    @parameterized.expand(
+        [
+            ("near_top_3_with_known_page", 8.0, True, "striking_distance", "https://example.com/funnels"),
+            (
+                "near_top_3_without_page_table",
+                8.0,
+                False,
+                "striking_distance",
+                f"{SEARCH_CONSOLE_PERFORMANCE_URL}?resource_id=sc-domain%3Aexample.com",
+            ),
+            ("ranks_beyond_page_one", 30.0, True, "content_gap", "https://example.com/funnels"),
+            ("does_not_rank", None, True, "content_gap", None),
+        ]
+    )
+    def test_organic_steps_start_from_the_page_that_ranks(
+        self, _name: str, position: float | None, has_pages: bool, rule: str, first_url: str | None
+    ) -> None:
+        terms = (
+            _term("funnel analysis", "c1", cost=100, conversions=5),
+            _term("session replay", "c1", cost=900, conversions=5),
+        )
+        organic = (
+            (OrganicQueryStats(query="funnel analysis", clicks=20, impressions=2000, position=position),)
+            if position
+            else ()
+        )
+        pages = (
+            RankingPage(query="funnel analysis", page="https://example.com/blog", impressions=300),
+            RankingPage(query="funnel analysis", page="https://example.com/funnels", impressions=1700),
+        )
+
+        recs = recommend(_inputs((_campaign(),), terms, organic, ranking_pages=pages if has_pages else ()))
+
+        organic_recs = [rec for rec in recs if rec.subject == "funnel analysis" and rec.rule == rule]
+        assert len(organic_recs) == 1
+        steps = organic_recs[0].steps or []
+        assert steps[0].url == first_url
+        if first_url is None:
+            assert steps[0].text.startswith("Create a page")
+        assert all(step.linkText and step.linkText in step.text for step in steps if step.url)
+
+    @parameterized.expand(
+        [
+            ("page_two_is_only_striking_distance", 15.0, 2000, {"striking_distance"}),
+            ("page_two_with_few_impressions_is_a_content_gap", 15.0, 20, {"content_gap"}),
+            ("page_one_with_few_impressions_is_neither", 8.0, 20, set()),
+        ]
+    )
+    def test_a_ranking_search_gets_one_organic_rule(
+        self, _name: str, position: float, impressions: float, expected: set[str]
+    ) -> None:
+        terms = (
+            _term("funnel analysis", "c1", cost=100, conversions=5),
+            _term("session replay", "c1", cost=900, conversions=5),
+        )
+        organic = (OrganicQueryStats(query="funnel analysis", clicks=1, impressions=impressions, position=position),)
+
+        recs = recommend(_inputs((_campaign(),), terms, organic))
+
+        rules = {rec.rule for rec in recs if rec.subject == "funnel analysis"} & {"content_gap", "striking_distance"}
+        assert rules == expected
 
     @parameterized.expand(
         [

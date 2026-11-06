@@ -17,12 +17,12 @@ from products.warehouse_sources.sources.sdk import (
     Resource,
     RESTAPIConfig,
     RESTClient,
+    ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
     build_dependent_resource,
     frozen,
     make_tracked_session,
-    reach_safe_point,
     rest_api_resource,
 )
 
@@ -64,6 +64,14 @@ def _client_config(api_key: str) -> ClientConfig:
 
 
 @frozen
+class MyHoursResumeConfig:
+    # time_logs: the first day of the next date window, as an ISO date.
+    next_window_start: str | None = None
+    # Fan-out endpoints: the finished and in-progress parents, as the framework hands them over.
+    paginator_state: dict[str, Any] | None = None
+
+
+@frozen
 class _TimeLogWindow:
     date_from: date
     date_to: date
@@ -88,9 +96,17 @@ def _time_log_windows(start: date, today: date) -> Iterator[_TimeLogWindow]:
         start = end + timedelta(days=1)
 
 
-def _time_log_pages(client: RESTClient, start: date) -> Iterator[list[dict[str, Any]]]:
+def _time_log_pages(
+    client: RESTClient, start: date, manager: ResumableSourceManager[MyHoursResumeConfig]
+) -> Iterator[list[dict[str, Any]]]:
+    resume = manager.load_state() if manager.can_resume() else None
     # One day past today in UTC covers accounts in timezones already on the next day.
     today = datetime.now(UTC).date() + timedelta(days=1)
+    if resume is not None and resume.next_window_start:
+        start = date.fromisoformat(resume.next_window_start)
+        if start > today:
+            # The last window is handed on. The window walk would clamp to today and read it again.
+            return
     for window in _time_log_windows(start, today):
         rows: list[dict[str, Any]] = []
         for page in client.paginate(
@@ -113,8 +129,11 @@ def _time_log_pages(client: RESTClient, start: date) -> Iterator[list[dict[str, 
             data_selector_malformed_retryable=True,
         ):
             rows.extend(page)
+        # Each window is one request, so the next window is where a resume starts.
+        next_start = window.date_to + timedelta(days=1)
+        manager.save_state(MyHoursResumeConfig(next_window_start=next_start.isoformat()))
         if not rows:
-            reach_safe_point()
+            manager.safe_point()
             continue
         # The report's row order is not documented. Sorting each window keeps the incremental
         # watermark ascending across batches.
@@ -141,6 +160,7 @@ def my_hours_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    resumable_source_manager: ResumableSourceManager[MyHoursResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
@@ -156,13 +176,20 @@ def my_hours_source(
         start = _start_date(db_incremental_field_last_value if should_use_incremental_field else None)
         return SourceResponse(
             name=endpoint,
-            items=lambda: _time_log_pages(client, start),
+            on_complete=resumable_source_manager.clear_state,
+            items=lambda: _time_log_pages(client, start, resumable_source_manager),
             primary_keys=config.primary_keys,
             partition_count=1,
             partition_size=1,
         )
 
     if config.fanout is not None:
+        resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+        def save_checkpoint(state: dict[str, Any] | None) -> None:
+            if state:
+                resumable_source_manager.save_state(MyHoursResumeConfig(paginator_state=state))
+
         resource = cast(
             Resource,
             build_dependent_resource(
@@ -175,12 +202,15 @@ def my_hours_source(
                 job_id=job_id,
                 db_incremental_field_last_value=None,
                 page_size_param=None,
+                resume_hook=save_checkpoint,
+                initial_paginator_state=resume.paginator_state if resume is not None else None,
             ),
         )
         if endpoint == PROJECT_TASKS_ENDPOINT:
             resource = resource.add_map(_flatten_task_lists)
         return SourceResponse(
             name=endpoint,
+            on_complete=resumable_source_manager.clear_state,
             items=lambda: resource,
             primary_keys=config.primary_keys,
             partition_count=1,
@@ -208,6 +238,7 @@ def my_hours_source(
 
     return SourceResponse(
         name=endpoint,
+        on_complete=resumable_source_manager.clear_state,
         items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,

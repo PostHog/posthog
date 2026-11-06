@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
@@ -40,6 +41,9 @@ interface PanelState {
     eventDefinitionsUnavailable: boolean
     sourceConfigsUnavailable: boolean
     externalConnections: boolean
+    // Team config (signals/config)
+    anomalyScoringAvailable: boolean
+    anomalyScoringEnabled: boolean
 }
 
 function sourceConfig(
@@ -228,6 +232,13 @@ function PanelHarness(state: PanelState): JSX.Element {
                     conversations_enabled: state.conversationsOn,
                 },
             ],
+            '/api/projects/:team_id/signals/config/': () => [
+                200,
+                {
+                    anomaly_scoring_available: state.anomalyScoringAvailable,
+                    anomaly_scoring_enabled: state.anomalyScoringEnabled,
+                },
+            ],
             '/api/projects/:team_id/signals/source_configs/': () =>
                 state.sourceConfigsUnavailable
                     ? [500, { detail: 'A server error occurred.' }]
@@ -316,6 +327,8 @@ const meta: Meta<typeof PanelHarness> = {
         eventDefinitionsUnavailable: false,
         sourceConfigsUnavailable: false,
         externalConnections: false,
+        anomalyScoringAvailable: true,
+        anomalyScoringEnabled: true,
     },
 }
 export default meta
@@ -436,6 +449,19 @@ export const ReplayVisionExpanded: Story = {
 export const ErrorTrackingExpanded: Story = {
     play: async ({ canvasElement }) => {
         const [expandButton] = await within(canvasElement).findAllByLabelText('Expand Error tracking')
+        await userEvent.click(expandButton)
+    },
+}
+
+/** Product analytics opened with the all-alerts flag on: the alert scope choice, and the anomaly scoring switch. */
+export const ProductAnalyticsAlertScope: Story = {
+    args: { productAnalyticsArmed: true },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SIGNALS_ANALYTICS_ALL_ALERTS],
+        testOptions: { snapshotBrowsers: [] },
+    },
+    play: async ({ canvasElement }) => {
+        const [expandButton] = await within(canvasElement).findAllByLabelText('Expand Product analytics')
         await userEvent.click(expandButton)
     },
 }

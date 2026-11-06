@@ -51,6 +51,7 @@ import type {
     LLMPromptResolveResponseApi,
 } from '../generated/api.schemas'
 import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
+import { changedOnlyTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
 import { llmPromptsLogic } from './llmPromptsLogic'
 import { LLM_PROMPTS_FORCE_RELOAD_PARAM } from './llmPromptsLogic'
 import { LLMPrompt, LLMPromptVersionSummary } from './types'
@@ -1616,10 +1617,15 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     })),
 
     urlToAction(({ actions, values }) => ({
-        '/prompt-management/prompts/:name': (_, __, ___, { method }) => {
+        '/prompt-management/prompts/:name': (_, __, ___, { method, pathname, searchParams }, previousLocation) => {
             if (method === 'PUSH' && values.isNewPrompt) {
                 actions.setPrompt(DEFAULT_PROMPT_FORM_VALUES)
                 actions.resetPromptForm(DEFAULT_PROMPT_FORM_VALUES)
+                return
+            }
+
+            // The trace drawer pushes each step, and opening or stepping it should not reload the prompt.
+            if (changedOnlyTraceDrawerParams(previousLocation, { pathname, searchParams })) {
                 return
             }
 

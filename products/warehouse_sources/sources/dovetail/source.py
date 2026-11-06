@@ -101,7 +101,7 @@ class DovetailSource(ResumableSource[DovetailSourceConfig, DovetailResumeConfig]
             label="Dovetail",
             docsUrl="https://posthog.com/docs/cdp/sources/dovetail",
             iconPath="/static/services/dovetail.png",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["user research", "customer research", "qualitative research"],
             fields=cast(
                 list[FieldType],

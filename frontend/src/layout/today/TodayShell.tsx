@@ -29,6 +29,9 @@ const TodaySpacesPane = lazyWithRetry(() => import('./TodaySpacesPane').then((m)
 const TodayAnalyticsSidebar = lazyWithRetry(() =>
     import('./TodayAnalyticsSidebar').then((m) => ({ default: m.TodayAnalyticsSidebar }))
 )
+const TodayPeopleSidebar = lazyWithRetry(() =>
+    import('./TodayPeopleSidebar').then((m) => ({ default: m.TodayPeopleSidebar }))
+)
 const TodayProductsPane = lazyWithRetry(() =>
     import('./TodayProductsPane').then((m) => ({ default: m.TodayProductsPane }))
 )
@@ -96,6 +99,10 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                 <TodayPreviewCardProvider disabled={phoneLayout}>
                     <TodayAnalyticsSidebar />
                 </TodayPreviewCardProvider>
+            ) : activePane === 'people' ? (
+                <TodayPreviewCardProvider disabled={phoneLayout}>
+                    <TodayPeopleSidebar />
+                </TodayPreviewCardProvider>
             ) : activePane === 'settings' ? (
                 <TodaySettingsSidebar />
             ) : (
@@ -113,7 +120,8 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                 className="group/header border-b-transparent"
                 back={<TodaySidebarCollapseButton />}
                 title={
-                    <div className="flex min-w-0 items-center gap-1">
+                    // The header gap puts the title 2px to the right of the pane row labels. Pull it back so they line up.
+                    <div className="-ms-0.5 flex min-w-0 items-center gap-1">
                         <h2 className="m-0 min-w-0 truncate text-base font-bold text-foreground">{paneTitle}</h2>
                         <TodaySidebarPinButton />
                     </div>

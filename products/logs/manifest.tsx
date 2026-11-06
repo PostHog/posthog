@@ -106,6 +106,7 @@ export const manifest: ProductManifest = {
             iconType: 'logs' as FileSystemIconType,
             iconColor: ['var(--color-product-logs-light)', 'var(--color-product-logs-dark)'] as FileSystemIconColor,
             href: urls.logs(),
+            searchKeywords: ['logging'],
             searchTabs: [
                 { name: 'Alerts', href: urls.logs('alerts') },
                 { name: 'SQL', href: urls.logs('sql') },

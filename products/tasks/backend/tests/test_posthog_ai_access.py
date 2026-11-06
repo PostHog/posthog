@@ -1,7 +1,8 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import time_machine
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -28,64 +29,21 @@ class TestPostHogAIAccessDecision(SimpleTestCase):
     @parameterized.expand(
         [
             (
-                "sandbox_flag_beats_every_deny",
-                {"phai-sandbox-mode"},
-                False,
-                RULES,
+                "grandfathered_variant_beats_every_deny",
+                "grandfathered",
+                None,
                 "Startup",
                 True,
                 0,
                 "2026-09-01",
                 PostHogAIAccessDecision.GRANDFATHERED,
             ),
-            (
-                "tasks_flag_beats_every_deny",
-                {"tasks"},
-                True,
-                RULES,
-                None,
-                True,
-                0,
-                "2026-09-01",
-                PostHogAIAccessDecision.GRANDFATHERED,
-            ),
-            (
-                "beta_off_denies_outside_override",
-                set(),
-                False,
-                RULES,
-                None,
-                False,
-                9,
-                "2025-01-01",
-                PostHogAIAccessDecision.BETA_OFF,
-            ),
-            (
-                "startup_program",
-                set(),
-                True,
-                RULES,
-                "YC",
-                False,
-                9,
-                "2025-01-01",
-                PostHogAIAccessDecision.STARTUP_PROGRAM,
-            ),
-            (
-                "prepaid_credits",
-                set(),
-                True,
-                RULES,
-                None,
-                True,
-                9,
-                "2025-01-01",
-                PostHogAIAccessDecision.PREPAID_CREDITS,
-            ),
+            ("flag_off_denies", None, RULES, None, False, 9, "2025-01-01", PostHogAIAccessDecision.BETA_OFF),
+            ("startup_program", "beta", RULES, "YC", False, 9, "2025-01-01", PostHogAIAccessDecision.STARTUP_PROGRAM),
+            ("prepaid_credits", "beta", RULES, None, True, 9, "2025-01-01", PostHogAIAccessDecision.PREPAID_CREDITS),
             (
                 "created_after_cutoff",
-                set(),
-                True,
+                "beta",
                 RULES,
                 None,
                 False,
@@ -93,12 +51,11 @@ class TestPostHogAIAccessDecision(SimpleTestCase):
                 "2026-06-01",
                 PostHogAIAccessDecision.CREATED_AFTER_CUTOFF,
             ),
-            ("low_trust", set(), True, RULES, None, False, 4, "2025-01-01", PostHogAIAccessDecision.LOW_TRUST),
-            ("passes_every_rule", set(), True, RULES, None, False, 5, "2025-01-01", PostHogAIAccessDecision.ALLOWED),
+            ("low_trust", "beta", RULES, None, False, 4, "2025-01-01", PostHogAIAccessDecision.LOW_TRUST),
+            ("passes_every_rule", "beta", RULES, None, False, 5, "2025-01-01", PostHogAIAccessDecision.ALLOWED),
             (
                 "beta_without_rules_fails_closed",
-                set(),
-                True,
+                "beta",
                 None,
                 None,
                 False,
@@ -108,8 +65,7 @@ class TestPostHogAIAccessDecision(SimpleTestCase):
             ),
             (
                 "rules_as_json_string",
-                set(),
-                True,
+                "beta",
                 json.dumps(RULES),
                 None,
                 False,
@@ -119,8 +75,7 @@ class TestPostHogAIAccessDecision(SimpleTestCase):
             ),
             (
                 "billing_unavailable_fails_closed",
-                set(),
-                True,
+                "beta",
                 RULES,
                 None,
                 False,
@@ -134,8 +89,7 @@ class TestPostHogAIAccessDecision(SimpleTestCase):
     def test_decision(
         self,
         _name: str,
-        grandfathered_flags: set[str],
-        beta_enabled: bool,
+        variant: str | None,
         rules: dict[str, Any] | str | None,
         startup_program_label: StartupProgramLabel | None,
         has_prepaid_credits: bool,
@@ -144,6 +98,7 @@ class TestPostHogAIAccessDecision(SimpleTestCase):
         expected: PostHogAIAccessDecision,
         billing_unavailable: bool = False,
     ) -> None:
+        cache.clear()
         organization = Organization(
             name="Fixture org",
             created_at=datetime.fromisoformat(org_created).replace(tzinfo=UTC),
@@ -151,14 +106,12 @@ class TestPostHogAIAccessDecision(SimpleTestCase):
         )
         user = User(email="fixture@example.com", distinct_id="fixture-distinct-id")
         prepaid = PrepaidCreditState.ACTIVE if has_prepaid_credits else PrepaidCreditState.NONE
-        beta = FeatureFlagResult(key="phai-2-beta", enabled=beta_enabled, variant=None, payload=rules, reason=None)
+        access = FeatureFlagResult(
+            key="phai-2-beta", enabled=variant is not None, variant=variant, payload=rules, reason=None
+        )
 
         with (
-            patch(
-                "products.tasks.backend.access.get_feature_flag_or_none",
-                side_effect=lambda key, *_args, **_kwargs: key in grandfathered_flags,
-            ),
-            patch("products.tasks.backend.access.posthoganalytics.get_feature_flag_result", return_value=beta),
+            patch("products.tasks.backend.access.posthoganalytics.get_feature_flag_result", return_value=access),
             patch(
                 "products.tasks.backend.access._get_funding_status",
                 return_value=OrganizationFundingStatus(
@@ -173,18 +126,87 @@ class TestPostHogAIAccessDecision(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("resolved_decision_is_reused", False, RULES, True, PostHogAIAccessDecision.ALLOWED, 1),
-            ("beta_without_rules_is_not_cached", False, None, True, PostHogAIAccessDecision.UNRESOLVED, 2),
-            ("failed_override_lookup_is_not_cached", None, RULES, True, PostHogAIAccessDecision.UNRESOLVED, 2),
-            ("failed_beta_lookup_is_not_cached", False, RULES, False, PostHogAIAccessDecision.UNRESOLVED, 2),
+            ("resolved_decision_is_reused", RULES, True, 30, None, True, PostHogAIAccessDecision.ALLOWED, 1),
+            (
+                "resolved_decision_expires",
+                RULES,
+                True,
+                24 * 60 + 1,
+                None,
+                True,
+                PostHogAIAccessDecision.ALLOWED,
+                2,
+            ),
+            (
+                "deciding_flag_edit_busts_it",
+                RULES,
+                True,
+                30,
+                "phai-2-beta",
+                True,
+                PostHogAIAccessDecision.ALLOWED,
+                2,
+            ),
+            (
+                "other_flag_edit_keeps_it",
+                RULES,
+                True,
+                30,
+                "other-flag",
+                True,
+                PostHogAIAccessDecision.ALLOWED,
+                1,
+            ),
+            (
+                "unloaded_definitions_reused_briefly",
+                RULES,
+                True,
+                0,
+                None,
+                False,
+                PostHogAIAccessDecision.ALLOWED,
+                1,
+            ),
+            (
+                "unloaded_definitions_expire_fast",
+                RULES,
+                True,
+                2,
+                None,
+                False,
+                PostHogAIAccessDecision.ALLOWED,
+                2,
+            ),
+            (
+                "beta_without_rules_is_not_cached",
+                None,
+                True,
+                30,
+                None,
+                True,
+                PostHogAIAccessDecision.UNRESOLVED,
+                2,
+            ),
+            (
+                "failed_beta_lookup_not_cached",
+                RULES,
+                False,
+                30,
+                None,
+                True,
+                PostHogAIAccessDecision.UNRESOLVED,
+                2,
+            ),
         ]
     )
     def test_cached_decision(
         self,
         _name: str,
-        override_value: bool | None,
         rules: dict[str, Any] | None,
         beta_resolves: bool,
+        minutes_between_loads: int,
+        edited_flag: str | None,
+        definitions_loaded: bool,
         expected: PostHogAIAccessDecision,
         expected_evaluations: int,
     ) -> None:
@@ -194,14 +216,21 @@ class TestPostHogAIAccessDecision(SimpleTestCase):
         )
         user = User(pk=1, email="fixture@example.com", distinct_id="fixture-distinct-id")
         beta = (
-            FeatureFlagResult(key="phai-2-beta", enabled=True, variant=None, payload=rules, reason=None)
+            FeatureFlagResult(key="phai-2-beta", enabled=True, variant="beta", payload=rules, reason=None)
             if beta_resolves
             else None
         )
+        definitions = [
+            {"key": key, "active": True, "filters": {"groups": [{"properties": [], "rollout_percentage": 0}]}}
+            for key in ("phai-2-beta", "other-flag")
+        ]
 
         with (
-            patch("products.tasks.backend.access.get_feature_flag_or_none", return_value=override_value),
             patch("products.tasks.backend.access.posthoganalytics.get_feature_flag_result", return_value=beta),
+            patch(
+                "products.tasks.backend.access.posthoganalytics.feature_flag_definitions",
+                return_value=definitions if definitions_loaded else None,
+            ),
             patch(
                 "products.tasks.backend.access._get_funding_status",
                 return_value=OrganizationFundingStatus(
@@ -211,9 +240,42 @@ class TestPostHogAIAccessDecision(SimpleTestCase):
             patch(
                 "products.tasks.backend.access.get_posthog_ai_access_decision", wraps=get_posthog_ai_access_decision
             ) as mock_decision,
+            time_machine.travel(datetime(2026, 11, 3, 12, 0, tzinfo=UTC), tick=False) as traveller,
         ):
             first = get_cached_posthog_ai_access_decision(user, organization)
+            traveller.shift(timedelta(minutes=minutes_between_loads))
+            for definition in definitions:
+                if definition["key"] == edited_flag:
+                    definition["filters"] = {"groups": [{"properties": [], "rollout_percentage": 100}]}
             second = get_cached_posthog_ai_access_decision(user, organization)
 
         self.assertEqual((first, second), (expected, expected))
         self.assertEqual(mock_decision.call_count, expected_evaluations)
+
+    def test_server_refusal_refreshes_the_page_render_decision(self) -> None:
+        cache.clear()
+        organization = Organization(
+            name="Fixture org", created_at=datetime(2025, 1, 1, tzinfo=UTC), customer_trust_scores={"events": 9}
+        )
+        user = User(pk=1, email="fixture@example.com", distinct_id="fixture-distinct-id")
+        access = FeatureFlagResult(key="phai-2-beta", enabled=True, variant="beta", payload=RULES, reason=None)
+
+        with (
+            patch("products.tasks.backend.access.posthoganalytics.get_feature_flag_result", return_value=access),
+            patch("products.tasks.backend.access.posthoganalytics.feature_flag_definitions", return_value=[]),
+            patch(
+                "products.tasks.backend.access._get_funding_status",
+                return_value=OrganizationFundingStatus(
+                    startup_program_label=None, prepaid_credit_state=PrepaidCreditState.NONE
+                ),
+            ),
+        ):
+            page_before = get_cached_posthog_ai_access_decision(user, organization)
+            organization.customer_trust_scores = {"events": 1}
+            refused = get_posthog_ai_access_decision(user, organization)
+            page_after = get_cached_posthog_ai_access_decision(user, organization)
+
+        self.assertEqual(
+            (page_before, refused, page_after),
+            (PostHogAIAccessDecision.ALLOWED, PostHogAIAccessDecision.LOW_TRUST, PostHogAIAccessDecision.LOW_TRUST),
+        )

@@ -1,7 +1,10 @@
+from dataclasses import replace
 from uuid import uuid4
 
 import pytest
 from unittest.mock import patch
+
+from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -107,19 +110,23 @@ async def test_started_and_ready_fire_expected_captures(
     report_id = str(report.id)
     source_products = ["conversations", "zendesk"]
 
+    environment = ActivityEnvironment()
+    environment.info = replace(environment.info, workflow_run_id="example-workflow-run")
     with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture:
-        await mark_report_in_progress_activity(
+        await environment.run(
+            mark_report_in_progress_activity,
             MarkReportInProgressInput(
                 team_id=ateam.id,
                 report_id=report_id,
                 signal_count=2,
                 source_products=source_products,
                 preserve_pending_refresh=preserve_pending,
-            )
+            ),
         )
         await database_sync_to_async(report.refresh_from_db)()
         assert (report.pending_triggering_signal_id == driver) is preserve_pending
-        await mark_report_ready_activity(
+        await environment.run(
+            mark_report_ready_activity,
             MarkReportReadyInput(
                 team_id=ateam.id,
                 report_id=report_id,
@@ -130,7 +137,7 @@ async def test_started_and_ready_fire_expected_captures(
                 source_products=source_products,
                 charts=charts,
                 charts_enabled=charts_enabled,
-            )
+            ),
         )
 
     # Model-level signal_report_status_changed labels ride the same analytics client; this test
@@ -140,6 +147,7 @@ async def test_started_and_ready_fire_expected_captures(
     for e in events:
         assert e["distinct_id"] == str(ateam.uuid)
         assert e["properties"]["report_id"] == report_id
+        assert e["properties"]["workflow_run_id"] == "example-workflow-run"
         assert e["properties"]["signal_count"] == 2
         assert e["properties"]["source_products"] == source_products
         assert "run_count" in e["properties"]

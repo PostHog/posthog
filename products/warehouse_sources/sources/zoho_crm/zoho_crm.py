@@ -80,6 +80,34 @@ TOKEN_ERROR_MESSAGES = {
 TOKEN_REFRESH_FAILED_PREFIX = "Zoho CRM token refresh failed"
 
 
+class ZohoCRMApiError(requests.HTTPError):
+    """A structured 4xx Zoho CRM answers with its own `code`/`message` envelope.
+
+    `raise_for_status()` alone discards the body, producing a body-less "400 Client Error:
+    for url: ..." that can't be told apart from any other 400 — for example INVALID_MODULE,
+    which Zoho returns for a module the org never enabled, from a scope or parameter problem.
+    """
+
+
+def _with_zoho_error_detail(error: requests.HTTPError) -> requests.HTTPError:
+    """Fold Zoho's own `code`/`message` into `error`, when the response body carries one."""
+    response = error.response
+    try:
+        body = response.json() if response is not None else None
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        return error
+
+    code = body.get("code")
+    message = body.get("message") or ""
+    if not code and not message:
+        return error
+
+    detail = f"{code}: {message}".rstrip(": ") if code else message
+    return ZohoCRMApiError(f"{error} ({detail})", response=response)
+
+
 class ZohoCRMAuthError(Exception):
     def __init__(self, error_code: Optional[str]) -> None:
         super().__init__(f"{TOKEN_REFRESH_FAILED_PREFIX}: {error_code or 'no access token returned'}")
@@ -231,7 +259,10 @@ class ZohoCRMClient:
 
 def readable_field_names(client: ZohoCRMClient, api_version: str, module: str) -> list[str]:
     """Field API names Get Records can project for `module`, from the fields metadata API."""
-    response = client.get(f"/crm/{api_version}/settings/fields", params={"module": module})
+    try:
+        response = client.get(f"/crm/{api_version}/settings/fields", params={"module": module})
+    except requests.HTTPError as e:
+        raise _with_zoho_error_detail(e) from e
     if response.status_code in NO_CONTENT_STATUSES:
         return []
 
@@ -259,7 +290,10 @@ def _fetch_page(
     params: dict[str, str],
     headers: dict[str, str],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    response = client.get(f"/crm/{api_version}/{config.path}", params=params, headers=headers)
+    try:
+        response = client.get(f"/crm/{api_version}/{config.path}", params=params, headers=headers)
+    except requests.HTTPError as e:
+        raise _with_zoho_error_detail(e) from e
     if response.status_code in NO_CONTENT_STATUSES:
         return [], {}
 

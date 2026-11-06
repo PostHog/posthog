@@ -11,6 +11,7 @@ first: it takes the trained insights from their stored state, longest overdue fi
 keep them current. The train pass then takes the other due insights in the `pick_order` order. An insight
 whose model is due for a soft retrain goes to the train pass first. When the train pass does not pick it,
 the score pass scores it with the old model, so the train budget does not decide the score coverage.
+The first score walk leaves a share of the score cap for these stale models, so ready picks cannot take every slot.
 
 The CPU limits of `spend.py` apply before the query budgets: a walk leaves out the insights of a team over its
 daily CPU limit, and every insight of a pass that the fleet limit stops.
@@ -66,13 +67,15 @@ from products.signals.backend.anomaly_scores.selection import (
     InsightUsage,
     ScoreCandidate,
     SelectionConfig,
+    _unit_interval,
     insight_usage,
     pick_order,
     score_order,
 )
 from products.signals.backend.anomaly_scores.spend import CpuSpendReport, cpu_gate
 from products.signals.backend.anomaly_scores.state import RunPlan, load_states, plan_run, score_ready_by_insight
-from products.signals.backend.models import AnomalyScoringDueInsight, SignalTeamConfig
+from products.signals.backend.contracts import ALERT_SCOPE_SOURCE
+from products.signals.backend.models import AnomalyScoringDueInsight, SignalSourceConfig, SignalTeamConfig
 from products.subscriptions.backend.facade.api import insight_ids_with_active_subscriptions
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
@@ -123,6 +126,8 @@ _MAX_AT_CAPACITY_TEAMS = 2
 _TEAM_LOADED_TTL = datetime.timedelta(days=1)
 # The most due rows that one plan reads. Far more than the picks of one tick.
 _MAX_DUE_ROWS = 5000
+# The score pass keeps one in this many of its slots for stale models, so ready picks cannot take every slot.
+_STALE_SCORE_SHARE = 4
 # The scorer rejects these, so selection leaves them out instead of picking them on every tick.
 _UNSCORED_DISPLAYS = sorted(
     display.value for display in {*NON_TIME_SERIES_DISPLAY_TYPES, ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE}
@@ -200,6 +205,9 @@ class Selection:
     picked_train: int = 0
     # Score pass picks that score with a model due for a soft retrain.
     scored_stale_model: int = 0
+    # Due insights with a stale model that the train pass did not pick. More than `scored_stale_model` means
+    # the score pass had no slot or budget for them.
+    stale_candidates: int = 0
     # Due train candidates that the train pass did not pick: soft ones still score with a stale model, hard ones do not.
     train_backlog_soft: int = 0
     train_backlog_hard: int = 0
@@ -259,8 +267,13 @@ def eligible_teams(config: AnomalyScoringConfig) -> list[Team]:
     """The teams that `config.covers_team` enrolls, in a fixed number of queries, less the teams over their event quota."""
     if not config.enabled:
         return []
+    source_product, source_type = ALERT_SCOPE_SOURCE
+    with_source = SignalSourceConfig.objects.filter(
+        source_product=source_product, source_type=source_type, enabled=True
+    ).values("team_id")
     teams = (
-        Team.objects.exclude(id__in=config.skip_team_ids)
+        Team.objects.filter(id__in=with_source)
+        .exclude(id__in=config.skip_team_ids)
         .exclude(organization_id__in=config.deny_organization_ids)
         .exclude(id__in=SignalTeamConfig.objects.filter(anomaly_scoring_enabled=False).values("team_id"))
     )
@@ -271,12 +284,11 @@ def eligible_teams(config: AnomalyScoringConfig) -> list[Team]:
             listed = listed.filter(id__in=config.allow_team_ids)
         enrolled.update(listed.values_list("id", flat=True))
     if config.self_driving_organization_percentage > 0:
-        from products.signals.backend.facade.api import (
-            team_ids_with_enabled_source,  # noqa: PLC0415 — the facade imports this module through `search`
+        enrolled.update(
+            team_id
+            for team_id, organization_id in teams.values_list("id", "organization_id")
+            if in_rollout(config, organization_id)
         )
-
-        with_source = teams.filter(id__in=team_ids_with_enabled_source()).values_list("id", "organization_id")
-        enrolled.update(team_id for team_id, organization_id in with_source if in_rollout(config, organization_id))
     if not enrolled:
         return []
     # Capture drops every event of a project over its event quota, so scoring it wastes the query.
@@ -285,7 +297,7 @@ def eligible_teams(config: AnomalyScoringConfig) -> list[Team]:
 
 
 def turned_off_in_settings(team: Team) -> bool:
-    """Whether the project turned anomaly scoring off in its self-driving settings. A team without a config row is on."""
+    """Whether the project turned anomaly scoring off in its Product analytics source. A team without a config row is on."""
     return SignalTeamConfig.objects.filter(team_id=team.id, anomaly_scoring_enabled=False).exists()
 
 
@@ -672,9 +684,12 @@ def _run_plans(
     return {insight_id: plans.get(insight_id, missing) for insight_id in insight_ids}
 
 
-def _take_turns(team_orders: list[list[int]]) -> list[int]:
-    # Projects take turns, so one large project cannot take every slot of the tick budget.
-    return [insight_id for turn in itertools.zip_longest(*team_orders) for insight_id in turn if insight_id is not None]
+def _take_turns(team_orders: Mapping[int, list[int]], tick_start: datetime.datetime) -> list[int]:
+    # Projects take turns, so one large project cannot take every slot of the tick budget. A hashed team
+    # order for each tick, so the pick cap does not always cut off the same projects.
+    team_ids = sorted(team_orders, key=lambda team_id: _unit_interval("team", team_id, tick_start.isoformat()))
+    turns = itertools.zip_longest(*(team_orders[team_id] for team_id in team_ids))
+    return [insight_id for turn in turns for insight_id in turn if insight_id is not None]
 
 
 def load_scored_state(
@@ -807,7 +822,8 @@ def select_insights(
     if config.train_score_split:
         score_pass = _score_order(active_by_id, teams, config, now)
         score_order_ids, stale_order_ids, score_ready = score_pass.order, score_pass.stale_order, score_pass.ready
-        score_picked, score_skipped = walk(score_order_ids, ScoringRun.SCORE, score_cap)
+        stale_reserve = min(len(stale_order_ids), _stale_reserve(score_cap))
+        score_picked, score_skipped = walk(score_order_ids, ScoringRun.SCORE, score_cap - stale_reserve)
         # A spent score budget makes the walk load no plan. Plan the head of the order anyway, so that an
         # edited insight there still reaches the train pass while the train budget has room.
         plans_for(score_order_ids[:score_cap])
@@ -850,15 +866,16 @@ def select_insights(
             )
         )
     train_order = _take_turns(
-        [
-            pick_order(
-                candidates_by_team[team_id],
+        {
+            team_id: pick_order(
+                candidates,
                 config=selection_config,
                 tick_start=now,
                 max_staleness=config.limits.max_backfill_buckets,
             )
-            for team_id in sorted(candidates_by_team)
-        ]
+            for team_id, candidates in candidates_by_team.items()
+        },
+        now,
     )
     if config.train_score_split:
         train_cap = config.max_train_insights_per_tick * shards
@@ -870,9 +887,10 @@ def select_insights(
     stale_picked: dict[int, RunPlan] = {}
     stale_skipped = 0
     stale_cap = score_cap - len(score_picked)
+    stale_candidates = [insight_id for insight_id in stale_order_ids if insight_id not in train_picked]
     if config.train_score_split and stale_cap > 0:
         stale_picked, stale_skipped = walk(
-            [insight_id for insight_id in stale_order_ids if insight_id not in train_picked],
+            stale_candidates,
             ScoringRun.SCORE,
             stale_cap,
             lambda insight_ids: {
@@ -902,6 +920,7 @@ def select_insights(
         picked_score=len(score_picked),
         picked_train=len(train_picked),
         scored_stale_model=len(stale_picked),
+        stale_candidates=len(stale_candidates),
         train_backlog_soft=sum(insight_id in stale_ready for insight_id in backlog),
         train_backlog_hard=sum(insight_id not in stale_ready for insight_id in backlog),
         active=active,
@@ -926,6 +945,11 @@ def select_insights(
     )
 
 
+def _stale_reserve(score_cap: int) -> int:
+    """The score pass slots that ready picks leave for stale models. A cap of one slot keeps it for ready picks."""
+    return max(1, score_cap // _STALE_SCORE_SHARE) if score_cap > 1 else 0
+
+
 def _as_score_step(plan: RunPlan) -> RunPlan:
     """A stale model plan as a score step. A plan that needs a train step stays one, and the score pass passes over it."""
     return dataclasses.replace(plan, run=ScoringRun.SCORE) if plan.stale_model else plan
@@ -942,8 +966,8 @@ def _score_order(
     A stale model is in `stale_order` only, because the train pass gets it first. `ready` leaves out the
     stale models, so they reach the train pass.
     """
-    team_orders: list[list[int]] = []
-    stale_orders: list[list[int]] = []
+    team_orders: dict[int, list[int]] = {}
+    stale_orders: dict[int, list[int]] = {}
     ready: set[int] = set()
     for team_id in sorted({insight.team_id for insight in active_by_id.values()}):
         team = teams[team_id]
@@ -964,11 +988,9 @@ def _score_order(
             and is_due(insight, scored[insight.insight_id].scored_through, team.timezone_info, now)
         ]
         for stale, orders in ((False, team_orders), (True, stale_orders)):
-            orders.append(
-                score_order(
-                    [candidate for is_stale, candidate in candidates if is_stale == stale],
-                    now=now,
-                    max_staleness=config.limits.max_backfill_buckets,
-                )
+            orders[team_id] = score_order(
+                [candidate for is_stale, candidate in candidates if is_stale == stale],
+                now=now,
+                max_staleness=config.limits.max_backfill_buckets,
             )
-    return ScorePassOrder(order=_take_turns(team_orders), stale_order=_take_turns(stale_orders), ready=ready)
+    return ScorePassOrder(order=_take_turns(team_orders, now), stale_order=_take_turns(stale_orders, now), ready=ready)

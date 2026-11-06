@@ -1358,16 +1358,17 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
     @parameterized.expand(
         [
-            # A creator who never picked a mode is asked once per thread when the run bills to their plan.
-            ("unset", None, False, True),
+            # A creator who never picked a mode lets anyone join, also when the run bills to their plan.
+            ("unset", None, True, False),
             ("allow", ThreadJoinMode.ALLOW, True, False),
+            ("ask_per_thread", ThreadJoinMode.ASK_PER_THREAD, False, True),
         ]
     )
     @patch("products.slack_app.backend.api.post_thread_join_prompt")
     @patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True)
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("posthog.models.integration.SlackIntegration")
-    def test_a_run_on_the_creators_own_plan_asks_before_others_join_by_default(
+    def test_a_run_on_the_creators_own_plan_follows_the_creators_join_mode(
         self, _name, mode, delivered, prompted, mock_slack_cls, mock_resolve, mock_signal, mock_prompt
     ):
         self.task_run.state = {"claude_model_access": "own-subscription", "claude_subscription_user_id": self.user.id}

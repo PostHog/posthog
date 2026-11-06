@@ -94,6 +94,7 @@ export type LogsIngestionConsumerConfig = {
      * (shadow mode) — billing is unchanged.
      */
     LOGS_BILLING_PRORATE_ENABLED: boolean
+    LOGS_INGESTION_USE_FRAMEWORK: boolean
     /** Comma-separated team IDs, or `*` for all teams, or empty (default) to disable hog log transformations entirely. */
     LOGS_TRANSFORMATIONS_ENABLED_TEAMS: string
     /** When `true`, hog log transformations are skipped regardless of the allowlist. */
@@ -152,6 +153,7 @@ export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerCo
         LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS: '',
         LOGS_JSON_ATTRIBUTE_EXTRACTION_ENABLED_TEAMS: '',
         LOGS_BILLING_PRORATE_ENABLED: false,
+        LOGS_INGESTION_USE_FRAMEWORK: false,
         LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '',
         LOGS_TRANSFORMATIONS_KILLSWITCH: false,
         LOGS_TRANSFORMATIONS_HOG_TIMEOUT_MS: 10,
@@ -196,6 +198,7 @@ export type TracesIngestionConsumerConfig = {
     TRACES_RETENTION_ENABLED_TEAMS: string
     /** When `true`, span retention rules are never evaluated (spans keep the team default via the batch header). */
     TRACES_RETENTION_KILLSWITCH: boolean
+    TRACES_INGESTION_USE_FRAMEWORK: boolean
     REDIS_URL: string
     REDIS_POOL_MIN_SIZE: number
     REDIS_POOL_MAX_SIZE: number
@@ -229,6 +232,7 @@ export function getDefaultTracesIngestionConsumerConfig(): TracesIngestionConsum
         // Same rollout shape as the logs retention rules: on locally, off in prod until enabled per team.
         TRACES_RETENTION_ENABLED_TEAMS: isProdEnv() ? '' : '*',
         TRACES_RETENTION_KILLSWITCH: false,
+        TRACES_INGESTION_USE_FRAMEWORK: false,
         // Overlapping fields with CommonConfig, included for standalone usage
         // ok to connect to localhost over plaintext
         // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport

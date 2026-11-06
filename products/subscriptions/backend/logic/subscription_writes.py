@@ -20,10 +20,18 @@ from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY
 from posthog.event_usage import AnalyticsProps, groups
 from posthog.exceptions_capture import capture_exception
 from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.integration import SlackIntegration
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.query_creator_access import (
+    CreatorLeftOrganizationError,
+    assert_creator_can_run,
+    describe_owner_unavailable,
+    owner_unavailable_code,
+)
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.security.url_validation import is_microsoft_teams_webhook_url
 from posthog.slo.context import SloSpec, slo_operation
@@ -31,7 +39,7 @@ from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import human_list
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
@@ -128,6 +136,11 @@ def _write_attrs(write: SubscriptionWrite) -> dict:
             continue
         attrs[_MODEL_ATTRIBUTE_NAMES.get(field.name, field.name)] = value
     return attrs
+
+
+def owner_unavailable_message(owner: User | None, error: Exception) -> str:
+    """The refusal for a re-enable the owner cannot run, naming the owner and the cause."""
+    return f"Can't re-enable this subscription. {describe_owner_unavailable(owner, error)}"
 
 
 class _SubscriptionWrite:
@@ -379,9 +392,8 @@ class _SubscriptionWrite:
             if "delivery_config" in attrs
             else (self.instance.delivery_config if self.instance else None)
         ) or {}
-        # A prompt report never reads the gallery option, so only the value a request sends can be
-        # wrong. An insight or dashboard report does read it, so the stored value still decides: a
-        # target or permission change would break the next delivery.
+        # A prompt report on a target that ignores the option still delivers, so only a value the request
+        # sends is checked. Older prompt rows can store it on an email target and must stay editable.
         gallery_enabled = (
             submitted_delivery_config
             if resource_type == Subscription.ResourceType.AI_PROMPT
@@ -400,18 +412,6 @@ class _SubscriptionWrite:
                         ]
                     }
                 )
-        elif gallery_enabled:
-            # The prompt Slack renderer already posts every chart in the main message and never reads this option.
-            raise SubscriptionRequestInvalidError(
-                {
-                    "delivery_config": [
-                        "post_all_insights_in_main_message only applies to insight and dashboard "
-                        f"subscriptions. This subscription has resource_type '{resource_type}', so "
-                        "remove it from delivery_config. A prompt report already posts all its chart "
-                        "images in the main message."
-                    ]
-                }
-            )
 
         # Reject re-enables of subscriptions whose delivery prerequisite is still
         # permanently broken — otherwise the next delivery would just auto-disable
@@ -421,6 +421,18 @@ class _SubscriptionWrite:
             error_message = validate_re_enable(target_type, integration_id)
             if error_message:
                 raise SubscriptionRequestInvalidError({"enabled": [error_message]})
+            # Deliveries run as the owner, so an owner who cannot run them would only get it disabled again.
+            assert existing is not None
+            # The owner must be able to run the target this write leaves, not the one it replaces.
+            dashboard = attrs.get("dashboard") or existing.dashboard
+            insight = attrs.get("insight") or existing.insight
+            try:
+                assert_creator_can_run(existing.created_by, self.team, dashboard, insight)
+            except (CreatorLeftOrganizationError, UserAccessControlError) as error:
+                raise SubscriptionRequestInvalidError(
+                    {"enabled": [owner_unavailable_message(existing.created_by, error)]},
+                    code=owner_unavailable_code(error),
+                ) from None
             # AI subs auto-disable on PromptRejectedError (deleted creator, prompt now
             # fails sanitization). The delivery path will just re-disable on the next
             # tick unless the underlying cause is fixed by this PATCH.
@@ -456,7 +468,9 @@ class _SubscriptionWrite:
                 raise SubscriptionRequestInvalidError({"start_date": [f"{base}."]})
             raise SubscriptionRequestInvalidError(f"{base}.")
 
-        if target_type == Subscription.SubscriptionTarget.TEAMS:
+        destination_changed = bool({"target_type", "target_value", "integration_id", "delivery_config"} & attrs.keys())
+        validate_destination = existing is None or not turning_off or destination_changed
+        if target_type == Subscription.SubscriptionTarget.TEAMS and validate_destination:
             submitted = (attrs.get("target_value") or "").strip()
             if self.instance and submitted and submitted == self.instance.recipient_label:
                 raise SubscriptionRequestInvalidError({"target_value": [TEAMS_WEBHOOK_URL_MASKED_ERROR]})
@@ -464,7 +478,7 @@ class _SubscriptionWrite:
             if not is_microsoft_teams_webhook_url(target_value):
                 raise SubscriptionRequestInvalidError({"target_value": [TEAMS_WEBHOOK_URL_ERROR]})
 
-        if target_type == Subscription.SubscriptionTarget.SLACK:
+        if target_type == Subscription.SubscriptionTarget.SLACK and validate_destination:
             if not integration_id:
                 raise SubscriptionRequestInvalidError(
                     {"integration_id": ["A Slack integration is required for Slack subscriptions."]}
@@ -475,7 +489,12 @@ class _SubscriptionWrite:
                 raise SubscriptionRequestInvalidError(
                     {"integration_id": ["This integration does not exist or does not belong to your team."]}
                 )
-            if gallery_enabled and SlackIntegration(integration).missing_scopes({"files:write"}):
+            # A prompt report links its chart images instead of uploading them, so it needs no file upload permission.
+            if (
+                gallery_enabled
+                and resource_type != Subscription.ResourceType.AI_PROMPT
+                and SlackIntegration(integration).missing_scopes({"files:write"})
+            ):
                 raise SubscriptionRequestInvalidError(
                     {
                         "delivery_config": [
@@ -1017,6 +1036,76 @@ def update_subscription(
     )
     validated_data = subscription_write.validate(_write_attrs(write))
     return subscription_record(subscription_write.update(instance, validated_data))
+
+
+def take_subscription_ownership(
+    *,
+    team: Team,
+    organization: Organization,
+    user: User,
+    viewer: UserAccessControl,
+    subscription_id: int,
+    analytics_props: AnalyticsProps,
+) -> SubscriptionRecord:
+    """Make `user` the owner and enable the subscription, so deliveries run with their access.
+
+    Every refusal comes before the owner changes, so a refused takeover leaves the subscription as
+    it was: the new owner must be able to view the dashboard or insight and read every table the
+    subscription delivers, and the enable must pass its usual checks as the new owner.
+    """
+    instance = Subscription.objects.get(pk=subscription_id, team_id=team.id)
+    try:
+        assert_creator_can_run(user, team, instance.dashboard, instance.insight)
+    except (CreatorLeftOrganizationError, UserAccessControlError):
+        raise SubscriptionRequestInvalidError("Can't take ownership: you don't have access to this content.") from None
+    # The enable below only compiles the queries when it enables a disabled row, so an enabled one is
+    # checked here, as the new owner.
+    if instance.enabled:
+        denied_resources = denied_resources_in_subscription(
+            user=user, team=team, user_access_control=viewer, subscription_id=subscription_id, attrs={}
+        )
+        if denied_resources:
+            denied_names = ", ".join(f"`{name}`" for name in denied_resources)
+            raise SubscriptionRequestInvalidError(f"Can't take ownership: you don't have access to {denied_names}.")
+    # The new owner is set in memory only: the re-enable check reads it off the instance, and the
+    # enable's save persists it with `enabled`.
+    previous_owner = instance.created_by
+    instance.created_by = user
+    subscription_write = _SubscriptionWrite(
+        team=team,
+        organization=organization,
+        user=user,
+        viewer=viewer,
+        instance=instance,
+        partial=True,
+        is_create_request=False,
+        analytics_props=analytics_props,
+    )
+    validated_data = subscription_write.validate(_write_attrs(SubscriptionWrite(enabled=True)))
+    updated = subscription_write.update(instance, validated_data)
+    # `created_by` is excluded from the save diff, so the takeover gets its own activity.
+    log_activity(
+        organization_id=team.organization_id,
+        team_id=team.id,
+        user=user,
+        was_impersonated=get_was_impersonated(),
+        item_id=updated.id,
+        scope="Subscription",
+        activity="took_ownership",
+        detail=Detail(
+            name=updated.display_name,
+            changes=[
+                Change(
+                    type="Subscription",
+                    action="changed",
+                    field="created_by",
+                    before={"id": previous_owner.id, "email": previous_owner.email} if previous_owner else None,
+                    after={"id": user.id, "email": user.email},
+                )
+            ],
+        ),
+    )
+    return subscription_record(updated)
 
 
 def start_test_delivery(*, team_id: int, subscription_id: int) -> ManualDeliveryResult:

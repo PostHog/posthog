@@ -15,9 +15,10 @@ import type { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general
 import type { HighlightMetricApi, PulseSlotApi } from 'products/today/frontend/generated/api.schemas'
 
 import { TodayChange } from './TodayChange'
-import { todayHighlightsLogic } from './todayHighlightsLogic'
+import { pulsePinLimitReason, todayHighlightsLogic } from './todayHighlightsLogic'
 import { todayNumber } from './todayNumbers'
 import { TodayPulseCard } from './TodayPulseCard'
+import { pulseChange } from './todayPulseFacts'
 import { TodayPulseHoverCard } from './TodayPulseHoverCard'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
 import type { TodayTone } from './todayTone'
@@ -65,6 +66,10 @@ function metricFormatter(metric: HighlightMetricApi, currency: CurrencyCode): (v
     return (value) => formatAggregationAxisValue(trendsFilter, value, currency)
 }
 
+function cardNumber(value: number): string {
+    return humanFriendlyNumber(value, Math.abs(value) >= 100 ? 0 : 2)
+}
+
 const REORDER_MS = 220
 
 function useSettleOnReorder(listRef: RefObject<HTMLUListElement>, order: string): void {
@@ -105,11 +110,12 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                 interval: metric.interval,
             })
         )
-    const { highlightsLoading, highlights, highlightsFailed } = useValues(todayHighlightsLogic)
+    const { highlightsLoading, highlights, highlightsFailed, pulsePins, pulsePinsUnavailableReason } =
+        useValues(todayHighlightsLogic)
     const listRef = useRef<HTMLUListElement>(null)
     useSettleOnReorder(listRef, cards.map((tile) => tile.key).join('|'))
     const { baseCurrency } = useValues(teamLogic)
-    const { pulseMetricOpened, pulseMetricPreviewed, hidePulseMetric, holdPulseOrder, releasePulseOrder, retryPulse } =
+    const { pulseMetricOpened, pulseMetricPreviewed, hidePulseMetric, togglePulsePin, retryPulse } =
         useActions(todayHighlightsLogic)
     return (
         <ul ref={listRef} className="TodayPulse" aria-label="Key numbers, against the period before">
@@ -164,8 +170,10 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                 }
 
                 const isInsight = metric.key.startsWith('insight:')
+                const pinned = pulsePins.some((pin) => pin.key === metric.key)
                 const tone = isInsight ? 'neutral' : metricTone(metric.change_pct, metric.value)
                 const formatValue = metric.value_format ? metricFormatter(metric, baseCurrency) : todayNumber
+                const change = pulseChange(metric)
                 const content = (
                     <>
                         <span className="TodayPulse__name">{metric.name}</span>
@@ -173,7 +181,7 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                             <span className="TodayPulse__value" translate="no">
                                 {formatValue(metric.value)}
                             </span>
-                            <TodayChange change={metric.change_pct} tone={tone} />
+                            <TodayChange change={change.value} unit={change.unit} tone={tone} />
                         </span>
                         <span className="TodayPulse__spark">
                             <Suspense fallback={null}>
@@ -190,23 +198,28 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                 return (
                     <li key={metric.key} data-pulse-key={metric.key} className="TodayPulse__metric">
                         <TodayPulseHoverCard
+                            focusable={!metric.url}
                             onOpenChange={(open) => {
                                 if (open) {
                                     pulseMetricPreviewed(metric, position)
-                                    holdPulseOrder(
-                                        metric.key,
-                                        cards.map((tile) => tile.key)
-                                    )
-                                } else {
-                                    releasePulseOrder(metric.key)
                                 }
                             }}
                             card={
                                 <TodayPulseCard
                                     metric={metric}
                                     tone={tone}
-                                    formatValue={metric.value_format ? formatValue : humanFriendlyNumber}
+                                    formatValue={metric.value_format ? formatValue : cardNumber}
                                     onOpen={() => pulseMetricOpened(metric, position)}
+                                    pinned={pinned}
+                                    pinDisabledReason={
+                                        pulsePinsUnavailableReason ?? pulsePinLimitReason(pulsePins.length, pinned)
+                                    }
+                                    onTogglePin={() =>
+                                        togglePulsePin(
+                                            { key: metric.key, name: metric.name, dashboard_id: metric.dashboard_id },
+                                            'hover_card'
+                                        )
+                                    }
                                     onHide={() => hidePulseMetric(metric, position)}
                                 />
                             }

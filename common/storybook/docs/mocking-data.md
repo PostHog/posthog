@@ -1,6 +1,7 @@
 # Mocking data in stories
 
 Stories talk to the PostHog API through a Mock Service Worker that starts in `preview.tsx`.
+A global loader holds every story's render until the worker is ready, so the first story on a fresh page gets its mocks too.
 Every request goes to the worker first: a story mock, then a default mock, then the network.
 
 ## Mock API responses

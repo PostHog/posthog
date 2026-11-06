@@ -295,6 +295,40 @@ class TestActivityLogAuditLogsGate(APIBaseTest):
         entry.refresh_from_db()
         assert entry.detail == detail
 
+    @parameterized.expand(
+        [
+            ("activity_log/",),
+            ("advanced_activity_logs/",),
+            ("advanced_activity_logs/?is_csv_export=1",),
+            ("advanced_activity_logs/?schema=ocsf",),
+        ]
+    )
+    def test_only_allowlisted_credential_ids_reach_the_endpoint(self, endpoint: str) -> None:
+        for credential_type, credential_id, impersonated_by_id in (
+            ("personal_api_key", "example-key-id", None),
+            ("service_jwt", "example-internal-audience", 424242),
+        ):
+            ActivityLog.objects.create(
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                user=self.user,
+                scope="Experiment",
+                activity="created",
+                credential_type=credential_type,
+                credential_id=credential_id,
+                impersonated_by_id=impersonated_by_id,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/{endpoint}")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.content.decode()
+        assert "personal_api_key" in body
+        assert "example-key-id" in body
+        assert "example-internal-audience" not in body
+        assert "impersonated_by_id" not in body
+        assert "424242" not in body
+
     @parameterized.expand([("activity_log",), ("advanced_activity_logs",)])
     def test_endpoint_blocked_on_cloud_without_audit_logs_feature(self, endpoint: str) -> None:
         self.organization.available_product_features = []
@@ -751,8 +785,7 @@ class TestAdvancedActivityLogExportPath(APIBaseTest):
 
 
 class TestActivityLogSerializerFields(SimpleTestCase):
-    @parameterized.expand([("advanced", ActivityLogSerializer), ("my_notifications", MyNotificationsSerializer)])
-    def test_credential_fields_are_not_serialized(self, _name: str, serializer_class: type) -> None:
+    def test_credential_fields_are_not_serialized_in_notifications(self) -> None:
         log = ActivityLog(
             scope="Experiment",
             activity="created",
@@ -761,6 +794,39 @@ class TestActivityLogSerializerFields(SimpleTestCase):
             impersonated_by_id=1,
         )
 
-        data = serializer_class(log).data
+        data = MyNotificationsSerializer(log).data
 
         assert {"credential_type", "credential_id", "impersonated_by_id"}.isdisjoint(data)
+
+    @parameterized.expand(
+        [
+            ("session", "session", "session-public-id", False, None, "session-public-id"),
+            ("personal_api_key", "personal_api_key", "key-id", False, None, "key-id"),
+            ("project_secret_key", "project_secret_key", "key-id", False, None, "key-id"),
+            ("oauth_hides_the_application", "oauth", "application-id", False, None, None),
+            ("service_jwt_hides_the_audience", "service_jwt", "internal-service", False, None, None),
+            ("impersonated_session_hides_the_staff_session", "session", "session-public-id", True, 1, None),
+        ]
+    )
+    def test_advanced_serializer_shows_credential_id_only_for_allowlisted_types(
+        self,
+        _name: str,
+        credential_type: str,
+        credential_id: str,
+        was_impersonated: bool,
+        impersonated_by_id: Optional[int],
+        expected_credential_id: Optional[str],
+    ) -> None:
+        log = ActivityLog(
+            scope="Experiment",
+            activity="created",
+            was_impersonated=was_impersonated,
+            credential_type=credential_type,
+            credential_id=credential_id,
+            impersonated_by_id=impersonated_by_id,
+        )
+
+        data = ActivityLogSerializer(log).data
+
+        assert (data["credential_type"], data["credential_id"]) == (credential_type, expected_credential_id)
+        assert "impersonated_by_id" not in data

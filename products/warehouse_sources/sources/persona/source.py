@@ -98,6 +98,7 @@ Sandbox and production environments use separate API keys — use the one for th
             # Retrying can't fix a credential problem, so fail the sync. Match the stable status text
             # and base host, not the per-request path.
             "401 Client Error: Unauthorized for url: https://api.withpersona.com": "Your Persona API key is invalid or has been revoked. Create a new API key in your Persona dashboard, then reconnect.",
+            "Persona API not enabled for this account": "Persona has not enabled this API for your account, so this table cannot sync. Your API key is fine. Ask Persona to enable the API, then turn this table's sync back on.",
             "403 Client Error: Forbidden for url: https://api.withpersona.com": "Your Persona API key is missing the read permissions needed to sync this data. Grant the required access in your Persona dashboard, then reconnect.",
         }
 
