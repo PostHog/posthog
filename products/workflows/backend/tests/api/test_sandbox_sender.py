@@ -130,7 +130,8 @@ class TestSandboxSenderAPI(APIBaseTest):
         assert not self._sandbox_rows().exists()
 
     def test_listing_integrations_still_answers_when_reporting_the_new_sender_fails(self) -> None:
-        response = self.client.get(f"/api/projects/{self.team.id}/integrations/", HTTP_REFERER="https://[")
+        with patch("posthog.event_usage.report_user_action", side_effect=ValueError("Invalid IPv6 URL")):
+            response = self.client.get(f"/api/projects/{self.team.id}/integrations/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert self._sandbox_rows().exists()
