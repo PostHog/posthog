@@ -522,7 +522,7 @@ export const QueryDatabase = ({
                             previewItem(item)
                         }}
                     >
-                        <div className="flex flex-row gap-1 justify-between">
+                        <div className="@container/database-tree-row flex flex-row gap-1 justify-between">
                             <div className="flex min-w-0 items-center gap-2">
                                 <span className="flex min-w-0 items-center gap-1">
                                     {item.record?.type === 'view' && item.record.isSavedQuery ? (
@@ -569,7 +569,9 @@ export const QueryDatabase = ({
                                             : columnType}
                                     </span>
                                 ) : tableKindLabel ? (
-                                    <span className="shrink rounded px-1.5 py-0.5 text-xs text-muted-alt">
+                                    // Below 14rem the badge squeezes a long name to a few characters, so it hides.
+                                    // A row at DATABASE_TREE_DEFAULT_WIDTH is wider than 14rem and keeps the badge.
+                                    <span className="shrink rounded px-1.5 py-0.5 text-xs text-muted-alt @max-[14rem]/database-tree-row:hidden">
                                         {tableKindLabel}
                                     </span>
                                 ) : showDropTargetBadge ? (
