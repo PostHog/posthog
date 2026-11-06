@@ -551,7 +551,13 @@ class DeletionRequestWorkflowPanel(Panel):
                 key="submit",
                 label="Submit for approval",
                 handler=submit,
+                # Unless staff tick the opt-out, the auto-approval job can approve it with no other human step.
+                danger=True,
                 form_class=AutoApprovableSubmitForm,
+                undo_hint=(
+                    "Until the deletion job picks it up, move the request back to draft. Data that a run already "
+                    "deleted cannot be restored."
+                ),
                 description=(
                     f"Moves the request to pending. Every {AUTO_APPROVE_INTERVAL_MINUTES} minutes a job refreshes "
                     f"the stats of pending event removals, and approves those that match fewer than "
