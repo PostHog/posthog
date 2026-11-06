@@ -972,7 +972,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         # existing integration instead of adding a new one. Adding is allowed for any project
         # member. A Google account's creator can also reconnect it because its credentials are
         # personal; every other overwrite still requires admin. The transaction rolls back an
-        # unauthorized helper upsert. The email helper refuses an existing address instead.
+        # unauthorized helper upsert.
         with transaction.atomic():
             existing_integrations = {
                 integration.integration_id: integration

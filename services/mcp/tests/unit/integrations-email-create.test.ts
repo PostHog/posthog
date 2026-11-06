@@ -24,8 +24,6 @@ describe('integrations-email-create', () => {
     it('always sends kind email, whatever the caller passes', async () => {
         const request = vi.fn().mockResolvedValue({ id: 1, kind: 'email' })
 
-        // `kind` is not in the advertised schema, so a caller reaching for another
-        // integration here must not be able to create one through this tool.
         await GENERATED_TOOLS['integrations-email-create']!().handler(createMockContext(request), {
             kind: 'slack',
             config,
