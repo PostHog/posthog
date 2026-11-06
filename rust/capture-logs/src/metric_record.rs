@@ -153,8 +153,10 @@ pub fn flatten_metric(
             for dp in hist.data_points {
                 let value = dp.sum.unwrap_or(0.0);
                 let count = dp.count as i64;
-                let bounds = dp.explicit_bounds.clone();
-                let counts: Vec<i64> = dp.bucket_counts.iter().map(|c| *c as i64).collect();
+                let (bounds, counts) = fold_trailing_infinite_bounds(
+                    dp.explicit_bounds.clone(),
+                    dp.bucket_counts.iter().map(|c| *c as i64).collect(),
+                );
 
                 let (mut row, overridden) = build_number_row(
                     &metric_name,
@@ -407,6 +409,37 @@ fn hash_sorted_map(hasher: &mut SipHasher13, map: &HashMap<String, String>) {
         hash_str(hasher, key);
         hash_str(hasher, value);
     }
+}
+
+/// Removes trailing non-finite explicit bounds and adds their bucket counts to the
+/// bucket before them. A prom-client histogram that declares an explicit
+/// `Infinity` bucket arrives with `+Inf` as its last bound, followed by an
+/// overflow bucket that is always empty. Readers reject a non-finite bound, so
+/// this stores the layout that Prometheus reads from the duplicate `+Inf`. It
+/// matches the remote-write path, where `histogram_assembly` drops a repeated
+/// `+Inf` bucket. A data point whose counts do not match its bounds, or whose
+/// fold overflows, is left unchanged.
+fn fold_trailing_infinite_bounds(
+    mut bounds: Vec<f64>,
+    mut counts: Vec<i64>,
+) -> (Vec<f64>, Vec<i64>) {
+    if counts.len() != bounds.len() + 1 {
+        return (bounds, counts);
+    }
+    while let Some(&last) = bounds.last() {
+        if last.is_finite() || last == f64::NEG_INFINITY {
+            break;
+        }
+        let overflow = counts[counts.len() - 1];
+        let previous = counts.len() - 2;
+        let Some(folded) = counts[previous].checked_add(overflow) else {
+            break;
+        };
+        counts[previous] = folded;
+        counts.pop();
+        bounds.pop();
+    }
+    (bounds, counts)
 }
 
 /// Flatten exponential histogram buckets into explicit bounds and counts.
@@ -758,6 +791,88 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].trace_id, BASE64_STANDARD.encode(VALID_TRACE_BYTES));
         assert_eq!(rows[0].span_id, BASE64_STANDARD.encode(VALID_SPAN_BYTES));
+    }
+
+    #[test]
+    fn test_histogram_trailing_infinite_bounds_fold_into_last_bucket() {
+        struct Case {
+            name: &'static str,
+            bounds: Vec<f64>,
+            counts: Vec<u64>,
+            want_bounds: Vec<f64>,
+            want_counts: Vec<i64>,
+        }
+        let cases = vec![
+            Case {
+                name: "prom-client explicit Infinity",
+                bounds: vec![16.0, 32.0, f64::INFINITY],
+                counts: vec![1, 2, 3, 0],
+                want_bounds: vec![16.0, 32.0],
+                want_counts: vec![1, 2, 3],
+            },
+            Case {
+                name: "repeated Infinity",
+                bounds: vec![16.0, f64::INFINITY, f64::INFINITY],
+                counts: vec![1, 2, 0, 0],
+                want_bounds: vec![16.0],
+                want_counts: vec![1, 2],
+            },
+            Case {
+                name: "trailing NaN",
+                bounds: vec![16.0, f64::NAN],
+                counts: vec![1, 2, 3],
+                want_bounds: vec![16.0],
+                want_counts: vec![1, 5],
+            },
+            Case {
+                name: "finite bounds unchanged",
+                bounds: vec![16.0, 32.0],
+                counts: vec![1, 2, 3],
+                want_bounds: vec![16.0, 32.0],
+                want_counts: vec![1, 2, 3],
+            },
+            Case {
+                name: "length mismatch unchanged",
+                bounds: vec![16.0, f64::INFINITY],
+                counts: vec![1, 2],
+                want_bounds: vec![16.0, f64::INFINITY],
+                want_counts: vec![1, 2],
+            },
+        ];
+        for Case {
+            name,
+            bounds,
+            counts,
+            want_bounds,
+            want_counts,
+        } in cases
+        {
+            let metric = Metric {
+                name: "test.histogram".to_string(),
+                description: String::new(),
+                unit: String::new(),
+                metadata: vec![],
+                data: Some(Data::Histogram(Histogram {
+                    aggregation_temporality: 2,
+                    data_points: vec![HistogramDataPoint {
+                        attributes: vec![],
+                        start_time_unix_nano: 1_700_000_000_000_000_000,
+                        time_unix_nano: 1_700_000_000_000_000_000,
+                        count: counts.iter().sum(),
+                        sum: Some(1.0),
+                        bucket_counts: counts,
+                        explicit_bounds: bounds,
+                        exemplars: vec![],
+                        flags: 0,
+                        min: None,
+                        max: None,
+                    }],
+                })),
+            };
+            let (rows, _) = flatten_metric(metric, None, None).expect("flatten_metric ok");
+            assert_eq!(rows[0].histogram_bounds, want_bounds, "{name}");
+            assert_eq!(rows[0].histogram_counts, want_counts, "{name}");
+        }
     }
 
     #[test]
