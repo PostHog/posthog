@@ -12,10 +12,14 @@ from typing import Any, Optional
 from django.db import transaction
 from django.db.models import Q
 
+import structlog
+
 from posthog.dataclasses import frozen
 
 from products.cdp.backend.models.hog_functions.hog_function import TYPES_WITH_JAVASCRIPT_SOURCE, HogFunction
-from products.cdp.backend.secret_origins import UNBOUND, secret_origins, stored_origins
+from products.cdp.backend.secret_origins import UNBOUND, parse_stored_origins, secret_origins, stored_origins
+
+logger = structlog.get_logger(__name__)
 
 LIVE = "live"
 STAGED = "staged"
@@ -46,6 +50,7 @@ class BackfillReport:
     rows_to_write: int = 0
     rows_written: int = 0
     rows_changed: int = 0
+    rows_failed: int = 0
 
 
 def _mapping_inputs(mappings: Any) -> list[dict]:
@@ -63,7 +68,7 @@ def _bind(
         return None
     keys = {key for key, item in secrets.items() if isinstance(item, dict)}
     outcomes += [(store, "skipped")] * (len(secrets) - len(keys))
-    unbound_keys = {key for key in keys if "allowed_origins" not in secrets[key]}
+    unbound_keys = {key for key in keys if parse_stored_origins(secrets[key].get("allowed_origins")) is None}
     outcomes += [(store, "already_bound")] * (len(keys) - len(unbound_keys))
     if not unbound_keys:
         return None
@@ -107,9 +112,10 @@ def apply_secret_origins(plan: SecretOriginsPlan) -> bool:
         current = (
             HogFunction.objects.select_for_update()
             .only("id", *_SCANNED_FIELDS)
-            .get(pk=scanned.pk, team_id=scanned.team_id)
+            .filter(pk=scanned.pk, team_id=scanned.team_id)
+            .first()
         )
-        if any(getattr(current, name) != getattr(scanned, name) for name in _SCANNED_FIELDS):
+        if current is None or any(getattr(current, name) != getattr(scanned, name) for name in _SCANNED_FIELDS):
             return False
         # `update` writes only the encrypted columns: `save` would re-split inputs, recompile filters
         # and push a reload, and it would move `updated_at`, which a pending publish confirmation signs.
@@ -133,16 +139,28 @@ def backfill_secret_origins(*, apply: bool, team_id: Optional[int] = None, batch
             "id", "team_id", "template_id", *_SCANNED_FIELDS
         )
         for hog_function in batch:
-            plan = plan_secret_origins(hog_function)
-            report.outcomes.update(plan.outcomes)
-            report.unbound_templates.update(
-                hog_function.template_id or "(none)" for _, outcome in plan.outcomes if outcome == "unbound"
-            )
-            if not plan.changes:
-                continue
-            report.rows_to_write += 1
-            if apply and apply_secret_origins(plan):
-                report.rows_written += 1
-            elif apply:
-                report.rows_changed += 1
+            try:
+                _backfill_row(hog_function, apply, report)
+            except Exception as error:
+                # Never log the exception itself: its message or traceback can carry decrypted values.
+                logger.warning(
+                    "secret_origins_backfill_row_failed",
+                    hog_function_id=str(hog_function.pk),
+                    error_type=type(error).__name__,
+                )
+                report.rows_failed += 1
     return report
+
+
+def _backfill_row(hog_function: HogFunction, apply: bool, report: BackfillReport) -> None:
+    plan = plan_secret_origins(hog_function)
+    report.outcomes.update(plan.outcomes)
+    if any(outcome == "unbound" for _, outcome in plan.outcomes):
+        report.unbound_templates[hog_function.template_id or "(none)"] += 1
+    if not plan.changes:
+        return
+    report.rows_to_write += 1
+    if apply and apply_secret_origins(plan):
+        report.rows_written += 1
+    elif apply:
+        report.rows_changed += 1

@@ -1,6 +1,6 @@
 from typing import Any
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from products.cdp.backend.services.secret_origins_backfill import backfill_secret_origins
 
@@ -15,16 +15,19 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         apply: bool = options["apply"]
+        if options["batch_size"] < 1:
+            raise CommandError("--batch-size must be at least 1.")
         report = backfill_secret_origins(apply=apply, team_id=options["team_id"], batch_size=options["batch_size"])
         for (store, outcome), count in sorted(report.outcomes.items()):
             self.stdout.write(f"{store} secrets {outcome}: {count}")
         # An unbound secret can go to any origin, so a person decides whether its function needs a change.
         for template_id, count in report.unbound_templates.most_common():
-            self.stdout.write(f"unbound by template: {template_id}={count}")
+            self.stdout.write(f"functions with an unbound secret, by template: {template_id}={count}")
         self.stdout.write(f"rows to write: {report.rows_to_write}")
+        self.stdout.write(f"rows that failed and were skipped: {report.rows_failed}")
         if apply:
             self.stdout.write(
-                f"rows written: {report.rows_written}, skipped as changed since the scan: {report.rows_changed}"
+                f"rows written: {report.rows_written}, skipped as changed or deleted since the scan: {report.rows_changed}"
             )
         else:
             self.stdout.write("Dry run. Re-run with --apply to write the changes.")
