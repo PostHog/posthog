@@ -24,6 +24,7 @@ import {
     hogFunctionConfigurationLogic,
     sanitizeConfiguration,
 } from './hogFunctionConfigurationLogic'
+import { SecretReentryRetry, hogFunctionSecretReentryLogic, secretReentryKey } from './hogFunctionSecretReentryLogic'
 import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
 
 export type HogFunctionTestInvocationForm = {
@@ -139,6 +140,16 @@ export interface hogFunctionTestLogicActions {
     touchConfigurationField: (key: string) => {
         key: string
     } // hogFunctionConfigurationLogic
+    requireSecretReentry: (
+        key: string,
+        retry: SecretReentryRetry
+    ) => {
+        key: string
+        retry: SecretReentryRetry
+    } // hogFunctionSecretReentryLogic
+    secretReentered: (retry: SecretReentryRetry) => {
+        retry: SecretReentryRetry
+    } // hogFunctionSecretReentryLogic
     cancelSampleGlobalsLoading: () => {
         value: true
     }
@@ -260,6 +271,8 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         actions: [
             hogFunctionConfigurationLogic(props),
             ['touchConfigurationField', 'loadSampleGlobalsSuccess', 'loadSampleGlobals', 'setSampleGlobals'],
+            hogFunctionSecretReentryLogic(props),
+            ['requireSecretReentry', 'secretReentered'],
         ],
     })),
     actions({
@@ -335,6 +348,11 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
+        secretReentered: ({ retry }) => {
+            if (retry === 'test') {
+                actions.submitTestInvocation()
+            }
+        },
         toggleExpanded: () => {
             // Contexts with a sample globals loader fetch real product data as soon as the
             // test panel opens, instead of waiting for a "Load new event" click.
@@ -523,6 +541,11 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
 
                     actions.setTestResult(res)
                 } catch (e: any) {
+                    const refusedSecret = secretReentryKey(e)
+                    if (refusedSecret) {
+                        actions.requireSecretReentry(refusedSecret, 'test')
+                        return
+                    }
                     if (e?.data?.configuration?.filters?.non_field_errors) {
                         lemonToast.error(`Testing failed: ${e.data.configuration.filters.non_field_errors}`)
                         return

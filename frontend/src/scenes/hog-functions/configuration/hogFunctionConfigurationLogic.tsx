@@ -109,6 +109,19 @@ export interface HogFunctionConfigurationLogicProps {
     id?: string | null
 }
 
+export function hogFunctionConfigurationLogicKey({
+    id,
+    templateId,
+    subTemplateId,
+    logicKey,
+}: HogFunctionConfigurationLogicProps): string {
+    let baseKey = id ?? templateId ?? 'new'
+    if (subTemplateId) {
+        baseKey = `${subTemplateId}_${baseKey}`
+    }
+    return logicKey ? `${logicKey}_${baseKey}` : baseKey
+}
+
 export const EVENT_VOLUME_DAILY_WARNING_THRESHOLD = 1000
 const SPARKLINE_DAYS = 7
 const UNSAVED_CONFIGURATION_TTL = 1000 * 60 * 5
@@ -888,13 +901,7 @@ export type hogFunctionConfigurationLogicType = MakeLogicType<
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     props({} as HogFunctionConfigurationLogicProps),
-    key(({ id, templateId, subTemplateId, logicKey }: HogFunctionConfigurationLogicProps) => {
-        let baseKey = id ?? templateId ?? 'new'
-        if (subTemplateId) {
-            baseKey = `${subTemplateId}_${baseKey}`
-        }
-        return logicKey ? `${logicKey}_${baseKey}` : baseKey
-    }),
+    key(hogFunctionConfigurationLogicKey),
     connect(() => ({
         values: [
             projectLogic,

@@ -27,6 +27,7 @@ import {
 import { FLAG_CALLS_NOT_LOADABLE } from '../filters/flagCallsMatching'
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { hogFunctionConfigurationLogic, sanitizeInputs } from './hogFunctionConfigurationLogic'
+import { hogFunctionSecretReentryLogic } from './hogFunctionSecretReentryLogic'
 
 jest.mock('lib/api', () => ({
     ...jest.requireActual('lib/api'),
@@ -675,6 +676,94 @@ describe('hogFunctionConfigurationLogic', () => {
             logic.mount()
 
             await expectLogic(logic).toDispatchActions(['loadHogFunction', 'loadHogFunctionFailure'])
+        })
+    })
+
+    describe('entering a secret again', () => {
+        const SECRET_SENDER: HogFunctionType = {
+            ...HOG_FUNCTION,
+            inputs_schema: [
+                ...(HOG_TEMPLATE.inputs_schema ?? []),
+                { key: 'api_key', type: 'string', label: 'API key', secret: true, required: false },
+                { key: 'secret_headers', type: 'dictionary', label: 'Secret headers', secret: true, required: false },
+            ],
+            inputs: {
+                url: { value: 'https://hooks.example.com' },
+                api_key: { value: undefined, secret: true },
+                secret_headers: { secret: true, value: { Authorization: '********' } },
+            },
+        }
+        const refusal = (key: string): Record<string, unknown> => ({
+            status: 400,
+            data: {
+                type: 'validation_error',
+                code: 'secret_reentry_required',
+                attr: `inputs__${key}`,
+                detail: 'This change would send the secret to a new address. Enter the secret again to confirm.',
+            },
+        })
+        let reentryLogic: ReturnType<typeof hogFunctionSecretReentryLogic.build>
+
+        beforeEach(async () => {
+            initKeaTests()
+            mockApi.get.mockResolvedValue(SECRET_SENDER)
+            mockApi.update.mockReset()
+            logic = hogFunctionConfigurationLogic({ id: SECRET_SENDER.id })
+            logic.mount()
+            reentryLogic = hogFunctionSecretReentryLogic({ id: SECRET_SENDER.id })
+            reentryLogic.mount()
+            await expectLogic(logic).toDispatchActions(['loadHogFunctionSuccess'])
+            logic.actions.setConfigurationValue('inputs.url', { value: 'https://new.example.com' })
+        })
+
+        it('asks for each refused secret in turn and retries the save with the edits kept', async () => {
+            mockApi.update
+                .mockRejectedValueOnce(refusal('api_key'))
+                .mockRejectedValueOnce(refusal('secret_headers'))
+                .mockResolvedValueOnce(SECRET_SENDER)
+
+            await expectLogic(logic, () => logic.actions.submitConfiguration()).toDispatchActions([
+                'setConfigurationManualErrors',
+            ])
+            expect(reentryLogic.values.prompt).toEqual({ key: 'api_key', label: 'API key', entryKeys: null })
+
+            reentryLogic.actions.setSecretValue('new key')
+            await expectLogic(logic, () => reentryLogic.actions.confirmSecretReentry()).toDispatchActions([
+                'upsertHogFunctionFailure',
+                'setConfigurationManualErrors',
+            ])
+            expect(reentryLogic.values.prompt).toEqual({
+                key: 'secret_headers',
+                label: 'Secret headers',
+                entryKeys: ['Authorization'],
+            })
+
+            reentryLogic.actions.setSecretEntry('Authorization', 'Bearer new')
+            await expectLogic(logic, () => reentryLogic.actions.confirmSecretReentry()).toDispatchActions([
+                'upsertHogFunctionSuccess',
+            ])
+
+            expect(reentryLogic.values.prompt).toBeNull()
+            expect(mockApi.update).toHaveBeenCalledTimes(3)
+            expect(mockApi.update.mock.calls[2][1].inputs).toMatchObject({
+                url: { value: 'https://new.example.com' },
+                api_key: { value: 'new key' },
+                secret_headers: { value: { Authorization: 'Bearer new' } },
+            })
+        })
+
+        it('leaves the edit unsaved when the user cancels', async () => {
+            mockApi.update.mockRejectedValueOnce(refusal('api_key'))
+
+            await expectLogic(logic, () => logic.actions.submitConfiguration()).toDispatchActions([
+                'setConfigurationManualErrors',
+            ])
+            reentryLogic.actions.cancelSecretReentry()
+
+            expect(reentryLogic.values.prompt).toBeNull()
+            expect(mockApi.update).toHaveBeenCalledTimes(1)
+            expect(logic.values.configuration.inputs?.url).toEqual({ value: 'https://new.example.com' })
+            expect(logic.values.configuration.inputs?.api_key).toEqual({ secret: true })
         })
     })
 
