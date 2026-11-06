@@ -23,6 +23,7 @@ from products.slack_app.backend.services.slack_messages import (
     thread_permalink,
 )
 from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
+from products.slack_app.backend.task_profiles import SLACK
 from products.slack_app.backend.temporal.attachments import (
     PreparedSlackAttachments,
     SlackAttachmentBudget,
@@ -45,6 +46,7 @@ from products.slack_app.backend.temporal.types import (
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppModelOverride,
 )
+from products.tasks.backend.facade.profiles import TaskRunOptions
 
 if TYPE_CHECKING:
     from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -783,19 +785,21 @@ def create_posthog_code_task_for_repo_activity(
             team=integration.team,
             title=title,
             description=description,
-            origin_product=tasks_facade.TaskOriginProduct.SLACK,
+            profile=SLACK,
             user_id=user_id,
             repository=repository,
+            options=TaskRunOptions(
+                adapter=run_prefs.runtime_adapter,
+                model=run_prefs.model,
+                reasoning_effort=run_prefs.reasoning_effort,
+                mcp_scopes="full",
+                permission_mode="bypassPermissions",
+            ),
             create_pr=allow_pr_creation,
             mode="interactive",
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
             start_workflow=False,
-            posthog_mcp_scopes="full",
-            initial_permission_mode="bypassPermissions",
-            runtime_adapter=run_prefs.runtime_adapter,
-            model=run_prefs.model,
-            reasoning_effort=run_prefs.reasoning_effort,
             channel_id=personal_channel_id,
             extra_run_state=own_plan_state,
         )
