@@ -1645,15 +1645,20 @@ def test_account_audit_cost_routing_requires_server_provenance(
 def test_support_reply_mint_requires_server_provenance(settings: Settings, internal: bool) -> None:
     settings.SANDBOX_AI_GATEWAY_URL = "https://ai-gateway.example.com"
     settings.SANDBOX_AI_GATEWAY_PRODUCTS = "conversations"
+    settings.SANDBOX_AI_GATEWAY_MINT_KEY = "phs_test_mint"
     with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_test") as mint:
-        env = ai_gateway_env_vars(
-            team_id=123, origin_product="support_reply", internal=internal, model=None, runtime="acp"
-        )
-    assert ("AI_GATEWAY_TOKEN" in env) is internal
-    if internal:
-        mint.assert_called_once_with(ai_product="conversations", team_id=123, user=None)
-    else:
-        mint.assert_not_called()
+        if internal:
+            env = ai_gateway_env_vars(
+                team_id=123, origin_product="support_reply", internal=True, model=None, runtime="acp"
+            )
+            assert env["AI_GATEWAY_TOKEN"] == "phe_test"
+            mint.assert_called_once_with(ai_product="conversations", team_id=123, user=None)
+        else:
+            with pytest.raises(ProcessTaskFatalError):
+                ai_gateway_env_vars(
+                    team_id=123, origin_product="support_reply", internal=False, model=None, runtime="acp"
+                )
+            mint.assert_not_called()
 
 
 class TestPosthogCodeSandboxMint:
