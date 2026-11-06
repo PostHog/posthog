@@ -295,19 +295,20 @@ GITLAB = WorkloadProvider(
     condition_presets=(
         ConditionPreset(
             key="branch",
-            label="A branch",
-            # A merge request pipeline from a fork carries the fork's project_id, so the branch alone
-            # can't trust code from a fork.
-            help_text="Pipelines that run on this branch.",
-            conditions=(("ref", PRESET_VALUE), ("ref_type", "branch")),
+            label="A protected branch",
+            # A merge request pipeline from a fork carries the fork's project_id, so the branch alone can't
+            # trust code from a fork. Protection keeps working if someone later reuses the branch name.
+            help_text="Pipelines that run on this branch while it is protected.",
+            conditions=(("ref", PRESET_VALUE), ("ref_type", "branch"), ("ref_protected", "true")),
             placeholder="main",
             default_value="main",
         ),
         ConditionPreset(
             key="environment",
-            label="A deployment environment",
-            help_text="Jobs that deploy to this environment.",
-            conditions=(("environment", PRESET_VALUE),),
+            label="A protected environment",
+            # Anyone who can push a branch can name any unprotected environment in a job.
+            help_text="Jobs that deploy to this environment while it is protected. Protected environments need GitLab Premium or Ultimate.",
+            conditions=(("environment", PRESET_VALUE), ("environment_protected", "true")),
             placeholder="production",
             default_value="production",
         ),

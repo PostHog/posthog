@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from django.conf import settings
 
@@ -22,7 +22,6 @@ from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import GitHubIntegrationError, _is_safe_github_repo_path
 from posthog.models.integration.github import GitHubIntegration
-from posthog.models.integration.gitlab import GitLabIntegration
 from posthog.models.integration.model import Integration
 from posthog.workload_identity.subjects import (
     ResolvedWorkloadSubject,
@@ -124,18 +123,10 @@ GITLAB_PROJECT_ENDPOINT = "/api/v4/projects/{id}"
 GITLAB_UNAVAILABLE = "GitLab didn't answer. Try again in a minute, or enter the project ID by hand."
 # A GitLab path is a namespace, any number of subgroups, and a project name.
 _GITLAB_PROJECT_PATH = re.compile(r"^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$")
+_GITLAB_REMOTE_PREFIX = re.compile(r"^(?:(?:https?://|ssh://git@|git@)?gitlab\.com[:/])", re.IGNORECASE)
 
 
-def _gitlab_subject(body: Any, found_via: str) -> ResolvedWorkloadSubject | None:
-    if not isinstance(body, dict) or not isinstance(body.get("id"), int):
-        return None
-    path = body.get("path_with_namespace")
-    if not isinstance(path, str):
-        return None
-    return ResolvedWorkloadSubject(subject=str(body["id"]), subject_name=path, found_via=found_via)
-
-
-def _gitlab_project(token: str, path: str) -> requests.Response:
+def _gitlab_project(token: str | None, path: str) -> requests.Response:
     return gitlab_request(
         "GET",
         f"{GITLAB_COM}/api/v4/projects/{quote(path, safe='')}",
@@ -147,35 +138,57 @@ def _gitlab_project(token: str, path: str) -> requests.Response:
     )
 
 
+def _gitlab_subject(response: requests.Response, found_via: str) -> ResolvedWorkloadSubject | None:
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    if not isinstance(body, dict) or not isinstance(body.get("id"), int):
+        return None
+    path = body.get("path_with_namespace")
+    # PostHog's token may see projects that aren't public, and only a team's own integration may tell a
+    # team about those. An anonymous request only ever sees public ones.
+    if not isinstance(path, str) or (found_via == "GitLab" and body.get("visibility") != "public"):
+        return None
+    return ResolvedWorkloadSubject(subject=str(body["id"]), subject_name=path, found_via=found_via)
+
+
+def _gitlab_through_integration(team_id: int, path: str) -> tuple[ResolvedWorkloadSubject | None, bool]:
+    unavailable = False
+    for integration in IntegrationManager.gitlab.token.list(team_id):
+        hostname = urlsplit(str(integration.config.get("hostname") or "")).hostname or ""
+        token = integration.sensitive_config.get("access_token")
+        # Only gitlab.com issues tokens PostHog trusts, and a self-managed instance's token must not go there.
+        if hostname.lower() != "gitlab.com" or not token:
+            continue
+        try:
+            response = _gitlab_project(token, path)
+        except requests.RequestException:
+            unavailable = True
+            continue
+        if response.status_code == 200 and (found := _gitlab_subject(response, "your GitLab integration")):
+            return found, unavailable
+        unavailable = unavailable or response.status_code not in (200, 404)
+    return None, unavailable
+
+
 def resolve_gitlab_project(team_id: int, name: str) -> ResolvedWorkloadSubject:
-    path = name.strip().removeprefix(f"{GITLAB_COM}/").removesuffix(".git").strip("/")
+    path = _GITLAB_REMOTE_PREFIX.sub("", name.strip()).split("/-/")[0].removesuffix(".git").strip("/")
     if ".." in path or not _GITLAB_PROJECT_PATH.fullmatch(path):
         raise WorkloadSubjectNotFound("Enter the project path, like group/project or group/subgroup/project.")
+    found, unavailable = _gitlab_through_integration(team_id, path)
+    if found:
+        return found
     try:
-        # Only gitlab.com issues tokens PostHog trusts, so a self-managed integration can't help.
-        for integration in IntegrationManager.gitlab.token.list(team_id):
-            gitlab = GitLabIntegration(integration)
-            token = gitlab.integration.sensitive_config.get("access_token")
-            if gitlab.hostname.rstrip("/") != GITLAB_COM or not token:
-                continue
-            response = _gitlab_project(token, path)
-            if response.status_code == 200 and (found := _gitlab_subject(response.json(), "your GitLab integration")):
-                return found
-        if settings.GITLAB_TOKEN:
-            response = _gitlab_project(settings.GITLAB_TOKEN, path)
-            body = response.json() if response.status_code == 200 else None
-            # PostHog's token may see projects that aren't public.
-            if (
-                isinstance(body, dict)
-                and body.get("visibility") == "public"
-                and (found := _gitlab_subject(body, "GitLab"))
-            ):
-                return found
-            if response.status_code not in (200, 404):
-                raise WorkloadSubjectLookupUnavailable(GITLAB_UNAVAILABLE)
-    except (requests.RequestException, ValueError):
+        response = _gitlab_project(settings.GITLAB_TOKEN or None, path)
+    except requests.RequestException:
+        raise WorkloadSubjectLookupUnavailable(GITLAB_UNAVAILABLE)
+    if response.status_code == 200 and (found := _gitlab_subject(response, "GitLab")):
+        return found
+    if unavailable or response.status_code not in (200, 401, 404):
+        logger.info("workload_gitlab_project_lookup_failed", status_code=response.status_code)
         raise WorkloadSubjectLookupUnavailable(GITLAB_UNAVAILABLE)
     raise WorkloadSubjectNotFound(
-        f"PostHog can't see a GitLab project at {path}. For a private project, connect the GitLab integration, "
-        "or enter the project ID by hand."
+        f"PostHog can't see a GitLab project at {path}. For a private project, connect a GitLab integration that "
+        "can read it, or enter the project ID by hand."
     )

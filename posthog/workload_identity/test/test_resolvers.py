@@ -97,56 +97,75 @@ class TestResolveGitHubRepository(SimpleTestCase):
 
 
 PUBLIC_PROJECT = {"id": 42, "path_with_namespace": "Acme/Tools/Web", "visibility": "public"}
+GITLAB_COM_INTEGRATION = {"hostname": "https://gitlab.com"}
 
 
-@override_settings(GITLAB_TOKEN="glpat-posthog")
 class TestResolveGitLabProject(SimpleTestCase):
     @parameterized.expand(
         [
             (
                 "through_the_teams_integration",
+                GITLAB_COM_INTEGRATION,
                 _response(200, {**PUBLIC_PROJECT, "visibility": "private"}),
                 None,
                 ResolvedWorkloadSubject(
                     subject="42", subject_name="Acme/Tools/Web", found_via="your GitLab integration"
                 ),
+                ["glpat-team"],
             ),
             (
-                "public_project_without_an_integration",
+                "public_project_after_a_revoked_integration_token",
+                GITLAB_COM_INTEGRATION,
+                _response(401, {}),
+                _response(200, PUBLIC_PROJECT),
+                ResolvedWorkloadSubject(subject="42", subject_name="Acme/Tools/Web", found_via="GitLab"),
+                ["glpat-team", "glpat-posthog"],
+            ),
+            # A self-managed instance's token must never reach gitlab.com.
+            (
+                "self_managed_integration",
+                {"hostname": "https://gitlab.example.com"},
                 None,
                 _response(200, PUBLIC_PROJECT),
                 ResolvedWorkloadSubject(subject="42", subject_name="Acme/Tools/Web", found_via="GitLab"),
+                ["glpat-posthog"],
             ),
             # PostHog's own token can see projects that aren't public, which a team must not learn about.
             (
                 "private_project_seen_by_posthogs_token",
                 None,
+                None,
                 _response(200, {**PUBLIC_PROJECT, "visibility": "internal"}),
                 WorkloadSubjectNotFound,
+                ["glpat-posthog"],
             ),
-            ("gitlab_error", None, _response(502, {}), WorkloadSubjectLookupUnavailable),
+            ("gitlab_error", None, None, _response(502, {}), WorkloadSubjectLookupUnavailable, ["glpat-posthog"]),
         ]
     )
+    @override_settings(GITLAB_TOKEN="glpat-posthog")
     def test_looks_up_the_project(
-        self, _name: str, integration_response: MagicMock | None, public_response: MagicMock | None, expected: Any
+        self,
+        _name: str,
+        integration_config: dict[str, str] | None,
+        integration_response: MagicMock | None,
+        public_response: MagicMock | None,
+        expected: Any,
+        tokens: list[str],
     ) -> None:
-        integration = MagicMock(
-            config={"hostname": "https://gitlab.com"}, sensitive_config={"access_token": "glpat-team"}
+        integrations = (
+            [MagicMock(config=integration_config, sensitive_config={"access_token": "glpat-team"})]
+            if integration_config
+            else []
         )
-        calls: list[str] = []
+        calls: list[str | None] = []
 
-        def request(method: str, url: str, *, token: str, **kwargs: Any) -> MagicMock | None:
+        def request(method: str, url: str, *, token: str | None, **kwargs: Any) -> MagicMock | None:
             calls.append(token)
             return integration_response if token == "glpat-team" else public_response
 
         with (
             patch(
-                "posthog.workload_identity.resolvers.IntegrationManager.gitlab.token.list",
-                return_value=[integration] if integration_response is not None else [],
-            ),
-            patch(
-                "posthog.workload_identity.resolvers.GitLabIntegration",
-                side_effect=lambda record: MagicMock(integration=record, hostname="https://gitlab.com"),
+                "posthog.workload_identity.resolvers.IntegrationManager.gitlab.token.list", return_value=integrations
             ),
             patch("posthog.workload_identity.resolvers.gitlab_request", side_effect=request),
         ):
@@ -154,9 +173,28 @@ class TestResolveGitLabProject(SimpleTestCase):
                 with self.assertRaises(expected):
                     resolve_gitlab_project(1, "acme/tools/web")
             else:
-                assert resolve_gitlab_project(1, "https://gitlab.com/acme/tools/web.git") == expected
+                assert resolve_gitlab_project(1, "acme/tools/web") == expected
 
-        assert calls == (["glpat-team"] if integration_response is not None else ["glpat-posthog"])
+        assert calls == tokens
+
+    @parameterized.expand(
+        [
+            ("git_remote", "git@gitlab.com:acme/tools/web.git"),
+            ("browser_url", "https://gitlab.com/acme/tools/web/-/tree/main"),
+        ]
+    )
+    @override_settings(GITLAB_TOKEN=None)
+    def test_asks_anonymously_for_the_path_people_paste(self, _name: str, name: str) -> None:
+        with (
+            patch("posthog.workload_identity.resolvers.IntegrationManager.gitlab.token.list", return_value=[]),
+            patch(
+                "posthog.workload_identity.resolvers.gitlab_request", return_value=_response(200, PUBLIC_PROJECT)
+            ) as request,
+        ):
+            assert resolve_gitlab_project(1, name).subject == "42"
+
+        assert request.call_args.args[1] == "https://gitlab.com/api/v4/projects/acme%2Ftools%2Fweb"
+        assert request.call_args.kwargs["token"] is None
 
     def test_refuses_a_path_that_could_reach_another_gitlab_endpoint(self) -> None:
         with patch("posthog.workload_identity.resolvers.gitlab_request") as request:

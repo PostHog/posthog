@@ -25,11 +25,10 @@ export const GITLAB: WorkloadProvider = {
     },
     missingTokenHint: `Add an \`id_tokens\` entry named ${GITLAB_ID_TOKEN_VARIABLE} to the job, with the PostHog address as its \`aud\`. Run \`hog ci setup\` on your machine for the snippet.`,
     configPaths: ['.gitlab-ci.yml'],
-    nameFromRemote: (remote) => remote.match(/gitlab\.com[:/](.+?)(?:\.git)?\/?$/)?.[1],
-    // GitLab's ref claim is the short branch name. A merge request pipeline from a fork carries the
-    // fork's project_id, so unlike GitHub the branch alone can't trust fork code.
-    branchConditions: (branch) => ({ ref: branch, ref_type: 'branch' }),
-    environmentConditions: (environment) => ({ environment }),
+    nameFromRemote: (remote) => remote.match(/(?:^|[@/])gitlab\.com[:/](.+?)(?:\.git)?\/?$/)?.[1],
+    // GitLab's ref claim is the short branch name. The backend's presets match these conditions.
+    branchConditions: (branch) => ({ ref: branch, ref_protected: 'true', ref_type: 'branch' }),
+    environmentConditions: (environment) => ({ environment, environment_protected: 'true' }),
     snippet: ({ host, projectId }) =>
         [
             'your-job:',

@@ -98,9 +98,9 @@ const providers = {
             condition_presets: [
                 {
                     key: 'branch',
-                    label: 'A branch',
-                    help_text: 'Pipelines that run on this branch.',
-                    conditions: { ref: '{value}', ref_type: 'branch' },
+                    label: 'A protected branch',
+                    help_text: 'Pipelines that run on this branch while it is protected.',
+                    conditions: { ref: '{value}', ref_type: 'branch', ref_protected: 'true' },
                     takes_value: true,
                     placeholder: 'main',
                     default_value: 'main',
