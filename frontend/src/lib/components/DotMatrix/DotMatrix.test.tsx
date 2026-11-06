@@ -121,7 +121,8 @@ describe('DotMatrix', () => {
         { value: 1_234_567, visible: '1.23M' },
     ])('compacts large counts while retaining the exact value: $value', ({ value, visible }) => {
         render(<CountCell value={value} size="xsmall" label="Users" />)
-        const cell = screen.getByRole('img', { name: `Users: ${value}` })
+        const cell = screen.getByLabelText(`Users: ${value}`)
+        expect(cell.getAttribute('role')).toBe('img')
         expect(cell.querySelector('text')?.textContent).toBe(visible)
         expect(cell.querySelector('title')?.textContent).toBe(String(value))
     })
