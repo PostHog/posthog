@@ -466,6 +466,11 @@ export interface SurveyApi {
     form_content?: unknown
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
+    /**
+     * Set when posthog-js won't show this survey on its own, because surveys are off for the project. Null when the survey can display.
+     * @nullable
+     */
+    readonly display_warning: string | null
 }
 
 export interface PaginatedSurveyListApi {
@@ -1764,6 +1769,11 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
     translations?: unknown
     _create_in_folder?: string
     form_content?: unknown
+    /**
+     * Set when posthog-js won't show this survey on its own, because surveys are off for the project. Null when the survey can display.
+     * @nullable
+     */
+    readonly display_warning: string | null
 }
 
 export interface SurveySerializerCreateUpdateOnlyApi {
@@ -1963,6 +1973,11 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     translations?: unknown
     _create_in_folder?: string
     form_content?: unknown
+    /**
+     * Set when posthog-js won't show this survey on its own, because surveys are off for the project. Null when the survey can display.
+     * @nullable
+     */
+    readonly display_warning: string | null
 }
 
 export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
@@ -2201,6 +2216,11 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
     translations?: unknown
     _create_in_folder?: string
     form_content?: unknown
+    /**
+     * Set when posthog-js won't show this survey on its own, because surveys are off for the project. Null when the survey can display.
+     * @nullable
+     */
+    readonly display_warning?: string | null
 }
 
 /**
