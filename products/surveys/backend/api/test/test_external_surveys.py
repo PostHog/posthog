@@ -117,6 +117,12 @@ class TestExternalSurveys(APIBaseTest):
                 {"displayThankYouMessage": True, "thankYouMessageHeader": "Thank you for your feedback!"},
             ),
             (
+                "team_header_html_is_sanitized",
+                None,
+                {"appearance": {"thankYouMessageHeader": "<script>alert(1)</script>Thanks"}},
+                {"displayThankYouMessage": True, "thankYouMessageHeader": "Thanks"},
+            ),
+            (
                 "team_appearance_not_an_object",
                 None,
                 {"appearance": "dark"},

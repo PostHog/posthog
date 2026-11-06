@@ -723,7 +723,7 @@ def thank_you_screen_defaults(team: Team) -> dict[str, Any]:
     for field in ("displayThankYouMessage", "thankYouMessageHeader"):
         team_value = team_appearance.get(field)
         defaults[field] = DEFAULT_SURVEY_APPEARANCE[field] if team_value is None else team_value
-    return defaults
+    return sanitize_survey_appearance(defaults)
 
 
 def normalize_survey_appearance(appearance: dict[str, Any]) -> dict[str, Any]:

@@ -113,6 +113,12 @@ class TestSurvey(APIBaseTest):
                 {"displayThankYouMessage": True, "thankYouMessageHeader": "Thanks from the team"},
             ),
             (
+                "team_header_html_is_sanitized",
+                None,
+                {"thankYouMessageHeader": "<script>alert(1)</script>Thanks"},
+                {"displayThankYouMessage": True, "thankYouMessageHeader": "Thanks"},
+            ),
+            (
                 "team_appearance_not_an_object",
                 None,
                 "dark",
@@ -145,6 +151,7 @@ class TestSurvey(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.content
         assert response.json()["appearance"].items() >= expected.items()
+        assert Survey.objects.get(id=response.json()["id"]).appearance.items() >= expected.items()
 
     def test_can_create_survey_with_translations(self):
         response = self.client.post(
