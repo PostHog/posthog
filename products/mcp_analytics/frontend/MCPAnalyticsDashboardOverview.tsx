@@ -26,7 +26,7 @@ import { ToolUsageChart } from './dashboard/ToolUsageChart'
 import { MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT } from './feedback/constants'
 import { MCPAnalyticsFeedbackPrompt } from './feedback/MCPAnalyticsFeedbackPrompt'
 import { MCPAnalyticsFirstLook } from './firstLook/MCPAnalyticsFirstLook'
-import { mcpDashboardOverviewLogic } from './mcpDashboardOverviewLogic'
+import { mcpDashboardOverviewLogic, rankedToolsEmptyMessage, rankToolsByErrorRate } from './mcpDashboardOverviewLogic'
 
 export function MCPAnalyticsDashboardOverview(): JSX.Element {
     const {
@@ -88,7 +88,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                 onRefresh={reloadAll}
                 refreshing={
                     kpisLoading ||
-                    usersLoading ||
+                    periodTotalsLoading ||
                     sessionRowsLoading ||
                     harnessRowsLoading ||
                     modelRowsLoading ||
@@ -195,7 +195,8 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     <CardRow twoColumnsClassName="@min-[64rem]/mcp-overview:grid-cols-2">
                         {showToolErrors && (
                             <ToolErrorRateChart
-                                rows={toolRows}
+                                rows={rankToolsByErrorRate(toolRows)}
+                                emptyMessage={rankedToolsEmptyMessage(toolRows)}
                                 loading={toolRowsLoading}
                                 theme={theme}
                                 onToolClick={openToolReport}
