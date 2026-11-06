@@ -32,6 +32,18 @@ export function createEmailEditorAdapter(editor: Editor): Record<string, any> {
     const emit = (type: string): void => (listeners[type] ?? []).forEach((listener) => listener())
 
     const onUpdate = (): void => emit('design:updated')
+    // setContent replaces the blocks but not the document's own attributes, which hold the page style.
+    const loadDoc = (doc: Record<string, any>): void => {
+        editor
+            .chain()
+            .setMeta('addToHistory', false)
+            .setContent(doc, { emitUpdate: false })
+            .command(({ tr }) => {
+                tr.setDocAttribute('page', doc.attrs?.page ?? {})
+                return true
+            })
+            .run()
+    }
     editor.on('update', onUpdate)
 
     return {
@@ -52,12 +64,12 @@ export function createEmailEditorAdapter(editor: Editor): Record<string, any> {
             // An old-editor template applied to an open email has to show here too.
             const doc = document?.doc ?? unlayerToEmailDocument(design, html ?? wrappedHtml).document?.doc
             if (doc) {
-                editor.chain().setMeta('addToHistory', false).setContent(doc, { emitUpdate: false }).run()
+                loadDoc(doc)
                 emit('design:loaded')
             }
         },
         loadDocument: (doc: Record<string, any>) => {
-            editor.chain().setMeta('addToHistory', false).setContent(doc, { emitUpdate: false }).run()
+            loadDoc(doc)
             emit('design:loaded')
         },
         setMergeTags: () => {},

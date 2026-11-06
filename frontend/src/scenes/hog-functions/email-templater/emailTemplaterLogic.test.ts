@@ -9,6 +9,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { Realm } from '~/types'
 
+import { NEW_TEMPLATE } from 'products/workflows/frontend/TemplateLibrary/constants'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
 import {
@@ -79,6 +80,8 @@ describe('emailTemplaterLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
     })
 
     afterEach(() => {
@@ -292,6 +295,22 @@ describe('emailTemplaterLogic', () => {
 
             logic.actions.setPrefersOldEmailEditor(false)
             await expectLogic(logic).toFinishAllListeners().toMatchValues({ usesDocumentEditor: true })
+        })
+
+        it('does not load the new template sample over the new editor starter', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR], {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
+            })
+            const loadDesign = jest.fn()
+            logic = emailTemplaterLogic(makeProps({ value: NEW_TEMPLATE.content.email as any }))
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { loadDesign, addEventListener: jest.fn(), exportHtml: jest.fn() },
+            } as any)
+            logic.actions.onEmailEditorReady()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(loadDesign).not.toHaveBeenCalled()
         })
 
         it('keeps the destination email type on the old editor', async () => {

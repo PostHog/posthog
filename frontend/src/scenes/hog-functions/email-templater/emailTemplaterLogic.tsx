@@ -980,7 +980,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             cache.lastMergeTags = buildMergeTags(values.personPropertyDefinitions, props.type, props.variables)
             values.emailEditorRef?.editor?.setMergeTags?.(cache.lastMergeTags)
             const design = props.value ? editorDesignForEmail(props.value) : null
-            if (design && !values.convertedEmailDocument) {
+            // The new editor already holds this email's document, or its starter. The sample's old design isn't for it.
+            const newEditorHasIt =
+                values.usesDocumentEditor && !!props.value && !emailDocumentFromValue(props.value).document
+            if (design && !newEditorHasIt) {
                 cache.lastEditorDesign = design
                 values.emailEditorRef?.editor?.loadDesign(design)
             }
@@ -1295,6 +1298,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 const design = editorDesignForEmail(props.value)
                 if (
                     design &&
+                    !(values.usesDocumentEditor && !emailDocumentFromValue(props.value).document) &&
                     !objectsEqual(design, cache.lastEditorDesign) &&
                     !objectsEqual(design, cache.lastLoadedExternalDesign)
                 ) {
