@@ -195,12 +195,43 @@ def test_build_message_blocks_shows_only_the_impact_section(summary: str, expect
         assert "Impact" not in body
 
 
-def test_build_message_blocks_mentions_every_routed_reviewer() -> None:
+@pytest.mark.parametrize("use_section_blocks", [False, True])
+@pytest.mark.parametrize(
+    ("reviewer_labels", "expected"),
+    [
+        (["<@U1>", "<@U2>"], "👤 Suggested owners: <@U1> <@U2>"),
+        (["a" * 2980], "👤 Suggested owner: " + "a" * 2980),
+        (["a" * 2981], "👤 Suggested owner: (+1 more)"),
+        (["🚀" * 1490], "👤 Suggested owner: " + "🚀" * 1490),
+        (["🚀" * 1491], "👤 Suggested owner: (+1 more)"),
+        (
+            ["<@U1>"] + ["Owner" * 200] * 100,
+            "👤 Suggested owners: <@U1> " + "Owner" * 200 + " " + "Owner" * 200 + " (+98 more)",
+        ),
+        (["a" * 2966, "<@U1234567890>"], "👤 Suggested owners: " + "a" * 2966 + " (+1 more)"),
+        (["<@U1>", "&amp;" * 595], "👤 Suggested owners: <@U1> (+1 more)"),
+    ],
+    ids=[
+        "mentions",
+        "at_limit",
+        "long_name",
+        "unicode_at_limit",
+        "long_unicode_name",
+        "many_names",
+        "whole_mention",
+        "escaped_name",
+    ],
+)
+def test_build_message_blocks_bounds_owner_labels(
+    reviewer_labels: list[str], expected: str, use_section_blocks: bool
+) -> None:
     report = SignalReport(id="report-uuid", title="Shared channel")
-    blocks, _ = _build_message_blocks(report, reviewer_labels=["<@U1>", "<@U2>"])
+    blocks, _ = _build_message_blocks(report, reviewer_labels=reviewer_labels, use_section_blocks=use_section_blocks)
 
-    assert blocks[1]["text"] == "**Shared channel**"
-    assert blocks[2]["elements"][0]["text"] == "👤 Suggested owners: <@U1> <@U2>"
+    body = blocks[1]["text"]["text"] if use_section_blocks else blocks[1]["text"]
+    assert body == ("*Shared channel*" if use_section_blocks else "**Shared channel**")
+    assert blocks[2]["elements"][0]["text"] == expected
+    assert len(blocks[2]["elements"][0]["text"].encode("utf-16-le")) // 2 <= 3000
 
 
 def test_build_message_blocks_caps_section_body_without_truncating_mentions() -> None:

@@ -63,6 +63,7 @@ from products.signals.backend.slack_formatting import (
     first_sentence as _first_sentence,
     is_safe_slack_http_url,
     prepare_slack_markdown as _prepare_markdown,
+    slack_text_length,
     strip_chart_references as _strip_chart_references,
     truncate_slack_text,
 )
@@ -83,6 +84,7 @@ logger = logging.getLogger(__name__)
 
 _SUMMARY_EXCERPT_MAX_LEN = 280
 _SLACK_HEADER_MAX_LEN = 150
+_SLACK_CONTEXT_MAX_LEN = 3000
 _INBOX_INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=signals_inbox&utm_medium=slack"
 # Bound message size / avoid pinging a crowd.
 _MAX_REVIEWER_MENTIONS = 5
@@ -401,6 +403,23 @@ def _section_body(markdown: str) -> str:
     return truncate_slack_text(re.sub(r"<([^<>]*)>", safe_token, converted), 3000)
 
 
+def _owner_context_text(reviewer_labels: list[str], *, max_length: int = _SLACK_CONTEXT_MAX_LEN) -> str:
+    owner_label = "Suggested owner" if len(reviewer_labels) == 1 else "Suggested owners"
+    prefix = f"👤 {owner_label}:"
+    text = f"{prefix} {' '.join(reviewer_labels)}"
+    if slack_text_length(text) <= max_length:
+        return text
+
+    text = prefix
+    for index, label in enumerate(reviewer_labels):
+        remaining = len(reviewer_labels) - index - 1
+        suffix = f" (+{remaining} more)" if remaining else ""
+        if slack_text_length(text) + 1 + slack_text_length(label) + len(suffix) > max_length:
+            return f"{text} (+{remaining + 1} more)"
+        text += f" {label}"
+    return text
+
+
 def _build_message_blocks(
     report: SignalReport,
     *,
@@ -447,8 +466,8 @@ def _build_message_blocks(
         context_parts.append(f"{priority_emoji} *{priority}*")
     # Plain-text blocks would show the raw mention token instead of resolving the user.
     if reviewer_labels:
-        owner_label = "Suggested owner" if len(reviewer_labels) == 1 else "Suggested owners"
-        context_parts.append(f"👤 {owner_label}: {' '.join(reviewer_labels)}")
+        prefix_length = slack_text_length(" · ".join(context_parts) + " · ") if context_parts else 0
+        context_parts.append(_owner_context_text(reviewer_labels, max_length=_SLACK_CONTEXT_MAX_LEN - prefix_length))
     if context_parts:
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(context_parts)}]})
 
