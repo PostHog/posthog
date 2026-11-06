@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { cancelQueryOnServer } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { performQuery } from '~/queries/query'
@@ -43,6 +44,7 @@ describe('productUsageGridLogic', () => {
     beforeEach(() => {
         localStorage.clear()
         initKeaTests()
+        router.actions.push(urls.customerAnalyticsProductActivity())
         query.mockReset()
         jest.spyOn(posthog, 'capture').mockClear()
     })
@@ -152,6 +154,30 @@ describe('productUsageGridLogic', () => {
         expect(reloaded.values.controls.selected).toEqual(selectedBeforeReload)
         expect(reloaded.values.controls.selected).not.toContain('logs')
         reloaded.unmount()
+    })
+    it('keeps account navigation when a book query finishes before the old logic unmounts', async () => {
+        const logic = productUsageGridLogic()
+        logic.mount()
+        logic.actions.openEditor('hogql')
+        logic.actions.setQueryDraft(sql)
+        let resolve!: (value: unknown) => void
+        query
+            .mockImplementationOnce(
+                () =>
+                    new Promise((done) => {
+                        resolve = done
+                    })
+            )
+            .mockResolvedValueOnce({ columns: ['row', 'column'], results: [['a', 1]] })
+        logic.actions.runQuery()
+        router.actions.push(urls.customerAnalyticsAccount('a'))
+        const accountPath = router.values.location.pathname
+        resolve(accounts)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.result?.accounts).toEqual(accounts)
+        expect(router.values.location.pathname).toBe(accountPath)
+        expect(router.values.searchParams.activity).toBeUndefined()
+        logic.unmount()
     })
     it('keeps a new book blank until Run, and saves only a successful executed query', async () => {
         const logic = productUsageGridLogic()
