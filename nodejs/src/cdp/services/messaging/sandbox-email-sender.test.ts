@@ -1,4 +1,4 @@
-import { defaultTreeAdapter, parse } from 'parse5'
+import { type DefaultTreeAdapterMap, defaultTreeAdapter, parse } from 'parse5'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -21,6 +21,14 @@ const sender = new SandboxEmailSender(
 )
 const manyAttributes = (count: number, prefix = 'a'): string =>
     Array.from({ length: count }, (_, index) => `${prefix}${index}`).join(' ')
+const deliveredRootAndBody = (
+    html: string,
+    scriptingEnabled = false
+): { root: DefaultTreeAdapterMap['element']; body: DefaultTreeAdapterMap['element'] } => {
+    const root = parse(html, { scriptingEnabled }).childNodes.find(defaultTreeAdapter.isElementNode)!
+    const body = root.childNodes.filter(defaultTreeAdapter.isElementNode).find((node) => node.tagName === 'body')!
+    return { root, body }
+}
 const params = (html: string, text?: string, preheader?: string): CyclotronInvocationQueueParametersEmailType => ({
     type: 'email',
     from: { integrationId: 4 },
@@ -36,9 +44,8 @@ describe('sandbox email content', () => {
         '<style>div{display:none}</style><p>Visible message</p>',
         '<style>body{background:#101010;color:white;font:24px Arial}body p{background:#101010}</style><p>Visible message</p>',
     ])('preserves template selectors and inherited presentation: %s', async (html) => {
-        const result = await sender.withIdentificationFooter(params(html), 'Example organization via PostHog', 1)
-        const root = parse(result.html!).childNodes.find(defaultTreeAdapter.isElementNode)!
-        const body = root.childNodes.filter(defaultTreeAdapter.isElementNode).find((node) => node.tagName === 'body')!
+        const result = await sender.buildSandboxMessage(params(html), 'Example organization via PostHog', 1)
+        const { root, body } = deliveredRootAndBody(result.html!)
         expect(body.childNodes.some((node) => defaultTreeAdapter.isElementNode(node) && node.tagName === 'p')).toBe(
             true
         )
@@ -47,7 +54,7 @@ describe('sandbox email content', () => {
         }
     })
     it('keeps escaped preview values as text inside noscript', async () => {
-        const result = await sender.withIdentificationFooter(
+        const result = await sender.buildSandboxMessage(
             params(
                 '<table><tbody><tr><td>Hello</td></tr></tbody></table>',
                 undefined,
@@ -69,7 +76,7 @@ describe('sandbox email content', () => {
             },
             teamManager
         )
-        const result = await paddedSender.withIdentificationFooter(
+        const result = await paddedSender.buildSandboxMessage(
             params('<p>Hello</p>'),
             'Example organization via PostHog',
             1
@@ -80,8 +87,14 @@ describe('sandbox email content', () => {
             configurationSetName: 'sandbox-email',
         })
     })
+    it.each([
+        ['switched on with an empty route setting', { enabled: true, configurationSetName: '  ' }],
+        ['switched off', { enabled: false }],
+    ])('cannot send when %s', (_case, overrides) => {
+        expect(new SandboxEmailSender({ ...sender.config, ...overrides }, teamManager).canSend).toBe(false)
+    })
     it('sends from the fixed address, drops the reply-to and adds the footer to the text part', async () => {
-        const result = await sender.withIdentificationFooter(
+        const result = await sender.buildSandboxMessage(
             { ...params('<p>Hello</p>', 'Hello'), replyTo: 'replies@example.org' },
             'Example organization via PostHog',
             1
@@ -93,7 +106,7 @@ describe('sandbox email content', () => {
         expect(result.replyTo).toBeUndefined()
     })
     it('preserves already escaped preview text', async () => {
-        const result = await sender.withIdentificationFooter(
+        const result = await sender.buildSandboxMessage(
             params(
                 '<body><table><tbody><tr><td>Hello</td></tr></tbody></table></body>',
                 undefined,
@@ -142,9 +155,8 @@ describe('sandbox email content', () => {
         ],
     ])('keeps the visibility overrides in effect after %s in the template style', async (_case, style, kept) => {
         const html = `<html style='${style}'><body style='${style}'><p>Visible message</p></body></html>`
-        const result = await sender.withIdentificationFooter(params(html), 'Example organization via PostHog', 1)
-        const root = parse(result.html!).childNodes.find(defaultTreeAdapter.isElementNode)!
-        const body = root.childNodes.filter(defaultTreeAdapter.isElementNode).find((node) => node.tagName === 'body')!
+        const result = await sender.buildSandboxMessage(params(html), 'Example organization via PostHog', 1)
+        const { root, body } = deliveredRootAndBody(result.html!)
         for (const ancestor of [root, body]) {
             const value = ancestor.attrs.find((attribute) => attribute.name === 'style')!.value
             expect(value.startsWith(`${kept};display:block!important;`)).toBe(true)
@@ -157,17 +169,18 @@ describe('sandbox email content', () => {
         '<html style="height:20px;clip-path:inset(0)"><body style="height:20px;clip-path:inset(0)"><p>Visible message</p></body></html>',
         '<html style="margin-top:-100000px"><body style="margin-left:-100000px"><p style="margin-left:100000px">Visible message</p></body></html>',
         '<html><body style="mask-image:linear-gradient(black 0 40px,transparent 40px)"><p>Visible message</p></body></html>',
-        `<html ${manyAttributes(64)}><body ${manyAttributes(64)}><p>Visible message</p></body></html>`,
+        `<html ${manyAttributes(63)}><body ${manyAttributes(63)}><p>Visible message</p></body></html>`,
         `<html><body ${manyAttributes(33)}><body ${manyAttributes(33)}><p>Visible message</p></body></html>`,
-        `<html ${manyAttributes(32)}><html ${manyAttributes(32, 'b')}><body ${manyAttributes(32)}><body ${manyAttributes(32, 'b')}><p>Visible message</p></body></html>`,
+        `<html ${manyAttributes(32)}><html ${manyAttributes(31, 'b')}><body ${manyAttributes(32)}><body ${manyAttributes(31, 'b')}><p>Visible message</p></body></html>`,
+        '<html style="min-width:100000px"><body style="padding-left:100000px;border-left:100000px solid #fff;width:100000px;float:right"><p style="margin-left:-100000px">Visible message</p></body></html>',
     ])('keeps document ancestors outside the template layout: %s', async (html) => {
-        const result = await sender.withIdentificationFooter(params(html), 'Example organization via PostHog', 1)
-        const root = parse(result.html!).childNodes.find(defaultTreeAdapter.isElementNode)!
-        const body = root.childNodes.filter(defaultTreeAdapter.isElementNode).find((node) => node.tagName === 'body')!
+        const result = await sender.buildSandboxMessage(params(html), 'Example organization via PostHog', 1)
+        const { root, body } = deliveredRootAndBody(result.html!)
         for (const ancestor of [root, body]) {
             const value = ancestor.attrs.find((attribute) => attribute.name === 'style')?.value
             expect(value).toContain('height:auto!important')
-            expect(value).toContain('margin:0!important')
+            expect(value).toContain('margin:0!important;padding:0!important;border:0!important;float:none!important')
+            expect(value).toContain('width:auto!important;min-width:0!important')
             expect(value).toContain('mask:none!important')
             expect(value).toContain('mso-hide:none!important')
         }
@@ -269,18 +282,14 @@ describe('sandbox email content', () => {
             null,
         ],
     ])('retains the footer outside template content: %s', async (html, expectedContent, preheader) => {
-        const result = await sender.withIdentificationFooter(
+        const result = await sender.buildSandboxMessage(
             params(html, undefined, preheader ?? undefined),
             'Example organization via PostHog',
             1
         )
         expect(result.html).toContain(expectedContent)
         for (const scriptingEnabled of [false, true]) {
-            const root = parse(result.html!, { scriptingEnabled }).childNodes.find(defaultTreeAdapter.isElementNode)
-            const body = root?.childNodes
-                .filter(defaultTreeAdapter.isElementNode)
-                .find((node) => node.tagName === 'body')
-            const deliveredFooter = body?.childNodes.at(-1)
+            const deliveredFooter = deliveredRootAndBody(result.html!, scriptingEnabled).body.childNodes.at(-1)
             expect(deliveredFooter).toMatchObject({
                 tagName: 'div',
                 childNodes: [{ nodeName: '#text', value: footer }],
@@ -290,6 +299,9 @@ describe('sandbox email content', () => {
                 deliveredFooter.attrs.find((attribute) => attribute.name === 'style')?.value
             expect(footerStyle).toContain('position:relative!important;z-index:2147483647!important')
             expect(footerStyle).toContain('text-indent:0!important')
+            expect(footerStyle).toContain(
+                'direction:ltr!important;unicode-bidi:isolate!important;text-align:left!important'
+            )
             expect(footerStyle).toContain('mso-hide:none!important')
         }
         expect(result.preheader).toBeUndefined()
@@ -333,6 +345,11 @@ describe('sandbox email content', () => {
         ],
         ['<body><![if !mso]><div style="display:none"><![if mso]><![endif]></div><![endif]><p>Hello</p>', null, null],
         [
+            `<body><p>${Array.from({ length: 250 }, (_, index) => `<b a${index}>`).join('')}${'x<p>'.repeat(18_000)}`,
+            null,
+            null,
+        ],
+        [
             `<body><p>${'Hello '.repeat(12_500)}</p>`,
             null,
             'Sandbox emails can have at most 75 KB of HTML, so every inbox shows the identification footer. Shorten the template and try again.',
@@ -340,7 +357,7 @@ describe('sandbox email content', () => {
         ['', '', 'The sandbox email template must include HTML or text content. Update the template and try again.'],
     ])('rejects content that cannot retain the footer: %s', async (html, text, error) => {
         await expect(
-            sender.withIdentificationFooter(params(html, text ?? undefined), 'Example organization via PostHog', 1)
+            sender.buildSandboxMessage(params(html, text ?? undefined), 'Example organization via PostHog', 1)
         ).rejects.toThrow(
             error ??
                 'The sandbox email template could not retain its identification footer. Update the template and try again.'
@@ -351,7 +368,7 @@ describe('sandbox email content', () => {
         ['<body><p>Hello</p>', 'Preview '.repeat(10_000)],
     ])('rejects an email that grows past the size bound when built (case %#)', async (html, preheader) => {
         await expect(
-            sender.withIdentificationFooter(params(html, undefined, preheader), 'Example organization via PostHog', 1)
+            sender.buildSandboxMessage(params(html, undefined, preheader), 'Example organization via PostHog', 1)
         ).rejects.toThrow(
             'Sandbox emails can have at most 75 KB of HTML, so every inbox shows the identification footer. Shorten the template and try again.'
         )
