@@ -62,10 +62,7 @@ from products.metrics.backend.facade.enums import (
     MetricType,
 )
 from products.metrics.backend.formula import evaluate, parse_formula
-from products.metrics.backend.has_metrics_query_runner import (
-    team_has_metrics as _team_has_metrics,
-    team_has_recent_metrics as _team_has_recent_metrics,
-)
+from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
 from products.metrics.backend.investigation import investigate as _investigate
 from products.metrics.backend.metric_attributes_query_runner import (
     MetricAttributeKeysQueryRunner,
@@ -110,11 +107,6 @@ _RUNNER_AGGREGATIONS: dict[MetricAggregation, str] = {
 def team_has_metrics(team: Team) -> bool:
     """Return True if the given team has ingested at least one metric."""
     return _team_has_metrics(team)
-
-
-def team_has_recent_metrics(team: Team) -> bool:
-    """Return True if the given team has ingested at least one metric in the last 24 hours."""
-    return _team_has_recent_metrics(team)
 
 
 def _units_by_fingerprint(team: Team, metric_names: set[str]) -> dict[int, str]:

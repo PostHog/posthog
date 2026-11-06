@@ -798,11 +798,6 @@ export interface _HasMetricsResponseApi {
     hasMetrics: boolean
 }
 
-export interface _HasRecentMetricsResponseApi {
-    /** Whether the team has ingested at least one metric in the last 24 hours. */
-    hasRecentMetrics: boolean
-}
-
 export interface _MetricPickerNameApi {
     /** Metric name as it appears in the team's data. */
     name: string

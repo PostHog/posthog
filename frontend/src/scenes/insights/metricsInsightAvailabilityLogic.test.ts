@@ -5,13 +5,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { metricsHasRecentMetricsRetrieve } from 'products/metrics/frontend/generated/api'
+import { metricsHasMetricsRetrieve } from 'products/metrics/frontend/generated/api'
 import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
 import { metricsInsightAvailabilityLogic } from './metricsInsightAvailabilityLogic'
 
 jest.mock('products/metrics/frontend/metricsAccess', () => ({ canViewMetrics: jest.fn() }))
-jest.mock('products/metrics/frontend/generated/api', () => ({ metricsHasRecentMetricsRetrieve: jest.fn() }))
+jest.mock('products/metrics/frontend/generated/api', () => ({ metricsHasMetricsRetrieve: jest.fn() }))
 
 const BOTH_FLAGS = [FEATURE_FLAGS.METRICS, FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]
 
@@ -22,12 +22,12 @@ describe('metricsInsightAvailabilityLogic', () => {
     })
 
     it.each([
-        { flags: BOTH_FLAGS, response: { hasRecentMetrics: true }, checks: true, shown: true },
-        { flags: BOTH_FLAGS, response: { hasRecentMetrics: false }, checks: true, shown: false },
+        { flags: BOTH_FLAGS, response: { hasMetrics: true }, checks: true, shown: true },
+        { flags: BOTH_FLAGS, response: { hasMetrics: false }, checks: true, shown: false },
         { flags: BOTH_FLAGS, response: new Error('network down'), checks: true, shown: false },
-        { flags: [FEATURE_FLAGS.METRICS], response: { hasRecentMetrics: true }, checks: false, shown: false },
+        { flags: [FEATURE_FLAGS.METRICS], response: { hasMetrics: true }, checks: false, shown: false },
     ])('flags=$flags response=$response shows=$shown', async ({ flags, response, checks, shown }) => {
-        const retrieve = jest.mocked(metricsHasRecentMetricsRetrieve)
+        const retrieve = jest.mocked(metricsHasMetricsRetrieve)
         retrieve.mockReset()
         if (response instanceof Error) {
             retrieve.mockRejectedValue(response)

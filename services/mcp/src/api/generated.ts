@@ -118447,11 +118447,6 @@ export namespace Schemas {
       hasMetrics: boolean;
     }
 
-    export interface _HasRecentMetricsResponse {
-      /** Whether the team has ingested at least one metric in the last 24 hours. */
-      hasRecentMetrics: boolean;
-    }
-
     export interface _HasSpansResponse {
       /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
       hasSpans: boolean;

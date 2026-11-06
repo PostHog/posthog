@@ -98,7 +98,7 @@ export const WithMoreInsightTypesAndMetrics: Story = {
     render: () => <ModalStory showMore />,
     decorators: [
         mswDecorator({
-            get: { '/api/projects/:team_id/metrics/has_recent_metrics/': { hasRecentMetrics: true } },
+            get: { '/api/projects/:team_id/metrics/has_metrics/': { hasMetrics: true } },
         }),
     ],
     parameters: {
