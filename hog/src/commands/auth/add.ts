@@ -33,7 +33,7 @@ export default defineCommand({
                 EXIT_USAGE
             )
         }
-        // The scope list is large, so only this command loads it.
+        // The scope list is large, so commands that never step up don't load it.
         const { finishStepUp, stepUp } = await import('@/posthog/login/step-up')
         if (options.wait) {
             return finishStepUp(ctx, await resumeApproval(ctx, loginWait(ctx.runtime, ADD_COMMAND)))
@@ -46,8 +46,7 @@ export default defineCommand({
                 EXIT_USAGE
             )
         }
-        const { parseScope } = await import('@/posthog/scopes')
-        return stepUp(ctx, args.scopes.map(parseScope))
+        return stepUp(ctx, args.scopes)
     },
 
     human({ result, out }) {

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
-import { challengedScopes } from './step-up'
+import { challengedScopes } from './scope-challenge'
+import { isScope } from './scopes'
 
 describe('challengedScopes', () => {
     test.each([
@@ -12,6 +13,6 @@ describe('challengedScopes', () => {
             ['insight:read'],
         ],
     ])('%s', (_name, header, expected) => {
-        expect(challengedScopes(header)).toEqual(expected)
+        expect(challengedScopes(header, isScope)).toEqual(expected)
     })
 })

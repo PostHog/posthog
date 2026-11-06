@@ -918,29 +918,32 @@ describe('hog auth login', () => {
     const CHALLENGE = 'Bearer error="insufficient_scope", scope="insight:read query:read dashboard:write"'
     const ROWS = { columns: ['total'], results: [[1]], hasMore: false }
 
-    function challengedQuery(final: (authorization: string | null) => { status: number; body: unknown }) {
-        const flow = deviceFlow(0, {
-            status: 200,
-            body: {
-                ...APPROVED,
-                access_token: STEPPED_UP_ACCESS,
-                refresh_token: STEPPED_UP_REFRESH,
-                scope: 'openid insight:read query:read dashboard:write',
-            },
-        })
-        return (url: string, _body: unknown, authorization: string | null) =>
-            url.endsWith('/query')
-                ? authorization === `Bearer ${STEPPED_UP_ACCESS}`
-                    ? final(authorization)
-                    : { status: 403, body: { detail: 'missing scope' }, headers: { 'WWW-Authenticate': CHALLENGE } }
-                : flow(url)
-    }
+    const flow = deviceFlow(0, {
+        status: 200,
+        body: {
+            ...APPROVED,
+            access_token: STEPPED_UP_ACCESS,
+            refresh_token: STEPPED_UP_REFRESH,
+            scope: 'openid insight:read query:read dashboard:write',
+        },
+    })
+    // The query succeeds only with the stepped-up token.
+    const challengedQuery = (
+        url: string,
+        _body: unknown,
+        authorization: string | null
+    ): { status: number; body: unknown; headers?: Record<string, string> } =>
+        !url.endsWith('/query')
+            ? flow(url)
+            : authorization === `Bearer ${STEPPED_UP_ACCESS}`
+              ? { status: 200, body: ROWS }
+              : { status: 403, body: { detail: 'missing scope' }, headers: { 'WWW-Authenticate': CHALLENGE } }
 
     test('an agent gets the step-up command for the scopes a request lacks, without a prompt', async () => {
         const result = await runHog(['query', 'run', 'select 1'], {
             env: { CLAUDECODE: '1' },
             ...OAUTH_LOGIN,
-            respond: challengedQuery(() => ({ status: 200, body: ROWS })),
+            respond: challengedQuery,
         })
 
         expect(result.error()).toMatchObject({
@@ -956,7 +959,7 @@ describe('hog auth login', () => {
             stdoutIsTTY: true,
             answers: ['yes'],
             ...OAUTH_LOGIN,
-            respond: challengedQuery(() => ({ status: 200, body: ROWS })),
+            respond: challengedQuery,
         })
 
         expect(result.exitCode).toBe(0)

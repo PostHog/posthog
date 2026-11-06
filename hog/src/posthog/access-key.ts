@@ -13,11 +13,9 @@ import { OAuthLogin } from './oauth'
 import type { LoginRecord } from './settings'
 import type { BearerToken, PersonalApiKey } from './tokens'
 
-export type AccessKeyKind = 'personal_api_key' | 'oauth'
-
 // What `hog auth status` shows about a key.
 export interface AccessKeyStatus {
-    kind: AccessKeyKind
+    kind: 'personal_api_key' | 'oauth'
     // Null for a personal API key hog hasn't asked PostHog about.
     scopes: string[] | null
     // Epoch milliseconds. Null for a key that doesn't expire.

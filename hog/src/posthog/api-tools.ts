@@ -11,10 +11,9 @@ import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
 import { VERSION } from '@/version'
 
-import type { AccessKeyKind } from './access-key'
 import { ApiError } from './api'
 import type { OrganizationId, ProjectId } from './ids'
-import { stepUpCommand } from './step-up'
+import { addToKeyHint, stepUpRequired } from './scope-challenge'
 
 export interface ToolGroup {
     slug: string
@@ -137,32 +136,16 @@ export async function withApiConnection<T>(
     )
 }
 
-// A login can add the scopes itself, so its error names the command and agents get it as data. A
-// personal API key keeps the scopes set in PostHog.
-export function missingScopesError(tool: string, scopes: readonly string[], kind: AccessKeyKind | undefined): HogError {
+export function missingScopesError(tool: string, scopes: readonly string[], loginCanAdd: boolean): HogError {
     const message = `Your credentials need ${scopes.join(', ')} to call ${tool}.`
-    switch (kind) {
-        case 'oauth': {
-            const command = stepUpCommand(scopes)
-            const hint = `Run \`${command}\` to add them to your login.`
-            return new HogError('missing_scopes', message, hint, undefined, { scopes: [...scopes], command })
-        }
-        case 'personal_api_key':
-            return new HogError(
-                'missing_scopes',
-                message,
-                'Add them to the personal API key in PostHog under Settings, Personal API keys.'
-            )
-        case undefined:
-            return new HogError('missing_scopes', message, SCOPES_HINT)
-    }
+    return loginCanAdd ? stepUpRequired(scopes, message) : new HogError('missing_scopes', message, addToKeyHint(scopes))
 }
 
-export function toHogError(error: ApiToolError, tool?: string, kind?: AccessKeyKind): HogError {
+export function toHogError(error: ApiToolError, tool?: string, loginCanAdd = false): HogError {
     switch (error.code) {
         case 'permission_denied':
             return error.missingScope && tool
-                ? missingScopesError(tool, [error.missingScope], kind)
+                ? missingScopesError(tool, [error.missingScope], loginCanAdd)
                 : new ApiError(403, undefined, 'permission_denied', error.message, SCOPES_HINT)
         case 'validation_error':
         case 'invalid_input':

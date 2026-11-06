@@ -8,7 +8,7 @@ import { VERSION } from '@/version'
 
 import { hostUrl } from './host'
 import type { KeySession } from './key-session'
-import { challengedScopes, stepUpRequired } from './step-up'
+import { challengedScopes, stepUpRequired } from './scope-challenge'
 
 export const USER_AGENT = `hog/${VERSION}`
 // Generous, because a HogQL query can run for minutes. It only stops a connection that hangs.
@@ -87,8 +87,6 @@ export class ApiError extends HogError {
     }
 }
 
-// Asks the person to add the scopes to their login, and resolves to whether they did. hog then
-// sends the request again with the new token.
 export type StepUp = (scopes: readonly string[]) => Promise<boolean>
 
 // A DRF error body. `type` is the DRF error type, such as `validation_error`.
@@ -175,15 +173,16 @@ export class PostHogApi {
         })
     }
 
-    // The scopes an `insufficient_scope` challenge asks for that the login lacks. The challenge names
-    // every scope the request needs, so the ones the login holds are left out of the step-up.
+    // The challenge names every scope the request needs, so the ones the login holds stay out of the step-up.
     private async missingScopes(response: HttpResponse): Promise<string[] | undefined> {
-        const challenged =
-            response.status === 403 ? challengedScopes(response.headers.get('www-authenticate')) : undefined
+        if (response.status !== 403) {
+            return undefined
+        }
+        const { isScope, scopesNotCovered } = await import('./scopes')
+        const challenged = challengedScopes(response.headers.get('www-authenticate'), isScope)
         if (!challenged) {
             return undefined
         }
-        const { scopesNotCovered } = await import('./scopes')
         const missing = scopesNotCovered(this.session.current.status().scopes ?? [], challenged)
         return missing.length > 0 ? missing : challenged
     }

@@ -26,7 +26,7 @@ import { Telemetry } from '@/core/telemetry'
 import { kebabCase } from '@/core/text'
 import { ApiError } from '@/posthog/api'
 import { resolveCredentials } from '@/posthog/credentials'
-import { stepUpCommand } from '@/posthog/step-up'
+import { canStepUp, stepUpCommand } from '@/posthog/scope-challenge'
 import { VERSION } from '@/version'
 
 const ROOT_HELP = `
@@ -101,15 +101,14 @@ function notPorted(argv: readonly string[], route: LegacyRoute): HogError {
     return new HogError('not_ported', `\`hog ${route.path}\` isn't available yet. Run this instead:\n  ${invocation}`)
 }
 
-// A 403 without a step-up challenge names the scopes the command declares, which the API client
-// doesn't know about. A login can add them itself; a personal API key keeps the scopes set in PostHog.
+// A 403 without a step-up challenge names the scopes the command declares, which the API client doesn't know about.
 async function withScopeHint(error: unknown, scopes: readonly string[] | undefined, ctx: Context): Promise<unknown> {
     if (!(error instanceof ApiError) || error.status !== 403 || !scopes?.length) {
         return error
     }
     const credentials = await ctx.requestedCredentials?.catch(() => undefined)
     return error.withHint(
-        credentials?.key.status().kind === 'oauth'
+        canStepUp(credentials)
             ? `Run \`${stepUpCommand(scopes)}\` to add the scopes to your login, and check that you can access this project.`
             : `Check that the personal API key has the ${scopes.join(', ')} scope and access to this project.`
     )

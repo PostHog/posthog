@@ -278,7 +278,6 @@ export interface HogRun {
 }
 
 const ErrorOutputSchema = z.object({
-    // Loose, so the details some errors carry, such as the command that fixes them, reach the test.
     error: z.looseObject({ code: z.string(), message: z.string(), hint: z.string().optional() }),
 })
 

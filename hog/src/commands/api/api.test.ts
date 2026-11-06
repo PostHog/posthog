@@ -272,9 +272,8 @@ describe('hog api', () => {
             }),
         })
 
-        // A login can add the scopes itself, so agents get the command to run.
         expect(result.error()).toMatchObject({
-            code: 'missing_scopes',
+            code: 'step_up_required',
             message: 'Your credentials need insight:write, query:read to call insight-create.',
             scopes: ['insight:write', 'query:read'],
             command: 'hog auth add insight:write query:read',

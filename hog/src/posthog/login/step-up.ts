@@ -2,7 +2,8 @@ import { refuseInCi, runApproval, type PendingResult } from '@/core/approval'
 import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
 import type { OAuthLogin } from '@/posthog/oauth'
-import { scopesNotCovered } from '@/posthog/scopes'
+import { addToKeyHint, canStepUp } from '@/posthog/scope-challenge'
+import { parseScope, scopesNotCovered } from '@/posthog/scopes'
 
 import { ADD_COMMAND, loginFlow, saveLogin } from './flow'
 
@@ -35,17 +36,34 @@ function keyCantStepUp(scopes: readonly string[]): HogError {
     return new HogError(
         'step_up_unavailable',
         'hog can only add scopes to a login. A personal API key keeps the scopes it has in PostHog.',
-        `Add ${scopes.join(', ')} to the key in PostHog under Settings, Personal API keys. Or run \`hog auth login\` to log in with the browser instead.`
+        `${addToKeyHint(scopes)} Or run \`hog auth login\` to log in with the browser instead.`
     )
+}
+
+// At a terminal, asks to add the scopes, waits for the approval in the browser, and moves the session
+// to the new login. Resolves to false when nobody can answer, the credentials can't add scopes, or the
+// person says no, so the caller reports the missing scopes instead.
+export async function promptStepUp(ctx: Context, scopes: readonly string[]): Promise<boolean> {
+    const prompts = ctx.prompts
+    if (!prompts || !canStepUp(await ctx.credentials())) {
+        return false
+    }
+    const question = `This needs ${scopes.join(', ')}, which your login doesn't have. Add these scopes now?`
+    if (!(await prompts.confirm(question, { initialValue: true })) || (await stepUp(ctx, scopes)).status !== 'added') {
+        return false
+    }
+    await (await ctx.session()).reload()
+    return true
 }
 
 // `hog auth add`: a device login for the scopes the login holds plus the ones it lacks, with those
 // marked required. At a terminal it waits for the approval and saves the login. Agents get the link.
-export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<StepUpResult> {
+export async function stepUp(ctx: Context, scopes: readonly string[]): Promise<StepUpResult> {
+    const wanted = scopes.map(parseScope)
     const credentials = await ctx.credentials()
     const { key } = credentials
-    const { kind, scopes: held } = key.status()
-    if (credentials.source !== 'store' || kind !== 'oauth' || held === null) {
+    const held = key.status().scopes
+    if (!canStepUp(credentials) || held === null) {
         throw keyCantStepUp(wanted)
     }
     const added = scopesNotCovered(held, wanted)
