@@ -43,7 +43,6 @@ from products.signals.backend.personal_ranking.build_budget import (
     spend_shared_build,
     spend_tick_build,
 )
-from products.signals.backend.personal_ranking.candidates import gather_candidates
 from products.signals.backend.personal_ranking.config import (
     PersonalRankingConfig,
     PersonalRankingTickConfig,
@@ -54,13 +53,9 @@ from products.signals.backend.personal_ranking.logic import (
     CHANGED_UNKNOWN,
     INPUT_PARTS,
     PIPELINE_DISTINCT_ID,
-    RETRYABLE_FALLBACK_REASONS,
     build_personal_ranking,
-    input_hash,
-    latest_row,
-    may_call_model,
+    check_inputs,
 )
-from products.signals.backend.personal_ranking.serve import ready_summary_version
 from products.signals.backend.personal_ranking_tasks import BUILD_LOCK_TTL_SECONDS, build_lock_key
 
 logger = structlog.get_logger(__name__)
@@ -357,21 +352,11 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> PersonalRankingTickP
 
 
 def _check_and_build(team: Team, user: User, config: PersonalRankingConfig) -> PersonalRankingPairResult:
-    now = timezone.now()
-    latest = latest_row(team, user)
-    candidates = gather_candidates(team, user, config, now=now, with_sources=False)
-    summary_version = ready_summary_version(team, user)
-    current_hash = input_hash(candidates, activity_summary_version=summary_version, focus=None)
-    if (
-        latest is not None
-        and latest.input_hash == current_hash
-        and latest.fallback_reason not in RETRYABLE_FALLBACK_REASONS
-    ):
+    check = check_inputs(team, user, config, now=timezone.now())
+    if check.unchanged:
         # The list is still current, so the pair leaves the due set until `target_interval_minutes` passes again.
-        PersonalInboxRanking.objects.for_team(team.id).filter(id=latest.id).update(checked_at=now)
         return PersonalRankingPairResult(status="unchanged")
-    calls_model = bool(candidates) and may_call_model(team, summary_ready=summary_version is not None)
-    if calls_model:
+    if check.calls_model:
         if not spend_tick_build(config):
             return PersonalRankingPairResult(status="tick_limited")
         if spend_shared_build(config) is not None:
