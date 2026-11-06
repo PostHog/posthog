@@ -226,6 +226,7 @@ rules:
                               |ExternalDataSourceDestination
                               |ExternalDataSourceInputsBackup
                               |FeatureFlag
+                              |FeatureFlagCodeAnalysis
                               |FeatureRequest
                               |FeatureRequestAccountLink
                               |FeatureRequestEvidence
@@ -741,6 +742,7 @@ rules:
                         |ExternalDataSource
                         |ExternalDataSourceInputsBackup
                         |FeatureFlag
+                        |FeatureFlagCodeAnalysis
                         |FeatureRequest
                         |FeatureRequestAccountLink
                         |FeatureRequestEvidence
