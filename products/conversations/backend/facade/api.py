@@ -54,10 +54,13 @@ from products.conversations.backend.models import (
     EmailThreadMessage,
     EmailThreadParticipant,
     EmailThreadParticipantKind,
+    PurgedTicketThread,
     Status,
+    TeamConversationsSlackConfig,
     Ticket,
 )
 from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE, Channel
+from products.conversations.backend.models.purged_ticket_thread import ticket_thread_key
 from products.conversations.backend.services.messages import public_human_ticket_replies
 from products.conversations.backend.slack import _is_internal_channel, get_slack_client
 from products.conversations.backend.support_slack import (
@@ -296,6 +299,34 @@ def sync_google_account_email_backfill_batch(
     except GmailSyncError as error:
         raise GoogleAccountEmailSyncError(str(error)) from error
     return GoogleAccountEmailBackfillBatch(next_page_token=next_page_token, fetched=fetched)
+
+
+def slack_thread_is_ticket_thread(
+    *, organization_id: str, slack_team_id: str | None, slack_channel_id: str, slack_thread_ts: str
+) -> bool:
+    """Whether a support ticket owns this Slack thread.
+
+    A ticket in any project of the organization counts, and so does one from the Slack workspace
+    itself: two organizations can connect the same workspace, and the one taking support tickets from
+    it may not be the caller's. A deleted or purged ticket still counts, because it keeps its thread
+    and a restored ticket takes the thread back. Callers that post internal content into a thread use
+    this to keep it away from the customer the ticket talks to.
+    """
+    team_ids = set(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
+    owns = Q(team_id__in=team_ids)
+    if slack_team_id:
+        team_ids.update(
+            TeamConversationsSlackConfig.objects.filter(slack_team_id=slack_team_id).values_list("team_id", flat=True)
+        )
+        owns = Q(team_id__in=team_ids) | Q(slack_team_id=slack_team_id)
+    lookup = {"slack_channel_id": slack_channel_id, "slack_thread_ts": slack_thread_ts}
+    if Ticket.all_objects.filter(owns, **lookup).exists():
+        return True
+    return (
+        PurgedTicketThread.objects.unscoped()
+        .filter(team_id__in=team_ids, thread_key=ticket_thread_key(**lookup))
+        .exists()
+    )
 
 
 def list_support_bot_channels(team_id: int, *, members_only: bool = False) -> list[SupportChannel]:
