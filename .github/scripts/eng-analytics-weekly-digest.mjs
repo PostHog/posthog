@@ -61,7 +61,7 @@ async function depotUsageSpend(startAt, endAt) {
             Authorization: `Bearer ${DEPOT_TOKEN}`,
         },
         body: JSON.stringify({ startAt: startAt.toISOString(), endAt: endAt.toISOString() }),
-        signal: AbortSignal.timeout(60_000),
+        signal: AbortSignal.timeout(30_000),
     }).catch(() => null)
     if (!res?.ok) {
         throw Object.assign(new Error(`Depot GetUsage failed${res ? ` with ${res.status}` : ''}`), {
@@ -117,6 +117,25 @@ async function spend(startAt, endAt) {
     return { ...usage, total: usage.runners + usage.depotCi + usage.containerBuilds }
 }
 
+function calendarMonths(startAt, endAt) {
+    const ranges = []
+    for (let from = startAt; from < endAt; ) {
+        const nextMonth = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 1))
+        const to = nextMonth < endAt ? nextMonth : endAt
+        ranges.push([from, to])
+        from = to
+    }
+    return ranges
+}
+
+async function contractSpend(startAt, endAt) {
+    let used = 0
+    for (const [from, to] of calendarMonths(startAt, endAt)) {
+        used += (await spend(from, to)).total
+    }
+    return used
+}
+
 function contractDates(weekEnd) {
     const start = new Date(`${DEPOT_CONTRACT_START}T00:00:00Z`)
     const end = new Date(`${DEPOT_CONTRACT_END}T00:00:00Z`)
@@ -149,19 +168,13 @@ async function readSpend(weekStart, weekEnd) {
     if (!contract) {
         console.warn('Depot contract variables missing or invalid. Posting without the contract sentence.')
     }
-    const [weeks, used] = await Promise.all([
-        Promise.all([spend(weekStart, weekEnd), spend(new Date(weekStart.getTime() - WEEK_MS), weekStart)]).catch(
-            unavailable('Spend')
-        ),
-        contract &&
-            spend(contract.start, weekEnd)
-                .then((contractSpend) => contractSpend.total)
-                .catch(unavailable('Contract spend')),
-    ])
-    if (!weeks) {
+    const lastWeek = await spend(weekStart, weekEnd).catch(unavailable('Spend'))
+    const priorWeek =
+        lastWeek && (await spend(new Date(weekStart.getTime() - WEEK_MS), weekStart).catch(unavailable('Spend')))
+    if (!priorWeek) {
         return null
     }
-    const [lastWeek, priorWeek] = weeks
+    const used = contract && (await contractSpend(contract.start, weekEnd).catch(unavailable('Contract spend')))
     return { lastWeek, priorWeek, contract: used == null ? null : { ...contract, used } }
 }
 
