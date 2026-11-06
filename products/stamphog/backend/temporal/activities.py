@@ -966,6 +966,8 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
             return GateAttestation(attested=False, reason="file_list_moved", gates=[])
         context, policy_files = _engine_gate_inputs(run)
         context["files"] = pinned_files
+        # A CI check can be rerun and fail while the sandbox reviews, so the gates read it again here.
+        context["check_runs"] = client.get_check_runs(repo, run.head_sha)
         attestation = run_engine_attest(context, policy_files)
         if attestation.reason == "dependency_manifest" and 0 < len(attestation.manifests) <= _MAX_ATTESTED_MANIFESTS:
             manifest_contents = fetch_manifest_contents(

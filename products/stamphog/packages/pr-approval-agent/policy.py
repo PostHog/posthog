@@ -120,8 +120,9 @@ class DenyCategory:
 class Attestation:
     """A CI result trusted to lift deny categories for the files it lists (see attestations.py).
 
-    The source is a check run by name, pinned to the App that publishes it, because a same-repo
-    PR's workflow can create a check run of any name. `paths` are regexes for the files the result
+    The source is a check run by name, pinned to the numeric id of the App that publishes it, because
+    a same-repo PR's workflow can create a check run of any name. An App's id never changes and is
+    never reused, while its slug follows a rename. `paths` are regexes for the files the result
     is expected to judge. A PR that changes one waits for the result, and the result can lift
     nothing outside them. The publisher's own trigger must cover them, or such a PR waits for a run
     that never comes. `publisher_paths` are regexes for the in-repo files that produce the result,
@@ -134,7 +135,7 @@ class Attestation:
     paths: tuple[str, ...]
     publisher_paths: tuple[str, ...]
     check: str
-    app: str
+    app_id: int
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -494,7 +495,7 @@ def _assert_self_governance(deny: dict[str, DenyCategory]) -> None:
         _require(token in paths, f"deny.stamphog_policy: self-governance must cover {token!r}")
 
 
-_ATTESTATION_KEYS = {"name", "lifts", "paths", "publisher_paths", "check", "app"}
+_ATTESTATION_KEYS = {"name", "lifts", "paths", "publisher_paths", "check", "app_id"}
 
 
 def _nonempty_strings(raw: object, context: str) -> tuple[str, ...]:
@@ -534,10 +535,11 @@ def _parse_attestations(raw: object, deny: dict[str, DenyCategory]) -> tuple[Att
                 _compile_or_raise(pattern, f"{context}.{key}")
         check = _optional_string(spec, "check", context)
         _require(check is not None, f"{context}.check: required")
-        app = _optional_string(spec, "app", context)
-        _require(app is not None, f"{context}.app: required")
+        app_id = _require_positive_int(spec.get("app_id"), f"{context}.app_id")
         parsed.append(
-            Attestation(name=name, lifts=lifts, paths=paths, publisher_paths=publisher_paths, check=check, app=app)
+            Attestation(
+                name=name, lifts=lifts, paths=paths, publisher_paths=publisher_paths, check=check, app_id=app_id
+            )
         )
     return tuple(parsed)
 

@@ -392,8 +392,8 @@ The `stamphog_policy` category cannot carry the key, because a team that may app
 Unlike CODEOWNERS, the category only stops stamphog: any human approval still counts on GitHub.
 
 An **attestation** (`attestations` in the policy) lifts named deny categories for the files a passing CI result lists.
-The shipped default declares none, because each one names a repository's own CI job; this repository's `.stamphog/policy.yml` declares the `Migration risk` check.
-An entry is read from the head commit's check runs, and must name the App that publishes it (`app`) and the in-repo files that produce it (`publisher_paths`).
+The shipped default declares none, because each one names a repository's own CI job.
+An entry is read from the head commit's check runs, and must name the numeric id of the App that publishes it (`app_id`) and the in-repo files that produce it (`publisher_paths`).
 A PR that edits a publisher file ran its own copy of it, so the result lifts nothing and waits for nothing.
 See `attestations.py` for the model.
 

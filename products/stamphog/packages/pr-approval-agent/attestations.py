@@ -46,16 +46,16 @@ def _edits_publisher(rule: Attestation, pr_files: Iterable[str]) -> bool:
 
 
 def _check_result(rule: Attestation, check_runs: Iterable[dict]) -> frozenset[str] | None:
-    completed = [
-        run
-        for run in check_runs
-        if run.get("name") == rule.check
-        and run.get("status") == "completed"
-        and (run.get("app") or {}).get("slug") == rule.app
+    runs = [
+        run for run in check_runs if run.get("name") == rule.check and (run.get("app") or {}).get("id") == rule.app_id
     ]
-    if not completed:
+    if not runs:
         return None
-    latest = max(completed, key=lambda run: run.get("completed_at") or "")
+    # GitHub numbers check runs in creation order, so the highest id is the latest attempt. A rerun
+    # that has not finished puts the earlier result in question, so the result is pending again.
+    latest = max(runs, key=lambda run: run.get("id") or 0)
+    if latest.get("status") != "completed":
+        return None
     if latest.get("conclusion") != "success":
         return frozenset()
     return marker_files((latest.get("output") or {}).get("summary") or "")

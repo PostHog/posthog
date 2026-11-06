@@ -10,7 +10,7 @@ _MIGRATION = "posthog/migrations/1125_x.py"
 MIGRATION_RISK = Attestation(
     name="Migration risk",
     check="Migration risk",
-    app="tests-posthog",
+    app_id=2492437,
     lifts=("migrations",),
     paths=(r"(?:^|/)migrations/(?!__init__\.py$)[^/]+\.py$", r"(?:^|/)migrations/max_migration\.txt$"),
     publisher_paths=(r"(?:^|/)migration_analysis/",),
@@ -21,22 +21,22 @@ RULES = (MIGRATION_RISK,)
 
 def _check(
     *,
+    run_id: int = 1,
     name: str = "Migration risk",
-    app: str = "tests-posthog",
+    app_id: int = 2492437,
     status: str = "completed",
     conclusion: str | None = "success",
-    completed_at: str = "2026-11-01T12:00:00Z",
     summary: str | None = None,
     files: list[str] | None = None,
 ) -> dict:
     if summary is None:
         summary = f"<!-- stamphog:v1 {json.dumps(files or [])} -->\nreport body"
     return {
+        "id": run_id,
         "name": name,
-        "app": {"slug": app},
+        "app": {"id": app_id, "slug": "tests-posthog"},
         "status": status,
         "conclusion": conclusion,
-        "completed_at": completed_at,
         "output": {"summary": summary},
     }
 
@@ -61,17 +61,13 @@ def _lifted(check_runs: list[dict], pr_files: list[str]) -> dict[str, frozenset[
             id="listed-file-outside-paths",
         ),
         pytest.param(
-            [
-                _check(files=[], completed_at="2026-11-01T13:00:00Z"),
-                _check(files=[_MIGRATION], completed_at="2026-11-01T12:00:00Z"),
-                _check(status="in_progress", conclusion=None),
-            ],
+            [_check(run_id=2, conclusion="failure"), _check(run_id=1, files=[_MIGRATION])],
             [_MIGRATION],
             {},
-            id="latest-completed-run-wins",
+            id="newest-run-wins",
         ),
         pytest.param([_check(files=[_MIGRATION], conclusion="neutral")], [_MIGRATION], {}, id="not-success"),
-        pytest.param([_check(files=[_MIGRATION], app="someone-else")], [_MIGRATION], {}, id="other-app"),
+        pytest.param([_check(files=[_MIGRATION], app_id=15368)], [_MIGRATION], {}, id="other-app"),
         pytest.param([_check(files=[_MIGRATION], name="other-ci")], [_MIGRATION], {}, id="other-name"),
         pytest.param([_check(summary="no marker here")], [_MIGRATION], {}, id="no-marker"),
         pytest.param([_check(summary="<!-- stamphog:v1 not-json -->")], [_MIGRATION], {}, id="malformed-marker"),
@@ -97,6 +93,12 @@ def test_check_attestation_lifts_listed_files(
     [
         pytest.param([], [_MIGRATION], ["Migration risk"], id="no-check-yet"),
         pytest.param([_check(status="queued", conclusion=None)], [_MIGRATION], ["Migration risk"], id="queued"),
+        pytest.param(
+            [_check(files=[_MIGRATION]), _check(run_id=2, status="in_progress", conclusion=None)],
+            [_MIGRATION],
+            ["Migration risk"],
+            id="rerun-in-progress",
+        ),
         pytest.param([_check(conclusion="failure")], [_MIGRATION], [], id="completed"),
         pytest.param([], ["posthog/migrations/__init__.py", "clickhouse/migrations/0001.sql"], [], id="no-judged-file"),
         pytest.param([], [_MIGRATION, _PUBLISHER], [], id="pr-edits-publisher"),

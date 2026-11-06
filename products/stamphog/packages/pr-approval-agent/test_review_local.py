@@ -20,8 +20,22 @@ import review_pr  # noqa: E402
 import review_local  # noqa: E402
 import openai_reviewer  # noqa: E402
 from github import CommitProvenance  # noqa: E402
-from policy import DenyException  # noqa: E402
+from policy import Attestation, DenyException  # noqa: E402
 from review_pr import Pipeline  # noqa: E402
+
+_MIGRATION_RISK = Attestation(
+    name="Migration risk",
+    check="Migration risk",
+    app_id=2492437,
+    lifts=("migrations",),
+    paths=(r"(?:^|/)migrations/(?!__init__\.py$)[^/]+\.py$", r"(?:^|/)migrations/max_migration\.txt$"),
+    publisher_paths=(r"(?:^|/)migration_analysis/", r"^\.(github|depot)/"),
+)
+
+
+@pytest.fixture
+def migration_risk_policy(monkeypatch) -> None:
+    monkeypatch.setattr(review_pr, "POLICY", replace(review_pr.POLICY, attestations=(_MIGRATION_RISK,)))
 
 
 def _review(login: str, state: str, head_sha: str, body: str = "") -> dict:
@@ -156,6 +170,7 @@ def _api_file(filename: str, status: str = "added") -> dict:
         pytest.param(["posthog/migrations/0999_add_col.py", ".agents/ci.md"], id="beside-an-owner-exempt-file"),
     ],
 )
+@pytest.mark.usefixtures("migration_risk_policy")
 def test_pending_migration_check_waits_instead_of_refusing(monkeypatch, files: list[str]) -> None:
     # A migration PR whose "Migration risk" check has not reported yet matches the deny-list only
     # because the engine cannot tell a safe migration from a risky one. A REFUSED verdict would
@@ -759,6 +774,7 @@ _PENDING_MIGRATION_CHECK = [{"name": "Migration risk", "status": "in_progress", 
         ),
     ],
 )
+@pytest.mark.usefixtures("migration_risk_policy")
 def test_pregate_is_final_only_where_the_full_review_agrees(
     monkeypatch, context: dict, expect_verdict: str | None, expect_summary: bool
 ) -> None:
@@ -850,7 +866,7 @@ def test_pregate_is_final_only_where_the_full_review_agrees(
                 check_runs=[
                     {
                         "name": "Migration risk",
-                        "app": {"slug": "tests-posthog"},
+                        "app": {"id": 2492437, "slug": "tests-posthog"},
                         "status": "completed",
                         "conclusion": "success",
                         "output": {"summary": '<!-- stamphog:v1 ["posthog/migrations/0001_x.py"] -->'},
@@ -863,6 +879,7 @@ def test_pregate_is_final_only_where_the_full_review_agrees(
         ),
     ],
 )
+@pytest.mark.usefixtures("migration_risk_policy")
 def test_attest_confirms_only_what_the_full_review_would_approve(
     monkeypatch, context: dict, expected_reason: str
 ) -> None:
@@ -904,6 +921,7 @@ def test_attest_confirms_only_what_the_full_review_would_approve(
         ),
     ],
 )
+@pytest.mark.usefixtures("migration_risk_policy")
 def test_deny_exception_requires_full_review_in_pipeline_and_pregate(
     monkeypatch, tmp_path, files: list[str], safe_migrations: list[str], expected_tier: str, expected_verdict: str
 ) -> None:
@@ -935,7 +953,7 @@ def test_deny_exception_requires_full_review_in_pipeline_and_pregate(
         [
             {
                 "name": "Migration risk",
-                "app": {"slug": "tests-posthog"},
+                "app": {"id": 2492437, "slug": "tests-posthog"},
                 "status": "completed",
                 "conclusion": "success",
                 "output": {"summary": f"<!-- stamphog:v1 {json.dumps(safe_migrations)} -->"},

@@ -36,7 +36,7 @@ deny:
                 - 'tools/owners/'
                 - '(?:^|/)owners\.yaml$'
                 - '(?:^|/)product\.yaml$'
-                # The analyzer and workflow behind the Migration risk attestation below.
+                # The analyzer and workflow that publish the Migration risk check.
                 - '(?:^|/)migration_analysis/'
                 - 'analyze_migration_risk\.py'
                 - '\.depot/workflows/ci-backend\.yml'
@@ -106,22 +106,6 @@ deny_exceptions:
         - path_prefixes:
               - 'products/cdp/backend/api/test/'
               - 'products/messaging/backend/api/test/'
-# The migration analyzer publishes this check for every PR, so a missing one means CI has not
-# finished. It lists the Django migrations it classified Safe, and their max_migration.txt.
-attestations:
-    - name: 'Migration risk'
-      check: 'Migration risk'
-      app: 'tests-posthog'
-      lifts: ['migrations']
-      paths:
-          - '(?:^|/)migrations/(?!__init__\.py$)[^/]+\.py$'
-          - '(?:^|/)migrations/max_migration\.txt$'
-      # Every workflow, local action and CI script here can mint the tests-posthog token, so an
-      # edit to any of them could forge the check.
-      publisher_paths:
-          - '(?:^|/)migration_analysis/'
-          - 'analyze_migration_risk\.py'
-          - '^\.(github|depot)/'
 allow:
     extend_path_patterns:
         - '.github/CODEOWNERS'
