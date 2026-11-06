@@ -250,7 +250,7 @@ class GitHubRecorder:
             commits = self.pr_commits.get((m.group("repo"), int(m.group("number"))), []) if page == 1 else []
             return FakeResponse(200, json_data=commits)
         if method == "GET" and (m := _ACTIVITY_RE.match(path)):
-            return FakeResponse(200, json_data=self.branch_activity.get((m.group("repo"), params.get("ref")), []))
+            return FakeResponse(200, json_data=self.branch_activity.get((m.group("repo"), str(params.get("ref"))), []))
         if method == "GET" and (m := _PR_RE.match(path)):
             return self._get_pr(m.group("repo"), int(m.group("number")))
         if method == "GET" and path == "/search/issues":
