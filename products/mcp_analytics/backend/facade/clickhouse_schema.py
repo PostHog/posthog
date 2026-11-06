@@ -30,7 +30,6 @@ CREATE TABLE IF NOT EXISTS {table_name}
     is_outlier UInt8,
     intent_text String, -- truncated copy for the map and outlier lists
     calls_in_run UInt32, -- calls carrying this intent when it was embedded
-    tool LowCardinality(String), -- top tool for this intent when it was embedded
     timestamp DateTime64(3, 'UTC') -- when the assignment was made; newest wins
 ) ENGINE = {engine}
 """
@@ -212,7 +211,3 @@ def MCP_INTENT_TOPIC_DAILY_WRITABLE_TABLE_SQL() -> str:
             cluster=settings.CLICKHOUSE_CLUSTER,
         ),
     )
-
-
-def ADD_TOOL_COLUMN_TO_ASSIGNMENTS_SQL(table_name: str) -> str:
-    return f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS tool LowCardinality(String) AFTER calls_in_run"
