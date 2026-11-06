@@ -2383,26 +2383,38 @@ def test_wait_on_a_pending_external_review_reruns_once_that_review_finished(
     assert rereview.call_args_list == [call(repository=REPO, pr_number=125, head_sha=head_sha)] * expected_dispatches
 
 
+_FINISHED = _migration_risk_run(1, "success")
+_RUNNING = {**_migration_risk_run(2, "success"), "status": "in_progress", "conclusion": None}
+
+
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 @pytest.mark.parametrize(
-    "check_status, check_app, live_head, newer_run, repo_enabled, expected_done, expected_dispatches",
+    "check_runs, live_head, newer_run, repo_enabled, expected_done, expected_dispatches",
     [
-        pytest.param("completed", "tests-posthog", "sha127a", False, True, True, 1, id="check-from-its-app-finished"),
-        pytest.param("in_progress", "tests-posthog", "sha127a", False, True, False, 0, id="check-still-running"),
+        pytest.param([_FINISHED], "sha127a", False, True, True, 1, id="check-from-its-app-finished"),
+        pytest.param([_RUNNING], "sha127a", False, True, False, 0, id="check-still-running"),
         # The engine reads only the pinned App's check, so a same-name check from another App
-        # would wake a review that waits again.
-        pytest.param("completed", "someone-else", "sha127a", False, True, False, 0, id="same-name-from-another-app"),
-        pytest.param("completed", "tests-posthog", "sha127b", False, True, True, 0, id="head-moved"),
-        pytest.param("completed", "tests-posthog", "sha127a", True, True, True, 0, id="newer-run-took-over"),
+        # would wake a review that waits again. The slug is the pinned App's, and only the id differs.
+        pytest.param(
+            [{**_FINISHED, "app": {"id": 15368, "slug": "tests-posthog"}}],
+            "sha127a",
+            False,
+            True,
+            False,
+            0,
+            id="same-name-from-another-app",
+        ),
+        pytest.param([_FINISHED, _RUNNING], "sha127a", False, True, False, 0, id="rerun-in-progress"),
+        pytest.param([_FINISHED], "sha127b", False, True, True, 0, id="head-moved"),
+        pytest.param([_FINISHED], "sha127a", True, True, True, 0, id="newer-run-took-over"),
         # An uninstall disables the repo, and every GitHub read would fail until the budget ran out.
-        pytest.param("in_progress", "tests-posthog", "sha127a", False, False, True, 0, id="repo-disabled"),
+        pytest.param([_RUNNING], "sha127a", False, False, True, 0, id="repo-disabled"),
     ],
 )
 def test_attestation_poll_reruns_once_the_engine_would_see_the_result(
     team,
     stamphog_chain: StamphogChain,
-    check_status: str,
-    check_app: str,
+    check_runs: list[dict],
     live_head: str,
     newer_run: bool,
     repo_enabled: bool,
@@ -2431,9 +2443,7 @@ def test_attestation_poll_reruns_once_the_engine_would_see_the_result(
         ReviewRun.objects.for_team(team.id).create(
             team_id=team.id, pull_request=pull_request, head_sha=head_sha, status=ReviewRunStatus.QUEUED
         )
-    stamphog_chain.recorder.check_runs = [
-        {"name": "Migration risk", "status": check_status, "app": {"slug": check_app}},
-    ]
+    stamphog_chain.recorder.check_runs = check_runs
 
     with patch.object(activities, "request_rereview_after_external_review") as rereview:
         result = _run_activity(
