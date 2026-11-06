@@ -406,9 +406,7 @@ def _activity_task_queue(organization_id: str) -> str | None:
 
 
 def recalculation_clickhouse_user(task_queue: str) -> ClickHouseUser | None:
-    # Only the queues with a fixed slot count run as the experiments user, because the aux cluster has no concurrency
-    # or memory limit for that user and the slot count is the cap. The set is read at call time, so a queue that
-    # collapses into the main queue (local development, single-queue mode) keeps the main queue's routing.
+    # Only the slot-capped queues run as the experiments user; a queue that collapses into the main queue keeps the default.
     capped_task_queues = {
         settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
         settings.EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE,
