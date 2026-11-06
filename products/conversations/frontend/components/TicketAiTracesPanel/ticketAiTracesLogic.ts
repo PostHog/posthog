@@ -38,10 +38,16 @@ export interface ticketAiTracesLogicActions {
         errorObject?: any
     }
     loadResultSuccess: (
-        result: TicketAiTracesResult | null,
+        result: {
+            hasMore: boolean
+            traces: LLMTrace[]
+        },
         payload?: any
     ) => {
-        result: TicketAiTracesResult | null
+        result: {
+            hasMore: boolean
+            traces: LLMTrace[]
+        }
         payload?: any
     }
 }
@@ -91,9 +97,7 @@ export const ticketAiTracesLogic = kea<ticketAiTracesLogicType>([
     })),
     listeners({
         loadResultSuccess: ({ result }) => {
-            if (result) {
-                posthog.capture(TRACES_LOADED_EVENT, { trace_count: result.traces.length, has_more: result.hasMore })
-            }
+            posthog.capture(TRACES_LOADED_EVENT, { trace_count: result.traces.length, has_more: result.hasMore })
         },
     }),
     afterMount(({ actions }) => {

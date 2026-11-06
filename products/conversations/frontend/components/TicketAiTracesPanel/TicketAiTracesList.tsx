@@ -18,6 +18,7 @@ export function TicketAiTracesList({ personId }: { personId: string }): JSX.Elem
     const allTracesUrl = `${urls.aiObservabilityTraces()}?${new URLSearchParams({
         filters: JSON.stringify([{ type: PropertyFilterType.HogQL, key: `person_id = '${personId}'` }]),
         date_from: TICKET_AI_TRACES_DATE_FROM,
+        filter_test_accounts: 'false',
     })}`
 
     return (
