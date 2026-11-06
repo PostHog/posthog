@@ -93,6 +93,7 @@ function LineChartInner<Meta = unknown>({
     const {
         yScaleType = 'linear',
         percentStackView = false,
+        stacked,
         showGrid = false,
         showAxisLines = false,
         valueDomain,
@@ -108,20 +109,32 @@ function LineChartInner<Meta = unknown>({
 
     const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
 
-    const hasMultipleFilledSeries = visibleSeries.filter((s) => s.fill && !s.fill.lowerData).length >= 2
+    const stackableSeries = useMemo(
+        () => visibleSeries.filter((s) => s.stacked !== false && !s.fill?.lowerData),
+        [visibleSeries]
+    )
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
+        // A share axis has no room for a raw value, so percent mode stacks every series.
         if (percentStackView) {
             return computePercentStackData(visibleSeries, labels)
         }
-        // Only stack when there are 2+ fillable series — a single area series has nothing to stack
-        // against, and forcing a stacked band would feed a `bottomValues` array into the canvas
+        // Only stack 2+ series (2+ fillable ones without an explicit `stacked`). A single series has
+        // nothing to stack against, and a stacked band would feed `bottomValues` into the canvas
         // renderer, which disables the gradient fill path.
-        if (hasMultipleFilledSeries) {
-            return computeStackData(visibleSeries, labels)
+        if (stacked !== false && stackableSeries.filter((s) => stacked || s.fill).length >= 2) {
+            return computeStackData(stackableSeries, labels)
         }
         return undefined
-    }, [percentStackView, hasMultipleFilledSeries, visibleSeries, labels])
+    }, [percentStackView, stacked, visibleSeries, stackableSeries, labels])
+
+    const stackedSeriesKeys = useMemo(
+        () =>
+            stackedData && !percentStackView && visibleSeries.some((s) => s.stacked === false)
+                ? new Set(stackableSeries.map((s) => s.key))
+                : undefined,
+        [stackedData, percentStackView, visibleSeries, stackableSeries]
+    )
 
     const chartConfig = {
         ...config,
@@ -304,6 +317,7 @@ function LineChartInner<Meta = unknown>({
                 dataAttr={dataAttr}
                 resolveValue={resolveValue}
                 resolvePositionValue={resolvePositionValue}
+                stackedSeriesKeys={stackedSeriesKeys}
             >
                 {children}
             </Chart>
