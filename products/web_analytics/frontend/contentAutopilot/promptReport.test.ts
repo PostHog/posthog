@@ -47,7 +47,6 @@ describe('promptReport', () => {
                 days: 10,
                 visibility: { average: 5 / 6, latest: 0.5, latestDate: '2026-09-05', delta: 0.5 - 5 / 6 },
                 citation: { average: 4 / 6, latest: 0.5, latestDate: '2026-09-05', delta: 0.5 - 4 / 6 },
-                // Weighted by cited answers: three at #1 and one at #5.
                 position: { average: 2, latest: 5, latestDate: '2026-09-05' },
             })
         })

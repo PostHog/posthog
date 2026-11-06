@@ -34,7 +34,6 @@ export interface KpiCardContent {
 export interface PromptPositionKpi {
     /** Mean rank of your first link among the sources, over the cited answers in the window. Lower is better. */
     average: number | null
-    /** The same mean on the latest day of the window that had a cited answer. */
     latest: number | null
     latestDate: string | null
 }
@@ -128,7 +127,6 @@ export const pointsDelta = (delta: number, tooltip: string): KpiDelta => {
 export const POSITION_DESCRIPTION =
     'Where your site sits among the sources of an answer that cites it. #1 is the first source listed. Lower is better.'
 
-/** "#1" for a whole rank, "#1.4" for a mean. */
 export const positionLabel = (position: number): string => `#${Math.round(position * 10) / 10}`
 
 /** A rank is better when it is lower, so a drop in the number reads as a gain. */

@@ -9,7 +9,6 @@ export const ContentAutopilotCheckResultTag = ({
 }: {
     cited: boolean
     checkFailed: boolean
-    /** 1-based rank of the first link to your site among the answer's sources. */
     position?: number | null
 }): JSX.Element =>
     checkFailed ? (
