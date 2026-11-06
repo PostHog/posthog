@@ -405,7 +405,7 @@ const EventsRetentionUpdateSchema = () => {
     const EventsRetentionUpdateBody = orvalSchemas.EventsRetentionUpdateBody()
     return EventsRetentionUpdateBody.extend({
         retention_months: EventsRetentionUpdateBody.shape['retention_months'].describe(
-            "The period in months, one of `retention_months_choices` from events-retention-get. Null removes the project's period, so the project uses the organization's period, or the default period when the organization has none."
+            "The period in months. It also has to be between `min_retention_months` and `max_retention_months` from events-retention-get. Null removes the project's period, so the project uses the organization's period, or the default period when the organization has none."
         ),
     })
 }
@@ -942,7 +942,7 @@ const OrganizationEventsRetentionUpdateSchema = () => {
     const OrganizationEventsRetentionUpdateBody = orvalSchemas.OrganizationEventsRetentionUpdateBody()
     return OrganizationEventsRetentionUpdateBody.extend({
         retention_months: OrganizationEventsRetentionUpdateBody.shape['retention_months'].describe(
-            "The period in months, one of `retention_months_choices` from organization-events-retention-get. Null removes the organization's period, so projects without their own period use the default period."
+            "The period in months. It also has to be between `min_retention_months` and `max_retention_months` from organization-events-retention-get. Null removes the organization's period, so projects without their own period use the default period."
         ),
     })
 }

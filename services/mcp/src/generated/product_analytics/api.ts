@@ -34,11 +34,24 @@ export const OrganizationEventsRetentionUpdateParams = () => zod.object({
 
 export const OrganizationEventsRetentionUpdateBody = () => zod.object({
     retention_months: zod
-        .number()
-        .min(1)
-        .nullable()
+        .union([
+            zod
+                .union([
+                    zod.literal(1),
+                    zod.literal(3),
+                    zod.literal(12),
+                    zod.literal(24),
+                    zod.literal(36),
+                    zod.literal(60),
+                    zod.literal(84),
+                ])
+                .describe(
+                    '\* `1` - 1 month\n\* `3` - 3 months\n\* `12` - 1 year\n\* `24` - 2 years\n\* `36` - 3 years\n\* `60` - 5 years\n\* `84` - 7 years'
+                ),
+            zod.null(),
+        ])
         .describe(
-            "The period in months, one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the period."
+            "The period in months. It also has to be between min_retention_months and max_retention_months. A shorter period deletes older events, and deleted events can't be restored. Null removes the period.\n\n\* `1` - 1 month\n\* `3` - 3 months\n\* `12` - 1 year\n\* `24` - 2 years\n\* `36` - 3 years\n\* `60` - 5 years\n\* `84` - 7 years"
         ),
 })
 
@@ -138,11 +151,24 @@ export const EventsRetentionUpdateParams = () => zod.object({
 
 export const EventsRetentionUpdateBody = () => zod.object({
     retention_months: zod
-        .number()
-        .min(1)
-        .nullable()
+        .union([
+            zod
+                .union([
+                    zod.literal(1),
+                    zod.literal(3),
+                    zod.literal(12),
+                    zod.literal(24),
+                    zod.literal(36),
+                    zod.literal(60),
+                    zod.literal(84),
+                ])
+                .describe(
+                    '\* `1` - 1 month\n\* `3` - 3 months\n\* `12` - 1 year\n\* `24` - 2 years\n\* `36` - 3 years\n\* `60` - 5 years\n\* `84` - 7 years'
+                ),
+            zod.null(),
+        ])
         .describe(
-            "The period in months, one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the period."
+            "The period in months. It also has to be between min_retention_months and max_retention_months. A shorter period deletes older events, and deleted events can't be restored. Null removes the period.\n\n\* `1` - 1 month\n\* `3` - 3 months\n\* `12` - 1 year\n\* `24` - 2 years\n\* `36` - 3 years\n\* `60` - 5 years\n\* `84` - 7 years"
         ),
 })
 
