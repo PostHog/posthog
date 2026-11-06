@@ -11,6 +11,7 @@ from parameterized import parameterized
 from posthog.models import Organization, Team
 from posthog.models.user import User
 
+from products.tasks.backend.logic.services.custom_prompt_internals import _update_task_run_error_message
 from products.tasks.backend.logic.services.workflow_dispatch import materialize_due_scheduled_task_runs
 from products.tasks.backend.models import Task, TaskRun, TaskStatusChange
 from products.tasks.backend.task_run_sync import (
@@ -101,6 +102,15 @@ class TestTaskRunSync(TestCase):
 
         self.task.refresh_from_db()
         self.assertEqual((self.task.status, self.task.status_reason), expected)
+
+    def test_recovered_agent_error_reaches_the_task(self) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            _save_status(TaskRun.Status.FAILED, error_message="Activity task failed")(self.task)
+        with self.captureOnCommitCallbacks(execute=True):
+            _update_task_run_error_message(str(self.task.runs.get().id), "Model refused the request")
+
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.status_detail, "Model refused the request")
 
     def test_records_one_change_per_status_move(self) -> None:
         with self.captureOnCommitCallbacks(execute=True):
