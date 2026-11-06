@@ -10,7 +10,7 @@ from django.db import OperationalError
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
-from temporalio import activity
+from temporalio import activity, workflow
 from temporalio.client import WorkflowFailureError
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.exceptions import ApplicationError
@@ -275,6 +275,8 @@ class _Recorder:
         self.startup_notice_attempts = 0
         self.github_optional = github_optional
         self.gate_checks: list[str] = []
+        self.quota_sources: list[str | None] = []
+        self.marked_inputs: list[MarkReportInProgressInput] = []
         self.fetches = 0
         self.fetch_failures = fetch_failures
         self.fetch_required_ids: list[str | None] = []
@@ -329,7 +331,9 @@ def test_legacy_agentic_activity_payload_defaults_metrics_to_preserve() -> None:
     assert decoded.checks_monitoring_enabled is False
 
 
-async def _run_summary_workflow(recorder: _Recorder) -> None:
+async def _run_summary_workflow(
+    recorder: _Recorder, *, signal_id: str | None = "bcbb63fd-0a51-49ed-9768-e159ce3e592b"
+) -> None:
     @activity.defn(name="github_optional_pilot_activity")
     async def fake_pilot(team_id: int) -> bool:
         return recorder.github_optional
@@ -337,6 +341,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     @activity.defn(name="check_report_quota_gate_activity")
     async def fake_quota(input: CheckReportQuotaGateInput) -> bool:
         recorder.gate_checks.append(input.stage)
+        recorder.quota_sources.append(input.signal_id)
         return recorder.gate_answers.get(input.stage, False)
 
     @activity.defn(name="fetch_signals_for_report_activity")
@@ -365,6 +370,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     @activity.defn(name="mark_report_in_progress_activity")
     async def fake_mark_in_progress(input: MarkReportInProgressInput) -> None:
         recorder.marks_in_progress += 1
+        recorder.marked_inputs.append(input)
         recorder.preserved_pending.append(input.preserve_pending_refresh)
 
     @activity.defn(name="report_safety_judge_activity")
@@ -476,12 +482,26 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
             await asyncio.wait_for(
                 env.client.execute_workflow(
                     SignalReportSummaryWorkflow.run,
-                    SignalReportSummaryWorkflowInputs(team_id=1, report_id=str(uuid.uuid4())),
+                    SignalReportSummaryWorkflowInputs(team_id=1, report_id=str(uuid.uuid4()), signal_id=signal_id),
                     id=f"summary-workflow-{uuid.uuid4()}",
                     task_queue=TASK_QUEUE,
                 ),
                 timeout=30,
             )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("signal_id", [None, "6fda3497-59b9-45ab-af03-859cd74789ab"])
+async def test_only_an_incoming_signal_supplies_report_funding(signal_id: str | None) -> None:
+    recorder = _Recorder()
+    await _run_summary_workflow(recorder, signal_id=signal_id)
+    assert recorder.quota_sources == [signal_id] * len(recorder.gate_checks)
+    marked = recorder.marked_inputs[0]
+    assert marked.signal_id is not None
+    assert marked.funding_signal_id == signal_id
+    assert recorder.fetch_required_ids == [signal_id]
+    if signal_id is None:
+        assert marked.signal_id != marked.report_id
 
 
 @pytest.mark.asyncio
@@ -657,13 +677,29 @@ async def test_no_repository_researches_only_for_the_pilot(github_optional):
 
 
 @pytest.mark.asyncio
-async def test_summary_without_an_open_spend_owner_makes_no_paid_calls():
+async def test_legacy_summary_without_an_open_spend_owner_makes_no_paid_calls():
     recorder = _Recorder(spend_owner_available=False)
-    await _run_summary_workflow(recorder)
+    original_patched = workflow.patched
+    with patch(
+        "products.signals.backend.temporal.summary.workflow.patched",
+        side_effect=lambda name: False if name == "self-driving-trial-v2" else original_patched(name),
+    ):
+        await _run_summary_workflow(recorder, signal_id=None)
     assert recorder.fetches == 0
     assert recorder.safety_checks == 0
     assert recorder.researches == 0
     assert recorder.spend_publications == 0
+
+
+@pytest.mark.asyncio
+async def test_manual_rerun_without_an_open_owner_uses_a_fresh_receipt():
+    recorder = _Recorder(spend_owner_available=False)
+    await _run_summary_workflow(recorder, signal_id=None)
+    assert recorder.researches == 1
+    assert recorder.marked_inputs[0].signal_id is not None
+    assert recorder.marked_inputs[0].funding_signal_id is None
+    assert recorder.fetch_required_ids == [None]
+    assert recorder.spend_publications == 1
 
 
 @pytest.mark.asyncio
