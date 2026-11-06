@@ -486,6 +486,8 @@ def exchange_workload_token(*, subject_token: str, subject_token_type: str, reso
 
     registry_provider = get_workload_provider_by_issuer(token_issuer)
     pending: WorkloadTrustPolicyRequest | None = None
+    policy: WorkloadTrustPolicy | None
+    workload: VerifiedWorkload | None
     if registry_provider is not None:
         provider_key: str = registry_provider.key
         workload, oidc_expires_at = _verify_subject_token(subject_token, registry_provider)
