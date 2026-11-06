@@ -100,7 +100,7 @@ JUDGES: dict[str, _JudgeWords] = {
     ),
     "sentiment": _JudgeWords(
         headline="Some users sound frustrated",
-        checks="Reads each user message and labels how the user feels, so you can find the frustrated ones.",
+        checks="Labels how the user feels in the last user message of each generation, so you can find the frustrated ones.",
     ),
     "prompt_injection": _JudgeWords(
         headline="Some messages try to override the assistant's instructions",
