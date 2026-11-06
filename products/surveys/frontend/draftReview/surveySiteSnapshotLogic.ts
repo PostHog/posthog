@@ -103,6 +103,7 @@ export const surveySiteSnapshotLogic = kea<surveySiteSnapshotLogicType>([
     listeners(({ actions, cache }) => {
         const pollAgain = (): void => {
             if (Date.now() - cache.startedAt >= GIVE_UP_AFTER_MS) {
+                cache.disposables.dispose('poll')
                 return
             }
             const delay = Math.min(FIRST_POLL_DELAY_MS * 1.5 ** cache.polls, MAX_POLL_DELAY_MS)
@@ -116,6 +117,8 @@ export const surveySiteSnapshotLogic = kea<surveySiteSnapshotLogicType>([
             loadSiteSnapshotSuccess: ({ siteSnapshot }) => {
                 if (siteSnapshot?.status === 'rendering') {
                     pollAgain()
+                } else {
+                    cache.disposables.dispose('poll')
                 }
             },
             loadSiteSnapshotFailure: pollAgain,
