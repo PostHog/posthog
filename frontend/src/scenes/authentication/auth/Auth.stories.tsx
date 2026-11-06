@@ -1,4 +1,3 @@
-import { WEBSITE_REFERRER, setDocumentReferrer } from 'scenes/authentication/shared/authReferrer.mock'
 import { setLastLoginMethodCookie } from 'scenes/authentication/shared/lastLoginMethod.mock'
 import {
     PENDING_OAUTH_CONNECTION_FIXTURE,
@@ -16,7 +15,6 @@ import { userLogic } from 'scenes/userLogic'
 import { useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
-import { arrivedFromWebsiteLogic } from '../shared/arrivedFromWebsiteLogic'
 import { Auth } from './Auth'
 import { authLogic } from './authLogic'
 import { loginLogic } from './loginLogic'
@@ -51,7 +49,6 @@ type StoryArgs = {
     ssoEnforcement: 'none' | 'google-oauth2' | 'github' | 'gitlab' | 'saml'
     generalError: 'none' | 'invalid_credentials' | 'no_new_organizations' | 'login_code_email_undeliverable'
     pendingOAuthConnection: boolean
-    arrivedFromWebsite: boolean
     hasLoggedInBefore: boolean
     signedOutForSessionRisk: boolean
     noSignInMethod: boolean
@@ -93,7 +90,6 @@ const meta: Meta<StoryArgs> = {
             options: ['none', 'invalid_credentials', 'no_new_organizations', 'login_code_email_undeliverable'],
         },
         pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
-        arrivedFromWebsite: { control: 'boolean', name: 'Arrived from posthog.com' },
         hasLoggedInBefore: { control: 'boolean', name: 'Has logged in before' },
         signedOutForSessionRisk: { control: 'boolean', name: 'Signed out for session risk' },
         noSignInMethod: { control: 'boolean', name: 'Account has no sign-in method' },
@@ -113,7 +109,6 @@ const meta: Meta<StoryArgs> = {
         ssoEnforcement: 'none',
         generalError: 'none',
         pendingOAuthConnection: false,
-        arrivedFromWebsite: false,
         hasLoggedInBefore: true,
         signedOutForSessionRisk: false,
         noSignInMethod: false,
@@ -141,7 +136,6 @@ const Template: StoryFn<StoryArgs> = ({
     ssoEnforcement,
     generalError,
     pendingOAuthConnection,
-    arrivedFromWebsite,
     hasLoggedInBefore,
     signedOutForSessionRisk,
     noSignInMethod,
@@ -152,7 +146,6 @@ const Template: StoryFn<StoryArgs> = ({
     const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
     // Set synchronously: the scene reads the cookies while it mounts during this same render.
     setPendingOAuthConnectionCookie(pendingOAuthConnection ? PENDING_OAUTH_CONNECTION_FIXTURE : null)
-    setDocumentReferrer(arrivedFromWebsite ? WEBSITE_REFERRER : '')
     setLastLoginMethodCookie(hasLoggedInBefore ? 'password' : null)
 
     useStorybookMocks({
@@ -186,6 +179,7 @@ const Template: StoryFn<StoryArgs> = ({
                               password_login_available: !noSignInMethod,
                           },
                       ],
+            '/api/reset/': () => [200, { success: true }],
             '/api/signup/precheck': () =>
                 emailTaken
                     ? [
@@ -214,10 +208,6 @@ const Template: StoryFn<StoryArgs> = ({
             signedOutForSessionRisk ? { reason: 'session_risk' } : {}
         )
     }, [entry, signedOutForSessionRisk])
-
-    useEffect(() => {
-        arrivedFromWebsiteLogic.findMounted()?.actions.setArrivedFromWebsite(arrivedFromWebsite)
-    }, [arrivedFromWebsite])
 
     useEffect(() => {
         authLogic.actions.backToEmail()
@@ -324,7 +314,7 @@ SignedOutForSessionRisk.args = { signedOutForSessionRisk: true }
 
 export const NoSignInMethod: StoryFn<StoryArgs> = Template.bind({})
 NoSignInMethod.storyName = 'Account with no sign-in method'
-NoSignInMethod.args = { step: 'Login', noSignInMethod: true, googleOAuth: false, github: false, gitlab: false }
+NoSignInMethod.args = { step: 'Login', noSignInMethod: true, googleOAuth: true, github: true, gitlab: false }
 
 export const PrecheckFailed: StoryFn<StoryArgs> = Template.bind({})
 PrecheckFailed.storyName = 'Login step when the precheck fails'

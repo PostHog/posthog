@@ -17,12 +17,9 @@ impl Exactness {
     /// The column retypes JSON-looking strings and reads absent keys as `""`, so only a literal
     /// neither can equal is exact.
     pub fn of_literal(literal: &str) -> Self {
-        let lowercase = literal.to_lowercase();
         let retyped = literal.is_empty()
             || Num::from_str(literal).is_ok()
-            || serde_json::from_str::<Value>(literal).is_ok()
-            || lowercase == "true"
-            || lowercase == "false";
+            || serde_json::from_str::<Value>(literal).is_ok();
         if retyped {
             Self::Inexact
         } else {

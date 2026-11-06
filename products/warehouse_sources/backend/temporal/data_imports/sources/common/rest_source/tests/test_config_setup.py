@@ -13,8 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     Incremental,
     IncrementalParam,
     _merge_resource_endpoints,
+    build_resource_dependency_graph,
     create_auth,
     create_paginator,
+    process_parent_data_item,
     setup_incremental_object,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
@@ -214,3 +216,41 @@ class TestAuthSecretValues:
     )
     def test_extracts_secret_strings(self, auth: Any, expected: tuple[str, ...]) -> None:
         assert auth_secret_values(auth) == expected
+
+
+_FORM_ID = {"type": "resolve", "resource": "forms", "field": "id"}
+
+
+class TestBindPathParams:
+    @pytest.mark.parametrize(
+        "path,params,expected",
+        [
+            ("/forms/{form_id}/responses", {"form_id": _FORM_ID}, "/forms/f1/responses"),
+            (
+                "/forms/{form_id}/responses?fields=answers{{value}}",
+                {"form_id": _FORM_ID},
+                "/forms/f1/responses?fields=answers{value}",
+            ),
+            ("/forms/{form_id}/{kind}", {"form_id": _FORM_ID, "kind": "a{b}"}, "/forms/f1/a{b}"),
+        ],
+    )
+    def test_child_path_keeps_literal_braces_through_parent_binding(
+        self, path: str, params: dict[str, Any], expected: str
+    ) -> None:
+        resources: list[str | EndpointResource] = [
+            {"name": "forms", "endpoint": {"path": "/forms"}},
+            {"name": "responses", "endpoint": {"path": path, "params": params}},
+        ]
+        _, resource_map, resolved = build_resource_dependency_graph({}, resources)
+        child_resolved = resolved["responses"]
+        assert child_resolved is not None
+        endpoint = cast(Endpoint, resource_map["responses"]["endpoint"])
+
+        bound_path, _ = process_parent_data_item(cast(str, endpoint["path"]), {"id": "f1"}, child_resolved, [])
+
+        assert bound_path == expected
+
+    def test_top_level_path_unescapes_literal_braces_once(self) -> None:
+        resources: list[str | EndpointResource] = [{"name": "posts", "endpoint": {"path": "/posts?fields=a{{b}}"}}]
+        _, resource_map, _ = build_resource_dependency_graph({}, resources)
+        assert cast(Endpoint, resource_map["posts"]["endpoint"])["path"] == "/posts?fields=a{b}"

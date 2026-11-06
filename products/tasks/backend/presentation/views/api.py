@@ -2014,7 +2014,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         self._authorized_task_id = self._ensure_task_accessible()
 
     @staticmethod
-    def _is_trial_lifecycle_update(payload: object) -> bool:
+    def _is_runtime_lifecycle_update(payload: object) -> bool:
         if (
             not isinstance(payload, dict)
             or not payload
@@ -2046,6 +2046,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if self.action not in {
             "append_log",
             "set_summary",
+            "set_output",
             "update",
             "partial_update",
             "artifacts_download",
@@ -2053,13 +2054,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         }:
             return None
         scopes = get_authenticator_scopes(request.successful_authenticator) or []
+        runtime_scope = "internal_run:write" if "internal_run:write" in scopes else "scout_experiment_internal:read"
         if (
             "task:read" in scopes
-            and "scout_experiment_internal:read" in scopes
+            and runtime_scope in scopes
             and (
                 self.action in {"append_log", "set_summary"}
+                or self.action == "set_output"
+                and runtime_scope == "internal_run:write"
                 or self.action in {"update", "partial_update"}
-                and self._is_trial_lifecycle_update(request.data)
+                and self._is_runtime_lifecycle_update(request.data)
             )
             and run_context.is_sandbox_run_request(
                 request=request,
@@ -2068,7 +2072,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 run_id=self.kwargs.get("pk"),
             )
         ):
-            return ["task:read", "scout_experiment_internal:read"]
+            return ["task:read", runtime_scope]
         if self.action == "artifacts_download":
             return ["task:read"]
         if self.action == "retrieve":
@@ -2515,7 +2519,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["patch"],
         url_path="set_output",
-        required_scopes=["task:write"],
     )
     def set_output(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
@@ -2550,12 +2553,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def set_summary(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        scopes = get_authenticator_scopes(request.successful_authenticator) or []
         run = tasks_facade.set_task_run_summary(
             pk,
             task_id,
             self.team_id,
             summary=request.validated_data["summary"],
             tags=request.validated_data.get("tags"),
+            sync_task_tags="internal_run:write" not in scopes or "task:write" in scopes,
             include_agent_state=run_context.is_sandbox_run_request(
                 request=self.request,
                 team_id=self.team_id,
