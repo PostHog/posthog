@@ -158,8 +158,8 @@ def validate_workload_trust_conditions(attrs: dict[str, Any], *, instance: Any |
             }
         )
     validate_condition_companions(attrs["conditions"], provider)
-    # The required claims pin the account, not the runs, so they don't count as a condition here.
-    run_claims = [claim for claim in provider.condition_claims if claim.name not in provider.required_condition_claims]
+    account_claims = {*provider.required_condition_claims, *provider.account_condition_claims}
+    run_claims = [claim for claim in provider.condition_claims if claim.name not in account_claims]
     if run_claims and not any(claim.name in attrs["conditions"] for claim in run_claims):
         labels = ", ".join(claim.label for claim in run_claims)
         raise serializers.ValidationError(
@@ -375,6 +375,10 @@ class WorkloadProviderSerializer(serializers.Serializer):
     )
     required_condition_claims = serializers.ListField(
         child=serializers.CharField(), help_text="Condition claims every policy for this provider must set."
+    )
+    account_condition_claims = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Condition claims that name the account and match every run, so they never limit which runs get a token.",
     )
     condition_presets = ConditionPresetSerializer(
         many=True, help_text="Common choices of conditions to offer before the raw claims, in display order."

@@ -51,6 +51,7 @@ const PROVIDER = {
     condition_companions: [],
     can_resolve_subject: true,
     required_condition_claims: [],
+    account_condition_claims: [],
     subject_lookup_conditions: {},
     setup_snippet: 'HOG_HOST: {host}\nHOG_PROJECT_ID: "{project_id}"',
 } as WorkloadProviderApi
@@ -125,6 +126,18 @@ describe('workload condition presets', () => {
         } as WorkloadProviderApi
 
         expect(conditionsError(conditions, provider)).toEqual(expected)
+    })
+
+    it('asks for a run condition when only account claims are set', () => {
+        const provider = {
+            ...PROVIDER,
+            required_condition_claims: ['environment'],
+            account_condition_claims: ['ref'],
+        } as WorkloadProviderApi
+
+        expect(conditionsError({ environment: 'production', ref: 'refs/heads/main' }, provider)).toEqual(
+            'Choose which runs can get a token'
+        )
     })
 
     it('refuses two rows that ask for different values of one claim', () => {

@@ -25,7 +25,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.workload_trust_policy import WorkloadTrustPolicy, WorkloadTrustPolicyRequest
 from posthog.tasks.email import send_workload_trust_policy_changed
 from posthog.tasks.test.utils_email_tests import mock_email_messages
-from posthog.workload_identity.providers import ConditionCompanions
+from posthog.workload_identity.providers import ConditionCompanions, WorkloadClaim
 from posthog.workload_identity.subjects import (
     ResolvedWorkloadSubject,
     WorkloadSubjectLookupUnavailable,
@@ -229,13 +229,19 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
             ("missing_required_claim", {"ref": "refs/heads/main"}, status.HTTP_400_BAD_REQUEST),
             ("required_claim_set", {"ref": "refs/heads/main", "environment": "production"}, status.HTTP_201_CREATED),
             ("only_the_required_claim", {"environment": "production"}, status.HTTP_400_BAD_REQUEST),
+            ("only_account_claims", {"environment": "production", "owner_id": "42"}, status.HTTP_400_BAD_REQUEST),
         ]
     )
     def test_a_provider_can_require_condition_claims(
         self, _name: str, conditions: dict[str, str], expected_status: int
     ) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
-        provider = dataclasses.replace(FAKE_WORKLOAD_PROVIDER, required_condition_claims=("environment",))
+        provider = dataclasses.replace(
+            FAKE_WORKLOAD_PROVIDER,
+            condition_claims=(*FAKE_WORKLOAD_PROVIDER.condition_claims, WorkloadClaim(name="owner_id", label="Owner")),
+            required_condition_claims=("environment",),
+            account_condition_claims=("owner_id",),
+        )
 
         with patch("posthog.workload_identity.providers.SUPPORTED_WORKLOAD_PROVIDERS", (provider,)):
             response = self.client.post(self.url, _payload(conditions=conditions), format="json")

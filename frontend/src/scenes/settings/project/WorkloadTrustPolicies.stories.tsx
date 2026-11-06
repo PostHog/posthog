@@ -133,6 +133,7 @@ const providers = {
                 { name: 'event_name', label: 'Event', help_text: '', placeholder: 'push' },
             ],
             required_condition_claims: ['org_id', 'forge'],
+            account_condition_claims: ['repository_owner_id'],
             subject_lookup_conditions: { forge: 'github' },
             condition_presets: [
                 {

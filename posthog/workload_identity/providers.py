@@ -103,6 +103,9 @@ class WorkloadProvider:
     condition_presets: tuple[ConditionPreset, ...] = ()
     # Condition claims every policy must set, for a subject that is unique only together with them.
     required_condition_claims: tuple[str, ...] = ()
+    # Condition claims that name the account, like its owner, and are the same on every run. Like the required
+    # claims, they never count as the condition that limits which runs get a token.
+    account_condition_claims: tuple[str, ...] = ()
     subject_lookup_conditions: tuple[tuple[str, str], ...] = ()
     claims_equal_to_subject: tuple[str, ...] = ()
     condition_companions: tuple[ConditionCompanions, ...] = ()
@@ -126,8 +129,8 @@ class WorkloadProvider:
             unknown = sorted(set(fields) - recorded_names)
             if unknown:
                 raise ValueError(f"{self.key}: templates can only use recorded claims, not {unknown}.")
-        if not set(self.required_condition_claims) <= set(condition_names):
-            raise ValueError(f"{self.key}: required condition claims must be condition claims.")
+        if not {*self.required_condition_claims, *self.account_condition_claims} <= set(condition_names):
+            raise ValueError(f"{self.key}: required and account condition claims must be condition claims.")
         if not {claim for claim, _ in self.subject_lookup_conditions} <= set(condition_names):
             raise ValueError(f"{self.key}: subject lookup conditions must use condition claims.")
         for rule in self.condition_companions:
@@ -439,6 +442,7 @@ DEPOT_CI = WorkloadProvider(
     ),
     # A repository ID is unique only within one forge, and only the organization pins the job to your Depot account.
     required_condition_claims=("org_id", "forge"),
+    account_condition_claims=("repository_owner_id",),
     recorded_claims=(
         WorkloadClaim(name="repository", label="Repository"),
         WorkloadClaim(name="workflow", label="Workflow"),

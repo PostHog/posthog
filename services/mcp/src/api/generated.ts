@@ -118388,6 +118388,8 @@ export namespace Schemas {
       condition_claims: WorkloadClaim[];
       /** Condition claims every policy for this provider must set. */
       required_condition_claims: string[];
+      /** Condition claims that name the account and match every run, so they never limit which runs get a token. */
+      account_condition_claims: string[];
       /** Common choices of conditions to offer before the raw claims, in display order. */
       condition_presets: ConditionPreset[];
       /** Rules for condition claims that a policy may set only together with another claim. */

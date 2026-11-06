@@ -121,8 +121,9 @@ export function conditionsError(
 ): string | undefined {
     const required = provider?.required_condition_claims ?? []
     const missing = required.filter((claim) => !conditions[claim]).map((claim) => claimLabel(provider, claim))
-    // The required claims pin the account, not the runs, so a policy needs another condition too.
-    const runClaims = (provider?.condition_claims ?? []).filter((claim) => !required.includes(claim.name))
+    // Required and account claims match every run of the account, so a policy needs another condition too.
+    const accountClaims = new Set([...required, ...(provider?.account_condition_claims ?? [])])
+    const runClaims = (provider?.condition_claims ?? []).filter((claim) => !accountClaims.has(claim.name))
     const noRuns = runClaims.length > 0 && !runClaims.some((claim) => conditions[claim.name])
     return (
         conflict ??
