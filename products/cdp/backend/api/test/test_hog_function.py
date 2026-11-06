@@ -1656,8 +1656,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("rename", "slack", SLACK_LEAKING_HOG, {"name": "Renamed"}, True, status.HTTP_200_OK),
-            ("disable", "slack", SLACK_LEAKING_HOG, {"enabled": False}, True, status.HTTP_200_OK),
+            ("rename", "slack", SLACK_LEAKING_HOG, {"name": "Renamed"}, True, status.HTTP_200_OK, "integration_kept"),
+            ("disable", "slack", SLACK_LEAKING_HOG, {"enabled": False}, True, status.HTTP_200_OK, "integration_kept"),
             (
                 "code_sends_it_within_its_service",
                 "slack",
@@ -1665,6 +1665,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"hog": SLACK_SENDER_HOG.replace("chat.postMessage", "chat.update")},
                 True,
                 status.HTTP_200_OK,
+                "integration_within",
             ),
             (
                 "code_sends_it_elsewhere",
@@ -1673,6 +1674,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"hog": SLACK_LEAKING_HOG},
                 True,
                 status.HTTP_400_BAD_REQUEST,
+                "integration_refused",
             ),
             (
                 "code_sends_it_elsewhere_with_the_flag_off",
@@ -1690,8 +1692,17 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"hog": "fetch(event.properties.url, {'body': inputs.slack_workspace});"},
                 True,
                 status.HTTP_400_BAD_REQUEST,
+                "integration_refused",
             ),
-            ("unlisted_kind_rename", "jira", SLACK_LEAKING_HOG, {"name": "Renamed"}, True, status.HTTP_200_OK),
+            (
+                "unlisted_kind_rename",
+                "jira",
+                SLACK_LEAKING_HOG,
+                {"name": "Renamed"},
+                True,
+                status.HTTP_200_OK,
+                "integration_unlisted_kept",
+            ),
             (
                 "unlisted_kind_code_change",
                 "jira",
@@ -1699,6 +1710,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"hog": SLACK_LEAKING_HOG},
                 True,
                 status.HTTP_400_BAD_REQUEST,
+                "integration_unlisted_refused",
             ),
             (
                 "unlisted_kind_code_change_with_the_flag_off",
@@ -1719,19 +1731,18 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         change: dict,
         flag_on: bool,
         expected_status: int,
-        counted_outcome: Optional[str] = None,
+        counted_outcome: str,
     ) -> None:
         function = self._connection_sender(kind, kind, stored_hog)
-        labels = {"outcome": counted_outcome or "", "surface": "partial_update", "kind": kind}
+        labels = {"outcome": counted_outcome, "surface": "partial_update", "kind": kind}
         counted_before = REGISTRY.get_sample_value("posthog_cdp_secret_host_binding_total", labels) or 0
 
         with secret_host_binding_flag(flag_on):
             res = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{function.id}", data=change)
 
         assert res.status_code == expected_status, res.json()
-        if counted_outcome:
-            counted = REGISTRY.get_sample_value("posthog_cdp_secret_host_binding_total", labels) or 0
-            assert counted - counted_before == 1
+        counted = REGISTRY.get_sample_value("posthog_cdp_secret_host_binding_total", labels) or 0
+        assert counted - counted_before == 1
         if expected_status == status.HTTP_400_BAD_REQUEST:
             assert (res.json()["attr"], res.json()["code"]) == ("inputs__slack_workspace", "integration_origin_refused")
 
