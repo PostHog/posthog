@@ -32,7 +32,8 @@ export function HogFunctionSecretReentryModal(): JSX.Element {
     const { isOpen, prompt, secretValue, secretEntryValues, confirmDisabledReason } = useValues(logic)
     const { setSecretValue, setSecretEntry, cancelSecretReentry, confirmSecretReentry, clearSecretReentry } =
         useActions(logic)
-    const isDictionary = !!prompt?.entryKeys
+    const entryKeys = prompt?.entryKeys
+    const isDictionary = !!entryKeys
 
     return (
         <LemonModal
@@ -59,10 +60,10 @@ export function HogFunctionSecretReentryModal(): JSX.Element {
                 </>
             }
         >
-            {isDictionary ? (
+            {entryKeys ? (
                 <LemonField.Pure label={prompt?.label}>
                     <div className="flex flex-col gap-2">
-                        {prompt?.entryKeys?.map((entryKey, index) => (
+                        {entryKeys.map((entryKey, index) => (
                             <div className="flex gap-2 items-center" key={entryKey}>
                                 <span className="flex-1 min-w-0 font-mono truncate" title={entryKey}>
                                     {entryKey}
