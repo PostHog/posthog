@@ -10307,9 +10307,9 @@ snapshots:
     scenes-app-batchexports--new-snowflake-export--light:
         hash: v1.k794b7964.13f4f81b362644f725b327d22be590c5041484003136405d28a5482b95c558ec.AQiY8USCiDWJSxKcx_EwA7NybHDE-3x8E8aok9wsEdM
     scenes-app-batchexports--runs-empty--dark:
-        hash: v1.k794b7964.8177c005d63cababb9abc801ea81b65535c143566c46768b5de465a9d0d53beb.Z_iUGxGBuja1U4pMXOJ99dvgsMUdovOKv-xiIZdsV-U
+        hash: v1.k794b7964.812d76faa6fd70431eaad556a2e5d30ea090e30361516f9553fe8ef00358da47.tOw8Wetl_2dyud9OLDmNaAi6tQdjHEfI59P-hv5Od14
     scenes-app-batchexports--runs-empty--light:
-        hash: v1.k794b7964.c5e345829275cd48abe962d6f48ff7f73891081d23967f7f65a7a19fd683dddd.ijZfg6PDz_5LAPelathMal745PwVIbDkpW4G5khFYuQ
+        hash: v1.k794b7964.15df3781c94eb8ff3bc3a2298585ac065157adca0dbe11996921ea426e4c2612.Jh_ySKmVVf-0s0pvi0dAA9cOPAm4fRBhCjvos5Wsluc
     scenes-app-batchexports--runs-with-data--dark:
         hash: v1.k794b7964.c4b1a6986db44af6a8e496ec80f9d177d131a2db6e5fa09cc87a79ec6c53a6f4.09YBKQpa28bk-h-ntRltPIPEGy_XRWA3Ner82vwyHRc
     scenes-app-batchexports--runs-with-data--light:
@@ -12155,9 +12155,9 @@ snapshots:
     scenes-app-hogfunctions-destination--configuration-with-templating-warning--light:
         hash: v1.k794b7964.c9d954253a1760fe78ed7b58eb9982f8234ea2d7ea3c4a2660b58e078ea98017.l95Py6_dl33znc_eXwnFecd9mbe8_qYscGrLaoOG8WE
     scenes-app-hogfunctions-destination--runs-empty--dark:
-        hash: v1.k794b7964.9338d457e2d64f5a491115541fa681db1c44ab049531d9eec24d58fa056a31f0.mhgFOxcURq4YcXhnV16BaRPW4OAZ5mFkUBgjhDazfhg
+        hash: v1.k794b7964.14a407fd6e349c8182d8c212ed02e4b229160794b76291fcff44781dc891496c.2fTzo8FPJRZI5Z08BJ51Ato4hWskG-WmmiHVK1Yop80
     scenes-app-hogfunctions-destination--runs-empty--light:
-        hash: v1.k794b7964.167756e358629948b843ded0c506a2788745d88fdfbe0e2420425568903be37e.c5EvxvbXDPnlunDHuQ32NvOQ51ILYxWkgfuYDCidRwg
+        hash: v1.k794b7964.fed983a9fe442381ada07460ca5a58697788c40a7ad6b70df5ca990ba0bcf07b.iNJoBmoy4WIY8QLlT90L-bOSlbPGPk0hVFfR979uOY8
     scenes-app-hogfunctions-destination--runs-with-data--dark:
         hash: v1.k794b7964.f3c8bc6697db692d759f57d5f1cba413b909e22923e87c65d0c223e613144076.sfVPBgq0NjbXJfcc8nye_vNXKKoaNiKVdX2kKdYWjug
     scenes-app-hogfunctions-destination--runs-with-data--light:
