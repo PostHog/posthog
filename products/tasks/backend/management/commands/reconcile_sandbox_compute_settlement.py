@@ -30,6 +30,7 @@ class Command(BaseCommand):
             choices=[
                 SandboxSession.ComputeSettleParkReason.ATTEMPTS_EXHAUSTED.value,
                 SandboxSession.ComputeSettleParkReason.HTTP_400.value,
+                SandboxSession.ComputeSettleParkReason.HTTP_402.value,
             ],
             default=None,
             help="Unpark rows parked for this reason within --since/--until so the sweep retries them",
