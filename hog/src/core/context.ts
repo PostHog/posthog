@@ -3,6 +3,7 @@ import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
 import { PostHogApi } from '@/posthog/api'
 import { resolveCredentials, type Credentials } from '@/posthog/credentials'
 import { KeySession } from '@/posthog/key-session'
+import { canStepUp } from '@/posthog/scope-challenge'
 
 import type { Mode } from './agent'
 import type { CommandTree } from './command'
@@ -49,6 +50,9 @@ export class Context {
 
     // Called once a command knows what it will write, so a step-up comes before the first write.
     async ensureScopes(scopes: readonly string[], action?: string): Promise<void> {
+        if (!canStepUp(await this.credentials().catch(() => undefined))) {
+            return
+        }
         const { ensureScopes } = await import('@/posthog/login/step-up')
         await ensureScopes(this, scopes, action)
     }

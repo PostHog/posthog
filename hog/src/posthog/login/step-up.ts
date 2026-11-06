@@ -5,7 +5,7 @@ import type { AccessKey } from '@/posthog/access-key'
 import { stepUpRequired } from '@/posthog/api'
 import type { Credentials } from '@/posthog/credentials'
 import type { OAuthLogin } from '@/posthog/oauth'
-import { addToKeyHint, canStepUp, isScopeName } from '@/posthog/scope-challenge'
+import { addToKeyHint, canStepUp, fewestScopes, isScopeName } from '@/posthog/scope-challenge'
 import { scopesNotCovered } from '@/posthog/scopes'
 
 import { ADD_COMMAND, loginFlow, saveLogin } from './flow'
@@ -69,7 +69,7 @@ async function loginScopes(
     if (held === null) {
         return undefined
     }
-    return { key, held, missing: scopesNotCovered(held, wanted) }
+    return { key, held, missing: fewestScopes(scopesNotCovered(held, wanted)) }
 }
 
 // At a terminal this waits for the approval and saves the login. Agents get the link.

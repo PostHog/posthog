@@ -3,7 +3,7 @@ import { escapeControls, Output } from '@/core/output'
 import { plural } from '@/core/text'
 import { findEndpoints, findInsightVariables } from '@/endpoints/api'
 import { readEndpointFiles, type FileProblem } from '@/endpoints/files'
-import { applyPush, planPush, type PushItem, type PushOutcome } from '@/endpoints/plan'
+import { applyPush, planPush, pushScopes, type PushItem, type PushOutcome } from '@/endpoints/plan'
 
 import {
     actionLabel,
@@ -88,10 +88,7 @@ export default defineCommand({
         if (!(await confirm(ctx, options, pushPlanLines(pending, style), question))) {
             return { status: 'cancelled', plan, outcomes: [], problems }
         }
-        const createsVariables = items.some(
-            (item) => item.action !== 'skip' && (item.file.variables ?? []).some(({ name }) => !known.found.has(name))
-        )
-        await ctx.ensureScopes(createsVariables ? ['endpoint:write', 'insight_variable:write'] : ['endpoint:write'])
+        await ctx.ensureScopes(pushScopes(items, variables))
         return { status: 'applied', plan, outcomes: await applyPush(api, items, variables), problems }
     },
 
