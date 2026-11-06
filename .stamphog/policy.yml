@@ -106,6 +106,26 @@ deny_exceptions:
         - path_prefixes:
               - 'products/cdp/backend/api/test/'
               - 'products/messaging/backend/api/test/'
+# The migration analyzer publishes this check for every PR from a branch in this repository. It lists
+# the Django migrations it classified Safe, and their max_migration.txt. A fork PR gets no check,
+# so its migration stays at WAIT until the next push.
+attestations:
+    - name: 'Migration risk'
+      check: 'Migration risk'
+      # The tests-posthog App.
+      app_id: 2492437
+      # The analyzer judges the migration itself, whoever wrote it.
+      authors: 'anyone'
+      lifts: ['migrations']
+      paths:
+          - '(?:^|/)migrations/(?!__init__\.py$)[^/]+\.py$'
+          - '(?:^|/)migrations/max_migration\.txt$'
+      # Every workflow, local action and CI script here can mint the tests-posthog token, so an
+      # edit to any of them could forge the check.
+      publisher_paths:
+          - '(?:^|/)migration_analysis/'
+          - 'analyze_migration_risk\.py'
+          - '^\.(github|depot)/'
 allow:
     extend_path_patterns:
         - '.github/CODEOWNERS'
