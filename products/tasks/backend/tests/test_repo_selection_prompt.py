@@ -24,10 +24,10 @@ from products.tasks.backend.logic.repo_selection.agent import (
     select_repository,
 )
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
-from products.tasks.backend.models import Task
 
 _AGENT = "products.tasks.backend.logic.repo_selection.agent"
 SLACK_PROFILE = get_task_profile("slack.repo_selection")
+SIGNALS_PROFILE = get_task_profile("signals.repo_selection")
 
 
 def test_corrections_section_included_only_when_given() -> None:
@@ -432,7 +432,7 @@ def test_source_visibility_constrains_single_eligible_repository(
             1,
             1,
             "Find the repository for this issue.",
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            profile=SIGNALS_PROFILE,
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
@@ -463,7 +463,7 @@ def test_nonpublic_source_can_keep_its_repository(source_private: bool | None) -
             1,
             1,
             "Find the repository for this issue.",
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            profile=SIGNALS_PROFILE,
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
@@ -500,7 +500,7 @@ def test_source_visibility_constrains_agent_selection(selected_repository: str) 
                 1,
                 1,
                 "Find the repository for this issue.",
-                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                profile=SIGNALS_PROFILE,
                 priority=Priority.NORMAL,
                 github=github,
                 candidate_repos=["acme/b", "acme/c", "acme/d"],
