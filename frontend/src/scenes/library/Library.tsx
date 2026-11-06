@@ -50,7 +50,10 @@ function LibraryContent(): JSX.Element {
                                 to={href}
                                 className="truncate font-semibold"
                                 data-attr="library-object"
-                                onClick={() => objectOpened(entry, recordIndex)}
+                                // Capture-phase, so Cmd/Ctrl-clicks count too: Link's own handler returns
+                                // for those before it calls onClick. Middle-clicks only fire auxclick.
+                                onClickCapture={() => objectOpened(entry, recordIndex)}
+                                onAuxClick={(event) => event.button === 1 && objectOpened(entry, recordIndex)}
                             >
                                 {name}
                             </Link>
