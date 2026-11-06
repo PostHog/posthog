@@ -5,6 +5,7 @@ other: a Hog draft is compiled and measured, a judge draft keeps the evidence of
 """
 
 import json
+import time
 from typing import Any, Literal
 
 import structlog
@@ -29,8 +30,9 @@ OUTPUT_PRICE_PER_TOKEN = 2e-6
 MAX_OUTPUT_TOKENS = 2000
 FLEX_TIMEOUT_SECONDS = 180.0
 STANDARD_TIMEOUT_SECONDS = 120.0
-# SDK retries on the standard tier, which is the last resort. The budget reserves one call for each.
+# Retries on the standard tier, which is the last resort. The budget reserves one call for each.
 STANDARD_MAX_RETRIES = 2
+RETRY_BACKOFF_SECONDS = 2.0
 # The Python gateway route serves only when the Go gateway is not configured. It is frozen, so the draft
 # borrows the AI observability evaluation route rather than adding one.
 GATEWAY_ROUTE: Product = "llma_eval_summary"
@@ -145,22 +147,25 @@ def draft_check(team_id: int, brief: str) -> DraftCall:
     client = build_openai_client(
         GATEWAY_ROUTE, ai_product=AI_PRODUCT, properties={"team_id": str(team_id)}, distinct_id=distinct_id
     )
-    standard = client.with_options(max_retries=STANDARD_MAX_RETRIES)
-    # A flex attempt that failed after the provider may have done the work still counts, at its most. Only a
-    # capacity refusal (429) is known not to bill.
+    # Retries run here rather than in the SDK, so every failed attempt that may have billed is counted. Only a
+    # capacity refusal (429) is known not to bill; any other failure counts at the most one call can cost.
+    client = client.with_options(max_retries=0)
+    tiers: list[tuple[Literal["flex"] | Omit, float]] = (
+        [("flex", FLEX_TIMEOUT_SECONDS)] if DRAFT_MODEL in FLEX_CAPABLE_MODELS else []
+    )
+    tiers += [(omit, STANDARD_TIMEOUT_SECONDS)] * (1 + STANDARD_MAX_RETRIES)
     unsettled = 0.0
-    if DRAFT_MODEL not in FLEX_CAPABLE_MODELS:
-        response = _complete(standard, brief, omit, STANDARD_TIMEOUT_SECONDS, distinct_id)
-    else:
+    for attempt, (service_tier, timeout) in enumerate(tiers):
         try:
-            # The flex attempt gets no SDK retries: its failure modes fall back to the standard tier at once.
-            response = _complete(client.with_options(max_retries=0), brief, "flex", FLEX_TIMEOUT_SECONDS, distinct_id)
+            response = _complete(client, brief, service_tier, timeout, distinct_id)
+            break
         except APIError as error:
-            if not is_flex_recoverable(error):
+            if not is_flex_recoverable(error) or attempt == len(tiers) - 1:
                 raise
             if not isinstance(error, RateLimitError):
-                unsettled = _max_call_cost_usd(brief)
-            response = _complete(standard, brief, omit, STANDARD_TIMEOUT_SECONDS, distinct_id)
+                unsettled += _max_call_cost_usd(brief)
+            if service_tier is omit:
+                time.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
     logger.info("eval_suggestions_draft_served", team_id=team_id, service_tier=response.service_tier)
     usage = response.usage
     cost = (

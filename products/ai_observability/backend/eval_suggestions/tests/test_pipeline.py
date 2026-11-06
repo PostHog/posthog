@@ -259,11 +259,13 @@ class TestDraftingBudget(BaseTest):
         client.with_options.return_value = client
         client.chat.completions.create.side_effect = [
             _completion(json.dumps({"evaluation_type": "hog", "name": "n", "description": "d", "body": "return true"})),
-            connection_reset,
-            connection_reset,
+            *[connection_reset] * (2 + drafting.STANDARD_MAX_RETRIES),
         ]
 
-        with patch.object(drafting, "build_openai_client", return_value=client):
+        with (
+            patch.object(drafting, "build_openai_client", return_value=client),
+            patch.object(drafting, "RETRY_BACKOFF_SECONDS", 0),
+        ):
             call = paid_draft(self.team, served, brief, budget)
             with pytest.raises(APIConnectionError):
                 paid_draft(self.team, failed, brief, budget)
@@ -275,11 +277,19 @@ class TestDraftingBudget(BaseTest):
         assert spent[served.id] == pytest.approx(served_cost)
         assert spent[failed.id] == pytest.approx(reserve)
         assert spent[refused.id] == 0
-        # The failed call tried flex and then the standard tier, and the refused one never reached the provider.
-        assert client.chat.completions.create.call_count == 3
+        # The failed call tried flex and every standard attempt, and the refused one never reached the provider.
+        assert client.chat.completions.create.call_count == 3 + drafting.STANDARD_MAX_RETRIES
 
-    @parameterized.expand([("lost_response_may_have_billed", False), ("capacity_refusal_never_bills", True)])
-    def test_a_failed_flex_attempt_keeps_its_spend_unless_refused(self, _name: str, refused: bool) -> None:
+    @parameterized.expand(
+        [
+            ("lost_flex_response_may_have_billed", False, 0, 1),
+            ("capacity_refusal_never_bills", True, 0, 0),
+            ("lost_standard_retry_may_have_billed_too", False, 1, 2),
+        ]
+    )
+    def test_a_failed_attempt_keeps_its_spend_unless_refused(
+        self, _name: str, refused: bool, standard_failures: int, unsettled_calls: int
+    ) -> None:
         brief = json.dumps({"field": "findings[].priority"})
         served_cost = 1000 * drafting.INPUT_PRICE_PER_TOKEN + 500 * drafting.OUTPUT_PRICE_PER_TOKEN
         request = httpx.Request("POST", "https://gateway.example.com")
@@ -292,14 +302,18 @@ class TestDraftingBudget(BaseTest):
         client.with_options.return_value = client
         client.chat.completions.create.side_effect = [
             flex_error,
+            *[APIConnectionError(request=request)] * standard_failures,
             _completion(json.dumps({"evaluation_type": "hog", "name": "n", "description": "d", "body": "return true"})),
         ]
 
-        with patch.object(drafting, "build_openai_client", return_value=client):
+        with (
+            patch.object(drafting, "build_openai_client", return_value=client),
+            patch.object(drafting, "RETRY_BACKOFF_SECONDS", 0),
+        ):
             call = drafting.draft_check(self.team.pk, brief)
 
-        unsettled = 0.0 if refused else drafting.max_cost_usd(brief) / (2 + drafting.STANDARD_MAX_RETRIES)
-        assert call.cost_usd == pytest.approx(served_cost + unsettled)
+        one_call = drafting.max_cost_usd(brief) / (2 + drafting.STANDARD_MAX_RETRIES)
+        assert call.cost_usd == pytest.approx(served_cost + unsettled_calls * one_call)
 
 
 class TestRunRecords(BaseTest):

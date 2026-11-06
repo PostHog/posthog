@@ -24,7 +24,8 @@ COORDINATOR_WORKFLOW_NAME = "llma-eval-suggestions-coordinator"
 TEAM_WORKFLOW_NAME = "llma-eval-suggestions-team"
 SCHEDULE_ID = "llma-eval-suggestions-coordinator-schedule"
 COORDINATOR_TIMEOUT = timedelta(hours=20)
-TEAM_TIMEOUT = timedelta(minutes=30)
+# Room for the start, two 15-minute execute attempts a minute apart, and the cleanup that marks a run failed.
+TEAM_TIMEOUT = timedelta(minutes=45)
 
 
 @frozen
