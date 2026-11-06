@@ -217,14 +217,6 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
         return scoped_organizations
 
-    def validate(self, attrs: dict) -> dict:
-        enforce_credential_ip_restrictions(
-            self.context["request"],
-            attrs.get("scoped_organizations", getattr(self.instance, "scoped_organizations", None)),
-            attrs.get("scoped_teams", getattr(self.instance, "scoped_teams", None)),
-        )
-        return attrs
-
     def create(self, validated_data: dict, **kwargs) -> PersonalAPIKey:
         request = self.context["request"]
         user = request.user
@@ -235,6 +227,9 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
                 f"You can only have {limit} personal API keys. Remove an existing key before creating a new one."
             )
         try:
+            enforce_credential_ip_restrictions(
+                request, validated_data.get("scoped_organizations"), validated_data.get("scoped_teams")
+            )
             minted = mint_personal_api_key(
                 user,
                 label=validated_data["label"],
@@ -270,6 +265,15 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             user.credentials_reviewed_at = timezone.now()
             user.save(update_fields=["credentials_reviewed_at"])
         return personal_api_key
+
+    def update(self, instance: PersonalAPIKey, validated_data: dict) -> PersonalAPIKey:
+        if {"scopes", "scoped_teams", "scoped_organizations"}.intersection(validated_data):
+            enforce_credential_ip_restrictions(
+                self.context["request"],
+                validated_data.get("scoped_organizations", instance.scoped_organizations),
+                validated_data.get("scoped_teams", instance.scoped_teams),
+            )
+        return super().update(instance, validated_data)
 
     def roll(
         self,
@@ -336,6 +340,7 @@ class PersonalApiKeySelfAccessPermission(BasePermission):
 
 @extend_schema(extensions={"x-product": "core"})
 class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
+    _ip_restrictions_use_view_scope = frozenset({"create", "update", "partial_update", "roll"})
     lookup_field = "id"
     serializer_class = PersonalAPIKeySerializer
     permission_classes = [IsAuthenticated, TimeSensitiveActionPermission, PersonalApiKeySelfAccessPermission]
