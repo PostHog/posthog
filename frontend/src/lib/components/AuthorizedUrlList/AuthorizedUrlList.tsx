@@ -10,6 +10,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { isOAuthMode } from 'lib/utils/oauthClient'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -79,10 +80,13 @@ export function AuthorizedUrlList({
     let writeDisabledReason: string | null = null
     if (type !== AuthorizedUrlListType.RECORDING_DOMAINS) {
         if (hasAvailableFeature(AvailableFeature.ACCESS_CONTROL)) {
-            writeDisabledReason = getAccessControlDisabledReason(
-                AccessControlResourceType.WebAnalytics,
-                AccessControlLevel.Editor
-            )
+            // OAuth mode has no app context to read the access level from, so only the backend enforces it there.
+            if (!isOAuthMode()) {
+                writeDisabledReason = getAccessControlDisabledReason(
+                    AccessControlResourceType.WebAnalytics,
+                    AccessControlLevel.Editor
+                )
+            }
         } else if (
             currentTeam?.effective_membership_level != null &&
             currentTeam.effective_membership_level < TeamMembershipLevel.Admin
