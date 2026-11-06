@@ -2232,7 +2232,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                     for action_type, email in existing_emails
                     if action_type == "function_email" and data.get("type") == "function_email"
                 ],
-                "existing_action_email_values": [email for _, email in existing_emails],
+                "existing_action_email_values": [
+                    email for action_type, email in existing_emails if action_type == data.get("type")
+                ],
                 "sandbox_email_integration_cache": self.context.setdefault("_sandbox_email_integration_cache", {}),
             }
             if template:
