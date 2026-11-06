@@ -219,6 +219,11 @@ describe('addUtmTagsToEmail', () => {
             expected: '<a href="https://example.com/?ph_workflow_run=run-1#/p?ph_workflow_run=x">x</a>',
         },
         {
+            case: 'tags an unquoted href',
+            html: '<a href=https://example.com/p>x</a>',
+            expected: '<a href="https://example.com/p?ph_workflow_run=run-1">x</a>',
+        },
+        {
             case: 'tags a link that only opts out of UTM tags',
             html: '<a data-ph-no-utm href="https://example.com/">x</a>',
             expected: '<a data-ph-no-utm href="https://example.com/?ph_workflow_run=run-1">x</a>',
