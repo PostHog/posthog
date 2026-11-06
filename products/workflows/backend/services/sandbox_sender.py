@@ -31,7 +31,6 @@ def _sandbox_sender_config(organization_name: str) -> dict[str, str | bool]:
 
 
 def sandbox_sender_configured() -> bool:
-    """Whether this deployment can provision sandbox senders. Off, no sandbox send can exist."""
     return bool(
         settings.WORKFLOWS_SANDBOX_SENDER_DOMAIN
         and settings.SES_SANDBOX_FROM_ADDRESS
