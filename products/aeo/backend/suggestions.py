@@ -14,7 +14,7 @@ import unicodedata
 from typing import Any
 
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import caches
 
 import requests
 import structlog
@@ -52,6 +52,8 @@ MIN_SUGGESTION_CALL_SECONDS = 15
 # Web search can pause a turn (`pause_turn`); each continuation is another call, all under one deadline.
 MAX_SUGGESTION_CONTINUATIONS = 3
 SUGGESTION_DEADLINE_SECONDS = 300
+# Pinned to the Redis writer: jobs are polled right after they are created, and a replica can lag.
+_CACHE_ALIAS = "aeo_prompt_suggestions"
 SUGGESTION_JOB_TTL_SECONDS = 60 * 60
 # A job still pending past the task's hard time limit lost its worker, so readers see it as failed.
 SUGGESTION_JOB_STALE_SECONDS = 8 * 60
@@ -277,9 +279,9 @@ def _job_key(team_id: int, job_id: str) -> str:
 
 def _save_job(team_id: int, job: PromptSuggestionJob, *, started_at: float | None = None) -> None:
     if started_at is None:
-        stored = cache.get(_job_key(team_id, job.id))
+        stored = caches[_CACHE_ALIAS].get(_job_key(team_id, job.id))
         started_at = stored.get("started_at", time.time()) if isinstance(stored, dict) else time.time()
-    cache.set(
+    caches[_CACHE_ALIAS].set(
         _job_key(team_id, job.id),
         {
             "started_at": started_at,
@@ -302,7 +304,7 @@ def _save_job(team_id: int, job: PromptSuggestionJob, *, started_at: float | Non
 
 
 def load_job(team_id: int, job_id: str) -> PromptSuggestionJob:
-    stored = cache.get(_job_key(team_id, job_id))
+    stored = caches[_CACHE_ALIAS].get(_job_key(team_id, job_id))
     if not isinstance(stored, dict):
         raise PromptSuggestionJobNotFoundError(job_id)
     started_at = stored.get("started_at", 0)
