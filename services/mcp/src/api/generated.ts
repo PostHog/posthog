@@ -12212,6 +12212,15 @@ export namespace Schemas {
       models: AgentModelOption[];
     }
 
+    export interface AgentSource {
+      /** Distinct people whose agents ran the query, without scouts. */
+      people: number;
+      /** Agent sessions that ran the query, without scouts. */
+      sessions: number;
+      /** Query runs by agents, without scouts. */
+      runs: number;
+    }
+
     export interface AggregatedSpanRow {
       avg_duration_nano: number;
       count: number;
@@ -24074,6 +24083,25 @@ export namespace Schemas {
       member_ids?: number[];
       /** Star a new channel for the requester. This field does not change stars on an existing channel. */
       star?: boolean;
+    }
+
+    export interface ChartSource {
+      /** Short ID of the saved chart, for a link to it. */
+      insight_short_id: string;
+      /** Name of the saved chart. */
+      insight_name: string;
+      /**
+         * The dashboard that ran the chart, if any.
+         * @nullable
+         */
+      dashboard_id: number | null;
+      /**
+         * Name of the dashboard, if any.
+         * @nullable
+         */
+      dashboard_name: string | null;
+      /** Distinct people whose visit ran the chart. Viewers count. */
+      people: number;
     }
 
     /**
@@ -98694,6 +98722,42 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface SurfaceSource {
+      /** The web app area that ran the query. Empty when it is unknown. */
+      product: string;
+      /** Distinct people who ran the query there. */
+      people: number;
+      /** Query runs from that area. */
+      runs: number;
+    }
+
+    export interface ProposedMetric {
+      /** Proposed metric name. */
+      name: string;
+      /** What the proposed metric counts. */
+      description: string;
+      /** Proposed HogQL definition. */
+      definition: string;
+      /** Recurring measures that this proposal merges. */
+      measures: number;
+      /** Distinct people across the measures, without scouts. */
+      people: number;
+      /** Runs of the measure that a person saw, in the web app or an agent session. At least the built count. */
+      views: number;
+      /** Times a person or an agent wrote the most-built measure in the proposal, as on a measure. */
+      built: number;
+      /** The saved charts with the most people. */
+      charts: ChartSource[];
+      /** Saved charts that are not listed in charts. */
+      other_charts: number;
+      /** Web app areas that ran it outside a saved chart. */
+      surfaces: SurfaceSource[];
+      /** Agent use, or null when no agent ran it. */
+      agents: AgentSource | null;
+      /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
+      complexity: number;
+    }
+
     /**
      * * `queued` - Waiting to start
      * * `running` - Importing
@@ -121729,10 +121793,12 @@ export namespace Schemas {
          * @nullable
          */
       matched_metric_id: string | null;
-      /** Distinct people who ran the measure, without scouts. */
+      /** People who wrote the measure or created a chart of it, directly or through an agent. Without scouts. */
       distinct_people: number;
-      /** Query runs of the measure, without scouts. */
-      runs: number;
+      /** Runs of the measure that a person saw, in the web app or an agent session. At least the built count. */
+      views: number;
+      /** Times a person or an agent wrote the measure, plus one per chart, notebook query or canvas query. */
+      built: number;
       /** One query that computes the measure. */
       sample_sql: string;
       /**
@@ -121745,6 +121811,13 @@ export namespace Schemas {
          * @nullable
          */
       draft_description: string | null;
+      /**
+         * Proposed HogQL definition, when one was drafted.
+         * @nullable
+         */
+      draft_definition: string | null;
+      /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
+      complexity: number;
     }
 
     export interface UnquarantineQuery {
@@ -122007,6 +122080,11 @@ export namespace Schemas {
          * @nullable
          */
       uncovered: UncoveredGroup[] | null;
+      /**
+         * Proposed metrics with their sources. Null until drafted.
+         * @nullable
+         */
+      proposed_metrics: ProposedMetric[] | null;
     }
 
     export interface UsageSnapshot {
