@@ -64,7 +64,7 @@ POSTHOG_CIMD_DOCUMENTS: list[dict[str, object]] = [
 ]
 
 
-# Staff turn on step-up per app in the admin. These apps handle an `insufficient_scope` challenge.
+# These apps handle an `insufficient_scope` challenge. Elsewhere, staff turn on step-up in the admin.
 STEP_UP_CLIENT_IDS = frozenset({HOG_CLIENT_ID})
 
 
