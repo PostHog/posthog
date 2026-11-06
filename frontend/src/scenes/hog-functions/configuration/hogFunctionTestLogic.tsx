@@ -145,9 +145,9 @@ export interface hogFunctionTestLogicActions {
         retry: SecretReentryRetry,
         detail: string
     ) => {
+        detail: string
         key: string
         retry: SecretReentryRetry
-        detail: string
     } // hogFunctionSecretReentryLogic
     secretReentered: (retry: SecretReentryRetry) => {
         retry: SecretReentryRetry
