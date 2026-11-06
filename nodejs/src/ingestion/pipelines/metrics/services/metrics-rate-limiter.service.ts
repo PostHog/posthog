@@ -1,4 +1,4 @@
-import { Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
 import { MetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
@@ -13,6 +13,11 @@ export const metricsMessageLagHistogram = new Histogram({
     buckets: [-60, 0, 1, 5, 10, 30, 60, 300, 600, 1800, 3600],
 })
 
+export const metricsRateLimiterRedisErrorsCounter = new Counter({
+    name: 'metrics_rate_limiter_redis_errors_total',
+    help: 'Rate limit checks that allowed every message because Redis was unavailable (METRICS_LIMITER_FAIL_OPEN)',
+})
+
 export type MetricsRateLimiterConfig = Pick<
     MetricsIngestionConsumerConfig,
     | 'METRICS_LIMITER_TEAM_BUCKET_SIZE_KB'
@@ -22,6 +27,7 @@ export type MetricsRateLimiterConfig = Pick<
     | 'METRICS_LIMITER_BUCKET_SIZE_KB'
     | 'METRICS_LIMITER_REFILL_RATE_KB_PER_SECOND'
     | 'METRICS_LIMITER_TTL_SECONDS'
+    | 'METRICS_LIMITER_FAIL_OPEN'
 >
 
 export const BASE_REDIS_KEY =
@@ -128,13 +134,26 @@ export class MetricsRateLimiterService {
     }
 
     public async rateLimitMany(idCosts: [string, number, number][]): Promise<[string, MetricsRateLimit][]> {
-        const res = await this.redis.usePipeline({ name: 'metrics-rate-limiter', failOpen: true }, (pipeline) => {
-            idCosts.forEach(([id, cost, nowSeconds]) => {
-                pipeline.checkRateLimitV2(...this.rateLimitArgs(id, cost, nowSeconds))
+        let res: Awaited<ReturnType<RedisV2['usePipeline']>>
+        try {
+            res = await this.redis.usePipeline({ name: 'metrics-rate-limiter', failOpen: true }, (pipeline) => {
+                idCosts.forEach(([id, cost, nowSeconds]) => {
+                    pipeline.checkRateLimitV2(...this.rateLimitArgs(id, cost, nowSeconds))
+                })
             })
-        })
+        } catch (error) {
+            if (!this.config.METRICS_LIMITER_FAIL_OPEN) {
+                throw error
+            }
+            res = null
+        }
 
         if (!res) {
+            if (this.config.METRICS_LIMITER_FAIL_OPEN) {
+                // No result means no limit for any team, so filterMessages allows every message.
+                metricsRateLimiterRedisErrorsCounter.inc()
+                return []
+            }
             throw new Error('Failed to rate limit')
         }
 
