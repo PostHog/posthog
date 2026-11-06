@@ -544,6 +544,13 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
                 [],
             ),
             (
+                "with_value_computed_from_another_with_name",
+                "WITH '$feature_flag' AS a, concat(a, '_called') AS fc "
+                "SELECT count() FROM events WHERE event IN ('$pageview', fc)",
+                [UNION],
+                [],
+            ),
+            (
                 "with_name_shadowed_by_an_events_column",
                 "WITH '$feature_flag_called' AS distinct_id SELECT count() FROM events "
                 "WHERE event IN ('$pageview', distinct_id)",

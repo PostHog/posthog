@@ -90,9 +90,10 @@ _COMPARED_VALUES_BUDGET = 100_000
 # events table, so each of these names shadows a CTE in every query.
 _EVENTS_FIELDS = frozenset(EventsTable().fields)
 
-# The value the flag-call finder gives a CTE whose expression reads a name. That name binds in the scope around the
-# WITH, which the finder does not track, so the finder treats the CTE as one that names flag calls. A scan that the
-# union can read then costs a second table read. On mode 2, a scan that the union refuses then fails the query.
+# The value the flag-call finder gives a CTE whose value is not a constant or a list of constants. Such a value can
+# read a name that binds in the scope around the WITH, which the finder does not track, or compute
+# `$feature_flag_called`. So the finder treats the CTE as one that names flag calls. A scan that the union can read
+# then costs a second table read. On mode 2, a scan that the union refuses then fails the query.
 _MAY_NAME_FLAG_CALLS = ast.Constant(value=FLAG_CALLED_EVENT)
 
 _UNION_JOIN_RESOLVERS = frozenset(
@@ -689,10 +690,10 @@ class _WithValues:
             items = [
                 unwrap_alias(item) for item in (value.exprs if isinstance(value, (ast.Tuple, ast.Array)) else [value])
             ]
-            if any(isinstance(item, ast.Field) for item in items):
+            if not all(isinstance(item, ast.Constant) for item in items):
                 value = _MAY_NAME_FLAG_CALLS
                 items = [value]
-            # No item is a name, so a read of an item does not depend on the scope that reads it.
+            # Every item is a constant, so a read of an item does not depend on the scope that reads it.
             literals = [item for item in items if isinstance(item, ast.Constant) and item.value == FLAG_CALLED_EVENT]
             entry = self._by_cte[id(cte)] = self._by_value[id(value)] = _WithValue(
                 value=value, count=len(items), literals=literals
