@@ -31,6 +31,7 @@ _MAX_ITERATIONS = 64
 _SCHEME = re.compile(r"(https?)://", re.IGNORECASE)
 _DEFAULT_PORTS = {"http": "80", "https": "443"}
 _UNSAFE_AUTHORITY = re.compile(r"[@\\%\s\x00-\x1f\x7f]")
+_BY_NAME_OPTIONS = frozenset({"secret_headers_input", "standard_webhooks", "aws_sigv4"})
 
 
 class _CannotAnalyze(Exception):
@@ -236,7 +237,11 @@ class _Analysis:
         hosts: dict[str, frozenset[str]] = dict.fromkeys(self.secret_keys, frozenset())
         unbound: set[str] = set()
         for call in self.calls:
-            carried = frozenset().union(*(self._taint(arg) for arg in call.args)) if call.name == "fetch" else None
+            if call.name != "fetch":
+                continue
+            carried = self._union_taint(call.args)
+            if len(call.args) > 1 and not _names_no_input(call.args[1]):
+                carried = self.secret_keys
             if not carried:
                 continue
             found = {url_host(text, complete) for text, complete in self._value(call.args[0])}
@@ -314,6 +319,14 @@ class _Analysis:
         if isinstance(node, ast.Call):
             taint |= self.taints.get(node.name, frozenset()) | self.return_taints.get(node.name, frozenset())
         return taint
+
+
+def _names_no_input(options: ast.Expr) -> bool:
+    # The worker resolves these options to any stored input by name, and the name can come from event data.
+    return isinstance(options, ast.Dict) and all(
+        isinstance(key, ast.Constant) and isinstance(key.value, str) and key.value not in _BY_NAME_OPTIONS
+        for key, _ in options.items
+    )
 
 
 def _input_key(node: ast.AST) -> str | None:
