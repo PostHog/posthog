@@ -33,7 +33,7 @@ export function ExperimentQuantileMetricFields({
     const customPercentileError = isCustom ? getPercentileError(customPercentile) : undefined
     const eventName = metric.source.kind === NodeKind.EventsNode ? metric.source.event : null
 
-    const setPercentile = (value: number): void => {
+    const setQuantileFromPercentile = (value: number): void => {
         handleSetMetric({ ...metric, quantile: Number((value / 100).toFixed(4)) })
     }
 
@@ -98,7 +98,7 @@ export function ExperimentQuantileMetricFields({
                                     return
                                 }
                                 setIsCustom(false)
-                                setPercentile(value)
+                                setQuantileFromPercentile(value)
                             }}
                             options={[
                                 ...PRESET_PERCENTILES.map((value) => ({
@@ -122,7 +122,7 @@ export function ExperimentQuantileMetricFields({
                                     setCustomPercentile(value)
                                     // An invalid level still goes into the metric, so the save button reads the
                                     // metric and stays disabled until the level is valid.
-                                    setPercentile(value ?? 0)
+                                    setQuantileFromPercentile(value ?? 0)
                                 }}
                                 prefix={<span className="text-muted">p</span>}
                                 className="w-24"

@@ -43,8 +43,8 @@ export function resolveSequentialTuningParameter(
 
 type StatsConfig = { method?: string; frequentist?: SequentialConfig } | null | undefined
 
-const PERCENTILE_SEQUENTIAL_DISABLED_REASON = "Percentile metrics don't support sequential testing yet"
-const PERCENTILE_METRIC_SEQUENTIAL_DISABLED_REASON = `${PERCENTILE_SEQUENTIAL_DISABLED_REASON}. Turn off sequential testing in this experiment's statistics settings first.`
+const QUANTILE_SEQUENTIAL_DISABLED_REASON = "Percentile metrics don't support sequential testing yet"
+const QUANTILE_METRIC_SEQUENTIAL_DISABLED_REASON = `${QUANTILE_SEQUENTIAL_DISABLED_REASON}. Turn off sequential testing in this experiment's statistics settings first.`
 
 /** Sequential testing applies only to frequentist experiments, and an unset choice follows the team default. */
 export function experimentUsesSequentialTesting(statsConfig: StatsConfig, teamDefaultEnabled: boolean): boolean {
@@ -55,17 +55,17 @@ export function experimentUsesSequentialTesting(statsConfig: StatsConfig, teamDe
 }
 
 /** Why a metric list that includes a percentile metric can't be saved on this experiment, if it can't. */
-export function percentileMetricSequentialReason(
-    includesPercentileMetric: boolean,
+export function quantileMetricSequentialReason(
+    includesQuantileMetric: boolean,
     statsConfig: StatsConfig,
     teamDefaultEnabled: boolean
 ): string | undefined {
-    return includesPercentileMetric && experimentUsesSequentialTesting(statsConfig, teamDefaultEnabled)
-        ? PERCENTILE_METRIC_SEQUENTIAL_DISABLED_REASON
+    return includesQuantileMetric && experimentUsesSequentialTesting(statsConfig, teamDefaultEnabled)
+        ? QUANTILE_METRIC_SEQUENTIAL_DISABLED_REASON
         : undefined
 }
 
-export interface PercentileSequentialBlocks {
+export interface QuantileSequentialBlocks {
     /** Why the stats settings can't turn sequential testing on */
     enabling?: string
     /** Why the stats settings can't follow the team default */
@@ -74,19 +74,19 @@ export interface PercentileSequentialBlocks {
     save?: string
 }
 
-export function percentileSequentialBlocks(
-    hasPercentileMetric: boolean,
+export function quantileSequentialBlocks(
+    hasQuantileMetric: boolean,
     statsConfig: StatsConfig,
     teamDefaultEnabled: boolean
-): PercentileSequentialBlocks {
-    if (!hasPercentileMetric) {
+): QuantileSequentialBlocks {
+    if (!hasQuantileMetric) {
         return {}
     }
     return {
-        enabling: PERCENTILE_SEQUENTIAL_DISABLED_REASON,
-        teamDefault: teamDefaultEnabled ? PERCENTILE_SEQUENTIAL_DISABLED_REASON : undefined,
+        enabling: QUANTILE_SEQUENTIAL_DISABLED_REASON,
+        teamDefault: teamDefaultEnabled ? QUANTILE_SEQUENTIAL_DISABLED_REASON : undefined,
         save: experimentUsesSequentialTesting(statsConfig, teamDefaultEnabled)
-            ? `${PERCENTILE_SEQUENTIAL_DISABLED_REASON}. Turn it off to save.`
+            ? `${QUANTILE_SEQUENTIAL_DISABLED_REASON}. Turn it off to save.`
             : undefined,
     }
 }

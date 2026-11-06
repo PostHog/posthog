@@ -115,7 +115,7 @@ describe('utils', () => {
     })
 
     describe('getMetricIncompleteReason for percentile metrics', () => {
-        const percentileMetric = (quantile: number): ExperimentMetric =>
+        const quantileMetric = (quantile: number): ExperimentMetric =>
             ({
                 kind: NodeKind.ExperimentMetric,
                 metric_type: ExperimentMetricType.QUANTILE,
@@ -132,7 +132,7 @@ describe('utils', () => {
             [0, 'Enter a percentile from 1 to 99, with up to one decimal place'],
             [0.9755, 'Enter a percentile from 1 to 99, with up to one decimal place'],
         ])('quantile %s gives %s', (quantile, expected) => {
-            expect(getMetricIncompleteReason(percentileMetric(quantile))).toBe(expected)
+            expect(getMetricIncompleteReason(quantileMetric(quantile))).toBe(expected)
         })
     })
 })
