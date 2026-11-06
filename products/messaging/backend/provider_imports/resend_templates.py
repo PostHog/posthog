@@ -11,9 +11,13 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 
-# Tag bodies are capped, so text full of unclosed braces scans in linear time. The last two alternatives catch an opening
-# with no close in reach, which Liquid would otherwise refuse to parse, failing every send of the template.
-_TAG = re.compile(r"\{\{\{(.{0,500}?)\}\}\}|\{\{(.{0,500}?)\}\}|\{%.{0,500}?%\}|\{\{|\{%", re.DOTALL)
+# Tag bodies are capped, so text full of unclosed braces scans in linear time, and stop at the next opening, so an unclosed
+# tag can't swallow a real variable after it. The last two alternatives catch that unclosed opening, which Liquid would
+# otherwise refuse to parse, failing every send of the template.
+_TAG = re.compile(
+    r"\{\{\{((?:(?!\{\{).){0,500}?)\}\}\}|\{\{((?:(?!\{\{).){0,500}?)\}\}|\{%(?:(?!\{%).){0,500}?%\}|\{\{|\{%",
+    re.DOTALL,
+)
 _OPENING = re.compile(r"\{[{%]")
 # The email renderer treats a backslash or an HTML entity inside a filter argument differently from Resend.
 _UNSAFE_IN_LIQUID_STRING = re.compile(r"\\|&(?:\w+|#\d+|#[xX][0-9a-fA-F]+);")

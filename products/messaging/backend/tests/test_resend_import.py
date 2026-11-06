@@ -342,6 +342,7 @@ class TestResendTemplateConversion(SimpleTestCase):
             ("{{{ a endraw }}}", True, '{{ "{{" }}{ a endraw }}}'),
             ("Hi {{NAME", True, 'Hi {{ "{{" }}NAME'),
             ("{% if", True, '{{ "{%" }} if'),
+            ("Hi {{FIRST, {{{NAME|there}}}", False, 'Hi {{ "{{" }}FIRST, {{ variables.NAME | default: "there" }}'),
             ("{{{NAME|a\\b}}}", False, "{{ variables.NAME }}"),
             ("{{{NAME|Tom &amp; Ann}}}", False, "{{ variables.NAME }}"),
             ("{{{NAME|Tom & Ann}}}", False, '{{ variables.NAME | default: "Tom & Ann" }}'),
