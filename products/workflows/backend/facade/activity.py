@@ -9,7 +9,6 @@ from products.workflows.backend.services.hog_flow_activity import (
 from products.workflows.backend.services.workflow_test_runs import (
     log_workflow_test_run,
     record_workflow_test_run_origins,
-    without_workflow_test_run_origins,
 )
 
 __all__ = [
@@ -19,5 +18,4 @@ __all__ = [
     "log_workflow_test_run",
     "record_workflow_test_run_origins",
     "resume_workflow_email_sending",
-    "without_workflow_test_run_origins",
 ]

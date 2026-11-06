@@ -18,7 +18,6 @@ from products.cdp.backend.models.hog_function_template import HogFunctionTemplat
 from products.cdp.backend.services.destination_test_runs import (
     integration_ids_in_value,
     record_test_run_request_origins,
-    without_request_origins,
 )
 from products.workflows.backend.facade.contracts import WorkflowActor
 
@@ -125,7 +124,3 @@ def record_workflow_test_run_origins(
     row: Optional[ActivityLog], response: requests.Response, *, secret_inputs: Any = None
 ) -> None:
     record_test_run_request_origins(row, response, secret_inputs=secret_inputs)
-
-
-def without_workflow_test_run_origins(body: Any) -> Any:
-    return without_request_origins(body)
