@@ -306,17 +306,17 @@ class _ExposureGate:
     def __init__(
         self,
         experiment: Experiment,
-        launched_at: datetime,
+        start_date: datetime,
         *,
         group_type_index: int | None,
         denied_event_properties: frozenset[str],
         prefetch: Sequence[_Window | _UnitsWindow],
     ) -> None:
         self._experiment = experiment
-        self._launched_at = launched_at
+        self._start_date = start_date
         self._group_type_index = group_type_index
         self._denied_event_properties = denied_event_properties
-        self._default_exposure_event = resolve_default_exposure_event(experiment.team, launched_at)
+        self._default_exposure_event = resolve_default_exposure_event(experiment.team, start_date)
         # One cache read for all windows of the walk and the counts, so a flag with many changes costs one round trip.
         self._prefetched_keys = (
             set()
@@ -435,7 +435,7 @@ class _ExposureGate:
         # Every input of the query. The resolved exposure event is one, because the exposure event rollout
         # can move an experiment to another event.
         inputs = json.dumps(
-            [self._launched_at.isoformat(), *window_inputs, experiment.exposure_criteria, self._default_exposure_event],
+            [self._start_date.isoformat(), *window_inputs, experiment.exposure_criteria, self._default_exposure_event],
             sort_keys=True,
             default=str,
         )
@@ -453,10 +453,10 @@ def _load_flag_history(
     *,
     asked: frozenset[ExperimentHealthFlagChangeKind] = frozenset(_KINDS),
 ) -> FlagHistory | FlagHistoryNotChecked | None:
-    launched_at = experiment.start_date
+    start_date = experiment.start_date
     # django-stubs types the id as int, but an unsaved instance can carry None.
     feature_flag_id: int | None = experiment.feature_flag_id
-    if launched_at is None or experiment.end_date is not None or experiment.archived or feature_flag_id is None:
+    if start_date is None or experiment.end_date is not None or experiment.archived or feature_flag_id is None:
         return None
     if experiment.feature_flag.deleted:
         return None
@@ -464,17 +464,17 @@ def _load_flag_history(
     if not reader_access.can_read_flag_history:
         return FlagHistoryNotChecked(
             reason=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS,
-            launched_at=launched_at,
+            start_date=start_date,
             team_timezone=team_timezone,
             changes=(),
         )
 
     edits = flag_edits_since(
-        team_id=experiment.team_id, feature_flag_id=feature_flag_id, since=launched_at, limit=MAX_FLAG_SAVES + 1
+        team_id=experiment.team_id, feature_flag_id=feature_flag_id, since=start_date, limit=MAX_FLAG_SAVES + 1
     )
     too_large = _too_large(edits)
     if too_large is not None:
-        return FlagHistoryNotChecked(reason=too_large, launched_at=launched_at, team_timezone=team_timezone, changes=())
+        return FlagHistoryNotChecked(reason=too_large, start_date=start_date, team_timezone=team_timezone, changes=())
     read = _flag_changes(edits, feature_flag_id=feature_flag_id)
     flag = experiment.feature_flag
     trust_flag_aggregation = conditions_follow_flag_aggregation(flag.aggregation_group_type_index, flag.conditions)
@@ -502,7 +502,7 @@ def _load_flag_history(
     merged.extend(applied)
     changes = tuple(sorted(merged, key=lambda change: change.changed_at))
     history = FlagHistory(
-        launched_at=launched_at,
+        start_date=start_date,
         team_timezone=team_timezone,
         changes=changes,
         counted_since=None,
@@ -522,27 +522,25 @@ def _load_flag_history(
         return history
     reason = _not_checked_reason(experiment, reader_access)
     if reason is not None:
-        return FlagHistoryNotChecked(
-            reason=reason, launched_at=launched_at, team_timezone=team_timezone, changes=changes
-        )
+        return FlagHistoryNotChecked(reason=reason, start_date=start_date, team_timezone=team_timezone, changes=changes)
 
     timeline = _Timeline(
         changes,
         current_key=experiment.get_feature_flag_key(),
         current_split=parse_variants(experiment.feature_flag.variants),
     )
-    starts = (launched_at, *times[:-1])
+    starts = (start_date, *times[:-1])
     walk = [timeline.window(start=start, end=end) for start, end in zip(starts, times)]
     # The last change of a kind is its last counted change whenever the kind has one, so these windows are known
     # before the walk and share its cache read.
     units_windows = {
-        kind: timeline.units_window(start=launched_at, end=of_kind[-1].changed_at)
+        kind: timeline.units_window(start=start_date, end=of_kind[-1].changed_at)
         for kind, change_type in _KINDS.items()
         if kind in asked and (of_kind := changes_of_kind(changes, change_type))
     }
     gate = _ExposureGate(
         experiment,
-        launched_at,
+        start_date,
         group_type_index=flag.aggregation_group_type_index,
         denied_event_properties=reader_access.denied_event_properties,
         prefetch=[*walk, *(window for window in units_windows.values() if window is not None)],

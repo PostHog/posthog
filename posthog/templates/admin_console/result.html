@@ -1,0 +1,17 @@
+{% extends "admin_console/base.html" %}
+{% block title %}{{ operation.label }} · {{ target.title }} · PostHog Admin{% endblock %}
+{% block content %}
+    <nav class="text-xs text-muted-foreground" aria-label="Breadcrumb">
+        <a class="text-muted-foreground" href="{% url 'admin_console_home' %}">Home</a>
+        {% for crumb in target.breadcrumbs %}
+            ›
+            <a class="text-muted-foreground" href="{{ crumb.href }}">{{ crumb.label }}</a>
+        {% endfor %}
+    </nav>
+    <div class="flex flex-wrap items-start gap-4 mt-1.5 mb-4">
+        <h1 class="m-0 text-[22px] font-extrabold">{{ operation.label }}: result</h1>
+        <a class="ml-auto quill-button quill-button--variant-outline quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap"
+           href="{{ target.back_url }}">Back to {{ target.title }}</a>
+    </div>
+    {% include "admin_console/_blocks.html" %}
+{% endblock %}
