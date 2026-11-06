@@ -168,9 +168,9 @@ describe('FeatureFlagRulesV2Editor', () => {
             expect(screen.getByLabelText('Rule 1 description')).toHaveValue('Beta users')
             expect(screen.getByLabelText('Rule 2 description')).toHaveValue('Everyone else')
             expect(screen.getByLabelText('Rollout percentage')).toHaveValue('20')
-            expect(
-                within(screen.getByRole('group', { name: 'Rule 2' })).getByLabelText('Rollout percentage')
-            ).toHaveValue('20')
+            const secondRule = screen.getByLabelText('Rule 2')
+            expect(secondRule).toHaveAttribute('role', 'group')
+            expect(within(secondRule).getByLabelText('Rollout percentage')).toHaveValue('20')
         })
 
         it('offers only true and false as the default value', () => {
@@ -185,7 +185,7 @@ describe('FeatureFlagRulesV2Editor', () => {
 
         it("keeps a saved flag's value type on a click or an arrow key", () => {
             fireEvent.click(document.querySelector<HTMLElement>('[data-attr="rules-v2-return-type-string"]')!)
-            fireEvent.keyDown(screen.getByRole('radiogroup', { name: 'Value type' }), { key: 'ArrowRight' })
+            fireEvent.keyDown(screen.getByLabelText('Value type'), { key: 'ArrowRight' })
             expect(featureFlagRulesV2EditorLogic({ id: 7 }).values.draft.config).toMatchObject({
                 return_type: 'boolean',
                 default_value: false,
