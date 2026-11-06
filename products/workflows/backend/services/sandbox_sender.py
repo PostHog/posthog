@@ -93,7 +93,10 @@ def sandbox_email_sender_for_reads(
         capture_exception(error, {"team_id": team.id})
         return None
     if sender.created:
-        _report_provisioned_on_read(user, analytics_props, team, provisioned_by)
+        try:
+            _report_provisioned_on_read(user, analytics_props, team, provisioned_by)
+        except Exception as error:
+            capture_exception(error, {"team_id": team.id})
     return sender
 
 

@@ -129,6 +129,12 @@ class TestSandboxSenderAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert not self._sandbox_rows().exists()
 
+    def test_listing_integrations_still_answers_when_reporting_the_new_sender_fails(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/integrations/", HTTP_REFERER="https://[")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self._sandbox_rows().exists()
+
     @parameterized.expand(
         [
             ("symbols and markup dropped", "Acme <script> Inc!", "Acme script Inc via PostHog"),
