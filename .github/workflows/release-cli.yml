@@ -824,23 +824,17 @@ jobs:
                   # target directory and compiles the whole CLI again. Use a packaged
                   # binary when this runner can execute it. The aarch64 Linux targets
                   # are cross-built on an x86_64 runner, so they cannot.
-                  uploader=()
+                  uploader=(cargo run --manifest-path cli/Cargo.toml --profile dist --)
                   for target in $TARGETS; do
                       package_dir="target/distrib/posthog-cli-$target"
                       target_symbols_dir="$symbols_dir/$target"
                       mkdir -p "$target_symbols_dir"
                       cp "$package_dir/posthog-cli" "$target_symbols_dir/posthog-cli"
-                      if [ "${#uploader[@]}" -eq 0 ] && "$package_dir/posthog-cli" --version >/dev/null 2>&1; then
+                      if "$package_dir/posthog-cli" --version >/dev/null; then
                           uploader=("$package_dir/posthog-cli")
                       fi
                   done
-
-                  if [ "${#uploader[@]}" -eq 0 ]; then
-                      echo "No packaged binary runs on this runner, building the uploader with cargo"
-                      uploader=(cargo run --manifest-path cli/Cargo.toml --profile dist --)
-                  else
-                      echo "Uploading with the packaged binary ${uploader[0]}"
-                  fi
+                  echo "Uploading with: ${uploader[*]}"
 
                   # Cargo builds into cli/target (the cargo workspace root is cli/),
                   # while repo-root target/ only holds cargo-dist's staging area, so
