@@ -458,6 +458,7 @@ export interface workflowLogicValues {
     isWorkflowSubmitting: boolean
     isWorkflowValid: boolean
     keepsLocalEditsOnExternalEdit: boolean
+    knownSandboxSenderIds: number[]
     lastSavedAt: string | null
     logicProps: WorkflowLogicProps
     manualTriggerDisabledReason: string | undefined
@@ -2705,6 +2706,9 @@ export interface workflowLogicActions {
     publishDraft: () => {
         value: true
     }
+    rememberSandboxSender: (integrationId: number) => {
+        integrationId: number
+    }
     replayDeferredResourceEdited: () => {
         value: true
     }
@@ -3462,6 +3466,8 @@ export const workflowLogic = kea<workflowLogicType>([
         }),
         setWorkflowActionConfig: (actionId: string, config: HogFlowAction['config']) => ({ actionId, config }),
         setWorkflowAction: (actionId: string, action: HogFlowAction) => ({ actionId, action }),
+        // The project's sender list can lack the environment's sandbox sender, so record each one a lookup hands out.
+        rememberSandboxSender: (integrationId: number) => ({ integrationId }),
         setWorkflowActionEdges: (actionId: string, edges: HogFlow['edges']) => ({ actionId, edges }),
         // NOTE: This is a wrapper for setWorkflowValues, to get around some weird typegen issues
         setWorkflowInfo: (workflow: Partial<HogFlow>) => ({ workflow }),
@@ -3557,7 +3563,9 @@ export const workflowLogic = kea<workflowLogicType>([
                                 ? withTriggerConfig(newWorkflow as HogFlow, templateTriggerConfig)
                                 : (newWorkflow as HogFlow)
                             const withSender = await withDefaultEmailSender(templated)
-                            cache.firstRunSandboxSenderId = withSender.sandboxSenderId
+                            if (withSender.sandboxSenderId !== null) {
+                                actions.rememberSandboxSender(withSender.sandboxSenderId)
+                            }
                             return withSender.workflow as typeof newWorkflow
                         }
                         const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
@@ -3576,7 +3584,9 @@ export const workflowLogic = kea<workflowLogicType>([
                                 : null
                             cache.emailBrand = brand
                             const withSender = await withDefaultEmailSender(withEmailBrand(prefilled, brand))
-                            cache.firstRunSandboxSenderId = withSender.sandboxSenderId
+                            if (withSender.sandboxSenderId !== null) {
+                                actions.rememberSandboxSender(withSender.sandboxSenderId)
+                            }
                             return withSender.workflow
                         }
                         return { ...NEW_WORKFLOW }
@@ -3832,7 +3842,7 @@ export const workflowLogic = kea<workflowLogicType>([
                     values.integrations !== null &&
                     !sendsFromSandboxSender(workflow, [
                         ...listedSandboxSenderIds(values.integrations),
-                        ...(cache.firstRunSandboxSenderId ? [cache.firstRunSandboxSenderId] : []),
+                        ...values.knownSandboxSenderIds,
                     ])
                 ) {
                     const others = await loadBroadcastConversionCandidates(String(ApiConfig.getCurrentTeamId()))
@@ -3858,6 +3868,13 @@ export const workflowLogic = kea<workflowLogicType>([
         },
     })),
     reducers({
+        knownSandboxSenderIds: [
+            [] as number[],
+            {
+                rememberSandboxSender: (ids, { integrationId }) =>
+                    ids.includes(integrationId) ? ids : [...ids, integrationId],
+            },
+        ],
         aiEmailDraftApplied: [
             false,
             {

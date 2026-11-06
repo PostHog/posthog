@@ -2030,6 +2030,9 @@ export interface hogFlowEditorLogicActions {
               }
         payload?: any
     } // workflowLogic
+    rememberSandboxSender: (integrationId: number) => {
+        integrationId: number
+    } // workflowLogic
     setWorkflowAction: (
         actionId: string,
         action: HogFlowAction
@@ -2203,7 +2206,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ],
         actions: [
             workflowLogic,
-            ['setWorkflowInfo', 'setWorkflowAction', 'setWorkflowActionEdges', 'loadWorkflowSuccess'],
+            [
+                'setWorkflowInfo',
+                'setWorkflowAction',
+                'setWorkflowActionEdges',
+                'loadWorkflowSuccess',
+                'rememberSandboxSender',
+            ],
             optOutCategoriesLogic(),
             ['loadCategories'],
         ],
@@ -2447,6 +2456,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 const step = values.workflow.actions.find((action) => action.id === actionId)
                 if (!sender || !step || !stepTakesSender(step, values.workflow, sender)) {
                     return
+                }
+                if (sender.reason === 'sandbox_sender') {
+                    actions.rememberSandboxSender(sender.integrationId)
                 }
                 actions.setWorkflowAction(actionId, withStepSender(step, sender.integrationId))
                 captureSenderPreselected(sender)
