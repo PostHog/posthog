@@ -202,11 +202,14 @@ function LemonSceneTitleSection({
             return
         }
 
+        // Threshold 0, so the title counts as scrolled only once the 1px sentinel has left view entirely. At the
+        // top of the page the sentinel sits on the scroll container's edge, and with threshold 1 a sub-pixel
+        // offset alone reported it as scrolled and hid the description toggle.
         const observer = new IntersectionObserver(
             ([entry]) => {
                 setIsScrolled(!entry.isIntersecting)
             },
-            { threshold: 1 }
+            { threshold: 0 }
         )
 
         observer.observe(stickyElement)
