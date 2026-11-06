@@ -2649,3 +2649,43 @@ class TestGroupsRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(
                 response.json()["detail"], "You do not have write access to the following properties: arr."
             )
+
+    @parameterized.expand(
+        [
+            ("restricted_value", None, "1000", 0),
+            ("unrestricted_value", None, "Acme", 1),
+            ("allowed_user", PropertyAccessLevel.READ, "1000", 1),
+        ]
+    )
+    def test_list_search_ignores_restricted_properties(
+        self, _name: str, member_level: PropertyAccessLevel | None, search: str, expected_count: int
+    ) -> None:
+        if member_level is not None:
+            self._grant_member_access(member_level)
+        response = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0&search={search}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), expected_count)
+
+    def test_related_hides_restricted_properties(self) -> None:
+        for index, group_type in [(0, "organization"), (1, "company")]:
+            create_group_type_mapping_without_created_at(
+                team=self.team, project_id=self.team.project_id, group_type_index=index, group_type=group_type
+            )
+        email_def = PropertyDefinition.objects.create(team=self.team, name="email", type=PropertyDefinition.Type.PERSON)
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=email_def, access_level=PropertyAccessLevel.NONE.value
+        )
+        create_person(team=self.team, distinct_ids=["p1"], properties={"email": "a@example.com", "plan": "pro"})
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="p1",
+            timestamp=now(),
+            properties={"$group_0": "org:1", "$group_1": "company:1"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/related?id=company:1&group_type_index=1")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        properties_by_type = {actor["type"]: actor["properties"] for actor in response.json()}
+        self.assertEqual(properties_by_type, {"person": {"plan": "pro"}, "group": {"name": "Acme"}})

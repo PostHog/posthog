@@ -498,6 +498,9 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             group_type_index=group_type_index,
             group_key_contains=group_key,
             search=group_search,
+            search_excluded_property_keys=self._restricted_group_property_names(request, group_type_index)
+            if group_search
+            else frozenset(),
             cursor_created_at_us=cursor_created_at_us,
             cursor_group_key=cursor_group_key,
         )
@@ -890,6 +893,22 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             raise ValidationError({"id": ["This query parameter is required."]})
 
         results = groups.get_related_actors(self.team, group_type_index, actor_id)
+        user = cast(Optional[User], request.user if request.user.is_authenticated else None)
+        restricted_groups = access_control_api.get_restricted_group_property_names_by_type_index(
+            user=user, team_id=self.team_id
+        )
+        restricted_person = access_control_api.split_restricted_property_names(
+            access_control_api.get_restricted_properties_with_group_type_index_for_team(user=user, team_id=self.team_id)
+        ).person
+        for actor in results:
+            if actor["type"] == "group":
+                names = restricted_groups.get(actor["group_type_index"], frozenset()) | restricted_groups.get(
+                    None, frozenset()
+                )
+            else:
+                names = restricted_person
+            if names:
+                actor["properties"] = {key: value for key, value in actor["properties"].items() if key not in names}
         return response.Response(results)
 
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
@@ -911,11 +930,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             span.set_attribute("property_key", key)
             span.set_attribute("has_value_filter", value_filter is not None)
 
-            user = request.user if request.user.is_authenticated else None
-            restricted = access_control_api.get_restricted_group_property_names_by_type_index(
-                user=cast(Optional[User], user), team_id=self.team_id
-            )
-            if key in restricted.get(int(group_type_index), frozenset()) | restricted.get(None, frozenset()):
+            if key in self._restricted_group_property_names(request, int(group_type_index)):
                 span.set_attribute("result_count", 0)
                 return response.Response({"results": [], "refreshing": False})
 
@@ -957,6 +972,13 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             return response.Response(
                 {"results": [{"name": name, "count": count} for name, count in rows], "refreshing": False}
             )
+
+    def _restricted_group_property_names(self, request: request.Request, group_type_index: int) -> frozenset[str]:
+        user = request.user if request.user.is_authenticated else None
+        restricted = access_control_api.get_restricted_group_property_names_by_type_index(
+            user=cast(Optional[User], user), team_id=self.team_id
+        )
+        return restricted.get(group_type_index, frozenset()) | restricted.get(None, frozenset())
 
     def _raise_if_properties_not_writable(
         self, request: request.Request, group_type_index: int, keys: Iterable[str]
