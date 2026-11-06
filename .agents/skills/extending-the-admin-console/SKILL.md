@@ -39,6 +39,7 @@ Invoke `/writing-user-facing-copy`. In the console that means:
 - **Internal and reversible** (rebuild, clear or purge a cache that refills itself) is a plain operation.
 - **Gives the customer something back** (enable access, clear a revoke, re-enable sending, add credit) is a plain operation. Give it a form only when it needs input, as Add credit does for the amount and the reason.
 - **Takes something away from the customer, or cannot be undone** (suspend, revoke, replace a token) sets `danger=True`, takes a form with a `reason` field, and sets `undo_hint` to how staff undo it, or that they cannot. The console writes the reason to the audit log and shows the undo hint on the confirm page.
+- **Only the owning team's staff may run it** (approve a deletion, send usage reports): set `gate=Gate.owner()`, and set `staff_group` on the panel or tool's `Owner` to that team's Django group. Use `Gate.group(name)` only when the operation belongs to another team's group.
 - A handler that moves money or sends messages builds its idempotency key from the `form_nonce` the console posts, so a double submit runs once.
 - Offer an operation only in the state where it makes sense. The console runs only operations the panel offers right now.
 - A form that edits current state sets `form_initial` from the record, so an unchanged submit changes nothing.
