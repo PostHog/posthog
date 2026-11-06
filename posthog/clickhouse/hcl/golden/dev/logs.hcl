@@ -1986,7 +1986,7 @@ SQL
     }
     column "timestamp_arr" {
       type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
-      codec = "DoubleDelta, Default"
+      codec = "Delta(8), Default"
     }
     column "observed_timestamp_arr" {
       type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
@@ -5048,38 +5048,6 @@ SQL
 
   view "metrics4_view" {
     query = <<SQL
-SELECT
-  team_id,
-  metric_name,
-  time_bucket,
-  series_fingerprint,
-  resource_fingerprint,
-  timestamp,
-  original_expiry_timestamp,
-  service_name,
-  metric_type,
-  value,
-  count,
-  histogram_bounds,
-  histogram_counts,
-  trace_id,
-  span_id,
-  trace_flags,
-  has_labels,
-  unit,
-  aggregation_temporality,
-  is_monotonic,
-  instrumentation_scope
-FROM posthog.metrics2
-WHERE
-  (time_bucket > toDateTime('2026-08-25 00:00:00'))
-AND
-  (time_bucket < toDateTime('2026-09-14 00:00:00'))
-AND
-  (timestamp > toDateTime('2026-08-25 00:00:00'))
-AND
-  (timestamp < toDateTime('2026-09-14 00:00:00'))
-UNION ALL
 SELECT
   team_id,
   metric_name,

@@ -771,6 +771,13 @@ CACHES["task_artifact_preview"] = {
     "LOCATION": REDIS_URL,
 }
 
+# The signup throttle reads its per-IP history, changes it and writes it back under a lock. A lagging
+# replica would hand it a stale history, and the write-back would erase another request's reservation.
+CACHES["signup_throttle"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Metrics dashboard tiles wait for one loader to write the variable options and hold a lock while it runs.
 # A replica that lags would hide the result and the lock, so another tile would run the same query again.
 CACHES["metrics_variable_options"] = {
@@ -781,6 +788,13 @@ CACHES["metrics_variable_options"] = {
 # Warehouse destination connect tokens are polled right after they are written, and completion claims a
 # token with SETNX. A lagging replica would report a fresh token as expired, so read from the writer.
 CACHES["warehouse_destination_connect"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
+# AEO prompt suggestion jobs are polled right after the job is created. A lagging replica would report a new
+# job as unknown, and the client treats that as expired, so read from the writer.
+CACHES["aeo_prompt_suggestions"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,
 }
@@ -853,6 +867,8 @@ if TEST:
     CACHES["task_artifact_preview"] = CACHES["default"]
     CACHES["metrics_variable_options"] = CACHES["default"]
     CACHES["warehouse_destination_connect"] = CACHES["default"]
+    CACHES["aeo_prompt_suggestions"] = CACHES["default"]
+    CACHES["signup_throttle"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

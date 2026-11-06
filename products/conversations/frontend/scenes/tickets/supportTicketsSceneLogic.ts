@@ -20,12 +20,14 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { ApiConfig } from 'lib/api'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { objectsEqual } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { todayPeopleRowLabel } from '~/layout/today/todayPeopleRows'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Breadcrumb, TeamType } from '~/types'
 
 import { assigneeSelectLogic } from '../../components/Assignee'
@@ -362,7 +364,7 @@ export interface supportTicketsSceneLogicActions {
 export interface supportTicketsSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        breadcrumbs: (activeView: SavedTicketView | null) => Breadcrumb[]
+        breadcrumbs: (activeView: SavedTicketView | null, featureFlags: FeatureFlagsSet) => Breadcrumb[]
         aiEnabled: (currentTeam: TeamType | null | import('~/types').TeamPublicType) => boolean
         orderBy: (sorting: Sorting | null) => string
         selectedTickets: (tickets: Ticket[], selectedTicketIds: string[]) => Ticket[]
@@ -624,9 +626,12 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
     }),
     selectors({
         breadcrumbs: [
-            (s) => [s.activeView],
-            (activeView: SavedTicketView | null): Breadcrumb[] => [
-                { key: Scene.SupportTickets, name: activeView?.name || 'Ticket list' },
+            (s) => [s.activeView, featureFlagLogic.selectors.featureFlags],
+            (activeView: SavedTicketView | null, featureFlags: FeatureFlagsSet): Breadcrumb[] => [
+                {
+                    key: Scene.SupportTickets,
+                    name: activeView?.name || todayPeopleRowLabel(featureFlags, 'support') || 'Ticket list',
+                },
             ],
         ],
         aiEnabled: [

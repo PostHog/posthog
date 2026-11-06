@@ -106,6 +106,7 @@ rules:
                               |BriefConfig
                               |ButtonTile
                               |WorkloadTrustPolicy
+                              |WorkloadTrustPolicyRequest
                               |Canvas
                               |CanvasBuild
                               |CanvasHomePreference
@@ -223,7 +224,9 @@ rules:
                               |ExternalDataSchemaOOMEvent
                               |ExternalDataSource
                               |ExternalDataSourceDestination
+                              |ExternalDataSourceInputsBackup
                               |FeatureFlag
+                              |FeatureFlagCodeAnalysis
                               |FeatureRequest
                               |FeatureRequestAccountLink
                               |FeatureRequestEvidence
@@ -244,6 +247,7 @@ rules:
                               |FileSystem
                               |FileSystemFolderInstructions
                               |FileSystemFolderContextGeneration
+                              |FirstCodeSend
                               |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
@@ -259,6 +263,7 @@ rules:
                               |HogFunctionRevision
                               |Hook
                               |Insight
+                              |InsightExplanation
                               |InsightVariable
                               |Integration
                               |IntegrationRepositoryCacheEntry
@@ -305,11 +310,13 @@ rules:
                               |MessageSuppression
                               |MessageTemplate
                               |Metric
+                              |MetricDailyQueryCount
                               |MetricsDashboardDiscovery
                               |MetricsDashboardSuggestion
                               |RelationshipProposal
                               |MCPAnalyticsSubmission
                               |MCPAuditEvent
+                              |MCPCustomHarness
                               |MCPGatewayServer
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
@@ -400,6 +407,7 @@ rules:
                               |SharingConfiguration
                               |SignalEmissionRecord
                               |SignalFirstReportNotification
+                              |SignalRatedUsage
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
@@ -431,6 +439,7 @@ rules:
 
                               |AnomalyScoringState
                               |AnomalyScoringDueInsight
+                              |PushTokenImport
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -461,6 +470,7 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskRunGatewayRequest
                               |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
@@ -488,6 +498,7 @@ rules:
                               |TraceReviewScore
                               |TracesRetentionRule
                               |TracingView
+                              |TransactionalEmailKey
                               |UploadedMedia
                               |UptimeMonitor
                               |UserInterview
@@ -615,6 +626,7 @@ rules:
                         |BriefConfig
                         |ButtonTile
                         |WorkloadTrustPolicy
+                        |WorkloadTrustPolicyRequest
                         |Canvas
                         |CanvasBuild
                         |CanvasHomePreference
@@ -729,7 +741,9 @@ rules:
                         |ExternalDataSchema
                         |ExternalDataSchemaOOMEvent
                         |ExternalDataSource
+                        |ExternalDataSourceInputsBackup
                         |FeatureFlag
+                        |FeatureFlagCodeAnalysis
                         |FeatureRequest
                         |FeatureRequestAccountLink
                         |FeatureRequestEvidence
@@ -750,6 +764,7 @@ rules:
                         |FileSystem
                         |FileSystemFolderInstructions
                         |FileSystemFolderContextGeneration
+                        |FirstCodeSend
                         |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan
@@ -765,6 +780,7 @@ rules:
                         |HogFunctionRevision
                         |Hook
                         |Insight
+                        |InsightExplanation
                         |InsightVariable
                         |Integration
                         |IntegrationRepositoryCacheEntry
@@ -806,10 +822,12 @@ rules:
                         |MessageSuppression
                         |MessageTemplate
                         |Metric
+                        |MetricDailyQueryCount
                         |MetricsDashboardDiscovery
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
                         |MCPAuditEvent
+                        |MCPCustomHarness
                         |MCPGatewayServer
                         |MCPIntentClusterSnapshot
                         |MCPIntentEmbeddingCache
@@ -899,6 +917,7 @@ rules:
                         |SharingConfiguration
                         |SignalEmissionRecord
                         |SignalFirstReportNotification
+                        |SignalRatedUsage
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
@@ -930,6 +949,7 @@ rules:
 
                         |AnomalyScoringState
                         |AnomalyScoringDueInsight
+                        |PushTokenImport
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
@@ -960,6 +980,7 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskRunGatewayRequest
                         |TaskWorkflowDispatch
                         |TaskSession
                         |UserTasksConfig
@@ -986,6 +1007,7 @@ rules:
                         |TraceReviewScore
                         |TracesRetentionRule
                         |TracingView
+                        |TransactionalEmailKey
                         |UploadedMedia
                         |UptimeMonitor
                         |UserInterview
@@ -1292,6 +1314,7 @@ rules:
                         |TeamDataQualityConfig
                         |TeamDataWarehouseConfig
                         |TeamDefaultEvaluationContext
+                        |TeamEventsPlanDeletion
                         |TeamEventsRetentionConfig
                         |TeamEventVolume
                         |TeamExperimentsConfig
@@ -1316,6 +1339,7 @@ rules:
                         |TraceReview
                         |TraceReviewScore
                         |TracesRetentionRule
+                        |TransactionalEmailKey
                         |User
                         |UserGroup
                         |UserInterview
