@@ -2,7 +2,9 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { llmAnalyticsProviderKeysModelsList } from './generated/api'
 import {
     type LLMProvider,
     LLMProviderKey,
@@ -132,6 +134,7 @@ export function buildPlaygroundProviderModelGroups(models: ModelOption[]): Provi
 export interface modelPickerLogicValues {
     providerKeys: LLMProviderKey[] // llmProviderKeysLogic
     providerKeysLoading: boolean // llmProviderKeysLogic
+    currentTeamId: number | null // teamLogic
     byokModelNotice: ByokModelNotice | null
     byokModels: ModelOption[]
     byokModelsLoading: boolean
@@ -264,7 +267,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
     path(['products', 'ai_observability', 'frontend', 'modelPickerLogic']),
 
     connect(() => ({
-        values: [llmProviderKeysLogic, ['providerKeys', 'providerKeysLoading']],
+        values: [llmProviderKeysLogic, ['providerKeys', 'providerKeysLoading'], teamLogic, ['currentTeamId']],
         actions: [
             llmProviderKeysLogic,
             ['loadProviderKeysSuccess', 'createProviderKeySuccess', 'updateProviderKeySuccess'],
@@ -287,15 +290,11 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                 const results = await Promise.all(
                     validKeys.map(async (key: LLMProviderKey) => {
                         try {
-                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                            const rawModels = (await api.get(
-                                `/api/llm_proxy/models/?provider_key_id=${encodeURIComponent(key.id)}`
-                            )) as (Omit<ModelOption, 'providerKeyId' | 'isRecommended'> & {
-                                is_recommended?: boolean
-                                supports_decisions?: boolean
-                                supports_chat?: boolean
-                                supports_reasoning?: boolean
-                            })[]
+                            // The project in the URL, not the user's current one, which a second tab can change.
+                            const rawModels = await llmAnalyticsProviderKeysModelsList(
+                                String(values.currentTeamId),
+                                key.id
+                            )
                             return rawModels.map((m) => ({
                                 id: m.id,
                                 name: m.name,

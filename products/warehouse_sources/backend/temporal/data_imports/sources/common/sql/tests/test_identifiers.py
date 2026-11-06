@@ -23,6 +23,12 @@ class TestBacktickIdentifierQuoter:
             ("db@prod", "`db@prod`"),
             ("a-b", "`a-b`"),
             ("a.b", "`a.b`"),
+            # A real Tableau MySQL-driver temp table name, created (and sometimes left
+            # behind) when it tests a connection's ability to create temp tables.
+            (
+                "#Tableau_8_sid_00130535_3_Connect_CheckCreateTempTableCap",
+                "`#Tableau_8_sid_00130535_3_Connect_CheckCreateTempTableCap`",
+            ),
         ],
     )
     def test_accepts_allowed_identifiers(self, identifier: str, expected: str) -> None:
