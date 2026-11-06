@@ -3617,9 +3617,14 @@ class TestHogFlowAPI(APIBaseTest):
                     "request_origins": [
                         "https://STORED-SECRET.one.example.com",
                         "https://xoxb-fake-workspace-token.two.example.com",
+                        "https://123456789.three.example.com",
                     ]
                 },
-                ["https://***REDACTED***.one.example.com", "https://***REDACTED***.two.example.com"],
+                [
+                    "https://***REDACTED***.one.example.com",
+                    "https://***REDACTED***.two.example.com",
+                    "https://***REDACTED***.three.example.com",
+                ],
             ),
         ]
     )
@@ -3659,7 +3664,7 @@ class TestHogFlowAPI(APIBaseTest):
             assert created.status_code == 201, created.json()
             flow_id = created.json()["id"]
             HogFlow.objects.filter(id=flow_id).update(
-                encrypted_inputs={"action_1": {"api_token": {"value": "stored-secret"}}}
+                encrypted_inputs={"action_1": {"api_token": {"value": "stored-secret"}, "pin": {"value": 123456789}}}
             )
         else:
             data["configuration"] = hog_flow
@@ -3693,7 +3698,7 @@ class TestHogFlowAPI(APIBaseTest):
             "action_id": "action_1",
             "action_type": "function",
             "template_id": "template-slack",
-            "input_keys": ["api_token", "channel", "slack_workspace", "text"]
+            "input_keys": ["api_token", "channel", "pin", "slack_workspace", "text"]
             if saved
             else ["channel", "slack_workspace", "text"],
             "integration_ids": [workspace.id],

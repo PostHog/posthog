@@ -64,9 +64,9 @@ class TestDestinationTestRunContext(SimpleTestCase):
             ),
             (
                 "secret_that_names_a_tenant_on_a_shared_host",
-                "audit-escape",
-                "https://audit-escape.workers.dev",
-                "https://audit-escape.workers.dev",
+                "fake-host-secret",
+                "https://fake-host-secret.workers.dev",
+                "https://***REDACTED***.workers.dev",
             ),
             (
                 "secret_in_a_host_without_a_public_suffix",

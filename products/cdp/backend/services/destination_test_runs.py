@@ -47,8 +47,9 @@ _DEFAULT_PORTS = {"http": 80, "https": 443}
 _REDACTED = "***REDACTED***"
 _ORIGIN_PARTS = re.compile(r"^([a-z][a-z0-9+.-]*://)([^/:\[\]]+)(:\d+)?$")
 # The bundled suffix list, so a test run never fetches it over the network.
-# Private suffixes keep the tenant on a shared host, such as name.workers.dev, readable.
-_DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
+# Private suffixes stay out, so a stored secret used as the tenant on a shared host, such as
+# <secret>.workers.dev, is redacted as a subdomain.
+_DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
 # A shorter value matches ordinary host fragments, so it is redacted only where it fills a whole label.
 _MIN_SECRET_LENGTH = 8
 
@@ -198,6 +199,13 @@ def _as_origin(value: str) -> Optional[str]:
 def _string_values(value: Any) -> Iterable[str]:
     if isinstance(value, str):
         yield value
+    elif isinstance(value, bool):
+        return
+    elif isinstance(value, int):
+        yield str(value)
+    elif isinstance(value, float):
+        # The worker writes a whole float without its fraction, as JavaScript does.
+        yield str(int(value)) if value.is_integer() else str(value)
     elif isinstance(value, dict):
         for item in value.values():
             yield from _string_values(item)
