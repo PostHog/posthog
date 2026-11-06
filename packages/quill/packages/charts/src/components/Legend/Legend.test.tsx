@@ -103,14 +103,16 @@ describe('Legend', () => {
 
         it('renders a formatted cell per value and series, empty for a series without values', () => {
             const { container } = render(
-                <Legend items={VALUE_ITEMS} values={['mean', 'max']} formatValue={(v) => `${v} ms`} />
+                <Legend items={VALUE_ITEMS} table={{ values: ['mean', 'max'], valueFormatter: (v) => `${v} ms` }} />
             )
             const cells = Array.from(container.querySelectorAll('[data-attr="hog-chart-legend-value"]'))
             expect(cells.map((c) => c.textContent)).toEqual(['10 ms', '30 ms', '25 ms', '5 ms', '', ''])
         })
 
         it('sorts by the initial column, then by a clicked header, flipping on a second click', () => {
-            const { container } = render(<Legend items={VALUE_ITEMS} values={['mean', 'max']} sortBy="mean" />)
+            const { container } = render(
+                <Legend items={VALUE_ITEMS} table={{ values: ['mean', 'max'], defaultSort: { by: 'mean' } }} />
+            )
             expect(labelsOf(container)).toEqual(['Beta', 'Alpha', 'Gamma'])
             const maxHeader = container.querySelectorAll('[data-attr="hog-chart-legend-sort"]')[2]
             fireEvent.click(maxHeader)
@@ -121,21 +123,17 @@ describe('Legend', () => {
 
         it('starts an initial name sort A to Z, like a header click', () => {
             const reversed = [...VALUE_ITEMS].reverse()
-            const { container } = render(<Legend items={reversed} values={['mean']} sortBy="label" />)
-            expect(labelsOf(container)).toEqual(['Alpha', 'Beta', 'Gamma'])
-        })
-
-        it('takes header text from columnLabels', () => {
             const { container } = render(
-                <Legend items={VALUE_ITEMS} values={['mean', 'sum']} columnLabels={{ label: 'Series', sum: 'Sum' }} />
+                <Legend items={reversed} table={{ values: ['mean'], defaultSort: { by: 'label' } }} />
             )
-            const headers = Array.from(container.querySelectorAll('[data-attr="hog-chart-legend-sort"]'))
-            expect(headers.map((h) => h.textContent)).toEqual(['Series', 'Mean', 'Sum'])
+            expect(labelsOf(container)).toEqual(['Alpha', 'Beta', 'Gamma'])
         })
 
         it('fires onItemClick from a table row', () => {
             const onClick = jest.fn()
-            const { container } = render(<Legend items={VALUE_ITEMS} values={['mean']} onItemClick={onClick} />)
+            const { container } = render(
+                <Legend items={VALUE_ITEMS} table={{ values: ['mean'] }} onItemClick={onClick} />
+            )
             const rows = Array.from(container.querySelectorAll('button')).filter(
                 (b) => b.dataset.attr !== 'hog-chart-legend-sort'
             )

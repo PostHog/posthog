@@ -121,7 +121,8 @@ function useLegendAxisFormatter(
     isPercent: boolean
 ): ChartLegendConfig | undefined {
     return useMemo(() => {
-        if (!legend?.values?.length || legend.valueFormatter || isPercent || (!primaryFormatter && !yAxes)) {
+        const table = legend?.table
+        if (!table?.values.length || table.valueFormatter || isPercent || (!primaryFormatter && !yAxes)) {
             return legend
         }
         const axisByKey = new Map(series.map((s) => [s.key, s.yAxisId ?? DEFAULT_Y_AXIS_ID]))
@@ -131,6 +132,6 @@ function useLegendAxisFormatter(
         // series stay plain rather than borrowing the primary format.
         const formatterFor = (key: string): ((value: number) => string) =>
             (yAxes ? formatterByAxis.get(axisByKey.get(key) ?? DEFAULT_Y_AXIS_ID) : primaryFormatter) ?? plain
-        return { ...legend, valueFormatter: (value, item) => formatterFor(item.key)(value) }
+        return { ...legend, table: { ...table, valueFormatter: (value, item) => formatterFor(item.key)(value) } }
     }, [series, legend, primaryFormatter, yAxes, isPercent])
 }

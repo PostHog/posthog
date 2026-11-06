@@ -33,7 +33,7 @@ describe('SlopeChart', () => {
                 series={SERIES}
                 labels={LABELS}
                 theme={THEME}
-                config={{ legend: { show: true, values: ['max'] } }}
+                config={{ legend: { show: true, table: { values: ['max'] } } }}
             />
         )
         expect(chart.legendItems()).toEqual([

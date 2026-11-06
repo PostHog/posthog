@@ -62,8 +62,8 @@ export function computeLegendValues(
         last = v
     }
     const all: Record<LegendValue, number | null> =
-        count === 0
-            ? { mean: null, min: null, max: null, first: null, last: null, sum: null }
-            : { mean: sum / count, min, max, first, last, sum }
+        first === null || last === null
+            ? { mean: null, min: null, max: null, last: null, sum: null, delta: null }
+            : { mean: sum / count, min, max, last, sum, delta: last - first }
     return Object.fromEntries(values.map((v) => [v, all[v]]))
 }

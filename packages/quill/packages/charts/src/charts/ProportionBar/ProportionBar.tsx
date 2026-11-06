@@ -96,9 +96,9 @@ function ProportionBarInner<Meta = unknown>({
             withLegendValues(
                 proportionLegendItems(series, theme, valueFormatter, legendProps.hiddenKeys),
                 series,
-                legendProps.values
+                legendProps.table?.values
             ),
-        [series, theme, valueFormatter, legendProps.hiddenKeys, legendProps.values]
+        [series, theme, valueFormatter, legendProps.hiddenKeys, legendProps.table?.values]
     )
     const colorByKey = new Map(legendItems.map((item) => [item.key, item.color]))
     // Tooltips and clicks hand back the consumer's own series, not the single-value copies the bar draws.

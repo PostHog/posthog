@@ -3,9 +3,22 @@ import React from 'react'
 
 import { LegendTable } from './LegendTable'
 
-/** A per-series summary a legend can show as a column, computed over the series' finite values.
- *  `first` and `last` skip missing points. */
-export type LegendValue = 'mean' | 'min' | 'max' | 'first' | 'last' | 'sum'
+/** A per-series summary a legend table can show as a column, computed over the series' finite
+ *  values. `delta` is the last value minus the first. */
+export type LegendValue = 'mean' | 'min' | 'max' | 'last' | 'sum' | 'delta'
+
+export interface LegendTableConfig {
+    values: LegendValue[]
+    /** Read on mount only. Omit to keep the series order. A header click changes the sort. */
+    defaultSort?: {
+        by: 'label' | LegendValue
+        /** Defaults to true for a value column and false for `'label'`, the order a header click starts with. */
+        descending?: boolean
+    }
+    /** Formats a value cell. The time-series charts default to the series' axis tick format; the
+     *  others to a locale number with significant decimals. */
+    valueFormatter?: (value: number, item: LegendItem) => string
+}
 
 export interface LegendItem {
     key: string
@@ -36,17 +49,7 @@ export interface LegendProps {
     /** Wrap each row — receives the default row node and its item, returns the node to render.
      *  Use to augment rows (e.g. a right-click context menu) while keeping the default rendering. */
     renderItem?: (defaultNode: React.ReactNode, item: LegendItem) => React.ReactNode
-    /** Show these {@link LegendItem.values} as columns, which renders the legend as a sortable table. */
-    values?: LegendValue[]
-    /** Formats a value column cell. Defaults to a locale number with significant decimals. */
-    formatValue?: (value: number, item: LegendItem) => string
-    /** Initial table sort column. Clicking a column header changes it. Defaults to input order. */
-    sortBy?: 'label' | LegendValue
-    /** Sort the initial `sortBy` column highest (or Z) first. Defaults to true for a value column
-     *  and false for `'label'`. */
-    sortDescending?: boolean
-    /** Header text per column. Defaults to English names. */
-    columnLabels?: Partial<Record<'label' | LegendValue, string>>
+    table?: LegendTableConfig
 }
 
 // Align a horizontal legend with `justify-content` so wrapped rows stay centered (or start/end) within the
@@ -67,24 +70,16 @@ export function Legend({
     className,
     dataAttr,
     renderItem,
-    values,
-    formatValue,
-    sortBy,
-    sortDescending,
-    columnLabels,
+    table,
 }: LegendProps): React.ReactElement | null {
     if (items.length === 0) {
         return null
     }
-    if (values?.length) {
+    if (table?.values.length) {
         return (
             <LegendTable
                 items={items}
-                values={values}
-                formatValue={formatValue}
-                sortBy={sortBy}
-                sortDescending={sortDescending}
-                columnLabels={columnLabels}
+                table={table}
                 onItemClick={onItemClick}
                 hiddenKeys={hiddenKeys}
                 className={className}

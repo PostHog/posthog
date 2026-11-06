@@ -2,16 +2,16 @@
 import React, { useMemo, useState } from 'react'
 
 import { buildYTickFormatter } from '../../utils/y-formatters'
-import type { LegendProps, LegendValue } from './Legend'
+import type { LegendProps, LegendTableConfig, LegendValue } from './Legend'
 
-const DEFAULT_HEADERS: Record<'label' | LegendValue, string> = {
+const HEADERS: Record<'label' | LegendValue, string> = {
     label: 'Name',
     mean: 'Mean',
     min: 'Min',
     max: 'Max',
-    first: 'First',
     last: 'Last',
     sum: 'Total',
+    delta: 'Delta',
 }
 
 const defaultFormatValue = buildYTickFormatter({})
@@ -22,20 +22,16 @@ type SortKey = 'label' | LegendValue
  *  sortable by clicking a header. Rows click and dim exactly like the list legend. */
 export function LegendTable({
     items,
-    values,
-    formatValue = defaultFormatValue,
-    sortBy,
-    sortDescending = sortBy !== 'label',
-    columnLabels,
+    table,
     onItemClick,
     hiddenKeys,
     className,
     dataAttr,
     renderItem,
-}: Omit<LegendProps, 'orientation' | 'align' | 'values'> & { values: LegendValue[] }): React.ReactElement {
-    const headers = { ...DEFAULT_HEADERS, ...columnLabels }
+}: Omit<LegendProps, 'orientation' | 'align' | 'table'> & { table: LegendTableConfig }): React.ReactElement {
+    const { values, valueFormatter: formatValue = defaultFormatValue, defaultSort } = table
     const [sort, setSort] = useState<{ key: SortKey; descending: boolean } | null>(
-        sortBy ? { key: sortBy, descending: sortDescending } : null
+        defaultSort ? { key: defaultSort.by, descending: defaultSort.descending ?? defaultSort.by !== 'label' } : null
     )
 
     const cells = useMemo(
@@ -55,7 +51,7 @@ export function LegendTable({
     // Size each column to its widest cell in `ch`, so rows stay aligned even when `renderItem`
     // wraps them in its own element.
     const widths = values.map((v, i) =>
-        Math.max(headers[v].length + 2, ...items.map((item) => cells.get(item.key)?.[i].length ?? 0))
+        Math.max(HEADERS[v].length + 2, ...items.map((item) => cells.get(item.key)?.[i].length ?? 0))
     )
 
     const rows = useMemo(() => {
@@ -110,9 +106,9 @@ export function LegendTable({
             data-hog-charts-legend=""
         >
             <div className="flex items-center gap-3 px-1 pb-1">
-                {header('label', headers.label)}
+                {header('label', HEADERS.label)}
                 {values.map((v, i) => (
-                    <React.Fragment key={v}>{header(v, headers[v], widths[i])}</React.Fragment>
+                    <React.Fragment key={v}>{header(v, HEADERS[v], widths[i])}</React.Fragment>
                 ))}
             </div>
             {rows.map((item) => {

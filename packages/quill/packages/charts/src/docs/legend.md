@@ -54,18 +54,17 @@ On time-series charts the legend lists the user's series only, and hiding a seri
 - Long labels clip with an ellipsis only when they run out of available space. A vertical legend truncates at the column edge. A horizontal legend caps each row at an equal share of the line floored at 180px, because flexbox wraps before it shrinks and one long label would otherwise take a whole line. The full text is always in a native `title` tooltip.
 - `LegendItem.secondaryLabel` shows muted trailing text (a slope chart's per-series change).
 
-## Value columns
+## Value table
 
-`values: ['mean', 'max', 'last']` renders the legend as a table with one column per summary: `mean`, `min`, `max`, `first`, `last`, `sum`.
-Each is computed over the series' finite values, so `first` and `last` skip missing points.
+`table: { values: ['mean', 'max', 'last'] }` renders the legend as a table with one column per summary: `mean`, `min`, `max`, `last`, `sum`, `delta`.
+Each is computed over the series' finite values, so `last` skips missing points and `delta` is the last finite value minus the first.
 A series with no finite value shows empty cells.
 Rows click, dim, and take `renderItem` exactly like the list legend.
 A header click sorts by that column: values start highest first and names A to Z, and a second click flips the order.
-`sortBy` and `sortDescending` set the initial sort, in the same direction a header click starts with unless `sortDescending` says otherwise.
-`columnLabels` replaces the header text, for example `{ label: 'Series', sum: 'Sum' }`.
-`valueFormatter(value, item)` formats a cell; the time-series charts default it to the tick format of the series' own axis.
+`table.defaultSort: { by, descending? }` sets the sort on mount, in the same direction a header click starts with unless `descending` says otherwise.
+`table.valueFormatter(value, item)` formats a cell; the time-series charts default it to the tick format of the series' own axis.
 A percent chart, and a secondary axis without a format, keep the plain number format, because legend values are raw.
-`BoxPlot` and `ScatterChart` ignore `values`.
+`BoxPlot` and `ScatterChart` take no `table`.
 The summaries are computed only while the legend is shown.
 A left or right table legend gets more width than a list legend, up to 60% of the chart or 480px.
 On a chart narrower than 480px it moves below the plot (above for `left`), so the plot and the series names keep their room.

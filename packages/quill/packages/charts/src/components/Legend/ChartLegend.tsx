@@ -15,11 +15,7 @@ export interface ChartLegendProps {
     className?: string
     /** Wrap each legend row — forwarded to {@link Legend}'s `renderItem`. */
     renderItem?: (defaultNode: React.ReactNode, item: LegendItem) => React.ReactNode
-    values?: LegendProps['values']
-    formatValue?: LegendProps['formatValue']
-    sortBy?: LegendProps['sortBy']
-    sortDescending?: LegendProps['sortDescending']
-    columnLabels?: LegendProps['columnLabels']
+    table?: LegendProps['table']
     /** data-attr on the inner `<Legend>`. The outer layout wrapper has no data-attr. */
     legendDataAttr?: string
     children: React.ReactNode
@@ -35,11 +31,7 @@ export function ChartLegend({
     hiddenKeys,
     className,
     renderItem,
-    values,
-    formatValue,
-    sortBy,
-    sortDescending,
-    columnLabels,
+    table,
     legendDataAttr,
     children,
 }: ChartLegendProps): React.ReactElement {
@@ -59,16 +51,12 @@ export function ChartLegend({
                     onItemClick={onItemClick}
                     hiddenKeys={hiddenKeys}
                     renderItem={renderItem}
-                    values={values}
-                    formatValue={formatValue}
-                    sortBy={sortBy}
-                    sortDescending={sortDescending}
-                    columnLabels={columnLabels}
+                    table={table}
                     dataAttr={legendDataAttr}
                 />
             }
             position={position}
-            wide={!!values?.length}
+            wide={!!table?.values.length}
             align={align}
             gap={gap}
             className={wrapperClassName}

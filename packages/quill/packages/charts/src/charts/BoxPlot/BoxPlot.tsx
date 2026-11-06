@@ -62,7 +62,7 @@ export type BoxPlotTooltipContext<Meta = unknown> = TooltipContext<BoxPlotAdapte
 /** Chart-level config. `axisOrientation: 'horizontal'` lists the labels down the y-axis and draws
  *  the value axis along x, which suits a few long boxes better than a row of narrow columns. */
 export interface BoxPlotConfig extends ChartConfig {
-    legend?: ChartLegendConfig
+    legend?: Omit<ChartLegendConfig, 'table'>
     /** Mean marker radius in CSS pixels. Defaults to 3. */
     meanRadius?: number
     /** Whisker cap width as a fraction of the box width. Defaults to 0.6. */
@@ -159,9 +159,7 @@ function BoxPlotInner<Meta = unknown>({
         [series, labels.length]
     )
 
-    const legend = config?.legend
-    const legendConfig = useMemo(() => legend && { ...legend, values: undefined }, [legend])
-    const { visibleSeries, legendProps } = useChartLegend(adaptedSeries, theme, legendConfig)
+    const { visibleSeries, legendProps } = useChartLegend(adaptedSeries, theme, config?.legend)
     const grouped = visibleSeries.filter((s) => !s.visibility?.excluded).length > 1
 
     /** Synthetic series carrying min/max samples so the y-domain spans every whisker, not just

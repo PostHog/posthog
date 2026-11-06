@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 
 import type { ChartLegendConfig, ChartTheme, Series } from '../../core/types'
-import type { LegendItem, LegendItemClickModifiers, LegendProps, LegendValue } from './Legend'
+import type { LegendItem, LegendItemClickModifiers, LegendTableConfig, LegendValue } from './Legend'
 import { legendItemsFromSeries, withLegendValues } from './legendItemsFromSeries'
 
 /** True when the primary pointer is coarse (a touch screen), read live at click time. Guarded like
@@ -58,11 +58,7 @@ export interface ChartLegendRenderProps {
     onItemClick?: (key: string, modifiers: LegendItemClickModifiers) => void
     hiddenKeys: string[]
     renderItem?: (defaultNode: ReactNode, item: LegendItem) => ReactNode
-    values?: LegendProps['values']
-    formatValue?: LegendProps['formatValue']
-    sortBy?: LegendProps['sortBy']
-    sortDescending?: LegendProps['sortDescending']
-    columnLabels?: LegendProps['columnLabels']
+    table?: LegendTableConfig
 }
 
 export interface ChartLegendState<Meta> {
@@ -98,7 +94,7 @@ export function useChartLegend<Meta>(
     const hiddenSet = useMemo(() => new Set(hiddenKeys), [hiddenKeys])
     const visibleSeries = useMemo(() => applyHiddenSeries(series, hiddenSet), [series, hiddenSet])
     // Keyed on the column names, so an inline `values` array doesn't recompute every series' summaries.
-    const valuesKey = config?.show ? config.values?.join(',') : undefined
+    const valuesKey = config?.show ? config.table?.values.join(',') : undefined
     const legendValues = useMemo(() => (valuesKey ? (valuesKey.split(',') as LegendValue[]) : undefined), [valuesKey])
     const derivedItems = useMemo(
         () =>
@@ -186,11 +182,7 @@ export function useChartLegend<Meta>(
             onItemClick: interactive ? handleItemClick : undefined,
             hiddenKeys,
             renderItem,
-            values: legendValues,
-            formatValue: config?.valueFormatter,
-            sortBy: config?.sortBy,
-            sortDescending: config?.sortDescending,
-            columnLabels: config?.columnLabels,
+            table: legendValues && config?.table ? { ...config.table, values: legendValues } : undefined,
         },
     }
 }

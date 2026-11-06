@@ -686,7 +686,7 @@ describe('TimeSeriesLineChart', () => {
                     series={[MULTI_SERIES[0], { ...MULTI_SERIES[1], yAxisId: 'right' }]}
                     labels={LABELS}
                     theme={THEME}
-                    config={{ ...config, legend: { show: true, values: ['max'] } }}
+                    config={{ ...config, legend: { show: true, table: { values: ['max'] } } }}
                 />
             )
             expect(chart.legendValues()).toEqual(expectedValues)

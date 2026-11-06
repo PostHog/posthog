@@ -26,13 +26,13 @@ describe('legendItemsFromSeries', () => {
     })
 
     it.each([
-        ['skips missing points', [3, NaN, 1, 5], { mean: 3, min: 1, max: 5, first: 3, last: 5, sum: 9 }],
+        ['skips missing points', [3, NaN, 1, 5], { mean: 3, min: 1, max: 5, last: 5, sum: 9, delta: 2 }],
         [
             'is null for a series without finite values',
             [NaN],
-            { mean: null, min: null, max: null, first: null, last: null, sum: null },
+            { mean: null, min: null, max: null, last: null, sum: null, delta: null },
         ],
     ])('computeLegendValues %s', (_, data, expected) => {
-        expect(computeLegendValues(data, ['mean', 'min', 'max', 'first', 'last', 'sum'])).toEqual(expected)
+        expect(computeLegendValues(data, ['mean', 'min', 'max', 'last', 'sum', 'delta'])).toEqual(expected)
     })
 })

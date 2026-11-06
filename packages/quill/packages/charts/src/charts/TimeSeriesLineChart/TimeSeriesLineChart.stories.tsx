@@ -267,7 +267,7 @@ const LATENCY_SERIES: Series[] = [
     { key: 'cron', label: 'cron', data: [60, 65, 58, 72, 70, 66, 61] },
 ]
 
-/** `legend.values` turns the legend into a table of per-series summaries, formatted like the axis.
+/** `legend.table` turns the legend into a table of per-series summaries, formatted like the axis.
  *  Click a header to sort by it; rows still isolate and toggle their series. */
 export const LegendValues: Story = {
     render: () => {
@@ -286,8 +286,7 @@ export const LegendValues: Story = {
                                 legend: {
                                     show: true,
                                     position,
-                                    values: ['mean', 'max', 'last'],
-                                    sortBy: 'mean',
+                                    table: { values: ['mean', 'max', 'last'], defaultSort: { by: 'mean' } },
                                 },
                             }}
                         />
