@@ -69,6 +69,15 @@ const FULL_CONTEXT: ExperimentSetupContextResponseApi = {
             libs_on_any_event_truncated: false,
         },
     },
+    project_traffic: {
+        status: 'ok',
+        data: {
+            window_days: 30,
+            computed_at: COMPUTED_AT,
+            test_accounts_filtered: true,
+            unique_persons: 58_460,
+        },
+    },
     target_surface: {
         status: 'ok',
         data: {

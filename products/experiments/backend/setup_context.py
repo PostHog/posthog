@@ -126,6 +126,9 @@ PRODUCT_DEFAULT_CONFIDENCE_LEVEL: Final = 0.95
 SDK_PROFILE_WINDOW_DAYS: Final = 7
 # The any-event fallback reads every event rather than flag calls only, so it stays short.
 SDK_ANY_EVENT_WINDOW_DAYS: Final = 1
+PROJECT_TRAFFIC_WINDOW_DAYS: Final = 30
+# The events web and mobile SDKs send for a page or a screen view.
+PROJECT_TRAFFIC_EVENTS: Final[tuple[str, ...]] = ("$pageview", "$screen")
 TARGET_WINDOW_DAYS: Final = 14
 SDK_PROFILE_MAX_LIBS: Final = 10
 # The event properties that the SDK profile's queries read. Keep it in step with `_compute_sdk_profile` and
@@ -148,6 +151,7 @@ SHARED_METRIC_EVENT_MATCH_SCAN_LIMIT: Final = 500
 
 QUERY_TIMEOUT_SECONDS: Final = 20
 SDK_PROFILE_CACHE_TTL: Final = 6 * 60 * 60
+PROJECT_TRAFFIC_CACHE_TTL: Final = 60 * 60
 TARGET_CACHE_TTL: Final = 60 * 60
 
 MEAN_COUNT_NOTE: Final = "events counted in the whole window, not only after the first target event"
@@ -256,6 +260,14 @@ class SdkProfile:
     evaluated_on_server_and_web: bool
     libs_on_any_event: list[LibActivity] | None
     libs_on_any_event_truncated: bool
+
+
+@frozen
+class ProjectTraffic:
+    window_days: int
+    computed_at: datetime
+    test_accounts_filtered: bool
+    unique_persons: int
 
 
 @frozen
@@ -415,6 +427,7 @@ class SharedMetrics:
 class ExperimentSetupContext:
     team_defaults: SetupContextSection[TeamDefaults]
     sdk_profile: SetupContextSection[SdkProfile]
+    project_traffic: SetupContextSection[ProjectTraffic]
     target_surface: SetupContextSection[TargetSurface]
     candidate_metric: SetupContextSection[CandidateMetric]
     previous_experiments: SetupContextSection[PreviousExperiments]
@@ -468,6 +481,7 @@ def build_setup_context(
     return ExperimentSetupContext(
         team_defaults=_run_section("team_defaults", team, lambda: get_team_defaults(team), on_section),
         sdk_profile=_run_section("sdk_profile", team, lambda: get_sdk_profile(team), on_section),
+        project_traffic=_run_section("project_traffic", team, lambda: get_project_traffic(team), on_section),
         target_surface=(
             _run_section("target_surface", team, lambda: get_target_surface(team, inputs), on_section)
             if inputs.target_event
@@ -803,33 +817,82 @@ def _metric_conditions(team: Team, inputs: SetupContextInputs) -> list[ast.Expr]
     return [_event_is(inputs.metric_event), *_property_conditions(inputs.metric_properties, team)]
 
 
+def _test_account_cache_inputs(team: Team) -> dict[str, Any]:
+    # The test-account filters belong in the key: editing them changes every count that filters
+    # them, and an hour of a stale answer would hide the edit.
+    return {
+        "filter_test_accounts": bool(_new_experiment_exposure_criteria().get("filterTestAccounts")),
+        "test_account_filters": team.test_account_filters if isinstance(team.test_account_filters, list) else [],
+    }
+
+
 def _target_cache_inputs(team: Team, inputs: SetupContextInputs) -> dict[str, Any]:
-    # The test-account filters belong in the key: editing them changes every count below, and an
-    # hour of a stale answer would hide the edit.
     return {
         "target_event": inputs.target_event,
         "target_url_contains": inputs.target_url_contains,
         "target_properties": list(inputs.target_properties),
         "metric_event": inputs.metric_event,
         "metric_properties": list(inputs.metric_properties),
-        "filter_test_accounts": bool(_new_experiment_exposure_criteria().get("filterTestAccounts")),
-        "test_account_filters": team.test_account_filters if isinstance(team.test_account_filters, list) else [],
+        **_test_account_cache_inputs(team),
     }
 
 
 def clear_cached_sections(team: Team, inputs: SetupContextInputs) -> None:
     """Drop the cached ClickHouse sections for this team and these inputs.
 
-    A caller that measures how long a section takes needs a cold read. The three cached sections
-    answer from the cache for hours, so a second measurement of the same team reports the cache.
+    A caller that measures how long a section takes needs a cold read. The cached sections answer
+    from the cache for an hour or more, so a second measurement of the same team reports the cache.
     """
     target_inputs = _target_cache_inputs(team, inputs)
     for section, key_inputs in (
         ("sdk_profile", {}),
+        ("project_traffic", _test_account_cache_inputs(team)),
         ("target_surface", target_inputs),
         ("candidate_metric", target_inputs),
     ):
         safe_cache_delete(_cache_key(team, section, key_inputs))
+
+
+def get_project_traffic(team: Team) -> ProjectTraffic:
+    return _cached(
+        _cache_key(team, "project_traffic", _test_account_cache_inputs(team)),
+        PROJECT_TRAFFIC_CACHE_TTL,
+        lambda: _compute_project_traffic(team),
+    )
+
+
+def _compute_project_traffic(team: Team) -> ProjectTraffic:
+    """How many people view a page or a screen anywhere in the project.
+
+    It needs no input, so the caller learns how much traffic the project has before it knows which
+    surface to test. Test accounts are left out the same way `target_surface` leaves them out.
+    """
+    window = TimeWindow.ending_now(PROJECT_TRAFFIC_WINDOW_DAYS)
+    test_account_conditions = _test_account_conditions(team)
+    rows = _run_query(
+        team,
+        "ExperimentSetupContextProjectTraffic",
+        "SELECT uniq(person_id) FROM events WHERE {where}",
+        {
+            "where": _and(
+                [
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value=list(PROJECT_TRAFFIC_EVENTS)),
+                    ),
+                    *window.conditions(),
+                    *test_account_conditions,
+                ]
+            )
+        },
+    )
+    return ProjectTraffic(
+        window_days=PROJECT_TRAFFIC_WINDOW_DAYS,
+        computed_at=window.end,
+        test_accounts_filtered=bool(test_account_conditions),
+        unique_persons=int(rows[0][0]) if rows else 0,
+    )
 
 
 def get_target_surface(team: Team, inputs: SetupContextInputs) -> TargetSurface:
