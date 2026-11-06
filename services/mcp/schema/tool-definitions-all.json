@@ -12253,7 +12253,7 @@
         "feature_entitlement": "2fa_enforcement"
     },
     "organization-events-retention-deletion-count": {
-        "description": "Count the events that the next monthly cleanup would delete if the organization kept events for `retention_months` months, summed over the projects without their own period. Projects with their own period are left out, because the organization's period doesn't apply to them. Call it before organization-events-retention-update-prepare and tell the user the count. The cleanup deletes whole calendar months, so the count covers the events from before the start of the month that holds the date `retention_months` months before the next cleanup.\n\nThe count only includes events that queries can still return, and it can be up to a day old. A 504 means the count took too long. Tell the user the count isn't available, and don't retry in a loop. Organization admins only.",
+        "description": "Count the events that the next monthly cleanup would delete if the organization kept events for `retention_months` months, summed over the projects without their own period. Projects with their own period are left out, because the organization's period doesn't apply to them. Call it before organization-events-retention-update-prepare and tell the user the count. The cleanup deletes whole calendar months, so the count covers the events from before the start of the month that holds the date `retention_months` months before the next cleanup.\n\nThe count only includes events that queries can still return, and it can be up to a day old.",
         "category": "Product analytics",
         "feature": "product_analytics",
         "summary": "Count the events an organization's retention period would delete",

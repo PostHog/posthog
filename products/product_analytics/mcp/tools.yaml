@@ -533,9 +533,7 @@ tools:
             `retention_months` months before the next cleanup.
 
 
-            The count only includes events that queries can still return, and it can be up to a day old. A 504 means the
-            count took too long. Tell the user the count isn't available, and don't retry in a loop. Organization admins
-            only.
+            The count only includes events that queries can still return, and it can be up to a day old.
     organization-events-retention-get:
         operation: organization_events_retention_retrieve
         enabled: true
