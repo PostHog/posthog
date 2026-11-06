@@ -222,6 +222,7 @@ export const FEATURE_FLAGS = {
     SCOUTS_MODEL_CONFIG: 'scouts-model-config', // owner: #team-self-driving, gates the per-scout model pin in the inbox scout settings (also checked server-side)
     SCOUTS_TOOL_ACCESS: 'scouts-tool-access', // owner: #team-self-driving, gates the per-scout MCP tool list in the inbox scout settings (also checked server-side)
     SELF_DRIVING_FREE_TRIAL: 'self-driving-free-trial', // owner: #team-self-driving, the org is on a Self-driving free trial: reports only, no pull requests (also checked server-side)
+    SELF_DRIVING_GITHUB_ACCESS_EXPLANATION: 'self-driving-github-access-explanation',
     SELF_DRIVING_GITHUB_OPTIONAL: 'self-driving-github-optional',
     SELF_DRIVING_QUOTA_ENFORCEMENT: 'self-driving-quota-enforcement', // owner: #team-self-driving, gates self-driving PR-limit enforcement (also checked server-side)
     SELF_DRIVING_UBP: 'self-driving-ubp', // owner: #team-self-driving
@@ -426,6 +427,7 @@ export const FEATURE_FLAGS = {
     MAX_WEB_ANALYTICS_NUDGE: 'posthog-ai-web-analytics-nudge', // owner: @jordanm-posthog #team-web-analytics
     MCP_ANALYTICS_INTENT_ROUTING: 'mcp-analytics-intent-routing', // owner: #project-mcp-analytics
     MCP_ANALYTICS_LEADERBOARD_HOME: 'mcp-analytics-leaderboard-home', // owner: #team-mcp-analytics, trial of the public leaderboard layout on the MCP analytics home tab
+    MCP_ANALYTICS_SETUP_MODE: 'mcp-analytics-setup-mode', // owner: #team-mcp-analytics, the fullscreen setup walkthrough after a user picks an install route
     MCP_GATEWAY: 'mcp-gateway', // owner: #team-context-mcp — gates the MCP gateway UI AND backend enforcement of built-in agent MCP access (delegated-only installs + restricted sandbox token scope); roll out by organization
     MEMBER_BILLING_USAGE_SPEND_READ_ACCESS: 'member-billing-usage-spend-read-access', // owner: @pawelcebula #team-billing, grants members read-only access to billing usage/spend tabs; owner-only-billing takes precedence
     MESSAGING_SES: 'messaging-ses', // owner #team-workflows
@@ -482,7 +484,6 @@ export const FEATURE_FLAGS = {
     PRODUCT_BUSINESS_KNOWLEDGE: 'product-business-knowledge', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_AI_SUGGESTION_ORGS: 'product-support-ai-suggestion-orgs', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_GITHUB_CHANNEL: 'product-support-github-channel', // owner: @veryayskiy #team-conversations
-    PRODUCT_SUPPORT_IMPORT_TICKETS: 'product-support-import-tickets', // owner: @veryayskiy #team-conversations
     PRODUCT_SUPPORT_REPLY_FILE_ATTACHMENTS: 'support-reply-file-attachments', // owner: #team-conversations, attach any file type to in-app ticket replies
     PRODUCT_SUPPORT_SIMPLIFIED_REPLIES: 'conversations-simplified-replies', // owner: @jonmcwest #team-conversations, composer header + one Send menu in place of draft mode
     PRODUCT_SUPPORT_SLACK_NOTIFY_ON_MEMBERS: 'product-support-slack-notify-on-members', // owner: @veryayskiy #team-conversations
@@ -629,7 +630,6 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_SENDING_TIER_REQUESTS: 'workflows-sending-tier-requests', // owner: @luke-belton #team-workflows, lets customers request a higher email sending tier
     WORKFLOWS_SUPABASE_AUTH_EMAILS: 'workflows-supabase-auth-emails', // owner: @luke-belton #team-workflows, send Supabase auth emails through transactional templates
     WORKFLOWS_SURVEY_STEP: 'workflows-survey-step', // owner: @dmarchuk #team-workflows
-    WORKFLOWS_TILE_CANVAS: 'workflows-tile-canvas', // owner: #team-workflows
     WORKFLOWS_TRANSACTIONAL_EMAIL_API: 'workflows-transactional-email-api', // owner: @mayteio #team-workflows
     XAA_AUTHENTICATION: 'xaa-authentication', // owner: @reecejones #team-platform-features
 } as const

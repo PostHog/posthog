@@ -10,6 +10,7 @@ from functools import cached_property, partial
 from typing import Any, Literal, cast
 
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
 from django.db.models import (
@@ -18,12 +19,14 @@ from django.db.models import (
     Count,
     Exists,
     F,
+    Func,
     IntegerField,
     OuterRef,
     Prefetch,
     Q,
     Subquery,
     Sum,
+    UUIDField,
     Value,
     When,
 )
@@ -156,6 +159,7 @@ from products.signals.backend.models import (
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.personal_ranking.config import PERSONAL_INBOX_RANKING_FLAG
+from products.signals.backend.personal_ranking.list_sort import PersonalListOrder, personal_list_order
 from products.signals.backend.personal_ranking.serve import serve_personal_ranking
 from products.signals.backend.pr_ci_status import pr_ci_statuses_for_references, rollup_ci_status
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
@@ -1397,9 +1401,20 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
             "type": "string",
             "nullable": True,
             "description": (
-                "The ranker that ordered the page when sort=recommended: priority, or open, action or fix "
-                "for that outcome of the served ranking model. Null for every other sort. Each row's "
+                "The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, "
+                "action or fix for that outcome of the served ranking model. For sort=personal it is personal "
+                "when your stored personal ranking ordered the page. Null for every other sort. Each row's "
                 "inbox_merge_key belongs to this ranker."
+            ),
+        }
+        paginated["properties"]["ranking_id"] = {
+            "type": "string",
+            "format": "uuid",
+            "nullable": True,
+            "description": (
+                "The stored personal ranking that ordered the page when sort=personal. Pass it back as "
+                "ranking_id on later pages, so a new ranking does not reorder them. Null when no personal "
+                "ranking applied, and for every other sort."
             ),
         }
         paginated["properties"]["count_is_capped"] = {
@@ -1413,8 +1428,8 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
             "type": "boolean",
             "nullable": True,
             "description": (
-                "Whether the client shows a ranking score pill on each card, when sort=recommended. "
-                "The same flag arm sets this and the ranker. Null for every other sort."
+                "Whether the client shows a ranking score pill on each card, when sort=recommended or "
+                "sort=personal. The same flag arm sets this and the ranker. Null for every other sort."
             ),
         }
         return paginated
@@ -1605,11 +1620,14 @@ _REPORT_LIST_PARAMETERS = [
         location=OpenApiParameter.QUERY,
         required=False,
         description=(
-            "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when "
-            "ordering is supplied. recommended resolves per user to a ranker: the priority order, or "
+            "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored "
+            "when ordering is supplied. recommended resolves per user to a ranker: the priority order, or "
             "the open, action or fix outcome of the served ranking model, highest score first, with "
             "unscored and stale reports in priority order after the scored ones. The response's ranker "
-            "field names the one used, and its ranking_pill field says whether to show score pills."
+            "field names the one used, and its ranking_pill field says whether to show score pills. "
+            "personal puts the reports of your stored personal ranking first, by rank, then the reports it "
+            "folded, then every other report in your recommended order. It only reads the stored ranking "
+            "and never starts a build. With no stored personal ranking, it is the recommended order."
         ),
     ),
     OpenApiParameter(
@@ -1756,6 +1774,8 @@ class SignalReportViewSet(
         "priority": PRIORITY_ORDERING,
         # A feature flag resolves this preset per user. See `_recommended_arm`.
         "recommended": PRIORITY_ORDERING,
+        # `_personal_order` puts the stored ranking before the recommended arm's order.
+        "personal": PRIORITY_ORDERING,
         "last_updated": "-updated_at,status",
         "newest": "-created_at,status,-updated_at",
         "oldest": "created_at,status,-updated_at",
@@ -2509,7 +2529,6 @@ class SignalReportViewSet(
         if inbox_view == "needs_decision":
             return queryset.filter(
                 Q(status=SignalReport.Status.FAILED)
-                | Q(status__in=[SignalReport.Status.MONITORING] if self._report_monitoring_enabled else [])
                 | (
                     Q(
                         status__in=[SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT],
@@ -2765,13 +2784,35 @@ class SignalReportViewSet(
     @cached_property
     def _recommended_arm(self) -> RecommendedArm | None:
         params = self.request.query_params
-        if params.get("ordering") is not None or params.get("sort") != "recommended":
+        inbox_sort = params.get("sort")
+        if params.get("ordering") is not None or inbox_sort not in ("recommended", "personal"):
             return None
-        return resolve_recommended_arm(self.team, cast(User, self.request.user))
+        # The personal sort only borrows the arm's order, so it records no exposure for the experiment.
+        return resolve_recommended_arm(
+            self.team, cast(User, self.request.user), send_feature_flag_events=inbox_sort == "recommended"
+        )
+
+    @cached_property
+    def _personal_order(self) -> PersonalListOrder | None:
+        request = self.request
+        user = request.user
+        if (
+            self._recommended_arm is None
+            or request.query_params.get("sort") != "personal"
+            or is_service_auth(request)
+            or not isinstance(user, User)
+            or not user_flag_enabled(PERSONAL_INBOX_RANKING_FLAG, user, self.team)
+        ):
+            return None
+        return personal_list_order(self.team, user, request.query_params.get("ranking_id"))
 
     @property
-    def _inbox_ranker(self) -> InboxRanker | None:
+    def _base_inbox_ranker(self) -> InboxRanker | None:
         return self._recommended_arm.ranker if self._recommended_arm is not None else None
+
+    @property
+    def _inbox_ranker(self) -> str | None:
+        return "personal" if self._personal_order is not None else self._base_inbox_ranker
 
     def _parse_signal_report_ordering(self) -> list[str]:
         arm = self._recommended_arm
@@ -2800,6 +2841,17 @@ class SignalReportViewSet(
             clauses = [*clauses, "id"]
         ranking_annotations = {self._SIGNAL_REPORT_ORDERING_FIELDS[field] for field in self._RANKING_ORDERING_HEADS}
         order_by: list[str | OrderBy] = []
+        personal_order = self._personal_order
+        if personal_order is not None:
+            queryset = queryset.annotate(
+                personal_rank=Func(
+                    Value(list(personal_order.report_ids), output_field=ArrayField(UUIDField())),
+                    F("id"),
+                    function="array_position",
+                    output_field=IntegerField(),
+                )
+            )
+            order_by.append(F("personal_rank").asc(nulls_last=True))
         for clause in clauses:
             name = clause.lstrip("-")
             if name in ranking_annotations:
@@ -3136,11 +3188,13 @@ class SignalReportViewSet(
         if count_only:
             # A count orders nothing, so it must not record a flag exposure for the ranker.
             self._recommended_arm = None
+            self._personal_order = None
         with trial_state_errors():
             store = trial_store_for_request(request, self.team_id)
             if store is not None:
                 # Private trial reads compare against the priority order, never a flag arm.
                 self._recommended_arm = None
+                self._personal_order = None
                 return TrialInboxReads(self, store).list(
                     count_only=count_only, include_source_metadata=include_source_metadata
                 )
@@ -3209,6 +3263,7 @@ class SignalReportViewSet(
             response.data["ranking_pill"] = (
                 self._recommended_arm.ranking_pill if self._recommended_arm is not None else None
             )
+            response.data["ranking_id"] = self._personal_order.ranking_id if self._personal_order is not None else None
             return response
         return Response(data)
 
@@ -3313,7 +3368,8 @@ class SignalReportViewSet(
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
             **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
-            "inbox_ranker": self._inbox_ranker,
+            "inbox_ranker": self._base_inbox_ranker,
+            "personal_order": self._personal_order,
             "source_issues_map": source_issues_by_report(team_id=self.team_id, report_ids=report_ids),
         }
         serializer = self.get_serializer(reports, many=True, context=context)
@@ -4743,7 +4799,9 @@ class SignalReportViewSet(
                     "the current billing period, or the report is system-marked never-billable."
                 )
             ),
+            403: OpenApiResponse(description="PR refunds are not available with usage-based pricing."),
             404: OpenApiResponse(description="Report not found, or refunds are not enabled for this organization."),
+            503: OpenApiResponse(description="Pricing could not be determined. Retry the request."),
         },
         summary="Refund a report's implementation PR",
         description=(
@@ -4761,6 +4819,20 @@ class SignalReportViewSet(
     def refund(self, request: ValidatedRequest, pk=None, **kwargs):
         if not self._signals_pr_refunds_enabled():
             raise NotFound("PR refunds are not enabled for this organization.")
+
+        org_id = str(self.organization.id)
+        usage_based_pricing = posthoganalytics.feature_enabled(
+            "self-driving-ubp",
+            org_id,
+            groups={"organization": org_id},
+            group_properties={"organization": {"id": org_id}},
+        )
+        if usage_based_pricing is True:
+            raise exceptions.PermissionDenied("PR refunds are not available with usage-based pricing.")
+        if usage_based_pricing is not False:
+            return Response(
+                {"detail": "Unable to determine pricing. Please try again."}, status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
 
         report = cast(SignalReport, self.get_object())
         data = request.validated_data
