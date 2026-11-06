@@ -32548,6 +32548,13 @@ class HogQLQuery(BaseModel):
     kind: Literal["HogQLQuery"] = "HogQLQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = Field(default=None, description="Client provided name of the query")
+    offset: conint(ge=0) | None = Field(
+        default=None,
+        description=(
+            "Rows to skip before the default row limit applies. Rejected when the query"
+            " sets its own LIMIT, uses UNION, or runs as raw SQL."
+        ),
+    )
     query: str
     response: HogQLQueryResponse | None = None
     sendRawQuery: bool | None = Field(
