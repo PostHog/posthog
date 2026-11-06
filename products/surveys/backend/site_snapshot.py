@@ -91,6 +91,7 @@ class SiteSnapshot:
     status: SnapshotStatus
     exported_asset_id: int | None = None
     page_url: str | None = None
+    viewport_width: int | None = None
 
 
 UNAVAILABLE = SiteSnapshot(status=SnapshotStatus.UNAVAILABLE)
@@ -296,6 +297,7 @@ def _snapshot_of(asset: ExportedAsset) -> SiteSnapshot:
         status=SnapshotStatus.READY if asset.has_content else SnapshotStatus.RENDERING,
         exported_asset_id=asset.id,
         page_url=cache.get(_page_url_cache_key(asset)),
+        viewport_width=(asset.export_context or {})["width"],
     )
 
 
