@@ -106,25 +106,12 @@ function inputTexts(
         .flatMap(([, input]) => textLeaves(isRecord(input) ? input.value : null))
 }
 
-// The hog source is not loaded for a destination.
-function computePublicTexts(hogFunction: CheckedHogFunction): Set<string> {
+function publicTexts(hogFunction: CheckedHogFunction): Set<string> {
     return new Set([
         ...textLeaves(hogFunction.bytecode),
         ...inputTexts(hogFunction.inputs, hogFunction.inputs_schema),
         ...(hogFunction.mappings ?? []).flatMap((mapping) => inputTexts(mapping.inputs, mapping.inputs_schema)),
     ])
-}
-
-// The manager loads a new object when a function changes, so the set stays valid for the life of the object.
-const publicTextsByFunction = new WeakMap<CheckedHogFunction, Set<string>>()
-
-function publicTexts(hogFunction: CheckedHogFunction): Set<string> {
-    let texts = publicTextsByFunction.get(hogFunction)
-    if (!texts) {
-        texts = computePublicTexts(hogFunction)
-        publicTextsByFunction.set(hogFunction, texts)
-    }
-    return texts
 }
 
 function originOutcome(allowedOrigins: unknown, origin: string): SecretOriginOutcome {
