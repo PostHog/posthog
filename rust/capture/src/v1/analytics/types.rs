@@ -463,7 +463,7 @@ impl Publishable for WrappedEvent {
             dlq_step,
             dlq_timestamp,
             content_encoding: None,
-            legacy_property_splice: Some(true),
+            legacy_property_splice: ctx.legacy_property_splice.then_some(true),
         }
     }
 
