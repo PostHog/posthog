@@ -117,7 +117,6 @@ class TestSecretOriginsBackfill(BaseTest):
                 {"token": KEPT_TOKEN},
                 {"value": "secret-legacy", "allowed_origins": ["https://api.example.com"]},
             ),
-            ("already_bound", KEPT_TOKEN, None, KEPT_TOKEN),
         ]
     )
     def test_commit_moves_a_plaintext_secret_into_the_encrypted_column_and_binds_it(
@@ -137,6 +136,17 @@ class TestSecretOriginsBackfill(BaseTest):
         hog_function.refresh_from_db()
         assert hog_function.inputs == {}
         assert hog_function.encrypted_inputs == {**(stored_secrets or {}), "api_key": expected_secret}
+        assert (report.rows_written, report.rows_failed) == (1, 0)
+
+    def test_commit_moves_a_plaintext_secret_that_records_its_origins_without_rebinding_it(self) -> None:
+        hog_function = self._function(LIVE_HOG, {"api_key": KEPT_TOKEN})
+        HogFunction.objects.filter(pk=hog_function.pk).update(inputs={"api_key": KEPT_TOKEN}, encrypted_inputs=None)
+
+        report = self._commit()
+
+        hog_function.refresh_from_db()
+        assert (hog_function.inputs, hog_function.encrypted_inputs) == ({}, {"api_key": KEPT_TOKEN})
+        assert report.outcomes == Counter({SecretOutcome.ALREADY_BOUND: 1})
         assert (report.rows_written, report.rows_failed) == (1, 0)
 
     def test_skips_a_row_whose_encrypted_inputs_no_key_decrypts(self) -> None:
