@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 import type { ApiKeyAccess } from '@posthog/mcp/src/cli/library-types'
 
-import type { WorkloadProvider } from '@/ci/providers'
+import type { WorkloadProvider } from '@/ci/providers/registry'
 import { HogError } from '@/core/errors'
 import { parseJsonOrUndefined } from '@/core/json'
 import type { Runtime } from '@/core/runtime'

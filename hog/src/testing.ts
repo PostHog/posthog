@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
 
-import type { WorkloadProvider } from '@/ci/providers'
+import type { WorkloadProvider } from '@/ci/providers/registry'
 import { parseJson, parseJsonOrUndefined } from '@/core/json'
 import type { Prompts } from '@/core/prompts'
 import type { Env, Runtime, Secrets } from '@/core/runtime'
@@ -332,6 +332,5 @@ export const FAKE_WORKLOAD_PROVIDER: WorkloadProvider = {
     nameFromRemote: (remote) => remote.match(/ci\.example\.com[:/](.+?)(?:\.git)?$/)?.[1],
     branchConditions: (branch) => ({ event_name: 'push', ref: `refs/heads/${branch}` }),
     environmentConditions: (environment) => ({ environment }),
-    snippet: ({ host, projectId }) =>
-        `fake-ci:\n  oidc: true\n  env:\n    HOG_HOST: ${host}\n    HOG_PROJECT_ID: ${projectId}`,
+    snippet: () => 'fake-ci:\n  oidc: true',
 }
