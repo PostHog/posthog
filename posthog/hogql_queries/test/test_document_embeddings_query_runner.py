@@ -6,6 +6,10 @@ from zoneinfo import ZoneInfo
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
 from posthog.schema import (
     DateRange,
     DistanceFunc,
@@ -54,7 +58,9 @@ def build_document_similarity_query(
 
 class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     # Must track real now(): the tables carry a 3-month real-clock TTL on timestamp, so a fixed past date seeds already-expired rows.
-    base_timestamp = datetime.now(tz=ZoneInfo("UTC")) - timedelta(hours=1)
+    base_timestamp = datetime.now(tz=ZoneInfo("UTC")).replace(hour=23, minute=57, second=0, microsecond=0) - timedelta(
+        days=1
+    )
     product_documents = (
         ("product_a", "document_a", "doc_product_a"),
         ("product_b", "document_b", "doc_product_b"),
@@ -261,3 +267,16 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             and top_result.document_type == origin_document.document_type
             and top_result.document_id == origin_document.document_id
         )
+
+
+class TestDocumentEmbeddingsDateRange(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("2026-01-14", datetime(2026, 1, 14, 23, 59, 59, 999999, tzinfo=ZoneInfo("UTC"))),
+            ("2026-1-4", datetime(2026, 1, 4, 23, 59, 59, 999999, tzinfo=ZoneInfo("UTC"))),
+            ("2026-01-14T00:00:00", datetime(2026, 1, 14, tzinfo=ZoneInfo("UTC"))),
+            ("2026-01-14T12:30:00+02:00", datetime(2026, 1, 14, 10, 30, tzinfo=ZoneInfo("UTC"))),
+        ]
+    )
+    def test_date_to(self, date_to: str, expected: datetime) -> None:
+        self.assertEqual(DocumentEmbeddingsQueryRunner.parse_relative_date_to(date_to), expected)
