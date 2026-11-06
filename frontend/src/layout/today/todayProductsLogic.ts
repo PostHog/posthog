@@ -61,14 +61,14 @@ export interface todayProductsLogicActions {
     } // projectTreeDataLogic
     productOpened: (
         item: FileSystemImport,
-        section: 'pinned' | 'starred' | 'all',
+        section: 'all' | 'pinned' | 'starred',
         category: string | null,
         position: number
     ) => {
-        item: FileSystemImport
-        section: 'pinned' | 'starred' | 'all'
         category: string | null
+        item: FileSystemImport
         position: number
+        section: 'all' | 'pinned' | 'starred'
     }
     setAllProductsOpen: (open: boolean) => {
         open: boolean
