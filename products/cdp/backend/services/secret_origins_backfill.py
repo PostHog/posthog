@@ -50,7 +50,6 @@ class SecretOutcome(StrEnum):
 @frozen
 class SecretOriginsPlan:
     encrypted_inputs: Optional[dict[str, Any]]
-    # Set only when a plaintext secret moves out of `inputs`, so the write leaves `inputs` alone otherwise.
     inputs: Optional[dict[str, Any]] = None
     outcomes: list[SecretOutcome]
     has_unbound_secret: bool
@@ -146,7 +145,6 @@ def backfill_secret_origins(*, commit: bool, team_id: Optional[int] = None, batc
             Q(encrypted_inputs__isnull=False) | Q(inputs_schema__contains=[{"secret": True}]), deleted=False
         )
         .exclude(type__in=TYPES_WITH_JAVASCRIPT_SOURCE)
-        # A commit plans each row again under its lock, so the scan loads only what the report needs.
         .only(*(_SCANNED_FIELDS if commit else _PLANNED_FIELDS))
         .order_by("id")
     )
