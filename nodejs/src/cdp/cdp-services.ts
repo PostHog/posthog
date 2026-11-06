@@ -48,7 +48,10 @@ import { MessageAssetsService } from './services/messaging/message-assets.servic
 import { PushNotificationService } from './services/messaging/push-notification.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
-import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
+import {
+    HogFunctionMonitoringService,
+    parseInternalLogsSources,
+} from './services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
 import { WorkflowsActivationReporter } from './services/monitoring/workflows-activation-reporter'
@@ -183,7 +186,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
         | 'EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE'
         | 'EMAIL_TEAM_SENDING_CAP_MODE'
-        | 'EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER'
         | 'EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER'
         | 'CDP_EMAIL_UTM_LINK_SCANNER_TEAMS'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
@@ -489,7 +491,6 @@ export function createCdpCoreServices(
             sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
             sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
             teamEmailCapMode: parseTeamEmailCapMode(config.EMAIL_TEAM_SENDING_CAP_MODE),
-            teamEmailTierHourlyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER),
             teamEmailTierDailyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER),
             utmLinkScannerTeams: config.CDP_EMAIL_UTM_LINK_SCANNER_TEAMS,
         },
@@ -594,11 +595,7 @@ export function createCdpCoreServices(
         { awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED }
     )
 
-    const internalLogsSources = new Set(
-        config.CDP_INTERNAL_LOGS_SOURCES.split(',')
-            .map((source) => source.trim())
-            .filter(Boolean)
-    )
+    const internalLogsSources = parseInternalLogsSources(config.CDP_INTERNAL_LOGS_SOURCES)
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(
         outputs,
         internalLogsSources.size > 0 ? new InternalLogsProducer(config, deps.teamManager) : undefined,

@@ -45,6 +45,22 @@ export function creationChecklist(input: ChecklistInput): ChecklistItem[] {
             summary: evaluation.name.trim(),
         },
     ]
+    if (evaluation.evaluation_type !== 'sentiment') {
+        items.push({
+            key: 'result',
+            label: 'Result',
+            done: input.resultError === null,
+            todo: input.resultError ?? '',
+            summary: templateOutputText(evaluation),
+        })
+    }
+    items.push({
+        key: 'sampling',
+        label: 'Sampling',
+        done: !input.hasUnsetSampling,
+        todo: 'Set a sampling percentage between 0.1% and 100%',
+        summary: capitalizeFirstLetter(triggerText(evaluation)),
+    })
     if (evaluation.evaluation_type === 'llm_judge' || evaluation.evaluation_type === 'hog') {
         const content =
             evaluation.evaluation_type === 'llm_judge'
@@ -60,15 +76,6 @@ export function creationChecklist(input: ChecklistInput): ChecklistItem[] {
             ...CRITERIA[evaluation.evaluation_type],
         })
     }
-    if (evaluation.evaluation_type !== 'sentiment') {
-        items.push({
-            key: 'result',
-            label: 'Result',
-            done: input.resultError === null,
-            todo: input.resultError ?? '',
-            summary: templateOutputText(evaluation),
-        })
-    }
     if (input.modelSelectionRequired) {
         items.push({
             key: 'model',
@@ -80,13 +87,6 @@ export function creationChecklist(input: ChecklistInput): ChecklistItem[] {
             summary: evaluation.model_configuration?.model,
         })
     }
-    items.push({
-        key: 'sampling',
-        label: 'Sampling',
-        done: !input.hasUnsetSampling,
-        todo: 'Set a sampling percentage between 0.1% and 100%',
-        summary: capitalizeFirstLetter(triggerText(evaluation)),
-    })
     return items
 }
 

@@ -20,7 +20,7 @@ export function EvaluationCreateReview({
     /** Goes to the step that sets an item. */
     onFix: (key: ChecklistKey) => void
 }): JSX.Element | null {
-    const { evaluation, canEnableReason, checkPastTraffic } = useValues(llmEvaluationLogic)
+    const { evaluation, checkPastTraffic } = useValues(llmEvaluationLogic)
     const { setCheckPastTraffic } = useActions(llmEvaluationLogic)
     const { volume } = useValues(evaluationVolumeLogic)
 
@@ -80,7 +80,7 @@ export function EvaluationCreateReview({
             )}
             {!evaluation.enabled && (
                 <p className="mb-0 text-sm text-secondary">
-                    {`It is created paused. ${canEnableReason ?? ''} Then turn it on from its page.`}
+                    It starts paused until you add a provider API key. Then turn it on from its page.
                 </p>
             )}
         </div>

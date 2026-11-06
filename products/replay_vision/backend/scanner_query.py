@@ -7,9 +7,8 @@ filter, so they share these rules rather than each keeping a copy that can drift
 """
 
 import json
-from collections.abc import Callable
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import (
     BaseModel,
@@ -28,8 +27,11 @@ from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import existing_action_ids, readable_action_ids
 from products.cohorts.backend.models.cohort import Cohort
+
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 # A scanner's schedule owns time, so a saved filter never carries a date range.
 DATE_FIELDS = ("date_from", "date_to")
@@ -104,7 +106,7 @@ def replay_list_only_fields(query: dict[str, Any]) -> list[str]:
 
 
 def unresolved_references(
-    query: dict[str, Any], team: Team, *, can_read_action: Callable[[Action], bool] = lambda action: True
+    query: dict[str, Any], team: Team, *, access_control: "UserAccessControl | None" = None
 ) -> list[str]:
     """The actions and cohorts `query` names that a scan cannot load, described for the caller.
 
@@ -112,17 +114,19 @@ def unresolved_references(
     excluded, so a filter this accepts always builds. Without the check, the estimate fails the same
     way a timeout does, and a broken filter saves into a scanner whose runs keep failing.
 
-    An action `can_read_action` refuses reads as unresolved too, so the result never tells a caller
-    that an id they cannot read exists.
+    With `access_control`, an action the user cannot view counts as unresolved too, so the result never
+    tells a caller that an id they cannot read exists.
     """
     refs = query_references(query, team)
     action_ids = {ref for ref in refs.actions if isinstance(ref, int)}
     cohort_ids = {ref for ref in refs.cohorts if isinstance(ref, int)}
-    found_actions = {
-        action.id
-        for action in Action.objects.filter(pk__in=action_ids, team__project_id=team.project_id)
-        if can_read_action(action)
-    }
+    found_actions = (
+        readable_action_ids(
+            project_id=team.project_id, action_ids=action_ids, access_control=access_control, required_level="viewer"
+        )
+        if access_control is not None
+        else set(existing_action_ids(project_id=team.project_id, action_ids=action_ids))
+    )
     found_cohorts = set(
         Cohort.objects.filter(pk__in=cohort_ids, team__project_id=team.project_id, deleted=False).values_list(
             "id", flat=True

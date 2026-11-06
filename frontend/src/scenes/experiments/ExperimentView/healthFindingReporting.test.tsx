@@ -234,7 +234,7 @@ describe('health finding reporting', () => {
 
     it.each([
         {
-            pick: null,
+            pick: 'The experiment is paused',
             control: 'Open feature flag',
             step: 'acted on',
             code: 'flag_off_while_running',
@@ -251,9 +251,7 @@ describe('health finding reporting', () => {
         'reports $code as $step with $kind when a person uses "$control" in the health tab',
         async ({ pick, control, step, code, kind }) => {
             renderHealth(UNEVEN_EXPOSURES)
-            if (pick) {
-                await pickFromList(pick)
-            }
+            await pickFromList(pick)
             captureSpy.mockClear()
 
             await userEvent.click(screen.getByText(control))
@@ -267,6 +265,7 @@ describe('health finding reporting', () => {
             container: 'wide',
             isNarrow: false,
             expected: [
+                ['experiment health finding opened', 'flag_off_while_running'],
                 ['experiment health finding opened', 'srm'],
                 ['experiment health check expanded', 'no_metric'],
                 ['experiment health summary opened', undefined],
@@ -293,7 +292,7 @@ describe('health finding reporting', () => {
             narrowStyles.textContent = isNarrow ? '.hidden { display: none; }' : ''
             try {
                 renderHealth(UNEVEN_EXPOSURES)
-                expect(screen.getByText(/The linked feature flag is disabled/)).toBeInTheDocument()
+                expect(screen.getByText('Overview')).toBeInTheDocument()
                 const pickEvents = (): (string | undefined)[][] =>
                     captureSpy.mock.calls
                         .filter(([event]) =>

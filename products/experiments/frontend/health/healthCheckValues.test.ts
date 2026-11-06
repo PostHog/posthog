@@ -8,9 +8,7 @@ import {
     healthCheckShowsDecidingValue,
     healthExposureSplit,
     healthRuleReadings,
-    healthSummaryReadings,
 } from './healthCheckValues'
-import type { HealthPanelCheck } from './healthPanelChecks'
 
 const SRM_RULE: HealthCheckRule = {
     value: 'p_value',
@@ -27,13 +25,6 @@ const MULTIPLE_RULE: HealthCheckRule = {
     test: null,
     minimum: { value: 'multiple_variant_count', threshold: 5 },
 }
-
-const check = (
-    key: HealthPanelCheck['key'],
-    status: HealthPanelCheck['status'],
-    values: HealthPanelCheck['values'],
-    rule: HealthCheckRule | null = null
-): HealthPanelCheck => ({ key, name: key, description: '', status, reason: null, values, rule }) as HealthPanelCheck
 
 const exposures = (
     totalExposures: Record<string, number>,
@@ -186,28 +177,5 @@ describe('healthCheckValues', () => {
         { name: 'nothing without exposures', answer: exposures({ control: 0, test: 0 }), expected: null },
     ])('healthExposureSplit: $name', ({ answer, expected }) => {
         expect(healthExposureSplit(answer)).toEqual(expected)
-    })
-
-    it('healthSummaryReadings: picks each line from the check that read it', () => {
-        const checks = [
-            check('zero_exposures', 'passed', { exposed_count: 9602, since_launch_hours: 300 }),
-            check(
-                'srm',
-                'not_applicable',
-                { p_value: 0.0001, compared_count: 9199, multiple_variant_count: 403 },
-                SRM_RULE
-            ),
-            check('multiple_variants_share', 'passed', {
-                multiple_variant_count: 403,
-                multiple_variant_percentage: 4.2,
-            }),
-            check('metric_calculation_failed', 'passed', { metric_count: 3, completed_metric_count: 3 }),
-        ]
-
-        expect(healthSummaryReadings(checks, 'users')).toEqual([
-            { label: 'Exposed users', text: '9,602' },
-            { label: 'In more than one variant', text: '403 · 4.2%' },
-            { label: 'Metrics calculated', text: '3 of 3' },
-        ])
     })
 })

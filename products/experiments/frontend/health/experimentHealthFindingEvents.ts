@@ -229,7 +229,7 @@ export function captureExperimentHealthCheckExpanded(
     })
 }
 
-export function captureExperimentHealthSummaryOpened(
+export function captureExperimentHealthOverviewOpened(
     experiment: Experiment,
     checks: HealthPanelCheck[],
     findingCount: number,

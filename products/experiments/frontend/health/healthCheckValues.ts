@@ -254,24 +254,3 @@ export function healthExposureSplit(
         plannedPercentage: expected && plannedTotal > 0 ? (expected[variant] / plannedTotal) * 100 : null,
     }))
 }
-
-function findCheck(checks: HealthPanelCheck[], key: HealthPanelCheck['key']): HealthPanelCheck | undefined {
-    return checks.find((check) => check.key === key)
-}
-
-/** What the summary shows of the checks' values, from the checks that read each one. */
-export function healthSummaryReadings(checks: HealthPanelCheck[], units: string): HealthReading[] {
-    const srm = findCheck(checks, 'srm')
-    const pValue = numberValue(srm?.values, 'p_value')
-    const splitText =
-        srm && pValue !== null && (srm.status === 'passed' || srm.status === 'finding')
-            ? `${srm.status === 'passed' ? 'Matches' : "Doesn't match"}, ${formatPValue(pValue)}`
-            : null
-    return [
-        exposedReading(findCheck(checks, 'zero_exposures')?.values, units),
-        reading('Split against the plan', splitText),
-        multipleVariantReading(findCheck(checks, 'multiple_variants_share')?.values),
-        calculatedMetricsReading(findCheck(checks, 'metric_calculation_failed')?.values),
-        flagReading(findCheck(checks, 'flag_state')?.values),
-    ].filter((line): line is HealthReading => line !== null)
-}

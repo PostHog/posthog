@@ -17,6 +17,7 @@ from products.slack_app.backend.services.workspace_integrations import (
 from products.slack_app.backend.tests.conftest import SLACK_TEAM_ID, SLACK_USER_ID
 
 GITHUB_STEP = "products.slack_app.backend.logic.onboarding.github_step"
+TOOLS_STEP = "products.slack_app.backend.logic.onboarding.tools_step"
 ADMIN_SCOPES = "chat:write,users:read,users:read.email,channels:manage,channels:read,groups:read"
 
 
@@ -80,13 +81,24 @@ def test_each_button_on_a_step_reaches_a_handler(step: OnboardingStep, org_team_
 @pytest.mark.parametrize(
     "role, expected",
     [
-        ("member", ["link_account", "model", "replies_in_threads"]),
-        ("member_with_team_github", ["link_account", "github", "model", "replies_in_threads"]),
+        ("member", ["link_account", "model", "tools", "replies_in_threads"]),
+        ("member_with_team_github", ["link_account", "github", "model", "tools", "replies_in_threads"]),
         (
             "installer",
-            ["link_account", "ai_consent", "github", "inbox_channel", "sources", "model", "replies_in_threads"],
+            [
+                "link_account",
+                "ai_consent",
+                "github",
+                "inbox_channel",
+                "sources",
+                "channel_welcome",
+                "model",
+                "tools",
+                "replies_in_threads",
+            ],
         ),
-        ("linked_org_admin", ["ai_consent", "model", "replies_in_threads"]),
+        ("linked_org_admin", ["ai_consent", "model", "tools", "replies_in_threads"]),
+        ("linked_member_with_tools", ["model", "replies_in_threads"]),
     ],
 )
 def test_the_planned_steps_depend_on_the_role(role: str, expected: list[str], org_team_user, link_user) -> None:
@@ -96,10 +108,14 @@ def test_the_planned_steps_depend_on_the_role(role: str, expected: list[str], or
         OrganizationMembership.objects.filter(user=user, organization=org).update(
             level=OrganizationMembership.Level.ADMIN
         )
+    if role.startswith("linked_"):
         link_user(user)
     integration = _install(team, installer=SLACK_USER_ID if role == "installer" else None)
 
-    with patch(f"{GITHUB_STEP}.has_team_github", return_value=role == "member_with_team_github"):
+    with (
+        patch(f"{GITHUB_STEP}.has_team_github", return_value=role == "member_with_team_github"),
+        patch(f"{TOOLS_STEP}.get_active_installations", return_value=[object()] if role.endswith("_tools") else []),
+    ):
         plan = plan_onboarding(integration, SLACK_USER_ID)
 
     assert plan.post is not None and plan.post.planned == expected
