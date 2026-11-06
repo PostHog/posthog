@@ -5,6 +5,7 @@ import net, { AddressInfo } from 'node:net'
 import { register } from 'prom-client'
 
 import { getExternalRequestConfig } from '~/common/config'
+import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
@@ -497,6 +498,74 @@ async function withIsolatedRequest(run: (isolated: IsolatedRequest) => Promise<v
 }
 
 const dnsError = (code: string): Error => Object.assign(new Error(`getaddrinfo ${code} example.com`), { code })
+
+describe('busiest origin metric', () => {
+    it('keeps the peak between scrapes, counts waiting requests per origin, and resets after a scrape', async () => {
+        const held: http.ServerResponse[] = []
+        let holding = true
+        const handler = (_request: http.IncomingMessage, response: http.ServerResponse): void => {
+            if (holding) {
+                held.push(response)
+            } else {
+                response.end('ok')
+            }
+        }
+        const busyOrigin = http.createServer(handler)
+        const quietOrigin = http.createServer(handler)
+        await Promise.all(
+            [busyOrigin, quietOrigin].map(
+                (server) => new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+            )
+        )
+        const url = (server: http.Server): string => `http://127.0.0.1:${(server.address() as AddressInfo).port}/`
+
+        const originalConnections = process.env.EXTERNAL_REQUEST_CONNECTIONS
+        const originalNodeEnv = process.env.NODE_ENV
+        process.env.EXTERNAL_REQUEST_CONNECTIONS = '2'
+        process.env.NODE_ENV = 'test'
+        const setIntervalSpy = jest.spyOn(global, 'setInterval')
+        try {
+            await withIsolatedRequest(async ({ request }) => {
+                const registry: typeof register = require('prom-client').register
+                const scrape = async (): Promise<number> =>
+                    (await registry.getSingleMetric('node_external_request_busiest_origin_peak')!.get()).values[0].value
+
+                const responses = [
+                    request.fetch(url(busyOrigin)),
+                    request.fetch(url(busyOrigin)),
+                    request.fetch(url(busyOrigin)),
+                    request.fetch(url(quietOrigin)),
+                ]
+                // Two requests to the busy origin hold its connections, so its third request waits behind the cap.
+                await waitForExpect(() => expect(held).toHaveLength(3))
+
+                const sampler = setIntervalSpy.mock.calls.find(([, delay]) => delay === 1000)![0] as () => void
+                sampler()
+
+                holding = false
+                held.forEach((response) => response.end('ok'))
+                await Promise.all((await Promise.all(responses)).map((response) => response.text()))
+
+                await expect(scrape()).resolves.toBe(3)
+                await expect(scrape()).resolves.toBe(0)
+            })
+        } finally {
+            setIntervalSpy.mockRestore()
+            for (const [name, value] of [
+                ['EXTERNAL_REQUEST_CONNECTIONS', originalConnections],
+                ['NODE_ENV', originalNodeEnv],
+            ] as const) {
+                if (value === undefined) {
+                    delete process.env[name]
+                } else {
+                    process.env[name] = value
+                }
+            }
+            busyOrigin.close()
+            quietOrigin.close()
+        }
+    })
+})
 
 describe('DNS lookups', () => {
     it('resolves dotted hostnames as absolute names and leaves other names as given', async () => {
