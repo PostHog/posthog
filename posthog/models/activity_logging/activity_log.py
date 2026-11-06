@@ -882,6 +882,9 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "usage_dashboard",
         "analytics_dashboards",
         "flag_evaluation_contexts",
+        # FeatureFlagCodeAnalysis is team-scoped, so reading this relation for a diff hits the
+        # fail-closed manager. A code analysis does not change the flag, so the diff skips it.
+        "code_analyses",
     ],
     "Experiment": [
         "feature_flag",
@@ -939,6 +942,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "short_id",
         "insightviewed",
         "dashboardtile",
+        "explanations",
     ],
     "EventDefinition": [
         "eventdefinition_ptr_id",

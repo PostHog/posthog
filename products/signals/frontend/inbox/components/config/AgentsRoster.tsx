@@ -21,6 +21,7 @@ import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import type { CISignalsSyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
 import { isExternalSignalSource } from '../../externalSignalSources'
+import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { sourceSteeringIsSet } from '../../logics/sourceSteeringModalLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import type { SourceProductDataStatus, SourceProductStatus } from '../../signalSourcesLogic'
@@ -116,11 +117,19 @@ interface SourceFilters {
 
 /** Product analytics only: which firing alerts become signals. */
 interface SourceAlertScope {
+    options: typeof ALERT_SCOPE_OPTIONS
     value: SignalAlertScope
     onChange: (value: SignalAlertScope) => void
     /** False before the source was ever turned on, as the choice is stored on its config row. */
     canChange: boolean
     disabledReason?: string
+}
+
+/** Product analytics only: whether anomaly scoring runs while the source is on. */
+interface SourceAnomalyScoring {
+    enabled: boolean
+    onChange: (enabled: boolean) => void
+    saving: boolean
 }
 
 // Replaces the source detail while the alert scope control shows, since the default copy only covers investigated alerts.
@@ -136,8 +145,15 @@ const ALERT_SCOPE_OPTIONS: { value: SignalAlertScope; label: string; description
     {
         value: SignalAlertScope.AllFiringAlerts,
         label: 'All firing alerts',
-        description: 'Every insight alert that fires, including alerts without the investigation agent.',
+        description:
+            'Each time an insight alert starts firing, including alerts without the investigation agent. An alert that is already firing is included the next time it starts firing.',
         dataAttr: 'signal-source-alert-scope-all-firing-alerts',
+    },
+    {
+        value: SignalAlertScope.Off,
+        label: 'Off',
+        description: 'No alerts become signals. Alert checks, notifications, and investigations keep running.',
+        dataAttr: 'signal-source-alert-scope-off',
     },
 ]
 
@@ -244,6 +260,8 @@ interface ExpansionProps {
     onToggleEntity: (entityId: string) => void
     filters?: SourceFilters
     alertScope?: SourceAlertScope
+    /** Only set while the source is on for a project the anomaly scoring rollout covers. */
+    anomalyScoring?: SourceAnomalyScoring
     /** Opens the steering form. Only set for steerable sources that are on with a persisted config row. */
     onSteer?: () => void
     onRetryData: () => void
@@ -314,6 +332,7 @@ function Expansion({
     onToggleEntity,
     filters,
     alertScope,
+    anomalyScoring,
     onSteer,
     onRetryData,
 }: ExpansionProps): JSX.Element {
@@ -419,7 +438,7 @@ function Expansion({
                                 aria-label="Alerts that become signals"
                                 data-attr="signal-source-alert-scope"
                                 radioPosition="top"
-                                options={ALERT_SCOPE_OPTIONS.map(({ value, label, description, dataAttr }) => ({
+                                options={alertScope.options.map(({ value, label, description, dataAttr }) => ({
                                     value,
                                     label,
                                     description,
@@ -432,6 +451,24 @@ function Expansion({
                                 Turn on this source to choose which alerts become signals.
                             </span>
                         )}
+                    </div>
+                )}
+                {anomalyScoring && (
+                    <div className="flex items-start justify-between gap-3 pt-1">
+                        <div className="flex min-w-0 flex-col gap-0.5">
+                            <span className="text-xs font-semibold text-default">Anomaly scoring</span>
+                            <span className="text-xs text-secondary">
+                                Checks your active trends insights for anomalies and saves the results as $anomaly_score
+                                events, which are not billed. Turn it off to keep alert signals without scoring.
+                            </span>
+                        </div>
+                        <LemonSwitch
+                            checked={anomalyScoring.enabled}
+                            onChange={anomalyScoring.onChange}
+                            loading={anomalyScoring.saving}
+                            aria-label="Score active trends insights for anomalies"
+                            data-attr="signals-anomaly-scoring-enabled"
+                        />
                     </div>
                 )}
             </div>
@@ -524,6 +561,7 @@ interface AgentRowProps {
     onEnableProduct: (product: SourceProductStatus) => void
     filters?: SourceFilters
     alertScope?: SourceAlertScope
+    anomalyScoring?: SourceAnomalyScoring
     onSteer?: () => void
     onRetryData: () => void
 }
@@ -540,6 +578,7 @@ const AgentRow = memo(function AgentRow({
     onEnableProduct,
     filters,
     alertScope,
+    anomalyScoring,
     onSteer,
     onRetryData,
 }: AgentRowProps): JSX.Element {
@@ -664,6 +703,7 @@ const AgentRow = memo(function AgentRow({
                     onToggleEntity={(entityId) => onToggleEntity(agent.source, entityId)}
                     filters={filters}
                     alertScope={alertScope}
+                    anomalyScoring={anomalyScoring}
                     onSteer={onSteer}
                     onRetryData={onRetryData}
                 />
@@ -681,6 +721,8 @@ function AgentRosterGroupHeader({ group }: { group: AgentRosterGroup }): JSX.Ele
 }
 
 export function AgentsRoster(): JSX.Element {
+    const { anomalyScoringAvailable, anomalyScoringEnabled, teamConfigUpdating } = useValues(signalTeamConfigLogic)
+    const { patchTeamConfig } = useActions(signalTeamConfigLogic)
     const {
         externalSourceStates,
         rosterGroups,
@@ -947,14 +989,18 @@ export function AgentsRoster(): JSX.Element {
         [toggleScannerSignals, toggleErrorTrackingType]
     )
 
-    const showAlertScope = !!featureFlags[FEATURE_FLAGS.SIGNALS_ANALYTICS_ALL_ALERTS]
-    const alertScope = useMemo((): SourceAlertScope | undefined => {
-        if (!showAlertScope) {
-            return undefined
-        }
+    const allFiringAlertsEnabled = !!featureFlags[FEATURE_FLAGS.SIGNALS_ANALYTICS_ALL_ALERTS]
+    const alertScope = useMemo((): SourceAlertScope => {
         const blockedReason = stateFor('analytics').blockedReason
         return {
-            value: analyticsAlertScope,
+            options: allFiringAlertsEnabled
+                ? ALERT_SCOPE_OPTIONS
+                : ALERT_SCOPE_OPTIONS.filter(({ value }) => value !== SignalAlertScope.AllFiringAlerts),
+            // Without the flag the backend treats a stored all firing scope as investigated only.
+            value:
+                !allFiringAlertsEnabled && analyticsAlertScope === SignalAlertScope.AllFiringAlerts
+                    ? SignalAlertScope.InvestigatedOnly
+                    : analyticsAlertScope,
             onChange: setAnalyticsAlertScope,
             canChange: !!anomalyInvestigationConfig && !anomalyInvestigationConfig.id.startsWith('new_'),
             disabledReason:
@@ -962,7 +1008,7 @@ export function AgentsRoster(): JSX.Element {
                 (savingAnalyticsAlertScope !== null || isAnomalyInvestigationToggling ? 'Saving' : undefined),
         }
     }, [
-        showAlertScope,
+        allFiringAlertsEnabled,
         stateFor,
         analyticsAlertScope,
         setAnalyticsAlertScope,
@@ -970,6 +1016,20 @@ export function AgentsRoster(): JSX.Element {
         savingAnalyticsAlertScope,
         isAnomalyInvestigationToggling,
     ])
+
+    // `anomaly_scoring_available` only reports the rollout, so the source state gates the switch here.
+    const analyticsArmed = stateFor('analytics').armed
+    const anomalyScoring = useMemo(
+        (): SourceAnomalyScoring | undefined =>
+            analyticsArmed && anomalyScoringAvailable
+                ? {
+                      enabled: anomalyScoringEnabled,
+                      onChange: (enabled) => patchTeamConfig({ anomaly_scoring_enabled: enabled }),
+                      saving: teamConfigUpdating,
+                  }
+                : undefined,
+        [analyticsArmed, anomalyScoringAvailable, anomalyScoringEnabled, patchTeamConfig, teamConfigUpdating]
+    )
 
     const renderAgent = useCallback(
         (agent: AgentRosterDefinition): JSX.Element => {
@@ -1014,6 +1074,7 @@ export function AgentsRoster(): JSX.Element {
                     onEnableProduct={(product) => product.enablement && enableSourceProduct(product.enablement)}
                     filters={filters}
                     alertScope={agent.source === 'analytics' ? alertScope : undefined}
+                    anomalyScoring={agent.source === 'analytics' ? anomalyScoring : undefined}
                     onSteer={
                         steeringConfigs
                             ? () => setSteeringTarget({ configs: steeringConfigs, label: agent.label })
@@ -1037,6 +1098,7 @@ export function AgentsRoster(): JSX.Element {
             enableSourceProduct,
             loadProductDataEvents,
             alertScope,
+            anomalyScoring,
         ]
     )
 

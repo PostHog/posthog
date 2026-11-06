@@ -2129,6 +2129,7 @@ describe('exec tool', () => {
             ['experiment-get-all', 'experiment-list'],
             ['llma-tagger-create', 'llma-evaluation-create'],
             ['vision-scanners-suggest-tags', 'vision-scanners-update'],
+            ['warehouse-tables-create', 'data-warehouse-source-setup'],
         ])('throws redirect when calling deprecated %s', async (deprecated, replacement) => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: `call ${deprecated} {}` })).rejects.toThrow(

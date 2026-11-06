@@ -92,6 +92,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
     // visual-review, etc.) stay off to keep the surface stable.
     // agent-feedback is always_available and no longer flag-gated, so it appears regardless.
     const featureFlags = {
+        'self-driving-usage-display': true,
         tracing: true,
         'logs-agent-tools': true,
         tasks: true,
@@ -100,7 +101,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'agent-platform': true,
         'experiment-setup-context': true,
         'scout-trials': true,
-        'signals-report-checks-replace': true,
+        'signals-report-monitoring': true,
         'inbox-report-actions-mcp': true,
         'inbox-reports-create-mcp': true,
         'signals-reviewer-exclusions-mcp': true,
@@ -188,7 +189,7 @@ describe('Tool schema snapshots', () => {
             'query-retention': 46_000,
         }
         // About 1% over the measured total, so help_text edits pass and new tools need a reviewed raise.
-        const TOOLS_MODE_ROSTER_CHAR_BUDGET = 3_920_000
+        const TOOLS_MODE_ROSTER_CHAR_BUDGET = 3_965_000
 
         interface DescriptionCoverage {
             described: number

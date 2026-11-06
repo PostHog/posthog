@@ -21,9 +21,7 @@ import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
-import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { parseDashboardId } from 'scenes/dashboard/Dashboard'
-import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
 import {
     DashboardLoadAction,
     dashboardLogic,
@@ -32,7 +30,6 @@ import {
 } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
-import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -57,8 +54,11 @@ import {
     InsightModel,
 } from '~/types'
 
+import { addInsightToDashboardLogic } from 'products/dashboards/frontend/addInsightToDashboardModalLogic'
 import { DashboardGridCompaction, getDashboardGridCompactor } from 'products/dashboards/frontend/dashboardCustomization'
+import { dashboardInsightColorsModalLogic } from 'products/dashboards/frontend/dashboardInsightColorsModalLogic'
 import { dashboardTileGroupChoicesLogic } from 'products/dashboards/frontend/dashboardTileGroupChoicesLogic'
+import * as widgetFetchUtils from 'products/dashboards/frontend/widgetFetchUtils'
 
 import { dashboardResult, insightOnDashboard, tileFromInsight } from './dashboardLogic.testHelpers'
 
@@ -3762,6 +3762,29 @@ describe('dashboardLogic', () => {
                 }).toNotHaveDispatchedActions([
                     logic.actionCreators.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges),
                 ])
+
+                await expectLogic(logic, () => {
+                    logic.actions.cancelLayoutEdit()
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({ discardPromptOpen: true, layoutEditShortcutsEnabled: false })
+                expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
+
+                dialogOpenSpy.mock.calls[0][0].onAfterClose()
+                await expectLogic(logic, () => {
+                    logic.actions.cancelLayoutEdit()
+                }).toFinishAllListeners()
+                expect(dialogOpenSpy).toHaveBeenCalledTimes(2)
+            })
+
+            it.each([
+                ['a text tile dialog is open', (): void => logic.actions.openTextTileModal()],
+                ['an image tile dialog is open', (): void => logic.actions.openImageTileModal()],
+                ['a button tile dialog is open', (): void => logic.actions.openButtonTileModal()],
+                ['the add widget dialog is open', (): void => logic.actions.setAddWidgetModalOpen(true)],
+                ['a tile is carried', (): void => logic.actions.setCarryingTile(true)],
+            ])('turns off layout edit shortcuts while %s', async (_, open) => {
+                await expectLogic(logic, open).toMatchValues({ layoutEditShortcutsEnabled: false })
             })
 
             it('exits edit mode immediately when the prompt flag is off, even with unsaved layout changes', async () => {

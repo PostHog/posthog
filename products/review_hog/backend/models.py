@@ -600,8 +600,9 @@ class ReviewRepository(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
 
     `selected` includes the repository into this project, also when another project takes all
     repositories of the installation. `flash_for` is the repository exception: null follows the
-    project rule (`ReviewProjectSettings.flash_for`). A row that is neither selected nor an exception
-    has no meaning and is deleted. A repository has at most one row across all projects, so it
+    project rule (`ReviewProjectSettings.flash_for`). `review_drafts` lets draft pull requests get
+    their automatic review when they open. A row that is not selected, has no exception and does not
+    review drafts has no meaning and is deleted. A repository has at most one row across all projects, so it
     belongs to one project only.
     """
 
@@ -620,6 +621,7 @@ class ReviewRepository(ModelActivityMixin, UUIDModel, TeamScopedRootMixin):
     full_name = models.CharField(max_length=200)
     selected = models.BooleanField(default=False, db_default=False)
     flash_for = models.CharField(max_length=20, choices=AutomaticFlashFor.choices, null=True, blank=True)
+    review_drafts = models.BooleanField(default=False, db_default=False)
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
