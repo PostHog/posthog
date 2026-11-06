@@ -1,6 +1,3 @@
-//! String indexes count UTF-16 units like the reference VM, integer edge cases do not panic, and
-//! string-building calls refuse a result past the heap limit before they build it.
-
 use hogvm::{sync_execute, ExecutionContext, Program, VmError};
 use serde_json::{json, Value};
 
@@ -24,7 +21,6 @@ fn string_indexes_count_utf16_units_and_integer_edges_do_not_panic() {
     assert_eq!(items[2], json!("\u{fffd}x"));
     assert_eq!(items[3], json!(4));
     assert_eq!(items[4], json!(["a", "b"]));
-    // i64::MIN % -1 overflows i64. JavaScript gives -0.
     assert_eq!(items[5].as_f64(), Some(0.0));
 }
 
@@ -36,8 +32,6 @@ const JOIN: &str = r#"["_H", 1, 32, "a", 32, "inputs", 1, 2, 32, "t", 32, "input
 const SPLIT_EMPTY: &str =
     r#"["_H", 1, 32, "", 32, "t", 32, "inputs", 1, 2, 2, "splitByString", 2, 38]"#;
 
-// Each of these is one native call whose output grows with the product of its inputs, so a check
-// after the call would come after a gigabyte allocation.
 #[test]
 fn string_building_calls_refuse_results_past_the_heap_limit() {
     let big = "x".repeat(1024 * 1024);
@@ -60,7 +54,6 @@ fn string_building_calls_refuse_results_past_the_heap_limit() {
             failure.error
         );
     }
-    // Inside the limit the same calls succeed.
     let small = json!({"inputs": {"s": "ab", "t": "-", "a": [1, 2]}});
     assert_eq!(
         sync_execute(&context(REPLACE_EMPTY, small.clone()), false).unwrap(),

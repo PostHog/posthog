@@ -1,5 +1,3 @@
-//! `hog-log-exec.ts`: per-record execution with no I/O. The transformer owns fetching, budgets and monitoring.
-
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -21,7 +19,6 @@ pub const DEFAULT_LOG_TRANSFORMATION_TIMEOUT_MS: f64 = 10.0;
 pub const LOG_TRANSFORMATION_MEMORY_LIMIT_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_LOG_TRANSFORMATION_PRINT_LOGS: usize = 5;
 pub const MAX_TRANSFORMED_FIELD_BYTES: usize = MAX_LOG_RECORD_BYTES;
-/// `MAX_LOG_LENGTH` in `cdp/utils.ts`.
 pub const MAX_LOG_LENGTH: usize = 10_000;
 const TRUNCATION_SUFFIX: &str = "... (truncated)";
 const REDACTED: &str = "***REDACTED***";
@@ -75,7 +72,6 @@ pub fn js_number(n: f64) -> Num {
     }
 }
 
-/// `convertJSToHog` of a plain JavaScript value.
 pub fn js_to_ordered(value: &JsValue) -> OrderedJson {
     match value {
         JsValue::Null => OrderedJson::Null,
@@ -115,7 +111,6 @@ fn decode_attribute_map(map: Option<&AvroMap>) -> OrderedJson {
     )
 }
 
-/// `buildLogRecordGlobalsRecord`.
 pub fn build_record_globals(record: &LogRecord) -> OrderedJson {
     OrderedJson::Object(vec![
         ("body".into(), ostr(record.body())),
@@ -170,7 +165,6 @@ pub fn globals(project: &OrderedJson, record: &OrderedJson, inputs: OrderedJson)
     ])
 }
 
-/// `redactString` in `hog-log-exec.ts`: one `replaceAll` per value, in list order.
 /// A short secret that occurs in the marker, such as `*`, multiplies the length on every later pass,
 /// so `None` stops a result past the memory limit. Such a value is far over the record cap anyway.
 pub fn redact_string(value: &str, sensitive: &[String]) -> Option<String> {
@@ -190,7 +184,6 @@ pub fn redact_string(value: &str, sensitive: &[String]) -> Option<String> {
     Some(out)
 }
 
-/// `redactSensitiveValues` in `cdp/utils.ts`: each value and its JSON-escaped form, longest first, in one pass.
 pub fn redact_sensitive_values(message: &str, sensitive: &[String]) -> String {
     if message.is_empty() || sensitive.is_empty() {
         return message.to_string();
@@ -225,7 +218,6 @@ pub fn redact_sensitive_values(message: &str, sensitive: &[String]) -> String {
     out
 }
 
-/// `sanitizeLogMessage`: strings as they are, other values JSON-encoded, joined, redacted and truncated.
 pub fn sanitize_log_message(args: &[JsValue], sensitive: &[String]) -> String {
     let joined = args
         .iter()
@@ -252,10 +244,8 @@ pub fn sanitize_log_message(args: &[JsValue], sensitive: &[String]) -> String {
     message
 }
 
-/// Why a hog value cannot become a JavaScript value that `JSON.stringify` can write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConvertError {
-    /// `JSON.stringify` throws on a cycle.
     Cyclic,
     /// Shared references expand on every visit, so a small heap can describe an exponential tree.
     /// Node would spend unbounded time in `JSON.stringify` there; the port stops and fails the invocation.
@@ -397,7 +387,6 @@ fn serde_to_js(value: &serde_json::Value) -> JsValue {
     }
 }
 
-/// `convertHogToJS`, optionally redacting every string and key as `redactSensitiveStrings` does.
 pub fn hog_to_js(
     vm: &HogVM,
     value: &HogValue,
@@ -413,20 +402,16 @@ pub fn hog_to_js(
     .convert(value)
 }
 
-/// Answers `print`. `Err` fails the run, as a throw from Node's `print` function does.
 pub type PrintHandler<'a> = dyn FnMut(&HogVM, Vec<HogValue>) -> Result<(), String> + 'a;
 
 /// A field of a result: `None` when absent, `Some(None)` for an explicit null.
 type FieldUpdate<T> = Option<Option<T>>;
 
-/// What the VM loop gives back, converted while the VM still holds the heap.
 pub struct VmRun<T> {
     pub result: Result<T, String>,
     pub duration_ms: f64,
 }
 
-/// `execHogImmediate` with `maxAsyncSteps: 0` and the logs memory limit, stepped here so a wall-clock deadline stops it.
-/// `on_print` answers `print`; without it `print` writes nothing.
 pub fn run_program<T>(
     program: &Program,
     globals: OrderedJson,
@@ -495,7 +480,6 @@ pub fn run_program<T>(
     }
 }
 
-/// `coerceStringMap`: `None` when the value is not a plain object or an entry is too large.
 fn coerce_string_map(value: &JsValue) -> Option<Vec<(String, String)>> {
     let JsValue::Object(object) = value else {
         return None;
@@ -553,8 +537,6 @@ fn optional_string(value: Option<String>) -> AvroValue {
     value.map_or(AvroValue::Null, AvroValue::String)
 }
 
-/// `applyTransformResult`. Only `body`, `severity_text`, `attributes` and `resource_attributes` are writable,
-/// and nothing changes unless the whole result is valid.
 pub fn apply_transform_result(record: &mut LogRecord, result: &JsValue) -> Applied {
     let result = match result {
         JsValue::Null | JsValue::Bool(false) => return Applied::Dropped,
@@ -619,11 +601,9 @@ pub fn apply_transform_result(record: &mut LogRecord, result: &JsValue) -> Appli
     Applied::Mutated
 }
 
-/// What `applyTransformResult` reads of a hog result: the four writable fields, converted and redacted.
 /// Other keys are never read, so a cycle there is harmless. Top-level keys are redacted too, as
 /// `redactSensitiveStrings` rewrites every key.
 fn result_fields(vm: &HogVM, value: &HogValue, sensitive: &[String]) -> JsValue {
-    // Not record-shaped, so `applyTransformResult` rejects it.
     let invalid = JsValue::Number(0.0);
     let Ok(literal) = value.deref(&vm.heap) else {
         return JsValue::Null;
@@ -645,7 +625,6 @@ fn result_fields(vm: &HogVM, value: &HogValue, sensitive: &[String]) -> JsValue 
                 };
                 match hog_to_js(vm, item, sensitive) {
                     Ok(v) => out.insert_str(&key, v),
-                    // A cyclic or oversized attribute map cannot be encoded, and such a body is not a string.
                     Err(_) => return invalid,
                 }
             }
@@ -659,7 +638,6 @@ fn result_fields(vm: &HogVM, value: &HogValue, sensitive: &[String]) -> JsValue 
     }
 }
 
-/// `executeLogTransformation`: runs one function against one record and merges the result in place.
 pub fn execute_log_transformation(
     function: &HogFunction,
     record: &mut LogRecord,
@@ -716,7 +694,6 @@ pub fn execute_log_transformation(
     }
 }
 
-/// `resolveLogTransformationInputs`. `Err` is the throw, which carries no duration in Node.
 pub fn resolve_inputs(
     function: &HogFunction,
     project: &OrderedJson,

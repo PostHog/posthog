@@ -68,7 +68,6 @@ pub use values::LocalCallable;
 pub use values::Num;
 pub use values::NumOp;
 
-// Heap references, so a host can track containers while it walks a result
 pub use memory::HeapReference;
 
 // Errors

@@ -1,5 +1,3 @@
-//! `LogsTransformerService` behavior that the parity scenarios cannot pin: wall-clock limits, fetch failures and secret shapes.
-
 mod common;
 
 use std::sync::{Arc, Mutex};
@@ -19,10 +17,8 @@ use logs_ingestion::transformations::{
 
 const TEAM_ID: i64 = 7;
 
-// let i := 0; while (true) { i := i + 1 }; return record
 const RUNAWAY: &str =
     r#"["_H", 1, 33, 0, 29, 40, 9, 33, 1, 36, 0, 6, 37, 0, 39, -12, 32, "record", 1, 1, 38, 35]"#;
-// let i := 0; while (i < 100000) { i := i + 1 }; return record
 const BUSY: &str = r#"["_H", 1, 33, 0, 33, 100000, 36, 0, 15, 40, 9, 33, 1, 36, 0, 6, 37, 0, 39, -16, 32, "record", 1, 1, 38, 35]"#;
 // let rec := record; rec.attributes.svc := inputs.svc; return rec
 const TAG_SVC: &str = r#"["_H", 1, 32, "record", 1, 1, 36, 0, 32, "attributes", 45, 32, "svc", 32, "svc", 32, "inputs", 1, 2, 46, 36, 0, 38, 35]"#;
@@ -32,7 +28,6 @@ const SVC_TEMPLATE: &str =
 // print('token is', inputs.credentials.token, inputs.secret.a.b.c.d.e.f.g.token)
 // throw Error(f'failed for {inputs.credentials.token}')
 const LEAK_SECRETS: &str = r#"["_H", 1, 32, "token is", 32, "token", 32, "credentials", 32, "inputs", 1, 3, 32, "token", 32, "g", 32, "f", 32, "e", 32, "d", 32, "c", 32, "b", 32, "a", 32, "secret", 32, "inputs", 1, 10, 2, "print", 3, 35, 32, "failed for ", 32, "token", 32, "credentials", 32, "inputs", 1, 3, 2, "concat", 2, 2, "Error", 1, 49]"#;
-// return record
 const IDENTITY: &str = r#"["_H", 1, 32, "record", 1, 1, 38]"#;
 
 fn js(text: &str) -> JsValue {
@@ -202,7 +197,6 @@ async fn record_referencing_encrypted_templates_resolve_per_record() {
     );
 }
 
-// Secret inputs accept any JSON, so redaction must reach string leaves at any depth and in the thrown text.
 #[tokio::test]
 async fn nested_secrets_are_redacted_from_print_and_error_logs() {
     let encrypted = r#"{
@@ -271,7 +265,6 @@ impl HogFunctionSource for FailingSource {
     }
 }
 
-// A fetch error must not fail the message into the DLQ; records pass through untransformed.
 #[tokio::test]
 async fn function_fetch_failures_fail_open() {
     let (service, _) = service(Arc::new(FailingSource), 60_000.0);
@@ -311,8 +304,6 @@ fn failed(staged: &StagedRecord) -> bool {
     attribute(staged, "$transformations_failed").is_some()
 }
 
-// Each case grows past the memory limit inside one call or one conversion, so the bound must hold
-// there and end as a failed invocation that keeps the record.
 #[tokio::test]
 async fn oversized_results_fail_the_invocation_instead_of_allocating() {
     let replace = format!(
@@ -344,7 +335,6 @@ async fn integer_edge_cases_run_without_a_panic() {
     assert_eq!(attribute(&records[0], "m").as_deref(), Some("0"));
 }
 
-// Each read of `record` copies it onto a heap that never frees. Shared strings keep that copy small.
 #[tokio::test]
 async fn rereading_a_large_record_stays_inside_the_memory_limit() {
     let attributes: Vec<String> = (0..200)

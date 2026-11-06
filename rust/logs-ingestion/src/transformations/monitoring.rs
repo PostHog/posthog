@@ -1,5 +1,3 @@
-//! `HogFunctionMonitoringService` as the logs server builds it: app metrics and `log_entries`, no internal logs producer.
-
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -22,7 +20,6 @@ pub struct LogEntry {
     pub instance_id: String,
     pub level: &'static str,
     pub message: String,
-    /// Epoch milliseconds.
     pub timestamp_ms: f64,
 }
 
@@ -86,7 +83,6 @@ impl HogFunctionMonitoring {
         gauge!("cdp_hog_function_monitoring_pending_messages").set(queued.len() as f64);
     }
 
-    /// Never fails: Node catches every produce error so monitoring cannot fail a batch.
     pub async fn flush(&self) {
         let start = Instant::now();
         let messages = std::mem::take(&mut *self.queued_logs.lock().unwrap());
@@ -116,7 +112,6 @@ impl HogFunctionMonitoring {
     }
 }
 
-/// `LogEntrySerialized` in Node's key order. `safeClickhouseString` has nothing left to replace after `JSON.stringify`.
 pub fn serialize_log_entry(entry: &LogEntry) -> Vec<u8> {
     let mut o = JsObject::new();
     o.insert_str("team_id", JsValue::Number(entry.team_id as f64));

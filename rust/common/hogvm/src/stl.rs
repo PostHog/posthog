@@ -2206,7 +2206,6 @@ fn position_impl(
     } else {
         (s, n)
     };
-    // JavaScript `indexOf` counts UTF-16 code units.
     match s.find(&n) {
         Some(byte_idx) => Ok(utf16_len(&s[..byte_idx]) as i64 + 1),
         None => Ok(0),
@@ -3055,7 +3054,6 @@ fn assert(test: bool, msg: impl AsRef<str>) -> Result<(), VmError> {
     }
 }
 
-/// JavaScript `str.length`: UTF-16 code units.
 fn utf16_len(s: &str) -> usize {
     s.chars().map(char::len_utf16).sum()
 }

@@ -80,10 +80,7 @@ pub struct ExecutionContext {
     // When set, the VM records a per-opcode execution trace (the reference's `telemetry`), surfaced
     // in the snapshot for the playground/debugger. Off by default (it has a per-step cost).
     pub(crate) collect_telemetry: bool,
-    // When set, `GetGlobal` reads these instead of `globals`.
     pub(crate) ordered_globals: Option<OrderedJson>,
-    // When set, the VM keeps the finished value for `HogVM::take_result` instead of converting it
-    // to JSON.
     pub(crate) raw_result: bool,
 }
 
@@ -170,21 +167,16 @@ impl ExecutionContext {
         self.globals = globals;
     }
 
-    /// Globals that keep their object key order. They replace [`Self::globals`] for `GetGlobal`.
     /// The resumable path does not carry them into a snapshot.
     pub fn with_ordered_globals(mut self, globals: OrderedJson) -> Self {
         self.ordered_globals = Some(globals);
         self
     }
 
-    /// Swap the ordered globals in place, so one context can serve many evaluations.
     pub fn set_ordered_globals(&mut self, globals: OrderedJson) {
         self.ordered_globals = Some(globals);
     }
 
-    /// Keep the finished value as a [`HogValue`] for [`HogVM::take_result`]. The step that
-    /// finishes then returns `Finished(null)`, and a value that JSON cannot hold (NaN, a cycle, a
-    /// closure) does not fail the run.
     pub fn with_raw_result(mut self) -> Self {
         self.raw_result = true;
         self

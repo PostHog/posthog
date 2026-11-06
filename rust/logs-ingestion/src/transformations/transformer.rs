@@ -1,5 +1,3 @@
-//! `logs-transformer.service.ts`: runs a team's transformations over one message's records, failing open throughout.
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -32,17 +30,12 @@ const ATTR_TRANSFORMATIONS_SKIPPED: &str = "$transformations_skipped";
 #[derive(Debug, Clone)]
 pub struct LogsTransformerConfig {
     pub site_url: String,
-    /// Hard per-record VM kill.
     pub hog_timeout_ms: f64,
-    /// Cumulative VM time per Kafka message.
     pub message_budget_ms: f64,
-    /// Cumulative VM time per consumer batch.
     pub batch_budget_ms: f64,
-    /// Failed invocations whose logs are kept, per function per message.
     pub max_error_logs_per_function_per_message: usize,
 }
 
-/// Cumulative VM time across the messages of one consumer batch, which run concurrently.
 #[derive(Debug)]
 pub struct TransformationBatchBudget {
     total_ms: f64,
@@ -80,7 +73,6 @@ pub struct FunctionAggregates {
     pub error_logs: Vec<LogEntry>,
 }
 
-/// What one message's run leaves behind. Aggregates keep first-seen function order, as a `Map` does.
 #[derive(Debug, Default)]
 pub struct MessageTransformResult {
     pub records_dropped: u64,
@@ -132,7 +124,6 @@ fn annotate_failure(record: &mut LogRecord, function: &HogFunction) {
     );
 }
 
-/// The synchronous part of `transformRecords`, after the functions are fetched.
 pub struct MessageRun<'a> {
     pub team_id: i64,
     pub functions: &'a [Arc<HogFunction>],
@@ -217,8 +208,6 @@ impl RecordContext<'_> {
         agg.error_logs.push(entry("error", message));
     }
 
-    /// Node's catch around `executeLogTransformation`: a transformer bug, not customer code, so it keeps no
-    /// function logs. Here it is a panic in the VM or the apply step.
     fn unexpected_failure(&mut self, record: &mut LogRecord, function: &HogFunction) {
         counter!("logs_ingestion_transformations_unexpected_errors_total").increment(1);
         tracing::error!(
@@ -235,7 +224,6 @@ impl RecordContext<'_> {
         annotate_failure(record, function);
     }
 
-    /// Runs every function in order against one record. Returns true when one dropped it.
     fn transform_record(&mut self, record: &mut LogRecord) -> bool {
         let mut record_globals = build_record_globals(record);
         // Every function that does not drop the record writes to it, through its result or a failure annotation.
@@ -311,7 +299,6 @@ impl RecordContext<'_> {
     }
 }
 
-/// Runs the functions over `records` in place, removing the dropped ones.
 pub fn transform_message(
     run: &MessageRun<'_>,
     records: &mut Vec<StagedRecord>,
@@ -406,7 +393,6 @@ impl LogsTransformerService {
         }
     }
 
-    /// `transformRecords`, returning what it queued for monitoring as well.
     pub async fn transform(
         &self,
         team_id: i64,
@@ -466,7 +452,6 @@ impl LogsTransformer for LogsTransformerService {
         Arc::new(TransformationBatchBudget::new(self.config.batch_budget_ms))
     }
 
-    /// Fails open: a fetch error skips transformations for the message instead of failing it.
     async fn team_has_transformations(&self, team_id: i64) -> anyhow::Result<bool> {
         match self.functions.transformation_ids(team_id).await {
             Ok(ids) => Ok(!ids.is_empty()),

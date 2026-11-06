@@ -1,5 +1,3 @@
-//! A host that drives the VM step by step: ordered globals, a raw result, host-answered calls and memory reads.
-
 use std::sync::Arc;
 
 use hogvm::{
@@ -84,7 +82,6 @@ fn a_missing_key_under_an_ordered_global_reads_null() {
     assert_eq!(hogvm::sync_execute(&context, false).unwrap(), Value::Null);
 }
 
-// A host bounds string memory with `memory_bytes`, and answers calls such as `print` with `push_stack`.
 #[test]
 fn memory_bytes_counts_stack_strings_and_push_stack_answers_a_call() {
     // let s := concat('ab', 'cd'); return s

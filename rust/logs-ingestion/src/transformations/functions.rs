@@ -1,5 +1,3 @@
-//! `HogFunctionType` as the logs transformer reads it, and the `HogFunctionManagerService` contract.
-
 use std::cmp::Ordering;
 use std::sync::Arc;
 
@@ -10,13 +8,10 @@ use crate::js::{json_stringify, JsObject, JsValue};
 
 pub const TRANSFORMATION_LOG_TYPE: &str = "transformation_log";
 
-/// One input after `{ ...inputs, ...encrypted_inputs }` and the sort by `order`.
 #[derive(Clone)]
 pub struct HogFunctionInput {
     pub key: String,
-    /// `input?.value`, or `None` for `undefined`.
     pub value: Option<JsValue>,
-    /// Set when `input.bytecode` is truthy and `templating` is `hog`. `Err` holds why the bytecode does not load.
     pub template: Option<Result<Program, String>>,
 }
 
@@ -30,9 +25,7 @@ pub struct HogFunction {
     pub created_at: String,
     pub bytecode: Result<Program, String>,
     pub inputs: Vec<HogFunctionInput>,
-    /// `JSON.stringify({ ...inputs, ...encrypted_inputs }).includes('record')`.
     pub inputs_reference_record: bool,
-    /// The string leaves of every encrypted input value, in the order `collectStringLeaves` finds them.
     pub sensitive_values: Vec<String>,
 }
 
@@ -67,7 +60,6 @@ pub fn load_program(bytecode: &JsValue) -> Result<Program, String> {
     }
 }
 
-/// `Number(string)` for the decimal forms an input `order` can hold. Other text is NaN.
 fn js_number_from_string(text: &str) -> f64 {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -100,7 +92,6 @@ fn field<'a>(value: &'a JsValue, key: &str) -> Option<&'a JsValue> {
     }
 }
 
-/// `collectStringLeaves`: a stack, so siblings come out last first.
 fn collect_string_leaves(root: &JsValue, out: &mut Vec<String>) {
     let mut stack: Vec<&JsValue> = vec![root];
     while let Some(value) = stack.pop() {
@@ -113,7 +104,6 @@ fn collect_string_leaves(root: &JsValue, out: &mut Vec<String>) {
     }
 }
 
-/// The parts of a `posthog_hogfunction` row that the transformer reads.
 #[derive(Debug, Clone)]
 pub struct HogFunctionRow {
     pub id: String,
@@ -124,7 +114,6 @@ pub struct HogFunctionRow {
     pub created_at: String,
     pub bytecode: JsValue,
     pub inputs: JsValue,
-    /// Already decrypted. `None` when the column is null or did not decrypt.
     pub encrypted_inputs: Option<JsValue>,
 }
 
@@ -200,7 +189,6 @@ impl HogFunction {
     }
 }
 
-/// `sortHogFunctions`: by `execution_order` with nulls last, then by `created_at`.
 pub fn sort_hog_functions(functions: &mut [Arc<HogFunction>]) {
     functions.sort_by(|a, b| match (a.execution_order, b.execution_order) {
         (None, None) => a.created_at.cmp(&b.created_at),
@@ -211,16 +199,12 @@ pub fn sort_hog_functions(functions: &mut [Arc<HogFunction>]) {
     });
 }
 
-/// `HogFunctionManagerService` narrowed to one team and the `transformation_log` type.
 #[async_trait]
 pub trait HogFunctionSource: Send + Sync {
-    /// `getHogFunctionIdsForTeams`: the cheap lookup that answers whether a team has any.
     async fn transformation_ids(&self, team_id: i64) -> anyhow::Result<Vec<String>>;
-    /// `getHogFunctionsForTeams`, sorted by `sort_hog_functions`.
     async fn transformations(&self, team_id: i64) -> anyhow::Result<Vec<Arc<HogFunction>>>;
 }
 
-/// A fixed set of functions, for the parity scenarios and tests.
 pub struct StaticHogFunctions(pub Vec<Arc<HogFunction>>);
 
 #[async_trait]
@@ -246,7 +230,6 @@ impl HogFunctionSource for StaticHogFunctions {
     }
 }
 
-/// A row as the parity fixtures and the Postgres `::text` columns give it.
 pub fn row_from_js(value: &JsValue) -> HogFunctionRow {
     let s = |key: &str| match field(value, key) {
         Some(JsValue::String(s)) => s.to_utf8_lossy().into_owned(),
