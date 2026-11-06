@@ -7,6 +7,7 @@ secrets, and the test resolves secret inputs to plaintext before it runs.
 """
 
 import re
+import ipaddress
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Optional, cast
 from urllib.parse import urlsplit
@@ -221,11 +222,24 @@ def _redact_subdomain(origin: str, pattern: re.Pattern[str]) -> str:
     if parts is None:
         return origin
     scheme, host, port = parts.groups()
-    domain = _DOMAIN_PARTS(host)
-    if not domain.subdomain or not domain.top_domain_under_public_suffix:
+    if _is_ip_address(host):
         return origin
-    subdomain = pattern.sub(_REDACTED, domain.subdomain)
-    return f"{scheme}{subdomain}.{domain.top_domain_under_public_suffix}{port or ''}"
+    domain = _DOMAIN_PARTS(host)
+    subdomain, kept = domain.subdomain, domain.top_domain_under_public_suffix
+    if not kept:
+        # A host without a public suffix, such as an internal name, keeps only its last label.
+        subdomain, _, kept = host.rpartition(".")
+    if not subdomain:
+        return origin
+    return f"{scheme}{pattern.sub(_REDACTED, subdomain)}.{kept}{port or ''}"
+
+
+def _is_ip_address(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
 
 
 def redact_secrets_in_origins(origins: list[str], secrets: Iterable[str]) -> list[str]:

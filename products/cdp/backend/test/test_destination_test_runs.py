@@ -50,6 +50,12 @@ class TestDestinationTestRunContext(SimpleTestCase):
                 "https://api.fake-host-secret.com:8443",
                 "https://api.fake-host-secret.com:8443",
             ),
+            (
+                "secret_in_a_host_without_a_public_suffix",
+                "fake-host-secret",
+                "https://fake-host-secret.svc.internal",
+                "https://***REDACTED***.svc.internal",
+            ),
         ]
     )
     def test_redacts_a_stored_secret_in_the_form_a_url_parser_writes_the_host(
