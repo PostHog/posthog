@@ -260,6 +260,14 @@ export const personStrayDistinctIdTombstonedCounter = new Counter({
     labelNames: ['operation'],
 })
 
+export const personCreateDistinctIdConflictCounter = new Counter({
+    name: 'person_create_distinct_id_conflict_total',
+    help: 'Person creations that stopped because a live person already owns one of the distinct ids',
+    // precheck: found before the insert, so the create wrote and locked nothing
+    // undo: found after the insert, so a compensating statement tombstoned the create
+    labelNames: ['stage'],
+})
+
 export const personJsonFieldSizeHistogram = new Histogram({
     name: 'person_json_field_size_bytes',
     help: 'Approximate size in bytes of serialized JSON fields (using string length as proxy for performance)',
