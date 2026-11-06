@@ -349,6 +349,7 @@ The notification activity retries transient ClickHouse reads before it claims th
 The Slack notification's Implement button posts a request in the report thread and starts the Slack agent flow.
 The agent uses the clicking member's project access and can ask them to select a repository in Slack.
 Implementation requires task editor access and claims the report's implementation slot before creating a task.
+Slack implementations use manual AI billing, including when a discussion becomes an implementation.
 The button remains available if startup fails. Slack removes it after startup succeeds.
 Review in PostHog opens the report page.
 

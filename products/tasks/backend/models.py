@@ -1102,15 +1102,19 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             # A manual resume can share an internal Task with an automated run. Freeze billing
             # on this run so historical PR charges and pipeline attribution do not change.
             if (
-                task.origin_product == Task.OriginProduct.SIGNAL_REPORT
-                and state.get("ai_stage")
-                not in {
-                    "research",
-                    "implementation",
-                    "repo_selection",
-                    "custom_agent",
-                }
-            ) or (task.origin_product == Task.OriginProduct.SIGNALS_SCOUT and not state.get("ai_stage")):
+                (
+                    task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+                    and state.get("ai_stage")
+                    not in {
+                        "research",
+                        "implementation",
+                        "repo_selection",
+                        "custom_agent",
+                    }
+                )
+                or (task.origin_product == Task.OriginProduct.SIGNALS_SCOUT and not state.get("ai_stage"))
+                or task.origin_product == Task.OriginProduct.SLACK
+            ):
                 state["billing_product"] = "posthog_ai"
 
             if (

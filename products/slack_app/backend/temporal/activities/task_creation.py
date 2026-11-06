@@ -1,7 +1,6 @@
 import re
 import uuid
 import textwrap
-from contextlib import nullcontext
 from dataclasses import field
 from typing import TYPE_CHECKING, Any
 
@@ -781,9 +780,25 @@ def create_posthog_code_task_for_repo_activity(
             user_id=user_id,
         )
 
+    # `last_forwarded_ts` seeds the follow-up diff watermark — anything
+    # strictly newer than this when a follow-up arrives is rendered into a
+    # `<slack_thread_context_update>` block so the agent catches up on
+    # messages it never saw. The natural anchor is the initiator's `ts`, but
+    # if other participants posted between Slack delivering the event and the
+    # workflow actually fetching the thread, those messages were already
+    # baked into the original `<slack_thread_context>` block; surfacing them
+    # again on the first follow-up would just duplicate context. Take the
+    # max across everything we know the agent has already seen.
+    initial_watermark = _max_ts(
+        user_message_ts,
+        thread_ts,
+        *(m.ts for m in thread_messages),
+    )
+    conversation_type = resolve_conversation_type(slack, event, channel)
+
     # 1. Create task + run WITHOUT starting the workflow
     try:
-        with transaction.atomic() if inputs.report_implementation_message_ts else nullcontext():
+        with transaction.atomic():
             if inputs.report_implementation_message_ts:
                 if signal_report_id is None:
                     return False
@@ -818,6 +833,25 @@ def create_posthog_code_task_for_repo_activity(
                 report_tasks.record_report_task(
                     team_id=integration.team_id, report_id=signal_report_id, task_id=str(created.task_id)
                 )
+            task_run = created.latest_run
+            if task_run:
+                SlackThreadTaskMapping.objects.update_or_create(
+                    integration_id=integration.id,
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    defaults={
+                        "team": integration.team,
+                        "slack_workspace_id": inputs.slack_team_id,
+                        "task_id": created.task_id,
+                        "task_run_id": task_run.id,
+                        "mentioning_slack_user_id": slack_user_id,
+                        "last_forwarded_ts": initial_watermark,
+                        # Decides whether the whole team may read this thread's task, so it is
+                        # resolved here — once, against the live conversation — rather than
+                        # re-derived on every request that gates on it.
+                        "conversation_type": conversation_type,
+                    },
+                )
     except report_tasks.ReportTaskCapExceeded as exc:
         post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=exc.detail)
         return False
@@ -849,8 +883,6 @@ def create_posthog_code_task_for_repo_activity(
         thread_ts=thread_ts,
     )
 
-    # 2. Create mapping BEFORE starting the workflow to avoid race condition
-    # where the agent finishes and tries to relay before the mapping exists
     task_run = created.latest_run
     if task_run:
         bot_token = get_slack_bot_token(slack, integration)
@@ -882,37 +914,6 @@ def create_posthog_code_task_for_repo_activity(
             thread_ts=thread_ts,
         )
 
-        # `last_forwarded_ts` seeds the follow-up diff watermark — anything
-        # strictly newer than this when a follow-up arrives is rendered into a
-        # `<slack_thread_context_update>` block so the agent catches up on
-        # messages it never saw. The natural anchor is the initiator's `ts`, but
-        # if other participants posted between Slack delivering the event and the
-        # workflow actually fetching the thread, those messages were already
-        # baked into the original `<slack_thread_context>` block; surfacing them
-        # again on the first follow-up would just duplicate context. Take the
-        # max across everything we know the agent has already seen.
-        initial_watermark = _max_ts(
-            user_message_ts,
-            thread_ts,
-            *(m.ts for m in thread_messages),
-        )
-        SlackThreadTaskMapping.objects.update_or_create(
-            integration_id=integration.id,
-            channel=channel,
-            thread_ts=thread_ts,
-            defaults={
-                "team": integration.team,
-                "slack_workspace_id": inputs.slack_team_id,
-                "task_id": created.task_id,
-                "task_run_id": task_run.id,
-                "mentioning_slack_user_id": slack_user_id,
-                "last_forwarded_ts": initial_watermark,
-                # Decides whether the whole team may read this thread's task, so it is
-                # resolved here — once, against the live conversation — rather than
-                # re-derived on every request that gates on it.
-                "conversation_type": resolve_conversation_type(slack, event, channel),
-            },
-        )
         if signal_report_id:
             tasks_facade.link_slack_task_to_report(
                 team_id=integration.team_id,

@@ -22,6 +22,7 @@ def prepare_slack_report_implementation_activity(inputs: PostHogCodeSlackMention
         api as signals_facade,
         report_tasks,
     )
+    from products.tasks.backend.facade import api as tasks_facade
 
     integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     user = User.objects.get(id=inputs.user_id, is_active=True)
@@ -41,6 +42,7 @@ def prepare_slack_report_implementation_activity(inputs: PostHogCodeSlackMention
     if mapping is not None:
         try:
             with transaction.atomic():
+                tasks_facade.mark_slack_task_manual_billing(team_id=integration.team_id, task_id=str(mapping.task_id))
                 if not report_tasks.is_report_implementation_task(
                     team_id=integration.team_id, report_id=report_id, task_id=str(mapping.task_id)
                 ):
