@@ -294,8 +294,8 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             "posthog_properties": self._get_agent_mode_posthog_properties(state),
         }
 
-        if ai_gateway := resolve_ai_gateway_config():
-            base_model = MaxChatAnthropic.via_ai_gateway(ai_gateway, **model_kwargs)
+        if resolve_ai_gateway_config() is not None:
+            base_model = MaxChatAnthropic(**model_kwargs)
         else:
             gateway_kwargs = self._get_gateway_kwargs()
             base_model = MaxChatAnthropic(**model_kwargs, bypass_proxy=bool(gateway_kwargs), **gateway_kwargs)
