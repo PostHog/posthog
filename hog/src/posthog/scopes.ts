@@ -26,8 +26,7 @@ export function parseScope(raw: string): Scope {
 }
 
 // Checked like `hasScope` in services/mcp/src/lib/api.ts (`*`, write grants read, legacy scopes),
-// which hog can't import because it uses the MCP server's own `@/` path. A read scope whose write
-// scope is missing too is left out, because asking for the write grants both.
+// which hog can't import because it uses the MCP server's own `@/` path.
 export function scopesNotCovered(held: readonly string[], wanted: readonly string[]): string[] {
     if (held.includes('*')) {
         return []

@@ -103,7 +103,6 @@ export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<S
 export async function ensureScopes(ctx: Context, scopes: readonly string[], action = 'for this'): Promise<void> {
     const credentials = await ctx.credentials().catch(() => undefined)
     const missing = (await loginScopes(ctx, credentials, scopes))?.missing ?? []
-    // A name hog can't put in a command leaves the check to PostHog's 403.
     if (missing.length === 0 || !missing.every(isScopeName)) {
         return
     }
