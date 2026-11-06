@@ -1690,7 +1690,16 @@ def count_organization_access_cache_round_trips() -> Iterator[Callable[[], int]]
             },
         ) as get_many,
     ):
-        yield lambda: get.call_count + get_many.call_count
+        # IP policies share the backend but not the organization-access key namespace.
+        yield (
+            lambda: (
+                sum(call.args[0].startswith("organization_access:") for call in get.call_args_list)
+                + sum(
+                    any(key.startswith("organization_access:") for key in call.args[0])
+                    for call in get_many.call_args_list
+                )
+            )
+        )
 
 
 def reset_unusable_db_connections() -> None:
