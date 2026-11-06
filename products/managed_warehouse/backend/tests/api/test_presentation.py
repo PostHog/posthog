@@ -653,13 +653,20 @@ def test_status_for_strips_bucket_from_response(mock_request: MagicMock) -> None
     # The bucket is internal infra detail — never part of the UI-facing status body.
     org = Organization.objects.create(name="Org")
     mock_request.return_value = Response(
-        {"org_id": str(org.id), "state": "ready", "bucket": "posthog-duckling-x-mw-prod-us"}, status=200
+        {
+            "org_id": str(org.id),
+            "state": "ready",
+            "bucket": "posthog-duckling-x-mw-prod-us",
+            "bucket_prefix": "warehouses/x",
+        },
+        status=200,
     )
 
     resp = managed_warehouse.status_for(org.id)
 
     assert "bucket" not in resp.data
     assert "bucket_region" not in resp.data
+    assert "bucket_prefix" not in resp.data
 
 
 @pytest.mark.django_db

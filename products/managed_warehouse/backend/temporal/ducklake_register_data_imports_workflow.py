@@ -56,6 +56,7 @@ from products.managed_warehouse.backend.storage import connect_to_duckgres, setu
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_trino import (
     cleanup_trino_registration_tables,
     register_prepared_files_through_trino,
+    staging_table_minted_at,
     staging_table_name,
 )
 from products.managed_warehouse.backend.temporal.metrics import (
@@ -497,7 +498,9 @@ def _resolve_trino_landing_uri(
 ) -> str:
     data_path = get_control_plane_data_path(str(_get_org_id_for_team(team_id)))
     if not data_path:
-        raise ApplicationError(f"No DuckLake data path available for team {team_id}", non_retryable=True)
+        # The control plane returns no path both when it is unreachable and when it names no bucket. The gate
+        # already found the Trino target ready, so the prepare activity retries.
+        raise ApplicationError(f"No DuckLake data path available for team {team_id}", non_retryable=False)
     safe_job_id = re.sub(r"[^A-Za-z0-9_-]", "_", str(job_id))
     generation_token = _generation_token(prepared_queryable_folder, job_id)
     return (
@@ -518,6 +521,13 @@ def _copy_and_register_through_trino(
     registration_names = inputs.registration_table_names or _new_trino_registration_table_names(
         dt.datetime.now(dt.UTC), uuid.uuid4().hex[:16]
     )
+    minted_at = staging_table_minted_at(registration_names.shadow_name)
+    if minted_at is not None and dt.datetime.now(dt.UTC) - minted_at > _TRINO_MAX_START_DELAY:
+        raise ApplicationError(
+            f"The registration started {dt.datetime.now(dt.UTC) - minted_at} after its staging table name was minted, "
+            "so the stale-table sweep could drop the table while it loads",
+            non_retryable=True,
+        )
     attempt_token = registration_names.shadow_name.removeprefix(_SHADOW_TABLE_PREFIX)
     generation_uri = _generation_scoped_landing_uri(
         metadata.landing_uri,
@@ -530,6 +540,7 @@ def _copy_and_register_through_trino(
     with heartbeater:
         with _stage_timer(stage="copy", team_id=inputs.team_id, schema_id=schema_id):
             landing_paths, copied_bytes = _copy_prepared_parquet_files(metadata.prepared_source_uri, attempt_uri)
+        cancel_delay = _duckgres_cancel_delay(activity_started_monotonic)
         with _stage_timer(stage="register", team_id=inputs.team_id, schema_id=schema_id):
             result = register_prepared_files_through_trino(
                 organization_id=organization_id,
@@ -543,7 +554,7 @@ def _copy_and_register_through_trino(
                 hive_partition_columns=_hive_partition_columns(attempt_uri, landing_paths),
                 filesystem=get_s3_client(),
                 should_publish=lambda: _should_publish_prepared_generation(inputs),
-                cancel_after_seconds=_duckgres_cancel_delay(activity_started_monotonic),
+                deadline_monotonic=None if cancel_delay is None else time.monotonic() + cancel_delay,
             )
         if not result.published:
             _record_stale_generation_skip(team_id=inputs.team_id, schema_id=schema_id, logger=logger)
@@ -1048,6 +1059,10 @@ def _cleanup_registration_tables(conn: psycopg.Connection, schema_name: str, tab
 # missing-snapshot rule below additionally requires every deployment's snapshot
 # retention to exceed this age, or an in-flight attempt's table could be swept.
 _SWEEP_MIN_AGE = dt.timedelta(hours=6)
+# A Trino staging name carries the time the workflow minted it, not the time the table was created, so a wait in
+# the task queue counts toward the sweep age. The register activity refuses to start after this delay, so the
+# start delay plus the copy activity's start_to_close stays under the sweep age.
+_TRINO_MAX_START_DELAY = _SWEEP_MIN_AGE - _REGISTER_COPY_START_TO_CLOSE - dt.timedelta(minutes=30)
 # Each drop is its own catalog commit; the batch is sized so a full sweep fits
 # comfortably inside the finalizer's start_to_close on a contended catalog.
 # Every registration run sweeps again, so a backlog drains across runs.

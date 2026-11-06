@@ -460,6 +460,7 @@ def _strip_bucket_fields(body: dict) -> None:
     """Drop the internal bucket fields from a UI-facing response body, in place."""
     body.pop("bucket", None)
     body.pop("bucket_region", None)
+    body.pop("bucket_prefix", None)
 
 
 def _validate_schema_name(name: str | None) -> str | None:

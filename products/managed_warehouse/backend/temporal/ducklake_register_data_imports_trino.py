@@ -15,6 +15,7 @@ import threading
 import contextlib
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from time import monotonic
 from typing import IO, TYPE_CHECKING, Any, Protocol
 from uuid import UUID
 
@@ -196,14 +197,17 @@ def staging_table_name(minted_at: dt.datetime, token: str) -> str:
     return f"{STAGING_TABLE_PREFIX}{int(minted_at.timestamp()):010d}_{token}"
 
 
+def staging_table_minted_at(table_name: str) -> dt.datetime | None:
+    match = _STAGING_TABLE_PATTERN.fullmatch(table_name)
+    return None if match is None else dt.datetime.fromtimestamp(int(match.group(1)), tz=dt.UTC)
+
+
 def stale_staging_tables(
     table_names: Sequence[str], *, now: dt.datetime, min_age: dt.timedelta, limit: int
 ) -> list[str]:
-    cutoff = (now - min_age).timestamp()
+    cutoff = now - min_age
     stale = [
-        name
-        for name in table_names
-        if (match := _STAGING_TABLE_PATTERN.fullmatch(name)) is not None and int(match.group(1)) < cutoff
+        name for name in table_names if (minted_at := staging_table_minted_at(name)) is not None and minted_at < cutoff
     ]
     return stale[:limit]
 
@@ -347,13 +351,14 @@ def register_prepared_files_through_trino(
     hive_partition_columns: Sequence[str],
     filesystem: ParquetFilesystem,
     should_publish: Callable[[], bool],
-    cancel_after_seconds: float | None = None,
+    deadline_monotonic: float | None = None,
 ) -> TrinoRegistrationResult:
     """Create the shadow table, add the copied files to it, check its row count and publish it.
 
     `landing_paths` are this attempt's copied files. The columns and the expected row count come from their Parquet
     footers, because add_files compares each file's own types exactly. The import ids derive from `attempt_token`,
-    so a repeated attempt replays finished batches as no-ops.
+    so a repeated attempt replays finished batches as no-ops. `deadline_monotonic` is the `time.monotonic()` value
+    at which the running statement is cancelled.
     """
     sorted_paths = sorted(landing_paths)
     # A type error fails here, before any catalog work.
@@ -361,10 +366,11 @@ def register_prepared_files_through_trino(
     staging_schema = staging_table_schema(footers, hive_partition_columns)
     expected_rows = sum(footer.num_rows for footer in footers)
 
+    # Reading many footers takes time, so the remaining budget is measured after the reads.
     with _registration_statements(
         organization_id,
         principal=_principal(team_id, f"schema:{schema_id}"),
-        cancel_after_seconds=cancel_after_seconds,
+        cancel_after_seconds=None if deadline_monotonic is None else deadline_monotonic - monotonic(),
     ) as statements:
         statements.run(f"CREATE SCHEMA IF NOT EXISTS {statements.qualified(ducklake_schema)}")
         statements.run(_create_table_statement(statements, ducklake_schema, shadow_name, staging_schema))

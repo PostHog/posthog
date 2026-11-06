@@ -1,4 +1,5 @@
 import re
+import time
 import uuid
 import decimal
 import datetime as dt
@@ -1486,7 +1487,7 @@ def _register_through_trino(
     *,
     hive_partition_columns: tuple[str, ...] = (),
     should_publish: bool = True,
-    cancel_after_seconds: float | None = None,
+    deadline_monotonic: float | None = None,
 ) -> trino_module.TrinoRegistrationResult:
     connect = MagicMock(return_value=contextlib.nullcontext(fake))
     monkeypatch.setattr(trino_module, "connect_managed_warehouse_trino", connect)
@@ -1502,7 +1503,7 @@ def _register_through_trino(
         hive_partition_columns=hive_partition_columns,
         filesystem=_LocalFilesystem(),
         should_publish=lambda: should_publish,
-        cancel_after_seconds=cancel_after_seconds,
+        deadline_monotonic=deadline_monotonic,
     )
 
 
@@ -1863,9 +1864,18 @@ def test_trino_registration_stops_at_the_activity_deadline(
                 raise failure
 
     fake = _FakeTrino(row_count=2, on_statement=on_statement)
+    clock = [1_000.0]
+    read_footers = trino_module.read_parquet_footers
+
+    def slow_footer_reads(filesystem, paths):
+        clock[0] += 30.0
+        return read_footers(filesystem, paths)
+
+    monkeypatch.setattr(trino_module, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(trino_module, "read_parquet_footers", slow_footer_reads)
 
     with pytest.raises(TimeoutError):
-        _register_through_trino(monkeypatch, fake, tmp_path, {"a.parquet": _rows(2)}, cancel_after_seconds=120.0)
+        _register_through_trino(monkeypatch, fake, tmp_path, {"a.parquet": _rows(2)}, deadline_monotonic=1_150.0)
 
     assert fake_timer.instances[0].interval == 120.0
     assert fake_timer.instances[0].cancelled is True
@@ -1883,7 +1893,9 @@ def test_trino_registration_checks_whether_a_publish_committed_after_the_deadlin
         on_statement=lambda statement: fake_timer.instances[0].function() if "publish_as" in statement else None,
     )
 
-    result = _register_through_trino(monkeypatch, fake, tmp_path, {"a.parquet": _rows(2)}, cancel_after_seconds=120.0)
+    result = _register_through_trino(
+        monkeypatch, fake, tmp_path, {"a.parquet": _rows(2)}, deadline_monotonic=time.monotonic() + 120.0
+    )
 
     assert result.published is True
 
@@ -1892,7 +1904,9 @@ def test_trino_registration_refuses_to_start_at_the_activity_deadline(fake_timer
     fake = _FakeTrino()
 
     with pytest.raises(TimeoutError, match="too close to the Temporal activity deadline"):
-        _register_through_trino(monkeypatch, fake, tmp_path, {"a.parquet": _rows(2)}, cancel_after_seconds=0.0)
+        _register_through_trino(
+            monkeypatch, fake, tmp_path, {"a.parquet": _rows(2)}, deadline_monotonic=time.monotonic()
+        )
 
     assert fake.statements == []
     assert fake_timer.instances == []
@@ -1975,7 +1989,7 @@ def test_trino_landing_uri_sits_under_the_data_path_with_the_job_and_generation(
             job_id="job",
             prepared_queryable_folder="customers__query_1234567890_abcdef12",
         )
-    assert error.value.non_retryable is True
+    assert error.value.non_retryable is False
 
 
 @pytest.mark.parametrize("names_minted_by_workflow", [True, False])
@@ -1996,12 +2010,13 @@ def test_trino_copy_activity_copies_under_the_attempt_token_and_reports_stalenes
     monkeypatch.setattr(registration_module, "_get_org_id_for_team", lambda team_id: "org")
     monkeypatch.setattr(registration_module, "HeartbeaterSync", lambda **kwargs: contextlib.nullcontext())
     _mock_activity_workload_metrics(monkeypatch)
+    minted_at = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=5)
     base = _activity_inputs()
     inputs = dataclasses.replace(
         base,
         metadata=dataclasses.replace(base.metadata, engine=ENGINE_TRINO, source_schema_id=str(uuid.UUID(int=5))),
         registration_table_names=(
-            registration_module._new_trino_registration_table_names(MINTED_AT, "a1b2c3d4e5f60718")
+            registration_module._new_trino_registration_table_names(minted_at, "a1b2c3d4e5f60718")
             if names_minted_by_workflow
             else None
         ),
@@ -2014,7 +2029,7 @@ def test_trino_copy_activity_copies_under_the_attempt_token_and_reports_stalenes
     assert re.fullmatch(r"__ph_register_\d{10}_[0-9a-f]{16}", kwargs["shadow_name"])
     assert kwargs["attempt_token"] == kwargs["shadow_name"].removeprefix("__ph_register_")
     if names_minted_by_workflow:
-        assert kwargs["attempt_token"] == f"{int(MINTED_AT.timestamp())}_a1b2c3d4e5f60718"
+        assert kwargs["attempt_token"] == f"{int(minted_at.timestamp())}_a1b2c3d4e5f60718"
     attempt_prefix = (
         "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
         f"1234567890_abcdef12/{kwargs['attempt_token']}"
@@ -2023,7 +2038,31 @@ def test_trino_copy_activity_copies_under_the_attempt_token_and_reports_stalenes
     assert kwargs["landing_paths"] == [f"s3://{attempt_prefix}/k=1/a.parquet"]
     assert kwargs["hive_partition_columns"] == ["k"]
     assert kwargs["filesystem"] is s3
-    assert kwargs["cancel_after_seconds"] == 99.0
+    assert kwargs["deadline_monotonic"] == pytest.approx(time.monotonic() + 99.0, abs=30.0)
+
+
+def test_trino_copy_activity_refuses_names_older_than_the_start_delay(monkeypatch) -> None:
+    s3 = MagicMock()
+    register = MagicMock()
+    monkeypatch.setattr(registration_module, "get_s3_client", lambda: s3)
+    monkeypatch.setattr(registration_module, "register_prepared_files_through_trino", register)
+    monkeypatch.setattr(registration_module, "_get_org_id_for_team", lambda team_id: "org")
+    monkeypatch.setattr(registration_module, "HeartbeaterSync", lambda **kwargs: contextlib.nullcontext())
+    _mock_activity_workload_metrics(monkeypatch)
+    minted_at = dt.datetime.now(dt.UTC) - registration_module._TRINO_MAX_START_DELAY - dt.timedelta(minutes=5)
+    base = _activity_inputs()
+    inputs = dataclasses.replace(
+        base,
+        metadata=dataclasses.replace(base.metadata, engine=ENGINE_TRINO, source_schema_id=str(uuid.UUID(int=5))),
+        registration_table_names=registration_module._new_trino_registration_table_names(minted_at, "a1b2c3d4e5f60718"),
+    )
+
+    with pytest.raises(ApplicationError, match="stale-table sweep") as error:
+        copy_and_register_ducklake_data_imports_activity(inputs)
+
+    assert error.value.non_retryable is True
+    s3.copy.assert_not_called()
+    register.assert_not_called()
 
 
 @pytest.mark.asyncio
