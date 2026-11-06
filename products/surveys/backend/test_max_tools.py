@@ -957,7 +957,15 @@ class TestEditSurveyTool(BaseTest):
             team=self.team,
             key="survey-targeting-flag",
             created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
         )
         if "linked_flag_variant" in tool_kwargs:
             tool_kwargs = {**tool_kwargs, "linked_flag_id": flag.id}
