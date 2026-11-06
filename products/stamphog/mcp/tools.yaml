@@ -46,8 +46,8 @@ tools:
             repository, title, author, head branch, and merge details. To look a PR up by its GitHub number, use
             `stamphog-pull-requests-list` with `pr_number`. `routing_mode` is the repository's reviewer routing mode
             now, and `routing` is the latest routing record (phase, head, trigger, timestamps), null when routing never
-            wrote one. For CI status or merge-timing analytics on a PR, use the engineering analytics `pull-requests`
-            or `pr-lifecycle` tools instead.
+            wrote one. For CI status or merge-timing analytics on a PR, use the engineering analytics `pull-requests` or
+            `pr-lifecycle` tools instead.
         feature_flag: stamphog
     stamphog-pull-requests-list:
         operation: stamphog_pull_requests_list
@@ -185,8 +185,8 @@ tools:
             Get one reviewer routing run by id, with the same owner decisions as the list plus `files` for every owner:
             each changed file the owner owns (path, previous path, status, additions, deletions), which is what made
             them a candidate, and `owners_source`, the ownership file at `owners_sha` whose `owners` list names the
-            owner for that file (null when only an additions declaration made the owner a candidate, or the run is
-            older than the field). Patches are not kept.
+            owner for that file (null when only an additions declaration made the owner a candidate, or the run is older
+            than the field). Patches are not kept.
         feature_flag: stamphog
         response:
             informational_wrapper:
@@ -215,12 +215,12 @@ tools:
             `head_sha` finds the run for one commit. An owner missing from a run was not a candidate: it owns none of
             the changed files that routing reads (generated, vendored and lock files are skipped), or GitHub listed
             fewer files than the pull request changes (`files_truncated`). An empty result with `owner`, `outcome`,
-            `reason` or a time window can mean only that the owner was not a candidate, so drop those filters first.
-            No runs at all for a pull request means no run was recorded: read `routing` and `routing_mode` on
+            `reason` or a time window can mean only that the owner was not a candidate, so drop those filters first. No
+            runs at all for a pull request means no run was recorded: read `routing` and `routing_mode` on
             `stamphog-pull-requests-list` with `pr_number` to see whether routing is off, waiting for stamphog's
             verdict, or still running. A `done` record whose head has no run means the log has no entry for it, most
-            often because the log write failed. Use
-            `stamphog-routing-runs-get` for the files each owner owns and the ownership file that decided each one.
+            often because the log write failed. Use `stamphog-routing-runs-get` for the files each owner owns and the
+            ownership file that decided each one.
         feature_flag: stamphog
         response:
             informational_wrapper:
