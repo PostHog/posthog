@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable
 
 from posthog.test.base import BaseTest
@@ -12,7 +13,9 @@ from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_secret, hash_key_value
 from posthog.storage import object_storage
+from posthog.storage.team_access_cache import TOKEN_CACHE_PREFIX, token_auth_cache
 from posthog.storage.team_metadata_cache import team_metadata_hypercache, update_team_metadata_cache
 
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
@@ -134,6 +137,18 @@ class TestRetiredTokenTeamMetadataClear(BaseTest):
 
         assert team_metadata_hypercache.cache_client.get(cache_key) is None
         assert object_storage.read(cache_key, missing_ok=True) is None
+
+    @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
+    def test_token_reset_drops_the_secret_key_auth_entry(self, _mock_push_vercel: Mock) -> None:
+        self.team.secret_api_token = generate_random_token_secret()
+        self.team.save()
+        auth_key = f"{TOKEN_CACHE_PREFIX}{hash_key_value(self.team.secret_api_token, mode='sha256')}"
+        token_auth_cache.redis.setex(auth_key, 300, json.dumps({"type": "secret", "api_token": self.team.api_token}))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.team.reset_token_and_save(user=self.user, is_impersonated_session=False)
+
+        assert not token_auth_cache.redis.exists(auth_key)
 
     @patch("posthog.tasks.team_metadata.clear_team_metadata_cache_for_token_task.delay")
     @patch("posthog.tasks.integrations.push_vercel_secrets.delay")

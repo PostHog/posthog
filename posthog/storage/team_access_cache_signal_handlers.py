@@ -387,3 +387,24 @@ def clear_project_secret_api_key_cache_on_delete(sender: type["Team"], instance:
             logger.exception("Error invalidating PSAK cache on team delete", team_id=instance.pk)
 
     transaction.on_commit(_invalidate_tokens_on_commit)
+
+
+def invalidate_team_auth_tokens_on_commit(team_id: int) -> None:
+    """After the commit, drop the team's cached flags-service auth entries.
+
+    A secret-key entry caches the team's project API token. After a token reset, the flags
+    service would resolve that cached old token and fail with 401 once its metadata entry is gone.
+    """
+    from posthog.storage.team_access_cache import token_auth_cache
+
+    if not token_auth_cache.is_configured:
+        return
+
+    def _invalidate() -> None:
+        try:
+            token_auth_cache.invalidate_team_tokens(team_id)
+        except Exception as e:
+            capture_exception(e)
+            logger.exception("Error invalidating team auth token cache", team_id=team_id)
+
+    transaction.on_commit(_invalidate)
