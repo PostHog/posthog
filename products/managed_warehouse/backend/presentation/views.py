@@ -14,7 +14,7 @@ import re
 from collections.abc import Callable
 from datetime import date
 from functools import partial
-from typing import Literal, TypedDict, cast
+from typing import Any, Literal, TypedDict, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -1383,6 +1383,139 @@ def reset_password(organization_id: UUID | str, *, triggered_by: str) -> Respons
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
     return resp
+
+
+def _hogtower_only() -> Response | None:
+    """Hoglake credentials are served by hogtower alone; duckgres has no such route.
+
+    They are also useless until hoglake has a public endpoint in this deployment, so
+    HOGLAKE_OAUTH_TOKEN_URL being set is what turns the feature on.
+    """
+    if not hogtower.is_configured():
+        return Response(
+            {"error": "Hoglake credentials need the hogtower control plane"},
+            status=status.HTTP_501_NOT_IMPLEMENTED,
+        )
+    if not getattr(settings, "HOGLAKE_OAUTH_TOKEN_URL", None):
+        return Response(
+            {"error": "Hoglake credentials are not available in this region yet"},
+            status=status.HTTP_501_NOT_IMPLEMENTED,
+        )
+    return None
+
+
+def _hoglake_connect(organization_id: UUID | str) -> dict[str, str]:
+    """Where a hoglake credential is used: the catalog is the org id."""
+    connect = {"catalog": str(organization_id)}
+    if url := getattr(settings, "HOGLAKE_PUBLIC_URL", None):
+        connect["hoglake_url"] = url
+    if token_url := getattr(settings, "HOGLAKE_OAUTH_TOKEN_URL", None):
+        connect["token_url"] = token_url
+    return connect
+
+
+def _add_owners(organization_id: UUID | str, credentials: list[dict[str, Any]]) -> None:
+    """Name the owner of each personal (team) credential, from the organization's own members.
+
+    A uuid that is no longer a member of the organization keeps no name: the credential
+    stops minting tokens when its owner leaves, and is listed only so it can be revoked.
+    """
+    from posthog.models.organization import OrganizationMembership
+
+    uuids = {c["owner_user_uuid"] for c in credentials if c.get("owner_user_uuid")}
+    if not uuids:
+        return
+    members = {
+        str(m.user.uuid): m.user
+        for m in OrganizationMembership.objects.filter(
+            organization_id=organization_id, user__uuid__in=uuids
+        ).select_related("user")
+    }
+    for c in credentials:
+        if (user := members.get(str(c.get("owner_user_uuid")))) is not None:
+            c["owner_email"] = user.email
+            c["owner_name"] = user.first_name or user.email
+
+
+def list_hoglake_credentials(organization_id: UUID | str) -> Response:
+    if (refused := _hogtower_only()) is not None:
+        return refused
+    resp = _request("GET", organization_id, "/hoglake-credentials")
+    if status.is_success(resp.status_code) and isinstance(resp.data, dict):
+        _add_owners(organization_id, resp.data.get("hoglake_credentials") or [])
+        resp.data["connect"] = _hoglake_connect(organization_id)
+    return resp
+
+
+def _refuse_rotating_a_personal_credential(organization_id: UUID | str, credential_id: str) -> Response | None:
+    """Fails closed: the list's error when hogtower cannot list the organization's
+    credentials, 404 when it does not have this one, 403 when it is a member's personal
+    credential, and None only for an org credential."""
+    resp = _request("GET", organization_id, "/hoglake-credentials")
+    if not status.is_success(resp.status_code):
+        return resp
+    listed = resp.data.get("hoglake_credentials") if isinstance(resp.data, dict) else None
+    if not isinstance(listed, list):
+        return Response({"error": "Unexpected response from the control plane"}, status=status.HTTP_502_BAD_GATEWAY)
+    kind = next((c.get("kind") or "org" for c in listed if c.get("client_id") == credential_id), None)
+    if kind is None:
+        return Response({"error": "credential not found"}, status=status.HTTP_404_NOT_FOUND)
+    if kind != "org":
+        return Response(
+            {"error": "This is a member's personal credential: only its owner can rotate it. Revoke it instead."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return None
+
+
+def create_hoglake_credential(
+    organization_id: UUID | str, *, name: str, scope: str, ttl_seconds: int | None, triggered_by: str
+) -> Response:
+    if (refused := _hogtower_only()) is not None:
+        return refused
+    body: dict[str, Any] = {"name": name, "scope": scope}
+    if ttl_seconds:
+        body["ttl_seconds"] = ttl_seconds
+    resp = _request("POST", organization_id, "/hoglake-credentials", json_body=body)
+    _log_hoglake_action(resp, "create_hoglake_credential", organization_id, triggered_by, scope=scope)
+    return resp
+
+
+def rotate_hoglake_credential(organization_id: UUID | str, credential_id: str, *, triggered_by: str) -> Response:
+    if (refused := _hogtower_only()) is not None:
+        return refused
+    # A personal credential's tokens name its owner, so its secret is for its owner alone.
+    # An admin may revoke one, never take a working secret for it.
+    if (refused := _refuse_rotating_a_personal_credential(organization_id, credential_id)) is not None:
+        return refused
+    resp = _request("POST", organization_id, f"/hoglake-credentials/{credential_id}/rotate")
+    _log_hoglake_action(resp, "rotate_hoglake_credential", organization_id, triggered_by, credential_id=credential_id)
+    return resp
+
+
+def revoke_hoglake_credential(organization_id: UUID | str, credential_id: str, *, triggered_by: str) -> Response:
+    if (refused := _hogtower_only()) is not None:
+        return refused
+    resp = _request("DELETE", organization_id, f"/hoglake-credentials/{credential_id}")
+    _log_hoglake_action(resp, "revoke_hoglake_credential", organization_id, triggered_by, credential_id=credential_id)
+    return resp
+
+
+def _log_hoglake_action(
+    resp: Response, action: str, organization_id: UUID | str, triggered_by: str, **fields: str
+) -> None:
+    """The audit line for a hoglake credential change. Never the secret: only ids and scope."""
+    if not status.is_success(resp.status_code):
+        return
+    if action != "revoke_hoglake_credential" and isinstance(resp.data, dict):
+        fields.setdefault("credential_id", str(resp.data.get("client_id", "")))
+    logger.info(
+        "managed_warehouse_action",
+        action=action,
+        triggered_by=triggered_by,
+        organization_id=str(organization_id),
+        **fields,
+    )
 
 
 def _update_direct_connection_password(organization_id: UUID | str, password: str) -> None:
