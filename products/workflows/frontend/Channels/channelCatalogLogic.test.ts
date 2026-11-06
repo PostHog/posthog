@@ -68,14 +68,17 @@ describe('sandbox setup in the channel catalog', () => {
         expect(screen.queryByText('Could not set up your sandbox sender.')).not.toBeInTheDocument()
     })
 
-    it('shows nothing when the project is not offered the sandbox sender', async () => {
+    it.each([
+        ['the project is not offered the sandbox sender', 404, 'The sandbox sender is not available for this project.'],
+        ['the member cannot write integrations', 403, 'You do not have permission to perform this action.'],
+    ])('shows nothing when %s', async (_case, status, detail) => {
         let requests = 0
         useMocks({
             get: { '/api/projects/:team_id/integrations/': () => [200, { results: [] }] },
             post: {
                 '/api/projects/:team_id/integrations/email_sandbox_sender/': () => {
                     requests++
-                    return [404, { detail: 'The sandbox sender is not available for this project.' }]
+                    return [status, { detail }]
                 },
             },
         })
@@ -122,7 +125,7 @@ describe('sandbox setup in the channel catalog', () => {
             'loadIntegrationsFailure',
         ])
 
-        expect(logic.values.sandboxProvisionErrorLoading).toBe(true)
+        expect(logic.values.sandboxSetupOutcomeLoading).toBe(true)
         expect(logic.values.sandboxSetupError).toBeNull()
 
         finishSetup()

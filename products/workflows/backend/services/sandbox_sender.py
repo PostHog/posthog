@@ -1,5 +1,6 @@
 from django.conf import settings
 
+from posthog.exceptions_capture import capture_exception
 from posthog.integrations import IntegrationManager
 from posthog.models.integration import SANDBOX_EMAIL_INTEGRATION_ID, SANDBOX_EMAIL_PROVIDER, sandbox_sender_configured
 from posthog.models.team import Team
@@ -12,6 +13,14 @@ SANDBOX_SENDER_FLAG = "workflows-sandbox-sender"
 SANDBOX_SENDER_FALLBACK_NAME = "PostHog sandbox"
 SANDBOX_SENDER_NAME_MAX_LENGTH = 40
 _SANDBOX_SENDER_NAME_PUNCTUATION = frozenset(" .,&'-")
+
+
+class SandboxSenderMisconfigured(Exception):
+    def __init__(self) -> None:
+        super().__init__(
+            "workflows-sandbox-sender is on, but the sandbox settings are incomplete or "
+            "SES_SANDBOX_FROM_ADDRESS is not an address on WORKFLOWS_SANDBOX_SENDER_DOMAIN"
+        )
 
 
 def _sandbox_sender_display_name(organization_name: str) -> str:
@@ -57,7 +66,10 @@ def _organization_blocked(team: Team) -> bool:
 
 def ensure_sandbox_email_sender(team_id: int) -> SandboxEmailSender:
     team = Team.objects.select_related("organization").get(id=team_id)
-    if not sandbox_sender_configured() or not _sandbox_sender_enabled(team) or _organization_blocked(team):
+    if not _sandbox_sender_enabled(team) or _organization_blocked(team):
+        raise SandboxSenderUnavailable()
+    if not sandbox_sender_configured():
+        capture_exception(SandboxSenderMisconfigured())
         raise SandboxSenderUnavailable()
 
     config = _sandbox_sender_config(team.organization.name)

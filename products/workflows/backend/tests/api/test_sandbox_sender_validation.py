@@ -130,13 +130,20 @@ class TestSandboxSenderValidation(APIBaseTest):
         assert "sandbox sender" in response.json()["detail"].lower()
         assert product_word in response.json()["detail"].lower()
 
-    @parameterized.expand([("flag_on", True), ("flag_off", False)])
-    def test_destination_cannot_select_the_sandbox_sender(self, _name: str, flag_on: bool) -> None:
+    @parameterized.expand(
+        [
+            ("flag_on", True, {}),
+            ("flag_off", False, {}),
+            ("from_address_off_the_sandbox_domain", True, {"SES_SANDBOX_FROM_ADDRESS": "hello@example.org"}),
+        ]
+    )
+    def test_destination_cannot_select_the_sandbox_sender(self, _name: str, flag_on: bool, settings: dict) -> None:
         self.flag_enabled.return_value = flag_on
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_functions/",
-            self._function(),
-        )
+        with override_settings(**settings):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                self._function(),
+            )
 
         assert response.status_code == 400, response.json()
         assert "sandbox sender" in response.json()["detail"].lower()
@@ -144,22 +151,58 @@ class TestSandboxSenderValidation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("hog_in_a_broadcast", "hog", "{%d}", "hog_flows"),
-            ("liquid_in_a_destination", "liquid", "{{ %d }}", "hog_functions/"),
+            ("hog_in_a_broadcast", "hog", "hog_flows", "broadcasts", lambda sid: {"integrationId": f"{{{sid}}}"}),
+            (
+                "liquid_in_a_destination",
+                "liquid",
+                "hog_functions/",
+                None,
+                lambda sid: {"integrationId": f"{{{{ {sid} }}}}"},
+            ),
+            ("non_ascii_digit_in_a_destination", "hog", "hog_functions/", None, lambda _sid: {"integrationId": "²"}),
+            (
+                "digit_string_too_long_for_an_id_in_a_destination",
+                "hog",
+                "hog_functions/",
+                None,
+                lambda _sid: {"integrationId": "9" * 5000},
+            ),
+            (
+                "whole_from_in_a_destination",
+                "hog",
+                "hog_functions/",
+                None,
+                lambda sid: f"{{ {{'integrationId': {sid}}} }}",
+            ),
+            (
+                "template_beside_the_sandbox_sender_in_a_workflow",
+                "hog",
+                "hog_flows",
+                None,
+                lambda sid: {"integrationIds": [sid, "{inputs.sender}"]},
+            ),
+            (
+                "templated_rotation_in_a_workflow",
+                "hog",
+                "hog_flows",
+                None,
+                lambda sid: {"integrationId": sid + 1, "integrationIds": f"{{[{sid}]}}"},
+            ),
         ]
     )
     def test_templated_sender_id_cannot_reach_the_sandbox_sender(
-        self, _name: str, templating: str, template: str, endpoint: str
+        self, _name: str, templating: str, endpoint: str, origin_product: str | None, sender: Any
     ) -> None:
         self.email_schema[0]["templating"] = templating
         HogFunctionTemplate.objects.filter(template_id="template-email").update(inputs_schema=self.email_schema)
         payload = self._workflow() if endpoint == "hog_flows" else self._function()
         if endpoint == "hog_flows":
-            payload["origin_product"] = "broadcasts"
+            if origin_product:
+                payload["origin_product"] = origin_product
             email = payload["actions"][1]["config"]["inputs"]["email"]["value"]
         else:
             email = payload["inputs"]["email"]["value"]
-        email["from"]["integrationId"] = template % self.sender.id
+        email["from"] = sender(self.sender.id)
 
         response = self.client.post(f"/api/projects/{self.team.id}/{endpoint}", payload)
 
@@ -396,7 +439,7 @@ class TestSandboxSenderValidation(APIBaseTest):
             for endpoint in ("hog_flows", "hog_functions/")
             for name, setting in (
                 ("no_tenant", {"SES_SANDBOX_TENANT_NAME": ""}),
-                ("from_address_off_the_sandbox_domain", {"SES_SANDBOX_FROM_ADDRESS": "hello@example.org"}),
+                ("no_from_address", {"SES_SANDBOX_FROM_ADDRESS": ""}),
             )
         ]
     )
@@ -508,6 +551,31 @@ class TestSandboxSenderValidation(APIBaseTest):
             f"/api/projects/{self.team.id}/hog_flows/{stored.id}",
             {"name": "Renamed legacy workflow", "actions": actions},
         )
+
+        assert response.status_code == 200, response.json()
+
+    @parameterized.expand(
+        [
+            ("email_step_reply_to_edited", "function_email", "replyTo", "new-reply@example.com"),
+            ("generic_step_renamed", "function", "subject", "Renamed subject"),
+        ]
+    )
+    def test_stored_templated_sender_survives_edits_that_keep_it(
+        self, _name: str, action_type: str, field: str, value: str
+    ) -> None:
+        workflow = self._workflow()
+        action = workflow["actions"][1]
+        action["type"] = action_type
+        if action_type == "function":
+            action["config"]["template_id"] = "template-email"
+        action["config"]["inputs"]["email"]["value"]["from"] = {"integrationId": "{inputs.sender}"}
+        stored = HogFlow.objects.create(
+            team=self.team, name="Templated workflow", actions=workflow["actions"], edges=workflow["edges"]
+        )
+        actions = deepcopy(workflow["actions"])
+        actions[1]["config"]["inputs"]["email"]["value"][field] = value
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{stored.id}", {"actions": actions})
 
         assert response.status_code == 200, response.json()
 
