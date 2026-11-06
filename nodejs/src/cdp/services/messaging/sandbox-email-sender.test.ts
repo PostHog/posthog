@@ -3,7 +3,7 @@ import { type DefaultTreeAdapterMap, defaultTreeAdapter, parse } from 'parse5'
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { TeamManager } from '~/common/utils/team-manager'
 
-import { SandboxEmailSender } from './sandbox-email-sender'
+import { AttributeBoundedParser, SandboxEmailSender } from './sandbox-email-sender'
 
 const footer =
     'This email was sent by Example organization via PostHog with the PostHog sandbox sender. Organization ID: 00000000-0000-0000-0000-000000000001.'
@@ -312,6 +312,14 @@ describe('sandbox email content', () => {
         expect(result.preheader).toBeUndefined()
     })
     it.each([
+        ['no tree adapter', {}],
+        ['the default tree adapter', { treeAdapter: defaultTreeAdapter }],
+    ])('keeps the attribute limit when a parse gets %s', (_, options) => {
+        expect(() => AttributeBoundedParser.parse(`<body><p ${manyAttributes(65)}>Hello</p></body>`, options)).toThrow(
+            'The sandbox email template could not retain its identification footer. Update the template and try again.'
+        )
+    })
+    it.each([
         ['<body><p>Hello</p><script><!--<script>', null, null],
         ['<body><p>Hello</p><template><script><!--<script>', null, null],
         ['<body><p>Hello</p><!--[if !mso]><!-->', null, null],
@@ -340,6 +348,7 @@ describe('sandbox email content', () => {
         [`<html ${manyAttributes(32)}><html ${manyAttributes(33, 'b')}><body><p>Hello</p></body></html>`, null, null],
         [`<body><p title="x>" ${manyAttributes(6_000)}>Hello</p></body>`, null, null],
         [`<body><p>Hello</p><!--[if mso]><p ${manyAttributes(6_000)}>Outlook</p><![endif]--></body>`, null, null],
+        [`<body><p>Hello</p><!--[if mso]><p ${manyAttributes(65)}>Outlook</p><![endif]--></body>`, null, null],
         [`<body><!-- <x a=" --><p ${manyAttributes(6_000)}>Hello</p><!-- "> --></body>`, null, null],
         [`<body><style><x a="</style><p ${manyAttributes(6_000)}>Hello</p><style>"></style></body>`, null, null],
         [`<body><p>Hello</p><!--[if ${'('.repeat(60_000)}mso]><p>Outlook</p><![endif]--></body>`, null, null],
