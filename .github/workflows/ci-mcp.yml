@@ -205,18 +205,6 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version: 3.14.7
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-
-            - name: Install uv
-              uses: ./.github/actions/setup-uv
-
-            - name: Install Python dependencies
-              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
@@ -243,7 +231,7 @@ jobs:
 
             - name: Check MCP schema is up to date
               run: |
-                  ./bin/hogli build:schema-mcp
+                  (cd services/mcp && pnpm exec tsx scripts/generate-tool-schema.ts && pnpm exec oxfmt schema/tool-inputs.json)
                   if ! git diff --exit-code services/mcp/schema/tool-inputs.json; then
                     echo ""
                     echo "::error::MCP tool-inputs.json is out of date. Run 'hogli build:schema-mcp' and commit the result."
