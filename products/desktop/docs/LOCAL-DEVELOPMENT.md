@@ -84,7 +84,7 @@ Adding it to production dependencies makes Electron packaging expand the harness
 
 ## Run the app
 
-Already working in the posthog/posthog monorepo? Skip the clone: the app lives at `products/desktop`. Note it needs Node 22 (see `.node-version`), not the Node version the monorepo's flox environment provides, so switch with your version manager first.
+Already working in the posthog/posthog monorepo? Skip the clone: the app lives at `products/desktop`. Note it needs Node 24 (see `.node-version`), not the Node version the monorepo's flox environment provides, so switch with your version manager first.
 
 ```bash
 cd products/desktop

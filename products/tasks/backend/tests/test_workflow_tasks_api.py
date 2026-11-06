@@ -132,6 +132,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         task = Task.objects.get(id=body["id"])
         assert task.team_id == self.team.id
         assert task.origin_product == Task.OriginProduct.WORKFLOW
+        assert task.profile == "workflow"
         assert str(task.hog_flow_id) == self.hog_flow.id
         assert task.created_by_id == self.user.id
         assert task.description == "look into the alert"

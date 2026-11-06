@@ -345,6 +345,17 @@ def backquote_clickhouse_identifier(identifier: str) -> str:
     return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))
 
 
+def escape_clickhouse_json_path(key: str) -> str:
+    """Quote one segment of a JSON subcolumn path, spelling a `%` as the `\\x25` escape.
+
+    ClickHouse decodes the escape inside backticks, so the path reads as a direct subcolumn. A literal `%` cannot
+    appear in the SQL, because the client runs it through parameter substitution, where `%` opens a format directive.
+    """
+    if "%" not in key:
+        return escape_clickhouse_identifier(key)
+    return backquote_clickhouse_identifier(key).replace("%", "\\x25")
+
+
 def escape_hogql_string(
     name: bool | float | int | str | list | tuple | date | datetime | UUID | UUIDT | None,
     timezone: Optional[str] = None,
