@@ -147,11 +147,19 @@ def dedupe(
     choices = dict(list(options.items())[:15]) | {_NONE_OPTION: "Something more specific than any standard check"}
     question = ChoiceQuestion(instructions=_DEDUPE_INSTRUCTIONS, criteria=choices)
     matches: dict[str, tuple[ExistingEval, float]] = {}
-    # One definition per call, for the same reason as screen().
+    failures = 0
+    # One definition per call, for the same reason as screen(). A failed call loses one match, never the screening.
     for existing in evals:
-        answer = client.decide(
-            state={"definition": clean_state(existing.definition_text)}, questions={"covers": question}
-        ).answers["covers"]
+        if failures >= MAX_CONSECUTIVE_FAILURES:
+            break
+        try:
+            answer = client.decide(
+                state={"definition": clean_state(existing.definition_text)}, questions={"covers": question}
+            ).answers["covers"]
+        except SystemOneRequestFailed:
+            failures += 1
+            continue
+        failures = 0
         if not isinstance(answer, ChoiceAnswer) or answer.choice == _NONE_OPTION:
             continue
         if answer.choice not in matches or answer.confidence > matches[answer.choice][1]:

@@ -37,7 +37,7 @@ from . import (
 )
 from .adapters import AdaptedCheck, compile_check
 from .applicability import applicable, content_profile
-from .config import SuggestionSettings
+from .config import SuggestionSettings, is_enabled_for_organization
 from .coverage import Coverage, dismissed_dedupe_keys
 from .measure import Measurement, Outcome, TraceSample, fetch_sample, measure, run_check, structured_outputs
 from .profile import ProfileWindow, StructuredGap, TeamProfile, fetch_profile, find_structured_gaps, gap_holds
@@ -455,6 +455,10 @@ def execute_run(run_id: str, *, include_paid: bool, settings: SuggestionSettings
     if run.status == EvalSuggestionRunStatus.COMPLETED:
         # Temporal retries an attempt whose result it lost after the run had published.
         return EvalSuggestion.objects.for_team(run.team_id).filter(run=run).count()
+    # The weekly plan can be days old, so an organization taken off the rollout since then gets nothing new.
+    if not is_enabled_for_organization(str(run.team.organization_id)):
+        fail_run(str(run.id), "The organization is no longer in the eval suggestions rollout")
+        return 0
     if run.status == EvalSuggestionRunStatus.FAILED:
         # A retry after an attempt that gave up runs the stages again.
         EvalSuggestionRun.objects.unscoped().filter(id=run.id, status=EvalSuggestionRunStatus.FAILED).update(
