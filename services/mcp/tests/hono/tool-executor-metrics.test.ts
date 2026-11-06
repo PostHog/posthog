@@ -378,6 +378,24 @@ describe('ToolExecutor metrics', () => {
                 'Validation error: invalid_input (field: key): Flag <value> conflicts with <value> and <value>',
             ],
             [
+                'a PostHogValidationError, with apostrophes, escapes, line breaks and guillemets inside quotes masked',
+                apiValidationError(
+                    'Value \'it\'s secret\' then "he said \\"pw\\" ok" then "line one\nline two" then «hidden»',
+                    'name'
+                ),
+                'Validation error: invalid_input (field: name): Value <value> then <value> then <value> then <value>',
+            ],
+            [
+                'a PostHogValidationError, with an unterminated quote masked to the end',
+                apiValidationError('Unterminated string "hunter two and more', 'query'),
+                'Validation error: invalid_input (field: query): Unterminated string <value>',
+            ],
+            [
+                'a PostHogValidationError, with short numbers and long digit-free tokens masked',
+                apiValidationError('Pin 4821 and key correcthorsebatterystaple rejected', 'pin'),
+                'Validation error: invalid_input (field: pin): Pin <value> and key <value> rejected',
+            ],
+            [
                 'a PostHogValidationError, with an unquoted secret-shaped token masked',
                 apiValidationError('Unable to resolve field: SECRET=sk_live_abc123', 'query'),
                 'Validation error: invalid_input (field: query): Unable to resolve field: <value>',

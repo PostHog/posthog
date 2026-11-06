@@ -1270,18 +1270,39 @@ function resolveSafeErrorMessage(error: unknown): string | undefined {
     return undefined
 }
 
-// A quote that opens or closes against a letter is an apostrophe (`survey's`), not a value.
-const QUOTED_VALUE_PATTERNS = [/(?<!\w)'[^'\n]*'(?!\w)/g, /"[^"\n]*"/g, /“[^”\n]*”/g, /‘[^’\n]*’/g, /`[^`\n]*`/g]
+// An apostrophe-like quote only opens a value when no letter precedes it (`survey's`),
+// only closes one when no letter follows it, and inside a value it is an apostrophe
+// (`'it's'`). Every other quote opens and closes unconditionally.
+const APOSTROPHE_QUOTED_VALUE = /(?<!\w)'(?:\\[\s\S]|[^'\\]|'(?=\w))*'(?!\w)/g
+const QUOTE_PAIRS: [open: string, close: string][] = [
+    ['"', '"'],
+    ['“', '”'],
+    ['‘', '’'],
+    ['«', '»'],
+    ['„', '“'],
+    ['`', '`'],
+]
+const QUOTED_VALUE_PATTERNS = [
+    APOSTROPHE_QUOTED_VALUE,
+    ...QUOTE_PAIRS.map(([open, close]) => new RegExp(`${open}(?:\\\\[\\s\\S]|[^${close}\\\\])*${close}`, 'g')),
+]
+// A quote left open after the pairs are masked runs to the end, so a cut-off value never leaks.
+const UNTERMINATED_VALUE = new RegExp(`(?:(?<!\\w)'|[${QUOTE_PAIRS.map(([open]) => open).join('')}])[\\s\\S]*$`)
 const MASKED_VALUE = '<value>'
 
-/** Emails, URLs, and the keys, tokens, ids and numbers that carry digits. */
+/** Emails, URLs, anything carrying a digit, and tokens too long to be a word of prose. */
 function isValueShapedToken(token: string): boolean {
-    return token.includes('@') || token.includes('://') || (token.length >= 6 && /\d/.test(token))
+    return token.includes('@') || token.includes('://') || /\d/.test(token) || token.length >= 16
 }
 
 function maskCallerValues(detail: string): string {
-    const unquoted = QUOTED_VALUE_PATTERNS.reduce((text, pattern) => text.replace(pattern, MASKED_VALUE), detail)
-    return unquoted.replace(/\S+/g, (token) => (isValueShapedToken(token) ? MASKED_VALUE : token)).trim()
+    // Capped first so masking cost stays bounded on a large API body; a value the cap
+    // cuts through is left unterminated and masked whole.
+    const quoted = QUOTED_VALUE_PATTERNS.reduce(
+        (text, pattern) => text.replace(pattern, MASKED_VALUE),
+        detail.slice(0, MAX_ERROR_MESSAGE_LENGTH)
+    ).replace(UNTERMINATED_VALUE, MASKED_VALUE)
+    return quoted.replace(/\S+/g, (token) => (isValueShapedToken(token) ? MASKED_VALUE : token)).trim()
 }
 
 function safeUrlPath(url: string): string {
