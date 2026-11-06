@@ -270,6 +270,13 @@ export type SesEmailStatusUpdate = {
 
 const normalizeAddress = (address: string): string => unquoteMailbox(address).trim().toLowerCase()
 
+// SES reports a bounce or complaint recipient from the receiving server's report, which can name any address.
+// Only an address this send went to may change suppression state.
+const sentToRecipients = <T extends { emailAddress: string }>(rec: SesEventRecord, recipients: T[]): T[] => {
+    const sentTo = new Set(rec.mail.destination.map(normalizeAddress))
+    return recipients.filter((r) => sentTo.has(normalizeAddress(r.emailAddress)))
+}
+
 // The addresses in the To header. SES reports each entry as written, so a display name can wrap the address.
 const toHeaderAddresses = (rec: SesEventRecord): Set<string> =>
     new Set(
@@ -1014,31 +1021,36 @@ export class SesWebhookHandler {
             // Record permanent bounces in the suppression list so future sends to the address are
             // blocked. The SMTP diagnostic is threaded through for operator visibility on the row.
             if (suppressionAllowed && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Permanent') {
-                const emails = rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
-                const diagnostic = rec.bounce.bouncedRecipients.find((r) => r.diagnosticCode)?.diagnosticCode
-                // SES reports the DSN's final recipient, which the receiving server chooses. Only an address
-                // this send went to can go on the global list.
-                const sentTo = new Set(rec.mail.destination.map(normalizeAddress))
-                const nonexistentAddresses = fromTrustedTopic
-                    ? nonexistentRecipients(rec.bounce).filter((email) => sentTo.has(normalizeAddress(email)))
-                    : []
-                hardBounceRecipients.push({
-                    teamId,
-                    emailAddresses: emails,
-                    diagnostic,
-                    ...(nonexistentAddresses.length > 0
-                        ? { nonexistentAddresses, bounceTimestamp: rec.bounce.timestamp }
-                        : {}),
-                })
+                const bounced = sentToRecipients(rec, rec.bounce.bouncedRecipients)
+                if (bounced.length > 0) {
+                    const diagnostic = bounced.find((r) => r.diagnosticCode)?.diagnosticCode
+                    const nonexistentAddresses = fromTrustedTopic
+                        ? nonexistentRecipients({ ...rec.bounce, bouncedRecipients: bounced })
+                        : []
+                    hardBounceRecipients.push({
+                        teamId,
+                        emailAddresses: bounced.map((r) => r.emailAddress),
+                        diagnostic,
+                        ...(nonexistentAddresses.length > 0
+                            ? { nonexistentAddresses, bounceTimestamp: rec.bounce.timestamp }
+                            : {}),
+                    })
+                }
             }
 
             // Count soft (Transient) bounces toward suppression. These are recipient-side failures
             // (server unreachable, mailbox full, greylisting); one is harmless but a persistent run
             // of them means the address can't receive mail.
             if (suppressionAllowed && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Transient') {
-                const emails = rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
-                const diagnostic = rec.bounce.bouncedRecipients.find((r) => r.diagnosticCode)?.diagnosticCode
-                transientBounceRecipients.push({ teamId, emailAddresses: emails, diagnostic })
+                const bounced = sentToRecipients(rec, rec.bounce.bouncedRecipients)
+                if (bounced.length > 0) {
+                    const diagnostic = bounced.find((r) => r.diagnosticCode)?.diagnosticCode
+                    transientBounceRecipients.push({
+                        teamId,
+                        emailAddresses: bounced.map((r) => r.emailAddress),
+                        diagnostic,
+                    })
+                }
             }
 
             // Record complaints in the suppression list so future sends to the address are blocked.
@@ -1052,12 +1064,14 @@ export class SesWebhookHandler {
                 rec.eventType === 'Complaint' &&
                 rec.complaint.complaintFeedbackType?.toLowerCase() !== 'not-spam'
             ) {
-                const emails = rec.complaint.complainedRecipients.map((r) => r.emailAddress)
-                complainedRecipients.push({
-                    teamId,
-                    emailAddresses: emails,
-                    feedbackType: rec.complaint.complaintFeedbackType,
-                })
+                const complained = sentToRecipients(rec, rec.complaint.complainedRecipients)
+                if (complained.length > 0) {
+                    complainedRecipients.push({
+                        teamId,
+                        emailAddresses: complained.map((r) => r.emailAddress),
+                        feedbackType: rec.complaint.complaintFeedbackType,
+                    })
+                }
             }
 
             // Successful delivery resets an address's soft-bounce counter — but only if newer than the

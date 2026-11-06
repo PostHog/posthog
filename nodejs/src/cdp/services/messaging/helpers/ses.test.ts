@@ -639,6 +639,53 @@ describe('SesWebhookHandler', () => {
         }
     )
 
+    // The reported recipient comes from the receiving server's report, so only an address the send went to
+    // may reach the team's suppression list.
+    it.each([
+        [
+            'Permanent bounce',
+            'hardBounceRecipients' as const,
+            (emailAddresses: string[]) => ({
+                eventType: 'Bounce',
+                bounce: {
+                    bounceType: 'Permanent',
+                    bouncedRecipients: emailAddresses.map((emailAddress) => ({ emailAddress, status: '5.1.1' })),
+                    timestamp: '2025-10-03T12:04:00Z',
+                },
+            }),
+        ],
+        [
+            'Transient bounce',
+            'transientBounceRecipients' as const,
+            (emailAddresses: string[]) => ({
+                eventType: 'Bounce',
+                bounce: {
+                    bounceType: 'Transient',
+                    bouncedRecipients: emailAddresses.map((emailAddress) => ({ emailAddress, status: '4.2.2' })),
+                    timestamp: '2025-10-03T12:04:00Z',
+                },
+            }),
+        ],
+        [
+            'Complaint',
+            'complainedRecipients' as const,
+            (emailAddresses: string[]) => ({
+                eventType: 'Complaint',
+                complaint: {
+                    complainedRecipients: emailAddresses.map((emailAddress) => ({ emailAddress })),
+                    timestamp: '2025-10-03T12:05:00Z',
+                },
+            }),
+        ],
+    ])('keeps only sent-to recipients of a %s for suppression', async (_label, arrayKey, buildEvent) => {
+        const body = [
+            { mail: baseMail, ...buildEvent(['TO@example.com', 'not-sent-to@example.org']) },
+            { mail: baseMail, ...buildEvent(['not-sent-to@example.org']) },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        expect(result[arrayKey]).toEqual([expect.objectContaining({ teamId: '1', emailAddresses: ['TO@example.com'] })])
+    })
+
     it('returns 200, no metrics and no logged payload if tracking code is missing from both carriers', async () => {
         const logSpies = (['info', 'warn', 'error'] as const).map((level) => jest.spyOn(logger, level))
         const body = [
@@ -1259,14 +1306,14 @@ describe('SesWebhookHandler', () => {
                 mail: baseMail,
                 bounce: {
                     bounceType: 'Permanent',
-                    bouncedRecipients: [{ emailAddress: 'recipient@example.com', diagnosticCode: 'bad' }],
+                    bouncedRecipients: [{ emailAddress: 'to@example.com', diagnosticCode: 'bad' }],
                     timestamp: '2025-10-03T12:04:00Z',
                 },
             })
             const result = await restricted.handleWebhook({ body: envelope, headers: {}, verifySignature: false })
             expect(result.status).toBe(200)
             expect(result.hardBounceRecipients).toEqual([
-                { teamId: '1', emailAddresses: ['recipient@example.com'], diagnostic: 'bad' },
+                { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'bad' },
             ])
         })
 
