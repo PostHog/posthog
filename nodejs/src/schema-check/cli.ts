@@ -145,8 +145,7 @@ function parseSeconds(name: string, value: string | undefined, fallback: number)
     return seconds
 }
 
-// Called once the Django and sqlx results are known. Earlier exits push nothing, because the alerts
-// only read the sqlx result of a run that reached the database.
+// Earlier exits push nothing, because the alerts only read runs that reached the database.
 async function pushResult(
     djangoExitCode: number,
     sqlx: SqlxShadowResult[],
