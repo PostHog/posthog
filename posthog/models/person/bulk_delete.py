@@ -976,6 +976,19 @@ def _start_recording_workflow_batches(
                 )
             return workflow_id
 
-        return list(await asyncio.gather(*(start_workflow(batch) for batch in batches)))
+        # return_exceptions lets every start finish, so a failed batch neither cancels the others nor loses the ids
+        # of workflows that already run.
+        results = await asyncio.gather(*(start_workflow(batch) for batch in batches), return_exceptions=True)
+        started = [result for result in results if isinstance(result, str)]
+        failures = [result for result in results if isinstance(result, BaseException)]
+        if failures:
+            logger.warning(
+                "recording_deletion.workflow_starts_failed",
+                team_id=team_id,
+                failed_batches=len(failures),
+                started_workflow_ids=started,
+            )
+            raise failures[0]
+        return started
 
     return asyncio.run(start_all_workflows())

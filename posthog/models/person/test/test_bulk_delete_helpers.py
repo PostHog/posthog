@@ -867,6 +867,21 @@ class QueueRecordingDeletionTests(BaseTest):
             _start_recording_workflows(self.team.pk, persons, self.user, "test reason")
         assert client.start_workflow.call_count == expected_workflows
 
+    def test_a_failed_start_still_starts_and_reports_the_other_batches(self):
+        client = MagicMock()
+        client.start_workflow = AsyncMock(side_effect=[RuntimeError("temporal unavailable"), None])
+        with (
+            patch("posthog.models.person.bulk_delete.sync_connect", return_value=client),
+            patch("posthog.models.person.bulk_delete.logger") as logger,
+            self.assertRaises(RuntimeError),
+        ):
+            _start_recording_workflow_batches(self.team.pk, [["a"], ["b"]], "system", "test reason")
+
+        assert client.start_workflow.call_count == 2
+        [started] = [c.kwargs["id"] for c in client.start_workflow.call_args_list][1:]
+        logger.warning.assert_called_once()
+        assert logger.warning.call_args.kwargs["started_workflow_ids"] == [started]
+
     def test_refuses_to_start_a_workflow_with_an_empty_deleted_by(self):
         with patch("posthog.models.person.bulk_delete.sync_connect") as connect, self.assertRaises(ValueError):
             _start_recording_workflow_batches(self.team.pk, [["a"]], "", "test reason")
