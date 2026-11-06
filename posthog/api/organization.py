@@ -43,6 +43,7 @@ from posthog.helpers.email_utils import validate_display_name
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, verified_domain_email_q
 from posthog.ip_restrictions import (
     MAX_IP_RESTRICTIONS,
+    get_ip_blocked_organization_ids,
     get_restriction_client_ip,
     is_ip_allowed,
     validate_ip_restrictions,
@@ -407,12 +408,21 @@ class OrganizationSerializer(
                     defaults["ip_restrictions"] = ip_restrictions
                 if ip_restrictions_enabled is not None:
                     defaults["enabled"] = ip_restrictions_enabled
-                instance._state.fields_cache["ip_restrictions_config"] = (
-                    OrganizationIPRestrictions.objects.update_or_create(
-                        organization=instance,
-                        defaults=defaults,
-                    )[0]
+                config, created = OrganizationIPRestrictions.objects.get_or_create(
+                    organization=instance, defaults=defaults
                 )
+                config = OrganizationIPRestrictions.objects.select_for_update().get(pk=config.pk)
+                instance._state.fields_cache["ip_restrictions_config"] = config
+                # Validation before save may have observed a policy another request has since changed.
+                policy_attrs = {
+                    "ip_restrictions" if key == "ip_restrictions" else "ip_restrictions_enabled": value
+                    for key, value in defaults.items()
+                }
+                self._validate_ip_restrictions_access(policy_attrs)
+                if not created:
+                    for key, value in defaults.items():
+                        setattr(config, key, value)
+                    config.save(update_fields=[*defaults, "updated_at"])
         return instance
 
     @tracer.start_as_current_span("organization_serializer.membership_level")
@@ -665,6 +675,16 @@ class OrganizationSerializer(
 
     @tracer.start_as_current_span("organization_serializer.to_representation")
     def to_representation(self, instance):
+        request = self.context.get("request")
+        if request is not None and str(instance.id) in get_ip_blocked_organization_ids(request):
+            return {
+                "id": str(instance.id),
+                "name": instance.name,
+                "slug": instance.slug,
+                "membership_level": self.get_membership_level(instance),
+                "teams": [],
+                "projects": [],
+            }
         return super().to_representation(instance)
 
 

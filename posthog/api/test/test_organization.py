@@ -15,6 +15,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.organization import (
@@ -740,6 +741,95 @@ class TestOrganizationAPI(APIBaseTest):
         response = self.client.get(f"/api/organizations/{other_org.id}/", REMOTE_ADDR="198.51.100.7")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand([(selected, api_key) for selected in (False, True) for api_key in (False, True)])
+    @override_settings(IS_BEHIND_PROXY=False, TRUST_ALL_PROXIES=False)
+    def test_recovery_responses_limit_blocked_organizations(self, selected_is_blocked: bool, api_key: bool) -> None:
+        other_org, _, other_team = Organization.objects.bootstrap(self.user, name="Available organization")
+        selected_org = self.organization if selected_is_blocked else other_org
+        selected_team = self.team if selected_is_blocked else other_team
+        self.user.current_organization = selected_org
+        self.user.current_team = selected_team
+        self.user.save(update_fields=["current_organization", "current_team"])
+        OrganizationIPRestrictions.objects.create(
+            organization=self.organization, ip_restrictions=["203.0.113.0/24"], enabled=True
+        )
+        if api_key:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                user=self.user, label="Recovery response test", secure_value=hash_key_value(token), scopes=["*"]
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        # Populate the serializer caches from an allowed request before reading from another IP.
+        allowed = self.client.get("/api/organizations/", REMOTE_ADDR="203.0.113.7")
+        self.assertEqual(allowed.status_code, 200)
+        full_org = next(org for org in allowed.json()["results"] if org["id"] == str(self.organization.id))
+        self.assertEqual(full_org["teams"][0]["api_token"], self.team.api_token)
+
+        recovery_fields = {"id", "name", "slug", "membership_level"}
+        response = self.client.get("/api/organizations/", REMOTE_ADDR="198.51.100.7")
+        self.assertEqual(response.status_code, 200)
+        orgs = {org["id"]: org for org in response.json()["results"]}
+        self.assertEqual(set(orgs[str(self.organization.id)]), recovery_fields | {"teams", "projects"})
+        self.assertEqual(orgs[str(self.organization.id)]["teams"], [])
+        self.assertEqual(orgs[str(self.organization.id)]["projects"], [])
+        self.assertEqual(orgs[str(other_org.id)]["teams"][0]["api_token"], other_team.api_token)
+
+        response = self.client.get("/api/users/@me/", REMOTE_ADDR="198.51.100.7")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        nested_org = next(org for org in data["organizations"] if org["id"] == str(self.organization.id))
+        self.assertEqual(set(nested_org), recovery_fields)
+        if selected_is_blocked:
+            self.assertEqual(set(data["organization"]), recovery_fields | {"teams", "projects"})
+            self.assertEqual(data["organization"]["teams"], [])
+            self.assertEqual(data["organization"]["projects"], [])
+            self.assertIsNone(data["team"])
+            self.assertNotIn(self.team.api_token, response.content.decode())
+        else:
+            self.assertEqual(data["team"]["api_token"], other_team.api_token)
+
+        response = self.client.patch(
+            "/api/users/@me/", {"set_current_organization": str(other_org.id)}, REMOTE_ADDR="198.51.100.7"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["organization"]["id"], str(other_org.id))
+
+    @parameterized.expand([(False,), (True,)])
+    @override_settings(IS_BEHIND_PROXY=False, TRUST_ALL_PROXIES=False)
+    def test_policy_updates_revalidate_after_another_save(self, enable_first: bool) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.IP_RESTRICTIONS}]
+        self.organization.save()
+        config = OrganizationIPRestrictions.objects.create(
+            organization=self.organization, ip_restrictions=["203.0.113.7"], enabled=False
+        )
+        request = APIRequestFactory().patch("/", REMOTE_ADDR="203.0.113.7")
+        request.user = self.user
+        enable = OrganizationSerializer(
+            Organization.objects.get(pk=self.organization.pk),
+            data={"ip_restrictions_enabled": True},
+            partial=True,
+            context={"request": request},
+        )
+        replace = OrganizationSerializer(
+            Organization.objects.get(pk=self.organization.pk),
+            data={"ip_restrictions": ["198.51.100.7"]},
+            partial=True,
+            context={"request": request},
+        )
+        self.assertTrue(enable.is_valid(), enable.errors)
+        self.assertTrue(replace.is_valid(), replace.errors)
+
+        first, second = (enable, replace) if enable_first else (replace, enable)
+        first.save()
+        with self.assertRaises(ValidationError) as error:
+            second.save()
+        self.assertIn("would_block_self", str(error.exception.get_codes()))
+        config.refresh_from_db()
+        self.assertEqual(config.enabled, enable_first)
+        self.assertEqual(config.ip_restrictions, ["203.0.113.7"] if enable_first else ["198.51.100.7"])
 
     @parameterized.expand(
         [

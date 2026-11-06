@@ -1081,13 +1081,17 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(discover_state.flow, FlowKind.OAUTH_DISCOVER)
         self.assertEqual(discover_state.connect_from, "posthog_code")
 
-    @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
+    @parameterized.expand([("no_policy",), ("allowed",), ("blocked",), ("removed_member",), ("demoted",)])
+    @override_settings(
+        GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret", IS_BEHIND_PROXY=False
+    )
     @patch("posthog.models.integration.github.GitHubIntegration.integration_from_installation_id")
     @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.github.GitHubIntegration.client_request")
     @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     def test_github_link_callback_team_oauth_authorize_creates_team_integration(
         self,
+        policy,
         mock_user_from_code,
         mock_client_request,
         mock_verify_get,
@@ -1132,10 +1136,35 @@ class TestUserIntegrationEndpoints(APIBaseTest):
             ),
         )
 
+        other_org, _, other_team = Organization.objects.bootstrap(self.user, name="Selected organization")
+        self.user.current_organization = other_org
+        self.user.current_team = other_team
+        self.user.save(update_fields=["current_organization", "current_team"])
+        if policy in ("allowed", "blocked"):
+            OrganizationIPRestrictions.objects.create(
+                organization=self.organization, ip_restrictions=["203.0.113.0/24"], enabled=True
+            )
+        elif policy == "removed_member":
+            self.organization_membership.delete()
+        elif policy == "demoted":
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+
         response = self.client.get(
             "/complete/github-link/",
             {"code": "test_code", "state": state},
+            REMOTE_ADDR="203.0.113.7" if policy == "allowed" else "198.51.100.7",
         )
+
+        if policy in ("blocked", "removed_member", "demoted"):
+            self.assertEqual(response.status_code, 403 if policy == "blocked" else 302)
+            mock_user_from_code.assert_not_called()
+            mock_integration_from_install.assert_not_called()
+            self.assertFalse(UserIntegration.objects.filter(user=self.user).exists())
+            self.assertIsNotNone(load_authorize_state(state, user_id=self.user.id))
+            team_integration.refresh_from_db()
+            self.assertEqual(team_integration.sensitive_config, {"access_token": "ghs_install_token"})
+            return
 
         self.assertEqual(response.status_code, 302)
         # Used the OAuth-flow redirect URI so the code exchange matches GitHub's expectation.

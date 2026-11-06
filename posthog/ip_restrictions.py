@@ -463,7 +463,9 @@ def get_ip_blocked_organization_ids(request: "Request") -> list[str]:
     django_request = getattr(request, "_request", request)
     for organization_id, _ in _request_policies(django_request, user):
         try:
-            enforce_ip_restrictions(request, user, request.successful_authenticator, organization_id=organization_id)
+            enforce_ip_restrictions(
+                request, user, getattr(request, "successful_authenticator", None), organization_id=organization_id
+            )
         except PermissionDenied:
             blocked.append(organization_id)
     return blocked
