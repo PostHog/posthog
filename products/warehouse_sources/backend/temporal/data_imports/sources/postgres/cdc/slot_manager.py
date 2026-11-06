@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -270,19 +271,60 @@ def get_max_slot_wal_keep_size_mb(conn: psycopg.Connection) -> int | None:
     return value if value >= 0 else None
 
 
-def get_current_wal_lsn(conn: psycopg.Connection) -> str:
-    """The server's current WAL position. Every transaction committed before the call ends at or below it.
+# How long a snapshot waits for the transactions still running when it read the WAL position. One
+# that outlasts it, such as a long write or a prepared transaction, makes the position unusable.
+VISIBLE_WAL_WAIT_SECONDS = 30.0
+_VISIBLE_WAL_POLL_SECONDS = 0.5
 
-    A standby has no WAL of its own to write, so it reports how far it has replayed.
+# Every transaction with an xid, prepared ones included, holds an exclusive lock on it until after it
+# becomes visible. A snapshot's own xip list would miss those at or past its xmax. Only this database's
+# transactions can change what the snapshot reads, and the caller's own never ends while it waits.
+_RUNNING_XIDS = (
+    "SELECT coalesce(array_agg(DISTINCT l.transactionid::text::bigint), '{}') FROM pg_locks l "
+    "LEFT JOIN pg_stat_activity a ON a.pid = l.pid "
+    "LEFT JOIN pg_prepared_xacts p ON p.transaction = l.transactionid "
+    "WHERE l.locktype = 'transactionid' AND l.mode = 'ExclusiveLock' AND l.granted "
+    "AND l.pid IS DISTINCT FROM pg_backend_pid() AND coalesce(a.datname, p.database) = current_database()"
+)
+_STILL_RUNNING = _RUNNING_XIDS + " AND l.transactionid::text::bigint = ANY(%s)"
+
+
+class WalPositionNotVisibleError(Exception):
+    """A transaction running when the WAL position was read did not end in time."""
+
+
+def get_visible_wal_lsn(conn: psycopg.Connection, *, timeout: float = VISIBLE_WAL_WAIT_SECONDS) -> str:
+    """A WAL position whose every commit is visible to any snapshot taken after the call returns.
+
+    A commit writes its WAL before it becomes visible, and with synchronous replication it stays
+    invisible until a standby confirms it. Such a transaction is still running after the position is
+    read, so waiting for every one running then to end closes the gap. The insert position, not the
+    write position, so an asynchronous commit already visible is not left above it. A standby
+    reports how far it has replayed, since it writes no WAL of its own.
     """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT (CASE WHEN pg_is_in_recovery() THEN pg_last_wal_replay_lsn() ELSE pg_current_wal_lsn() END)::text"
+            "SELECT (CASE WHEN pg_is_in_recovery() THEN pg_last_wal_replay_lsn() ELSE pg_current_wal_insert_lsn() END)::text"
         )
         row = cur.fetchone()
-    if row is None or row[0] is None:
-        raise ValueError("The server reported no WAL position")
-    return str(row[0])
+        if row is None or row[0] is None:
+            raise ValueError("The server reported no WAL position")
+        lsn = str(row[0])
+        # Read after the position, so it holds every transaction that may have committed below it unseen.
+        cur.execute(_RUNNING_XIDS)
+        running = _xids(cur.fetchone())
+        deadline = time.monotonic() + timeout
+        while running:
+            if time.monotonic() >= deadline:
+                raise WalPositionNotVisibleError(f"{len(running)} transaction(s) still running after {timeout}s")
+            time.sleep(_VISIBLE_WAL_POLL_SECONDS)
+            cur.execute(_STILL_RUNNING, (running,))
+            running = _xids(cur.fetchone())
+    return lsn
+
+
+def _xids(row: tuple[object, ...] | None) -> list[int]:
+    return [int(xid) for xid in row[0]] if row is not None and isinstance(row[0], list) else []
 
 
 def get_slot_lag_bytes(conn: psycopg.Connection, slot_name: str) -> int | None:

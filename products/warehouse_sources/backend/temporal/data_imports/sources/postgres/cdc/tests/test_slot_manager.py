@@ -7,17 +7,19 @@ import pytest
 from unittest import mock
 from unittest.mock import MagicMock
 
+import psycopg
 import psycopg.errors
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.slot_manager import (
+    WalPositionNotVisibleError,
     add_table_to_publication,
     cdc_pg_connection,
-    get_current_wal_lsn,
     get_max_slot_wal_keep_size_mb,
     get_publication_tables,
+    get_visible_wal_lsn,
     is_slot_invalidation_error,
     remove_table_from_publication,
 )
@@ -132,12 +134,26 @@ class TestGetMaxSlotWalKeepSizeMb:
 
 
 @pytest.mark.django_db
-def test_the_current_wal_position_reads_as_an_lsn():
-    # Run against a real server, because the query is all there is to get wrong.
+def test_the_wal_position_waits_for_transactions_running_when_it_was_read():
+    # Against a real server: a commit's WAL lands before the commit is visible, so the position is
+    # usable only once every transaction running when it was read has ended.
     from django.db import connection
 
     connection.ensure_connection()
-    assert PgLSN.deserialize(get_current_wal_lsn(connection.connection)).value > 0
+    settings = connection.settings_dict
+    with psycopg.connect(
+        dbname=settings["NAME"],
+        user=settings["USER"],
+        password=settings["PASSWORD"],
+        host=settings["HOST"],
+        port=settings["PORT"],
+    ) as other:
+        other.execute("SELECT pg_current_xact_id()")
+        with pytest.raises(WalPositionNotVisibleError):
+            get_visible_wal_lsn(connection.connection, timeout=0)
+        other.commit()
+
+        assert PgLSN.deserialize(get_visible_wal_lsn(connection.connection, timeout=5)).value > 0
 
 
 class TestGetPublicationTables:

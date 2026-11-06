@@ -290,11 +290,11 @@ class TestSnapshotPosition:
         write.assert_not_called()
         adapter.management_connection.assert_not_called()
 
-    def test_a_position_that_cannot_be_read_is_cleared(self):
-        # One left from an earlier snapshot may come from another server, whose positions mean nothing here.
+    def test_a_position_that_cannot_be_read_is_recorded_as_unknown(self):
+        # Not dropped: a later attempt that is no rebuild would then record a position past rows already written.
         adapter = MagicMock()
         adapter.management_connection.side_effect = OSError("connection refused")
 
         write = self._snapshot("both", adapter=adapter, reset=True, recorded=True)
 
-        write.assert_called_once_with(ANY, ANY, removes=[CDC_SNAPSHOT_POSITION_KEY])
+        write.assert_called_once_with(ANY, ANY, updates={CDC_SNAPSHOT_POSITION_KEY: None})

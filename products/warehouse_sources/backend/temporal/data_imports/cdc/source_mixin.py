@@ -86,12 +86,9 @@ class CDCSourceMixin(_BaseSource[ConfigType]):
     ) -> None:
         """Record the source's log position before a snapshot in a history mode reads the table.
 
-        Read before the first row, so every change at or below it is in the snapshot, and the history
-        lane skips those changes when the buffer replays them. Only a rebuild of the table replaces a
-        recorded position: any other attempt may follow one that already wrote rows, and those predate
-        a position read now. A failed read clears the position instead of failing the snapshot, because
-        one left from an earlier snapshot may come from another server. The history lane then versions
-        those changes again, as it did before positions were recorded.
+        Only a rebuild replaces a recorded position, because an earlier attempt may already have
+        written rows. A position that cannot be read is recorded as unknown, and the history lane
+        then replays the whole buffer.
         """
         from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
         from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import is_history_table_mode
@@ -108,7 +105,7 @@ class CDCSourceMixin(_BaseSource[ConfigType]):
                 position = adapter.position_to_seq(adapter.current_position(conn))
         except Exception:
             inputs.logger.warning("cdc_snapshot_position_unread", schema_id=str(schema.id), exc_info=True)
-            update_sync_type_config_keys(schema.id, schema.team_id, removes=[CDC_SNAPSHOT_POSITION_KEY])
+            update_sync_type_config_keys(schema.id, schema.team_id, updates={CDC_SNAPSHOT_POSITION_KEY: None})
             return
         update_sync_type_config_keys(schema.id, schema.team_id, updates={CDC_SNAPSHOT_POSITION_KEY: position})
         inputs.logger.info("cdc_snapshot_position_recorded", schema_id=str(schema.id), position=position)

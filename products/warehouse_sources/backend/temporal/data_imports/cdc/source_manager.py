@@ -391,7 +391,7 @@ async def build_output_lanes(
 
     The floor is the lowest position any lane holds — a file below it is settled for every table.
     A lane whose table reports no position holds the floor open, so nothing is deleted until every
-    lane can prove where it stops.
+    lane can prove where it stops. A history table holding only its seed stops at the snapshot's position.
     """
     lanes: list[OutputLane] = []
     positions: list[int | None] = []
@@ -409,9 +409,9 @@ async def build_output_lanes(
         # rather than losing it, and duplication is the direction that can be repaired.
         key_columns = [*keys, CDC_OP_COLUMN] if keys else None
         position = await read_lane_position(delta_table, key_columns=key_columns if is_append else None)
-        positions.append(position.position)
         if lane.history is not None and position.position is None:
             position = _seed_position(schema)
+        positions.append(position.position)
         replay = ReplayFilter(position)
         lanes.append(
             OutputLane(

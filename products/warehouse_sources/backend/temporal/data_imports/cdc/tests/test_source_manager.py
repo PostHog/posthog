@@ -961,6 +961,14 @@ class TestBuildOutputLanes:
 
         assert floor == 20
 
+    async def test_a_seed_only_history_table_settles_the_buffer_its_snapshot_holds(self):
+        # Otherwise a buffer holding only changes from before the snapshot is read again every run.
+        _, floor = await self._build(
+            _schema(cdc_table_mode="cdc_only", sync_type_config={CDC_SNAPSHOT_POSITION_KEY: 20}), [_NO_POSITION]
+        )
+
+        assert floor == 21
+
     async def test_a_lane_with_no_position_holds_the_floor_open(self):
         _, floor = await self._build(
             _schema(cdc_table_mode="both"), [LanePosition(position=50, applied={}), _NO_POSITION]

@@ -72,6 +72,7 @@ from products.warehouse_sources.backend.facade.source_inputs import SourceInputs
 from products.warehouse_sources.backend.facade.source_management import (
     BUFFER_LANE,
     CDC_RESET_PENDING_KEY,
+    CDC_SNAPSHOT_POSITION_KEY,
     AnySource,
     Config,
     RowFilterValidationError,
@@ -1702,6 +1703,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     "cdc_last_log_position",
                     CDC_RESET_PENDING_KEY,
                     CDC_SNAPSHOT_LANE_KEY,
+                    CDC_SNAPSHOT_POSITION_KEY,
                 ):
                     payload.pop(stale_key, None)
                 instance.initial_sync_complete = False
@@ -1968,6 +1970,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # must empty the buffer before its new snapshot.
         if leaving_cdc:
             instance.sync_type_config.pop(CDC_SNAPSHOT_LANE_KEY, None)
+            instance.sync_type_config.pop(CDC_SNAPSHOT_POSITION_KEY, None)
         publication_removal: Callable[[], None] | None = None
         if (is_cdc or leaving_cdc) and source_type_supports_cdc(source.source_type):
             publication_removal = self._handle_cdc_publication_change(

@@ -52,8 +52,9 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
         ...
 
     def current_position(self, conn: Any) -> str:
-        """The source's current log position, serialized as `position_to_seq` reads it. Every change
-        committed before the call is at or below it (PG: the current WAL LSN)."""
+        """The source's log position, serialized as `position_to_seq` reads it. Every change at or below
+        it is visible to any read that starts after the call returns. Raises when that cannot be
+        established (PG: the current WAL LSN, once the transactions running then have ended)."""
         ...
 
     @contextmanager
