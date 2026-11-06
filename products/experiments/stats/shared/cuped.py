@@ -12,7 +12,9 @@ Experiments by Utilizing Pre-Experiment Data"
 
 from dataclasses import dataclass
 
-from .statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic, StatisticError
+from posthog.dataclasses import frozen
+
+from .statistics import ProportionStatistic, RatioStatistic, RelativeEffectBaseline, SampleMeanStatistic, StatisticError
 
 VARIANCE_FLOOR = 1e-10
 
@@ -32,7 +34,7 @@ class CupedCovariate:
     sum_of_cross_products: float
 
 
-@dataclass
+@frozen
 class CupedResult:
     """Result of CUPED adjustment with metadata for display.
 
@@ -53,6 +55,7 @@ class CupedResult:
     control_unadjusted_mean: float
     variance_reduction_treatment: float
     variance_reduction_control: float
+    relative_effect_baseline: RelativeEffectBaseline
 
 
 def _get_post_sum(post: SampleMeanStatistic | ProportionStatistic) -> float:
@@ -197,6 +200,20 @@ def cuped_adjust(
 
     theta = compute_theta(treatment_post, control_post, treatment_cuped, control_cuped)
 
+    control_covariance = _compute_covariance(
+        n=control_post.n,
+        post_sum=_get_post_sum(control_post),
+        pre_sum=control_cuped.pre_statistic.sum,
+        sum_of_cross_products=control_cuped.sum_of_cross_products,
+    )
+    # Treat fitted theta as fixed to first order: randomization makes the population covariate difference zero.
+    # Cov(T_adj - C_adj, C_raw) = -(Var(C_raw) - theta * Cov(C_raw, X_C)) / n_C.
+    relative_effect_baseline = RelativeEffectBaseline(
+        mean=control_unadjusted_mean,
+        variance=control_post.variance / control_post.n,
+        difference_covariance=-(control_post.variance - theta * control_covariance) / control_post.n,
+    )
+
     if theta == 0.0:
         treatment_adjusted, _ = _adjust_group(treatment_post, treatment_cuped, 0.0)
         control_adjusted, _ = _adjust_group(control_post, control_cuped, 0.0)
@@ -208,6 +225,7 @@ def cuped_adjust(
             control_unadjusted_mean=control_unadjusted_mean,
             variance_reduction_treatment=0.0,
             variance_reduction_control=0.0,
+            relative_effect_baseline=relative_effect_baseline,
         )
 
     treatment_adjusted, vr_treatment = _adjust_group(treatment_post, treatment_cuped, theta)
@@ -221,4 +239,5 @@ def cuped_adjust(
         control_unadjusted_mean=control_unadjusted_mean,
         variance_reduction_treatment=vr_treatment,
         variance_reduction_control=vr_control,
+        relative_effect_baseline=relative_effect_baseline,
     )

@@ -3,6 +3,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from posthog.dataclasses import frozen
+
 
 class StatisticError(ValueError):
     """Base exception for statistic-related errors."""
@@ -14,6 +16,27 @@ class InvalidStatisticError(StatisticError):
     """Raised when statistic inputs are invalid."""
 
     pass
+
+
+@frozen
+class RelativeEffectBaseline:
+    """Baseline moments on the scale of sample means, not individual observations."""
+
+    mean: float
+    variance: float
+    difference_covariance: float
+
+    def relative_variance(self, *, difference_mean: float, difference_variance: float) -> float:
+        if abs(self.mean) < 1e-10:
+            raise StatisticError("Control mean cannot be zero for relative variance calculation")
+
+        # The adjusted difference contains control observations, so it covaries with the raw baseline.
+        # Delta method for D/B: Var(D)/B² + D²Var(B)/B⁴ - 2D Cov(D,B)/B³.
+        return (
+            difference_variance / self.mean**2
+            + difference_mean**2 * self.variance / self.mean**4
+            - 2 * difference_mean * self.difference_covariance / self.mean**3
+        )
 
 
 @dataclass

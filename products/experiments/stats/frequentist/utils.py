@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 import numpy as np
 from scipy import stats
 
@@ -6,12 +8,15 @@ from products.experiments.stats.shared.utils import get_mean, get_sample_size, g
 
 from ..shared.statistics import AnyStatistic, QuantileStatistic, StatisticError
 
+if TYPE_CHECKING:
+    from ..shared.statistics import RelativeEffectBaseline
+
 
 def calculate_point_estimate(
     treatment_stat: AnyStatistic,
     control_stat: AnyStatistic,
     difference_type: DifferenceType,
-    unadjusted_mean: float | None = None,
+    relative_effect_baseline: RelativeEffectBaseline | None = None,
 ) -> float:
     """
     Calculate point estimate for treatment vs control comparison.
@@ -20,9 +25,8 @@ def calculate_point_estimate(
         treatment_stat: Treatment group statistic
         control_stat: Control group statistic
         difference_type: Type of difference to calculate
-        unadjusted_mean: Optional override for the denominator in relative calculations.
-            When provided, used instead of the control mean. This is useful for CUPED
-            where the adjusted control mean differs from the original control mean.
+        relative_effect_baseline: Raw baseline moments for CUPED relative effects.
+            Includes its covariance with the adjusted treatment-control difference.
 
     Returns:
         Point estimate value
@@ -37,7 +41,7 @@ def calculate_point_estimate(
         return treatment_mean - control_mean
 
     elif difference_type == DifferenceType.RELATIVE:
-        denominator = unadjusted_mean if unadjusted_mean is not None else control_mean
+        denominator = relative_effect_baseline.mean if relative_effect_baseline is not None else control_mean
         if abs(denominator) < 1e-10:
             raise StatisticError("Baseline mean is zero, so the relative difference is undefined")
         return (treatment_mean - control_mean) / abs(denominator)
@@ -50,7 +54,7 @@ def calculate_variance_pooled(
     treatment_stat: AnyStatistic,
     control_stat: AnyStatistic,
     difference_type: DifferenceType,
-    unadjusted_mean: float | None = None,
+    relative_effect_baseline: RelativeEffectBaseline | None = None,
 ) -> float:
     """
     Calculate pooled variance for treatment vs control comparison.
@@ -62,9 +66,8 @@ def calculate_variance_pooled(
         treatment_stat: Treatment group statistic
         control_stat: Control group statistic
         difference_type: Type of difference calculation
-        unadjusted_mean: Optional override for the denominator in relative calculations.
-            When provided, used instead of the control mean. This is useful for CUPED
-            where the adjusted control mean differs from the original control mean.
+        relative_effect_baseline: Raw baseline moments for CUPED relative effects.
+            Includes its covariance with the adjusted treatment-control difference.
 
     Returns:
         Pooled variance estimate
@@ -81,10 +84,16 @@ def calculate_variance_pooled(
         # Delta method for relative differences
         treatment_mean = get_mean(treatment_stat)
         control_mean = get_mean(control_stat)
-        denominator = unadjusted_mean if unadjusted_mean is not None else control_mean
+        denominator = relative_effect_baseline.mean if relative_effect_baseline is not None else control_mean
 
         if abs(denominator) < 1e-10:
             raise StatisticError("Baseline mean is zero, so the relative variance is undefined")
+
+        if relative_effect_baseline is not None:
+            return relative_effect_baseline.relative_variance(
+                difference_mean=treatment_mean - control_mean,
+                difference_variance=treatment_var / treatment_n + control_var / control_n,
+            )
 
         # Var(Y/X) ≈ Var(Y)/X² + Y²Var(X)/X⁴ - 2Y*Cov(X,Y)/X³
         # Since treatment and control are independent, Cov(X,Y) = 0
