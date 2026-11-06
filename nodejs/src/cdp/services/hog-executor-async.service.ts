@@ -27,7 +27,7 @@ import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 import { mergeSecretHeaders, resolveSecretHeaders } from '../utils/secret-headers'
-import { SecretOriginGuard } from '../utils/secret-origins'
+import { SecretOriginGuard, countSecretOriginCheck } from '../utils/secret-origins'
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
@@ -56,8 +56,8 @@ export interface HogExecutorAsyncConfig {
     fetchBackoffMaxMs: number
     siteUrl: string
     internalApiBaseUrl: string
-    secretOriginCheckMode?: string
-    secretOriginCheckEnforceTeams?: string
+    secretOriginCheckObserveTeams: string
+    secretOriginCheckEnforceTeams: string
 }
 
 /**
@@ -78,11 +78,13 @@ export interface HogExecutorAsyncDependencies {
 export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
     maxAsyncFunctions?: number
     maxFetchRetries?: number
-    // Set only by the editor's test panel ("Run test"), marking this invocation as a test send. Two
+    // Set only by the editor's test panel ("Run test"), marking this invocation as a test send. Three
     // effects: emails run inline via EmailService instead of routing to the email queue (the test
     // endpoint executes in-process and never enqueues to cyclotron, so routing would leave the job
-    // unworked), and messaging channels skip metrics/assets so a test doesn't pollute the workflow's
-    // Metrics and Assets tabs.
+    // unworked), messaging channels skip metrics/assets so a test doesn't pollute the workflow's
+    // Metrics and Assets tabs, and the secret origin check only observes. The test endpoint binds the
+    // configuration's secrets before it forwards them, but the check reads the cached function's older
+    // bindings, so it would refuse a secret entered again for a new address.
     isTest?: boolean
 }
 
@@ -100,10 +102,10 @@ export class HogExecutorAsyncService {
         private config: HogExecutorAsyncConfig,
         private deps: HogExecutorAsyncDependencies
     ) {
-        this.secretOriginGuard = new SecretOriginGuard(
-            config.secretOriginCheckMode,
-            config.secretOriginCheckEnforceTeams
-        )
+        this.secretOriginGuard = new SecretOriginGuard({
+            observeTeams: config.secretOriginCheckObserveTeams,
+            enforceTeams: config.secretOriginCheckEnforceTeams,
+        })
     }
 
     private readonly secretOriginGuard: SecretOriginGuard
@@ -387,7 +389,7 @@ export class HogExecutorAsyncService {
     @instrumented('hog-executor.executeFetch')
     async executeFetch(
         invocation: CyclotronJobInvocationHogFunction,
-        options?: Pick<HogExecutorExecuteAsyncOptions, 'maxFetchRetries'>
+        options?: Pick<HogExecutorExecuteAsyncOptions, 'maxFetchRetries' | 'isTest'>
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const templateId = invocation.hogFunction.template_id ?? 'unknown'
         if (invocation.queueParameters?.type !== 'fetch') {
@@ -465,7 +467,7 @@ export class HogExecutorAsyncService {
         // regenerated here and never persisted back to queueParameters. Credential
         // resolution + missing-input handling live in `aws-sigv4.ts` — see
         // `resolveAwsSigV4Credentials` for the encrypted_inputs/inputs lookup order.
-        const failSigning = (error: string): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
+        const failFetch = (error: string): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> => {
             addLog('error', error)
             result.error = new Error(error)
             result.finished = true
@@ -479,7 +481,7 @@ export class HogExecutorAsyncService {
         if (params.secret_headers_input) {
             const resolved = resolveSecretHeaders(params.secret_headers_input, invocation.hogFunction)
             if (!resolved.ok) {
-                return failSigning(resolved.error)
+                return failFetch(resolved.error)
             }
             signedHeaders = mergeSecretHeaders(signedHeaders, resolved.headers)
         }
@@ -487,7 +489,7 @@ export class HogExecutorAsyncService {
         if (params.aws_sigv4) {
             const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
             if (!resolved.ok) {
-                return failSigning(resolved.error)
+                return failFetch(resolved.error)
             }
             signedHeaders = signAwsRequest({
                 method,
@@ -507,7 +509,7 @@ export class HogExecutorAsyncService {
         if (params.standard_webhooks) {
             const resolved = resolveStandardWebhooksKey(params.standard_webhooks, invocation.hogFunction)
             if (!resolved.ok) {
-                return failSigning(resolved.error)
+                return failFetch(resolved.error)
             }
             signedHeaders = signStandardWebhooksRequest({
                 webhookId: params.standard_webhooks.webhook_id,
@@ -517,24 +519,23 @@ export class HogExecutorAsyncService {
             })
         }
 
+        const requestBody = !['GET', 'HEAD'].includes(method) && params.body ? params.body : undefined
         const fetchParams: FetchOptions = { method, headers: signedHeaders }
-
-        if (!['GET', 'HEAD'].includes(method) && params.body) {
-            fetchParams.body = params.body
+        if (requestBody) {
+            fetchParams.body = requestBody
         }
 
-        const refusal = this.secretOriginGuard.check(
+        const originCheck = this.secretOriginGuard.check(
             invocation.hogFunction,
-            {
-                url: params.url,
-                headers: signedHeaders,
-                body: fetchParams.body as string | undefined,
-                params,
-            },
-            { firstAttempt: !invocation.state.attempts }
+            { url: params.url, headers: signedHeaders, body: requestBody, params },
+            { mayEnforce: !options?.isTest }
         )
+        if (originCheck && !invocation.state.attempts) {
+            countSecretOriginCheck(originCheck)
+        }
+        const refusal = originCheck?.refusal
         if (refusal) {
-            return failSigning(
+            return failFetch(
                 `Refused to send the request to ${refusal.origin} because it contains the secret input ${refusal.inputKey}, which can only be sent to the addresses saved with it. To send it to ${refusal.origin}, enter the secret again in this destination and save.`
             )
         }

@@ -122,6 +122,8 @@ describe('Hogflow Executor', () => {
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
                 siteUrl: hub.SITE_URL,
                 internalApiBaseUrl: hub.INTERNAL_API_BASE_URL,
+                secretOriginCheckObserveTeams: hub.CDP_SECRET_ORIGIN_CHECK_OBSERVE_TEAMS,
+                secretOriginCheckEnforceTeams: hub.CDP_SECRET_ORIGIN_CHECK_ENFORCE_TEAMS,
             },
             {
                 teamManager: hub.teamManager,

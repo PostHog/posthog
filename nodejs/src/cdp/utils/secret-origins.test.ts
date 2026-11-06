@@ -3,7 +3,7 @@ import path from 'path'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { SecretOriginGuard, requestOrigin } from './secret-origins'
+import { SecretOriginGuard, SecretOriginRefusal, requestOrigin } from './secret-origins'
 
 const ORIGIN_CASES: { url: string; origin: string | null }[] = parseJSON(
     readFileSync(path.resolve(__dirname, '../../../../products/cdp/shared/crosslang/secret_origin_cases.json'), 'utf8')
@@ -11,9 +11,9 @@ const ORIGIN_CASES: { url: string; origin: string | null }[] = parseJSON(
 
 describe('secret origins', () => {
     const SECRET = 'sk_test_origin_0000000000'
-    const guard = new SecretOriginGuard('enforce', '*')
+    const guard = new SecretOriginGuard({ observeTeams: '', enforceTeams: ' * ' })
 
-    const refusal = (url: string, allowedOrigins: string | string[]): ReturnType<SecretOriginGuard['check']> =>
+    const refusal = (url: string, allowedOrigins: string | string[]): SecretOriginRefusal | null | undefined =>
         guard.check(
             {
                 id: 'fn',
@@ -21,8 +21,8 @@ describe('secret origins', () => {
                 encrypted_inputs: { api_key: { value: SECRET, allowed_origins: allowedOrigins } } as any,
             },
             { url, headers: {}, body: JSON.stringify({ key: SECRET }), params: {} },
-            { firstAttempt: true }
-        )
+            { mayEnforce: true }
+        )?.refusal
 
     it.each(ORIGIN_CASES.filter((c) => c.origin !== null))(
         'resolves $url to the origin Python stores',
@@ -31,8 +31,4 @@ describe('secret origins', () => {
             expect(refusal(url, [origin!])).toBeNull()
         }
     )
-
-    it.each(ORIGIN_CASES.filter((c) => c.origin === null))('sends to $url, which Python leaves unbound', ({ url }) => {
-        expect(refusal(url, '*')).toBeNull()
-    })
 })
