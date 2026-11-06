@@ -24,6 +24,9 @@ import { DashboardFilter, HogQLVariable, InsightVizNode, NodeKind, ProductKey } 
 import { initKeaTests } from '~/test/init'
 import { ActivityScope, CohortType, DashboardType, InsightShortId, InsightType, ItemMode } from '~/types'
 
+// The logic preloads the chart renderers on mount. No test here draws one, and loading them takes seconds.
+jest.mock('~/queries/Query/queryNodeRenderers')
+
 const Insight12 = '12' as InsightShortId
 const Insight42 = '42' as InsightShortId
 

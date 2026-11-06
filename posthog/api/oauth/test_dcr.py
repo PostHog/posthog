@@ -1,19 +1,18 @@
 import base64
 import hashlib
-import ipaddress
 from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from oauth2_provider.settings import oauth2_settings
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.api.oauth.client_name import sanitize_client_name
 from posthog.models.oauth import OAuthApplication, OAuthApplicationAccessLevel, OAuthGrant
-
-PUBLIC_IPS = {ipaddress.ip_address("93.184.216.34")}
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 
 class TestDynamicClientRegistration(APIBaseTest):
@@ -45,7 +44,18 @@ class TestDynamicClientRegistration(APIBaseTest):
         self.assertIsNone(app.organization)
         self.assertIsNone(app.user)
 
-    @patch("posthog.security.url_validation.resolve_host_ips", return_value=PUBLIC_IPS)
+    def test_register_without_signing_key_answers_server_error_naming_the_setting(self):
+        with patch.object(oauth2_settings, "OIDC_RSA_PRIVATE_KEY", ""):
+            response = self.client.post(
+                "/oauth/register/", {"redirect_uris": ["https://example.com/callback"]}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertEqual(response.json()["error"], "server_error")
+        self.assertIn("OIDC_RSA_PRIVATE_KEY", response.json()["error_description"])
+        self.assertFalse(OAuthApplication.objects.filter(is_dcr_client=True).exists())
+
+    @mock_anti_ssrf_dns_lookup()
     def test_register_full_client(self, _resolve):
         response = self.client.post(
             "/oauth/register/",
@@ -278,7 +288,6 @@ class TestDynamicClientRegistration(APIBaseTest):
 
     def test_rate_limiting_enforced(self):
         """DCR endpoint should enforce rate limiting."""
-        from unittest.mock import patch
 
         # Mock the throttle to have a very low limit
         with patch("posthog.api.oauth.dcr.DCRBurstThrottle.rate", "2/minute"):

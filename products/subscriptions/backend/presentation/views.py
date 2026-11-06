@@ -1,9 +1,8 @@
 import uuid
 import dataclasses
 from collections.abc import Callable, Sequence
-from typing import ClassVar, Generic, Optional, Self, TypeVar, cast
+from typing import ClassVar, Optional, cast
 
-from django.db.models import QuerySet
 from django.http import Http404
 
 import posthoganalytics
@@ -19,7 +18,6 @@ from drf_spectacular.utils import (
 from rest_framework import exceptions, filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.pagination import CursorPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import as_serializer_error
@@ -28,7 +26,12 @@ from rest_framework.views import APIView
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.ordering import StableOrderingFilter
-from posthog.api.pagination import PrecountedLimitOffsetPagination
+from posthog.api.pagination import (
+    FacadeCursorPagination,
+    FacadeLimitOffsetPagination,
+    facade_cursor_page_response,
+    facade_page_response,
+)
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties, groups
@@ -74,8 +77,6 @@ _AI_DISPLAY_FIELD_SCOPE_NOTE = (
     "It does not control the AI summary on an insight or dashboard subscription: use "
     "summary_enabled and summary_prompt_guide for that."
 )
-
-_Row = TypeVar("_Row")
 
 
 def _insight_exists(insight_id: int) -> bool:
@@ -208,12 +209,14 @@ class DeliveryConfigSerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text=(
-            "Slack insight and dashboard subscriptions only: when true, upload all insight images "
-            "together in the main Slack message instead of posting the first image in the main "
-            "message and the rest as threaded replies. Defaults to false. The request is rejected "
-            "when target_type is not 'slack', when the subscription sets prompt instead of insight "
-            "or dashboard, or when the Slack integration does not hold the files:write permission. "
-            "Omit it unless the user asks for one combined message."
+            "Slack subscriptions only. Insight and dashboard subscriptions: when true, upload all insight "
+            "images together in the main Slack message instead of posting the first image in the main "
+            "message and the rest as threaded replies. Prompt subscriptions: when true, post the chart "
+            "images in the main message with the summary; when false, post them in the first thread "
+            "reply. Defaults to false. The request is rejected when target_type is not 'slack', or when "
+            "an insight or dashboard subscription's Slack integration does not hold the files:write "
+            "permission. "
+            "Omit it unless the user asks for all images or charts in the main message."
         ),
     )
     include_images = serializers.BooleanField(
@@ -619,68 +622,12 @@ def _parse_int_list_param(value: str, param: str) -> list[int]:
     return ids
 
 
-class _CreatedAtCursorSource(Generic[_Row]):
-    """Stands in for a queryset under `CursorPagination`, which orders by `created_at`, filters by the
-    cursor position, and slices. The slice reads one window through the facade, so DRF still decodes
-    the cursor and builds the links."""
-
-    def __init__(
-        self,
-        read_window: Callable[[contracts.CreatedAtCursorWindow], list[_Row]],
-        *,
-        newest_first: bool = True,
-        created_before: str | None = None,
-        created_after: str | None = None,
-    ) -> None:
-        self._read_window = read_window
-        self._newest_first = newest_first
-        self._created_before = created_before
-        self._created_after = created_after
-
-    def order_by(self, *ordering: str) -> Self:
-        if ordering not in (("-created_at",), ("created_at",)):
-            raise ValueError(f"Unsupported ordering: {ordering}")
-        return type(self)(
-            self._read_window,
-            newest_first=ordering == ("-created_at",),
-            created_before=self._created_before,
-            created_after=self._created_after,
-        )
-
-    def filter(self, *, created_at__lt: str | None = None, created_at__gt: str | None = None) -> Self:
-        return type(self)(
-            self._read_window,
-            newest_first=self._newest_first,
-            created_before=created_at__lt,
-            created_after=created_at__gt,
-        )
-
-    def __getitem__(self, rows: slice) -> list[_Row]:
-        offset = rows.start or 0
-        return self._read_window(
-            contracts.CreatedAtCursorWindow(
-                newest_first=self._newest_first,
-                created_before=self._created_before,
-                created_after=self._created_after,
-                offset=offset,
-                limit=rows.stop - offset,
-            )
-        )
-
-
-def _paginate_by_created_at(view: viewsets.GenericViewSet, source: _CreatedAtCursorSource[_Row]) -> list[_Row]:
-    # CursorPagination reads the source through the three queryset operations it implements.
-    page = view.paginate_queryset(cast(QuerySet, source))
-    assert page is not None  # both cursor paginations set a page size
-    return list(page)
-
-
 def _raise_for_refusal(call: Callable[[], contracts.SubscriptionRecord]) -> contracts.SubscriptionRecord:
     """Run a subscription write, and answer each refusal the way a serializer's validate() would."""
     try:
         return call()
     except contracts.SubscriptionRequestInvalidError as refusal:
-        raise ValidationError(as_serializer_error(ValidationError(refusal.detail)))
+        raise ValidationError(as_serializer_error(ValidationError(refusal.detail, code=refusal.code)))
     except contracts.SubscriptionPermissionDeniedError as refusal:
         raise exceptions.PermissionDenied(refusal.message)
     except contracts.SubscriptionQuotaExceededError as refusal:
@@ -734,7 +681,7 @@ class SubscriptionSummarySerializer(serializers.Serializer):
     )
 
 
-class SubscriptionSummaryCursorPagination(CursorPagination):
+class SubscriptionSummaryCursorPagination(FacadeCursorPagination):
     page_size = 20
     ordering = "-created_at"
 
@@ -828,7 +775,7 @@ _SUBSCRIPTION_ID_PARAMETER = OpenApiParameter(
 class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
     scope_object = "subscription"
     serializer_class = SubscriptionSerializer
-    pagination_class = PrecountedLimitOffsetPagination
+    pagination_class = FacadeLimitOffsetPagination
     filter_backends = [filters.SearchFilter, StableOrderingFilter]
     ordering_fields = [
         "created_at",
@@ -977,20 +924,12 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             filter_by_object_access=not is_service_auth(request),
             include_all_if_admin=request.GET.get("admin_include_all") == "true",
         )
-        paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
-        limit = paginator.get_limit(request)
-        # A missing or invalid limit falls back to the PAGE_SIZE setting, so there is always one.
-        assert limit is not None
-        page = api.list_subscriptions(
-            team_id=self.team_id,
-            query=query,
-            viewer=self.user_access_control,
-            offset=paginator.get_offset(request),
-            limit=limit,
+        return facade_page_response(
+            self,
+            lambda page: api.list_subscriptions(
+                team_id=self.team_id, query=query, viewer=self.user_access_control, page=page
+            ),
         )
-        paginator.set_count(page.count)
-        results = self.paginate_queryset(list(page.results))
-        return self.get_paginated_response(self.get_serializer(results, many=True).data)
 
     def retrieve(self, request: Request, **kwargs: object) -> Response:
         subscription = self._get_subscription()
@@ -1033,6 +972,35 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
 
     def partial_update(self, request: Request, **kwargs: object) -> Response:
         return self.update(request, partial=True, **kwargs)
+
+    @extend_schema(
+        extensions={"x-product": "subscriptions"},
+        request=None,
+        responses={200: SubscriptionSerializer},
+        description=(
+            "Make the requesting user the owner of this subscription and enable it. Deliveries run with "
+            "the owner's access, so this is how a subscription continues after its owner left."
+        ),
+    )
+    # Scope is resolved dynamically in dangerously_get_required_scopes so an AI subscription also
+    # requires query:read (enabling it starts the AI HogQL pipeline). A static required_scopes here
+    # would short-circuit that check.
+    @action(methods=["POST"], detail=True)
+    def take_ownership(self, request: Request, **kwargs: object) -> Response:
+        subscription = self._get_subscription()
+        if subscription.deleted:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        updated = _raise_for_refusal(
+            lambda: api.take_subscription_ownership(
+                team=self.team,
+                organization=self.organization,
+                user=cast(User, request.user),
+                viewer=self.user_access_control,
+                subscription_id=subscription.id,
+                analytics_props=get_request_analytics_properties(request),
+            )
+        )
+        return Response(_write_response(updated, partial=True))
 
     @extend_schema(
         extensions={"x-product": "subscriptions"},
@@ -1108,19 +1076,17 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             except dashboards_api.DashboardNotViewable:
                 raise exceptions.PermissionDenied("You do not have access to this resource.")
 
-        page = _paginate_by_created_at(
+        return facade_cursor_page_response(
             self,
-            _CreatedAtCursorSource(
-                lambda window: api.list_subscription_summaries(
-                    team_id=self.team_id,
-                    insight_id=insight_id,
-                    dashboard_id=dashboard_id,
-                    viewer=self.user_access_control,
-                    window=window,
-                )
+            lambda page: api.list_subscription_summaries(
+                team_id=self.team_id,
+                insight_id=insight_id,
+                dashboard_id=dashboard_id,
+                viewer=self.user_access_control,
+                page=page,
             ),
+            serializer_class=SubscriptionSummarySerializer,
         )
-        return self.get_paginated_response(SubscriptionSummarySerializer(page, many=True).data)
 
     @extend_schema(
         extensions={"x-product": "subscriptions"},
@@ -1386,7 +1352,7 @@ class SubscriptionDeliverySerializer(serializers.Serializer):
         return data
 
 
-class SubscriptionDeliveryCursorPagination(CursorPagination):
+class SubscriptionDeliveryCursorPagination(FacadeCursorPagination):
     page_size = 50
     ordering = "-created_at"
 
@@ -1433,6 +1399,8 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     scope_object = "subscription"
     serializer_class = SubscriptionDeliverySerializer
     pagination_class = SubscriptionDeliveryCursorPagination
+    # subscription is not an access-control resource, and a delivery has no access rules of its own.
+    records_have_object_access_rules = False
 
     def get_serializer_context(self) -> dict:
         context = super().get_serializer_context()
@@ -1455,25 +1423,22 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             raise ValidationError(
                 {"status": [f"Must be one of: {', '.join(sorted(_DELIVERY_STATUS_VALUES))}."]},
             )
-        page = _paginate_by_created_at(
+        return facade_cursor_page_response(
             self,
-            _CreatedAtCursorSource(
-                lambda window: api.list_subscription_deliveries(
-                    team_id=self.team_id,
-                    subscription_id=self.kwargs.get("parent_lookup_subscription_id"),
-                    status=status_param or None,
-                    viewer=self.user_access_control,
-                    window=window,
-                    filter_by_object_access=not is_service_auth(request),
-                    include_all_if_admin=request.GET.get("admin_include_all") == "true",
-                )
+            lambda page: api.list_subscription_deliveries(
+                team_id=self.team_id,
+                subscription_id=self.kwargs.get("parent_lookup_subscription_id"),
+                status=status_param or None,
+                viewer=self.user_access_control,
+                page=page,
+                filter_by_object_access=not is_service_auth(request),
+                include_all_if_admin=request.GET.get("admin_include_all") == "true",
             ),
         )
-        return self.get_paginated_response(self.get_serializer(page, many=True).data)
 
-    def retrieve(self, request: Request, **kwargs: object) -> Response:
+    def read_object(self) -> contracts.SubscriptionDeliveryRecord:
         try:
-            delivery = api.get_subscription_delivery(
+            return api.get_subscription_delivery(
                 team_id=self.team_id,
                 subscription_id=self.kwargs.get("parent_lookup_subscription_id"),
                 delivery_id=self.kwargs["pk"],
@@ -1483,6 +1448,6 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             raise Http404
         except contracts.SubscriptionNotFoundError:
             raise Http404("No SubscriptionDelivery matches the given query.")
-        # A delivery has no access rules of its own, so the object checks pass it as they pass the row.
-        self.check_object_permissions(request, delivery)
-        return Response(self.get_serializer(delivery).data)
+
+    def retrieve(self, request: Request, **kwargs: object) -> Response:
+        return Response(self.get_serializer(self.get_object()).data)

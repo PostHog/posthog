@@ -855,6 +855,11 @@
             "description": "The build number for the app.",
             "label": "App build"
         },
+        "$app_language": {
+            "description": "The language the app displays, which can differ from the device's locale.",
+            "examples": ["en", "pt-BR"],
+            "label": "App language"
+        },
         "$app_name": {
             "description": "The name of the app.",
             "label": "App name"
@@ -4811,6 +4816,11 @@
         "$app_build": {
             "description": "The build number for the app. Data from the last time this user was seen.",
             "label": "Latest app build"
+        },
+        "$app_language": {
+            "description": "The language the app displays, which can differ from the device's locale.",
+            "examples": ["en", "pt-BR"],
+            "label": "App language"
         },
         "$app_name": {
             "description": "The name of the app. Data from the last time this user was seen.",

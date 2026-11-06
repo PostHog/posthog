@@ -1,0 +1,304 @@
+from typing import Optional, cast
+
+from requests.exceptions import HTTPError, RequestException
+
+from products.warehouse_sources.sources.sdk import (
+    MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    IntegrationAccount,
+    IntegrationAccountListingError,
+    OAuthMixin,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldOauthAccountSelectConfig,
+    SourceFieldOauthConfig,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    SuggestedTable,
+    capture_exception,
+    detect,
+)
+from products.warehouse_sources.sources.tiktok_ads._config import TikTokAdsSourceConfig
+from products.warehouse_sources.sources.tiktok_ads.settings import (
+    TIKTOK_ADS_CONFIG,
+    TIKTOK_API_VERSION_V2,
+    TIKTOK_API_VERSION_V13,
+    WEBSITE_ATTRIBUTION_REPORTS,
+)
+from products.warehouse_sources.sources.tiktok_ads.tiktok_ads import TikTokAdsResumeConfig, tiktok_ads_source
+from products.warehouse_sources.sources.tiktok_ads.utils import (
+    TIKTOK_APP_TOKEN_MISMATCH_MESSAGE,
+    TIKTOK_AUTH_ERROR_CODES,
+    TIKTOK_CREATIVE_PERMISSION_DENIED_FRAGMENTS,
+    TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE,
+    TIKTOK_INVALID_TOKEN_MESSAGE,
+    TIKTOK_MISSING_SCOPE_FRAGMENT,
+    TIKTOK_MISSING_SCOPE_MESSAGE,
+    TIKTOK_NON_RETRYABLE_ERROR_PREFIX,
+    TIKTOK_TRANSIENT_ERROR_CODES,
+    TIKTOK_TRANSIENT_ERROR_MESSAGE,
+    TikTokAdsAPIError,
+    list_advertisers,
+)
+
+WEBSITE_ATTRIBUTION_VERSION_ERROR = (
+    "Website attribution reports require TikTok Ads API v2.0. Change the source API version to v2.0."
+)
+
+
+@SourceRegistry.register
+class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConfig], OAuthMixin):
+    codebase_detection = detect(
+        env=("^TIKTOK_ADS_", "^TIKTOK_PIXEL_ID$", "^NEXT_PUBLIC_TIKTOK_PIXEL_ID$"),
+        script_hosts=("analytics.tiktok.com",),
+        npm=(
+            "tiktok-business-api-sdk-official",
+            "@tiktok-for-business/react-native-sdk",
+            "react-native-tiktok-business-sdk",
+            "tiktok-pixel",
+        ),
+        pypi=("tiktok-business-api-sdk-official",),
+        cocoapods=("TikTokBusinessSDK",),
+        maven=(
+            "io.github.jasonchentt:tiktok-business-api-sdk-official",
+            "com.github.tiktok:tiktok-business-android-sdk",
+        ),
+        pub=("tiktok_events_sdk",),
+        swiftpm=("github.com/tiktok/tiktok-business-ios-sdk",),
+    )
+
+    supported_versions = (TIKTOK_API_VERSION_V13, TIKTOK_API_VERSION_V2)
+    default_version = TIKTOK_API_VERSION_V2
+    api_docs_url = "https://business-api.tiktok.com/portal/docs/api-reference/v2.0"
+
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.TIKTOKADS
+
+    @property
+    def credential_kind(self) -> str | None:
+        return "tiktok-ads"
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from products.warehouse_sources.sources.tiktok_ads.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            # Must precede TIKTOK_NON_RETRYABLE_ERROR_PREFIX: a denial matches both keys, and
+            # `external_data_job` takes the first match in dict order, discarding it when None.
+            **dict.fromkeys(TIKTOK_CREATIVE_PERMISSION_DENIED_FRAGMENTS, TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE),
+            TIKTOK_MISSING_SCOPE_FRAGMENT: TIKTOK_MISSING_SCOPE_MESSAGE,
+            # Other TikTok client errors not in the retryable code set (e.g. 40001 — the advertiser
+            # doesn't exist or has been deleted). The paginator raises these with this exact
+            # prefix; retrying cannot recover, so fail the job fast. The raw message is kept as
+            # the user-facing error since it names the specific advertiser and TikTok error code.
+            TIKTOK_NON_RETRYABLE_ERROR_PREFIX: None,
+            WEBSITE_ATTRIBUTION_VERSION_ERROR: None,
+            # Integration row was deleted/disconnected while a scheduled job still references it.
+            # Raised by OAuthMixin.get_oauth_integration as `ValueError("Integration not found: <id>")`;
+            # the id is volatile, so match only the stable prefix. Retrying can't recreate the row —
+            # the customer has to reconnect.
+            "Integration not found": "The linked TikTok Ads integration no longer exists. Please reconnect your TikTok Ads integration.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        return {
+            # The paginator's `update_state` raises this exact prefix for every TikTok API code
+            # it already classifies as transient (rate limits, "System error", maintenance) — see
+            # `TikTokAdsPaginator.update_state`'s `retryable_codes`. Temporal retries the whole
+            # activity regardless, so this shouldn't page us as a bug.
+            "TikTok API error:",
+        }
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.TIKTOKADS,
+            category=DataWarehouseSourceCategory.ADVERTISING,
+            label="TikTok Ads",
+            caption=(
+                "Collect campaign data, ad performance, and advertising metrics from TikTok Ads. "
+                "Ensure you have granted PostHog access to your TikTok Ads account, learn how to do this in "
+                "[the documentation](https://posthog.com/docs/cdp/sources/tiktok-ads).\n\n"
+                "If TikTok's authorization page rejects the connection before returning to PostHog, this is "
+                "usually an account or region restriction on TikTok's side. Check that you have an admin role "
+                "in the TikTok Business Center you're connecting, and that TikTok Ads is available in your region. "
+                "If it still fails, copy the Log ID from TikTok's error page and contact support.\n\n"
+                "The creative_videos and creative_images tables additionally need creative asset access on the "
+                "advertiser account. If your advertiser hasn't granted it, leave those two tables unselected. "
+                "Every other table syncs without it."
+            ),
+            releaseStatus=ReleaseStatus.GA,
+            iconPath="/static/services/tiktok.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/tiktok-ads",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldOauthConfig(
+                        name="tiktok_integration_id",
+                        label="TikTok Ads account",
+                        required=True,
+                        kind="tiktok-ads",
+                    ),
+                    SourceFieldOauthAccountSelectConfig(
+                        name="advertiser_id",
+                        label="TikTok Ads Advertiser ID",
+                        integrationField="tiktok_integration_id",
+                        integrationKind="tiktok-ads",
+                        required=True,
+                    ),
+                ],
+            ),
+            suggestedTables=[
+                SuggestedTable(
+                    table="campaigns",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+                SuggestedTable(
+                    table="campaign_report",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+            ],
+        )
+
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        # A user authorizes few advertisers, so `search` is ignored here and the endpoint filters the list.
+        try:
+            integration = self.get_oauth_integration(integration_id, team_id)
+        except ValueError as e:
+            raise IntegrationAccountListingError(
+                "The linked TikTok Ads integration could not be found. Please reconnect your TikTok Ads integration."
+            ) from e
+
+        # TikTok's token response carries no refresh_token and no expires_in, so the token never
+        # expires from our side and there is nothing to refresh — an absent one means a broken row.
+        if not integration.access_token:
+            raise IntegrationAccountListingError("The TikTok Ads integration has no access token. Please reconnect it.")
+
+        try:
+            advertisers = list_advertisers(integration.access_token)
+        except HTTPError as e:
+            # TikTok's edge (not the API itself) returned a real 429/5xx — transient and TikTok-side.
+            status_code = e.response.status_code if e.response is not None else None
+            if status_code is None or (status_code < 500 and status_code != 429):
+                raise
+            raise IntegrationAccountListingError(TIKTOK_TRANSIENT_ERROR_MESSAGE) from e
+        except RequestException as e:
+            # DNS failure, connection reset, or timeout (no HTTP response at all). These raise a
+            # bare RequestException — not HTTPError — so they'd otherwise escape as a generic 500.
+            # Transient and TikTok/network-side: map to the same actionable "try again" message.
+            raise IntegrationAccountListingError(TIKTOK_TRANSIENT_ERROR_MESSAGE) from e
+        except TikTokAdsAPIError as e:
+            if e.api_code in TIKTOK_AUTH_ERROR_CODES or (
+                e.api_code == 40000
+                and (TIKTOK_APP_TOKEN_MISMATCH_MESSAGE in str(e) or TIKTOK_INVALID_TOKEN_MESSAGE in str(e))
+            ):
+                raise IntegrationAccountListingError(
+                    "TikTok rejected the credentials for this integration. Please reconnect your TikTok Ads "
+                    "integration and make sure the connected account can access your advertiser accounts."
+                ) from e
+            if e.api_code in TIKTOK_TRANSIENT_ERROR_CODES:
+                raise IntegrationAccountListingError(TIKTOK_TRANSIENT_ERROR_MESSAGE) from e
+            # Not something the user can fix (e.g. app-config mismatch, malformed body) — surface it.
+            raise
+
+        return [
+            IntegrationAccount(
+                value=advertiser["advertiser_id"],
+                display_name=advertiser.get("advertiser_name") or "Unnamed account",
+            )
+            for advertiser in advertisers
+        ]
+
+    def validate_credentials(
+        self,
+        config: TikTokAdsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        if not config.advertiser_id or not config.tiktok_integration_id:
+            return False, "Advertiser ID and TikTok Ads integration are required"
+
+        try:
+            self.get_oauth_integration(config.tiktok_integration_id, team_id)
+            return True, None
+        except Exception as e:
+            if isinstance(e, ValueError) and "Integration not found" in str(e):
+                # The integration was deleted/disconnected while the source still references it —
+                # an expected user state, not an error worth reporting (get_oauth_integration raises
+                # ValueError("Integration not found: <id>")).
+                return False, "TikTok Ads integration not found. Please reconnect your TikTok Ads integration."
+            capture_exception(e)
+            return False, f"Failed to validate TikTok Ads credentials: {str(e)}"
+
+    def get_schemas(
+        self,
+        config: TikTokAdsSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        schemas = [
+            SourceSchema(
+                name=str(endpoint_config.resource["name"]),
+                supports_incremental=endpoint_config.incremental_fields is not None,
+                supports_append=False,
+                incremental_fields=endpoint_config.incremental_fields or [],
+                should_sync_default=endpoint_config.should_sync_default,
+            )
+            for name, endpoint_config in TIKTOK_ADS_CONFIG.items()
+            if name not in WEBSITE_ATTRIBUTION_REPORTS or self.resolve_api_version(api_version) == TIKTOK_API_VERSION_V2
+        ]
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TikTokAdsResumeConfig]:
+        return ResumableSourceManager[TikTokAdsResumeConfig](inputs, TikTokAdsResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: TikTokAdsSourceConfig,
+        resumable_source_manager: ResumableSourceManager[TikTokAdsResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        if (
+            inputs.schema_name in WEBSITE_ATTRIBUTION_REPORTS
+            and self.resolve_api_version(inputs.api_version) != TIKTOK_API_VERSION_V2
+        ):
+            raise ValueError(WEBSITE_ATTRIBUTION_VERSION_ERROR)
+
+        integration = self.get_oauth_integration(config.tiktok_integration_id, inputs.team_id)
+
+        if not integration.access_token:
+            raise ValueError(f"TikTok Ads access token not found for job {inputs.job_id}")
+
+        return tiktok_ads_source(
+            advertiser_id=config.advertiser_id,
+            endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            access_token=integration.access_token,
+            resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+        )

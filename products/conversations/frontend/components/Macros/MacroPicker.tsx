@@ -58,6 +58,9 @@ export function MacroPicker({
                                 {macro.shortcut ? (
                                     <span className="shrink-0 text-xs text-muted">/{macro.shortcut}</span>
                                 ) : null}
+                                {macro.visibility === 'personal' ? (
+                                    <span className="shrink-0 text-xs text-muted">Only you</span>
+                                ) : null}
                             </span>
                             <span className="max-w-full truncate text-xs text-muted">{macroPreview(macro.body)}</span>
                         </span>

@@ -1,7 +1,7 @@
 import { BindLogic } from 'kea'
 import { useActions, useValues } from 'kea'
 
-import { IconGear } from '@posthog/icons'
+import { IconGear, IconPencil } from '@posthog/icons'
 import { LemonButton, LemonDivider, Popover } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -20,8 +20,9 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 
 import { AddIntegrationButton } from 'products/marketing_analytics/frontend/components/AddIntegrationButton'
+import { overviewMetricsLogic } from 'products/marketing_analytics/frontend/overview/overviewMetricsLogic'
 
-import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
+import { MarketingAnalyticsTab, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../logic/marketingAnalyticsTilesLogic'
 import { ConversionGoalFilterButton } from './ConversionGoalFilterButton'
 import { ConversionGoalModal } from './ConversionGoalModal'
@@ -35,8 +36,10 @@ export const MarketingAnalyticsFilters = ({
     searchOnly?: boolean
 }): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { compareFilter, dateFilter, shouldFilterTestAccounts, optionsOpen, isAdPerformance } =
+    const { compareFilter, dateFilter, shouldFilterTestAccounts, optionsOpen, isAdPerformance, activeTab } =
         useValues(marketingAnalyticsLogic)
+    const { openEditor } = useActions(overviewMetricsLogic({ viewKey: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }))
+    const showMetricEditor = !searchOnly && activeTab !== MarketingAnalyticsTab.SEARCH_PERFORMANCE
     const showSearch = isAdPerformance && !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
     const { currentTeamLoading } = useValues(teamLogic)
     const { setCompareFilter, setDates, updateFilterTestAccounts, setOptionsOpen } = useActions(marketingAnalyticsLogic)
@@ -91,6 +94,21 @@ export const MarketingAnalyticsFilters = ({
                                 // Ordered by how often they get touched, so the rarely-changed
                                 // project setting sits last.
                                 <div className="flex w-80 max-w-[90vw] flex-col gap-4 p-3">
+                                    {showMetricEditor && (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            fullWidth
+                                            icon={<IconPencil />}
+                                            onClick={() => {
+                                                setOptionsOpen(false)
+                                                openEditor()
+                                            }}
+                                            data-attr="marketing-configure-metrics"
+                                        >
+                                            Edit top-line metrics
+                                        </LemonButton>
+                                    )}
                                     <div>
                                         <div className="text-muted mb-2 text-xs font-semibold uppercase">
                                             Comparison

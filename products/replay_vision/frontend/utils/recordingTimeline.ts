@@ -1,9 +1,11 @@
 import type { ReplayObservationApi } from '../generated/api.schemas'
+import { parseCitedSegments } from './citations'
 import {
     VERDICT_LABEL,
     isFlaggedObservation,
     isSummaryObservation,
     readModelOutput,
+    readReasoning,
     readScore,
     readTags,
     readVerdict,
@@ -196,6 +198,13 @@ export function recordingTimeline(observations: ReplayObservationApi[]): Recordi
     return { summary, summaryState, chapters, inactive, markers }
 }
 
+export function timelineEndMs(timeline: RecordingTimeline, durationMs: number | null): number | null {
+    if (durationMs === null || durationMs <= 0) {
+        return null
+    }
+    return Math.max(durationMs, ...timeline.chapters.map((c) => c.endMs))
+}
+
 /** The rows the sidebar lists, in time order: the session's ends, chapters and idle gaps. Empty without chapters. */
 export function timelineRows(timeline: RecordingTimeline, durationMs: number | null = null): TimelineRow[] {
     if (timeline.chapters.length === 0) {
@@ -209,9 +218,8 @@ export function timelineRows(timeline: RecordingTimeline, durationMs: number | n
     for (const gap of timeline.inactive) {
         rows.push({ atMs: gap.startMs, order: 1, row: { kind: 'inactive', startMs: gap.startMs, endMs: gap.endMs } })
     }
-    if (durationMs !== null && durationMs > 0) {
-        // The player's length can come up short of what the scan saw, and the end must still close the rail.
-        const endMs = Math.max(durationMs, ...timeline.chapters.map((c) => c.endMs))
+    const endMs = timelineEndMs(timeline, durationMs)
+    if (endMs !== null) {
         rows.push({ atMs: endMs, order: 3, row: { kind: 'boundary', edge: 'end', atMs: endMs } })
     }
     return rows.sort((a, b) => a.atMs - b.atMs || a.order - b.order).map(({ row }) => row)
@@ -248,4 +256,16 @@ export function momentCount(timeline: RecordingTimeline): number {
 export function nextTimelineStopMs(timeline: RecordingTimeline, playerTimeMs: number): number | null {
     const later = timeline.chapters.map((c) => c.startMs).filter((ms) => ms > playerTimeMs)
     return later.length > 0 ? Math.min(...later) : null
+}
+
+export function citedMoments(observation: ReplayObservationApi): number[] {
+    if (observation.status !== 'succeeded') {
+        return []
+    }
+    const moments = isSummaryObservation(observation)
+        ? readChapters(observation).map((chapter) => chapter.startMs)
+        : parseCitedSegments(readReasoning(observation) ?? '', readModelOutput(observation)?.reasoning_segments)
+              .flatMap((segment) => (segment.kind === 'chip' ? [segment.timestamp_ms] : []))
+              .concat(readNumber(readModelOutput(observation)?.key_moment_ms) ?? [])
+    return [...new Set(moments.map((ms) => Math.max(0, Math.round(ms))))].sort((a, b) => a - b)
 }
