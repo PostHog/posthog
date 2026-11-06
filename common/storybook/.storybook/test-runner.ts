@@ -84,6 +84,21 @@ export default {
     // making the marker visible from the very first module evaluation.
     async prepare({ page, browserContext, testRunnerConfig }) {
         await page.addInitScript(() => {
+            // Components that call Math.random (placeholder names, skeleton widths) render differently on every run.
+            // A seeded generator (mulberry32) gives the same sequence each time, and preVisit restarts it per story,
+            // so a story's output does not depend on which stories ran before it in the file.
+            const RANDOM_SEED = 1
+            let randomState = RANDOM_SEED
+            Math.random = (): number => {
+                randomState = (randomState + 0x6d2b79f5) | 0
+                let value = Math.imul(randomState ^ (randomState >>> 15), 1 | randomState)
+                value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value
+                return ((value ^ (value >>> 14)) >>> 0) / 4294967296
+            }
+            ;(window as unknown as { __testRunnerRestartRandom: () => void }).__testRunnerRestartRandom = (): void => {
+                randomState = RANDOM_SEED
+            }
+
             const patchedUserAgent = `${navigator.userAgent} StorybookTestRunner`
             Object.defineProperty(navigator, 'userAgent', {
                 get: () => patchedUserAgent,
@@ -126,7 +141,12 @@ export default {
     async preVisit(page, context) {
         // Resets the scheme `takeSnapshotWithTheme` emulates, which is page-level and outlasts the story.
         // Not `null`: that stops emulation, so WebKit follows a dark host.
-        await page.emulateMedia({ colorScheme: 'light' })
+        // Reduced motion makes components skip animations the CSS override cannot reach, such as the
+        // requestAnimationFrame-driven camera moves in React Flow and d3 canvases, which a capture can catch mid-way.
+        await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
+        await page.evaluate(() =>
+            (window as unknown as { __testRunnerRestartRandom?: () => void }).__testRunnerRestartRandom?.()
+        )
         await page.route(/\/(embedded|shared)\//, (route) =>
             route.fulfill({ status: 200, contentType: 'text/html', body: EMBED_STUB_HTML })
         )
@@ -477,7 +497,7 @@ async function takeSnapshotWithTheme(
     // Set the right theme
     await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
     // `isDarkModeOn` does not list that attribute as a selector input, so only a scheme change recomputes it.
-    await page.emulateMedia({ colorScheme: theme })
+    await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
 
     // Wait until we're sure we've finished loading everything
     const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
@@ -603,8 +623,34 @@ async function takeSnapshotWithTheme(
 
     await waitForChartCanvasesPainted(page)
 
+    await finishAnimations(page)
+
     // Do take the snapshot
     await doTakeSnapshotWithTheme(page, context, browser, theme, storyContext)
+}
+
+/**
+ * The 0 ms animations that base.scss forces in the test runner sometimes paint their first keyframe in headless
+ * Chromium instead of the last. Finishing every animation commits the last keyframe, which is the state the
+ * forwards fill is meant to hold. An animation with infinite iterations cannot finish and keeps its frame.
+ */
+async function finishAnimations(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        // document.getAnimations() leaves out shadow trees, and the toolbar renders in one.
+        const roots: (Document | ShadowRoot)[] = [document]
+        document.querySelectorAll('*').forEach((element) => {
+            if (element.shadowRoot) {
+                roots.push(element.shadowRoot)
+            }
+        })
+        for (const animation of roots.flatMap((root) => root.getAnimations())) {
+            try {
+                animation.finish()
+            } catch {
+                continue
+            }
+        }
+    })
 }
 
 async function doTakeSnapshotWithTheme(
