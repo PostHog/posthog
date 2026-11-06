@@ -134,8 +134,8 @@ def test_deletion_lease_and_network_transaction_scope(team: Team) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.usefixtures("membership_deletion_tables")
-async def test_temporal_cleanup_erases_membership_after_grace_period(
+@pytest.mark.usefixtures("membership_cleanup_tables")
+async def test_temporal_deletion_erases_discovered_membership_after_grace_period(
     team: Team, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     caplog.set_level(logging.INFO, logger="temporalio.activity")
