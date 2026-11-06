@@ -175,6 +175,44 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     user_access_level: AccessControlLevel.Editor,
 }
 
+const MOCK_DRAFT_SURVEY: Survey = {
+    ...MOCK_BASIC_SURVEY,
+    id: '0187c279-bcae-0000-34f5-4f121921f007',
+    name: 'Checkout feedback',
+    description: '',
+    questions: [
+        {
+            type: SurveyQuestionType.Rating,
+            question: 'How easy was it to check out?',
+            display: 'number',
+            scale: 5,
+            lowerBoundLabel: 'Hard',
+            upperBoundLabel: 'Easy',
+        },
+        { type: SurveyQuestionType.Open, question: 'What almost stopped you from buying?' },
+        {
+            type: SurveyQuestionType.SingleChoice,
+            question: 'How did you hear about us?',
+            choices: ['Search', 'A friend', 'Social media', 'Other'],
+        },
+    ],
+    conditions: {
+        url: 'https://shop.example.com/checkout/complete',
+        events: { values: [{ name: 'order placed' }] },
+        actions: { values: [] },
+        seenSurveyWaitPeriodInDays: 14,
+    },
+    appearance: {
+        backgroundColor: 'white',
+        submitButtonColor: '#2C2C2C',
+        displayThankYouMessage: true,
+        thankYouMessageHeader: 'Thanks for the feedback',
+    },
+    schedule: SurveySchedule.Recurring,
+    iteration_count: 12,
+    iteration_frequency_days: 365,
+}
+
 const MOCK_SURVEY_SHOWN = {
     clickhouse:
         "SELECT count() AS `survey shown` FROM events WHERE and(equals(events.team_id, 1), equals(events.event, %(hogql_val_0)s), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_2)s), 0)) LIMIT 100 SETTINGS readonly=2, max_execution_time=60",
@@ -335,6 +373,7 @@ const meta: Meta = {
                 ]),
                 '/api/projects/:team_id/surveys/0187c279-bcae-0000-34f5-4f121921f005/': MOCK_BASIC_SURVEY,
                 '/api/projects/:team_id/surveys/0187c279-bcae-0000-34f5-4f121921f006/': MOCK_SURVEY_WITH_RELEASE_CONS,
+                [`/api/projects/:team_id/surveys/${MOCK_DRAFT_SURVEY.id}/`]: MOCK_DRAFT_SURVEY,
                 '/api/projects/:team_id/surveys/998FE805-F9EF-4F25-A5D1-B9549C4E2143/':
                     MOCK_SURVEY_WITH_MULTIPLE_OPTIONS,
                 '/api/projects/:team_id/surveys/responses_count/': MOCK_RESPONSES_COUNT,
@@ -558,6 +597,16 @@ export const SurveyView: Story = {
     tags: ['test-skip'], // FIXME: Fix the mocked data so that survey results can actually load
     parameters: {
         pageUrl: urls.survey(MOCK_SURVEY_WITH_RELEASE_CONS.id),
+    },
+}
+
+export const SurveyDraftReview: Story = {
+    parameters: {
+        pageUrl: urls.survey(MOCK_DRAFT_SURVEY.id),
+        testOptions: {
+            waitForSelector: '[data-attr="launch-survey"]',
+            snapshotBrowsers: [],
+        },
     },
 }
 
