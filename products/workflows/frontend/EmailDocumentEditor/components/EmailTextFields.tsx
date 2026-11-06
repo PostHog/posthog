@@ -1,6 +1,6 @@
 import type { Editor } from '@tiptap/core'
 
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { EMAIL_FONTS, EmailBlockStyle, fontOptions, resolvePageStyle } from '../emailDocument'
 import { useEmailEditorContext } from '../emailEditorContext'
@@ -149,6 +149,43 @@ export function EmailTextFields({
                     />
                 </>
             ) : null}
+            {nodeType === 'bulletList' || nodeType === 'orderedList' ? (
+                <>
+                    <EmailNumberField
+                        label="List indent"
+                        value={style.listIndent}
+                        placeholder={24}
+                        onChange={(listIndent) => set({ listIndent })}
+                        attr="email-editor-list-indent"
+                    />
+                    <EmailNumberField
+                        label="Item spacing"
+                        value={style.listItemGap}
+                        placeholder={4}
+                        onChange={(listItemGap) => set({ listItemGap })}
+                        attr="email-editor-list-gap"
+                    />
+                </>
+            ) : null}
+            <EmailColorField
+                label="Link color"
+                value={style.linkColor}
+                placeholder={page.linkColor}
+                onChange={(linkColor) => set({ linkColor })}
+                attr="email-editor-block-link-color"
+            />
+            <EmailFieldRow label="Link underline">
+                <LemonSegmentedButton
+                    size="xsmall"
+                    fullWidth
+                    value={style.linkUnderline === false ? 'off' : 'on'}
+                    onChange={(value) => set({ linkUnderline: value === 'off' ? false : undefined })}
+                    options={[
+                        { value: 'on', label: 'On', 'data-attr': 'email-editor-link-underline-on' },
+                        { value: 'off', label: 'Off', 'data-attr': 'email-editor-link-underline-off' },
+                    ]}
+                />
+            </EmailFieldRow>
             <EmailAlignField value={style.textAlign} onChange={(textAlign) => set({ textAlign })} />
             {showLink ? (
                 <LemonButton

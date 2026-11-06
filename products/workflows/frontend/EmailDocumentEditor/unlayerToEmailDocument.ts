@@ -45,7 +45,6 @@ function parseSides(value: unknown): EmailSides | undefined {
     return { top, right, bottom, left }
 }
 
-/** What the old editor uses for a block that never set its padding. */
 function containerPadding(values: Record<string, any>): EmailSides {
     return parseSides(values.containerPadding) ?? { top: 10, right: 10, bottom: 10, left: 10 }
 }
@@ -275,7 +274,6 @@ function canKeepCss(css: Record<string, string>, supported: Set<string>): boolea
     })
 }
 
-/** Inline elements inside a block, whether their styling is something the email's text marks can hold. */
 function canKeepInline(element: Element, insideBold = false): boolean {
     return Array.from(element.children).every((child) => {
         if (!INLINE_TAGS.has(child.tagName)) {
@@ -345,7 +343,6 @@ function lineHeightPercent(value: string | undefined, fontSize: number): number 
  */
 function richTextBlocks(html: string, style: EmailBlockStyle): JSONContent[] {
     const body = new DOMParser().parseFromString(html, 'text/html').body
-    // Bare text and inline elements at the top level act as one paragraph.
     let wrapper: HTMLElement | null = null
     for (const child of Array.from(body.childNodes)) {
         const isInline = child.nodeType === 3 || (child.nodeType === 1 && INLINE_TAGS.has((child as Element).tagName))

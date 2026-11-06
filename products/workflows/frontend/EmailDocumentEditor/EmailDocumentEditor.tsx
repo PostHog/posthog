@@ -182,6 +182,26 @@ export function EmailDocumentEditor(): JSX.Element {
     const editorProps = useMemo<EditorOptions['editorProps']>(
         () => ({
             attributes: { 'data-attr': 'email-editor-canvas', 'aria-label': 'Email content', spellcheck: 'true' },
+            handleDOMEvents: {
+                // Browsers empty the label's span when dictation, autocomplete or an IME replaces all of its text,
+                // and the editor then reads that back as a deletion.
+                beforeinput: (view, event) => {
+                    const { data, inputType } = event as InputEvent
+                    const { selection } = view.state
+                    if (
+                        inputType === 'insertText' &&
+                        data &&
+                        !selection.empty &&
+                        selection.$from.parent.type.name === 'emailButton' &&
+                        selection.$from.sameParent(selection.$to)
+                    ) {
+                        event.preventDefault()
+                        view.dispatch(view.state.tr.insertText(data))
+                        return true
+                    }
+                    return false
+                },
+            },
             transformPastedHTML: (html) => {
                 const { html: cleaned, droppedImages } = cleanPastedHtml(html)
                 if (droppedImages) {

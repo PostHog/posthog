@@ -32,12 +32,9 @@ export interface EmailBlockStyle {
     borderWidth?: number
     borderColor?: string
     width?: number
-    /** Columns only: the space between them. */
     columnGap?: number
-    /** Overrides the page's link color inside this block. */
     linkColor?: string
     linkUnderline?: boolean
-    /** Lists only: the indent, and the space between items. */
     listIndent?: number
     listItemGap?: number
     /** HTML blocks only: leave the text settings to the block's own markup. */

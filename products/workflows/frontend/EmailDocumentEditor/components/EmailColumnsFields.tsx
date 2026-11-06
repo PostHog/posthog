@@ -75,6 +75,13 @@ export function EmailColumnsFields({
                     />
                 </EmailFieldRow>
             ) : null}
+            <EmailNumberField
+                label="Gap"
+                value={style.columnGap}
+                placeholder={16}
+                onChange={(columnGap) => setBlockStyle(editor, pos, { columnGap })}
+                attr="email-editor-columns-gap"
+            />
             <EmailColorField
                 label="Background"
                 value={style.backgroundColor}

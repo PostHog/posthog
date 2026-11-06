@@ -85,7 +85,6 @@ function safeCssValue(value: unknown): string {
     return String(value).replace(/[;"<>{}]/g, '')
 }
 
-/** A block's own link style applies to everything inside it. */
 function withLinkStyle(ctx: RenderContext, style: EmailBlockStyle): RenderContext {
     return {
         ...ctx,
