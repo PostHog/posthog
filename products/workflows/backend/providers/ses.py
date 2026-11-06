@@ -476,7 +476,11 @@ class SESProvider:
         provider feedback loops, third-party listings), so this is the authoritative health source;
         our own app metrics only provide the per-workflow diagnosis.
         """
-        state = self.get_tenant_sending_state(self._tenant_name_for_team(team_id))
+        state = self._tenant_sending_state(
+            self.ses_v2_client,
+            self._tenant_name_for_team(team_id),
+            missing_codes=("NotFoundException", "BadRequestException"),
+        )
         if state is None:
             return None
         return {
@@ -486,11 +490,21 @@ class SESProvider:
         }
 
     def get_tenant_sending_state(self, tenant_name: str) -> TenantSendingState | None:
-        """Sending status and reputation impact of the named SES tenant, or None when it doesn't exist."""
+        """
+        Sending status and reputation impact of the named SES tenant, or None when SES has no
+        tenant of that name. Any other failed read raises: a rejected request says nothing about
+        the tenant, so the caller must keep its stored state. The read uses the fail-fast client
+        because the caller holds a row lock for its duration.
+        """
+        return self._tenant_sending_state(self.ses_v2_status_client, tenant_name, missing_codes=("NotFoundException",))
+
+    def _tenant_sending_state(
+        self, client: "SESV2Client", tenant_name: str, *, missing_codes: tuple[str, ...]
+    ) -> TenantSendingState | None:
         try:
-            tenant = self.ses_v2_client.get_tenant(TenantName=tenant_name)["Tenant"]
+            tenant = client.get_tenant(TenantName=tenant_name)["Tenant"]
         except ClientError as e:
-            if e.response["Error"]["Code"] in ("NotFoundException", "BadRequestException"):
+            if e.response["Error"]["Code"] in missing_codes:
                 return None
             raise
 
@@ -499,7 +513,7 @@ class SESProvider:
         if not tenant_arn:
             return TenantSendingState(sending_status=sending_status, reputation_impact=None, tenant_arn=None)
 
-        entity = self._reputation_entity(tenant_arn)
+        entity = self._reputation_entity(client, tenant_arn)
         return TenantSendingState(
             # The aggregate folds in both AWS-managed and customer-managed pauses.
             sending_status=entity.get("SendingStatusAggregate", sending_status),
@@ -507,11 +521,11 @@ class SESProvider:
             tenant_arn=tenant_arn,
         )
 
-    def _reputation_entity(self, tenant_arn: str) -> Mapping[str, Any]:
+    def _reputation_entity(self, client: "SESV2Client", tenant_arn: str) -> Mapping[str, Any]:
         try:
-            return self.ses_v2_client.get_reputation_entity(
-                ReputationEntityReference=tenant_arn, ReputationEntityType="RESOURCE"
-            )["ReputationEntity"]
+            return client.get_reputation_entity(ReputationEntityReference=tenant_arn, ReputationEntityType="RESOURCE")[
+                "ReputationEntity"
+            ]
         except ClientError as e:
             # A tenant with no attributed sends yet has no reputation entity.
             if e.response["Error"]["Code"] != "NotFoundException":
