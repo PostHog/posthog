@@ -1,4 +1,3 @@
-from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import replace
 from datetime import date, datetime, timedelta
@@ -47,14 +46,6 @@ class TeamEventsPlanDeletion(models.Model):
     @property
     def state(self) -> "PlanDeletionState":
         return PlanDeletionState(months=self.months, next_deletion_on=self.next_deletion_on)
-
-
-class TeamEventsRetentionDowngrade(models.Model):
-    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, db_constraint=False)
-    downgraded_from_months = models.PositiveSmallIntegerField(
-        help_text="The plan period before a downgrade shortened the team's period. The row goes once organization "
-        "admins hear about the team's next pass, or once that pass runs."
-    )
 
 
 @frozen
@@ -152,7 +143,7 @@ def apply_events_retention_change(
     organization: Organization, previous_months: int | None, previous_standard_retention: bool
 ) -> None:
     """Align the organization's teams and their passes with its plan period. When a downgrade shortens the period of
-    any team, push those teams' passes, remember the downgrade until their next pass, and tell the admins.
+    any team, push those teams' passes and tell the admins.
 
     The first billing sync has no previous period. It moves teams off the 84-month fallback, which is no downgrade.
     """
@@ -170,9 +161,9 @@ def apply_events_retention_change(
         if not shortened:
             return
         states = reschedule_plan_deletions(deleting_plans(shortened), cleanup_date())
-        _remember_downgrade(shortened, previous_months)
     deletion_on = min((state.next_deletion_on for state in states.values()), default=None)
-    report_events_retention_shortened.delay(str(organization.id), _notice(organization, previous_months, deletion_on))
+    notice = {**_notice(organization, deletion_on), "previous_retention_months": previous_months}
+    report_events_retention_shortened.delay(str(organization.id), notice)
 
 
 def _shortened_teams(
@@ -187,64 +178,34 @@ def _shortened_teams(
     return [team for team in teams if after[team.id] < before[team.id]]
 
 
-def _remember_downgrade(teams: Sequence[Team], previous_months: int) -> None:
-    remembered = dict(
-        TeamEventsRetentionDowngrade.objects.filter(team_id__in=[team.id for team in teams]).values_list(
-            "team_id", "downgraded_from_months"
-        )
-    )
-    TeamEventsRetentionDowngrade.objects.bulk_create(
-        [
-            TeamEventsRetentionDowngrade(
-                team_id=team.id, downgraded_from_months=max(previous_months, remembered.get(team.id, 0))
-            )
-            for team in teams
-        ],
-        update_conflicts=True,
-        unique_fields=["team"],
-        update_fields=["downgraded_from_months"],
-        batch_size=_WRITE_BATCH_SIZE,
-    )
-
-
 def report_retention_shortened(organization_id: UUID, notice: dict[str, object]) -> None:
     _notify_admins(RETENTION_SHORTENED_EVENT, {organization_id: notice})
 
 
 def report_upcoming_deletions() -> int:
-    """Tell the admins of each downgraded organization, once, about the first pass past its shorter period."""
+    """Tell the admins of each organization with a pass at the next cleanup, exactly 14 days before it.
+
+    Only that one day sends, so each pass gets one event without a record of what was sent.
+    """
     deletion_on = next_cleanup_on()
-    if deletion_on - cleanup_date() > timedelta(days=DELETION_NOTICE_DAYS):
+    if deletion_on - cleanup_date() != timedelta(days=DELETION_NOTICE_DAYS):
         return 0
-    due = TeamEventsPlanDeletion.objects.filter(
-        team_id__in=TeamEventsRetentionDowngrade.objects.values("team_id"), next_deletion_on__lte=deletion_on
-    )
-    plans = deleting_plans(Team.objects.filter(id__in=due.values("team_id")))
+    due = TeamEventsPlanDeletion.objects.filter(next_deletion_on__lte=deletion_on).values("team_id")
+    teams = Team.objects.filter(id__in=due).only("id", "organization_id", "event_retention_months")
+    plans = deleting_plans(teams)
     with transaction.atomic():
         states = reschedule_plan_deletions(plans, cleanup_date())
-    due_plans = {plan.team_id: plan for plan in plans if states[plan.team_id].next_deletion_on <= deletion_on}
-    downgraded_from: dict[UUID, dict[int, int]] = defaultdict(dict)
-    for team_id, months in TeamEventsRetentionDowngrade.objects.filter(team_id__in=due_plans).values_list(
-        "team_id", "downgraded_from_months"
-    ):
-        downgraded_from[due_plans[team_id].organization_id][team_id] = months
-    notified = 0
-    for organization in Organization.objects.filter(id__in=downgraded_from).only(
+    organization_ids = {plan.organization_id for plan in plans if states[plan.team_id].next_deletion_on <= deletion_on}
+    for organization in Organization.objects.filter(id__in=organization_ids).only(
         "id", "name", "available_product_features"
     ):
-        previous_months = max(downgraded_from[organization.id].values())
-        if organization_events_retention_months(organization) < previous_months:
-            notice = _notice(organization, previous_months, deletion_on)
-            _notify_admins(DELETION_UPCOMING_EVENT, {organization.id: notice})
-            notified += 1
-        TeamEventsRetentionDowngrade.objects.filter(team_id__in=downgraded_from[organization.id]).delete()
-    return notified
+        _notify_admins(DELETION_UPCOMING_EVENT, {organization.id: _notice(organization, deletion_on)})
+    return len(organization_ids)
 
 
-def _notice(organization: Organization, previous_months: int, deletion_on: date | None) -> dict[str, object]:
+def _notice(organization: Organization, deletion_on: date | None) -> dict[str, object]:
     return {
         "organization_name": organization.name,
-        "previous_retention_months": previous_months,
         "retention_months": organization_events_retention_months(organization),
         "deletion_scheduled_on": deletion_on.isoformat() if deletion_on else None,
     }

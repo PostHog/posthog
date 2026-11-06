@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
 import pytest
@@ -15,7 +15,6 @@ from parameterized import parameterized
 from posthog.models.events_plan_deletion import (
     PlanDeletionState,
     TeamEventsPlanDeletion,
-    TeamEventsRetentionDowngrade,
     admitted,
     after_pass,
     apply_events_retention_change,
@@ -32,7 +31,7 @@ from posthog.models.events_retention_config import TeamEventsRetention
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.tasks.tasks import report_events_retention_shortened
+from posthog.tasks.tasks import report_events_retention_shortened, report_upcoming_events_deletions
 
 TODAY = date(2026, 11, 3)
 
@@ -105,7 +104,6 @@ class TestPlanDeletionRules(SimpleTestCase):
 
 
 _TWO_YEAR_PLAN = [{"key": "product_analytics_data_retention", "limit": 2, "unit": "years"}]
-_THREE_YEAR_PLAN = [{"key": "product_analytics_data_retention", "limit": 3, "unit": "years"}]
 
 
 def _organization_with_admin(name: str) -> Organization:
@@ -116,19 +114,12 @@ def _organization_with_admin(name: str) -> Organization:
     return organization
 
 
-def _downgraded_team(features: list[dict], pass_months: int = 24, name: str = "Downgraded") -> Team:
-    organization = _organization_with_admin(name)
-    Organization.objects.filter(id=organization.id).update(available_product_features=features)
-    team = Team.objects.create(organization=organization, name=name, event_retention_months=24)
+def _team_with_pass(pass_months: int = 24) -> Team:
+    organization = _organization_with_admin("Scheduled")
+    Organization.objects.filter(id=organization.id).update(available_product_features=_TWO_YEAR_PLAN)
+    team = Team.objects.create(organization=organization, name="Scheduled", event_retention_months=24)
     TeamEventsPlanDeletion.objects.create(team=team, months=pass_months, next_deletion_on=date(2027, 2, 3))
-    TeamEventsRetentionDowngrade.objects.create(team=team, downgraded_from_months=84)
     return team
-
-
-def _downgraded_from(team: Team) -> int | None:
-    return (
-        TeamEventsRetentionDowngrade.objects.filter(team=team).values_list("downgraded_from_months", flat=True).first()
-    )
 
 
 def _captured(scoped_capture: MagicMock) -> list[dict]:
@@ -137,38 +128,35 @@ def _captured(scoped_capture: MagicMock) -> list[dict]:
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "now,features,deleting,pass_months,notified,marker_left",
+    "deleting,pass_months,notified",
     [
-        pytest.param("2027-01-20T18:00:00Z", _TWO_YEAR_PLAN, True, 24, True, None, id="two_weeks_before_the_pass"),
-        pytest.param("2027-01-13T18:00:00Z", _TWO_YEAR_PLAN, True, 24, False, 84, id="three_weeks_before_the_pass"),
-        pytest.param("2027-01-20T18:00:00Z", [], True, 24, False, None, id="plan_raised_again"),
-        pytest.param("2027-01-20T18:00:00Z", _TWO_YEAR_PLAN, False, 24, False, 84, id="deletion_turned_off"),
-        pytest.param("2027-01-20T18:00:00Z", _TWO_YEAR_PLAN, True, 36, False, 84, id="period_shortened_after_pass"),
+        pytest.param(True, 24, True, id="pass_at_the_next_cleanup"),
+        pytest.param(False, 24, False, id="deletion_turned_off"),
+        pytest.param(True, 36, False, id="period_shortened_after_pass"),
     ],
 )
 @override_settings(CLOUD_DEPLOYMENT="US")
-def test_report_upcoming_events_deletions_tells_admins_once(
-    now: str, features: list[dict], deleting: bool, pass_months: int, notified: bool, marker_left: int | None
+def test_report_upcoming_events_deletions_tells_admins_once_two_weeks_before_the_pass(
+    deleting: bool, pass_months: int, notified: bool
 ):
-    team = _downgraded_team(features, pass_months)
+    team = _team_with_pass(pass_months)
 
     with (
         override_settings(EVENTS_DATA_RETENTION_ENFORCED=deleting),
-        time_machine.travel(now, tick=False),
         patch("posthog.models.events_plan_deletion.is_cloud", return_value=True),
         patch("posthog.models.events_plan_deletion.ph_scoped_capture") as scoped_capture,
     ):
-        report_upcoming_deletions()
-        report_upcoming_deletions()
+        for days in range(22):
+            with time_machine.travel(datetime(2027, 1, 13, 18, tzinfo=UTC) + timedelta(days=days), tick=False):
+                report_upcoming_deletions()
 
     assert _captured(scoped_capture) == (
         [
             {
-                "distinct_id": User.objects.get(email="admin@downgraded.example.com").distinct_id,
+                "distinct_id": User.objects.get(email="admin@scheduled.example.com").distinct_id,
                 "event": "events retention deletion upcoming",
                 "properties": {
-                    "organization_name": "Downgraded",
-                    "previous_retention_months": 84,
+                    "organization_name": "Scheduled",
                     "retention_months": 24,
                     "deletion_scheduled_on": "2027-02-03",
                 },
@@ -178,84 +166,51 @@ def test_report_upcoming_events_deletions_tells_admins_once(
         if notified
         else []
     )
-    assert _downgraded_from(team) == marker_left
 
 
-def _clients_failing_on(
-    calls: set[int],
-) -> tuple[list[MagicMock], Callable[[str, Callable[[Exception, object], None]], MagicMock]]:
-    clients: list[MagicMock] = []
-
-    def get_client(_region: str, on_error: Callable[[Exception, object], None]) -> MagicMock:
-        failing = len(clients) in calls
-        clients.append(
-            MagicMock(
-                shutdown=MagicMock(
-                    side_effect=lambda: on_error(ConnectionError("ingestion is down"), None) if failing else None
-                )
-            )
-        )
-        return clients[-1]
-
-    return clients, get_client
-
-
-@pytest.mark.django_db
-@override_settings(CLOUD_DEPLOYMENT="US", EVENTS_DATA_RETENTION_ENFORCED=True)
-def test_report_upcoming_events_deletions_keeps_only_undelivered_markers():
-    teams = [_downgraded_team(_TWO_YEAR_PLAN, name=name) for name in ("First", "Second")]
-    _clients, get_client = _clients_failing_on({1})
-
-    with (
-        time_machine.travel("2027-01-20T18:00:00Z", tick=False),
-        patch("posthog.models.events_plan_deletion.is_cloud", return_value=True),
-        patch("posthog.ph_client.get_client", side_effect=get_client),
-        pytest.raises(ConnectionError),
-    ):
-        report_upcoming_deletions()
-
-    assert sorted((_downgraded_from(team) for team in teams), key=str) == [84, None]
-
-
-@pytest.mark.django_db
-@override_settings(CLOUD_DEPLOYMENT="US")
-def test_report_events_retention_shortened_retries_a_failed_send():
-    team = _downgraded_team(_TWO_YEAR_PLAN)
-    _clients, get_client = _clients_failing_on({0})
-
-    with (
-        patch("posthog.models.events_plan_deletion.is_cloud", return_value=True),
-        patch("posthog.ph_client.get_client", side_effect=get_client),
-        pytest.raises(Retry),
-    ):
-        report_events_retention_shortened.delay(str(team.organization_id), {"retention_months": 24})
+def _failing_client(_region: str, on_error: Callable[[Exception, object], None]) -> MagicMock:
+    return MagicMock(shutdown=MagicMock(side_effect=lambda: on_error(ConnectionError("ingestion is down"), None)))
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "start_features,start_months,changes",
+    "send",
     [
-        pytest.param(_TWO_YEAR_PLAN, 24, [([], 24), (_TWO_YEAR_PLAN, 84)], id="downgrade_right_after_an_upgrade"),
-        pytest.param([], 84, [(_THREE_YEAR_PLAN, 84), (_TWO_YEAR_PLAN, 36)], id="second_downgrade_before_the_pass"),
+        pytest.param(
+            lambda team: report_events_retention_shortened.delay(str(team.organization_id), {"retention_months": 24}),
+            id="period_shortened",
+        ),
+        pytest.param(lambda _team: report_upcoming_events_deletions.delay(), id="deletion_upcoming"),
     ],
 )
 @override_settings(CLOUD_DEPLOYMENT="US", EVENTS_DATA_RETENTION_ENFORCED=True)
-def test_downgrades_push_the_pass_and_keep_the_longest_previous_plan(
-    start_features: list[dict], start_months: int, changes: list[tuple[list[dict], int]]
-):
-    organization = Organization.objects.create(name="Cycled", available_product_features=start_features)
-    team = Team.objects.create(organization=organization, name="Cycled", event_retention_months=start_months)
-    TeamEventsPlanDeletion.objects.create(team=team, months=start_months, next_deletion_on=date(2026, 12, 3))
+def test_a_failed_send_retries(send: Callable[[Team], object]):
+    team = _team_with_pass()
+
+    with (
+        time_machine.travel("2027-01-20T18:00:00Z", tick=False),
+        patch("posthog.models.events_plan_deletion.is_cloud", return_value=True),
+        patch("posthog.ph_client.get_client", side_effect=_failing_client),
+        pytest.raises(Retry),
+    ):
+        send(team)
+
+
+@pytest.mark.django_db
+@override_settings(CLOUD_DEPLOYMENT="US", EVENTS_DATA_RETENTION_ENFORCED=True)
+def test_a_downgrade_right_after_an_upgrade_pushes_the_pass():
+    organization = Organization.objects.create(name="Cycled", available_product_features=_TWO_YEAR_PLAN)
+    team = Team.objects.create(organization=organization, name="Cycled", event_retention_months=24)
+    TeamEventsPlanDeletion.objects.create(team=team, months=24, next_deletion_on=date(2026, 12, 3))
 
     with time_machine.travel("2026-11-20T18:00:00Z", tick=False):
-        for features, previous_months in changes:
+        for features, previous_months in (([], 24), (_TWO_YEAR_PLAN, 84)):
             Organization.objects.filter(id=organization.id).update(available_product_features=features)
             apply_events_retention_change(organization, previous_months, False)
 
     assert TeamEventsPlanDeletion.objects.get(team=team).state == PlanDeletionState(
         months=24, next_deletion_on=date(2027, 3, 3)
     )
-    assert _downgraded_from(team) == 84
 
 
 @pytest.mark.django_db
@@ -277,7 +232,7 @@ def test_a_team_that_joins_deletion_after_a_downgrade_hears_before_its_first_pas
         with override_settings(EVENTS_DATA_RETENTION_ENFORCED=True):
             with time_machine.travel("2026-12-03T18:00:00Z", tick=False), transaction.atomic():
                 reschedule_plan_deletions(deleting_plans(Team.objects.filter(id=team.id)), cleanup_date())
-            with time_machine.travel("2027-02-20T18:00:00Z", tick=False):
+            with time_machine.travel("2027-02-17T18:00:00Z", tick=False):
                 report_upcoming_deletions()
 
     assert [

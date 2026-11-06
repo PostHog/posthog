@@ -1077,7 +1077,7 @@ def sync_all_organization_available_product_features() -> None:
     sync_all_organization_available_product_features()
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=30, retry_backoff_max=600, max_retries=5)
 def report_upcoming_events_deletions() -> None:
     from posthog.models.events_plan_deletion import report_upcoming_deletions
 

@@ -58,12 +58,7 @@ from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionRunLog, DeletionRunStatus, DeletionType
 from posthog.models.deletion_targets import DEFAULT_DELETION_TARGETS, EVENTS, PERSONAL_DATA_TARGETS, TargetPlacement
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
-from posthog.models.events_plan_deletion import (
-    TeamEventsPlanDeletion,
-    TeamEventsRetentionDowngrade,
-    cleanup_date,
-    next_pass_on,
-)
+from posthog.models.events_plan_deletion import TeamEventsPlanDeletion, cleanup_date, next_pass_on
 from posthog.models.events_retention_config import TeamEventsRetentionConfig
 from posthog.models.organization import Organization
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
@@ -953,7 +948,6 @@ def test_pass_deletes_events_and_sessions_past_the_period_and_moves_only_a_compl
     team = Team.objects.create(organization=organization, name="Due", event_retention_months=12)
     other = Team.objects.create(organization=organization, name="Other", event_retention_months=12)
     TeamEventsPlanDeletion.objects.create(team=team, months=12, next_deletion_on=cleanup_date())
-    TeamEventsRetentionDowngrade.objects.create(team=team, downgraded_from_months=24)
     _insert_events(
         cluster,
         _events(team.id, _mid_month(20), 0, 2)
@@ -973,7 +967,6 @@ def test_pass_deletes_events_and_sessions_past_the_period_and_moves_only_a_compl
         SESSIONS_RETENTION_TABLES, {(team.id, _partition(_mid_month(months))) for months in sessions_left}
     )
     assert _plan_state(team) == (12, _first_pass() if pass_completed else cleanup_date())
-    assert TeamEventsRetentionDowngrade.objects.filter(team=team).exists() is not pass_completed
 
 
 @pytest.mark.django_db
