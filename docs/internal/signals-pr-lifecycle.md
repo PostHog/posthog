@@ -348,6 +348,8 @@ Slack still sends the report to the configured team channel without reviewer men
 The notification activity retries transient ClickHouse reads before it claims the report for delivery.
 The Slack notification's Implement button posts a request in the report thread and starts the Slack agent flow.
 The agent uses the clicking member's project access and can ask them to select a repository in Slack.
+Implementation requires task editor access and claims the report's implementation slot before creating a task.
+The button remains available if startup fails. Slack removes it after startup succeeds.
 Review in PostHog opens the report page.
 
 When an implementation pull request has one assignee, the worker requests that person's review, even when another person or team request exists.

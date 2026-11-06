@@ -43,6 +43,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.commands.backend.facade import api as commands_api
 from products.slack_app.backend import inbox_channel
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
@@ -4696,6 +4697,16 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
         return HttpResponse(status=200)
 
     if clicked.is_report_implementation:
+        if not UserAccessControl(posthog_user, team=integration.team).check_access_level_for_resource("task", "editor"):
+            _post_slack_user_ephemeral(
+                slack,
+                channel,
+                clicker_slack_user_id,
+                thread_ts,
+                "You need task editor access to implement this report. Ask a project admin for access.",
+            )
+            return HttpResponse(status=200)
+
         from products.signals.backend.facade.api import (  # noqa: PLC0415 - keeps the signals model graph off the webhook import path
             report_id_for_slack_thread,
         )
@@ -4760,6 +4771,7 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
             untagged_followup=not clicked.is_report_implementation,
             untagged_followup_confirmed=not clicked.is_report_implementation,
             is_reply_suggestion=True,
+            report_implementation_message_ts=message_ts if clicked.is_report_implementation else None,
         )
     except Exception:
         # Nothing reached the agent, so the buttons stay usable and the reply does not stand in the thread.
@@ -4770,11 +4782,6 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
             except Exception:
                 logger.warning("slack_app_reply_suggestion_delete_failed", integration_id=integration.id)
         raise
-
-    if clicked.is_report_implementation:
-        _replace_message_stripping_actions(
-            payload, f"<@{clicker_slack_user_id}> requested implementation in this thread."
-        )
 
     record_feature_used(slack_team_id, clicker_slack_user_id, SlackFeature.REPLY_SUGGESTIONS)
     capture_slack_event(
@@ -4966,6 +4973,7 @@ def _start_mention_workflow(
     *,
     posthog_user: User,
     is_reply_suggestion: bool = False,
+    report_implementation_message_ts: str | None = None,
     untagged_followup: bool = False,
     untagged_followup_confirmed: bool = False,
     untagged_question: bool = False,
@@ -5012,6 +5020,7 @@ def _start_mention_workflow(
         integration_id=integration.id,
         slack_team_id=slack_team_id,
         slack_event_id=event_id,
+        report_implementation_message_ts=report_implementation_message_ts,
         user_id=posthog_user.id,
         untagged_followup=untagged_followup,
         untagged_followup_confirmed=untagged_followup_confirmed,

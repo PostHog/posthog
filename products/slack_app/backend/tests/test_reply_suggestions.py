@@ -9,11 +9,13 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
+from posthog.constants import AvailableFeature
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalReport, SignalReportSlackThread
 from products.slack_app.backend.facade.api import slack_report_implementation_button
 from products.slack_app.backend.logic.reply_suggestions import (
@@ -26,6 +28,10 @@ from products.slack_app.backend.logic.reply_suggestions import (
 )
 from products.slack_app.backend.services.slack_messages import RunFooter
 from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+from products.slack_app.backend.temporal.activities.report_implementation import (
+    finish_slack_report_implementation_activity,
+)
+from products.slack_app.backend.temporal.types import PostHogCodeSlackMentionWorkflowInputs
 from products.slack_app.backend.tests.helpers import sign_slack_request
 from products.tasks.backend.facade.reply_suggestions import SuggestedReply, suggest_replies
 
@@ -178,6 +184,9 @@ class TestReplySuggestionClick(TestCase):
         assert mock_start.call_args.kwargs["untagged_followup"] is not report_implementation
         assert mock_start.call_args.kwargs["untagged_followup_confirmed"] is not report_implementation
         assert mock_start.call_args.kwargs["is_reply_suggestion"] is True
+        assert mock_start.call_args.kwargs["report_implementation_message_ts"] == (
+            self.message_ts if report_implementation else None
+        )
         # The trace id joins the click to the generation that suggested it.
         mock_capture.assert_called_once()
         assert mock_capture.call_args.kwargs["ai_trace_id"] == (None if report_implementation else "trace-1")
@@ -188,13 +197,7 @@ class TestReplySuggestionClick(TestCase):
         posted = slack_client.chat_postMessage.call_args.kwargs
         assert posted["thread_ts"] == (self.message_ts if report_implementation else self.thread_ts)
         assert (REPORT_IMPLEMENTATION_REPLY if report_implementation else KEEP_LOCAL.reply) in posted["text"]
-        if report_implementation:
-            mock_response.assert_called_once()
-            updated_blocks = mock_response.call_args.args[1]["blocks"]
-            actions = next(block for block in updated_blocks if block["type"] == "actions")
-            assert actions["elements"] == [{"type": "button", "url": "https://example.com/report"}]
-        else:
-            mock_response.assert_not_called()
+        mock_response.assert_not_called()
 
     @parameterized.expand(
         [
@@ -249,6 +252,73 @@ class TestReplySuggestionClick(TestCase):
         assert mock_start.call_count == 2
         # The reply that never reached the agent does not stay in the thread.
         slack_client.chat_delete.assert_called_once_with(channel=self.channel, ts="1006.0000")
+
+    @parameterized.expand([("viewer",), ("none",)])
+    def test_report_implementation_requires_task_editor_access(
+        self, mock_slack_cls: MagicMock, access_level: str
+    ) -> None:
+        self._link_report()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(resource="task", team=self.team, access_level=access_level)
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_slack_cls.return_value.client.conversations_info.return_value = {"channel": {"is_ext_shared": False}}
+        with (
+            self._as_slack_user(self.member_user.email),
+            patch("products.slack_app.backend.api._start_mention_workflow") as start,
+        ):
+            response = self._click("U_BOB", report_implementation=True)
+        assert response.status_code == 200
+        start.assert_not_called()
+        mock_slack_cls.return_value.client.chat_postMessage.assert_not_called()
+        assert "task editor access" in mock_slack_cls.return_value.client.chat_postEphemeral.call_args.kwargs["text"]
+
+
+class TestReportImplementationCompletion(SimpleTestCase):
+    @parameterized.expand([(False,), (True,)])
+    def test_buttons_remain_available_until_startup_succeeds(self, started: bool) -> None:
+        inputs = PostHogCodeSlackMentionWorkflowInputs(
+            event={"channel": "C1", "ts": "2.0", "thread_ts": "1.0"},
+            integration_id=1,
+            slack_team_id="T1",
+            user_id=1,
+            report_implementation_message_ts="1.0",
+        )
+        claim_key = "slack_app_reply_suggestion_claim:1:C1:1.0"
+        cache.set(claim_key, "U1")
+        link = {"type": "button", "url": "https://example.com/report"}
+        with (
+            patch("products.slack_app.backend.temporal.activities.report_implementation.require_workspace_integration"),
+            patch("products.slack_app.backend.temporal.activities.report_implementation.SlackIntegration") as slack,
+        ):
+            client = slack.return_value.client
+            client.conversations_replies.return_value = {
+                "messages": [
+                    {
+                        "ts": "1.0",
+                        "text": "Report",
+                        "blocks": [
+                            ANSWER_BLOCK,
+                            {"type": "actions", "elements": [slack_report_implementation_button(1), link]},
+                            FOOTER_BLOCK,
+                        ],
+                    }
+                ]
+            }
+            finish_slack_report_implementation_activity(inputs, started)
+        if started:
+            assert client.chat_update.call_args.kwargs["blocks"] == [
+                ANSWER_BLOCK,
+                {"type": "actions", "elements": [link]},
+                FOOTER_BLOCK,
+            ]
+            assert cache.get(claim_key) == "U1"
+        else:
+            client.conversations_replies.assert_not_called()
+            client.chat_update.assert_not_called()
+            assert cache.get(claim_key) is None
 
 
 class TestReplySuggestionPlacement(SimpleTestCase):

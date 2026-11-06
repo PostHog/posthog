@@ -1,10 +1,11 @@
 import re
 import uuid
 import textwrap
+from contextlib import nullcontext
 from dataclasses import field
 from typing import TYPE_CHECKING, Any
 
-from django.db import models
+from django.db import models, transaction
 
 import structlog
 from temporalio import activity
@@ -602,11 +603,14 @@ def create_posthog_code_task_for_repo_activity(
     repo_research_task_id: str | None = None,
     repo_research_run_id: str | None = None,
     model_override: SlackAppModelOverride | None = None,
-) -> None:
+) -> bool | None:
     from posthog.models.integration import SlackIntegration
     from posthog.models.user import User
 
-    from products.signals.backend.facade import api as signals_facade
+    from products.signals.backend.facade import (
+        api as signals_facade,
+        report_tasks,
+    )
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.services.slack_conversations import resolve_conversation_type
     from products.slack_app.backend.slack_thread import SlackThreadContext
@@ -652,7 +656,7 @@ def create_posthog_code_task_for_repo_activity(
             thread_ts=thread_ts,
             integration_id=inputs.integration_id,
         )
-        return
+        return True
 
     # Refuse before the :eyes: reaction or the permalink fetch: a denied
     # mention should not first ack-react and then refuse a second later.
@@ -664,7 +668,7 @@ def create_posthog_code_task_for_repo_activity(
         slack_user_id=slack_user_id,
         context="task_create",
     ):
-        return
+        return False
 
     if block_if_team_over_quota(
         integration=integration,
@@ -674,7 +678,7 @@ def create_posthog_code_task_for_repo_activity(
         slack_user_id=slack_user_id,
         context="task_create",
     ):
-        return
+        return False
 
     user_message_ts = event.get("ts")
     if user_message_ts:
@@ -779,26 +783,44 @@ def create_posthog_code_task_for_repo_activity(
 
     # 1. Create task + run WITHOUT starting the workflow
     try:
-        created = tasks_facade.create_and_run_task(
-            team=integration.team,
-            title=title,
-            description=description,
-            origin_product=tasks_facade.TaskOriginProduct.SLACK,
-            user_id=user_id,
-            repository=repository,
-            create_pr=allow_pr_creation,
-            mode="interactive",
-            slack_thread_context=slack_thread_context,
-            slack_thread_url=slack_thread_url,
-            start_workflow=False,
-            posthog_mcp_scopes="full",
-            initial_permission_mode="bypassPermissions",
-            runtime_adapter=run_prefs.runtime_adapter,
-            model=run_prefs.model,
-            reasoning_effort=run_prefs.reasoning_effort,
-            channel_id=personal_channel_id,
-            extra_run_state=own_plan_state,
-        )
+        with transaction.atomic() if inputs.report_implementation_message_ts else nullcontext():
+            if inputs.report_implementation_message_ts:
+                if signal_report_id is None:
+                    return False
+                report_tasks.enforce_report_task_cap(
+                    team_id=integration.team_id,
+                    report_id=signal_report_id,
+                    relationship=None,
+                    created_by_id=user_id,
+                )
+            created = tasks_facade.create_and_run_task(
+                team=integration.team,
+                title=title,
+                description=description,
+                origin_product=tasks_facade.TaskOriginProduct.SLACK,
+                user_id=user_id,
+                repository=repository,
+                create_pr=allow_pr_creation,
+                mode="interactive",
+                slack_thread_context=slack_thread_context,
+                slack_thread_url=slack_thread_url,
+                start_workflow=False,
+                posthog_mcp_scopes="full",
+                initial_permission_mode="bypassPermissions",
+                runtime_adapter=run_prefs.runtime_adapter,
+                model=run_prefs.model,
+                reasoning_effort=run_prefs.reasoning_effort,
+                channel_id=personal_channel_id,
+                extra_run_state=own_plan_state,
+                signal_report_id=signal_report_id if inputs.report_implementation_message_ts else None,
+            )
+            if inputs.report_implementation_message_ts and signal_report_id:
+                report_tasks.record_report_task(
+                    team_id=integration.team_id, report_id=signal_report_id, task_id=str(created.task_id)
+                )
+    except report_tasks.ReportTaskCapExceeded as exc:
+        post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=exc.detail)
+        return False
     except Exception as e:
         logger.exception(
             "posthog_code_task_creation_failed",
@@ -816,7 +838,7 @@ def create_posthog_code_task_for_repo_activity(
             )
         except Exception:
             logger.warning("posthog_code_error_notification_failed", channel=channel, thread_ts=thread_ts)
-        return
+        return False
 
     logger.info(
         "posthog_code_task_created",
@@ -937,6 +959,7 @@ def create_posthog_code_task_for_repo_activity(
             slack_thread_context=slack_thread_context,
             posthog_mcp_scopes="full",
         )
+    return task_run is not None
 
 
 def _followup_task_mappings(

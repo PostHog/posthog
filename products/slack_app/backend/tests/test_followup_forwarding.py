@@ -1,4 +1,5 @@
 from contextlib import AbstractContextManager, nullcontext
+from dataclasses import replace
 from types import SimpleNamespace
 
 from unittest import TestCase as UnitTestCase
@@ -11,7 +12,7 @@ from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
@@ -30,6 +31,9 @@ from products.slack_app.backend.temporal import (
     create_posthog_code_task_for_repo_activity,
     enforce_posthog_code_billing_quota_activity,
     forward_posthog_code_followup_activity,
+)
+from products.slack_app.backend.temporal.activities.report_implementation import (
+    prepare_slack_report_implementation_activity,
 )
 from products.slack_app.backend.temporal.activities.task_creation import _build_terminal_recovery_prompt
 from products.slack_app.backend.temporal.helpers import safe_react
@@ -310,6 +314,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
     @parameterized.expand(
         [
             ("report_notification_thread", True, None),
+            ("report_implementation", True, "implementation"),
             ("mapping_failure", True, "mapping"),
             ("association_failure", True, "association"),
             ("ordinary_thread", False, None),
@@ -349,6 +354,8 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             )
 
         inputs = _make_inputs(self.integration.id, self.user.id)
+        if failure_stage == "implementation":
+            inputs = replace(inputs, report_implementation_message_ts="1234.5678")
         args = (
             inputs,
             "C123",
@@ -359,7 +366,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             [SlackThreadMessage(user="U_ALICE", text="look into this")],
             None,
         )
-        if failure_stage:
+        if failure_stage and failure_stage != "implementation":
             failure_target = (
                 patch.object(
                     SlackThreadTaskMapping.objects, "update_or_create", side_effect=RuntimeError("mapping unavailable")
@@ -391,11 +398,40 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert (
             str(report.id) in _engaged_report_ids(self.team.id, {str(report.id)}, report.created_at)
         ) is from_report_thread
-        if from_report_thread:
+        if failure_stage == "implementation":
+            from products.signals.backend.models import SignalReportTask
+
+            association = SignalReportTask.objects.get(report_id=report.id)
+            assert association.task_id == task.id
+            assert association.relationship == "implementation"
+            assert not SignalReportAction.objects.for_team(self.team.id).filter(report_id=report.id).exists()
+            SignalReportSlackThread.objects.for_team(self.team.id).create(
+                team=self.team,
+                report=report,
+                integration=self.integration,
+                slack_workspace_id=self.integration.integration_id,
+                channel="D123",
+                thread_ts="1234.5678",
+                kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
+            )
+            duplicate_inputs = replace(inputs, event={**inputs.event, "channel": "D123"})
+            assert not create_posthog_code_task_for_repo_activity(
+                duplicate_inputs, "D123", "1234.5678", "U_ALICE", self.user.id, duplicate_inputs.event, [], None
+            )
+            assert self.Task.objects.filter(team=self.team).count() == 1
+        elif from_report_thread:
             action = SignalReportAction.objects.for_team(self.team.id).get(report_id=report.id)
             assert action.user_id == self.user.id
             assert action.count == 1
             assert work_log.get().created_by_id is None
+            if failure_stage is None:
+                from products.signals.backend.models import SignalReportTask
+
+                OrganizationMembership.objects.create(organization=self.org, user=self.user)
+                assert prepare_slack_report_implementation_activity(
+                    replace(inputs, report_implementation_message_ts="1234.5678")
+                )
+                assert SignalReportTask.objects.get(report_id=report.id).task_id == task.id
 
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
