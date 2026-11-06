@@ -48,7 +48,7 @@ The token is your PostHog project token.
 ## Backdated logs
 
 A log record whose timestamp is more than 24 hours behind the ingest time is normally replaced
-with the ingest time, and the original is kept on the `$originalTimestamp` attribute. That guard
+with the ingest time, and the original is kept on the `posthog.original_timestamp` attribute. That guard
 protects every query range on the team from one client with a broken clock.
 
 A historical import needs the original timestamps. Widen the past bound for one request with the

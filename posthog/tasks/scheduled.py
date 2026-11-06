@@ -115,11 +115,13 @@ from products.feature_flags.backend.tasks import (
 )
 from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
+from products.managed_warehouse.backend.facade.tasks import push_all_warehouse_member_teams
 from products.mcp_registry.backend.facade.tasks import MCP_REGISTRY_SYNC_CRONTAB, run_mcp_registry_sync
 from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.facade.tasks import (
+    enqueue_signals_rated_usage,
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     reconcile_report_inbox_state_cache,
@@ -454,6 +456,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="refresh prebaked dev-stack VM image on base change",
         expires_seconds=2 * 60,
     )
+
+    if settings.CLOUD_DEPLOYMENT:
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(hour="3", minute="17"),
+            enqueue_signals_rated_usage.s(),
+            name="report self-driving rated usage",
+        )
 
     add_periodic_task_with_expiry(
         sender,
@@ -837,6 +847,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         reconcile_all_managed_warehouse_tables_task.s(),
         name="reconcile managed warehouse SQL editor tables",
         expires=1800,
+    )
+
+    # The full push of member teams to hogtower: the net under the change signals, for team-scoped
+    # hoglake tokens. A no-op unless HOGTOWER_MEMBER_TEAMS_PUSH_ENABLED.
+    sender.add_periodic_task(
+        crontab(minute="23"),
+        push_all_warehouse_member_teams.s(),
+        name="push managed warehouse member teams to hogtower",
+        expires=3000,
     )
 
     # Every 30 minutes, send decide request counts to the main posthog instance

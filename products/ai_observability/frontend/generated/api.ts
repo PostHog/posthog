@@ -74,6 +74,7 @@ import type {
     LLMPromptResolveResponseApi,
     LLMPromptSetLabelApi,
     LLMProviderKeyApi,
+    LLMProxyModelInfoApi,
     LlmAnalyticsClusteringJobsListParams,
     LlmAnalyticsEvaluationReportsListParams,
     LlmAnalyticsEvaluationReportsRunsListParams,
@@ -2606,6 +2607,25 @@ export const llmAnalyticsProviderKeysDependentConfigsRetrieve = async (
     options?: RequestInit
 ): Promise<LLMProviderKeyApi> => {
     return apiMutator<LLMProviderKeyApi>(getLlmAnalyticsProviderKeysDependentConfigsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmAnalyticsProviderKeysModelsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/llm_analytics/provider_keys/${id}/models/`
+}
+
+/**
+ * Models this provider key can run, as the model pickers list them. Scoped to the project in the URL, so a
+ * page on a project other than the user's current one still lists its own keys' models.
+ */
+export const llmAnalyticsProviderKeysModelsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LLMProxyModelInfoApi[]> => {
+    return apiMutator<LLMProxyModelInfoApi[]>(getLlmAnalyticsProviderKeysModelsListUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

@@ -99,6 +99,18 @@ def is_loopback_host(hostname: str | None) -> bool:
     return False
 
 
+OIDC_SIGNING_KEY_MISSING_MESSAGE = (
+    "OAuth is not set up on this PostHog instance. "
+    "Ask the instance admin to set the OIDC_RSA_PRIVATE_KEY environment variable to an RSA private key in PEM format."
+)
+
+
+def oidc_signing_key_configured() -> bool:
+    # Every OAuth client PostHog creates (CIMD, DCR, toolbar) uses RS256, and OAuthApplication.clean()
+    # rejects RS256 without this key, so no client can be created or updated while it is unset.
+    return bool(oauth2_settings.OIDC_RSA_PRIVATE_KEY)
+
+
 class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore[django-manager-missing]
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
@@ -519,7 +531,7 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
             for origin in allowed_origins:
                 origin_validator(origin)
 
-        if self.algorithm == AbstractApplication.RS256_ALGORITHM and not oauth2_settings.OIDC_RSA_PRIVATE_KEY:
+        if self.algorithm == AbstractApplication.RS256_ALGORITHM and not oidc_signing_key_configured():
             raise ValidationError("You must set OIDC_RSA_PRIVATE_KEY to use RSA algorithm")
 
         if self.algorithm == AbstractApplication.HS256_ALGORITHM and (

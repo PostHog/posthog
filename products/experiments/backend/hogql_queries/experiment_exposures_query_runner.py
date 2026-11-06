@@ -357,7 +357,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         return load_split_history(self.experiment, reader_access=reader_access)
 
     def _evaluate_health(self, exposures: ExposureTotals, exposure_params: ExposureQueryParams) -> ExperimentHealth:
-        context = load_health_context(self.experiment, exposures)
+        context = load_health_context(self.experiment, exposures, can_read_flag_history=self._can_read_flag_history())
         if reads_flag_history(context):
             context = replace(context, flag_history=self._flag_history())
         # These queries run for every reader, a userless run included. The findings depend on them, and the cache key
@@ -582,7 +582,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 sample_ratio_mismatch_p_value=sample_ratio_mismatch.p_value if sample_ratio_mismatch else None,
                 sample_ratio_expected=sample_ratio_mismatch.expected if sample_ratio_mismatch else {},
                 daily_exposures=daily_exposures,
-                hours_since_launch=self.experiment.hours_since_launch,
+                hours_since_launch=self.experiment.hours_since_launch(read_activity_log=self._can_read_flag_history()),
                 counts_groups=aggregates_by_group(self.group_type_index),
                 filters_test_accounts=applies_test_account_filters(self.team, self.exposure_criteria),
                 has_positive_test_account_filter=has_positive_test_account_filter(self.team),
