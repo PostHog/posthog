@@ -31,6 +31,7 @@ _MAX_ITERATIONS = 64
 _SCHEME = re.compile(r"(https?)://", re.IGNORECASE)
 _DEFAULT_PORTS = {"http": "80", "https": "443"}
 _UNSAFE_AUTHORITY = re.compile(r"[@\\%\s\x00-\x1f\x7f]")
+_NUMERIC_LABEL = re.compile(r"^(\d+|0x[0-9a-f]*)$")
 _BY_NAME_OPTIONS = frozenset({"secret_headers_input", "standard_webhooks", "aws_sigv4"})
 
 
@@ -72,14 +73,30 @@ def url_origin(prefix: str, complete: bool) -> str | None:
     if not authority or not authority.isascii() or _UNSAFE_AUTHORITY.search(authority):
         return None
     host, _, port = authority.lower().rpartition(":") if ":" in authority else (authority.lower(), "", "")
-    if port and not port.isdigit():
+    if port and not _is_canonical_port(port):
         return None
     host = host.rstrip(".")
-    if not host:
+    if not host or not _is_canonical_host(host):
         return None
     scheme_name = scheme.group(1).lower()
     origin = f"{scheme_name}://{host}"
     return origin if not port or port == _DEFAULT_PORTS[scheme_name] else f"{origin}:{port}"
+
+
+def _is_canonical_port(port: str) -> bool:
+    return port.isdigit() and not port.startswith("0") and int(port) <= 65535
+
+
+# The worker's WHATWG parser rewrites IPv6 and short or hex IPv4 hosts, so only a dotted quad keeps its text.
+def _is_canonical_host(host: str) -> bool:
+    if host.startswith("["):
+        return False
+    labels = host.split(".")
+    if not _NUMERIC_LABEL.match(labels[-1]):
+        return True
+    return len(labels) == 4 and all(
+        label.isdigit() and str(int(label)) == label and int(label) <= 255 for label in labels
+    )
 
 
 def _normalize(values: _Values) -> _Values:
