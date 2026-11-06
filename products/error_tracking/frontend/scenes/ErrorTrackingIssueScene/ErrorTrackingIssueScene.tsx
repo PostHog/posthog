@@ -234,7 +234,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                                     data-attr="error-tracking-scan-with-vision"
                                                                 >
                                                                     <IconSparkles className="text-ai" />
-                                                                    Watch every new session with this error
+                                                                    Have AI watch every new session with this error
                                                                 </DropdownMenuItem>
                                                                 {emailInOverflow &&
                                                                     !messageAudienceAccessDisabledReason() && (
