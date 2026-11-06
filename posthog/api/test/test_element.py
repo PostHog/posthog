@@ -257,7 +257,16 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ),
             (
                 "behavioral",
-                [{"type": "behavioral", "key": "$pageview", "value": "performed_event", "time_value": 1}],
+                [
+                    {
+                        "type": "behavioral",
+                        "key": "$pageview",
+                        "value": "performed_event",
+                        "event_type": "events",
+                        "time_value": 1,
+                        "time_interval": "day",
+                    }
+                ],
             ),
         ]
     )
@@ -282,6 +291,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.headers["Cache-Control"], "private, max-age=30")
 
     def test_element_stats_still_applies_hogql_test_account_filters(self) -> None:
         self._setup_events()
