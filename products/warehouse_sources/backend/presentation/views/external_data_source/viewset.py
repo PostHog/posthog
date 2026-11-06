@@ -28,11 +28,7 @@ from posthog.rate_limit import (
 )
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
-from products.warehouse_sources.backend.facade.models import (
-    ExternalDataSchema,
-    ExternalDataSource,
-    latest_completed_job_subquery,
-)
+from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 
 from . import credential_store, helpers, oauth_accounts, source_setup
 from .change_data_capture import ExternalDataSourceCDCMixin
@@ -231,7 +227,7 @@ class ExternalDataSourceViewSet(
             # extra SELECT per source — the reverse 1:1 was an unprefetched N+1 that dominated the
             # list load (up to one query, and a get_or_create write, per source).
             .select_related("created_by", "revenue_analytics_config")
-            .annotate(latest_completed_run_at=latest_completed_job_subquery(self.team_id, "created_at"))
+            .annotate(latest_completed_run_at=ExternalDataJob.latest_completed_job_subquery(self.team_id, "created_at"))
             .prefetch_related(
                 # The one place schemas are read during serialization. `active_schemas` used to be a
                 # second prefetch over the same rows — it's now derived in Python from this one (see
