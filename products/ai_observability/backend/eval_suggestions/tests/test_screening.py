@@ -1,14 +1,15 @@
 from collections.abc import Mapping
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from posthog.schema import LLMTrace
 
-from posthog.llm.system_one import NoulAnswer, Question, SystemOneRequestFailed
+from posthog.llm.system_one import ChoiceAnswer, NoulAnswer, Question, SystemOneRequestFailed
 
 from products.ai_observability.backend.eval_suggestions.measure import SampledTrace
-from products.ai_observability.backend.eval_suggestions.screening import screen
+from products.ai_observability.backend.eval_suggestions.screening import dedupe, screen
 
 
 class _RecordingClient:
@@ -77,3 +78,19 @@ def test_screening_stops_at_its_deadline() -> None:
     [result] = screen(client, ["sentiment"], traces, deadline=0.0)  # type: ignore[arg-type]
 
     assert (result.screened, client.states) == (0, [])
+
+
+class _DedupeClient:
+    def decide(self, *, state: Mapping[str, Any], questions: Mapping[str, Question]) -> Any:
+        if "broken" in str(state):
+            raise SystemOneRequestFailed("gateway timed out", status_code=504)
+        answer = ChoiceAnswer(choice="check:refusals", confidence=0.9, probabilities={})
+        return type("Result", (), {"answers": dict.fromkeys(questions, answer)})()
+
+
+def test_a_failed_dedupe_call_loses_only_its_evaluation() -> None:
+    evals = [SimpleNamespace(definition_text="broken"), SimpleNamespace(definition_text="Fails refusals")]
+
+    matches = dedupe(_DedupeClient(), evals, {"check:refusals": "Flags refusals"})  # type: ignore[arg-type]
+
+    assert matches["check:refusals"][0] is evals[1]  # type: ignore[comparison-overlap]

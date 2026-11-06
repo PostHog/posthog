@@ -157,6 +157,14 @@ def _dead_judge(team: Team) -> Evaluation:
     return evaluation
 
 
+@pytest.fixture(autouse=True)
+def _organization_in_rollout() -> Any:
+    with patch(
+        "products.ai_observability.backend.eval_suggestions.pipeline.is_enabled_for_organization", return_value=True
+    ):
+        yield
+
+
 class TestPipeline(ClickhouseTestMixin, APIBaseTest):
     def test_finds_the_real_failures_and_none_of_the_noise(self) -> None:
         now = timezone.now()
@@ -364,6 +372,21 @@ class TestRunRecords(BaseTest):
         )
 
         assert publish(run, [_candidate("check:unrecovered_errors", [])], {}) == []
+
+    @patch("products.ai_observability.backend.eval_suggestions.pipeline.run_pipeline")
+    @patch(
+        "products.ai_observability.backend.eval_suggestions.pipeline.is_enabled_for_organization", return_value=False
+    )
+    def test_a_run_for_an_organization_out_of_the_rollout_does_nothing(
+        self, _flag: MagicMock, run_pipeline: MagicMock
+    ) -> None:
+        run = create_run(self.team, "scheduled")
+
+        assert execute_run(str(run.id), include_paid=True, settings=SuggestionSettings()) == 0
+
+        run.refresh_from_db()
+        assert run.status == EvalSuggestionRunStatus.FAILED
+        run_pipeline.assert_not_called()
 
     def test_a_run_past_its_deadline_stops_before_publishing(self) -> None:
         run = create_run(self.team, "scheduled")
