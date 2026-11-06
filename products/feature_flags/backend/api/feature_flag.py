@@ -97,6 +97,7 @@ from products.access_control.backend.facade.api import (
     get_restricted_properties_with_group_type_index_for_team,
     split_restricted_property_names,
 )
+from products.access_control.backend.facade.contracts import RestrictedPropertyNames
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
@@ -752,17 +753,53 @@ def _filter_person_properties_for_flag(
     return {key: value for key, value in person_properties.items() if key in referenced_keys}
 
 
-def _redact_restricted_actual_values(conditions: Any, restricted_person_properties: frozenset[str]) -> Any:
-    if not restricted_person_properties or not isinstance(conditions, list):
+def _group_type_indexes_for_condition_property(
+    filters: dict[str, Any], condition_index: Any, key: str
+) -> set[int | None]:
+    # Mirrors the flags service: a group filter's own group_type_index, else the condition's
+    # aggregation, else the flag's. {None} (any group type) when the filter cannot be located.
+    groups = filters.get("groups") or []
+    if not isinstance(condition_index, int) or not 0 <= condition_index < len(groups):
+        return {None}
+    condition = groups[condition_index] or {}
+    aggregation = (
+        condition.get("aggregation_group_type_index")
+        if "aggregation_group_type_index" in condition
+        else filters.get("aggregation_group_type_index")
+    )
+    indexes = {
+        aggregation if prop.get("group_type_index") is None else prop["group_type_index"]
+        for prop in condition.get("properties") or []
+        if isinstance(prop, dict) and prop.get("type") == "group" and prop.get("key") == key
+    }
+    return indexes or {None}
+
+
+def _redact_restricted_actual_values(
+    conditions: Any, filters: dict[str, Any], restricted: RestrictedPropertyNames
+) -> Any:
+    if (not restricted.person and not restricted.group) or not isinstance(conditions, list):
         return conditions
 
-    def redact(prop: Any) -> Any:
-        if isinstance(prop, dict) and prop.get("type") != "group" and prop.get("key") in restricted_person_properties:
-            return {**prop, "actual_value": None}
-        return prop
+    def is_restricted(condition_index: Any, prop: dict[str, Any]) -> bool:
+        key = prop.get("key")
+        if prop.get("type") != "group":
+            return key in restricted.person
+        if not isinstance(key, str):
+            return False
+        indexes = _group_type_indexes_for_condition_property(filters, condition_index, key)
+        return any(restricted.is_group_property_restricted(key, index) for index in indexes)
 
     return [
-        {**condition, "properties": [redact(prop) for prop in condition["properties"]]}
+        {
+            **condition,
+            "properties": [
+                {**prop, "actual_value": None}
+                if isinstance(prop, dict) and is_restricted(condition.get("index"), prop)
+                else prop
+                for prop in condition["properties"]
+            ],
+        }
         if isinstance(condition, dict) and isinstance(condition.get("properties"), list)
         else condition
         for condition in conditions
@@ -6280,12 +6317,12 @@ class FeatureFlagViewSet(
             response_evaluation_distinct_id = (
                 evaluation_distinct_id if distinct_id and distinct_id in distinct_ids else None
             )
-            restricted_person_properties = split_restricted_property_names(
+            restricted_properties = split_restricted_property_names(
                 get_restricted_properties_with_group_type_index_for_team(
                     user=cast(User, request.user) if request.user.is_authenticated else None,
                     team_id=self.team_id,
                 )
-            ).person
+            )
             response_data = {
                 "flag_key": feature_flag.key,
                 "result": result,
@@ -6298,10 +6335,12 @@ class FeatureFlagViewSet(
                     for key, value in _filter_person_properties_for_flag(
                         evaluation_filters, person_properties, flag_key=feature_flag.key
                     ).items()
-                    if key not in restricted_person_properties
+                    if key not in restricted_properties.person
                 },
                 "evaluation_distinct_id": response_evaluation_distinct_id,
-                "conditions": _redact_restricted_actual_values(detailed_conditions, restricted_person_properties),
+                "conditions": _redact_restricted_actual_values(
+                    detailed_conditions, evaluation_filters, restricted_properties
+                ),
             }
             if detect_config_format(evaluation_filters).kind == "v2":
                 response_data["conditions_unavailable_reason"] = V2_CONDITIONS_UNAVAILABLE_REASON

@@ -15554,36 +15554,47 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
-            ("restricted_member", False, False),
-            ("restricted_member_at_timestamp", False, True),
-            ("member_with_read_access", True, False),
+            ("restricted_member", False, False, 0),
+            ("restricted_member_at_timestamp", False, True, 0),
+            ("member_with_read_access", True, False, 0),
+            ("group_restriction_on_other_group_type", False, False, 1),
         ]
     )
     @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time")
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
-    def test_test_evaluation_applies_person_property_access_control(
-        self, _name, can_read_email, at_timestamp, mock_get_flags, mock_build_props
+    def test_test_evaluation_applies_property_access_control(
+        self, _name, can_read, at_timestamp, restricted_group_type_index, mock_get_flags, mock_build_props
     ):
         self.organization.available_product_features = [
             {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
         ]
         self.organization.save()
-        email_definition = PropertyDefinition.objects.create(
-            team=self.team, name="email", property_type="String", type=PropertyDefinition.Type.PERSON
-        )
-        create_property_access_control(
-            team_id=self.team.pk,
-            property_definition_id=email_definition.id,
-            access_level=PropertyAccessLevel.NONE.value,
-        )
-        if can_read_email:
+        restricted_definitions = [
+            PropertyDefinition.objects.create(
+                team=self.team, name="email", property_type="String", type=PropertyDefinition.Type.PERSON
+            ),
+            PropertyDefinition.objects.create(
+                team=self.team,
+                name="industry",
+                property_type="String",
+                type=PropertyDefinition.Type.GROUP,
+                group_type_index=restricted_group_type_index,
+            ),
+        ]
+        for definition in restricted_definitions:
             create_property_access_control(
                 team_id=self.team.pk,
-                property_definition_id=email_definition.id,
-                access_level=PropertyAccessLevel.READ.value,
-                organization_member_id=self.organization_membership.id,
+                property_definition_id=definition.id,
+                access_level=PropertyAccessLevel.NONE.value,
             )
+            if can_read:
+                create_property_access_control(
+                    team_id=self.team.pk,
+                    property_definition_id=definition.id,
+                    access_level=PropertyAccessLevel.READ.value,
+                    organization_member_id=self.organization_membership.id,
+                )
 
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -15594,12 +15605,17 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
                         "properties": [
                             {"key": "email", "type": "person", "value": "test@example.com"},
                             {"key": "plan", "type": "person", "value": "pro"},
+                            {"key": "industry", "type": "group", "group_type_index": 0, "value": "retail"},
                         ]
                     }
                 ]
             },
         )
         properties = {"email": "test@example.com", "plan": "pro"}
+        condition_values = [
+            *(("person", key, value) for key, value in properties.items()),
+            ("group", "industry", "retail"),
+        ]
         create_person(team=self.team, distinct_ids=["test-user"], properties=properties)
         mock_build_props.return_value = properties
         mock_get_flags.return_value = {
@@ -15622,12 +15638,12 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
                                     "key": key,
                                     "operator": "exact",
                                     "value": value,
-                                    "type": "person",
+                                    "type": prop_type,
                                     "actual_value": value,
                                     "matched": True,
                                     "explanation": f"Property '{key}' matched",
                                 }
-                                for key, value in properties.items()
+                                for prop_type, key, value in condition_values
                             ],
                         }
                     ],
@@ -15635,7 +15651,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
             }
         }
 
-        body: dict[str, str] = {"distinct_id": "test-user"}
+        body: dict[str, Any] = {"distinct_id": "test-user", "groups": {"organization": "acme"}}
         if at_timestamp:
             body["timestamp"] = datetime.now(UTC).isoformat()
         response = self.client.post(
@@ -15646,11 +15662,16 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         data = response.json()
         self.assertEqual(mock_get_flags.call_args.kwargs["person_properties"], properties)
         self.assertEqual((data["result"], data["reason"], data["condition_index"]), (True, "condition_match", 0))
-        visible = properties if can_read_email else {"plan": "pro"}
+        visible = properties if can_read else {"plan": "pro"}
         self.assertEqual(data["person_properties"], visible)
+        group_visible = can_read or restricted_group_type_index != 0
         self.assertEqual(
             {prop["key"]: prop["actual_value"] for prop in data["conditions"][0]["properties"]},
-            {"email": "test@example.com" if can_read_email else None, "plan": "pro"},
+            {
+                "email": "test@example.com" if can_read else None,
+                "plan": "pro",
+                "industry": "retail" if group_visible else None,
+            },
         )
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
