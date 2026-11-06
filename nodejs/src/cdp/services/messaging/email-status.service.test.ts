@@ -30,6 +30,9 @@ describe('EmailStatusService', () => {
             created_at: '2026-01-02 03:04:05.678000',
             status_at: '2026-01-03 10:00:00.123000',
             reason: 'hard',
+            recipient: '',
+            function_id: '',
+            sending_domain: '',
         })
     })
 

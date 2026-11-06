@@ -20,7 +20,12 @@ from posthog.dataclasses import frozen
 
 from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
 from products.signals.backend.pricing import cost_to_spend
-from products.signals.backend.spend_billing import apply_report_billing, scout_spend_exempt, trial_spend_exempt
+from products.signals.backend.spend_billing import (
+    apply_report_billing,
+    scout_spend_exempt,
+    trial_spend_exempt,
+    uses_spend_billing,
+)
 
 
 @frozen
@@ -131,9 +136,17 @@ def _locked_ad_hoc_spend(*, team_id: int, signal_id: str) -> SignalSpend:
         kind=SignalSpend.Kind.AD_HOC,
         # get_or_create calls callable defaults only when it creates the row, so the trial lookup is
         # skipped for existing rows. django-stubs types defaults as plain field values.
-        defaults={"billing_exempt": lambda: trial_spend_exempt(team_id)},  # type: ignore[misc]
+        defaults={
+            "billing_exempt": lambda: trial_spend_exempt(team_id),  # type: ignore[misc]
+            "usage_billing": lambda: uses_spend_billing(team_id),
+        },
     )
     return SignalSpend.objects.for_team(team_id).select_for_update().get(id=spend.id)
+
+
+def begin_signal_spend(*, team_id: int, signal_id: str) -> None:
+    with transaction.atomic():
+        _locked_ad_hoc_spend(team_id=team_id, signal_id=signal_id)
 
 
 def _save_ad_hoc_spend(spend: SignalSpend, *, finalize: bool = False) -> None:
@@ -262,22 +275,26 @@ def record_task_spend(
                 scout = SignalScoutRun.objects.for_team(team_id).get(id=scout_run_id)
                 spend.created_at = min(spend.created_at, scout.created_at)
                 spend.billing_exempt = spend.billing_exempt or scout_spend_exempt(scout)
+            spend.usage_billing = uses_spend_billing(team_id, started_at=spend.created_at)
             if report:
                 apply_report_billing(spend, report)
         spend.spend = cost_to_spend(run.cost_microusd or 0, task_count=1)
-        spend.accounting_failed = not run.complete
+        spend.accounting_failed = spend.accounting_failed or run.accounting_failed
         spend.save()
         _save_scout_total(spend)
 
 
-def record_task_cost_delta(*, team_id: int, run_id: UUID, cost_delta_microusd: int) -> None:
+def record_task_cost_delta(
+    *, team_id: int, run_id: UUID, cost_delta_microusd: int, accounting_failed: bool = False
+) -> None:
     # The sender holds the run lock and commits this delta together with gateway request deduplication.
     with transaction.atomic():
         spend = SignalSpend.objects.for_team(team_id).select_for_update().filter(task_run_id=run_id).first()
         if spend is None or spend.finalized_at is not None:
             return
         spend.spend += cost_to_spend(cost_delta_microusd)
-        spend.save(update_fields=["spend", "updated_at"])
+        spend.accounting_failed = spend.accounting_failed or accounting_failed
+        spend.save(update_fields=["spend", "accounting_failed", "updated_at"])
         _save_scout_total(spend)
 
 
@@ -361,7 +378,9 @@ def finish_report_spend(*, team_id: int, report_id: str, signal_id: str) -> None
             report.save(update_fields=["triggering_signal_id"])
 
 
-def complete_task_spend(*, team_id: int, run_id: str, report_id: str | None = None) -> None:
+def complete_task_spend(
+    *, team_id: int, run_id: str, report_id: str | None = None, final_attempt: bool = False
+) -> None:
     from products.tasks.backend.facade.billing import (  # noqa: PLC0415
         TaskTokenUsageUnavailable,
         locked_task_run_spend,
@@ -371,14 +390,19 @@ def complete_task_spend(*, team_id: int, run_id: str, report_id: str | None = No
     spend = SignalSpend.objects.for_team(team_id).filter(task_run_id=UUID(str(run_id))).first()
     if spend is None:
         return
-    if spend.finalized_at is None:
+    if spend.finalized_at is None and not spend.accounting_failed:
         with locked_task_run_spend(team_id=team_id, run_id=UUID(run_id)) as run:
             if not run.is_terminal:
                 return
-        process_pending_gateway_usage(run_id=UUID(run_id), team_id=team_id, limit=1000)
+        try:
+            if not run.accounting_failed:
+                process_pending_gateway_usage(run_id=UUID(run_id), team_id=team_id, limit=1000)
+        except Exception:
+            if not final_attempt:
+                raise
         with locked_task_run_spend(team_id=team_id, run_id=UUID(run_id)) as run:
             spend = SignalSpend.objects.for_team(team_id).select_for_update().get(id=spend.id)
-            if spend.finalized_at is None:
+            if spend.finalized_at is None and not spend.accounting_failed:
                 billing_report_id = spend.report_id or report_id
                 if billing_report_id is not None:
                     report = (
@@ -389,12 +413,12 @@ def complete_task_spend(*, team_id: int, run_id: str, report_id: str | None = No
                     if report:
                         apply_report_billing(spend, report)
                 spend.spend = cost_to_spend(run.cost_microusd or 0, task_count=1)
-                spend.accounting_failed = not run.complete
+                spend.accounting_failed = run.accounting_failed or (final_attempt and not run.complete)
                 if run.is_terminal and run.complete:
                     spend.finalized_at = timezone.now()
                 spend.save()
                 _save_scout_total(spend)
-        if spend.accounting_failed:
+        if spend.finalized_at is None and not spend.accounting_failed:
             raise TaskTokenUsageUnavailable("Task usage is not settled yet")
     if spend.signal_id:
         async_to_sync(submit_signal_metadata_updates)(team_id=team_id, signal_ids=[str(spend.signal_id)])
