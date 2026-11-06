@@ -27,7 +27,13 @@ const MAX_POLL_FAILURES = 5
 export interface PromptSuggestionJobRef {
     id: string
     teamId: number | string
+    // Optional because a reference stored before these fields existed lacks them.
+    domain?: string
+    startedAt?: number
 }
+
+// The server marks a lost job failed after 8 minutes; this is the fallback if that answer never arrives.
+const CLIENT_JOB_DEADLINE_MS = 10 * 60 * 1000
 
 export interface PromptSuggestionForm {
     domain: string
@@ -47,7 +53,17 @@ const EMPTY_FORM: PromptSuggestionForm = {
     count: 20,
 }
 
-export const siteDomain = (url: string): string => url.replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+export const siteDomain = (input: string): string => {
+    const value = input.trim()
+    if (!value) {
+        return ''
+    }
+    try {
+        return new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `https://${value}`).hostname.replace(/\.$/, '')
+    } catch {
+        return value
+    }
+}
 
 const startErrorMessage = (error: unknown): string =>
     error instanceof ApiError && error.status && error.status < 500 && error.detail
@@ -59,6 +75,7 @@ export interface contentAutopilotPromptSuggestionsLogicValues {
     profile: ContentAutopilotSiteProfileApi | null // contentAutopilotLogic
     currentTeamIdStrict: number | string // teamLogic
     adding: boolean
+    editingInputs: boolean
     form: PromptSuggestionForm
     job: AEOPromptSuggestionJobApi | null
     jobRef: PromptSuggestionJobRef | null
@@ -83,6 +100,9 @@ export interface contentAutopilotPromptSuggestionsLogicActions {
     addSelectedSuccess: () => {
         value: true
     }
+    backToSuggestions: () => {
+        value: true
+    }
     closeSuggest: () => {
         value: true
     }
@@ -93,6 +113,9 @@ export interface contentAutopilotPromptSuggestionsLogicActions {
         value: true
     }
     openSuggest: () => {
+        value: true
+    }
+    resumeJob: () => {
         value: true
     }
     setForm: (form: Partial<PromptSuggestionForm>) => {
@@ -151,6 +174,8 @@ export const contentAutopilotPromptSuggestionsLogic = kea<contentAutopilotPrompt
         setJob: (job: AEOPromptSuggestionJobApi) => ({ job }),
         loadJob: true,
         editRequest: true,
+        backToSuggestions: true,
+        resumeJob: true,
         toggleSuggestion: (prompt: string) => ({ prompt }),
         setSelectedPrompts: (prompts: string[]) => ({ prompts }),
         addSelected: true,
@@ -172,13 +197,12 @@ export const contentAutopilotPromptSuggestionsLogic = kea<contentAutopilotPrompt
                 setForm: (state, { form }) => ({ ...state, ...form }),
             },
         ],
-        // Only the job's id is kept, so a job started before leaving the page can be read again.
+        // Only a reference to the job is kept, so a job started before leaving the page can be read again.
         jobRef: [
             null as PromptSuggestionJobRef | null,
             { persist: true },
             {
                 setJobRef: (_, { jobRef }) => jobRef,
-                editRequest: () => null,
                 addSelectedSuccess: () => null,
             },
         ],
@@ -186,8 +210,17 @@ export const contentAutopilotPromptSuggestionsLogic = kea<contentAutopilotPrompt
             null as AEOPromptSuggestionJobApi | null,
             {
                 setJob: (_, { job }) => job,
-                editRequest: () => null,
                 addSelectedSuccess: () => null,
+            },
+        ],
+        // Editing the inputs keeps the current suggestions until a new request replaces them.
+        editingInputs: [
+            false,
+            {
+                editRequest: () => true,
+                backToSuggestions: () => false,
+                setJobRef: () => false,
+                addSelectedSuccess: () => false,
             },
         ],
         starting: [
@@ -203,7 +236,7 @@ export const contentAutopilotPromptSuggestionsLogic = kea<contentAutopilotPrompt
             {
                 startSuggestions: () => null,
                 startSuggestionsFailure: (_, { error }) => error,
-                editRequest: () => null,
+                backToSuggestions: () => null,
             },
         ],
         selectedPrompts: [
@@ -212,7 +245,8 @@ export const contentAutopilotPromptSuggestionsLogic = kea<contentAutopilotPrompt
                 setSelectedPrompts: (_, { prompts }) => prompts,
                 toggleSuggestion: (state, { prompt }) =>
                     state.includes(prompt) ? state.filter((p) => p !== prompt) : [...state, prompt],
-                editRequest: () => [],
+                startSuggestions: () => [],
+                addSelectedSuccess: () => [],
             },
         ],
         adding: [
@@ -241,9 +275,10 @@ export const contentAutopilotPromptSuggestionsLogic = kea<contentAutopilotPrompt
         },
         startSuggestions: async () => {
             const { form } = values
+            const domain = siteDomain(form.domain)
             try {
                 const job = await aeoPromptsSuggest(String(values.currentTeamIdStrict), {
-                    domain: siteDomain(form.domain.trim()),
+                    domain,
                     brand: form.brand.trim(),
                     description: form.description.trim(),
                     competitors: form.competitors,
@@ -253,7 +288,7 @@ export const contentAutopilotPromptSuggestionsLogic = kea<contentAutopilotPrompt
                 // pinned: analytics event name, renaming it breaks dashboards
                 posthog.capture('web analytics content autopilot prompt suggestions started', { count: form.count })
                 cache.pollFailures = 0
-                actions.setJobRef({ id: job.id, teamId: values.currentTeamIdStrict })
+                actions.setJobRef({ id: job.id, teamId: values.currentTeamIdStrict, domain, startedAt: Date.now() })
                 actions.setJob(job)
             } catch (error) {
                 actions.startSuggestionsFailure(startErrorMessage(error))
@@ -262,10 +297,7 @@ export const contentAutopilotPromptSuggestionsLogic = kea<contentAutopilotPrompt
         setJob: ({ job }) => {
             if (job.status === 'pending') {
                 cache.pollingJobId = job.id
-                cache.disposables.add(() => {
-                    const id = setInterval(() => actions.loadJob(), SUGGESTION_POLL_INTERVAL_MS)
-                    return () => clearInterval(id)
-                }, 'suggestionPoll')
+                actions.resumeJob()
                 return
             }
             cache.disposables.dispose('suggestionPoll')
@@ -273,18 +305,50 @@ export const contentAutopilotPromptSuggestionsLogic = kea<contentAutopilotPrompt
                 actions.setSelectedPrompts(job.suggestions.map(({ prompt }) => prompt))
             }
             // Only a job this page watched finish counts, so restoring a finished job reports nothing.
-            if (job.status === 'completed' && cache.pollingJobId === job.id) {
-                cache.pollingJobId = null
+            if (cache.pollingJobId !== job.id) {
+                return
+            }
+            cache.pollingJobId = null
+            if (job.status === 'completed') {
                 // pinned: analytics event name, renaming it breaks dashboards
                 posthog.capture('web analytics content autopilot prompt suggestions completed', {
                     suggestions: job.suggestions.length,
                 })
             }
+            // With the dialog closed, the result would otherwise go unnoticed.
+            if (!values.suggestOpen) {
+                if (job.status === 'completed') {
+                    lemonToast.success(
+                        job.suggestions.length
+                            ? `${job.suggestions.length} prompt suggestions are ready.`
+                            : 'Prompt suggestions finished with no new prompts.',
+                        { button: { label: 'Review', action: () => actions.openSuggest() } }
+                    )
+                } else {
+                    lemonToast.error(job.error || "Couldn't suggest prompts. Try again.")
+                }
+            }
+        },
+        resumeJob: () => {
+            cache.disposables.add(() => {
+                const id = setInterval(() => actions.loadJob(), SUGGESTION_POLL_INTERVAL_MS)
+                return () => clearInterval(id)
+            }, 'suggestionPoll')
         },
         loadJob: async () => {
-            const jobId = values.jobRef?.id
+            const jobRef = values.jobRef
+            const jobId = jobRef?.id
             // Polls never overlap, so a slow response cannot be overtaken and miscounted as a failure.
             if (!jobId || cache.pollInFlight) {
+                return
+            }
+            if (jobRef?.startedAt && Date.now() - jobRef.startedAt > CLIENT_JOB_DEADLINE_MS) {
+                actions.setJob({
+                    id: jobId,
+                    status: 'failed',
+                    suggestions: [],
+                    error: 'Prompt suggestions stopped before they finished. Try again.',
+                })
                 return
             }
             cache.pollInFlight = true
@@ -320,9 +384,6 @@ export const contentAutopilotPromptSuggestionsLogic = kea<contentAutopilotPrompt
                 cache.pollInFlight = false
             }
         },
-        editRequest: () => {
-            cache.disposables.dispose('suggestionPoll')
-        },
         addSelected: async () => {
             const selected = values.selectedSuggestions
             const suggested = values.job?.suggestions.length ?? 0
@@ -330,12 +391,14 @@ export const contentAutopilotPromptSuggestionsLogic = kea<contentAutopilotPrompt
             let result: AEOPromptImportResultApi
             try {
                 result = await aeoPromptsBulkImport(teamId, {
-                    prompts: selected.map(({ prompt, topic }) => ({ prompt, topic })),
+                    prompts: selected.map(({ prompt, topic }) => ({ prompt, topic, origin: 'suggestion' })),
                 })
-            } catch {
+            } catch (error) {
                 if (!cache.disposables.isDisposed) {
                     actions.addSelectedFailure()
-                    lemonToast.error("Couldn't add the prompts. Try again.")
+                    // A 400 explains why the import was refused, so show it rather than asking for a retry.
+                    const detail = error instanceof ApiError && error.status === 400 ? error.detail : null
+                    lemonToast.error(detail || "Couldn't add the prompts. Try again.")
                 }
                 return
             }
@@ -361,6 +424,8 @@ export const contentAutopilotPromptSuggestionsLogic = kea<contentAutopilotPrompt
             actions.setJobRef(null)
             return
         }
+        // Polling, not a single read, so a failed first read is retried like any other poll.
         actions.loadJob()
+        actions.resumeJob()
     }),
 ])

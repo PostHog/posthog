@@ -6,7 +6,7 @@ import { initKeaTests } from '~/test/init'
 
 import { aeoPromptsBulkImport, aeoPromptsSuggest, aeoPromptsSuggestionRetrieve } from '../generated/api'
 import type { AEOPromptSuggestionApi, AEOPromptSuggestionJobApi } from '../generated/api.schemas'
-import { contentAutopilotPromptSuggestionsLogic } from './contentAutopilotPromptSuggestionsLogic'
+import { contentAutopilotPromptSuggestionsLogic, siteDomain } from './contentAutopilotPromptSuggestionsLogic'
 
 jest.mock('../generated/api', () => ({
     ...jest.requireActual('../generated/api'),
@@ -75,9 +75,15 @@ describe('contentAutopilotPromptSuggestionsLogic', () => {
         await expectLogic(logic, () => logic.actions.addSelected()).toFinishAllListeners()
 
         expect(aeoPromptsBulkImport).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
-            prompts: [{ prompt: 'Best session replay tool?', topic: 'Replay' }],
+            prompts: [{ prompt: 'Best session replay tool?', topic: 'Replay', origin: 'suggestion' }],
         })
-        expect(logic.values).toMatchObject({ suggestOpen: false, job: null, adding: false })
+        expect(logic.values).toMatchObject({ suggestOpen: false, job: null, adding: false, selectedPrompts: [] })
+
+        // A second run starts with all of its suggestions selected, not the previous run's choices.
+        jest.mocked(aeoPromptsSuggestionRetrieve).mockResolvedValueOnce(completed)
+        await expectLogic(logic, () => logic.actions.startSuggestions()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.loadJob()).toFinishAllListeners()
+        expect(logic.values.selectedSuggestions).toHaveLength(2)
     })
 
     it('resumes a job after the page unmounts and ignores a poll that would overlap another', async () => {
@@ -118,5 +124,15 @@ describe('contentAutopilotPromptSuggestionsLogic', () => {
             starting: false,
             startError: 'Prompt suggestions need AI data processing approved.',
         })
+    })
+
+    it.each([
+        ['example.com', 'example.com'],
+        ['https://example.com/pricing?utm=x#plans', 'example.com'],
+        ['Example.com:8080', 'example.com'],
+        ['example.com.', 'example.com'],
+        ['  ', ''],
+    ])('reads the site from %p', (input, expected) => {
+        expect(siteDomain(input)).toBe(expected)
     })
 })

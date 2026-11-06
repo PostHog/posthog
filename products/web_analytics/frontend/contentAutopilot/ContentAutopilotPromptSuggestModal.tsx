@@ -22,8 +22,19 @@ import type {
     FunnelStageEnumApi,
     PromptCircleEnumApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
+import {
+    aeoPromptsSuggestBodyBrandMax,
+    aeoPromptsSuggestBodyCompetitorsItemMax,
+    aeoPromptsSuggestBodyCompetitorsMax,
+    aeoPromptsSuggestBodyDescriptionMax,
+    aeoPromptsSuggestBodyDomainMax,
+} from 'products/web_analytics/frontend/generated/api.zod'
 
-import { SUGGESTION_COUNTS, contentAutopilotPromptSuggestionsLogic } from './contentAutopilotPromptSuggestionsLogic'
+import {
+    SUGGESTION_COUNTS,
+    contentAutopilotPromptSuggestionsLogic,
+    siteDomain,
+} from './contentAutopilotPromptSuggestionsLogic'
 
 const CIRCLES: Record<PromptCircleEnumApi, { label: string; description: string }> = {
     differentiation: {
@@ -69,6 +80,12 @@ const SuggestionRow = ({ suggestion }: { suggestion: AEOPromptSuggestionApi }): 
     )
 }
 
+// The API takes at most 20 entries of 200 characters each.
+const cappedList = (values: string[]): string[] =>
+    values
+        .slice(0, aeoPromptsSuggestBodyCompetitorsMax)
+        .map((value) => value.slice(0, aeoPromptsSuggestBodyCompetitorsItemMax))
+
 const SuggestForm = (): JSX.Element => {
     const { form, startError } = useValues(contentAutopilotPromptSuggestionsLogic)
     const { setForm } = useActions(contentAutopilotPromptSuggestionsLogic)
@@ -80,6 +97,7 @@ const SuggestForm = (): JSX.Element => {
                 <LemonInput
                     value={form.domain}
                     onChange={(domain) => setForm({ domain })}
+                    maxLength={aeoPromptsSuggestBodyDomainMax}
                     placeholder="example.com"
                     autoFocus
                     data-attr="content-autopilot-suggest-domain"
@@ -87,7 +105,11 @@ const SuggestForm = (): JSX.Element => {
             </LemonField.Pure>
             <div className="grid grid-cols-1 @md/suggest:grid-cols-2 gap-4">
                 <LemonField.Pure label="Brand" help="Optional. Read from the site when empty.">
-                    <LemonInput value={form.brand} onChange={(brand) => setForm({ brand })} />
+                    <LemonInput
+                        value={form.brand}
+                        onChange={(brand) => setForm({ brand })}
+                        maxLength={aeoPromptsSuggestBodyBrandMax}
+                    />
                 </LemonField.Pure>
                 <LemonField.Pure label="Number of prompts">
                     <LemonSelect
@@ -101,6 +123,7 @@ const SuggestForm = (): JSX.Element => {
                 <LemonTextArea
                     value={form.description}
                     onChange={(description) => setForm({ description })}
+                    maxLength={aeoPromptsSuggestBodyDescriptionMax}
                     minRows={2}
                     placeholder="Open source product analytics for engineers at startups"
                 />
@@ -110,7 +133,7 @@ const SuggestForm = (): JSX.Element => {
                     mode="multiple"
                     allowCustomValues
                     value={form.competitors}
-                    onChange={(competitors) => setForm({ competitors })}
+                    onChange={(competitors) => setForm({ competitors: cappedList(competitors) })}
                     placeholder="Add a name or domain"
                 />
             </LemonField.Pure>
@@ -119,7 +142,7 @@ const SuggestForm = (): JSX.Element => {
                     mode="multiple"
                     allowCustomValues
                     value={form.topics}
-                    onChange={(topics) => setForm({ topics })}
+                    onChange={(topics) => setForm({ topics: cappedList(topics) })}
                     placeholder="Add a topic"
                 />
             </LemonField.Pure>
@@ -128,14 +151,16 @@ const SuggestForm = (): JSX.Element => {
 }
 
 const SuggestReview = (): JSX.Element => {
-    const { job, selectedPrompts } = useValues(contentAutopilotPromptSuggestionsLogic)
+    const { job, selectedSuggestions } = useValues(contentAutopilotPromptSuggestionsLogic)
     const { setSelectedPrompts } = useActions(contentAutopilotPromptSuggestionsLogic)
     const suggestions = job?.suggestions ?? []
+    const allSelected = selectedSuggestions.length === suggestions.length
 
     if (suggestions.length === 0) {
         return (
             <p className="m-0 text-muted">
-                No usable prompts came back this time. Change the topics or competitors and try again.
+                No new prompts came back. Claude's ideas may already be tracked, or its answer had none to keep. Change
+                the topics or competitors and try again.
             </p>
         )
     }
@@ -145,19 +170,15 @@ const SuggestReview = (): JSX.Element => {
             <div className="flex items-center justify-between gap-2">
                 <span className="text-muted">
                     {/* translate="no" keeps the count updating when the browser translates the page. */}
-                    <span translate="no">{selectedPrompts.length}</span> of{' '}
+                    <span translate="no">{selectedSuggestions.length}</span> of{' '}
                     {pluralize(suggestions.length, 'suggestion')} selected. Nothing is tracked until you add them.
                 </span>
                 <LemonButton
                     size="small"
                     type="tertiary"
-                    onClick={() =>
-                        setSelectedPrompts(
-                            selectedPrompts.length === suggestions.length ? [] : suggestions.map(({ prompt }) => prompt)
-                        )
-                    }
+                    onClick={() => setSelectedPrompts(allSelected ? [] : suggestions.map(({ prompt }) => prompt))}
                 >
-                    {selectedPrompts.length === suggestions.length ? 'Select none' : 'Select all'}
+                    {allSelected ? 'Select none' : 'Select all'}
                 </LemonButton>
             </div>
             <div className="max-h-[50vh] overflow-y-auto">
@@ -170,16 +191,28 @@ const SuggestReview = (): JSX.Element => {
 }
 
 export const ContentAutopilotPromptSuggestModal = (): JSX.Element => {
-    const { suggestOpen, form, job, starting, adding, selectedSuggestions } = useValues(
+    const { suggestOpen, form, job, jobRef, starting, adding, selectedSuggestions, editingInputs } = useValues(
         contentAutopilotPromptSuggestionsLogic
     )
-    const { closeSuggest, startSuggestions, editRequest, addSelected } = useActions(
+    const { closeSuggest, startSuggestions, editRequest, backToSuggestions, addSelected } = useActions(
         contentAutopilotPromptSuggestionsLogic
     )
-    const status = job?.status
+    const view = editingInputs || !job ? 'form' : job.status
+    const domain = jobRef?.domain || siteDomain(form.domain) || 'your site'
+    const startButton = (
+        <LemonButton
+            type="primary"
+            onClick={startSuggestions}
+            loading={starting}
+            disabledReason={!siteDomain(form.domain) ? 'Enter your site' : undefined}
+            data-attr="content-autopilot-suggest-start"
+        >
+            Suggest prompts
+        </LemonButton>
+    )
 
     const footer =
-        status === 'completed' ? (
+        view === 'completed' ? (
             <>
                 <LemonButton
                     type="secondary"
@@ -200,56 +233,69 @@ export const ContentAutopilotPromptSuggestModal = (): JSX.Element => {
                         : 'Add prompts'}
                 </LemonButton>
             </>
-        ) : status === 'pending' ? (
+        ) : view === 'pending' ? (
             <LemonButton type="secondary" onClick={closeSuggest}>
                 Close and keep working
             </LemonButton>
-        ) : status === 'failed' ? (
-            <LemonButton type="primary" onClick={editRequest}>
-                Try again
-            </LemonButton>
+        ) : view === 'failed' ? (
+            <>
+                <LemonButton type="secondary" onClick={editRequest}>
+                    Change inputs
+                </LemonButton>
+                {siteDomain(form.domain) ? (
+                    <LemonButton type="primary" onClick={startSuggestions} loading={starting}>
+                        Try again
+                    </LemonButton>
+                ) : null}
+            </>
         ) : (
             <>
-                <LemonButton type="secondary" onClick={closeSuggest}>
-                    Cancel
-                </LemonButton>
-                <LemonButton
-                    type="primary"
-                    onClick={startSuggestions}
-                    loading={starting}
-                    disabledReason={!form.domain.trim() ? 'Enter your site' : undefined}
-                    data-attr="content-autopilot-suggest-start"
-                >
-                    Suggest prompts
-                </LemonButton>
+                {job && job.status !== 'failed' ? (
+                    <LemonButton type="secondary" onClick={backToSuggestions}>
+                        {job.status === 'pending' ? 'Back to progress' : 'Back to suggestions'}
+                    </LemonButton>
+                ) : (
+                    <LemonButton type="secondary" onClick={closeSuggest}>
+                        Cancel
+                    </LemonButton>
+                )}
+                {startButton}
             </>
         )
 
     return (
         <LemonModal
             isOpen={suggestOpen}
-            onClose={closeSuggest}
+            onClose={adding ? undefined : closeSuggest}
             title="Suggest prompts"
             description="Claude reads your site and writes questions your buyers would ask an AI assistant. You pick which ones to track."
             width={720}
             footer={footer}
         >
             <div className="@container/suggest">
-                {status === 'pending' ? (
+                {view === 'pending' ? (
                     <div className="flex flex-col items-center gap-3 py-10 text-center">
                         <Spinner className="text-2xl" />
-                        <span className="font-semibold">Reading {form.domain} and writing prompts</span>
+                        <span className="font-semibold">Reading {domain} and writing prompts</span>
                         <span className="text-muted max-w-md">
                             This usually takes a minute or two. You can close this and come back. The suggestions keep
                             loading in the background.
                         </span>
                     </div>
-                ) : status === 'failed' ? (
+                ) : view === 'failed' ? (
                     <LemonBanner type="error">{job?.error || "Couldn't suggest prompts. Try again."}</LemonBanner>
-                ) : status === 'completed' ? (
+                ) : view === 'completed' ? (
                     <SuggestReview />
                 ) : (
-                    <SuggestForm />
+                    <div className="flex flex-col gap-3">
+                        {editingInputs && job?.status === 'completed' ? (
+                            <LemonBanner type="info">
+                                Suggesting again replaces the {pluralize(job.suggestions.length, 'suggestion')} you have
+                                now.
+                            </LemonBanner>
+                        ) : null}
+                        <SuggestForm />
+                    </div>
                 )}
             </div>
         </LemonModal>

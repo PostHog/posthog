@@ -25,7 +25,7 @@ export const ContentAutopilotPromptSuggestButton = ({
         >
             {job?.status === 'pending'
                 ? 'Suggesting prompts'
-                : job?.status === 'completed'
+                : job?.status === 'completed' && job.suggestions.length > 0
                   ? `Review suggestions (${job.suggestions.length})`
                   : 'Suggest prompts'}
         </LemonButton>
