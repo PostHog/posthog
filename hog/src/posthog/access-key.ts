@@ -52,6 +52,12 @@ export class MemoryKeyStorage implements AccessKeyStorage {
 
 // A key hog sends to PostHog. Each kind owns how it authenticates, renews, logs out and is stored,
 // so callers never branch on the kind.
+export interface WorkloadIdentity {
+    provider: string
+    subject: string
+    organization?: string
+}
+
 export interface AccessKey {
     readonly host: Host
     readonly projectId: ProjectId
@@ -61,6 +67,7 @@ export interface AccessKey {
     readonly loginKey: string
     // False for a key that acts for a CI job, so usage data never counts the job as the person it acts as.
     readonly identifiesPerson: boolean
+    readonly workload?: WorkloadIdentity
     // A key with time left, renewed if it is about to expire, or if it is still `rejectedToken`,
     // a token PostHog refused.
     fresh(runtime: Runtime, storage: AccessKeyStorage, rejectedToken?: string): Promise<AccessKey>

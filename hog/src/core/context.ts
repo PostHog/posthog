@@ -61,7 +61,11 @@ export class Context {
     // Throws `not_authenticated` when there are none.
     credentials(): Promise<Credentials> {
         this.credentialsRequest ??= this.config().then((loaded) =>
-            resolveCredentials(this.runtime, { ...this.globals, configHost: loaded?.config.host })
+            resolveCredentials(this.runtime, {
+                ...this.globals,
+                configHost: loaded?.config.host,
+                configProjectId: loaded?.config.projectId?.toString(),
+            })
         )
         return this.credentialsRequest
     }
