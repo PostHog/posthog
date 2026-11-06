@@ -229,7 +229,7 @@ dev = [
     { include-group = "proto-codegen" },
     "aioresponses==0.7.9",
     "autoevals==0.2.0",
-    "boto3-stubs[s3]~=1.43.121",
+    "boto3-stubs[s3]==1.40.61",
     "browser-cookie3~=0.20",
     "braintrust==0.2.9",
     "braintrust-langchain==0.0.5",
@@ -243,6 +243,7 @@ dev = [
     # django-stubs requires this unbounded, so an upgrade run drifts it to a version
     # that models a different Django. Hold it on the line django-stubs is on.
     "django-stubs-ext~=6.1.2",
+    # Releases after 3.16.7 report hundreds of new errors in our serializers and viewsets.
     "djangorestframework-stubs==3.16.7",
     "faker==17.6.0",
     "fakeredis[lua]==2.40.0",
@@ -283,14 +284,14 @@ dev = [
     "syrupy~=6.1.1",
     "tach~=0.34.1",
     "types-aioboto3[s3]~=14.3.0",
-    "types-aiobotocore~=2.26.0",
-    "types-boto3[essential,ses,sesv2]==1.43.121",
+    "types-aiobotocore==2.25.1",
+    "types-boto3[essential,ses,sesv2]==1.40.61",
     "types-croniter~=6.2.4",
-    "types-markdown==3.11.2.20261029",
+    "types-markdown==3.8.0.20250809",
     "types-paramiko==3.5.0.20250801",
     "types-pymysql==1.1.0.20250822",
     "types-python-dateutil~=2.9.0",
-    "types-pytz==2026.5.0.20261006",
+    "types-pytz==2026.4.0.20260926",
     "types-pyyaml==6.0.12.20260906",
     "types-redis==4.6.0.20241004",
     # >= 2.31.0.7 versions of types-requests require urllib>=2, which is incompatible with our dependencies
