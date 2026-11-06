@@ -425,13 +425,18 @@ jobs:
             full_run_reason_category: ${{ steps.classify.outputs.full_run_reason_category }}
             full_run_reason_detail: ${{ steps.classify.outputs.full_run_reason_detail }}
         steps:
-            # Full checkout at PR head so the selector can glob specs on disk and read
-            # the map/script from the branch under test. The selector step fetches bounded,
-            # blobless history so the merge-base with the base branch stays reachable cheaply.
+            # Keep both complete spec roots so added and removed specs affect discovery.
+            # The selector still reads the script and map from the PR head.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  sparse-checkout-cone-mode: false
+                  sparse-checkout: |
+                      /tools/playwright_spec_selection.py
+                      /tools/playwright_area_map.json
+                      /playwright/e2e/
+                      /products/*/frontend/e2e/
 
             - name: Run spec selector
               id: select
@@ -455,6 +460,11 @@ jobs:
                       echo "::warning::git fetch of base ref failed — full run"
                       echo "reason_detail=git_fetch_failed" >> "$GITHUB_OUTPUT"
                       exit 1
+                  fi
+                  # A different PR-head selector can read files outside the sparse tree.
+                  # Restore the full tree for older branches and selector changes.
+                  if ! git diff --quiet "origin/$BASE_REF" HEAD -- tools/playwright_spec_selection.py; then
+                      git sparse-checkout disable
                   fi
                   if [ ! -f tools/playwright_spec_selection.py ] || [ ! -f tools/playwright_area_map.json ]; then
                       echo "::notice::spec selector/map absent on this checkout (unrebased branch) — full run"
