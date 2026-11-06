@@ -1,6 +1,7 @@
 <resources>
+  <string name="chart_widget_latest">Latest</string>
   <string name="chart_widget_label">Chart</string>
-  <string name="chart_widget_description">A pinned insight from your Views tab, with its latest value.</string>
+  <string name="chart_widget_description">A pinned view, with its latest value or chart.</string>
 
   <!-- Widget states. -->
   <string name="chart_widget_choose_pin">Choose a pin</string>
@@ -19,7 +20,9 @@
   <string name="chart_widget_no_result">Open it in PostHog to load this insight</string>
   <string name="chart_widget_not_found_short">Not found</string>
   <string name="chart_widget_this_pin">This pin</string>
-  <string name="chart_widget_ineligible">Not a chart over time</string>
+  <string name="chart_widget_ineligible">Open this view in PostHog</string>
+
+  <string name="chart_widget_empty">No data for this range</string>
 
   <!-- Freshness, from when the server computed the numbers. -->
   <string name="chart_widget_updated_just_now">Updated just now</string>

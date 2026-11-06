@@ -115,7 +115,7 @@ struct ChartFetcher {
         if response["result"] == nil || response["result"] is NSNull {
             return .failed(.noResult)
         }
-        guard let snapshot = try? TrendsParser.snapshot(response: response, pinId: pin.id, now: now) else {
+        guard let snapshot = try? InsightParser.snapshot(response: response, pin: pin, now: now) else {
             return .failed(.badData)
         }
         return .snapshot(snapshot)
@@ -149,34 +149,44 @@ actor ChartRefresh {
     private struct RequestKey: Hashable {
         let pinId: String
         let url: URL
+        let displayMode: String?
+        let accessToken: String
+        let userUuid: String?
     }
 
-    private let store: UserDefaults?
+    private let store: ChartStorage?
+    private let currentCredentials: @Sendable () -> ChartCredentials?
     private let fetch: @Sendable (ChartPin, ChartCredentials, Date) async -> ChartFetchOutcome
     private var running: [RequestKey: Task<Void, Never>] = [:]
 
     init(
-        store: UserDefaults? = ChartStore.defaults,
+        store: ChartStorage? = ChartStore.storage,
+        currentCredentials: @escaping @Sendable () -> ChartCredentials? = { ChartStore.credentials() },
         fetch: @escaping @Sendable (ChartPin, ChartCredentials, Date) async -> ChartFetchOutcome = {
             await ChartFetcher().fetch(pin: $0, credentials: $1, now: $2)
         }
     ) {
         self.store = store
+        self.currentCredentials = currentCredentials
         self.fetch = fetch
     }
 
-    private static func key(for pin: ChartPin, host: String, projectId: Int) -> RequestKey? {
-        ChartFetcher.url(for: pin, host: host, projectId: projectId).map { RequestKey(pinId: pin.id, url: $0) }
+    private static func key(for pin: ChartPin, credentials: ChartCredentials) -> RequestKey? {
+        ChartFetcher.url(for: pin, host: credentials.host, projectId: credentials.projectId).map {
+            RequestKey(pinId: pin.id, url: $0, displayMode: pin.displayMode,
+                       accessToken: credentials.accessToken, userUuid: credentials.userUuid)
+        }
     }
 
     func refresh(_ pin: ChartPin, credentials: ChartCredentials, now: Date) async {
-        guard let key = Self.key(for: pin, host: credentials.host, projectId: credentials.projectId) else { return }
+        guard let key = Self.key(for: pin, credentials: credentials) else { return }
         if let task = running[key] {
             await task.value
             return
         }
         let task = Task {
             let outcome = await fetch(pin, credentials, now)
+            guard currentCredentials() == credentials else { return }
             Self.record(outcome, pin: pin, credentials: credentials, at: now, store: store)
         }
         running[key] = task
@@ -186,12 +196,12 @@ actor ChartRefresh {
 
     static func record(
         _ outcome: ChartFetchOutcome, pin: ChartPin, credentials: ChartCredentials, at now: Date,
-        store: UserDefaults? = ChartStore.defaults
+        store: ChartStorage? = ChartStore.storage
     ) {
         guard let catalog = ChartStore.catalog(store: store), catalog.belongs(to: credentials),
               let current = catalog.pin(id: pin.id), current.eligible,
-              let originalKey = key(for: pin, host: credentials.host, projectId: credentials.projectId),
-              key(for: current, host: catalog.host, projectId: catalog.projectId) == originalKey
+              let originalKey = key(for: pin, credentials: credentials),
+              key(for: current, credentials: credentials) == originalKey
         else {
             return
         }
@@ -199,6 +209,11 @@ actor ChartRefresh {
         case .snapshot(let snapshot):
             ChartStore.save(snapshot, store: store)
         case .failed(let kind):
+            let startedAt = (now.timeIntervalSince1970 * 1000).rounded()
+            if let snapshot = ChartStore.snapshot(pinId: pin.id, store: store), snapshot.fetchedAt > startedAt { return }
+            if kind == .auth || kind == .notFound {
+                store?.removeObject(forKey: ChartStore.snapshotKey(pin.id))
+            }
             ChartStore.save(ChartSnapshotError(at: (now.timeIntervalSince1970 * 1000).rounded(), kind: kind), pinId: pin.id, store: store)
         }
     }

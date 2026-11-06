@@ -12,7 +12,7 @@ struct ChartWidget: Widget {
                 }
         }
         .configurationDisplayName("Chart")
-        .description("A pinned insight from your Views tab, with its latest value.")
+        .description("A pinned view, with its latest value or chart.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }

@@ -75,11 +75,12 @@ object ChartWidgetRefresh {
             .mapNotNull { catalog.pin(it)?.takeIf { pin -> pin.eligible } }
         for ((index, pin) in pins.withIndex()) {
             if (isStopped() || session != ChartStore.session(context)) return
+            val startedAt = System.currentTimeMillis()
             val outcome = fetch(context, credentials, pin)
             val stopsPass = outcome is ChartFetcher.Outcome.Failure &&
                 (outcome.kind == ErrorKind.AUTH || outcome.kind == ErrorKind.RATE_LIMITED)
             val affected = if (stopsPass) pins.drop(index).map { it.id } else listOf(pin.id)
-            if (!ChartStore.commitFetch(context, session, catalog, affected, outcome, isStopped) || stopsPass) return
+            if (!ChartStore.commitFetch(context, session, catalog, affected, outcome, isStopped, startedAt) || stopsPass) return
         }
     }
 }

@@ -2,7 +2,7 @@ import Foundation
 import Security
 
 /// The chart widget's side of the store it shares with the app (modules/chart-widget/ios/ChartWidgetModule.swift).
-/// Foundation and Security only, so scripts/check_chart_widget.swift can compile it.
+/// Foundation, CryptoKit and Security only, so scripts/check_chart_widget.swift can compile it.
 enum ChartStore {
     static let catalogKey = "chart.catalog"
     static let keychainService = "com.posthog.code.mobile.chart-widget"
@@ -12,70 +12,103 @@ enum ChartStore {
     static func snapshotErrorKey(_ pinId: String) -> String { "chart.snapshotError.\(pinId)" }
     static func pinProjectKey(_ pinId: String) -> String { "chart.pinProject.\(pinId)" }
 
-    static var defaults: UserDefaults? { UserDefaults(suiteName: AppGroup.suiteName) }
+    static var storage: ChartStorage? {
+        UserDefaults(suiteName: AppGroup.suiteName).map { ChartStorage(defaults: $0) }
+    }
 
     static func decodeCatalog(_ json: String) -> ChartCatalog? {
         guard let catalog = try? JSONDecoder().decode(ChartCatalog.self, from: Data(json.utf8)),
-              catalog.version == ChartCatalog.supportedVersion
+            catalog.version == ChartCatalog.supportedVersion
         else {
             return nil
         }
         return catalog
     }
 
-    static func catalog(store: UserDefaults? = ChartStore.defaults) -> ChartCatalog? {
+    static func catalog(store: ChartStorage? = ChartStore.storage) -> ChartCatalog? {
         store?.string(forKey: catalogKey).flatMap(decodeCatalog)
     }
 
-    static func snapshot(pinId: String, store: UserDefaults? = ChartStore.defaults) -> ChartSnapshot? {
+    static func snapshot(pinId: String, store: ChartStorage? = ChartStore.storage) -> ChartSnapshot? {
         guard let json = store?.string(forKey: snapshotKey(pinId)),
-              let snapshot = try? JSONDecoder().decode(ChartSnapshot.self, from: Data(json.utf8)),
-              snapshot.version == ChartSnapshot.supportedVersion
+            let snapshot = try? JSONDecoder().decode(ChartSnapshot.self, from: Data(json.utf8)),
+            snapshot.version == ChartSnapshot.supportedVersion
         else {
             return nil
         }
         return snapshot
     }
 
-    static func save(_ snapshot: ChartSnapshot, store: UserDefaults? = ChartStore.defaults) {
-        guard let data = try? JSONEncoder().encode(snapshot), let json = String(data: data, encoding: .utf8) else {
+    static func save(_ snapshot: ChartSnapshot, store: ChartStorage? = ChartStore.storage) {
+        guard
+            (Self.snapshot(pinId: snapshot.pinId, store: store)?.fetchedAt ?? 0) <= snapshot.fetchedAt,
+            let data = try? JSONEncoder().encode(snapshot), let json = String(data: data, encoding: .utf8)
+        else {
             return
         }
         store?.set(json, forKey: snapshotKey(snapshot.pinId))
         store?.removeObject(forKey: snapshotErrorKey(snapshot.pinId))
     }
 
-    static func error(pinId: String, store: UserDefaults? = ChartStore.defaults) -> ChartSnapshotError? {
+    static func error(pinId: String, store: ChartStorage? = ChartStore.storage) -> ChartSnapshotError? {
         guard let json = store?.string(forKey: snapshotErrorKey(pinId)) else { return nil }
         return try? JSONDecoder().decode(ChartSnapshotError.self, from: Data(json.utf8))
     }
 
-    static func save(_ error: ChartSnapshotError, pinId: String, store: UserDefaults? = ChartStore.defaults) {
-        guard let data = try? JSONEncoder().encode(error), let json = String(data: data, encoding: .utf8) else {
+    static func save(
+        _ error: ChartSnapshotError, pinId: String, store: ChartStorage? = ChartStore.storage
+    ) {
+        guard let data = try? JSONEncoder().encode(error),
+            let json = String(data: data, encoding: .utf8)
+        else {
             return
         }
         store?.set(json, forKey: snapshotErrorKey(pinId))
     }
 
-    static func pinProject(pinId: String, store: UserDefaults? = ChartStore.defaults) -> ChartPinProject? {
+    static func pinProject(pinId: String, store: ChartStorage? = ChartStore.storage)
+        -> ChartPinProject?
+    {
         guard let json = store?.string(forKey: pinProjectKey(pinId)) else { return nil }
         return try? JSONDecoder().decode(ChartPinProject.self, from: Data(json.utf8))
     }
 
     /// Writes only a changed marker, because every timeline call resolves its pins again.
-    static func save(_ project: ChartPinProject, pinId: String, store: UserDefaults? = ChartStore.defaults) {
+    static func save(
+        _ project: ChartPinProject, pinId: String, store: ChartStorage? = ChartStore.storage
+    ) {
         guard pinProject(pinId: pinId, store: store) != project,
-              let data = try? JSONEncoder().encode(project), let json = String(data: data, encoding: .utf8)
+            let data = try? JSONEncoder().encode(project), let json = String(data: data, encoding: .utf8)
         else {
             return
         }
         store?.set(json, forKey: pinProjectKey(pinId))
     }
 
+    static func retainSnapshots(_ pinIds: Set<String>, store: ChartStorage? = ChartStore.storage) {
+        for key in store?.keys ?? [] {
+            for prefix in ["chart.snapshot.", "chart.snapshotError."] where key.hasPrefix(prefix) {
+                if !pinIds.contains(String(key.dropFirst(prefix.count))) {
+                    store?.removeObject(forKey: key)
+                }
+            }
+        }
+    }
+
+    static func clearCredentials() -> OSStatus {
+        SecItemDelete(
+            [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: keychainService,
+                kSecAttrAccount as String: keychainAccount,
+                kSecAttrAccessGroup as String: AppGroup.suiteName,
+            ] as CFDictionary)
+    }
+
     static func decodeCredentials(_ data: Data) -> ChartCredentials? {
         guard let credentials = try? JSONDecoder().decode(ChartCredentials.self, from: data),
-              credentials.version == ChartCredentials.supportedVersion,
-              !credentials.accessToken.isEmpty
+            credentials.version == ChartCredentials.supportedVersion,
+            !credentials.accessToken.isEmpty
         else {
             return nil
         }
@@ -94,7 +127,9 @@ enum ChartStore {
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         var item: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data else {
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+            let data = item as? Data
+        else {
             return nil
         }
         return decodeCredentials(data)

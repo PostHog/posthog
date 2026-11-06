@@ -166,6 +166,9 @@ object ChartRenderer {
             // Opening the insight in the app computes it; the next refresh then finds the result.
             return Resolved.Message(name, message, detail, linkPin = pin.takeIf { error.kind == ErrorKind.NO_RESULT })
         }
+        if (snapshot.valueText == null && snapshot.rows.isEmpty() && snapshot.series.none { series -> series.points.any { it.value.isFinite() } }) {
+            return Resolved.Message(name, context.getString(R.string.chart_widget_empty), linkPin = pin)
+        }
         val extras = config.extraPinIds.asSequence()
             .filter { it != pin.id }
             .mapNotNull { catalog?.pin(it)?.takeIf { extra -> extra.eligible } }
@@ -194,6 +197,8 @@ object ChartRenderer {
     }
 
     private fun dataViews(context: Context, id: Int, family: Family, widthDp: Int, heightDp: Int, data: Resolved.Data, now: Long): RemoteViews {
+        val isNumber = data.snapshot.display == "number" || (data.snapshot.series.isEmpty() && data.snapshot.rows.isEmpty() && data.snapshot.valueText != null)
+        if (isNumber && data.extras.isEmpty()) return numberViews(context, id, family, data, now)
         val layout = when (family) {
             Family.SMALL -> R.layout.chart_widget_small
             Family.MEDIUM -> R.layout.chart_widget_medium
@@ -203,7 +208,8 @@ object ChartRenderer {
         val snapshot = data.snapshot
         val m = Metrics(context)
         views.setTextViewText(R.id.chart_title, data.pin.name)
-        bindValue(context, views, R.id.chart_value, R.id.chart_delta, snapshot)
+        val headline = snapshot.valueText ?: snapshot.chartValueText
+        bindValue(context, views, R.id.chart_value, R.id.chart_delta, snapshot.copy(valueText = headline))
         views.setTextViewText(R.id.chart_range, snapshot.rangeLabel ?: "")
         val displayed = listOf(snapshot) + if (family == Family.LARGE) {
             data.extras.mapNotNull { it.snapshot.visibleAfter(it.error) }
@@ -212,6 +218,11 @@ object ChartRenderer {
         val updated = ageText(context, age)
         views.setTextViewText(R.id.chart_updated, updated)
         setTextColor(context, views, R.id.chart_updated, if (age > STALE_MS) R.color.chart_widget_orange else R.color.chart_widget_tertiary)
+        val inlineAge = family != Family.SMALL && snapshot.rows.isEmpty() && snapshot.series.isNotEmpty()
+        if (family != Family.SMALL) {
+            views.setTextViewText(R.id.chart_age_inline, if (inlineAge) updated.removePrefix("Updated ") else "")
+            views.setViewVisibility(R.id.chart_footer, if (inlineAge) View.GONE else View.VISIBLE)
+        }
 
         val widthPx = widthDp * m.density
         val heightPx = heightDp * m.density
@@ -219,30 +230,49 @@ object ChartRenderer {
         var chartHeight: Float
         if (family == Family.SMALL) {
             chartWidth = widthPx - m.dp(24f)
-            chartHeight = heightPx - m.dp(24f) - m.line(12f) - m.dp(2f) - m.line(26f) - m.dp(2f) - m.pill() - m.dp(6f) - m.dp(4f) - m.line(10.5f)
-            if (snapshot.valueText == null) chartHeight += m.line(26f) + m.dp(2f)
+            chartHeight = heightPx - m.dp(24f) - m.line(12f) - m.dp(2f) - m.line(28f) - m.dp(2f) - m.pill() - m.dp(6f) - m.dp(4f) - m.line(10.5f)
+            if (headline == null) chartHeight += m.line(28f) + m.dp(2f)
         } else {
             chartWidth = widthPx - m.dp(28f)
-            val headline = if (snapshot.valueText != null) max(m.line(26f), m.pill()) else m.line(10.5f)
-            chartHeight = heightPx - m.dp(28f) - max(m.dp(12f), m.line(12f)) - m.dp(2f) - headline - m.dp(8f) - m.dp(6f) - m.line(10.5f)
+            val headlineHeight = if (headline != null) max(m.line(28f), m.pill()) else m.line(10.5f)
+            chartHeight = heightPx - m.dp(28f) - max(m.dp(12f), m.line(12f)) - m.dp(2f) - headlineHeight - m.dp(8f) - m.dp(6f) - m.line(10.5f)
             bindHeadline(context, views, snapshot)
         }
+        if (inlineAge) chartHeight += m.line(10.5f) + m.dp(6f)
         if (family == Family.LARGE) {
-            chartHeight -= m.dp(4f) + m.line(10.5f)
             if (data.extras.isNotEmpty()) {
                 chartHeight -= m.dp(10f) + m.dp(20f) + m.line(12f) + m.dp(1f) + m.line(10.5f) + m.dp(4f) + max(m.line(20f), m.pill()) + m.dp(6f) + m.dp(28f)
             }
         }
-        val spec = specOf(snapshot, if (family == Family.LARGE) TrendsParser.MAX_POINTS else SHORT_POINTS, grid = family != Family.SMALL)
-        bindChart(context, views, R.id.chart_frame, R.id.chart_image_light, R.id.chart_image_dark, spec, chartWidth, chartHeight, m.density)
-        if (family == Family.LARGE) bindLarge(context, views, id, data, spec, chartWidth, m)
+        val spec = specOf(snapshot, if (family == Family.SMALL) SHORT_POINTS else TrendsParser.MAX_POINTS, grid = family != Family.SMALL)
+        if (snapshot.rows.isNotEmpty()) {
+            bindRows(context, views, R.id.chart_frame, R.id.chart_image_light, R.id.chart_image_dark, snapshot.rows, chartWidth, chartHeight, m.density)
+        } else {
+            bindChart(context, views, R.id.chart_frame, R.id.chart_image_light, R.id.chart_image_dark, spec, chartWidth, chartHeight, m.density)
+        }
+        if (family == Family.LARGE) bindLarge(context, views, id, data, chartWidth, m)
 
         views.setOnClickPendingIntent(R.id.chart_root, linkIntent(context, pinLink(context, data.pin, family), id, 0))
         val pill = snapshot.deltaText?.let { arrow(snapshot.deltaSign) + it }
         views.setContentDescription(
             R.id.chart_root,
-            listOfNotNull(data.pin.name, snapshot.valueText, pill, snapshot.rangeLabel, updated).joinToString(", "),
+            listOfNotNull(data.pin.name, headline, pill, snapshot.rangeLabel, snapshot.rows.joinToString(". ") { "${it.label}: ${it.value}" }.takeIf { it.isNotEmpty() }, updated).joinToString(", "),
         )
+        return views
+    }
+
+    private fun numberViews(context: Context, id: Int, family: Family, data: Resolved.Data, now: Long): RemoteViews {
+        val views = RemoteViews(context.packageName, R.layout.chart_widget_number)
+        val snapshot = data.snapshot
+        views.setTextViewText(R.id.chart_title, data.pin.name)
+        bindValue(context, views, R.id.chart_value, R.id.chart_delta, snapshot)
+        views.setTextViewText(R.id.chart_basis, snapshot.deltaBasis ?: snapshot.rangeLabel ?: "")
+        val age = max(0L, now - (snapshot.lastRefreshAt?.let(DateText::parseInstant) ?: snapshot.fetchedAt))
+        val updated = ageText(context, age)
+        views.setTextViewText(R.id.chart_updated, updated)
+        setTextColor(context, views, R.id.chart_updated, if (age > STALE_MS) R.color.chart_widget_orange else R.color.chart_widget_tertiary)
+        views.setOnClickPendingIntent(R.id.chart_root, linkIntent(context, pinLink(context, data.pin, family), id, 0))
+        views.setContentDescription(R.id.chart_root, listOfNotNull(data.pin.name, snapshot.valueText, snapshot.deltaText, snapshot.deltaBasis, updated).joinToString(", "))
         return views
     }
 
@@ -250,7 +280,7 @@ object ChartRenderer {
         val current = snapshot.series.filter { !it.previous }
         if (snapshot.valueText != null || current.size < 2) {
             views.setViewVisibility(R.id.chart_legend, View.GONE)
-            val basis = snapshot.deltaBasis?.takeIf { snapshot.valueText != null && snapshot.deltaText != null }
+            val basis = if (snapshot.valueText == null && snapshot.chartValueText != null) context.getString(R.string.chart_widget_latest) else snapshot.deltaBasis?.takeIf { snapshot.valueText != null && snapshot.deltaText != null }
             views.setTextViewText(R.id.chart_basis, basis ?: "")
             views.setViewVisibility(R.id.chart_basis, if (basis != null) View.VISIBLE else View.GONE)
             return
@@ -270,15 +300,8 @@ object ChartRenderer {
         views.setViewVisibility(R.id.chart_legend, View.VISIBLE)
     }
 
-    private fun bindLarge(context: Context, views: RemoteViews, id: Int, data: Resolved.Data, spec: ChartSpec?, chartWidth: Float, m: Metrics) {
-        val first = data.snapshot.series.firstOrNull { !it.previous }?.points?.takeLast(TrendsParser.MAX_POINTS)
-        if (spec != null && first != null && first.isNotEmpty()) {
-            views.setTextViewText(R.id.chart_axis_start, DateText.axisDate(first.first().at, data.snapshot.intervalLabel))
-            views.setTextViewText(R.id.chart_axis_end, DateText.axisDate(first.last().at, data.snapshot.intervalLabel))
-            views.setViewVisibility(R.id.chart_axis, View.VISIBLE)
-        } else {
-            views.setViewVisibility(R.id.chart_axis, View.GONE)
-        }
+    private fun bindLarge(context: Context, views: RemoteViews, id: Int, data: Resolved.Data, chartWidth: Float, m: Metrics) {
+        views.setViewVisibility(R.id.chart_axis, View.GONE)
         if (data.extras.isEmpty()) {
             views.setViewVisibility(R.id.chart_tiles, View.GONE)
             return
@@ -307,7 +330,11 @@ object ChartRenderer {
             views.setTextViewText(ids.range, snapshot.rangeLabel ?: "")
             bindValue(context, views, ids.value, ids.delta, snapshot)
             val sparkline = specOf(snapshot, SHORT_POINTS, grid = false)
-            bindChart(context, views, ids.frame, ids.light, ids.dark, sparkline, tileWidth, m.dp(28f), m.density)
+            if (snapshot.rows.isNotEmpty()) {
+                bindRows(context, views, ids.frame, ids.light, ids.dark, snapshot.rows, tileWidth, m.dp(28f), m.density)
+            } else {
+                bindChart(context, views, ids.frame, ids.light, ids.dark, sparkline, tileWidth, m.dp(28f), m.density)
+            }
         }
     }
 
@@ -352,7 +379,11 @@ object ChartRenderer {
         val previous = snapshot.series.firstOrNull { it.previous }
             ?.takeIf { current.size == 1 && !bars }
             ?.points?.take(length)?.drop(start)?.map { it.value }
-        return ChartSpec(values, previous, bars, snapshot.inProgress, grid)
+        val first = current.firstOrNull()?.points?.take(length)?.drop(start)
+        return ChartSpec(values, previous, bars, snapshot.inProgress, grid,
+            snapshot.axisLowText, snapshot.axisHighText,
+            first?.firstOrNull()?.let { DateText.axisDate(it.at, snapshot.intervalLabel) },
+            first?.lastOrNull()?.let { DateText.axisDate(it.at, snapshot.intervalLabel) })
     }
 
     /** Draws the chart for both themes; the layout shows the one that matches the launcher's night mode. */
@@ -374,6 +405,16 @@ object ChartRenderer {
             views.setViewVisibility(frameId, View.GONE)
             return
         }
+        views.setViewVisibility(frameId, View.VISIBLE)
+        views.setImageViewBitmap(lightId, light)
+        views.setImageViewBitmap(darkId, dark)
+    }
+
+    private fun bindRows(context: Context, views: RemoteViews, frameId: Int, lightId: Int, darkId: Int,
+        rows: List<SnapshotRow>, width: Float, height: Float, density: Float) {
+        val light = ChartCanvas.rows(rows, ChartColors.of(context, false), width.toInt(), height.toInt(), density)
+        val dark = ChartCanvas.rows(rows, ChartColors.of(context, true), width.toInt(), height.toInt(), density)
+        if (light == null || dark == null) { views.setViewVisibility(frameId, View.GONE); return }
         views.setViewVisibility(frameId, View.VISIBLE)
         views.setImageViewBitmap(lightId, light)
         views.setImageViewBitmap(darkId, dark)

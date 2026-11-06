@@ -88,10 +88,11 @@ enum ChartResolver {
 
     static let signedOut = ChartSlot.State.message("Sign in to see your pins", detail: "Open PostHog to sign in")
     static let reauthenticate = ChartSlot.State.message("Open PostHog to update", detail: nil)
-    static let notConfigured = ChartSlot.State.message("Choose a pin", detail: "Touch and hold to pick a pin from your Views tab")
+    static let notConfigured = ChartSlot.State.message("No pinned views available", detail: "Open Views to pin an insight or choose a dashboard tile")
     static let noResult = ChartSlot.State.message("Open it in PostHog to load this insight", detail: nil)
 
-    static func selections(primary: ChartSelection?, extras: [ChartSelection], family: ChartFamily) -> (ChartSelection?, [ChartSelection]) {
+    static func selections(primary: ChartSelection?, extras: [ChartSelection], family: ChartFamily, catalog: ChartCatalog? = nil) -> (ChartSelection?, [ChartSelection]) {
+        let primary = primary ?? catalog?.pickerPins.first.map { ChartSelection(id: $0.id, name: $0.name) }
         guard family == .large else { return (primary, []) }
         var seen = Set(primary.map { [$0.id] } ?? [])
         var unique: [ChartSelection] = []
@@ -147,6 +148,10 @@ enum ChartResolver {
         if credentials.isExpired(at: now) {
             return ChartContent(primary: ChartSlot(title: primary?.name, state: reauthenticate, link: links.root), extras: [])
         }
+        let (primary, extras) = selections(
+            primary: primary, extras: extras, family: links.family,
+            catalog: store.catalog.flatMap { $0.belongs(to: credentials) ? $0 : nil }
+        )
         return ChartContent(
             primary: slot(primary, credentials: credentials, store: store, links: links),
             extras: extras.map { slot($0, credentials: credentials, store: store, links: links) }
@@ -157,6 +162,9 @@ enum ChartResolver {
         _ selection: ChartSelection?, credentials: ChartCredentials, store: ChartStoreState, links: ChartLinks
     ) -> ChartSlot {
         guard let selection else {
+            if store.catalog == nil {
+                return ChartSlot(title: nil, state: .message("Open PostHog to load your pins", detail: nil), link: links.root)
+            }
             return ChartSlot(title: nil, state: notConfigured, link: links.root)
         }
         // The app writes the catalog after its first pin list read.
@@ -197,7 +205,7 @@ enum ChartResolver {
             // Opening the insight in the app computes it; the widget then reads the result.
             return ChartSlot(title: pin.name, state: failure(error.kind), link: error.kind == .noResult ? links.pin(pin) : links.root)
         }
-        return ChartSlot(title: pin.name, state: .loading, link: links.root)
+        return ChartSlot(title: pin.name, state: .loading, link: links.pin(pin))
     }
 
     private static func otherProject(title: String, projectName: String?, links: ChartLinks) -> ChartSlot {

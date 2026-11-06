@@ -63,7 +63,6 @@ class ChartWidgetConfigureActivity : Activity() {
         })
         val catalog = ChartStore.catalog(this)
         when {
-            ChartStore.credentials(this) == null -> showMessage(getString(R.string.chart_widget_configure_signed_out))
             catalog == null || catalog.pins.isEmpty() -> showMessage(getString(R.string.chart_widget_configure_empty))
             else -> showPicker(catalog)
         }
@@ -90,7 +89,7 @@ class ChartWidgetConfigureActivity : Activity() {
         val current = ChartStore.widgetConfig(this, widgetId)
         val eligible = catalog.pins.filter { it.eligible }
         val ineligible = catalog.pins.filter { !it.eligible }
-        selected = current?.pinId?.takeIf { id -> eligible.any { it.id == id } }
+        selected = current?.pinId?.takeIf { id -> eligible.any { it.id == id } } ?: eligible.firstOrNull()?.id
         current?.extraPinIds?.filter { id -> eligible.any { it.id == id } }?.let(extras::addAll)
         lateinit var done: Button
 
@@ -179,6 +178,9 @@ class ChartWidgetConfigureActivity : Activity() {
         ChartWidgetRefresh.refreshAll(this)
         setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId))
         finish()
+        if (ChartStore.credentials(this) == null) {
+            packageManager.getLaunchIntentForPackage(packageName)?.let(::startActivity)
+        }
     }
 
     private fun twoLines(title: String, subtitle: String): CharSequence {

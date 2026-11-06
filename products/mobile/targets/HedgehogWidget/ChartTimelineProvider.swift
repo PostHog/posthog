@@ -18,17 +18,19 @@ struct ChartTimelineProvider: AppIntentTimelineProvider {
 
     func snapshot(for configuration: ChartWidgetIntent, in context: Context) async -> ChartEntry {
         let now = Date()
-        if context.isPreview {
+        let store = Self.storeState()
+        if context.isPreview && store.credentials == nil && store.catalog == nil {
             return ChartEntry(date: now, content: ChartSample.content(family: Self.family(context), now: now))
         }
-        return ChartEntry(date: now, content: Self.content(configuration, family: Self.family(context), store: Self.storeState(), now: now))
+        return ChartEntry(date: now, content: Self.content(configuration, family: Self.family(context), store: store, now: now))
     }
 
     func timeline(for configuration: ChartWidgetIntent, in context: Context) async -> Timeline<ChartEntry> {
+        _ = try? await chartWidgetState()
         let now = Date()
         let family = Self.family(context)
-        let (primary, extras) = Self.selections(configuration, family: family)
         let before = Self.storeState()
+        let (primary, extras) = Self.selections(configuration, family: family, store: before)
         for marker in ChartResolver.pinProjects([primary].compactMap { $0 } + extras, catalog: before.catalog) {
             ChartStore.save(marker.project, pinId: marker.pinId)
         }
@@ -53,14 +55,19 @@ struct ChartTimelineProvider: AppIntentTimelineProvider {
         }
     }
 
-    private static func selections(_ configuration: ChartWidgetIntent, family: ChartFamily) -> (ChartSelection?, [ChartSelection]) {
+    private static func selections(_ configuration: ChartWidgetIntent, family: ChartFamily, store: ChartStoreState) -> (ChartSelection?, [ChartSelection]) {
         let primary = configuration.pin.map { ChartSelection(id: $0.id, name: $0.name) }
         let extras = (configuration.extraPins ?? []).map { ChartSelection(id: $0.id, name: $0.name) }
-        return ChartResolver.selections(primary: primary, extras: extras, family: family)
+        return ChartResolver.selections(
+            primary: primary, extras: extras, family: family,
+            catalog: store.catalog.flatMap { catalog in
+                store.credentials.map { catalog.belongs(to: $0) } == true ? catalog : nil
+            }
+        )
     }
 
     private static func storeState() -> ChartStoreState {
-        let defaults = ChartStore.defaults
+        let defaults = ChartStore.storage
         return ChartStoreState(
             credentials: ChartStore.credentials(),
             catalog: ChartStore.catalog(store: defaults),
@@ -71,7 +78,7 @@ struct ChartTimelineProvider: AppIntentTimelineProvider {
     }
 
     private static func content(_ configuration: ChartWidgetIntent, family: ChartFamily, store: ChartStoreState, now: Date) -> ChartContent {
-        let (primary, extras) = selections(configuration, family: family)
+        let (primary, extras) = selections(configuration, family: family, store: store)
         let links = ChartLinks(scheme: ChartLinks.scheme(forAppId: AppGroup.appId), family: family)
         return ChartResolver.content(primary: primary, extras: extras, store: store, links: links, now: now)
     }

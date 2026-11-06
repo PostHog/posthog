@@ -92,19 +92,23 @@ class ChartWidgetRefreshTest {
 
     @Test
     fun configurationReturnsOnlyTheConfirmedWidgetId() {
-        val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE)
-            .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, 1)
-        val controller = Robolectric.buildActivity(ChartWidgetConfigureActivity::class.java, intent).create()
-        val activity = controller.get()
-        assertFalse(activity.isFinishing)
-        assertEquals(Activity.RESULT_CANCELED, shadowOf(activity).resultCode)
-        doneButton(activity).performClick()
-        assertTrue(activity.isFinishing)
-        assertEquals(Activity.RESULT_OK, shadowOf(activity).resultCode)
-        val result = shadowOf(activity).resultIntent
-        assertEquals(setOf(AppWidgetManager.EXTRA_APPWIDGET_ID), result.extras!!.keySet())
-        assertEquals(1, result.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1))
-        controller.destroy()
+        for (signedIn in listOf(true, false)) {
+            if (!signedIn) ChartStore.clearCredentials(context)
+            val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, 1)
+            val controller = Robolectric.buildActivity(ChartWidgetConfigureActivity::class.java, intent).create()
+            val activity = controller.get()
+            assertFalse(activity.isFinishing)
+            assertEquals(Activity.RESULT_CANCELED, shadowOf(activity).resultCode)
+            doneButton(activity).performClick()
+            assertTrue(activity.isFinishing)
+            assertEquals(Activity.RESULT_OK, shadowOf(activity).resultCode)
+            val result = shadowOf(activity).resultIntent
+            assertEquals(setOf(AppWidgetManager.EXTRA_APPWIDGET_ID), result.extras!!.keySet())
+            assertEquals(1, result.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1))
+            assertEquals("first", ChartStore.widgetConfig(context, 1)?.pinId)
+            controller.destroy()
+        }
     }
 
     @Test
@@ -167,18 +171,59 @@ class ChartWidgetRefreshTest {
         assertEquals(0, calls)
         ChartStore.setCatalogJson(context, """{"host":"https://example.com","projectId":1,"pins":[]}""")
         assertFalse(ChartStore.commitFetch(context, ChartStore.session(context)!!, catalog, listOf("first"),
-            ChartFetcher.Outcome.Success(snapshot()), { false }))
+            ChartFetcher.Outcome.Success(snapshot()), { false }, 1000L))
         assertNull(ChartStore.snapshot(context, "first"))
+    }
+
+    @Test
+    fun backgroundReadsPreserveNewerAppSnapshots() {
+        val newer = snapshot().copy(fetchedAt = 2000L, valueText = "84")
+        ChartStore.setSnapshot(context, newer)
+        ChartWidgetRefresh.fetchShownPins(context, { false }) { _, _, pin ->
+            ChartFetcher.Outcome.Success(snapshot(pin.id))
+        }
+        assertEquals(newer, ChartStore.snapshot(context, "first"))
+        assertEquals(snapshot("second"), ChartStore.snapshot(context, "second"))
+    }
+
+    @Test
+    fun delayedFailuresPreserveSnapshotsWrittenAfterTheRequestStarted() {
+        val session = ChartStore.session(context)!!
+        val catalog = ChartStore.catalog(context)!!
+        val newer = snapshot().copy(fetchedAt = 2000L, valueText = "84")
+        for (kind in listOf(ErrorKind.AUTH, ErrorKind.NOT_FOUND, ErrorKind.NETWORK)) {
+            ChartStore.setSnapshot(context, newer)
+            ChartStore.commitFetch(context, session, catalog, listOf("first"),
+                ChartFetcher.Outcome.Failure(kind), { false }, 1000L)
+            assertEquals(newer, ChartStore.snapshot(context, "first"))
+            assertNull(ChartStore.snapshotError(context, "first"))
+        }
+        ChartStore.commitFetch(context, session, catalog, listOf("first"),
+            ChartFetcher.Outcome.Failure(ErrorKind.NOT_FOUND), { false }, 3000L)
+        assertNull(ChartStore.snapshot(context, "first"))
+    }
+
+    @Test
+    fun migratesLegacySelectionsWithoutOverwritingNewSelectionsOrCopyingResults() {
+        val legacy = context.getSharedPreferences("chart_widget", Context.MODE_PRIVATE)
+        val original = WidgetConfig("legacy", listOf("extra"), 1, "Old project", "Old pin").toJson()
+        legacy.edit().putString("chart.widget.1", original).putString("chart.widget.2", original)
+            .putString("chart.snapshot.legacy", "old values").putString("chart.widget.invalid", original).commit()
+        assertEquals("first", ChartStore.widgetConfig(context, 1)?.pinId)
+        assertEquals(WidgetConfig.parse(original), ChartStore.widgetConfig(context, 2))
+        assertNull(ChartStore.snapshot(context, "legacy"))
+        assertTrue(legacy.all.isEmpty())
     }
 
     @Test
     fun catalogChangesDiscardOnlySnapshotsForChangedTargets() {
         val original = JSONObject().put("host", "https://example.com").put("projectId", 1)
             .put("pins", org.json.JSONArray().put(JSONObject()
-                .put("id", "first").put("kind", "dashboard").put("dashboardId", 10).put("insightId", 1)))
+                .put("id", "first").put("kind", "dashboard").put("dashboardId", 10).put("insightId", 1).put("eligible", true)))
         val replacements = listOf(
             original.toString(),
             JSONObject(original.toString()).apply { getJSONArray("pins").getJSONObject(0).put("name", "Renamed") }.toString(),
+            JSONObject(original.toString()).apply { getJSONArray("pins").getJSONObject(0).put("kind", "insight") }.toString(),
             JSONObject(original.toString()).apply { getJSONArray("pins").getJSONObject(0).put("insightId", 2) }.toString(),
             JSONObject(original.toString()).apply { getJSONArray("pins").getJSONObject(0).put("dashboardId", 11) }.toString(),
             JSONObject(original.toString()).put("projectId", 2).toString(),
@@ -269,7 +314,7 @@ class ChartWidgetRefreshTest {
         assertEquals(1, calls)
         assertTrue(ChartStore.retryAt(context) >= before + 120_000L)
         assertEquals(ErrorKind.RATE_LIMITED, ChartStore.snapshotError(context, "second")?.kind)
-        context.getSharedPreferences("chart_widget", Context.MODE_PRIVATE).edit().putLong("chart.retryAt", 0L).commit()
+        context.getSharedPreferences("test-credentials", Context.MODE_PRIVATE).edit().putLong("chart.retryAt", 0L).commit()
         ChartWidgetRefresh.fetchShownPins(context, { false }, fetch)
         assertEquals(2, calls)
     }
@@ -342,4 +387,27 @@ class ChartWidgetRefreshTest {
         assertEquals(1000L, cached.updatedAt())
         assertEquals(0L, cached.copy(lastRefreshAt = "1970-01-01T00:00:00Z").updatedAt())
     }
+    @Test
+    fun storesOnlySelectedSnapshotsInTheProtectedStoreAndClearsRemovedSelections() {
+        val raw = context.getSharedPreferences("chart_widget", Context.MODE_PRIVATE)
+        raw.edit().putString("chart.snapshot.legacy", "private result").commit()
+        ChartStore.setCatalogJson(context, """{"host":"https://example.com","projectId":1,"pins":[
+            {"id":"first","insightId":1,"eligible":true,"snapshot":${snapshot().toJson()}},
+            {"id":"unselected","insightId":3,"eligible":true,"snapshot":${snapshot("unselected").toJson()}}
+        ]}""")
+        assertEquals(snapshot(), ChartStore.snapshot(context, "first"))
+        assertNull(ChartStore.snapshot(context, "unselected"))
+        assertTrue(raw.all.isEmpty())
+        assertFalse(context.getSharedPreferences("test-credentials", Context.MODE_PRIVATE).getString("chart.catalog", "")!!.contains("snapshot"))
+        for (kind in listOf(ErrorKind.AUTH, ErrorKind.NOT_FOUND)) {
+            ChartStore.setSnapshot(context, snapshot())
+            ChartWidgetRefresh.fetchShownPins(context, { false }) { _, _, _ -> ChartFetcher.Outcome.Failure(kind) }
+            assertNull(ChartStore.snapshot(context, "first"))
+        }
+        ChartStore.retainSnapshots(context, emptySet())
+        assertNull(ChartStore.snapshot(context, "first"))
+        ChartStore.removeWidget(context, 1)
+        assertNull(ChartStore.credentials(context))
+    }
+
 }

@@ -236,7 +236,7 @@ object TrendsParser {
         return "vs ${DateText.axisDate(at, interval)}"
     }
 
-    private fun formatOf(filter: JSONObject?): ValueFormat {
+    internal fun formatOf(filter: JSONObject?): ValueFormat {
         fun precision(key: String): Int? =
             (filter?.opt(key) as? Number)?.takeIf { it.toDouble() == floor(it.toDouble()) }?.toInt()?.takeIf { it in 0..100 }
         return ValueFormat(

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 // Usage: check-chart
@@ -33,6 +34,7 @@ struct CheckChartWidget {
         try checkStore(now: now)
         try await checkRefresh(now: now)
         try checkState(now: now)
+        try checkInsightFormats(now: now)
 
         if failures > 0 {
             print("\(failures) check(s) failed")
@@ -303,19 +305,29 @@ struct CheckChartWidget {
         let noMatch = Data(json(["results": [["short_id": "other", "query": trends(), "result": []]]] as JSONObject).utf8)
         check("short id read without a match is not_found", ChartFetcher.outcome(status: 200, body: noMatch, pin: byShortId, now: now) == .failed(.notFound))
         let funnel = Data(json(["query": ["kind": "InsightVizNode", "source": ["kind": "FunnelsQuery"]], "result": []] as JSONObject).utf8)
-        check("a non-trends result is bad_data", ChartFetcher.outcome(status: 200, body: funnel, pin: insight, now: now) == .failed(.badData))
+        if case .snapshot(let snapshot) = ChartFetcher.outcome(status: 200, body: funnel, pin: insight, now: now) {
+            check("an empty funnel remains a valid snapshot", snapshot.display == "rows" && snapshot.rows?.isEmpty == true)
+        } else { check("an empty funnel remains a valid snapshot", false) }
     }
 
     static func checkStore(now: Date) throws {
         let suite = "check-chart-widget-\(ProcessInfo.processInfo.processIdentifier)"
-        let store = try require(UserDefaults(suiteName: suite), "test suite")
-        defer { store.removePersistentDomain(forName: suite) }
+        let raw = try require(UserDefaults(suiteName: suite), "test suite")
+        let key = SymmetricKey(size: .bits256)
+        let store = ChartStorage(defaults: raw, key: key)
+        defer { raw.removePersistentDomain(forName: suite) }
         check("app group from the extension id", AppGroup.appId(fromExtensionBundleId: "com.posthog.code.mobile.dev.HedgehogWidget") == "com.posthog.code.mobile.dev"
               && AppGroup.appId(fromExtensionBundleId: "com.posthog.code.mobile") == "com.posthog.code.mobile")
         store.set(catalogJSON, forKey: ChartStore.catalogKey)
         let catalog = try require(ChartStore.catalog(store: store), "stored catalog")
         let pin = try require(catalog.pin(id: "pin-a"), "stored pin")
         let dashboard = try require(catalog.pin(id: "pin-b"), "stored dashboard pin")
+        check("store: catalog has no plaintext copy", raw.string(forKey: ChartStore.catalogKey) == nil && raw.data(forKey: ChartStore.catalogKey) != nil)
+        let wrongKey = ChartStorage(defaults: raw, key: SymmetricKey(size: .bits256))
+        check("store: a wrong key cannot read values", wrongKey.string(forKey: ChartStore.catalogKey) == nil)
+        raw.set("legacy result", forKey: "chart.snapshot.legacy")
+        _ = ChartStorage(defaults: raw, key: key)
+        check("store: old plaintext is removed", raw.object(forKey: "chart.snapshot.legacy") == nil)
         check("store: catalog reads back", ChartStore.catalog(store: store)?.pins.count == 4)
         let snapshot = ChartSample.snapshot(pinId: "pin-a", value: "1,284", delta: 12, deltaText: "12%", values: [1, 2, 3], now: now)
         ChartRefresh.record(.failed(.network), pin: pin, credentials: credentials, at: now, store: store)
@@ -325,6 +337,9 @@ struct CheckChartWidget {
         ChartRefresh.record(.snapshot(snapshot), pin: pin, credentials: credentials, at: now, store: store)
         check("store: a good read writes the snapshot", ChartStore.snapshot(pinId: "pin-a", store: store) == snapshot)
         check("store: a good read clears the error", ChartStore.error(pinId: "pin-a", store: store) == nil)
+        let older = ChartSample.snapshot(pinId: "pin-a", value: "Old", delta: 0, deltaText: "", values: [0], now: now.addingTimeInterval(-60))
+        ChartRefresh.record(.snapshot(older), pin: pin, credentials: credentials, at: now, store: store)
+        check("store: older background read preserves the app snapshot", ChartStore.snapshot(pinId: "pin-a", store: store) == snapshot)
         ChartRefresh.record(.failed(.rateLimited), pin: pin, credentials: credentials, at: now, store: store)
         check("store: a failure keeps the snapshot", ChartStore.snapshot(pinId: "pin-a", store: store) == snapshot)
         check("store: snapshotError kind", store.string(forKey: "chart.snapshotError.pin-a")?.contains("rate_limited") == true)
@@ -334,12 +349,24 @@ struct CheckChartWidget {
         let marker = store.string(forKey: "chart.pinProject.pin-a").flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? JSONObject }
         check("store: pin project marker JSON", (marker?["projectId"] as? Int) == 2 && (marker?["projectName"] as? String) == "PostHog App")
         check("store: pin project marker reads back", ChartStore.pinProject(pinId: "pin-a", store: store) == ChartPinProject(projectId: 2, projectName: "PostHog App"))
+        for kind in [ChartErrorKind.auth, .notFound] {
+            ChartStore.save(snapshot, store: store)
+            ChartRefresh.record(.failed(kind), pin: pin, credentials: credentials, at: now, store: store)
+            check("store: access failures discard cached values", ChartStore.snapshot(pinId: pin.id, store: store) == nil)
+        }
+        for kind in [ChartErrorKind.auth, .notFound, .network] {
+            ChartStore.save(snapshot, store: store)
+            ChartRefresh.record(.failed(kind), pin: pin, credentials: credentials, at: now.addingTimeInterval(-60), store: store)
+            check("store: a delayed failure preserves newer app data", ChartStore.snapshot(pinId: pin.id, store: store) == snapshot
+                  && ChartStore.error(pinId: pin.id, store: store) == nil)
+        }
         let credentialsJSON = #"{"version":1,"host":"https://eu.posthog.com","projectId":7,"projectName":"Shop","accessToken":"pha_example","expiresAt":null,"userUuid":"u"}"#
         check("credentials decode with a null expiry", ChartStore.decodeCredentials(Data(credentialsJSON.utf8))?.isExpired(at: now) == false)
 
         for (target, changedCatalog) in [
             (pin, catalogJSON.replacingOccurrences(of: "\"insightId\": 123", with: "\"insightId\": 321")),
             (dashboard, catalogJSON.replacingOccurrences(of: "\"dashboardId\": 12", with: "\"dashboardId\": 13")),
+            (pin, catalogJSON.replacingOccurrences(of: "\"insightId\": 123", with: "\"displayMode\": \"rows\", \"insightId\": 123")),
         ] {
             let currentSnapshot = ChartSample.snapshot(pinId: target.id, value: "654", delta: 0, deltaText: "No change", values: [654], now: now)
             let oldSnapshot = ChartSample.snapshot(pinId: target.id, value: "123", delta: 0, deltaText: "No change", values: [123], now: now)
@@ -402,12 +429,13 @@ struct CheckChartWidget {
 
     static func checkRefresh(now: Date) async throws {
         let suite = "check-chart-refresh-\(ProcessInfo.processInfo.processIdentifier)"
-        let store = try require(UserDefaults(suiteName: suite), "refresh test suite")
-        defer { store.removePersistentDomain(forName: suite) }
+        let raw = try require(UserDefaults(suiteName: suite), "refresh test suite")
+        let store = ChartStorage(defaults: raw, key: SymmetricKey(size: .bits256))
+        defer { raw.removePersistentDomain(forName: suite) }
         store.set(catalogJSON, forKey: ChartStore.catalogKey)
         let pin = try require(ChartStore.catalog(store: store)?.pin(id: "pin-b"), "original dashboard tile")
         let requests = PendingFetches()
-        let refresh = ChartRefresh(store: store, fetch: { pin, _, _ in await requests.fetch(pin) })
+        let refresh = ChartRefresh(store: store, currentCredentials: { credentials }, fetch: { pin, _, _ in await requests.fetch(pin) })
         let original = Task { await refresh.refresh(pin, credentials: credentials, now: now) }
         await requests.waitForRequest(456)
 
@@ -424,6 +452,11 @@ struct CheckChartWidget {
         await requests.complete(456, with: .snapshot(oldSnapshot))
         await original.value
         check("refresh: the old tile cannot overwrite the new result", ChartStore.snapshot(pinId: pin.id, store: store) == snapshot)
+        store.removeObject(forKey: "chart.snapshot.\(pin.id)")
+        let signedOut = ChartRefresh(store: store, currentCredentials: { nil }, fetch: { _, _, _ in .snapshot(snapshot) })
+        await signedOut.refresh(replacement, credentials: credentials, now: now)
+        check("refresh: an ended session cannot repopulate the cache", ChartStore.snapshot(pinId: pin.id, store: store) == nil)
+
     }
 
     static func checkState(now: Date) throws {
@@ -460,7 +493,16 @@ struct CheckChartWidget {
               message(ChartResolver.content(primary: signups, extras: [], store: state(credentials: expired), links: links, now: now)) == "Open PostHog to update")
 
         let unconfigured = ChartResolver.content(primary: nil, extras: [], store: state(), links: links, now: now)
-        check("state: not configured", message(unconfigured) == "Choose a pin")
+        check("state: automatically uses the first eligible pin", unconfigured.primary.title == "Signups" && unconfigured.primary.state == .loading)
+        let noCatalog = ChartResolver.content(primary: nil, extras: [], store: state(catalog: nil), links: links, now: now)
+        check("state: missing catalog points to the app", message(noCatalog) == "Open PostHog to load your pins")
+        let emptyCatalog = ChartCatalog(version: 1, host: catalog.host, projectId: 2, projectName: nil, writtenAt: 0, pins: [])
+        let noPins = ChartResolver.content(primary: nil, extras: [], store: state(catalog: emptyCatalog), links: links, now: now)
+        check("state: empty catalog explains the next step", message(noPins) == "No pinned views available")
+        let defaults = ChartResolver.selections(primary: nil, extras: [signups], family: .large, catalog: catalog)
+        check("selection: default participates in fetch and deduplication", defaults.0 == signups && defaults.1.isEmpty)
+        let chosen = ChartResolver.selections(primary: ChartSelection(id: "pin-b", name: "Product KPIs"), extras: [], family: .medium, catalog: catalog)
+        check("selection: explicit choice wins over the default", chosen.0?.id == "pin-b")
 
         let revenue = ChartSelection(id: "pin-x", name: "Revenue")
         let gone = ChartResolver.content(primary: revenue, extras: [], store: state(), links: links, now: now)
@@ -497,7 +539,7 @@ struct CheckChartWidget {
         check("state: another project sends nothing", ChartResolver.pinsToFetch([signups], store: state(credentials: elsewhere), now: now).isEmpty)
 
         let loading = ChartResolver.content(primary: signups, extras: [], store: state(), links: links, now: now)
-        check("state: first read pending", loading.primary.state == .loading && loading.primary.title == "Signups")
+        check("state: first read pending", loading.primary.state == .loading && loading.primary.title == "Signups" && loading.primary.link == links.pin(catalog.pin(id: "pin-a")!))
 
         let cached = ChartSample.snapshot(pinId: "pin-a", value: "1,284", delta: 12, deltaText: "12%", values: [1, 2], now: now.addingTimeInterval(-3600))
         let stale = ChartResolver.content(primary: signups, extras: [],
@@ -550,6 +592,53 @@ struct CheckChartWidget {
         )
         check("large: two extra pins, no repeats", extras.map(\.id) == ["pin-b", "pin-d"])
         check("medium: no extra pins", ChartResolver.selections(primary: signups, extras: extras, family: .medium).1.isEmpty)
+    }
+
+    static func checkInsightFormats(now: Date) throws {
+        let path = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("modules/chart-widget/fixtures/insights.json")
+        let fixtures = try JSONSerialization.jsonObject(with: Data(contentsOf: path)) as! [JSONObject]
+        let pin = ChartPin(id: "pin-example", kind: "insight", name: "Example", subtitle: nil,
+                           insightId: 101, shortId: "example1", dashboardId: nil, eligible: true,
+                           number: true, chart: true, reason: nil)
+        for fixture in fixtures {
+            let name = fixture["name"] as! String
+            let response = fixture["response"] as! JSONObject
+            let expected = fixture["expected"] as! JSONObject
+            let snapshot = try InsightParser.snapshot(response: response, pin: pin, now: now)
+            check("format: \(name) round trip", try JSONDecoder().decode(ChartSnapshot.self, from: JSONEncoder().encode(snapshot)) == snapshot)
+            if let interval = expected["intervalLabel"] as? String { check("format: \(name) interval", snapshot.intervalLabel == interval) }
+            check("format: \(name) display", snapshot.display == expected["display"] as? String)
+            for (field, actual) in [("chartValueText", snapshot.chartValueText), ("axisLowText", snapshot.axisLowText), ("axisHighText", snapshot.axisHighText)] where expected[field] != nil {
+                check("format: \(name) \(field)", actual == expected[field] as? String)
+            }
+            if let value = expected["valueText"] as? String { check("format: \(name) value", snapshot.valueText == value, snapshot.valueText ?? "nil") }
+            if expected["valueText"] is NSNull { check("format: \(name) null value", snapshot.valueText == nil) }
+            if let value = expected["firstAt"] as? String { check("format: \(name) date", snapshot.series.first?.points.first?.at == value) }
+            if let value = expected["firstValue"] as? Double { check("format: \(name) first point", snapshot.series.first?.points.first?.value == value) }
+            if expected["lastIsGap"] as? Bool == true { check("format: \(name) gap", snapshot.series.first?.points.last?.value == nil) }
+            if let value = expected["firstRowValue"] as? String { check("format: \(name) first row", snapshot.rows?.first?.value == value) }
+            if let count = expected["rowCount"] as? Int { check("format: \(name) rows", snapshot.rows?.count == count) }
+            if let count = expected["seriesCount"] as? Int { check("format: \(name) series", snapshot.series.count == count) }
+            if let value = expected["lastValue"] as? Double { check("format: \(name) last point", snapshot.series.first?.points.last?.value == value) }
+        }
+        check("SQL: long numeric text stays text", InsightParser.number(String(repeating: "1", count: 16000) + "!") == nil)
+        check("SQL: decimals still parse", InsightParser.number(" -1.25e2 ") == -125)
+        let start = ChartDates.parse("2026-01-01T00:00:00Z")!
+        let formatter = ISO8601DateFormatter()
+        let rows: [[Any]] = (0..<10_000).flatMap { index in
+            let at = formatter.string(from: start.addingTimeInterval(Double(index) * 3600))
+            return [[at, 1], [at, 2]]
+        }
+        let response: JSONObject = [
+            "query": ["kind": "DataVisualizationNode", "source": ["kind": "HogQLQuery"], "display": "ActionsLineGraphCumulative"],
+            "columns": ["at", "value"], "types": [["at", "DateTime"], ["value", "UInt64"]], "result": rows,
+        ]
+        let large = try InsightParser.snapshot(response: response, pin: pin, now: now)
+        check("large SQL: only the latest 60 points", large.series.first?.points.count == 60)
+        check("large SQL: cumulative includes earlier duplicate rows", large.series.first?.points.first?.value == 29_823
+              && large.series.first?.points.last?.value == 30_000)
+
     }
 
     static func require<T>(_ value: T?, _ name: String) throws -> T {

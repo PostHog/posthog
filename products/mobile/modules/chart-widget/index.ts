@@ -10,7 +10,14 @@ export interface WidgetCredentials {
     userUuid: string
 }
 
+export interface WidgetState {
+    installed: boolean
+    pinIds: string[]
+    usesDefault: boolean
+}
+
 interface ChartWidgetNativeModule {
+    getWidgetState(): Promise<WidgetState>
     setCredentials(json: string): void
     clearCredentials(): void
     setCatalog(json: string): void
@@ -46,4 +53,8 @@ export function clearCatalog(): void {
 
 export function reloadWidgets(): void {
     native?.reloadWidgets()
+}
+
+export async function getWidgetState(): Promise<WidgetState> {
+    return (await native?.getWidgetState()) ?? { installed: false, pinIds: [], usesDefault: false }
 }

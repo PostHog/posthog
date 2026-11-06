@@ -3,6 +3,7 @@ package com.posthog.code.mobile.chart
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import org.json.JSONObject
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
@@ -26,8 +27,23 @@ object ChartStore {
     private var cachedCatalogJson: String? = null
     private var cachedCatalog: Catalog? = null
 
-    private fun prefs(context: Context): SharedPreferences =
-        context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+    @Synchronized
+    private fun prefs(context: Context): SharedPreferences {
+        val store = requireNotNull(securePrefs(context)) { "Widget storage unavailable" }
+        val legacy = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+        if (legacy.all.isNotEmpty()) {
+            val editor = store.edit()
+            legacy.all.forEach { (key, value) ->
+                if (key.startsWith(WIDGET_PREFIX) && key.removePrefix(WIDGET_PREFIX).toIntOrNull() != null &&
+                    !store.contains(key) && value is String) {
+                    WidgetConfig.parse(value)?.let { editor.putString(key, it.toJson()) }
+                }
+            }
+            check(editor.commit()) { "Could not migrate widget selections" }
+            check(legacy.edit().clear().commit()) { "Could not clear legacy widget storage" }
+        }
+        return store
+    }
 
     /**
      * Null when the keystore cannot open the file. A restored backup or a corrupt key fails the same way, so the file
@@ -123,20 +139,38 @@ object ChartStore {
 
     @Synchronized
     fun setCatalogJson(context: Context, json: String?) {
-        val previous = catalog(context)
-        val next = json?.let(Catalog::parse)
-        val prefs = prefs(context)
-        val editor = prefs.edit()
-        previous?.pins?.forEach { pin ->
-            val replacement = next?.pin(pin.id)
-            if (previous.host != next?.host || previous.projectId != next?.projectId ||
-                replacement == null || pin.kind != replacement.kind || pin.insightId != replacement.insightId ||
-                pin.dashboardId != replacement.dashboardId
-            ) {
-                editor.remove("$SNAPSHOT_PREFIX${pin.id}").remove("$ERROR_PREFIX${pin.id}")
+        val editor = prefs(context).edit()
+        if (json == null) {
+            editor.remove(KEY_CATALOG)
+            clearSnapshots(context)
+        } else {
+            val old = catalog(context)
+            val next = JSONObject(json)
+            val pins = next.optJSONArray("pins")
+            val selected = selectedPinIds(context).toSet()
+            val allowed = (0 until (pins?.length() ?: 0)).mapNotNull { pins?.optJSONObject(it) }
+                .filter { it.optBoolean("eligible") }.map { it.optString("id") }.toSet().intersect(selected)
+            retainSnapshots(context, allowed)
+            for (index in 0 until (pins?.length() ?: 0)) {
+                val pin = pins?.optJSONObject(index) ?: continue
+                val id = pin.optString("id")
+                val previous = old?.pin(id)
+                val changed = old?.host != next.optString("host").trimEnd('/') || old?.projectId != next.optLong("projectId") || previous == null || previous.kind != pin.optString("kind", "insight") || previous.insightId != pin.longOrNull("insightId") ||
+                    previous.shortId != pin.stringOrNull("shortId") || previous.dashboardId != pin.longOrNull("dashboardId") ||
+                    previous.displayMode != pin.stringOrNull("displayMode")
+                if (changed) {
+                    editor.remove("$SNAPSHOT_PREFIX$id").remove("$ERROR_PREFIX$id")
+                }
+                pin.optJSONObject("snapshot")?.takeIf { id in allowed }?.let { snapshot ->
+                    val cached = if (changed) null else ChartStore.snapshot(context, id)
+                    if (snapshot.optLong("fetchedAt") >= (cached?.fetchedAt ?: 0L)) {
+                        editor.putString("$SNAPSHOT_PREFIX$id", snapshot.toString()).remove("$ERROR_PREFIX$id")
+                    }
+                }
+                pin.remove("snapshot")
             }
+            editor.putString(KEY_CATALOG, next.toString())
         }
-        if (json == null) editor.remove(KEY_CATALOG) else editor.putString(KEY_CATALOG, json)
         editor.commit()
     }
 
@@ -164,6 +198,7 @@ object ChartStore {
     ) {
         val config = WidgetConfig(pinId, extraPinIds, projectId, projectName, pinName)
         prefs(context).edit().putString("$WIDGET_PREFIX$id", config.toJson()).commit()
+        retainSnapshots(context, selectedPinIds(context).toSet())
     }
 
     fun removeWidget(context: Context, id: Int) {
@@ -181,6 +216,21 @@ object ChartStore {
                 else -> return@forEach
             }
             if (pinId !in shown) editor.remove(key)
+        }
+        editor.commit()
+        if (ChartRenderer.widgetIds(context).none { it != id }) clearCredentials(context)
+    }
+
+    fun selectedPinIds(context: Context): List<String> = ChartRenderer.widgetIds(context).flatMap { id ->
+        widgetConfig(context, id)?.let { listOf(it.pinId) + it.extraPinIds } ?: emptyList()
+    }.distinct()
+
+    fun retainSnapshots(context: Context, selected: Set<String>) {
+        val store = prefs(context)
+        val editor = store.edit()
+        store.all.keys.forEach { key ->
+            val prefix = listOf(SNAPSHOT_PREFIX, ERROR_PREFIX).firstOrNull { key.startsWith(it) } ?: return@forEach
+            if (key.removePrefix(prefix) !in selected) editor.remove(key)
         }
         editor.commit()
     }
@@ -205,17 +255,26 @@ object ChartStore {
         pinIds: List<String>,
         outcome: ChartFetcher.Outcome,
         isStopped: () -> Boolean,
+        startedAt: Long,
     ): Boolean {
-        if (isStopped() || expectedSession != session(context) || expectedCatalog != catalog(context)) return false
+        if (isStopped() || expectedSession != session(context) || expectedCatalog != catalog(context) ||
+            !selectedPinIds(context).containsAll(pinIds)) return false
         val editor = prefs(context).edit()
         when (outcome) {
-            is ChartFetcher.Outcome.Success -> editor
-                .putString("$SNAPSHOT_PREFIX${outcome.snapshot.pinId}", outcome.snapshot.toJson())
-                .remove("$ERROR_PREFIX${outcome.snapshot.pinId}")
+            is ChartFetcher.Outcome.Success -> {
+                setSnapshot(context, outcome.snapshot)
+                return true
+            }
             is ChartFetcher.Outcome.Failure -> {
                 val now = System.currentTimeMillis()
-                val error = SnapshotError(now, outcome.kind)
-                pinIds.forEach { editor.putString("$ERROR_PREFIX$it", error.toJson()) }
+                val error = SnapshotError(startedAt, outcome.kind)
+                pinIds.forEach {
+                    if ((snapshot(context, it)?.fetchedAt ?: 0L) > startedAt) return@forEach
+                    editor.putString("$ERROR_PREFIX$it", error.toJson())
+                    if (outcome.kind == ErrorKind.AUTH || outcome.kind == ErrorKind.NOT_FOUND) {
+                        editor.remove("$SNAPSHOT_PREFIX$it")
+                    }
+                }
                 if (outcome.kind == ErrorKind.RATE_LIMITED) editor.putLong(KEY_RETRY_AT, now + outcome.retryAfterMs)
             }
         }
@@ -225,7 +284,9 @@ object ChartStore {
     fun snapshot(context: Context, pinId: String): ChartSnapshot? =
         prefs(context).getString("$SNAPSHOT_PREFIX$pinId", null)?.let(ChartSnapshot::parse)
 
+    @Synchronized
     fun setSnapshot(context: Context, snapshot: ChartSnapshot) {
+        if ((ChartStore.snapshot(context, snapshot.pinId)?.fetchedAt ?: 0L) > snapshot.fetchedAt) return
         prefs(context).edit()
             .putString("$SNAPSHOT_PREFIX${snapshot.pinId}", snapshot.toJson())
             .remove("$ERROR_PREFIX${snapshot.pinId}")
