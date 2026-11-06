@@ -322,6 +322,9 @@ tools:
                 - channel
                 - created_by.first_name
                 - created_by.last_name
+                - status
+                - status_reason
+                - status_detail
                 - latest_run.id
                 - latest_run.status
                 - latest_run.error_message
