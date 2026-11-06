@@ -20,7 +20,7 @@ import { buildChips, buildEditorPrompt, buildHeadline, buildMaxPrompt, type Firs
 export interface mcpFirstLookLogicValues {
     isOnboarded: boolean // mcpAnalyticsOnboardingLogic
     harnessRows: HarnessRow[] // mcpDashboardOverviewLogic
-    kpis: KPIData // mcpDashboardOverviewLogic
+    headlineKpis: KPIData // mcpDashboardOverviewLogic
     toolRows: ToolRow[] // mcpDashboardOverviewLogic
     currentOrganization: OrganizationType | null // organizationLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
@@ -70,7 +70,7 @@ export interface mcpFirstLookLogicMeta {
             isOnboarded: boolean,
             user: UserType | null,
             currentTeam: TeamPublicType | TeamType | null,
-            kpis: KPIData,
+            headlineKpis: any,
             toolRows: ToolRow[]
         ) => boolean
         topTool: (toolRows: ToolRow[]) => ToolRow | null
@@ -81,7 +81,7 @@ export interface mcpFirstLookLogicMeta {
             currentTeam: TeamPublicType | TeamType | null,
             topTool: ToolRow | null,
             dominantClient: string | null,
-            kpis: KPIData
+            headlineKpis: any
         ) => string
         maxPrompt: (worstErrorTool: ToolRow | null, topTool: ToolRow | null) => string
         editorPrompt: (dominantClient: string | null) => {
@@ -91,7 +91,7 @@ export interface mcpFirstLookLogicMeta {
         chips: (
             topTool: ToolRow | null,
             worstErrorTool: ToolRow | null,
-            kpis: KPIData,
+            headlineKpis: any,
             dominantClient: string | null
         ) => FirstLookChip[]
         eventProperties: (
@@ -114,7 +114,7 @@ export const mcpFirstLookLogic = kea<mcpFirstLookLogicType>([
     connect(() => ({
         values: [
             mcpDashboardOverviewLogic,
-            ['kpis', 'toolRows', 'harnessRows'],
+            ['headlineKpis', 'toolRows', 'harnessRows'],
             mcpAnalyticsOnboardingLogic,
             ['isOnboarded'],
             userLogic,
@@ -139,7 +139,7 @@ export const mcpFirstLookLogic = kea<mcpFirstLookLogicType>([
     selectors({
         // Once per user, never on demo, and only after data loads (avoids an empty-flash).
         shouldShow: [
-            (s) => [s.isOnboarded, s.user, s.currentTeam, s.kpis, s.toolRows],
+            (s) => [s.isOnboarded, s.user, s.currentTeam, s.headlineKpis, s.toolRows],
             (
                 isOnboarded: boolean,
                 user: null | import('~/types').UserType,
@@ -166,7 +166,7 @@ export const mcpFirstLookLogic = kea<mcpFirstLookLogicType>([
             (harnessRows: HarnessRow[]): string | null => harnessRows[0]?.category ?? null,
         ],
         headline: [
-            (s) => [s.currentOrganization, s.currentTeam, s.topTool, s.dominantClient, s.kpis],
+            (s) => [s.currentOrganization, s.currentTeam, s.topTool, s.dominantClient, s.headlineKpis],
             (
                 currentOrganization: null | import('~/types').OrganizationType,
                 currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
@@ -193,7 +193,7 @@ export const mcpFirstLookLogic = kea<mcpFirstLookLogicType>([
                 buildEditorPrompt({ client: dominantClient }),
         ],
         chips: [
-            (s) => [s.topTool, s.worstErrorTool, s.kpis, s.dominantClient],
+            (s) => [s.topTool, s.worstErrorTool, s.headlineKpis, s.dominantClient],
             (
                 topTool: ToolRow | null,
                 worstErrorTool: ToolRow | null,
