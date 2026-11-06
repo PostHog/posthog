@@ -451,11 +451,13 @@ def transactional_email_stats_over_time(
 ) -> TransactionalEmailStatsOverTime:
     """Delivery counts per time bucket in the team's timezone, with every empty bucket filled in."""
     period = _window(date_from, date_to)
-    span = period.end - period.start
+    now = datetime.now(UTC)
+    # The window reaches past now for clock skew, which is not time that the previous period can be compared with.
+    span = min(period.end, now) - period.start
     interval = _stats_interval(span)
     tz = ZoneInfo(timezone)
     previous_start = period.start - span
-    has_full_previous = previous_start >= datetime.now(UTC) - RETENTION
+    has_full_previous = previous_start >= now - RETENTION
 
     rows: list[tuple] = []
     if not _sees_no_sends(access):
@@ -487,6 +489,7 @@ def transactional_email_stats_over_time(
             GROUP BY in_period, bucket
             """,
             params,
+            _GROUP_AS_READ,
         )
 
     current: dict[datetime, TransactionalEmailStatsCounts] = {}
@@ -502,7 +505,7 @@ def transactional_email_stats_over_time(
 
     empty = TransactionalEmailStatsCounts(sent=0, delivered=0, bounced=0, complained=0, failed=0)
     # A day that starts at 01:00 local time has a bucket the clock arithmetic can't name, so the rows' own keys stay.
-    starts = sorted({*_bucket_starts(period.start, min(period.end, datetime.now(UTC)), interval, tz), *current})
+    starts = sorted({*_bucket_starts(period.start, min(period.end, now), interval, tz), *current})
     buckets = [TransactionalEmailStatsBucket(start=start, counts=current.get(start, empty)) for start in starts]
     return TransactionalEmailStatsOverTime(
         interval=interval,

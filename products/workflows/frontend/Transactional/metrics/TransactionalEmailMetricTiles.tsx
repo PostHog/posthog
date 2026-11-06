@@ -25,19 +25,22 @@ function caption(tile: MetricTile, failed: number): string {
 }
 
 export function TransactionalEmailMetricTiles(): JSX.Element | null {
-    const { statsOverTime, statsOverTimeLoading } = useValues(transactionalEmailMetricsLogic)
+    const { statsOverTime, statsOverTimeLoading, statsOverTimeFailed } = useValues(transactionalEmailMetricsLogic)
     const tiles = useMemo(() => (statsOverTime ? buildMetricTiles(statsOverTime) : null), [statsOverTime])
     const labels = useMemo(() => statsOverTime?.buckets.map((bucket) => bucket.start) ?? [], [statsOverTime])
     const failed = statsOverTime?.buckets.reduce((total, bucket) => total + bucket.counts.failed, 0) ?? 0
 
-    if (!statsOverTime || !tiles) {
-        return statsOverTimeLoading ? (
+    if (statsOverTimeLoading) {
+        return (
             <div className="grid grid-cols-2 @3xl:grid-cols-4 gap-2">
                 {Array.from({ length: 4 }).map((_, index) => (
                     <LemonSkeleton key={index} className="h-36" />
                 ))}
             </div>
-        ) : null
+        )
+    }
+    if (statsOverTimeFailed || !statsOverTime || !tiles) {
+        return null
     }
     return (
         <div className="grid grid-cols-2 @3xl:grid-cols-4 gap-2" data-attr="transactional-email-metric-tiles">

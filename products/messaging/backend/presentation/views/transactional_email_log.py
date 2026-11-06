@@ -218,7 +218,7 @@ class _PageSchema(AutoSchema):
 class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     schema = _PageSchema()
     scope_object = "hog_flow"
-    scope_object_read_actions = ["list", "retrieve", "stats", "results"]
+    scope_object_read_actions = ["list", "retrieve", "stats", "stats_over_time", "results"]
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)

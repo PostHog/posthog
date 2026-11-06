@@ -210,6 +210,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         [
             ("list", "", ["hog_flow:read"], "person:read"),
             ("retrieve", "{message_id}/", ["hog_flow:read"], "person:read"),
+            ("stats_over_time", "stats_over_time/", ["query:read"], "hog_flow:read"),
             (
                 "results",
                 "results/?event=purchase&workflow_id={workflow_id}",
@@ -289,6 +290,17 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "2026-06-14T22:00:00Z": (0, 0, 0),
         }
         assert body["previous"]["sent"] == 1
+
+    def test_compares_the_same_length_of_time_when_the_period_ends_now(self, _flag):
+        self._send(61, "in@example.com", [("sent", 1, "")])
+        self._send(64, "out@example.com", [("sent", 1, "")])
+
+        body = self.client.get(
+            self._url("stats_over_time/"), {"date_from": (NOW - timedelta(hours=1)).isoformat()}
+        ).json()
+
+        assert body["previous"]["sent"] == 2
+        assert sum(bucket["counts"]["sent"] for bucket in body["buckets"]) == 0
 
     def test_has_no_earlier_period_when_retention_does_not_cover_it(self, _flag):
         body = self.client.get(

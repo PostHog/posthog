@@ -76,7 +76,7 @@ export function TransactionalEmailActivity({ email }: { email: TransactionalEmai
             <div className="flex flex-col gap-0.5">
                 <h3 className="text-base font-semibold m-0">{title}</h3>
                 <p className="text-xs text-secondary m-0">
-                    The person's events in your product before and after this email.
+                    The person's events in your product, with this email's delivery and engagement in between.
                 </p>
             </div>
             {content}

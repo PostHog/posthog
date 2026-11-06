@@ -47,6 +47,7 @@ export interface transactionalEmailMetricsLogicValues {
     resultsQuery: ResultsQuery
     statsFailed: boolean
     statsOverTime: TransactionalEmailStatsOverTimeApi | null
+    statsOverTimeFailed: boolean
     statsOverTimeLoading: boolean
     templateStats: TransactionalEmailStatsRowApi[] | null
     templateStatsLoading: boolean
@@ -187,6 +188,14 @@ export const transactionalEmailMetricsLogic = kea<transactionalEmailMetricsLogic
                 loadStatsOverTime: () => false,
                 loadTemplateStatsFailure: () => true,
                 loadDomainStatsFailure: () => true,
+                loadStatsOverTimeFailure: () => true,
+            },
+        ],
+        statsOverTimeFailed: [
+            false,
+            {
+                loadStatsOverTime: () => false,
+                loadStatsOverTimeSuccess: () => false,
                 loadStatsOverTimeFailure: () => true,
             },
         ],
