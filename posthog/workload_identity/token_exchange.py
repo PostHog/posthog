@@ -307,8 +307,16 @@ def _verify_subject_token(subject_token: str, provider: WorkloadProvider) -> tup
             WorkloadExchangeErrorCode.TOKEN_INVALID, "The OIDC token's exp claim must be numeric."
         )
 
+    subject = _required_claim(claims, provider.subject_claim)
+    for name in provider.claims_equal_to_subject:
+        if _claim_string(claims.get(name)) != subject:
+            raise WorkloadExchangeError(
+                WorkloadExchangeErrorCode.TOKEN_INVALID,
+                f"The job runs in another {provider.subject_claim.label.lower()} than the one its token names "
+                f"(claim {name}), and {provider.name} tokens from such jobs aren't trusted.",
+            )
     workload = VerifiedWorkload(
-        subject=_required_claim(claims, provider.subject_claim),
+        subject=subject,
         subject_name=_required_claim(claims, provider.subject_name_claim),
         condition_claims=_claims_by_name(claims, provider.condition_claims),
         recorded_claims=_claims_by_name(claims, provider.recorded_claims),
@@ -316,13 +324,10 @@ def _verify_subject_token(subject_token: str, provider: WorkloadProvider) -> tup
     return workload, int(expires_at)
 
 
-def _charge_exchange(provider: WorkloadProvider, workload: VerifiedWorkload) -> None:
-    """Charged only after the token verified, so nobody can use up another workload's budget."""
-    identity = [
-        workload.subject,
-        *(workload.condition_claims.get(name, "") for name in provider.required_condition_claims),
-    ]
-    decision = consume(f"workload_exchange_rate:{provider.key}:{':'.join(identity)}", WORKLOAD_EXCHANGE_BUDGET)
+def _charge_exchange(policy: WorkloadTrustPolicy) -> None:
+    """Charged per policy once a policy matched, so a run the policy doesn't trust, such as another branch of
+    the same repository, can't use up the budget of the runs it does trust."""
+    decision = consume(f"workload_exchange_rate:{policy.pk}", WORKLOAD_EXCHANGE_BUDGET)
     match decision:
         case BucketUnavailable():
             logger.warning("workload_exchange_rate_limit_unavailable", error=decision.error)
@@ -395,7 +400,6 @@ def exchange_workload_token(*, subject_token: str, subject_token_type: str, reso
     team_id = _team_id_from_resource(resource)
     provider = _provider_for(subject_token)
     workload, oidc_expires_at = _verify_subject_token(subject_token, provider)
-    _charge_exchange(provider, workload)
 
     team = Team.objects.select_related("organization").filter(pk=team_id).first()
     if team is not None and team.project_id != team.id:
@@ -421,6 +425,8 @@ def exchange_workload_token(*, subject_token: str, subject_token_type: str, reso
             f"No workload trust policy in project {team_id} matches this workload. Run `hog ci setup` to request one.",
             details={"project_id": team_id, "claims": claims_sent},
         )
+
+    _charge_exchange(policy)
 
     # Checked again at mint time so a scope that became ungrantable after the policy was saved is never issued.
     grantable = workload_trust_policy_grantable_scopes()

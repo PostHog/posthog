@@ -25,7 +25,11 @@ export const GITLAB: WorkloadProvider = {
     configPaths: ['.gitlab-ci.yml'],
     nameFromRemote: (remote) => remote.match(/(?:^|[@/])gitlab\.com[:/](.+?)(?:\.git)?\/?$/)?.[1],
     branchConditions: (branch) => ({ ref: branch, ref_protected: 'true', ref_type: 'branch' }),
-    environmentConditions: (environment) => ({ environment, environment_protected: 'true' }),
+    environmentConditions: (environment) => ({
+        environment,
+        environment_action: 'start',
+        environment_protected: 'true',
+    }),
     snippet: ({ host, projectId }) =>
         [
             'your-job:',

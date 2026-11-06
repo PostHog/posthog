@@ -63,6 +63,7 @@ describe('GitHub Actions', () => {
         ['https://github.com/PostHog/posthog', 'PostHog/posthog'],
         ['ssh://git@github.com/PostHog/posthog.git', 'PostHog/posthog'],
         ['git@gitlab.com:PostHog/posthog.git', undefined],
+        ['https://notgithub.com/PostHog/posthog.git', undefined],
     ])('reads the repository from the remote %s', (remote, expected) => {
         expect(GITHUB_ACTIONS.nameFromRemote(remote)).toBe(expected)
     })

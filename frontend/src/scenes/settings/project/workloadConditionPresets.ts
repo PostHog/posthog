@@ -106,11 +106,16 @@ export function conditionsError(
         return conflict
     }
     const required = provider?.required_condition_claims ?? []
-    const missing = required
-        .filter((claim) => !conditions[claim])
-        .map((claim) => provider?.condition_claims.find((candidate) => candidate.name === claim)?.label ?? claim)
+    const labelOf = (claim: string): string =>
+        provider?.condition_claims.find((candidate) => candidate.name === claim)?.label ?? claim
+    const missing = required.filter((claim) => !conditions[claim]).map(labelOf)
     if (missing.length) {
         return `Set these conditions: ${missing.join(', ')}`
+    }
+    for (const [claim, companions] of Object.entries(provider?.condition_claim_companions ?? {})) {
+        if (conditions[claim] && !companions.some((companion) => conditions[companion])) {
+            return `${labelOf(claim)} also matches runs you may not expect. Set ${companions.map(labelOf).join(' or ')} too.`
+        }
     }
     // The required claims pin the account, not the runs, so a policy needs another condition too.
     const runClaims = (provider?.condition_claims ?? []).filter((claim) => !required.includes(claim.name))

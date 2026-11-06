@@ -87,6 +87,9 @@ class WorkloadProvider:
     subject_lookup_conditions: tuple[tuple[str, str], ...] = ()
     # The registry pins the JWKS URL, so the cap against a hostile client key set can be raised here.
     jwks_max_keys: int | None = None
+    claims_equal_to_subject: tuple[str, ...] = ()
+    # A condition claim that matches unexpected runs on its own, with the claims a policy must set beside it.
+    condition_claim_companions: tuple[tuple[str, tuple[str, ...]], ...] = ()
     # The CI config a job needs, with SNIPPET_HOST and SNIPPET_PROJECT_ID where the values go.
     setup_snippet: str = ""
 
@@ -111,6 +114,9 @@ class WorkloadProvider:
             raise ValueError(f"{self.key}: required condition claims must be condition claims.")
         if not {claim for claim, _ in self.subject_lookup_conditions} <= set(condition_names):
             raise ValueError(f"{self.key}: subject lookup conditions must use condition claims.")
+        for claim, companions in self.condition_claim_companions:
+            if not companions or not {claim, *companions} <= set(condition_names):
+                raise ValueError(f"{self.key}: companions of {claim} must be condition claims.")
         preset_keys = [preset.key for preset in self.condition_presets]
         if len(set(preset_keys)) != len(preset_keys):
             raise ValueError(f"{self.key}: condition presets must have unique keys.")
@@ -207,6 +213,11 @@ GITHUB_ACTIONS = WorkloadProvider(
     run_url_template="https://github.com/{repository}/actions/runs/{run_id}",
     docs_url="https://posthog.com/docs/api/workload-identity/github-actions",
     resolve_subject=resolve_github_repository,
+    # pull_request_target and issue_comment runs, fork pull requests among them, carry the base branch's ref.
+    condition_claim_companions=tuple(
+        (claim, ("event_name", "environment"))
+        for claim in ("ref", "ref_protected", "workflow_ref", "job_workflow_ref", "runner_environment")
+    ),
     condition_presets=(
         ConditionPreset(
             key="branch_push",
@@ -275,6 +286,12 @@ GITLAB = WorkloadProvider(
             placeholder="true",
         ),
         WorkloadClaim(
+            name="environment_action",
+            label="Environment action",
+            help_text="What the job does to the environment: start deploys, while prepare, verify and access don't wait for approval.",
+            placeholder="start",
+        ),
+        WorkloadClaim(
             name="pipeline_source",
             label="Pipeline source",
             help_text="What started the pipeline, like push, schedule or web.",
@@ -303,6 +320,10 @@ GITLAB = WorkloadProvider(
     run_url_template="https://gitlab.com/{job_project_path}/-/jobs/{job_id}",
     docs_url="https://posthog.com/docs/api/workload-identity/gitlab",
     resolve_subject=resolve_gitlab_project,
+    # project_id names a merge request's source project, so a pipeline in another project would pair it with that project's environments.
+    claims_equal_to_subject=("job_project_id",),
+    # A tag can carry a branch's short name, and only start jobs wait for deployment approval.
+    condition_claim_companions=(("ref", ("ref_type",)), ("environment", ("environment_action",))),
     condition_presets=(
         ConditionPreset(
             key="branch",
@@ -319,7 +340,11 @@ GITLAB = WorkloadProvider(
             label="A protected environment",
             # Anyone who can push a branch can name any unprotected environment in a job.
             help_text="Jobs that deploy to this environment while it is protected. Protected environments need GitLab Premium or Ultimate.",
-            conditions=(("environment", PRESET_VALUE), ("environment_protected", "true")),
+            conditions=(
+                ("environment", PRESET_VALUE),
+                ("environment_protected", "true"),
+                ("environment_action", "start"),
+            ),
             placeholder="production",
             default_value="production",
         ),
@@ -400,6 +425,7 @@ DEPOT_CI = WorkloadProvider(
     resolve_subject=resolve_github_repository,
     # The lookup asks GitHub, which knows nothing about another forge's repository IDs.
     subject_lookup_conditions=(("forge", "github"),),
+    condition_claim_companions=(("ref", ("event_name",)), ("workflow_ref", ("event_name",))),
     jwks_max_keys=32,
     condition_presets=(
         ConditionPreset(

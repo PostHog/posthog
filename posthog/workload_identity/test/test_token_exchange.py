@@ -231,28 +231,26 @@ class TestWorkloadTokenExchange(APIBaseTest):
         assert response.json()["error"] == "temporarily_unavailable"
         assert response.json()["error_code"] == "workload_provider_unavailable"
 
-    def test_exchange_is_rate_limited_per_workload_once_the_token_verifies(self) -> None:
+    def test_exchange_is_rate_limited_per_policy_once_a_policy_matches(self) -> None:
         with patch("posthog.workload_identity.token_exchange.WORKLOAD_EXCHANGE_BUDGET", Budget(burst=1, per_hour=60)):
             unverified = self._exchange(_oidc_token(signing_key=_OTHER_KEY_PEM))
+            untrusted_branch = self._exchange(_oidc_token(ref="refs/heads/feature"))
             first = self._exchange()
             second = self._exchange()
 
         assert unverified.json()["error_code"] == "workload_token_invalid"
+        assert untrusted_branch.json()["error_code"] == "workload_no_matching_policy"
         assert first.status_code == status.HTTP_200_OK, first.json()
         assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert second.json()["error_code"] == "workload_rate_limited"
         assert second["Retry-After"] == str(second.json()["retry_after"])
 
-    def test_exchange_budget_is_shared_only_by_workloads_with_the_same_required_claims(self) -> None:
-        provider = dataclasses.replace(FAKE_WORKLOAD_PROVIDER, required_condition_claims=("environment",))
+    def test_exchange_budget_is_separate_for_each_policy(self) -> None:
         self.policy.delete()
         for environment in ("production", "staging"):
             self._create_policy(conditions={"ref": "refs/heads/main", "environment": environment})
 
-        with (
-            patch("posthog.workload_identity.providers.SUPPORTED_WORKLOAD_PROVIDERS", (provider,)),
-            patch("posthog.workload_identity.token_exchange.WORKLOAD_EXCHANGE_BUDGET", Budget(burst=1, per_hour=60)),
-        ):
+        with patch("posthog.workload_identity.token_exchange.WORKLOAD_EXCHANGE_BUDGET", Budget(burst=1, per_hour=60)):
             production = self._exchange(_oidc_token(environment="production"))
             staging = self._exchange(_oidc_token(environment="staging"))
             production_again = self._exchange(_oidc_token(environment="production"))
@@ -274,6 +272,19 @@ class TestWorkloadTokenExchange(APIBaseTest):
             patch("posthog.api.oauth.client_assertion.fetch_client_json_document", return_value=({"keys": keys}, None)),
         ):
             response = self._exchange()
+
+        assert (response.status_code == status.HTTP_200_OK) is accepted, response.json()
+
+    @parameterized.expand(
+        [("same_project", "1234", True), ("another_project", "999", False), ("claim_missing", None, False)]
+    )
+    def test_exchange_refuses_a_job_that_runs_outside_the_subject(
+        self, _name: str, job_repository_id: str | None, accepted: bool
+    ) -> None:
+        provider = dataclasses.replace(FAKE_WORKLOAD_PROVIDER, claims_equal_to_subject=("job_repository_id",))
+
+        with patch("posthog.workload_identity.providers.SUPPORTED_WORKLOAD_PROVIDERS", (provider,)):
+            response = self._exchange(_oidc_token(job_repository_id=job_repository_id))
 
         assert (response.status_code == status.HTTP_200_OK) is accepted, response.json()
 

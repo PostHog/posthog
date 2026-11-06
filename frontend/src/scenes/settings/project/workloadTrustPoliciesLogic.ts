@@ -90,7 +90,6 @@ export interface workloadTrustPoliciesLogicValues {
     providers: WorkloadProvidersResponseApi | null
     providersLoadFailed: boolean
     providersLoading: boolean
-    showingSetup: boolean
     scopeLevels: Record<string, ScopeAccessLevel>
     scopeRows: WorkloadTrustPolicyScopeRow[]
     scopeSearchTerm: string
@@ -100,6 +99,7 @@ export interface workloadTrustPoliciesLogicValues {
         snippet: string
     } | null
     showEditingPolicyErrors: boolean
+    showingSetup: boolean
     subjectLookup: ResolvedWorkloadSubjectApi | null
     subjectLookupError: string | null
     subjectLookupLoading: boolean
@@ -210,9 +210,6 @@ export interface workloadTrustPoliciesLogicActions {
             enabled: boolean
         }
     }
-    showSetup: () => {
-        value: true
-    }
     setScopeLevel: (
         key: string,
         level: ScopeAccessLevel
@@ -222,6 +219,9 @@ export interface workloadTrustPoliciesLogicActions {
     }
     setScopeSearchTerm: (searchTerm: string) => {
         searchTerm: string
+    }
+    showSetup: () => {
+        value: true
     }
     submitEditingPolicy: () => {
         value: boolean
@@ -339,7 +339,7 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
         ],
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         policies: [
             null as WorkloadTrustPolicyApi[] | null,
             {
@@ -386,10 +386,11 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
             null as ResolvedWorkloadSubjectApi | null,
             {
                 lookUpSubject: async (): Promise<ResolvedWorkloadSubjectApi | null> => {
+                    cache.lookedUpName = values.editingPolicy.subject_name.trim()
                     try {
                         return await workloadTrustPolicyRequestsResolveSubjectRetrieve(String(values.currentTeamId), {
                             issuer: values.editingPolicy.issuer,
-                            subject_name: values.editingPolicy.subject_name.trim(),
+                            subject_name: cache.lookedUpName,
                         })
                     } catch (error) {
                         throw new Error(
@@ -525,7 +526,7 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, selectors }) => ({
+    listeners(({ actions, values, selectors, cache }) => ({
         setEditingPolicyValue: ({ name }, _, __, previousState) => {
             const field = Array.isArray(name) ? name[0] : name
             // Condition claims and subjects belong to one provider, so switching provider starts over.
@@ -572,8 +573,8 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
             actions.setEditingPolicyValue('conditions', conditionsFromRows(rows, values.editingProvider).conditions)
         },
         lookUpSubjectSuccess: ({ subjectLookup }) => {
-            const typed = values.editingPolicy.subject_name.trim().toLowerCase()
-            if (subjectLookup && subjectLookup.subject_name.toLowerCase() === typed) {
+            // The answer may spell the name differently, so only an edit made while the lookup ran makes it stale.
+            if (subjectLookup && values.editingPolicy.subject_name.trim() === cache.lookedUpName) {
                 // The provider's spelling is the one the token carries, so it replaces what was typed.
                 actions.setEditingPolicyValues({
                     subject: subjectLookup.subject,

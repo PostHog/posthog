@@ -25,12 +25,9 @@ export class KeySession {
     }
 
     private async renew(storage: AccessKeyStorage, rejectedToken?: string): Promise<AccessKey> {
-        if (this.renewal) {
+        while (this.renewal) {
             // A failed renewal fails its waiters too, so an outage costs one exchange and not one per request.
             await this.renewal
-            if (this.renewal) {
-                return this.renewal
-            }
         }
         if (rejectedToken !== undefined && this.key.token !== rejectedToken) {
             return this.key

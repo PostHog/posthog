@@ -59,6 +59,12 @@ class TestResolveGitHubRepository(SimpleTestCase):
                 _response(404, {}),
                 WorkloadSubjectLookupUnavailable,
             ),
+            (
+                "missing_repository_while_the_installation_errors",
+                _response(503, {}),
+                _response(404, {}),
+                WorkloadSubjectLookupUnavailable,
+            ),
         ]
     )
     def test_looks_up_the_repository(
@@ -83,7 +89,7 @@ class TestResolveGitHubRepository(SimpleTestCase):
             else:
                 assert resolve_github_repository(1, "git@github.com:acme/web.git") == expected
 
-        assert public.called is not isinstance(integration, MagicMock)
+        assert public.called is not (isinstance(integration, MagicMock) and integration.status_code == 200)
 
     def test_refuses_a_name_that_could_reach_another_github_endpoint(self) -> None:
         with (
@@ -141,6 +147,14 @@ class TestResolveGitLabProject(SimpleTestCase):
                 ["glpat-posthog"],
             ),
             ("gitlab_error", None, None, _response(502, {}), WorkloadSubjectLookupUnavailable, ["glpat-posthog"]),
+            (
+                "public_project_after_posthogs_token_expired",
+                None,
+                None,
+                {"glpat-posthog": _response(401, {}), None: _response(200, PUBLIC_PROJECT)},
+                ResolvedWorkloadSubject(subject="42", subject_name="Acme/Tools/Web", found_via="GitLab"),
+                ["glpat-posthog", None],
+            ),
         ]
     )
     @override_settings(GITLAB_TOKEN="glpat-posthog")
@@ -149,9 +163,9 @@ class TestResolveGitLabProject(SimpleTestCase):
         _name: str,
         integration_config: dict[str, str] | None,
         integration_response: MagicMock | None,
-        public_response: MagicMock | None,
+        public_response: MagicMock | dict[str | None, MagicMock] | None,
         expected: Any,
-        tokens: list[str],
+        tokens: list[str | None],
     ) -> None:
         integrations = (
             [MagicMock(config=integration_config, sensitive_config={"access_token": "glpat-team"})]
@@ -162,7 +176,9 @@ class TestResolveGitLabProject(SimpleTestCase):
 
         def request(method: str, url: str, *, token: str | None, **kwargs: Any) -> MagicMock | None:
             calls.append(token)
-            return integration_response if token == "glpat-team" else public_response
+            if token == "glpat-team":
+                return integration_response
+            return public_response[token] if isinstance(public_response, dict) else public_response
 
         with (
             patch(

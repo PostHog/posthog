@@ -118079,6 +118079,11 @@ export namespace Schemas {
     }
 
     /**
+     * Condition claims that a policy may set only together with at least one of the listed claims.
+     */
+    export type WorkloadProviderConditionClaimCompanions = {[key: string]: string[]};
+
+    /**
      * Condition values a policy must have for resolve_subject to find its subject. Empty when any policy works.
      */
     export type WorkloadProviderSubjectLookupConditions = {[key: string]: string};
@@ -118102,6 +118107,8 @@ export namespace Schemas {
       required_condition_claims: string[];
       /** Common choices of conditions to offer before the raw claims, in display order. */
       condition_presets: ConditionPreset[];
+      /** Condition claims that a policy may set only together with at least one of the listed claims. */
+      readonly condition_claim_companions: WorkloadProviderConditionClaimCompanions;
       /** Whether PostHog can look up the subject from its name with resolve_subject. */
       readonly can_resolve_subject: boolean;
       /** Condition values a policy must have for resolve_subject to find its subject. Empty when any policy works. */
