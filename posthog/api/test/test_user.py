@@ -3857,6 +3857,10 @@ class TestUserTwoFactor(APIBaseTest):
         self.assertEqual(second_response.json()["secret"], response.json()["secret"])
         self.assertEqual(self.client.session["django_two_factor-hex"], hex_key)
 
+        cache.clear()
+        expired_response = self.client.get(f"/api/users/@me/two_factor_start_setup/")
+        self.assertNotEqual(expired_response.json()["secret"], response.json()["secret"])
+
     @patch("posthog.api.user.send_two_factor_auth_enabled_email")
     @patch("posthog.api.user.TOTPDeviceForm")
     def test_two_factor_validation_with_valid_token(self, mock_totp_form, mock_send_email):
