@@ -19,6 +19,7 @@ from cryptography.x509.oid import NameOID
 from parameterized import parameterized
 
 from posthog.ingress.contracts import WebhookDelivery
+from posthog.ingress.dispatch.loading import reset_consumer_registry
 
 from products.workflows.backend.facade.api import accept_ses_event
 
@@ -230,3 +231,44 @@ class TestSesTenantEventsEndpoint(TestCase):
             get_mock.assert_called_once_with(subscribe_url, timeout=5)
         else:
             assert not get_mock.called
+
+
+@override_settings(WORKFLOWS_INBOUND_EMAIL_SNS_TOPIC_ARNS=[TOPIC], WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS=[TOPIC])
+class TestSesInboundEndpoint(SimpleTestCase):
+    PATH = "/webhooks/workflows/ses-inbound"
+
+    def setUp(self) -> None:
+        cache.clear()
+        reset_consumer_registry()
+        self.addCleanup(reset_consumer_registry)
+        self.addCleanup(patch.stopall)
+        patch("posthog.ingress.verify.sns_signature._fetch_signing_cert", return_value=_CERT_PEM).start()
+        self.task = patch(
+            "products.workflows.backend.services.inbound_email.webhook.process_inbound_email_task"
+        ).start()
+        self.tenant_sync = patch(
+            "products.workflows.backend.services.ses_tenant_events.sync_ses_tenant_state_task"
+        ).start()
+
+    def _post(self, message: dict[str, Any], path: str | None = None) -> Any:
+        return Client().post(path or self.PATH, data=json.dumps(_signed(message)), content_type="text/plain")
+
+    def test_enqueues_a_verified_notification_only_for_receiving(self) -> None:
+        response = self._post(_notification({"notificationType": "Received"}))
+        self.assertEqual(response.status_code, 202)
+        self.task.delay.assert_called_once_with({"notificationType": "Received"})
+        self.tenant_sync.delay.assert_not_called()
+
+    def test_a_tenant_event_never_reaches_receiving(self) -> None:
+        self._post(_notification(_eventbridge_event()), WEBHOOK_PATH)
+        self.task.delay.assert_not_called()
+
+    def test_rejects_an_unknown_topic(self) -> None:
+        response = self._post(_notification({"notificationType": "Received"}, topic="arn:aws:sns:us-east-1:1:other"))
+        self.assertEqual(response.status_code, 403)
+        self.task.delay.assert_not_called()
+
+    def test_a_failure_to_enqueue_asks_sns_to_send_it_again(self) -> None:
+        self.task.delay.side_effect = RuntimeError("broker down")
+        response = self._post(_notification({"notificationType": "Received"}))
+        self.assertEqual(response.status_code, 502)

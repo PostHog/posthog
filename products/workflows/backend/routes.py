@@ -31,6 +31,13 @@ webhook_urlpatterns: list[URLPattern] = [
         "ses-events",
         build_webhook_view(build_sns_provider(topic_arns_setting="WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS")),
     ),
+    # SES email receiving. Its own app, so these deliveries never reach the tenant events consumer above.
+    opt_slash_path(
+        "ses-inbound",
+        build_webhook_view(
+            build_sns_provider(app="ses_inbound", topic_arns_setting="WORKFLOWS_INBOUND_EMAIL_SNS_TOPIC_ARNS")
+        ),
+    ),
 ]
 
 

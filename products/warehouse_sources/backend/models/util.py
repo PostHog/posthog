@@ -810,6 +810,7 @@ _POSTHOG_OWNED_BUCKET_SETTING_NAMES = (
 # this list - this registry only backstops the credential-less-by-design tables PostHog's own code
 # creates (self-managed uploads, pipeline syncs), where the URL is known in advance.
 _BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE = {
+    "WORKFLOWS_INBOUND_EMAIL_BUCKET": "Holds raw customer email, and only the web and Celery pods read it.",
     "AGENT_BUNDLES_S3_BUCKET": "no reader found in this codebase; defaults to OBJECT_STORAGE_BUCKET",
     "AI_BLOB_S3_BUCKET": "read via posthog.storage.object_storage (boto3), by ai_observability/backend/api/ai_blob.py",
     "BATCH_EXPORTS_FILE_DOWNLOAD_BUCKET": "written via a pre-signed URL over an assumed STS role, and read via aioboto3 - never by ClickHouse",

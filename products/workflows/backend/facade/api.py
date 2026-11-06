@@ -217,6 +217,14 @@ def accept_ses_event(delivery: WebhookDelivery) -> None:
     handle_ses_tenant_event(delivery)
 
 
+def accept_ses_inbound_email(delivery: WebhookDelivery) -> None:
+    """The SES receiving SNS topic enters workflows here, so its consumer needs no internal import."""
+    # Deferred to keep the Celery task and the SNS callback client off the facade import path.
+    from products.workflows.backend.services.inbound_email.webhook import handle_inbound_email_delivery  # noqa: PLC0415
+
+    handle_inbound_email_delivery(delivery)
+
+
 def get_workflow_names(*, team_id: int, workflow_ids: Iterable[str]) -> dict[str, str]:
     """Names keyed by the workflow id as a string. Deleted workflows are left out."""
     return {

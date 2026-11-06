@@ -130,3 +130,18 @@ SES_ISP_DIMENSIONS: list[str] = [
     "Gmx",
     "Tencent",
 ]
+
+# Inbound email. SES writes each message under the intake prefix and notifies this SNS topic.
+# Empty leaves the webhook inert, for the same reason as the SES events topic above.
+WORKFLOWS_INBOUND_EMAIL_SNS_TOPIC_ARNS: list[str] = [
+    arn.strip() for arn in os.getenv("WORKFLOWS_INBOUND_EMAIL_SNS_TOPIC_ARNS", "").split(",") if arn.strip()
+]
+# Empty falls back to OBJECT_STORAGE_BUCKET, which is where local object storage keeps everything.
+WORKFLOWS_INBOUND_EMAIL_BUCKET: str = os.getenv("WORKFLOWS_INBOUND_EMAIL_BUCKET", "")
+WORKFLOWS_INBOUND_EMAIL_INTAKE_PREFIX: str = os.getenv("WORKFLOWS_INBOUND_EMAIL_INTAKE_PREFIX", "inbound-email/intake/")
+# Parent domain of ready-made receiving addresses, one per region. Empty hides that option.
+WORKFLOWS_INBOUND_EMAIL_BASE_DOMAIN: str = os.getenv("WORKFLOWS_INBOUND_EMAIL_BASE_DOMAIN", "").strip().lower()
+# Where a customer's MX record points. Follows the region SES receives in, not the sending region.
+WORKFLOWS_INBOUND_EMAIL_MX_HOST: str = os.getenv(
+    "WORKFLOWS_INBOUND_EMAIL_MX_HOST", f"inbound-smtp.{SES_REGION}.amazonaws.com"
+).lower()

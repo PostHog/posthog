@@ -164,6 +164,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
 )
 from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.facade.tasks import (
+    delete_expired_received_emails_task,
     poll_ses_account_enforcement,
     poll_ses_reputation_findings,
     recompute_workflows_email_sending_tiers,
@@ -371,6 +372,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="6", minute="30"),
         reconcile_ses_tenant_states.s(),
         name="ses tenant reputation reconciliation",
+    )
+
+    # Received email keeps for 30 days. A run deletes a bounded batch, so hourly keeps up with a backlog.
+    sender.add_periodic_task(
+        crontab(hour="*", minute="20"),
+        delete_expired_received_emails_task.s(),
+        name="expire received email",
     )
 
     # Workflow email trust tiers - daily at 7:15 AM UTC, after the tenant reconciliation above.

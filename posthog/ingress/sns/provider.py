@@ -18,7 +18,10 @@ from posthog.ingress.verify.schemes import SignatureScheme, SnsSignature
 
 SNS_EVENT_TYPES = frozenset({"SubscriptionConfirmation", "Notification", "UnsubscribeConfirmation"})
 
-SPECS = (ProviderSpec(provider="sns", app="default", event_types=SNS_EVENT_TYPES),)
+SPECS = (
+    ProviderSpec(provider="sns", app="default", event_types=SNS_EVENT_TYPES),
+    ProviderSpec(provider="sns", app="ses_inbound", event_types=SNS_EVENT_TYPES),
+)
 
 
 def topic_arns_from_setting(setting_name: str) -> frozenset[str]:

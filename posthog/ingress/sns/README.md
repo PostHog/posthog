@@ -29,9 +29,10 @@ The `TopicArn` goes into the delivery context.
 
 ## Apps and secrets
 
-One app, `default`, and no secret: SNS signs with its own certificate, so there is nothing for an operator to hold.
+Two apps, `default` and `ses_inbound`, and no secret: SNS signs with its own certificate, so there is nothing for an operator to hold.
+Each topic has its own app, because a consumer on an app receives every delivery to that app's endpoints.
 The topic allowlist is the only per-endpoint configuration, so `build_sns_provider()` takes the name of the Django setting that holds it and reads it per request.
-The SES events endpoint names `WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS`.
+The SES events endpoint names `WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS`, and the SES receiving endpoint names `WORKFLOWS_INBOUND_EMAIL_SNS_TOPIC_ARNS`.
 
 ## Quirks
 
@@ -44,4 +45,5 @@ A delivery no consumer accepted is then not receipted, which is what lets a fail
 ## Consumers
 
 `workflows_ses_events`, on the `default` app, for `SubscriptionConfirmation` and `Notification`.
+`workflows_ses_inbound`, on the `ses_inbound` app, for the same two types.
 See the [Endpoints table](../README.md#endpoints).

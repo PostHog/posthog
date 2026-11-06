@@ -589,6 +589,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Workflow email unsubscribed",
             "description": "Fires when a recipient unsubscribes from workflow emails, through the one-click unsubscribe link or the preferences page. The `category` property holds the message category they left, or `$all` when they opted out of everything.",
         },
+        "$email_received": {
+            "label": "Email received",
+            "description": "Fires when an address set up for receiving in Workflows gets an email. It holds details such as sender and subject, never the body. Filtered spam and auto-replies don't fire it.",
+        },
         "$workflows_email_tracking_consent_updated": {
             "label": "Workflow email tracking consent updated",
             "description": "Fires when a recipient changes whether workflow emails can track their opens and clicks, on the email preferences page.",
@@ -649,6 +653,136 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
     },
     "event_properties": {
+        "$email_received_id": {
+            "label": "Received email ID",
+            "description": "The received email's ID. Fetch its body and attachments from the received email API with it.",
+            "type": "String",
+        },
+        "$email_from": {
+            "label": "Email from",
+            "description": "The address in the From header of a received email. The sender can forge it unless `$email_sender_verified` is true.",
+            "type": "String",
+        },
+        "$email_from_name": {
+            "label": "Email from name",
+            "description": "The display name in the From header of a received email. The sender chooses it freely.",
+            "type": "String",
+        },
+        "$email_envelope_from": {
+            "label": "Email return path",
+            "description": "The return path of a received email.",
+            "type": "String",
+        },
+        "$email_recipient": {
+            "label": "Email recipient",
+            "description": "The address of this project that a received email was delivered to. With several, the first of `$email_recipients`.",
+            "type": "String",
+        },
+        "$email_recipients": {
+            "label": "Email recipients",
+            "description": "Every address of this project that a received email was delivered to.",
+            "type": "String",
+        },
+        "$email_to_addresses": {
+            "label": "Email to addresses",
+            "description": "The addresses in the To header of a received email.",
+            "type": "String",
+        },
+        "$email_cc_addresses": {
+            "label": "Email cc addresses",
+            "description": "The addresses in the Cc header of a received email.",
+            "type": "String",
+        },
+        "$email_subject": {
+            "label": "Email subject",
+            "description": "The subject line of a received email.",
+            "type": "String",
+        },
+        "$email_message_id": {
+            "label": "Email message ID",
+            "description": "The ID of a transactional email or a received email in the email log and its API.",
+            "type": "String",
+        },
+        "$email_internet_message_id": {
+            "label": "Email Message-ID header",
+            "description": "The Message-ID header of a received email, as the sender's mail server set it.",
+            "type": "String",
+        },
+        "$email_in_reply_to": {
+            "label": "Email in reply to",
+            "description": "The In-Reply-To header of a received email.",
+            "type": "String",
+        },
+        "$email_is_reply": {
+            "label": "Email is a reply",
+            "description": "True when a received email answers an earlier email.",
+            "type": "Boolean",
+        },
+        "$email_spf": {
+            "label": "Email SPF result",
+            "description": "What the SPF check on a received email found: `pass`, `fail`, `gray` or `processing_failed`.",
+            "type": "String",
+        },
+        "$email_dkim": {
+            "label": "Email DKIM result",
+            "description": "What the DKIM check on a received email found: `pass`, `fail`, `gray` or `processing_failed`.",
+            "type": "String",
+        },
+        "$email_dmarc": {
+            "label": "Email DMARC result",
+            "description": "What the DMARC check on a received email found: `pass`, `fail`, `gray` or `processing_failed`.",
+            "type": "String",
+        },
+        "$email_spam_verdict": {
+            "label": "Email spam verdict",
+            "description": "What the spam scan of a received email found.",
+            "type": "String",
+        },
+        "$email_virus_verdict": {
+            "label": "Email virus verdict",
+            "description": "What the virus scan of a received email found.",
+            "type": "String",
+        },
+        "$email_sender_verified": {
+            "label": "Email sender verified",
+            "description": "True when the mail server checks prove the From domain of a received email.",
+            "type": "Boolean",
+        },
+        "$email_attachment_count": {
+            "label": "Email attachment count",
+            "description": "How many attachments a received email has.",
+            "type": "Numeric",
+        },
+        "$email_size_bytes": {
+            "label": "Email size",
+            "description": "The size of a received email, in bytes.",
+            "type": "Numeric",
+        },
+        "$email_original_message_id": {
+            "label": "Email original message ID",
+            "description": "The transactional email that a received email answers. Empty when none was matched.",
+            "type": "String",
+        },
+        "$email_original_workflow_id": {
+            "label": "Email original workflow ID",
+            "description": "The workflow behind the transactional email that a received email answers.",
+            "type": "String",
+        },
+        "$email_match_method": {
+            "label": "Email match method",
+            "description": "How a received email was tied to the email it answers: `in_reply_to`, `references` or `none`.",
+            "type": "String",
+        },
+        "$email_body_included": {
+            "label": "Email body included",
+            "description": "Always false: the event holds no body. Fetch it from `$email_content_url`.",
+            "type": "Boolean",
+        },
+        "$email_content_url": {
+            "label": "Email content URL",
+            "description": "The API path that returns the body, headers and attachments of a received email.",
+            "type": "String",
+        },
         "$session_recording_masking": {
             "label": "Replay config - masking",
             "description": "The masking configuration for the session recording.",
