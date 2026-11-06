@@ -47,6 +47,11 @@ describe('formatErrorContext', () => {
             'Arguments:\n\n    {\n      "query": "select 1"\n    }',
         ],
         ['keeps non-JSON arguments as captured', 'not json', 'Arguments:\n\n    not json'],
+        [
+            'keeps arguments as captured when parsing would change them',
+            '{"id":1234567890123456789}',
+            'Arguments:\n\n    {"id":1234567890123456789}',
+        ],
     ])('%s', (_name, parameters, expected) => {
         expect(formatErrorContext({ toolName: 'query_run', errorType: 'internal', parameters })).toContain(expected)
     })

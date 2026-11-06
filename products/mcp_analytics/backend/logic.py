@@ -1000,13 +1000,25 @@ def list_mcp_tool_calls(
             is_error=str(row[4]).lower() in ("true", "1"),
             error_message=row[5] or "",
             duration_ms=_parse_int(row[6]),
-            parameters=row[7] or "",
+            parameters=_as_json_text(row[7] or ""),
             error_type=row[8] or "",
             error_status=row[9] or "",
         )
         for row in rows[:limit]
     ]
     return contracts.MCPToolCallsPage(results=results, has_next=has_next)
+
+
+def _as_json_text(value: str) -> str:
+    """HogQL property access strips a JSON string's quotes but keeps its escapes, so a captured
+    string argument arrives as an undecodable fragment. Restore the quotes to keep it valid JSON."""
+    if not value:
+        return ""
+    try:
+        json.loads(value)
+        return value
+    except ValueError:
+        return f'"{value}"'
 
 
 def _parse_int(value: str | int | None) -> int | None:

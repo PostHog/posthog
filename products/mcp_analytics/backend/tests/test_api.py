@@ -427,6 +427,13 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
                 {"query": "select 1", "limit": 5},
                 ("api_5xx", "503"),
             ),
+            ("string_argument", {"$mcp_parameters": 'say "hi"\nnow \\ done'}, 'say "hi"\nnow \\ done', ("", "")),
+            (
+                "big_integer_argument",
+                {"$mcp_parameters": {"id": 1234567890123456789}},
+                {"id": 1234567890123456789},
+                ("", ""),
+            ),
             ("nothing_captured", {}, None, ("", "")),
         ]
     )
@@ -434,7 +441,7 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         self,
         _name: str,
         extra_properties: dict[str, Any],
-        expected_parameters: dict[str, Any] | None,
+        expected_parameters: Any,
         expected_bucket: tuple[str, str],
     ) -> None:
         session_id = str(uuid7())

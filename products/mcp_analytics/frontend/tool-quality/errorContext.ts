@@ -33,11 +33,12 @@ function inlineValue(value: string): string {
     return value.replace(/\s+/g, ' ').trim()
 }
 
-// $mcp_parameters arrives as JSON text. Indent it for reading, and show anything that
-// doesn't parse exactly as captured rather than guessing at its shape.
+// $mcp_parameters arrives as compact JSON text. Indent it only when parsing reproduces that
+// text exactly: a 64-bit id, `1.10` or a duplicate key would otherwise be silently altered.
 export function formatToolArguments(parameters: string): string {
     try {
-        return JSON.stringify(JSON.parse(parameters), null, 2)
+        const parsed = JSON.parse(parameters)
+        return JSON.stringify(parsed) === parameters ? JSON.stringify(parsed, null, 2) : parameters
     } catch {
         return parameters
     }

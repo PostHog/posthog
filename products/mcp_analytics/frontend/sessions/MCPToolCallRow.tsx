@@ -39,7 +39,7 @@ export function MCPToolCallRow({
     dateFilter: DateFilter
 }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
-    const failure = toolCall.is_error ? errorContext(toolCall, sessionId) : null
+    const failure = toolCall.is_error && toolCall.tool_name ? errorContext(toolCall, sessionId) : null
 
     return (
         <li
