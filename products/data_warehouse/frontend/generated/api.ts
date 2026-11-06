@@ -49,6 +49,8 @@ import type {
     ManagedWarehouseMonitoringSnapshotResponseApi,
     ManagedWarehouseSourceSchemasResponseApi,
     ManagedWarehouseTrinoMonitoringSnapshotResponseApi,
+    MyHoglakeCredentialCreateRequestApi,
+    MyHoglakeCredentialListResponseApi,
     OnboardWarehouseTeamRequestApi,
     OnboardWarehouseTeamResponseApi,
     PaginatedDataModelingJobListApi,
@@ -704,6 +706,89 @@ export const dataWarehouseManagedWarehouseTrinoMonitoringTimeseriesRetrieve = as
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getDataWarehouseMyHoglakeCredentialsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/my-hoglake-credentials/`
+}
+
+/**
+ * Your own live hoglake OAuth credentials (never their secrets), the projects you can put in one, and where to use them.
+ * @summary List your hoglake credentials
+ */
+export const dataWarehouseMyHoglakeCredentialsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<MyHoglakeCredentialListResponseApi> => {
+    return apiMutator<MyHoglakeCredentialListResponseApi>(getDataWarehouseMyHoglakeCredentialsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataWarehouseMyHoglakeCredentialsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/my-hoglake-credentials/`
+}
+
+/**
+ * Create an OAuth client credential owned by you and limited to the projects you name. Each token it gets carries your current access on each project. The secret is in this response only.
+ * @summary Create a hoglake credential of your own
+ */
+export const dataWarehouseMyHoglakeCredentialsCreate = async (
+    projectId: string,
+    myHoglakeCredentialCreateRequestApi: MyHoglakeCredentialCreateRequestApi,
+    options?: RequestInit
+): Promise<HoglakeCredentialIssuedApi> => {
+    return apiMutator<HoglakeCredentialIssuedApi>(getDataWarehouseMyHoglakeCredentialsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(myHoglakeCredentialCreateRequestApi),
+    })
+}
+
+export const getDataWarehouseMyHoglakeCredentialsDestroyUrl = (projectId: string, credentialId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/my-hoglake-credentials/${credentialId}/`
+}
+
+/**
+ * Revoke your credential now: new tokens are refused and its S3 vends stop.
+ * @summary Revoke one of your hoglake credentials
+ */
+export const dataWarehouseMyHoglakeCredentialsDestroy = async (
+    projectId: string,
+    credentialId: string,
+    options?: RequestInit
+): Promise<HoglakeCredentialRevokedApi> => {
+    return apiMutator<HoglakeCredentialRevokedApi>(
+        getDataWarehouseMyHoglakeCredentialsDestroyUrl(projectId, credentialId),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
+}
+
+export const getDataWarehouseMyHoglakeCredentialsRotateCreateUrl = (projectId: string, credentialId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/my-hoglake-credentials/${credentialId}/rotate/`
+}
+
+/**
+ * Replace your credential's secret; the old one stops working. The new secret is in this response only.
+ * @summary Rotate one of your hoglake credentials
+ */
+export const dataWarehouseMyHoglakeCredentialsRotateCreate = async (
+    projectId: string,
+    credentialId: string,
+    options?: RequestInit
+): Promise<HoglakeCredentialIssuedApi> => {
+    return apiMutator<HoglakeCredentialIssuedApi>(
+        getDataWarehouseMyHoglakeCredentialsRotateCreateUrl(projectId, credentialId),
+        {
+            ...options,
+            method: 'POST',
         }
     )
 }

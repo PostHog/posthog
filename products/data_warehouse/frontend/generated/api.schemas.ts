@@ -308,13 +308,13 @@ export interface HoglakeCredentialListResponseApi {
 }
 
 /**
- * * `read` - read
- * * `write` - write
+ * * `read` - Read
+ * * `write` - Read & write
  */
-export type HoglakeCredentialCreateRequestScopeEnumApi =
-    (typeof HoglakeCredentialCreateRequestScopeEnumApi)[keyof typeof HoglakeCredentialCreateRequestScopeEnumApi]
+export type HoglakeCredentialScopeEnumApi =
+    (typeof HoglakeCredentialScopeEnumApi)[keyof typeof HoglakeCredentialScopeEnumApi]
 
-export const HoglakeCredentialCreateRequestScopeEnumApi = {
+export const HoglakeCredentialScopeEnumApi = {
     Read: 'read',
     Write: 'write',
 } as const
@@ -327,9 +327,9 @@ export interface HoglakeCredentialCreateRequestApi {
     name: string
     /** read lists and reads tables; write can also commit to them.
      *
-     * * `read` - read
-     * * `write` - write */
-    scope: HoglakeCredentialCreateRequestScopeEnumApi
+     * * `read` - Read
+     * * `write` - Read & write */
+    scope: HoglakeCredentialScopeEnumApi
     /**
      * Lifetime in seconds, from one hour to a year. Defaults to 90 days.
      * @minimum 3600
@@ -977,6 +977,46 @@ export interface ManagedWarehouseTrinoMonitoringSnapshotResponseApi {
     queries: ManagedWarehouseTrinoMonitoringQueryApi[]
     /** Whether the query list was capped. Totals always cover every in-flight query. */
     queries_truncated: boolean
+}
+
+export interface HoglakeProjectApi {
+    id: number
+    name: string
+    /** read or write: the most a credential gets on this project */
+    access: string
+}
+
+export interface MyHoglakeCredentialListResponseApi {
+    hoglake_credentials: HoglakeCredentialApi[]
+    connect: HoglakeConnectApi
+    /** The projects you can put in a credential */
+    projects: HoglakeProjectApi[]
+}
+
+export interface MyHoglakeCredentialCreateRequestApi {
+    /**
+     * A label for the client using this credential, e.g. 'laptop' or 'airflow'. It appears in hoglake's audit log. Letters, digits, spaces and ._:@/- only; at most 64 characters.
+     * @pattern ^[A-Za-z0-9][A-Za-z0-9 ._:@/-]{0,63}$
+     */
+    name: string
+    /** read lists and reads tables; write can also commit to them.
+     *
+     * * `read` - Read
+     * * `write` - Read & write */
+    scope: HoglakeCredentialScopeEnumApi
+    /**
+     * Lifetime in seconds, from one hour to a year. Defaults to 90 days.
+     * @minimum 3600
+     * @maximum 31536000
+     */
+    ttl_seconds?: number
+    /**
+     * The projects this credential reaches, each one you can see. Its tokens get your current access on each, so losing a project's access takes it out of the next token.
+     * @minItems 1
+     * @maxItems 200
+     * @items.minimum 1
+     */
+    team_ids: number[]
 }
 
 export interface OnboardWarehouseTeamRequestApi {

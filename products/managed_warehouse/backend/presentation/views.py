@@ -14,7 +14,7 @@ import re
 from collections.abc import Callable
 from datetime import date
 from functools import partial
-from typing import Any, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -34,6 +34,9 @@ from products.managed_warehouse.backend.facade.access import (
 )
 from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG, MANAGED_TRINO_QUERY_FLAG
 from products.managed_warehouse.backend.presentation import hogtower
+
+if TYPE_CHECKING:
+    from posthog.models import Organization, User
 
 logger = structlog.get_logger(__name__)
 
@@ -1501,7 +1504,7 @@ def _log_hoglake_action(
     """The audit line for a hoglake credential change. Never the secret: only ids and scope."""
     if not status.is_success(resp.status_code):
         return
-    if action != "revoke_hoglake_credential" and isinstance(resp.data, dict):
+    if not action.startswith("revoke_") and isinstance(resp.data, dict):
         fields.setdefault("credential_id", str(resp.data.get("client_id", "")))
     logger.info(
         "managed_warehouse_action",
@@ -1510,6 +1513,132 @@ def _log_hoglake_action(
         organization_id=str(organization_id),
         **fields,
     )
+
+
+# --- personal hoglake credentials -------------------------------------------------------
+#
+# A member's own credentials: owned by them and limited to projects they choose among the
+# ones they can see. hogtower narrows every token to the owner's current projects and
+# levels (its copy of them is the member-teams push), so these never reach further than
+# the member can in PostHog. hogtower does not check who rotates or revokes one, so every
+# call here is held to the caller's own credentials.
+
+
+def _personal_credentials_off() -> Response | None:
+    if (refused := _hogtower_only()) is not None:
+        return refused
+    from products.managed_warehouse.backend.facade.member_teams import member_teams_push_enabled
+
+    # Without the push, hogtower holds no projects for anyone and refuses every create.
+    if not member_teams_push_enabled():
+        return Response(
+            {"error": "Personal hoglake credentials are not available in this region yet"},
+            status=status.HTTP_501_NOT_IMPLEMENTED,
+        )
+    return None
+
+
+def _my_hoglake_credentials(organization_id: UUID | str, user_uuid: str) -> Response:
+    return _request("GET", organization_id, "/hoglake-credentials", params={"owner_user_uuid": user_uuid})
+
+
+def _my_projects(organization: "Organization", user: "User") -> list[dict[str, Any]]:
+    """The projects ``user`` may put in a personal credential, with the access it would get."""
+    from posthog.models import Team
+
+    from products.managed_warehouse.backend.facade.member_teams import visible_member_teams
+
+    teams = visible_member_teams(organization, user)
+    names = dict(Team.objects.filter(organization_id=organization.id, id__in=teams).values_list("id", "name"))
+    return [
+        {"id": team_id, "name": names.get(team_id, str(team_id)), "access": teams[team_id]} for team_id in sorted(teams)
+    ]
+
+
+def list_my_hoglake_credentials(organization: "Organization", user: "User") -> Response:
+    if (refused := _personal_credentials_off()) is not None:
+        return refused
+    resp = _my_hoglake_credentials(organization.id, str(user.uuid))
+    if status.is_success(resp.status_code) and isinstance(resp.data, dict):
+        resp.data["connect"] = _hoglake_connect(organization.id)
+        resp.data["projects"] = _my_projects(organization, user)
+    return resp
+
+
+def create_my_hoglake_credential(
+    organization: "Organization",
+    user: "User",
+    *,
+    name: str,
+    scope: str,
+    team_ids: list[int],
+    ttl_seconds: int | None,
+    triggered_by: str,
+) -> Response:
+    if (refused := _personal_credentials_off()) is not None:
+        return refused
+    from products.managed_warehouse.backend.facade.member_teams import refresh_member_teams, visible_member_teams
+
+    visible = visible_member_teams(organization, user)
+    if hidden := sorted(set(team_ids) - visible.keys()):
+        return Response(
+            {"error": f"You can't use project {', '.join(map(str, hidden))} in a hoglake credential"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    # hogtower checks the projects against its own copy of the member's. Bring it current
+    # first, so a project granted moments ago is not refused while its push is queued.
+    refresh_member_teams(str(organization.id), str(user.uuid))  # on failure, hogtower answers from its copy
+    body: dict[str, Any] = {
+        "name": name,
+        "scope": scope,
+        "owner_user_uuid": str(user.uuid),
+        "team_ids": sorted(set(team_ids)),
+    }
+    if ttl_seconds:
+        body["ttl_seconds"] = ttl_seconds
+    resp = _request("POST", organization.id, "/hoglake-credentials", json_body=body)
+    _log_hoglake_action(resp, "create_my_hoglake_credential", organization.id, triggered_by, scope=scope)
+    return resp
+
+
+def _not_mine(organization_id: UUID | str, user: "User", credential_id: str) -> Response | None:
+    """None when ``credential_id`` is one of ``user``'s live personal credentials; otherwise the
+    response to send instead: 404, or hogtower's error when it could not list them."""
+    resp = _my_hoglake_credentials(organization_id, str(user.uuid))
+    if not status.is_success(resp.status_code) or not isinstance(resp.data, dict):
+        return resp
+    for c in resp.data.get("hoglake_credentials") or []:
+        if c.get("client_id") == credential_id and c.get("kind") == "team" and not c.get("revoked_at"):
+            return None
+    return Response({"error": "You have no such hoglake credential"}, status=status.HTTP_404_NOT_FOUND)
+
+
+def rotate_my_hoglake_credential(
+    organization: "Organization", user: "User", credential_id: str, *, triggered_by: str
+) -> Response:
+    if (refused := _personal_credentials_off()) is not None:
+        return refused
+    if (refused := _not_mine(organization.id, user, credential_id)) is not None:
+        return refused
+    resp = _request("POST", organization.id, f"/hoglake-credentials/{credential_id}/rotate")
+    _log_hoglake_action(
+        resp, "rotate_my_hoglake_credential", organization.id, triggered_by, credential_id=credential_id
+    )
+    return resp
+
+
+def revoke_my_hoglake_credential(
+    organization: "Organization", user: "User", credential_id: str, *, triggered_by: str
+) -> Response:
+    if (refused := _personal_credentials_off()) is not None:
+        return refused
+    if (refused := _not_mine(organization.id, user, credential_id)) is not None:
+        return refused
+    resp = _request("DELETE", organization.id, f"/hoglake-credentials/{credential_id}")
+    _log_hoglake_action(
+        resp, "revoke_my_hoglake_credential", organization.id, triggered_by, credential_id=credential_id
+    )
+    return resp
 
 
 def _update_direct_connection_password(organization_id: UUID | str, password: str) -> None:

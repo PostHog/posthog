@@ -21,6 +21,7 @@ import type {
 
 import { dataWarehouseSceneLogic } from '../dataWarehouseSceneLogic'
 import { HoglakeCredentials } from './HoglakeCredentials'
+import { MyHoglakeCredentials } from './MyHoglakeCredentials'
 import { TrinoConnectionDetails } from './TrinoConnectionDetails'
 import { trinoCombinedStatus } from './trinoWarehouseStatus'
 import type { TrinoCombinedState } from './trinoWarehouseStatus'
@@ -369,6 +370,8 @@ export function SettingsTab(): JSX.Element {
                         : isReady &&
                           teamOnboarded &&
                           warehouseStatus?.connection && <ConnectionDetails connection={warehouseStatus.connection} />}
+
+                    {isTrino && isReady && trinoStatus?.state === 'ready' && <MyHoglakeCredentials />}
 
                     {isTrino && isReady && trinoStatus?.state === 'ready' && <HoglakeCredentials />}
 

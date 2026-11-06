@@ -771,3 +771,143 @@ def test_list_names_owners_only_from_the_organizations_members() -> None:
 
     assert (creds[0]["owner_name"], creds[0]["owner_email"]) == ("Mia", "member@acme.test")
     assert "owner_email" not in creds[1] and "owner_email" not in creds[2]
+
+
+_MT = "products.managed_warehouse.backend.member_teams"
+
+
+class TestHoglakeCredentialListOwnerFilter:
+    @_routes({("GET", f"{W}/hoglake-credentials"): (200, {"hoglake_credentials": []})})
+    def test_forwards_only_the_owner(self, fake: FakeHogtower) -> None:
+        _mapped("GET", "/hoglake-credentials", params={"owner_user_uuid": "u-1", "kind": "org"})
+        _mapped("GET", "/hoglake-credentials")
+
+        assert [c["params"] for c in fake.calls] == [{"owner_user_uuid": "u-1"}, None]
+
+
+@pytest.mark.django_db
+@patch("products.managed_warehouse.backend.presentation.views.is_enabled", return_value=True)
+@patch(f"{_MT}.is_enabled", return_value=True)
+class TestMyHoglakeCredentials:
+    @pytest.fixture(autouse=True)
+    def _setup(self):
+        from posthog.models import Organization, Team, User
+
+        self.org = Organization.objects.create(id=ORG, name="acme")
+        self.team = Team.objects.create(organization=self.org, name="Prod")
+        self.user = User.objects.create_and_join(self.org, "mia@acme.test", None)
+        self.mine = {**_TEAM_HLC_ROW, "owner_user_uuid": str(self.user.uuid), "team_ids": [self.team.id]}
+        with (
+            override_settings(HOGLAKE_OAUTH_TOKEN_URL="https://hogtower-oauth.example.test/oauth/token"),
+            patch(f"{_MT}.member_teams", return_value={self.team.id: "write"}),
+            patch(f"{_MT}.push_member") as self.push,
+        ):
+            yield
+
+    def _list_route(self, rows):
+        return {("GET", f"{W}/hoglake-credentials"): (200, {"hoglake_credentials": rows})}
+
+    @_routes({("GET", f"{W}/hoglake-credentials"): (200, {"hoglake_credentials": []})})
+    def test_list_is_the_callers_own_with_their_projects(
+        self, _push_on: MagicMock, _enabled: MagicMock, fake: FakeHogtower
+    ) -> None:
+        resp = managed_warehouse.list_my_hoglake_credentials(self.org, self.user)
+
+        assert resp.status_code == 200
+        assert fake.calls[0]["params"] == {"owner_user_uuid": str(self.user.uuid)}
+        assert resp.data["projects"] == [{"id": self.team.id, "name": "Prod", "access": "write"}]
+        assert resp.data["connect"]["catalog"] == ORG
+
+    @_routes({("POST", f"{W}/hoglake-credentials"): (201, {**_HLC_ISSUED, "kind": "team"})})
+    def test_create_owns_it_and_brings_hogtowers_copy_current_first(
+        self, _push_on: MagicMock, _enabled: MagicMock, fake: FakeHogtower
+    ) -> None:
+        resp = managed_warehouse.create_my_hoglake_credential(
+            self.org,
+            self.user,
+            name="laptop",
+            scope="read",
+            team_ids=[self.team.id, self.team.id],
+            ttl_seconds=None,
+            triggered_by=PRINCIPAL,
+        )
+
+        assert resp.status_code == 201
+        self.push.assert_called_once_with(ORG, str(self.user.uuid))
+        assert fake.calls[0]["json"] == {
+            "name": "laptop",
+            "scope": "read",
+            "owner_user_uuid": str(self.user.uuid),
+            "team_ids": [self.team.id],
+        }
+
+    @_routes({("POST", f"{W}/hoglake-credentials"): (201, _HLC_ISSUED)})
+    def test_create_refuses_a_project_the_caller_cannot_see(
+        self, _push_on: MagicMock, _enabled: MagicMock, fake: FakeHogtower
+    ) -> None:
+        resp = managed_warehouse.create_my_hoglake_credential(
+            self.org,
+            self.user,
+            name="laptop",
+            scope="read",
+            team_ids=[self.team.id, 999999],
+            ttl_seconds=None,
+            triggered_by=PRINCIPAL,
+        )
+
+        assert resp.status_code == 403
+        assert fake.calls == []
+        self.push.assert_not_called()
+
+    @_routes({("POST", f"{W}/hoglake-credentials"): (201, _HLC_ISSUED)})
+    def test_create_goes_ahead_when_the_push_fails(
+        self, _push_on: MagicMock, _enabled: MagicMock, fake: FakeHogtower
+    ) -> None:
+        from products.managed_warehouse.backend.member_teams import MemberTeamsPushError
+
+        self.push.side_effect = MemberTeamsPushError("hogtower unreachable")
+        resp = managed_warehouse.create_my_hoglake_credential(
+            self.org,
+            self.user,
+            name="laptop",
+            scope="read",
+            team_ids=[self.team.id],
+            ttl_seconds=None,
+            triggered_by=PRINCIPAL,
+        )
+
+        assert resp.status_code == 201
+
+    @pytest.mark.parametrize("action", ["rotate", "revoke"])
+    def test_rotate_and_revoke_only_the_callers_own(
+        self, _push_on: MagicMock, _enabled: MagicMock, action: str
+    ) -> None:
+        call = getattr(managed_warehouse, f"{action}_my_hoglake_credential")
+        theirs = "hlc_00000000000000000000000a"
+        routes = {
+            **self._list_route([self.mine]),
+            ("POST", f"{W}/hoglake-credentials/{_TEAM_HLC}/rotate"): (200, _HLC_ISSUED),
+            ("DELETE", f"{W}/hoglake-credentials/{_TEAM_HLC}"): (200, {"revoked": _TEAM_HLC}),
+        }
+        fake = FakeHogtower(routes)
+        with (
+            HOGTOWER,
+            patch(
+                "products.managed_warehouse.backend.presentation.hogtower.internal_requests.request", side_effect=fake
+            ),
+        ):
+            refused = call(self.org, self.user, theirs, triggered_by=PRINCIPAL)
+            assert refused.status_code == 404
+            assert [c["method"] for c in fake.calls] == ["GET"]
+
+            done = call(self.org, self.user, _TEAM_HLC, triggered_by=PRINCIPAL)
+
+        assert done.status_code == 200
+        assert fake.calls[-1]["method"] == ("POST" if action == "rotate" else "DELETE")
+
+    def test_off_without_the_member_push(self, _push_on: MagicMock, _enabled: MagicMock) -> None:
+        _push_on.return_value = False
+
+        resp = managed_warehouse.list_my_hoglake_credentials(self.org, self.user)
+
+        assert resp.status_code == 501

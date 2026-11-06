@@ -12,12 +12,12 @@ import {
     dataWarehouseHoglakeCredentialsRotateCreate,
 } from 'products/data_warehouse/frontend/generated/api'
 import type {
-    HoglakeCredentialCreateRequestScopeEnumApi,
+    HoglakeCredentialScopeEnumApi,
     HoglakeCredentialIssuedApi,
     HoglakeCredentialListResponseApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
 
-export type HoglakeCredentialScope = HoglakeCredentialCreateRequestScopeEnumApi
+export type HoglakeCredentialScope = HoglakeCredentialScopeEnumApi
 
 const currentProjectId = (): string => String(teamLogic.values.currentTeamId)
 

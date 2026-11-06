@@ -40,9 +40,9 @@ export const DataWarehouseHoglakeCredentialsCreateBody = /* @__PURE__ */ zod.obj
         ),
     scope: zod
         .enum(['read', 'write'])
-        .describe('\* `read` - read\n\* `write` - write')
+        .describe('\* `read` - Read\n\* `write` - Read & write')
         .describe(
-            'read lists and reads tables; write can also commit to them.\n\n\* `read` - read\n\* `write` - write'
+            'read lists and reads tables; write can also commit to them.\n\n\* `read` - Read\n\* `write` - Read & write'
         ),
     ttl_seconds: zod
         .number()
@@ -50,6 +50,46 @@ export const DataWarehouseHoglakeCredentialsCreateBody = /* @__PURE__ */ zod.obj
         .max(dataWarehouseHoglakeCredentialsCreateBodyTtlSecondsMax)
         .optional()
         .describe('Lifetime in seconds, from one hour to a year. Defaults to 90 days.'),
+})
+
+/**
+ * Create an OAuth client credential owned by you and limited to the projects you name. Each token it gets carries your current access on each project. The secret is in this response only.
+ * @summary Create a hoglake credential of your own
+ */
+export const dataWarehouseMyHoglakeCredentialsCreateBodyNameRegExp = new RegExp(
+    '^[A-Za-z0-9][A-Za-z0-9 ._:@\/-]{0,63}$'
+)
+export const dataWarehouseMyHoglakeCredentialsCreateBodyTtlSecondsMin = 3600
+export const dataWarehouseMyHoglakeCredentialsCreateBodyTtlSecondsMax = 31536000
+
+export const dataWarehouseMyHoglakeCredentialsCreateBodyTeamIdsMax = 200
+
+export const DataWarehouseMyHoglakeCredentialsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .regex(dataWarehouseMyHoglakeCredentialsCreateBodyNameRegExp)
+        .describe(
+            "A label for the client using this credential, e.g. 'laptop' or 'airflow'. It appears in hoglake's audit log. Letters, digits, spaces and ._:@\/- only; at most 64 characters."
+        ),
+    scope: zod
+        .enum(['read', 'write'])
+        .describe('\* `read` - Read\n\* `write` - Read & write')
+        .describe(
+            'read lists and reads tables; write can also commit to them.\n\n\* `read` - Read\n\* `write` - Read & write'
+        ),
+    ttl_seconds: zod
+        .number()
+        .min(dataWarehouseMyHoglakeCredentialsCreateBodyTtlSecondsMin)
+        .max(dataWarehouseMyHoglakeCredentialsCreateBodyTtlSecondsMax)
+        .optional()
+        .describe('Lifetime in seconds, from one hour to a year. Defaults to 90 days.'),
+    team_ids: zod
+        .array(zod.number().min(1))
+        .min(1)
+        .max(dataWarehouseMyHoglakeCredentialsCreateBodyTeamIdsMax)
+        .describe(
+            "The projects this credential reaches, each one you can see. Its tokens get your current access on each, so losing a project's access takes it out of the next token."
+        ),
 })
 
 /**

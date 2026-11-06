@@ -394,8 +394,13 @@ def _revoke_credential(call: _Call, credential_id: str) -> TranslatedResponse:
 
 
 def _list_hoglake_credentials(call: _Call) -> TranslatedResponse:
-    """GET /hoglake-credentials -> v2 GET /warehouses/:id/hoglake-credentials (never a secret)."""
-    return call.send("GET", f"{call.warehouse}/hoglake-credentials")
+    """GET /hoglake-credentials -> v2 GET /warehouses/:id/hoglake-credentials (never a secret).
+
+    ``owner_user_uuid`` keeps only that member's personal credentials; nothing else is forwarded.
+    """
+    owner = (call.params or {}).get("owner_user_uuid")
+    params = {"owner_user_uuid": str(owner)} if owner else None
+    return call.send("GET", f"{call.warehouse}/hoglake-credentials", params=params)
 
 
 def _create_hoglake_credential(call: _Call) -> TranslatedResponse:

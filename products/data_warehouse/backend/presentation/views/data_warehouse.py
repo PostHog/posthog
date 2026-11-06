@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from django.core.cache import cache
 from django.db import connection
-from django.db.models import Count, OuterRef, Q, QuerySet, Subquery, Sum
+from django.db.models import Count, OuterRef, Q, QuerySet, Subquery, Sum, TextChoices
 from django.db.models.functions import TruncDate, TruncHour
 
 import structlog
@@ -237,6 +237,11 @@ FAILING_SCHEMA_STATUSES = [ExternalDataSchemaStatus.FAILED, *BILLING_LIMITED_SCH
 _HOGLAKE_CREDENTIAL_ID = r"hlc_[0-9a-f]{8,64}"
 
 
+class HoglakeCredentialScope(TextChoices):
+    READ = "read", "Read"
+    WRITE = "write", "Read & write"
+
+
 class HoglakeCredentialCreateRequestSerializer(serializers.Serializer):
     name = serializers.RegexField(
         r"^[A-Za-z0-9][A-Za-z0-9 ._:@/-]{0,63}$",
@@ -244,7 +249,8 @@ class HoglakeCredentialCreateRequestSerializer(serializers.Serializer):
         "hoglake's audit log. Letters, digits, spaces and ._:@/- only; at most 64 characters.",
     )
     scope = serializers.ChoiceField(
-        choices=["read", "write"], help_text="read lists and reads tables; write can also commit to them."
+        choices=HoglakeCredentialScope.choices,
+        help_text="read lists and reads tables; write can also commit to them.",
     )
     ttl_seconds = serializers.IntegerField(
         required=False,
@@ -297,6 +303,28 @@ class HoglakeCredentialIssuedSerializer(serializers.Serializer):
 
 class HoglakeCredentialRevokedSerializer(serializers.Serializer):
     revoked = serializers.CharField(help_text="The revoked client_id")
+
+
+class MyHoglakeCredentialCreateRequestSerializer(HoglakeCredentialCreateRequestSerializer):
+    team_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        min_length=1,
+        max_length=200,
+        help_text="The projects this credential reaches, each one you can see. Its tokens get your current "
+        "access on each, so losing a project's access takes it out of the next token.",
+    )
+
+
+class HoglakeProjectSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    access = serializers.CharField(help_text="read or write: the most a credential gets on this project")
+
+
+class MyHoglakeCredentialListResponseSerializer(serializers.Serializer):
+    hoglake_credentials = HoglakeCredentialSerializer(many=True)
+    connect = HoglakeConnectSerializer()
+    projects = HoglakeProjectSerializer(many=True, help_text="The projects you can put in a credential")
 
 
 class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -363,10 +391,15 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return None
 
     def dangerously_get_required_scopes(self, request: Request, view: viewsets.ViewSet) -> list[str] | None:
-        # GET and POST /hoglake-credentials share one route (see hoglake_credentials).
+        # GET and POST /hoglake-credentials share one route (see hoglake_credentials), and so do
+        # GET and POST /my-hoglake-credentials.
         if self.action == "hoglake_credentials":
             return ["warehouse_view:read"]
         if self.action == "create_hoglake_credential":
+            return ["warehouse_view:write"]
+        if self.action == "my_hoglake_credentials":
+            return ["warehouse_view:read"]
+        if self.action == "create_my_hoglake_credential":
             return ["warehouse_view:write"]
         return None
 
@@ -1815,6 +1848,73 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return admin_error
         return managed_warehouse.revoke_hoglake_credential(
             self.team.organization_id, credential_id, triggered_by=self._audit_principal(request)
+        )
+
+    @extend_schema(
+        responses={200: MyHoglakeCredentialListResponseSerializer},
+        summary="List your hoglake credentials",
+        description="Your own live hoglake OAuth credentials (never their secrets), the projects you can put "
+        "in one, and where to use them.",
+    )
+    # Scopes split by dangerously_get_required_scopes, as for hoglake_credentials.
+    @action(methods=["GET"], detail=False, url_path="my-hoglake-credentials")
+    def my_hoglake_credentials(self, request: Request, **kwargs) -> Response:
+        return managed_warehouse.list_my_hoglake_credentials(self.team.organization, cast(User, request.user))
+
+    @extend_schema(
+        request=MyHoglakeCredentialCreateRequestSerializer,
+        responses={201: HoglakeCredentialIssuedSerializer},
+        summary="Create a hoglake credential of your own",
+        description="Create an OAuth client credential owned by you and limited to the projects you name. "
+        "Each token it gets carries your current access on each project. The secret is in this response only.",
+    )
+    @my_hoglake_credentials.mapping.post
+    def create_my_hoglake_credential(self, request: Request, **kwargs) -> Response:
+        body = MyHoglakeCredentialCreateRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        return managed_warehouse.create_my_hoglake_credential(
+            self.team.organization,
+            cast(User, request.user),
+            name=body.validated_data["name"],
+            scope=body.validated_data["scope"],
+            team_ids=body.validated_data["team_ids"],
+            ttl_seconds=body.validated_data.get("ttl_seconds"),
+            triggered_by=self._audit_principal(request),
+        )
+
+    @extend_schema(
+        request=None,
+        responses={200: HoglakeCredentialIssuedSerializer},
+        summary="Rotate one of your hoglake credentials",
+        description="Replace your credential's secret; the old one stops working. The new secret is in this "
+        "response only.",
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path=rf"my-hoglake-credentials/(?P<credential_id>{_HOGLAKE_CREDENTIAL_ID})/rotate",
+        required_scopes=["warehouse_view:write"],
+    )
+    def rotate_my_hoglake_credential(self, request: Request, credential_id: str, **kwargs) -> Response:
+        return managed_warehouse.rotate_my_hoglake_credential(
+            self.team.organization, cast(User, request.user), credential_id, triggered_by=self._audit_principal(request)
+        )
+
+    @extend_schema(
+        request=None,
+        responses={200: HoglakeCredentialRevokedSerializer},
+        summary="Revoke one of your hoglake credentials",
+        description="Revoke your credential now: new tokens are refused and its S3 vends stop.",
+    )
+    @action(
+        methods=["DELETE"],
+        detail=False,
+        url_path=rf"my-hoglake-credentials/(?P<credential_id>{_HOGLAKE_CREDENTIAL_ID})",
+        required_scopes=["warehouse_view:write"],
+    )
+    def revoke_my_hoglake_credential(self, request: Request, credential_id: str, **kwargs) -> Response:
+        return managed_warehouse.revoke_my_hoglake_credential(
+            self.team.organization, cast(User, request.user), credential_id, triggered_by=self._audit_principal(request)
         )
 
     @extend_schema(
