@@ -639,8 +639,6 @@ describe('SesWebhookHandler', () => {
         }
     )
 
-    // The reported recipient comes from the receiving server's report, so only an address the send went to
-    // may reach the team's suppression list.
     it.each([
         [
             'Permanent bounce',

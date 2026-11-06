@@ -280,7 +280,6 @@ const mailboxAddresses = (entries: string[]): Set<string> =>
 
 const toHeaderAddresses = (rec: SesEventRecord): Set<string> => mailboxAddresses(rec.mail.commonHeaders?.to ?? [])
 
-// A rise here means real bounces or complaints no longer reach the suppression list, which nothing else shows.
 const sesRecipientsNotSentToCounter = new Counter({
     name: 'email_tracking_recipients_not_sent_to_total',
     help: 'Bounce and complaint recipients left out of suppression because the email was not sent to them',
