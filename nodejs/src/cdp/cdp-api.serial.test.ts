@@ -118,6 +118,7 @@ describe('CDP API', () => {
             SITE_URL: 'http://localhost:8000',
         })
         hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
+        hub.CDP_EMAIL_ATTACHMENTS_ENABLED = true
         team = await getFirstTeam(hub.postgres)
 
         cdpDeps = createCdpConsumerDeps(hub)
@@ -2678,6 +2679,42 @@ describe('CDP API', () => {
                 }
             } finally {
                 hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
+            }
+        })
+
+        it('refuses a new code send with files while attachments are off, and still replays one sent before', async () => {
+            const sentBefore = {
+                ...body,
+                idempotency_key: `key-${new UUIDT().toString()}`,
+                send: { ...codeSend, attachments: [attachment()] },
+            }
+            const accepted = await sendAccepted(hogFlow.id, sentBefore)
+            hub.CDP_EMAIL_ATTACHMENTS_ENABLED = false
+            const filename = `report-${new UUIDT().toString()}.pdf`
+            const refusedKey = `key-${new UUIDT().toString()}`
+
+            try {
+                const replay = await sendAccepted(hogFlow.id, sentBefore)
+                const refused = await sendAccepted(hogFlow.id, {
+                    ...body,
+                    idempotency_key: refusedKey,
+                    send: { ...codeSend, attachments: [attachment({ filename })] },
+                })
+                const withoutFiles = await sendAccepted(hogFlow.id, {
+                    ...body,
+                    idempotency_key: refusedKey,
+                    send: codeSend,
+                })
+
+                expect(replay.body).toMatchObject({ invocation_id: accepted.body.invocation_id, replayed: true })
+                expect(refused.status).toEqual(400)
+                expect(parseJSON(refused.body.error)).toEqual([
+                    expect.objectContaining({ code: 'unrecognized_keys', keys: ['attachments'], path: ['send'] }),
+                ])
+                expect(await storedAttachments(filename)).toEqual([])
+                expect(withoutFiles.status).toEqual(202)
+            } finally {
+                hub.CDP_EMAIL_ATTACHMENTS_ENABLED = true
             }
         })
 

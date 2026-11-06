@@ -1,21 +1,27 @@
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import cast
+from typing import TypeVar, cast
 
+from django import forms
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.staticfiles import finders
-from django.db.models import Q
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseRedirect
+from django.core.exceptions import PermissionDenied
+from django.db.models import Model, Q
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseRedirect, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.views.decorators.http import require_safe
 
 import structlog
 
 from posthog.admin.console.bridge import QueuedMessages
+from posthog.admin.console.confirm import ConfirmationToken
 from posthog.admin.console.panels import Fact, Operation, Panel, Tone
+from posthog.admin.console.records import RECORD_TYPES, RecordLink, RecordType
 from posthog.admin.console.registry import console
-from posthog.admin.console.tools import ConsoleTool
+from posthog.admin.console.tools import ConsoleTool, Page, ToolOperation
 from posthog.dataclasses import frozen
 from posthog.git import get_git_commit_short
 from posthog.models.team.team import Team
@@ -23,15 +29,39 @@ from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
+R = TypeVar("R")
+
 SEARCH_LIMIT = 25
 RECENT_TEAMS_LIMIT = 8
+
+
+@frozen
+class RenderedOperation:
+    operation: Operation | ToolOperation
+    url: str
+    # False when the operation's gate keeps this staff member out. The page shows it disabled, with who may run it.
+    allowed: bool
 
 
 @frozen
 class RenderedPanel:
     panel: Panel
     facts: list[Fact]
-    operations: list[Operation]
+    operations: list[RenderedOperation]
+
+
+@frozen
+class OperationTarget:
+    """What an operation page acts on: a record, or a tool when the operation is not about one record."""
+
+    kicker: str
+    title: str
+    badge: str
+    subtitle: str
+    back_url: str
+    breadcrumbs: tuple[RecordLink, ...]
+    # The submit button names a record ("Suspend for Acme"), so staff see which one they are about to change.
+    is_record: bool
 
 
 @frozen
@@ -127,7 +157,7 @@ def console_home(request: HttpRequest) -> HttpResponse:
     if len(teams) == 1:
         if not query.isdigit():
             messages.info(request, f'Opened the only team that matches "{query}".')
-        return redirect("admin_console_team", team_id=teams[0].pk)
+        return redirect("admin_console_team", pk=teams[0].pk)
     return render(
         request,
         "admin_console/home.html",
@@ -142,19 +172,54 @@ def console_home(request: HttpRequest) -> HttpResponse:
     )
 
 
-def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:
-    team = get_object_or_404(Team.objects.select_related("organization"), pk=team_id)
-    RecentTeams.remember(request, team)
+def _record_type(record: str) -> RecordType:
+    record_type = RECORD_TYPES.get(record)
+    if record_type is None:
+        raise Http404("Unknown console record type")
+    return record_type
+
+
+def _record_context(record_type: RecordType, obj: Model) -> dict[str, object]:
+    return {
+        **ConsoleEnvironment.context(),
+        "record_type": record_type,
+        "obj": obj,
+        "record_title": record_type.title(obj),
+        "record_subtitle": record_type.subtitle(obj),
+        "record_url": record_type.url(obj),
+        "record_parents": record_type.parents(obj),
+    }
+
+
+def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse:
+    record_type = _record_type(record)
+    obj = get_object_or_404(record_type.queryset(), pk=pk)
+    if isinstance(obj, Team):
+        RecentTeams.remember(request, obj)
     panels = [
-        RenderedPanel(panel=panel, facts=panel.facts(team), operations=panel.operations(team))
-        for panel in console.panels_for("team")
+        RenderedPanel(
+            panel=panel,
+            facts=panel.facts(obj),
+            operations=[
+                RenderedOperation(
+                    operation=operation,
+                    url=reverse(
+                        record_type.operation_url_name,
+                        kwargs={"pk": obj.pk, "panel_key": panel.key, "operation_key": operation.key},
+                    ),
+                    allowed=_is_allowed(request, operation),
+                )
+                for operation in panel.operations(obj)
+            ],
+        )
+        for panel in console.panels_for(record_type.key)
     ]
     return render(
         request,
-        "admin_console/team.html",
+        "admin_console/record.html",
         {
-            **ConsoleEnvironment.context(),
-            "team": team,
+            **_record_context(record_type, obj),
+            "record_links": record_type.links(obj),
             "attention": [
                 AttentionItem(panel=rendered.panel, fact=fact)
                 for rendered in panels
@@ -167,88 +232,249 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:
     )
 
 
-def _is_offered(panel: Panel, team: Team, operation_key: str) -> bool:
-    return any(operation.key == operation_key for operation in panel.operations(team))
+def _is_offered(panel: Panel, obj: Model, operation_key: str) -> bool:
+    return any(operation.key == operation_key for operation in panel.operations(obj))
 
 
-def _find_operation(panel: Panel, team: Team, operation_key: str) -> Operation:
+def _find_operation(panel: Panel, obj: Model, operation_key: str) -> Operation:
     # Look the operation up in what the panel offers now, so a stale form cannot run an operation the
     # current state no longer allows, for example suspending a team that is already suspended.
-    for operation in panel.operations(team):
+    for operation in panel.operations(obj):
         if operation.key == operation_key:
             return operation
-    raise Http404("This operation is not available for this team right now")
+    raise Http404("This operation is not available for this record right now")
 
 
-def run_team_operation(request: HttpRequest, team_id: int, panel_key: str, operation_key: str) -> HttpResponse:
-    team = get_object_or_404(Team.objects.select_related("organization"), pk=team_id)
-    panel = console.get_panel("team", panel_key)
+def _is_allowed(request: HttpRequest, operation: Operation | ToolOperation) -> bool:
+    return operation.gate is None or operation.gate.allows(request)
+
+
+def _require_gate(request: HttpRequest, operation: Operation | ToolOperation, audit: structlog.BoundLogger) -> None:
+    # The page only disables the button. This check is the one that keeps a hand-built request out.
+    if operation.gate is not None and not operation.gate.allows(request):
+        audit.warning("admin_console_operation_denied", method=request.method)
+        raise PermissionDenied(f"{operation.label} needs {operation.gate.label}")
+
+
+def _audited(audit: structlog.BoundLogger, run: Callable[[], R]) -> R:
+    audit.info("admin_console_operation_started")
+    try:
+        result = run()
+    except Exception:
+        audit.exception("admin_console_operation_crashed")
+        raise
+    status = result.status_code if isinstance(result, HttpResponse) else None
+    audit.info("admin_console_operation_finished", status=status, result_page=isinstance(result, Page))
+    return result
+
+
+def _operation_context(
+    target: OperationTarget, operation: Operation | ToolOperation, form: forms.Form | None, request: HttpRequest
+) -> dict[str, object]:
+    return {
+        **ConsoleEnvironment.context(),
+        "target": target,
+        "operation": operation,
+        "form": form,
+        # Templates call callables, so the preview handler cannot be tested there directly.
+        "has_preview": getattr(operation, "preview", None) is not None,
+        # Handlers that move money or send messages build an idempotency key from it, so a double submit runs once.
+        "form_nonce": request.POST.get("form_nonce") or str(uuid.uuid4()),
+    }
+
+
+def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str, operation_key: str) -> HttpResponse:
+    record_type = _record_type(record)
+    obj = get_object_or_404(record_type.queryset(), pk=pk)
+    panel = console.get_panel(record_type.key, panel_key)
     if panel is None:
         raise Http404("Unknown console panel")
-    operation = _find_operation(panel, team, operation_key)
-    team_url = reverse("admin_console_team", kwargs={"team_id": team.pk})
+    operation = _find_operation(panel, obj, operation_key)
+    record_url = record_type.url(obj)
 
     if request.method not in ("GET", "POST"):
         return HttpResponseNotAllowed(["GET", "POST"])
+    audit = logger.bind(
+        record=record_type.key,
+        record_id=str(obj.pk),
+        panel=panel.key,
+        operation=operation.key,
+        triggered_by=cast(User, request.user).email,
+    )
+    _require_gate(request, operation, audit)
     if request.method == "GET" and operation.form_class is None:
-        return redirect(team_url)
+        return redirect(record_url)
 
     form = None
     if operation.form_class is not None:
         form = operation.form_class(request.POST if request.method == "POST" else None, initial=operation.form_initial)
-    context = {
-        **ConsoleEnvironment.context(),
-        "team": team,
-        "panel": panel,
-        "operation": operation,
-        "form": form,
-        # Handlers that move money or send messages build an idempotency key from it, so a double submit runs once.
-        "form_nonce": request.POST.get("form_nonce") or str(uuid.uuid4()),
-    }
+    title = record_type.title(obj)
+    target = OperationTarget(
+        kicker="This acts on",
+        title=title,
+        badge=f"{record_type.label} {obj.pk}",
+        subtitle=record_type.subtitle(obj),
+        back_url=record_url,
+        breadcrumbs=(
+            *record_type.parents(obj),
+            RecordLink(label=title, href=record_url),
+            RecordLink(label=panel.title, href=f"{record_url}#panel-{panel.key}"),
+        ),
+        is_record=True,
+    )
+    context = _operation_context(target, operation, form, request)
     if request.method == "GET":
         return render(request, "admin_console/operation.html", context)
     if form is not None and not form.is_valid():
         return render(request, "admin_console/operation.html", context, status=400)
 
-    audit = logger.bind(
-        record="team",
-        team_id=team.pk,
-        panel=panel.key,
-        operation=operation.key,
-        reason=form.cleaned_data.get("reason") if form is not None else None,
-        triggered_by=cast(User, request.user).email,
-    )
-    audit.info("admin_console_operation_started")
-    response = operation.handler(request, team, form)
-    audit.info("admin_console_operation_finished", status=response.status_code if response is not None else None)
+    audit = audit.bind(reason=form.cleaned_data.get("reason") if form is not None else None)
+    response = _audited(audit, lambda: operation.handler(request, obj, form))
     if response is None:
-        return redirect(team_url)
+        return redirect(record_url)
     if response.status_code >= 400:
-        team.refresh_from_db()
+        obj.refresh_from_db()
         # A handler can fail after its state change committed, for example when a notification fails.
-        # The operation is then no longer offered, and staff belong on the team page, not on a dead form.
-        if form is not None and _is_offered(panel, team, operation.key):
-            return render(request, "admin_console/operation.html", context, status=400)
+        # The operation is then no longer offered, and staff belong on the record page, not on a dead form.
+        if form is not None and _is_offered(panel, obj, operation.key):
+            return render(request, "admin_console/operation.html", context, status=response.status_code)
         if QueuedMessages.error_count(request) == 0:
             messages.error(
                 request,
                 f"{operation.label} failed with status {response.status_code}. The page below shows the current "
                 f"state. Try again, or ask the {panel.owner.name} team if it keeps failing.",
             )
-        return redirect(team_url)
+        return redirect(record_url)
     return response
 
 
-def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
+def _get_tool(tool_key: str) -> ConsoleTool:
     tool = console.get_tool(tool_key)
     if tool is None:
         raise Http404("Unknown console tool")
-    page = tool.page(request)
+    return tool
+
+
+def _query_suffix(request: HttpRequest) -> str:
+    query = request.META.get("QUERY_STRING", "")
+    return f"?{query}" if query else ""
+
+
+def _with_query(url: str, request: HttpRequest) -> str:
+    # A tool can have sub-pages picked by query parameters, so its operations, live blocks and the way back keep them.
+    return url + _query_suffix(request)
+
+
+@require_safe
+def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
+    tool = _get_tool(tool_key)
+    operations = [
+        RenderedOperation(
+            operation=operation,
+            url=_with_query(
+                reverse("admin_console_tool_operation", kwargs={"tool_key": tool.key, "operation_key": operation.key}),
+                request,
+            ),
+            allowed=_is_allowed(request, operation),
+        )
+        for operation in tool.operations(request)
+    ]
     return render(
         request,
         "admin_console/tool.html",
-        {**ConsoleEnvironment.context(), "tool": tool, "page": page},
+        {
+            **ConsoleEnvironment.context(),
+            "tool": tool,
+            "page": tool.page(request),
+            "operations": operations,
+            "query_suffix": _query_suffix(request),
+        },
     )
+
+
+@require_safe
+def tool_live(request: HttpRequest, tool_key: str, live_key: str) -> HttpResponse:
+    """One live block of a tool page, for console.js to swap in. It reads only, like the page itself."""
+    tool = _get_tool(tool_key)
+    live = tool.live(request, live_key)
+    if live is None:
+        raise Http404("Unknown live block")
+    live_url = _with_query(
+        reverse("admin_console_tool_live", kwargs={"tool_key": tool.key, "live_key": live.key}), request
+    )
+    response = render(request, "admin_console/_live.html", {"tool": tool, "live": live, "live_url": live_url})
+    # console.js swaps in only a response that carries this header, never a login page or an error page.
+    response["X-Console-Live"] = "1"
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) -> HttpResponse:
+    tool = _get_tool(tool_key)
+    operation = next((op for op in tool.operations(request) if op.key == operation_key), None)
+    if operation is None:
+        raise Http404("This operation is not available right now")
+    tool_url = _with_query(reverse("admin_console_tool", kwargs={"tool_key": tool.key}), request)
+
+    if request.method not in ("GET", "POST"):
+        return HttpResponseNotAllowed(["GET", "POST"])
+    audit = logger.bind(tool=tool.key, operation=operation.key, triggered_by=cast(User, request.user).email)
+    _require_gate(request, operation, audit)
+    if request.method == "GET" and operation.form_class is None:
+        return redirect(tool_url)
+
+    target = OperationTarget(
+        kicker="This runs from",
+        title=tool.title,
+        badge=tool.group,
+        subtitle=tool.description,
+        back_url=tool_url,
+        breadcrumbs=(RecordLink(label=tool.title, href=tool_url),),
+        is_record=False,
+    )
+    confirmation = ConfirmationToken(request, f"tool:{tool.key}", operation.key)
+    data: QueryDict | None = request.POST if request.method == "POST" else None
+    confirm_token = request.POST.get("confirm_token") if request.method == "POST" else None
+    if confirm_token is not None:
+        data = confirmation.load(confirm_token)
+        if data is None:
+            messages.error(
+                request, "This confirmation expired or was made for something else. Review the change again."
+            )
+            return redirect(request.get_full_path())
+
+    form = None
+    if operation.form_class is not None:
+        form = operation.form_class(data, initial=operation.form_initial)
+    context = _operation_context(target, operation, form, request)
+    if request.method == "GET":
+        return render(request, "admin_console/operation.html", context)
+    if form is not None and not form.is_valid():
+        return render(request, "admin_console/operation.html", context, status=400)
+
+    if operation.preview is not None and form is not None and confirm_token is None:
+        preview = operation.preview(request, form)
+        if form.errors:
+            return render(request, "admin_console/operation.html", context, status=400)
+        return render(
+            request,
+            "admin_console/confirm.html",
+            {**context, "page": preview, "confirm_token": confirmation.sign(form)},
+        )
+
+    audit = audit.bind(reason=form.cleaned_data.get("reason") if form is not None else None)
+    result = _audited(audit, lambda: operation.handler(request, form))
+    if result is None:
+        return redirect(tool_url)
+    if isinstance(result, Page):
+        return render(request, "admin_console/result.html", {**context, "page": result})
+    if result.status_code >= 400:
+        if form is not None:
+            return render(request, "admin_console/operation.html", context, status=result.status_code)
+        if QueuedMessages.error_count(request) == 0:
+            messages.error(request, f"{operation.label} failed with status {result.status_code}.")
+        return redirect(tool_url)
+    return result
 
 
 def append_slash(request: HttpRequest, rest: str) -> HttpResponse:
