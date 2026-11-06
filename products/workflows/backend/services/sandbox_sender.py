@@ -68,10 +68,12 @@ def sandbox_email_sender_for_reads(team: Team) -> SandboxEmailSender | None:
 
     Sender lists and setup checks call this on every request. A failure returns None so the read still answers.
     """
-    # Local evaluation only, so a flag condition the SDK can't evaluate in memory never adds a network call to a read.
-    if not _sandbox_sender_configured() or not _sandbox_sender_enabled(team, only_evaluate_locally=True):
+    if not _sandbox_sender_configured():
         return None
     try:
+        # Local evaluation only, so a flag condition the SDK can't evaluate in memory never adds a network call to a read.
+        if not _sandbox_sender_enabled(team, only_evaluate_locally=True):
+            return None
         return _upsert_sandbox_email_sender(team)
     except Exception as error:
         logger.exception("workflows.sandbox_sender.ensure_on_read_failed", team_id=team.id)

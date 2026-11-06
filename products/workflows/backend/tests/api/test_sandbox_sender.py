@@ -110,8 +110,14 @@ class TestSandboxSenderAPI(APIBaseTest):
             listed = [row["id"] for row in responses[0].json()["results"] if row["kind"] == "email"]
             assert listed == [self._sandbox_rows().get().id]
 
-    def test_listing_integrations_still_answers_when_provisioning_fails(self) -> None:
-        with patch("posthog.integrations.accessors.AuthAccessor.upsert", side_effect=RuntimeError("database down")):
+    @parameterized.expand(
+        [
+            ("the write fails", "posthog.integrations.accessors.AuthAccessor.upsert"),
+            ("the flag check fails", "posthog.permissions.posthog_feature_flag_enabled"),
+        ]
+    )
+    def test_listing_integrations_still_answers_when_provisioning_fails(self, _name: str, failing: str) -> None:
+        with patch(failing, side_effect=RuntimeError("down")):
             response = self.client.get(f"/api/projects/{self.team.id}/integrations/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
