@@ -7,6 +7,7 @@ import type { Prompts } from '@/core/prompts'
 import { validationError } from '@/core/schema'
 import { PersonalAPIKey, type AccessKey } from '@/posthog/access-key'
 import type { StoreChoice } from '@/posthog/credential-store/types'
+import { CI_CREDENTIALS_HINT } from '@/posthog/credentials'
 import { LOGIN_SCOPES, READ_ONLY_LOGIN_SCOPES } from '@/posthog/device-auth'
 import { cloudRegion, HostSchema, parseHost, REGIONS } from '@/posthog/host'
 import { parseProjectId, ProjectIdSchema } from '@/posthog/ids'
@@ -118,11 +119,7 @@ export default defineCommand({
             return finish(ctx, await resumeApproval(ctx, loginWait(ctx.runtime)))
         }
 
-        refuseInCi(
-            ctx,
-            LOGIN_COMMAND,
-            'Set HOG_PERSONAL_API_KEY and HOG_HOST instead, with the project ID in posthog.json as "projectId" or in HOG_PROJECT_ID.'
-        )
+        refuseInCi(ctx, LOGIN_COMMAND, CI_CREDENTIALS_HINT)
 
         let host =
             ctx.globals.host ??

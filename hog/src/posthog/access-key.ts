@@ -20,8 +20,9 @@ export interface AccessKeyStatus {
     scopes: string[] | null
     // Epoch milliseconds. Null for a key that doesn't expire.
     expiresAt: number | null
-    // What hog says when PostHog rejects the key.
+    // What hog says when PostHog rejects the key, and the command that gets a new one.
     rejected: string
+    fix: string
     provider: string | null
 }
 
@@ -125,6 +126,7 @@ export class PersonalAPIKey implements AccessKey {
             scopes: this.scopes,
             expiresAt: null,
             rejected: 'PostHog rejected the key. Someone may have deleted it.',
+            fix: 'hog auth login',
             provider: null,
         }
     }

@@ -248,6 +248,7 @@ export class OAuthLogin implements AccessKey {
             scopes: this.scopes,
             expiresAt: this.expiresAt,
             rejected: 'PostHog rejected the token. Someone may have revoked it.',
+            fix: 'hog auth login',
             provider: null,
         }
     }

@@ -8,7 +8,7 @@ import { VERSION } from '@/version'
 
 import { hostUrl } from './host'
 import type { KeySession } from './key-session'
-import { challengedScopes, fewestScopes, isScopeName, stepUpCommand } from './scope-challenge'
+import { challengedScopes, fewestScopes, isScopeName, stepUpCommand, workloadScopesHint } from './scope-challenge'
 
 export const USER_AGENT = `hog/${VERSION}`
 // Generous, because a HogQL query can run for minutes. It only stops a connection that hangs.
@@ -164,10 +164,20 @@ export class PostHogApi {
             )
         let response = await send()
         let missing = await this.missingScopes(response)
+        const workload = this.session.current.status().kind === 'workload'
         // PostHog checks scopes before any work, so one retry is safe for a POST too.
-        if (missing && (await this.stepUp?.(missing))) {
+        if (missing && !workload && (await this.stepUp?.(missing))) {
             response = await send()
             missing = await this.missingScopes(response)
+        }
+        if (missing && workload) {
+            throw new ApiError(
+                403,
+                undefined,
+                'missing_scopes',
+                `The job's token needs ${missing.join(', ')} for this.`,
+                workloadScopesHint(missing)
+            )
         }
         if (missing) {
             throw stepUpRequired(missing, { host: this.session.current.host })
