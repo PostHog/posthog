@@ -221,5 +221,7 @@ def get_site_snapshot(team: Team, survey: Survey, device: SnapshotDevice, user: 
             "survey_site_snapshot": key,
             "page_url": moment.page_url,
         },
+        expires_after=timezone.now() + SNAPSHOT_WINDOW,
+        is_system=True,
     )
     return _snapshot_of(asset)
