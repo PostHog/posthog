@@ -23,3 +23,21 @@ urlpatterns = [
     # ruleid: no-new-custom-admin-views
     path("admin/tophog/", admin.site.admin_view(tophog_dashboard_view)),
 ]
+
+
+class OrganizationAdmin(admin.ModelAdmin):
+    # ruleid: no-new-custom-admin-views
+    def get_urls(self):
+        return [
+            # A URL without admin_view still counts, because it skips Django admin's staff check.
+            # ruleid: no-new-custom-admin-views
+            path("<path:object_id>/report/", self.report),
+            # ruleid: no-new-custom-admin-views
+            re_path(r"^(?P<object_id>.+)/usage/$", self.usage),
+        ] + super().get_urls()
+
+
+api_urlpatterns = [
+    # ok: no-new-custom-admin-views
+    path("api/projects/", projects_view),
+]
