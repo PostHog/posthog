@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { WorkflowLogicProps } from './workflowLogic'
-import { workflowSandboxSwitchBannerLogic } from './workflowSandboxSwitchBannerLogic'
+import { sandboxSwitchDismissKey, workflowSandboxSwitchBannerLogic } from './workflowSandboxSwitchBannerLogic'
 import { WorkflowSandboxSwitchSenderButton } from './WorkflowSandboxSwitchSenderButton'
 
 export function WorkflowSandboxSwitchBanner(props: WorkflowLogicProps): JSX.Element | null {
@@ -16,7 +17,14 @@ export function WorkflowSandboxSwitchBanner(props: WorkflowLogicProps): JSX.Elem
     }
 
     return (
-        <LemonBanner type="info" alignItems="start" className="@container shrink-0">
+        <LemonBanner
+            type="info"
+            alignItems="start"
+            className="shrink-0"
+            dismissKey={sandboxSwitchDismissKey(props.id)}
+            // pinned: analytics event name
+            onClose={() => posthog.capture('workflows sandbox switch banner dismissed')}
+        >
             <div
                 className="flex flex-col gap-2 @xl:flex-row @xl:items-center"
                 data-attr="workflow-sandbox-switch-banner"

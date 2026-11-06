@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -14,7 +15,7 @@ import { resourceEditedLogic } from 'products/notifications/frontend/resourceEdi
 
 import { HogFlow, HogFlowAction } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
-import { workflowSandboxSwitchBannerLogic } from './workflowSandboxSwitchBannerLogic'
+import { sandboxSwitchDismissKey, workflowSandboxSwitchBannerLogic } from './workflowSandboxSwitchBannerLogic'
 
 const WORKFLOW_ID = 'wf-sandbox-switch-1'
 const SANDBOX_SENDER_ID = 7
@@ -126,12 +127,14 @@ describe('workflowSandboxSwitchBannerLogic', () => {
         flag = true,
         accessLevel = AccessControlLevel.Editor,
         status = 'draft',
+        dismissed = false,
     }: {
         steps: HogFlowAction[]
         integrations: unknown[]
         flag?: boolean
         accessLevel?: AccessControlLevel
         status?: HogFlow['status']
+        dismissed?: boolean
     }): Promise<void> => {
         savedWorkflow = { ...makeWorkflow(steps), user_access_level: accessLevel, status }
         savedPatch = undefined
@@ -144,11 +147,17 @@ describe('workflowSandboxSwitchBannerLogic', () => {
         integrationsLogic.mount()
         await expectLogic(workflow).toDispatchActions(['loadWorkflowSuccess'])
         await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
+        if (dismissed) {
+            const banner = lemonBannerLogic({ dismissKey: sandboxSwitchDismissKey(WORKFLOW_ID) })
+            banner.mount()
+            banner.actions.dismiss()
+        }
         logic = workflowSandboxSwitchBannerLogic({ id: WORKFLOW_ID })
         logic.mount()
     }
 
     beforeEach(() => {
+        localStorage.clear()
         useMocks({
             get: {
                 '/api/environments/:team_id/hog_flows/:id/': () => [200, savedWorkflow],
@@ -203,8 +212,16 @@ describe('workflowSandboxSwitchBannerLogic', () => {
             flag: false,
             visible: false,
         },
-    ])('shows the banner only with $case', async ({ steps, integrations, flag, visible }) => {
-        await mountWith({ steps, integrations, flag })
+        {
+            case: 'the banner dismissed for this workflow',
+            steps: [emailStep('email_1', { integrationId: SANDBOX_SENDER_ID })],
+            integrations: [SANDBOX_SENDER, OWN_SENDER],
+            flag: true,
+            dismissed: true,
+            visible: false,
+        },
+    ])('shows the banner only with $case', async ({ steps, integrations, flag, dismissed, visible }) => {
+        await mountWith({ steps, integrations, flag, dismissed })
 
         expect(logic.values.bannerVisible).toBe(visible)
         expect(capture.mock.calls.filter(([event]) => event === 'workflows sandbox switch banner shown')).toHaveLength(

@@ -2,6 +2,8 @@ import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { IntegrationType } from '~/types'
 
+const senderLabel = (sender: IntegrationType): string => sender.config.email ?? sender.display_name
+
 export function WorkflowSandboxSwitchSenderButton({
     senders,
     disabledReason,
@@ -20,7 +22,7 @@ export function WorkflowSandboxSwitchSenderButton({
     }
 
     if (senders.length === 1) {
-        const label = `Switch to ${senders[0].config.email ?? senders[0].display_name}`
+        const label = `Switch to ${senderLabel(senders[0])}`
         return (
             <LemonButton {...buttonProps} truncate tooltip={label} onClick={() => onSwitch(senders[0].id)}>
                 {label}
@@ -31,7 +33,7 @@ export function WorkflowSandboxSwitchSenderButton({
     return (
         <LemonMenu
             items={senders.map((sender) => ({
-                label: sender.display_name,
+                label: senderLabel(sender),
                 onClick: () => onSwitch(sender.id),
                 'data-attr': 'workflow-sandbox-switch-sender-option',
             }))}
