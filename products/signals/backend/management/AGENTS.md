@@ -212,6 +212,14 @@ uv run manage.py backfill_report_actionability --team-id 1 --batch-size 100 --af
 
 Idempotent. It recomputes each report from its artefacts and writes only the rows that disagree.
 
+## Filling the cached Inbox ordering values
+
+`uv run manage.py backfill_inbox_sort_cache --team-id <id>` fills the priority and ranking cache in locked batches.
+Run it only after all API processes and workers use the cache writers.
+Keep `inbox-sort-cache` off until the backfill completes for every team in the organization.
+The command can run again after an interruption.
+See [Inbox ranking rollout](../../../../../docs/internal/inbox-ranking-training.md#cached-inbox-ordering) for the rollout and rollback steps.
+
 ## Filling the cached implementation PR flags
 
 `SignalReport.has_implementation_pr` and `has_active_implementation_pr` cache `implementation_pr_report_filter`, so the inbox filters on a column.

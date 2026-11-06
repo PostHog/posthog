@@ -1,6 +1,14 @@
-import type { z } from 'zod'
-
 import { HogError } from './errors'
+
+// zod schemas have this shape, so hog's parsing helpers don't depend on zod's types.
+export interface Schema<T> {
+    safeParse(raw: unknown): { success: true; data: T } | { success: false; error: { issues: readonly SchemaIssue[] } }
+}
+
+export interface SchemaIssue {
+    readonly path: readonly PropertyKey[]
+    readonly message: string
+}
 
 export interface ParseFailure {
     code: string
@@ -13,7 +21,7 @@ const MAX_LISTED_ERRORS = 5
 
 // Every issue zod found, so a person can fix them all in one go. The schemas in hog set their own
 // messages, and an issue inside a document, such as an API answer, starts with its field.
-export function getErrorMessage(error: z.ZodError): string {
+export function getErrorMessage(error: { issues: readonly SchemaIssue[] }): string {
     const messages = error.issues.map((issue) =>
         issue.path.length > 0 ? `${issue.path.map(String).join('.')}: ${issue.message}` : issue.message
     )
@@ -22,12 +30,12 @@ export function getErrorMessage(error: z.ZodError): string {
     return more > 0 ? `${listed}; and ${more} more` : listed || 'The value is not valid.'
 }
 
-export function validationError(schema: z.ZodType, raw: unknown): string | undefined {
+export function validationError(schema: Schema<unknown>, raw: unknown): string | undefined {
     const parsed = schema.safeParse(raw)
     return parsed.success ? undefined : getErrorMessage(parsed.error)
 }
 
-export function parseOrThrow<S extends z.ZodType>(schema: S, raw: unknown, failure: ParseFailure): z.output<S> {
+export function parseOrThrow<T>(schema: Schema<T>, raw: unknown, failure: ParseFailure): T {
     const parsed = schema.safeParse(raw)
     if (parsed.success) {
         return parsed.data

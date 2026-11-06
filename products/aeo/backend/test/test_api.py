@@ -1,15 +1,17 @@
+import json
 import uuid
 import datetime as dt
 
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
 
@@ -114,6 +116,13 @@ class TestAEOPromptAPI(APIBaseTest):
         response = self.client.post(f"{self.url}bulk_import/", payload, format="json")
         assert response.json() == {"created": 0, "updated": 2, "skipped": 1}
         assert AEOPrompt.objects.for_team(self.team.id).get(id=replay_id).active is False
+
+        self.client.post(
+            f"{self.url}bulk_import/",
+            {"prompts": [{"prompt": "Best session replay tool?", "topic": "Session replay"}]},
+            format="json",
+        )
+        assert self.client.get(f"{self.url}{replay_id}/").json()["external_visibility"] == 42.5
 
         flags_id = listed["Best feature flag tool?"]["id"]
         self.client.delete(f"{self.url}{flags_id}/")
@@ -356,6 +365,32 @@ class TestAEOPromptAPI(APIBaseTest):
             assert (latest["claude-web-search"]["cited"], latest["claude-web-search"]["check_failed"]) == (True, False)
         assert listed["never checked?"]["latest_checks"] == []
 
+    def test_list_needs_improvement_keeps_answered_prompts_without_a_recent_citation(self) -> None:
+        texts = ["cited?", "never cited?", "only failed?", "cited long ago?", "never checked?"]
+        self.client.post(f"{self.url}bulk_import/", {"prompts": [{"prompt": t} for t in texts]}, format="json")
+        ids = {row["prompt"]: row["id"] for row in self.client.get(self.url).json()["results"]}
+        self._record_check(ids["cited?"], "exa-answer", minutes_ago=10, cited=False)
+        self._record_check(ids["cited?"], "claude-web-search", minutes_ago=10, cited=True)
+        self._record_check(ids["never cited?"], "exa-answer", minutes_ago=10, cited=False)
+        self._record_check(ids["only failed?"], "exa-answer", minutes_ago=10, check_failed=True)
+        self._record_check(ids["cited long ago?"], "exa-answer", minutes_ago=60 * 24 * 40, cited=True)
+        self._record_check(ids["cited long ago?"], "exa-answer", minutes_ago=10, cited=False)
+        # A citation on the old wording must not hide a current wording that no engine cites.
+        self.client.post(f"{self.url}bulk_import/", {"prompts": [{"prompt": "edited?"}]}, format="json")
+        edited_id = next(row["id"] for row in self.client.get(self.url).json()["results"] if row["prompt"] == "edited?")
+        self._record_check(edited_id, "exa-answer", minutes_ago=20, cited=True)
+        self.client.patch(f"{self.url}{edited_id}/", {"prompt": "edited again?"}, format="json")
+        self._record_check(edited_id, "exa-answer", minutes_ago=10, cited=False)
+
+        response = self.client.get(self.url, {"needs_improvement": "true"}).json()
+
+        assert sorted(row["prompt"] for row in response["results"]) == [
+            "cited long ago?",
+            "edited again?",
+            "never cited?",
+        ]
+        assert response["count"] == 3
+
     def test_list_query_count_does_not_grow_with_page_size(self) -> None:
         prompts = [{"prompt": f"q{i}?"} for i in range(4)]
         self.client.post(f"{self.url}bulk_import/", {"prompts": prompts}, format="json")
@@ -384,6 +419,39 @@ class TestAEOPromptAPI(APIBaseTest):
         answers = [row["answer_text"] for row in first["results"] + second["results"]]
         assert [answer.split("\n")[0] for answer in answers] == expected
         assert answers[0] == "c\nwith a line break"
+
+    @parameterized.expand(
+        [
+            (
+                "since_drops_older_checks",
+                "since={since}",
+                status.HTTP_200_OK,
+                [("exa-answer", "c"), ("claude-web-search", "b")],
+            ),
+            (
+                "without_answer_text",
+                "include_answer_text=false",
+                status.HTTP_200_OK,
+                [("exa-answer", None), ("claude-web-search", None), ("exa-answer", None)],
+            ),
+            ("invalid_since", "since=yesterday", status.HTTP_400_BAD_REQUEST, None),
+        ]
+    )
+    def test_checks_list_filters_by_date_and_drops_answer_text_on_request(
+        self, _name: str, query: str, expected_status: int, expected: list[tuple[str, str | None]] | None
+    ) -> None:
+        prompt_id = self._import_one_prompt()
+        self._record_check(prompt_id, "exa-answer", minutes_ago=30, answer_text="a")
+        self._record_check(prompt_id, "claude-web-search", minutes_ago=20, answer_text="b")
+        self._record_check(prompt_id, "exa-answer", minutes_ago=10, answer_text="c")
+        since = (timezone.now() - dt.timedelta(minutes=25)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        response = self.client.get(f"{self.url}{prompt_id}/checks/?{query.format(since=since)}")
+
+        assert response.status_code == expected_status, response.json()
+        if expected is not None:
+            assert response.json()["count"] == len(expected)
+            assert [(row["engine"], row["answer_text"]) for row in response.json()["results"]] == expected
 
     @parameterized.expand([("default", "", 20), ("capped", "?limit=1000", 100)])
     def test_checks_page_size_is_bounded(self, _name: str, query: str, expected: int) -> None:
@@ -701,3 +769,96 @@ class TestAEOPromptAPI(APIBaseTest):
         )
 
         assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
+            ("answer", True, "completed", ["Best session replay tool?"], 1),
+            ("paused", True, "completed", ["Best session replay tool?"], 2),
+            ("cut_off", True, "completed", ["Best session replay tool?"], 1),
+            ("timeout", True, "failed", [], 1),
+            ("answer", False, None, [], 0),
+        ]
+    )
+    def test_suggest_runs_as_a_job_and_never_saves_prompts(
+        self, outcome: str, ai_approved: bool, final_status: str | None, expected_prompts: list[str], calls: int
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = ai_approved
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        self.client.post(
+            f"{self.url}bulk_import/",
+            {"prompts": [{"prompt": "Tracked already?"}, {"prompt": "Old wording?"}]},
+            format="json",
+        )
+        old_id = next(r["id"] for r in self.client.get(self.url).json()["results"] if r["prompt"] == "Old wording?")
+        self.client.patch(f"{self.url}{old_id}/", {"prompt": "New wording?"}, format="json")
+        items = [
+            {"prompt": p, "topic": "Replay", "circle": "battleground", "funnel_stage": "bottom", "branded": False}
+            for p in ["Best session replay tool?", "Tracked already?", "Old wording?"]
+        ]
+        paused = MagicMock(status_code=200)
+        paused.json.return_value = {"stop_reason": "pause_turn", "content": [{"type": "text", "text": "Reading."}]}
+        answered = MagicMock(status_code=200)
+        answered.json.return_value = {
+            "stop_reason": "end_turn",
+            "content": [{"type": "text", "text": json.dumps(items)}],
+        }
+        # The token limit cut the array mid-way through its second object.
+        cut_off = MagicMock(status_code=200)
+        cut_off.json.return_value = {
+            "stop_reason": "max_tokens",
+            "content": [{"type": "text", "text": json.dumps(items[:1])[:-1] + ', {"prompt": "Half'}],
+        }
+        post = MagicMock(
+            side_effect={
+                "answer": [answered],
+                "paused": [paused, answered],
+                "cut_off": [cut_off],
+                "timeout": requests.Timeout(),
+            }[outcome]
+        )
+        gateway = MagicMock(url="http://gateway", api_key="test-key")
+
+        with (
+            patch("products.aeo.backend.suggestions.resolve_ai_gateway_config", return_value=gateway),
+            patch("products.aeo.backend.suggestions.requests.Session.post", post),
+        ):
+            started = self.client.post(f"{self.url}suggest/", {"domain": "example.com"}, format="json")
+
+        assert post.call_count == calls
+        assert AEOPrompt.objects.for_team(self.team.id).count() == 2
+        if final_status is None:
+            assert started.status_code == status.HTTP_403_FORBIDDEN
+            return
+        assert started.status_code == status.HTTP_202_ACCEPTED, started.json()
+        assert started.json()["status"] == "pending"
+        job = self.client.get(f"{self.url}suggest/{started.json()['id']}/").json()
+        assert job["status"] == final_status
+        assert [s["prompt"] for s in job["suggestions"]] == expected_prompts
+        if outcome == "paused":
+            resumed = post.call_args_list[1].kwargs["json"]["messages"]
+            assert resumed[-1] == {"role": "assistant", "content": [{"type": "text", "text": "Reading."}]}
+
+    def test_a_pending_job_past_its_deadline_reads_as_failed(self) -> None:
+        with patch("products.aeo.backend.facade.api.suggest_aeo_prompts_task.delay"):
+            started = self.client.post(f"{self.url}suggest/", {"domain": "example.com"}, format="json").json()
+
+        with time_machine.travel(timezone.now() + dt.timedelta(minutes=9), tick=False):
+            job = self.client.get(f"{self.url}suggest/{started['id']}/").json()
+
+        assert job["status"] == "failed"
+        assert job["error"] == "Prompt suggestions stopped before they finished. Try again."
+
+    def test_import_records_that_a_prompt_came_from_a_suggestion(self) -> None:
+        self.client.post(
+            f"{self.url}bulk_import/",
+            {"prompts": [{"prompt": "Suggested?", "origin": "suggestion"}, {"prompt": "Written?"}]},
+            format="json",
+        )
+
+        evidence = {p.prompt: p.evidence for p in AEOPrompt.objects.for_team(self.team.id)}
+        assert evidence["Suggested?"]["via"] == "suggestion"
+        assert evidence["Written?"]["via"] == "api"
+
+    def test_suggestion_get_returns_404_for_an_unknown_job(self) -> None:
+        response = self.client.get(f"{self.url}suggest/{uuid.uuid4()}/")
+        assert response.status_code == status.HTTP_404_NOT_FOUND

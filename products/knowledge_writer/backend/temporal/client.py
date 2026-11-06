@@ -3,6 +3,7 @@ from uuid import UUID
 
 from django.conf import settings
 
+from temporalio.client import Client
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -45,10 +46,10 @@ def start_merge_check(commit_sha: str, *, team_id: int) -> None:
     asyncio.run(asyncio.wait_for(start_merge_check_workflow(commit_sha, team_id=team_id), START_TIMEOUT_SECONDS))
 
 
-async def start_merge_check_workflow(commit_sha: str, *, team_id: int) -> None:
-    client = await async_connect()
+async def start_merge_check_workflow(commit_sha: str, *, team_id: int, client: Client | None = None) -> None:
+    temporal = client or await async_connect()
     try:
-        await client.start_workflow(
+        await temporal.start_workflow(
             MergeCheckWorkflow.run,
             MergeCheckInputs(commit_sha=commit_sha, team_id=team_id),
             id=merge_check_workflow_id(commit_sha),

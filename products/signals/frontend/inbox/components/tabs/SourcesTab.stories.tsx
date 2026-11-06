@@ -41,6 +41,9 @@ interface PanelState {
     eventDefinitionsUnavailable: boolean
     sourceConfigsUnavailable: boolean
     externalConnections: boolean
+    // Team config (signals/config)
+    anomalyScoringAvailable: boolean
+    anomalyScoringEnabled: boolean
 }
 
 function sourceConfig(
@@ -229,6 +232,13 @@ function PanelHarness(state: PanelState): JSX.Element {
                     conversations_enabled: state.conversationsOn,
                 },
             ],
+            '/api/projects/:team_id/signals/config/': () => [
+                200,
+                {
+                    anomaly_scoring_available: state.anomalyScoringAvailable,
+                    anomaly_scoring_enabled: state.anomalyScoringEnabled,
+                },
+            ],
             '/api/projects/:team_id/signals/source_configs/': () =>
                 state.sourceConfigsUnavailable
                     ? [500, { detail: 'A server error occurred.' }]
@@ -317,6 +327,8 @@ const meta: Meta<typeof PanelHarness> = {
         eventDefinitionsUnavailable: false,
         sourceConfigsUnavailable: false,
         externalConnections: false,
+        anomalyScoringAvailable: true,
+        anomalyScoringEnabled: true,
     },
 }
 export default meta
@@ -441,7 +453,7 @@ export const ErrorTrackingExpanded: Story = {
     },
 }
 
-/** Product analytics opened with the all-alerts flag on: the choice between investigated alerts, every firing alert, and off. */
+/** Product analytics opened with the all-alerts flag on: the alert scope choice, and the anomaly scoring switch. */
 export const ProductAnalyticsAlertScope: Story = {
     args: { productAnalyticsArmed: true },
     parameters: {
