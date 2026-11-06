@@ -11,6 +11,14 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.cdp.backend.api.hog_function import HogFunctionViewSet
+from products.cdp.backend.api.test.test_hog_function import (
+    MOVED_SENDER_HOG,
+    MOVED_URL,
+    SENDER_HOG,
+    SENDER_URL,
+    _sender_inputs,
+    secret_host_binding_flag,
+)
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 from products.cdp.backend.templates.helpers import mock_transpile
@@ -324,6 +332,56 @@ class TestHogFunctionDrafts(DraftTestCase):
         function = HogFunction.objects.get(id=function_id)
         assert function.encrypted_inputs["token"]["value"] == "new"
         assert function.draft_encrypted_inputs is None
+
+    @parameterized.expand(
+        [
+            ("moves_the_live_secret", [{"inputs": _sender_inputs(MOVED_URL)}], status.HTTP_400_BAD_REQUEST),
+            (
+                "enters_the_secret_with_the_move",
+                [{"inputs": _sender_inputs(MOVED_URL, {"value": "new"})}],
+                status.HTTP_200_OK,
+            ),
+            (
+                "enters_the_secret_after_staging_code",
+                [{"hog": MOVED_SENDER_HOG}, {"inputs": _sender_inputs(SENDER_URL, {"value": "new"})}],
+                status.HTTP_200_OK,
+            ),
+        ]
+    )
+    def test_draft_that_sends_a_secret_to_a_new_host(self, _name: str, edits: list[dict], expected_status: int):
+        function_id = self._create(hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}})
+
+        with secret_host_binding_flag(True):
+            for edit in edits:
+                self._stage(function_id, edit)
+            tested, mock_invoke = self._test_invoke(function_id, {"use_draft": True, "mock_async_functions": False})
+            published = self._publish(function_id)
+
+        assert (tested.status_code, published.status_code) == (expected_status, expected_status), published.json()
+        assert mock_invoke.called == (expected_status == status.HTTP_200_OK)
+        function = HogFunction.objects.get(id=function_id)
+        expected_hosts = (
+            ["hooks.example.com"] if expected_status == status.HTTP_400_BAD_REQUEST else ["evil.example.com"]
+        )
+        assert function.encrypted_inputs["token"]["allowed_hosts"] == expected_hosts
+
+    @parameterized.expand(
+        [
+            ("stored_secret", {"secret": True}, status.HTTP_400_BAD_REQUEST),
+            ("entered_secret", {"value": "typed for this test"}, status.HTTP_200_OK),
+        ]
+    )
+    def test_test_invocation_that_sends_a_secret_to_a_new_host(self, _name: str, token: dict, expected_status: int):
+        function_id = self._create(hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}})
+        configuration = {**BASE_FUNCTION, "hog": SENDER_HOG, "inputs": _sender_inputs(MOVED_URL, token)}
+
+        with secret_host_binding_flag(True):
+            response, mock_invoke = self._test_invoke(
+                function_id, {"configuration": configuration, "mock_async_functions": False}
+            )
+
+        assert response.status_code == expected_status, response.json()
+        assert mock_invoke.called == (expected_status == status.HTTP_200_OK)
 
     def test_draft_never_carries_secret_values(self):
         function_id = self._create()

