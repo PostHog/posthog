@@ -19,9 +19,7 @@ export function TodayNewsDialog(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { closeNews, diveIn } = useActions(todayNewsLogic)
     const popupRef = useRef<HTMLDivElement>(null)
-    const weekStart = dayjs()
-        .subtract((dayjs().day() + 6) % 7, 'day')
-        .format('MMM D')
+    const today = dayjs().format('dddd, MMMM D')
 
     return (
         <Dialog
@@ -43,13 +41,11 @@ export function TodayNewsDialog(): JSX.Element {
                     <div className="@container flex flex-col gap-6 px-2 pt-2 pb-1">
                         <header className="flex flex-col gap-2 border-b-4 border-double border-foreground pb-2">
                             <DialogTitle className="m-0 text-center text-[3.5rem] leading-none font-bold tracking-tighter">
-                                This week
+                                Today
                             </DialogTitle>
                             <DialogDescription className="flex flex-wrap items-baseline justify-between gap-x-4 font-mono text-xs tracking-wide uppercase">
                                 <span>{currentTeam?.name ?? 'Your project'}</span>
-                                <span translate="no">
-                                    {edition.isSample ? 'Sample edition · ' : ''}Week of {weekStart}
-                                </span>
+                                <span translate="no">{today}</span>
                             </DialogDescription>
                         </header>
                         <div className="grid gap-6 @3xl:grid-cols-[5fr_3fr]">
@@ -69,7 +65,7 @@ export function TodayNewsDialog(): JSX.Element {
                             <span className="text-foreground [&_svg]:size-3.5">
                                 <IconTelescope />
                             </span>
-                            <span>{edition.isSample ? 'A scout will edit this news' : 'Edited by a scout'}</span>
+                            <span>Edited by a scout</span>
                             <span aria-hidden>·</span>
                             <Button
                                 variant="link-foreground"

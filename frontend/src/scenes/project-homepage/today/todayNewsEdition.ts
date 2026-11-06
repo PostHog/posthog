@@ -79,5 +79,5 @@ export const SAMPLE_NEWS_EDITION: TodayNewsEdition = {
             divePrompt: 'A new checkout error reached 214 users. What causes it, and how do we fix it?',
         },
     ],
-    briefs: ['2 experiments started this week', '12 new feature flags', '41 deploys to production'],
+    briefs: ['2 experiments started', '12 new feature flags', '41 deploys to production'],
 }
