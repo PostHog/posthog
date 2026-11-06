@@ -61082,6 +61082,25 @@ export namespace Schemas {
       version: number;
     }
 
+    export interface LLMProxyModelInfo {
+      /** Provider-specific model identifier. */
+      id: string;
+      /** Model display name. */
+      name: string;
+      /** Provider display name. */
+      provider: string;
+      /** Description of the model. */
+      description: string;
+      /** Whether the provider recommends this model. */
+      is_recommended: boolean;
+      /** Whether this model supports decision questions. */
+      supports_decisions?: boolean;
+      /** Whether this model supports chat completions with written reasoning. */
+      supports_chat?: boolean;
+      /** Whether an evaluation judge can set a reasoning level for this model. */
+      supports_reasoning?: boolean;
+    }
+
     /**
      * Arbitrary key-value metadata.
      */
