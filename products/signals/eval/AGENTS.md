@@ -48,7 +48,7 @@ The gateway token expires, so pass it per run instead: `AI_GATEWAY_API_KEY=$(hog
 | ------------------------------ | ---------------------------------------------------------------------------------------------- |
 | `OPENAI_API_KEY`               | Embeddings (text-embedding-3-small)                                                            |
 | `AI_GATEWAY_URL`               | Go ai-gateway base URL with `/v1`, e.g. `https://ai-gateway.us.posthog.com/v1` (all LLM calls) |
-| `AI_GATEWAY_API_KEY`           | Developer-mode `phe_` token from `hogli gateway:token` (8h TTL, $25 per token, $50 per day)    |
+| `AI_GATEWAY_API_KEY`           | Developer-mode `phe_` token from `hogli gateway:token` (8h TTL, up to $25 per token)           |
 | `SIGNALS_EVAL_TEAM_ID`         | Team id used for LLM cost attribution headers (defaults to `1`)                                |
 | `POSTHOG_OFFLINE_EVAL_API_KEY` | Offline result uploads; requires `offline_evaluation_ingestion:write`                          |
 | `POSTHOG_OFFLINE_EVAL_HOST`    | Offline API origin (defaults to `https://us.posthog.com`; project `2`)                         |

@@ -342,6 +342,7 @@ class TestDevTokens(_DevGatewaySettings):
             ("used_rounds_up_to_match_the_mint_check", _revoked("phe_mine", "23.996"), "1.004", "1.01"),
             ("gateway_omits_the_balance", _response(200, {"revoked": True, "revoked_count": 1}), None, "25"),
             ("gateway_sends_an_unreadable_balance", _revoked("phe_mine", "unreadable"), None, "25"),
+            ("gateway_sends_a_balance_that_is_not_finite", _revoked("phe_mine", "NaN"), None, "25"),
         ]
     )
     def test_revoke_counts_only_what_the_token_spent(self, _name, revoked, spent, used):
@@ -353,7 +354,9 @@ class TestDevTokens(_DevGatewaySettings):
 
         row = self._rows(user=self.user).get()
         assert row.spent_usd == (Decimal(spent) if spent is not None else None)
-        assert Decimal(self.client.get(f"{URL}usage/").json()["used_usd"]) == Decimal(used)
+        usage = self.client.get(f"{URL}usage/").json()
+        assert Decimal(usage["used_usd"]) == Decimal(used)
+        assert usage["tokens"][0]["status"] == "revoked"
 
     def test_refused_revoke_keeps_counting_the_full_cap(self):
         with patch(_POST, return_value=_minted("phe_mine")):
@@ -395,7 +398,7 @@ class TestDevTokens(_DevGatewaySettings):
         [
             ("full_cap_fits", "2", "25"),
             ("only_part_of_the_cap_fits", "30.505", "19.49"),
-            ("exactly_the_minimum_fits", "49", "1.00"),
+            ("exactly_the_minimum_fits", "45", "5.00"),
         ]
     )
     def test_new_token_is_capped_to_the_budget_left(self, _name, spent_usd, cap_usd):
@@ -415,7 +418,25 @@ class TestDevTokens(_DevGatewaySettings):
 
         assert response.status_code == 429
         post.assert_not_called()
-        assert f"{freeing.created_at + timedelta(days=1):%Y-%m-%d %H:%M} UTC" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert f"{freeing.created_at + timedelta(days=1):%Y-%m-%d %H:%M} UTC" in detail
+        assert "Revoke a live token" not in detail
+
+    def test_refusal_suggests_revoking_only_when_a_token_is_live(self):
+        self._spent_token("25", hours_ago=2)
+        self._rows().create(
+            team=self.team,
+            user=self.user,
+            client="web",
+            cap_usd=Decimal("25"),
+            token_hash="c" * 64,
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+
+        response = self.client.post(URL)
+
+        assert response.status_code == 429
+        assert "Revoke a live token" in response.json()["detail"]
 
     def test_cli_code_exchanges_once_for_the_authorizing_user(self):
         code = self.client.post(f"{URL}cli_authorize/", {"code_challenge": CHALLENGE}).json()["code"]
@@ -495,6 +516,16 @@ class TestDevTeamUsage(ClickhouseTestMixin, _DevGatewaySettings):
             token_hash="a" * 64,
             expires_at=timezone.now() + timedelta(hours=1),
         )
+        DevGatewayToken.objects.unscoped().create(
+            team=self.team,
+            user=self.user,
+            client="web",
+            cap_usd=Decimal("25"),
+            token_hash="b" * 64,
+            expires_at=timezone.now() + timedelta(hours=1),
+            revoked_at=timezone.now(),
+            spent_usd=Decimal("2"),
+        )
         self._generation(self.user.distinct_id, "1.5", days_ago=0.1)
         self._generation(self.user.distinct_id, "2", days_ago=3)
         self._generation(self.user.distinct_id, "4", days_ago=10)
@@ -517,9 +548,9 @@ class TestDevTeamUsage(ClickhouseTestMixin, _DevGatewaySettings):
             Decimal("7.5"),
         ]
         assert (mine["tokens_minted_24h"], mine["live_tokens"], Decimal(mine["reserved_usd_24h"])) == (
+            2,
             1,
-            1,
-            Decimal("25"),
+            Decimal("27"),
         )
         assert rows[other.distinct_id]["email"] == "other@posthog.com"
         assert rows[other.distinct_id]["tokens_minted_30d"] == 0

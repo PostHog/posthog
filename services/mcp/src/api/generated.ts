@@ -35349,7 +35349,7 @@ export namespace Schemas {
       /** Tokens minted in the last 30 days that were revoked. */
       revoked_30d: number;
       /**
-         * Token caps minted in the last 24 hours, in USD.
+         * Budget counted for tokens minted in the last 24 hours, in USD.
          * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
          */
       reserved_usd_24h: string;
@@ -35475,6 +35475,12 @@ export namespace Schemas {
          * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
          */
       remaining_usd: string | null;
+      /**
+         * What a revoked token spent, in USD. Null when it is not revoked or the amount is unknown.
+         * @nullable
+         * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+         */
+      spent_usd: string | null;
     }
 
     export interface DevTokenRefusal {
@@ -35507,7 +35513,7 @@ export namespace Schemas {
 
     export interface DevTokenUsage {
       /**
-         * Most token caps one user can mint in 24 hours, in USD.
+         * Most budget one user can use in 24 hours, in USD.
          * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
          */
       daily_cap_usd: string;
