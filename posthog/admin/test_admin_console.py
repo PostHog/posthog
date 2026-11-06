@@ -170,9 +170,11 @@ class TestAdminConsoleAssets(SimpleTestCase):
                     blocks=(
                         Live(
                             key="runs",
-                            block=Paging(number=1, num_pages=1, summary="", previous_url=None, next_url=None),
+                            block=Paging(  # type: ignore[arg-type]
+                                number=1, num_pages=1, summary="", previous_url=None, next_url=None
+                            ),
                         ),
-                    )  # type: ignore[arg-type]
+                    )
                 ),
                 "not a table, notice or output",
             ),
