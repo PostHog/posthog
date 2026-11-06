@@ -64,7 +64,8 @@ def list_items(
     if not migration_exists(team_id=team_id, migration_id=migration_id):
         return None
     items = WarehouseMigrationItem.objects.for_team(team_id).filter(migration_id=migration_id)
-    return list(items.order_by("verdict", "name", "id")[offset : offset + limit]), items.count()
+    page = items.select_related("created_by").order_by("verdict", "name", "id")[offset : offset + limit]
+    return list(page), items.count()
 
 
 def create_migration(*, team_id: int, user_id: int, provider: str, api_key: str, api_secret: str) -> WarehouseMigration:

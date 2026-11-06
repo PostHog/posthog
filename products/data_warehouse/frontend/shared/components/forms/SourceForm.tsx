@@ -66,6 +66,8 @@ export interface SourceFormProps {
     setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void
     /** Where the OAuth authorize flow returns to — for hosts other than the wizard (e.g. the connect page). */
     oauthRedirectUrl?: string
+    /** Payload values the user may not change, nested like the payload. Their fields render read-only. */
+    lockedValues?: Record<string, any>
 }
 
 /** How a new source will be queried: synced only, synced + live queries, or live only. */
@@ -142,23 +144,33 @@ export function SourceAccessMethodSelector({
     )
 }
 
+export const LOCKED_FIELD_REASON = 'Set by the migration. To change it, set up a new source instead.'
+
+const isPlainObject = (value: unknown): value is Record<string, any> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+
 export const sourceFieldToElement = (
     field: SourceFieldConfig,
     sourceConfig: SourceConfigResponseApi,
     lastValue?: any,
     isUpdateMode?: boolean,
     setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void,
-    oauthRedirectUrl?: string
+    oauthRedirectUrl?: string,
+    // The locked values at this level of the payload.
+    locked?: Record<string, any>
 ): JSX.Element => {
     // Hidden fields stay in the config tree (their stored values parse and prefill) but never render.
     if ('hidden' in field && field.hidden) {
         return <React.Fragment key={field.name} />
     }
+    const lockedLeaf = !!locked && field.name in locked && !isPlainObject(locked[field.name])
+    const lockedGroup = isPlainObject(locked?.[field.name]) ? locked?.[field.name] : undefined
 
     // It doesn't make sense for this to show on an update to an existing connection since we likely just want to change
     // a field or two. There is also some divergence in creates vs. updates that make this a bit more complex to handle.
     if (field.type === 'text' && field.name === 'connection_string') {
-        if (isUpdateMode) {
+        // Parsing a connection string overwrites the other fields, locked ones included.
+        if (isUpdateMode || (locked && Object.keys(locked).length > 0)) {
             return <React.Fragment key={field.name} />
         }
         return (
@@ -236,7 +248,11 @@ export const sourceFieldToElement = (
                     return (
                         <>
                             {!!field.caption && <p className="mb-0">{field.caption}</p>}
-                            <LemonSwitch checked={isEnabled} onChange={onChange} />
+                            <LemonSwitch
+                                checked={isEnabled}
+                                onChange={onChange}
+                                disabledReason={lockedGroup?.enabled !== undefined ? LOCKED_FIELD_REASON : undefined}
+                            />
                             {isEnabled && (
                                 <Group name={field.name}>
                                     {field.fields.map((field) =>
@@ -246,7 +262,8 @@ export const sourceFieldToElement = (
                                             lastValue?.[field.name],
                                             isUpdateMode,
                                             setSourceConnectionDetailsValue,
-                                            oauthRedirectUrl
+                                            oauthRedirectUrl,
+                                            lockedGroup
                                         )
                                     )}
                                 </Group>
@@ -277,6 +294,7 @@ export const sourceFieldToElement = (
                         options={field.options.map((option) => ({ key: option.value, label: option.label }))}
                         value={toArray(value === undefined || value === null ? lastValue?.[field.name] : value)}
                         onChange={onChange}
+                        disabled={lockedLeaf}
                     />
                 )}
             </LemonField>
@@ -296,9 +314,11 @@ export const sourceFieldToElement = (
                         lastValue?.[optionField.name],
                         isUpdateMode,
                         setSourceConnectionDetailsValue,
-                        oauthRedirectUrl
+                        oauthRedirectUrl,
+                        lockedGroup
                     )
                 )
+        const selectionLocked = hasOptionFields ? lockedGroup?.selection !== undefined : lockedLeaf
 
         return (
             <LemonField
@@ -316,6 +336,7 @@ export const sourceFieldToElement = (
                                 field.defaultValue
                             }
                             onChange={onChange}
+                            disabledReason={selectionLocked ? LOCKED_FIELD_REASON : undefined}
                         />
                         <Group name={field.name}>{getOptions(value)}</Group>
                     </>
@@ -340,6 +361,7 @@ export const sourceFieldToElement = (
                         minRows={4}
                         value={value || ''}
                         onChange={onChange}
+                        disabled={lockedLeaf}
                     />
                 )}
             </LemonField>
@@ -446,7 +468,8 @@ export const sourceFieldToElement = (
             lastValue,
             isUpdateMode,
             setSourceConnectionDetailsValue,
-            oauthRedirectUrl
+            oauthRedirectUrl,
+            locked
         )
     }
 
@@ -470,6 +493,7 @@ export const sourceFieldToElement = (
                     type={inputField.type as 'text'}
                     value={value || ''}
                     onChange={onChange}
+                    disabledReason={lockedLeaf ? LOCKED_FIELD_REASON : undefined}
                 />
             )}
         </LemonField>
@@ -837,6 +861,7 @@ export function SourceFormComponent({
     sourceWizardLogicProps,
     setSourceConnectionDetailsValue: setSourceConnectionDetailsValueOverride,
     oauthRedirectUrl,
+    lockedValues,
 }: SourceFormProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -1022,7 +1047,8 @@ export function SourceFormComponent({
                                 jobInputs?.[field.name],
                                 isUpdateMode,
                                 setSourceConnectionDetailsValue,
-                                oauthRedirectUrl
+                                oauthRedirectUrl,
+                                lockedValues
                             )
                         )
                 )}
