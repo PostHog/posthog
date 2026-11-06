@@ -1022,8 +1022,8 @@ importers:
         specifier: 5.5.0
         version: 5.5.0
       '@xyflow/react':
-        specifier: ^12.7.1
-        version: 12.12.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(immer@9.0.21)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^12.6.0
+        version: 12.6.0(@types/react@18.3.31)(immer@9.0.21)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       bloommx:
         specifier: ^1.0.3
         version: 1.0.3
@@ -1088,8 +1088,8 @@ importers:
         specifier: ^0.8.3
         version: 0.8.3
       free-email-domains:
-        specifier: 1.15.20
-        version: 1.15.20
+        specifier: 1.9.90
+        version: 1.9.90
       frimousse:
         specifier: ^0.3.0
         version: 0.3.0(react@18.3.1)(typescript@6.0.3)
@@ -1295,8 +1295,8 @@ importers:
         specifier: ^15.9.0
         version: 15.9.0
       tailwind-merge:
-        specifier: ^2.5.5
-        version: 2.5.5
+        specifier: ^2.2.2
+        version: 2.2.2
       torph:
         specifier: ^0.0.10
         version: 0.0.10(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -2295,8 +2295,8 @@ importers:
         specifier: ^4.7.1
         version: 4.9.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       tailwind-merge:
-        specifier: ^2.5.5
-        version: 2.5.5
+        specifier: ^2.2.2
+        version: 2.2.2
     devDependencies:
       '@storybook/react':
         specifier: 'catalog:'
@@ -2341,8 +2341,8 @@ importers:
         specifier: ^4.7.1
         version: 4.9.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       tailwind-merge:
-        specifier: ^2.5.5
-        version: 2.5.5
+        specifier: ^2.2.2
+        version: 2.2.2
       tailwindcss:
         specifier: ^4.0.0
         version: 4.2.2
@@ -2729,7 +2729,7 @@ importers:
         version: 18.3.31
       '@xyflow/react':
         specifier: '*'
-        version: 12.12.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(immer@9.0.21)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 12.6.0(@types/react@18.3.31)(immer@9.0.21)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       clsx:
         specifier: '*'
         version: 2.1.1
@@ -3480,7 +3480,7 @@ importers:
         version: 18.3.31
       '@xyflow/react':
         specifier: '*'
-        version: 12.12.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(immer@9.0.21)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 12.6.0(@types/react@18.3.31)(immer@9.0.21)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       clsx:
         specifier: '*'
         version: 2.1.1
@@ -3738,7 +3738,7 @@ importers:
         version: 18.3.31
       '@xyflow/react':
         specifier: '*'
-        version: 12.12.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(immer@9.0.21)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 12.6.0(@types/react@18.3.31)(immer@9.0.21)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       elkjs:
         specifier: '*'
         version: 0.10.2
@@ -4777,7 +4777,7 @@ importers:
         version: 3.0.6
       '@xyflow/react':
         specifier: '*'
-        version: 12.12.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(immer@9.0.21)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 12.6.0(@types/react@18.3.31)(immer@9.0.21)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       clsx:
         specifier: '*'
         version: 2.1.1
@@ -5877,7 +5877,7 @@ importers:
         version: 18.3.31
       '@xyflow/react':
         specifier: '*'
-        version: 12.12.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(immer@9.0.21)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 12.6.0(@types/react@18.3.31)(immer@9.0.21)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       clsx:
         specifier: '*'
         version: 2.1.1
@@ -14307,9 +14307,6 @@ packages:
   '@types/d3-interpolate@3.0.1':
     resolution: {integrity: sha512-jx5leotSeac3jr0RePOH1KdR9rISG91QIE4Q2PYTu4OymLTZfA3SrnURSLzKH48HmXVUru50b8nje4E79oQSQw==}
 
-  '@types/d3-interpolate@3.0.4':
-    resolution: {integrity: sha512-mgLPETlrpVV1YRJIglr4Ez47g7Yxjl1lj7YKsiMCb27VJH9W8NVM6Bb9d8kkpG/uAQS5AmbA48q2IAolKKo1MA==}
-
   '@types/d3-path@3.0.0':
     resolution: {integrity: sha512-0g/A+mZXgFkQxN3HniRDbXMN79K3CdTpLsevj+PXiTcb2hVyvkZUBg37StmgCQkaD84cUJ4uaDAWq7UJOQy2Tg==}
 
@@ -15245,21 +15242,14 @@ packages:
   '@xtuc/long@4.2.2':
     resolution: {integrity: sha512-NuHqBY1PB/D8xU6s/thBgOAiAP7HOYDQ32+BFZILJ8ivkUkAHQnWfn6WhL79Owj1qmUnoN/YPhktdIoucipkAQ==}
 
-  '@xyflow/react@12.12.0':
-    resolution: {integrity: sha512-74oXI0Rgm1Eu33cHQAd74J6oVgCH9mbFyTVQbsGgp2kmWwh0HdtBr2VP04z8mbPD+M/xO69nqG5dDEt7/EN2rQ==}
+  '@xyflow/react@12.6.0':
+    resolution: {integrity: sha512-YzsSK4SlpC6e9Ki1g6O9B1UH7xvz/bzWF+tJ+vWDD8Am5xJmFn0jYnCEuqvzvH8dRKb1NFBmyuqEGqWN39xXsA==}
     peerDependencies:
-      '@types/react': 18.3.31
-      '@types/react-dom': 18.3.7
       react: 18.3.1
       react-dom: 18.3.1
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
-      '@types/react-dom':
-        optional: true
 
-  '@xyflow/system@0.0.83':
-    resolution: {integrity: sha512-a//eDjez3WZF47aaPTfVUDD0OINOq+WVwBZCRTqG+m0a5euX8EwlJ4jMY1Wxz0Ocj4xOeekJ70V22Pq0ll8RJw==}
+  '@xyflow/system@0.0.57':
+    resolution: {integrity: sha512-1YpBo0WgmZLR5wQw9Jvk3Tu0gISi/oYc4uSimrDuAsA/G2rGleulLrKkM59uuT/QU5m6DYC2VdBDAzjSNMGuBA==}
 
   '@zenfs/core@1.11.4':
     resolution: {integrity: sha512-jFihhedKitw1X9rlImtaca4KTs1Xk9awo4GxUemqt2ucE1jLi10lyRfFFbiYXZsFDkuCWGHwEQwv7BeDIEXMbQ==}
@@ -17811,8 +17801,8 @@ packages:
       react-dom:
         optional: true
 
-  free-email-domains@1.15.20:
-    resolution: {integrity: sha512-omBLvp1UOU3OtyL65MJe8rsKKI4ZnvBJ1E0W29ctFFpRBn+rz8UEua/jq7jG4wr6+4dzegTbpkJYLf6sA1Xjpg==}
+  free-email-domains@1.9.90:
+    resolution: {integrity: sha512-BZiEKZV3skIg/PIuPRWTgxt9jynucnOm93CvyjuzbSrH5dKZy+EB84kXUCNCJd46Q6qbztOF7qGtIg/h5piiFA==}
     engines: {node: '>= 18'}
 
   fresh@0.5.2:
@@ -23621,9 +23611,6 @@ packages:
 
   tailwind-merge@2.2.2:
     resolution: {integrity: sha512-tWANXsnmJzgw6mQ07nE3aCDkCK4QdT3ThPMCzawoYA2Pws7vSTCvz3Vrjg61jVUGfFZPJzxEP+NimbcW+EdaDw==}
-
-  tailwind-merge@2.5.5:
-    resolution: {integrity: sha512-0LXunzzAZzo0tEPxV3I297ffKZPlKDrjj7NXphC8V5ak9yHC5zRmxnOe2m/Rd/7ivsOMJe3JZ2JVocoDdQTRBA==}
 
   tailwindcss-scroll-mask@0.0.3:
     resolution: {integrity: sha512-vPuacFs5yHJRZ8MFP/qqKKRbnWlVDPAJ5VfRzOwrmtEJQ4pHm5K1xw/dXdF4v6Sx1QdbtCWJuGs9ucSTc+YanQ==}
@@ -34797,10 +34784,6 @@ snapshots:
     dependencies:
       '@types/d3-color': 3.1.3
 
-  '@types/d3-interpolate@3.0.4':
-    dependencies:
-      '@types/d3-color': 3.1.3
-
   '@types/d3-path@3.0.0': {}
 
   '@types/d3-polygon@3.0.0': {}
@@ -35946,28 +35929,24 @@ snapshots:
 
   '@xtuc/long@4.2.2': {}
 
-  '@xyflow/react@12.12.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(immer@9.0.21)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@xyflow/react@12.6.0(@types/react@18.3.31)(immer@9.0.21)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
-      '@xyflow/system': 0.0.83
+      '@xyflow/system': 0.0.57
       classcat: 5.0.5
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
       zustand: 4.5.6(@types/react@18.3.31)(immer@9.0.21)(react@18.3.1)
-    optionalDependencies:
-      '@types/react': 18.3.31
-      '@types/react-dom': 18.3.7(@types/react@18.3.31)
     transitivePeerDependencies:
+      - '@types/react'
       - immer
 
-  '@xyflow/system@0.0.83':
+  '@xyflow/system@0.0.57':
     dependencies:
       '@types/d3-drag': 3.0.7
-      '@types/d3-interpolate': 3.0.4
       '@types/d3-selection': 3.0.12
       '@types/d3-transition': 3.0.9
       '@types/d3-zoom': 3.0.8
       d3-drag: 3.0.0
-      d3-interpolate: 3.0.1
       d3-selection: 3.0.0
       d3-zoom: 3.0.0
 
@@ -39177,7 +39156,7 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  free-email-domains@1.15.20: {}
+  free-email-domains@1.9.90: {}
 
   fresh@0.5.2: {}
 
@@ -47162,9 +47141,7 @@ snapshots:
 
   tailwind-merge@2.2.2:
     dependencies:
-      '@babel/runtime': 7.29.7
-
-  tailwind-merge@2.5.5: {}
+      '@babel/runtime': 7.29.10
 
   tailwindcss-scroll-mask@0.0.3(tailwindcss@4.2.1):
     dependencies:
