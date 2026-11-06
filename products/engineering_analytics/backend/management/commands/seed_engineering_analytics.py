@@ -1538,7 +1538,7 @@ class Command(BaseCommand):
         inputs = SourceInputsStore.load(source)
         if any(inputs.get(key) != value for key, value in job_inputs.items()):
             SourceInputsStore.assign(source, {**inputs, **job_inputs})
-            update_fields.append("job_inputs")
+            update_fields.extend(SourceInputsStore.update_fields)
         if update_fields:
             source.save(update_fields=[*update_fields, "updated_at"])
         return source

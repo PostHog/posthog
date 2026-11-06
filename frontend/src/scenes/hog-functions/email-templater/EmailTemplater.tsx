@@ -45,6 +45,7 @@ import { collapseToolsPanelCustomJs } from './custom-tools/collapseToolsPanel'
 import { linkDialogFocusCustomJs } from './custom-tools/linkDialogFocus'
 import { previewLinkTargetCustomJs } from './custom-tools/previewLinkTarget'
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
+import { withInertLinks } from './emailPreviewHtml'
 import { EmailSenderSummary } from './EmailSenderSummary'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
 import { EmailFieldErrors, EmailTemplateFrom, MAX_WORKFLOW_EMAIL_SENDERS } from './types'
@@ -146,7 +147,7 @@ function DestinationEmailTemplaterForm({
     mode: EmailEditorMode
     fieldsHidden?: boolean
 }): JSX.Element {
-    const { logicProps, mergeTags, activeContentTab, emailTemplate } = useValues(emailTemplaterLogic)
+    const { logicProps, mergeTags, activeContentTab } = useValues(emailTemplaterLogic)
     // The editor rebuilds itself when its options change, so it keeps the tags it started with.
     // Later changes reach it through setMergeTags in the logic.
     const [initialMergeTags] = useState(mergeTags)
@@ -238,34 +239,7 @@ function DestinationEmailTemplaterForm({
                         </div>
                     </>
                 ) : (
-                    <LemonField name="html" className="flex relative flex-col flex-1">
-                        {({ value }: ChildFunctionProps) => (
-                            <>
-                                <div
-                                    className={clsx(
-                                        'flex absolute inset-0 justify-center items-end p-2 transition-opacity',
-                                        // Persistent start buttons while empty; hover-reveal once there is content
-                                        value ? 'opacity-0 hover:opacity-100' : 'opacity-100'
-                                    )}
-                                >
-                                    <div className="absolute inset-0 opacity-50 bg-surface-primary" />
-                                    {/* A plain-text-only email has no html, so content is judged on every shape */}
-                                    <EmailPreviewOverlayButtons
-                                        hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
-                                    />
-                                </div>
-
-                                {/* The floor keeps the preview readable where the host gives it no
-                                    spare height to grow into */}
-                                <iframe
-                                    srcDoc={value}
-                                    sandbox=""
-                                    title="Email template preview"
-                                    className="flex-1 min-h-80"
-                                />
-                            </>
-                        )}
-                    </LemonField>
+                    <EmailContentPreview buttonsAt="bottom" />
                 )}
             </Form>
         </>
@@ -594,7 +568,6 @@ function NativeEmailTemplaterForm({
         mergeTags,
         activeContentTab,
         visibleFields,
-        emailTemplate,
     } = useValues(emailTemplaterLogic)
     // The editor rebuilds itself when its options change, so it keeps the tags it started with.
     // Later changes reach it through setMergeTags in the logic.
@@ -844,34 +817,7 @@ function NativeEmailTemplaterForm({
                         </div>
                     </>
                 ) : (
-                    <LemonField name="html" className="flex relative flex-col flex-1">
-                        {({ value }: ChildFunctionProps) => (
-                            <>
-                                <div
-                                    className={clsx(
-                                        'flex absolute inset-0 justify-center items-center p-2 transition-opacity',
-                                        // Persistent start buttons while empty; hover-reveal once there is content
-                                        value ? 'opacity-0 hover:opacity-100' : 'opacity-100'
-                                    )}
-                                >
-                                    <div className="absolute inset-0 opacity-50 bg-surface-primary" />
-                                    {/* A plain-text-only email has no html, so content is judged on every shape */}
-                                    <EmailPreviewOverlayButtons
-                                        hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
-                                    />
-                                </div>
-
-                                {/* The floor keeps the preview readable where the host gives it no
-                                    spare height to grow into */}
-                                <iframe
-                                    srcDoc={value}
-                                    sandbox=""
-                                    title="Email template preview"
-                                    className="flex-1 min-h-80"
-                                />
-                            </>
-                        )}
-                    </LemonField>
+                    <EmailContentPreview buttonsAt="center" />
                 )}
                 {/* Rendered in both modes so the message stays visible while the body is edited in
                     the full editor, not just in the preview */}
@@ -881,20 +827,63 @@ function NativeEmailTemplaterForm({
     )
 }
 
+function EmailContentPreview({ buttonsAt }: { buttonsAt: 'bottom' | 'center' }): JSX.Element {
+    const { emailTemplate } = useValues(emailTemplaterLogic)
+
+    return (
+        <LemonField name="html" className="group/email-preview flex relative flex-col flex-1">
+            {({ value }: ChildFunctionProps) => (
+                <>
+                    <div
+                        className={clsx(
+                            'flex absolute inset-0 justify-center p-2 transition-opacity pointer-events-none',
+                            buttonsAt === 'bottom' ? 'items-end' : 'items-center',
+                            // Persistent start buttons while empty; hover-reveal once there is content
+                            value
+                                ? 'opacity-0 group-hover/email-preview:opacity-100 focus-within:opacity-100'
+                                : 'opacity-100'
+                        )}
+                    >
+                        <div className="absolute inset-0 opacity-50 bg-surface-primary" />
+                        {/* A plain-text-only email has no html, so content is judged on every shape */}
+                        <EmailPreviewOverlayButtons
+                            hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
+                        />
+                    </div>
+
+                    {/* The floor keeps the preview readable where the host gives it no
+                        spare height to grow into */}
+                    <iframe
+                        srcDoc={withInertLinks(value)}
+                        sandbox=""
+                        title="Email template preview"
+                        className="flex-1 min-h-80"
+                    />
+                </>
+            )}
+        </LemonField>
+    )
+}
+
 function EmailPreviewOverlayButtons({ hasContent }: { hasContent: boolean }): JSX.Element {
     const { templates } = useValues(emailTemplaterLogic)
     const { setIsModalOpen, setIsTemplatePickerOpen } = useActions(emailTemplaterLogic)
 
     if (hasContent) {
         return (
-            <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
+            <LemonButton
+                type="primary"
+                size="small"
+                className="pointer-events-auto"
+                onClick={() => setIsModalOpen(true)}
+            >
                 Click to modify content
             </LemonButton>
         )
     }
 
     return (
-        <div className="flex gap-2 z-10">
+        <div className="flex gap-2 z-10 pointer-events-auto">
             <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
                 Start blank
             </LemonButton>

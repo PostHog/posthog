@@ -23,10 +23,10 @@ jobs:
                   sparse-checkout: .github/actions/paths-filter
                   sparse-checkout-cone-mode: false
 
-            # Author-attested escape hatch for DB-noop migrations (e.g. SeparateDatabaseAndState
-            # state-only renames) that ship safely alongside service code. The check is path-only
-            # and can't tell a CREATE TABLE from an app-label rename, so the label opt-in matches
-            # the precedent set by skip-inkeep-docs.
+            # Author-attested escape hatch for migrations that change no schema the service reads
+            # and ship safely alongside service code. The check is path-only and can't tell a
+            # CREATE TABLE from a comment change, so the label opt-in matches the precedent set
+            # by skip-inkeep-docs.
             - name: Check for skip label
               id: skip-label
               env:
@@ -52,12 +52,12 @@ jobs:
               if: steps.skip-label.outputs.skip != 'true'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  # Django migrations are not listed. The Node deploy hook (nodejs/src/schema-check/)
+                  # holds each Node rollout until the Django migrations its image needs are applied,
+                  # which also covers a migration and its Node reader in one PR or one stack.
                   filters: |
-                      migrations:
-                          - 'posthog/migrations/*.py'
+                      clickhouse_migrations:
                           - 'posthog/clickhouse/migrations/*.py'
-                          - 'products/*/backend/migrations/*.py'
-                          - 'ee/migrations/*.py'
                       sqlx_migrations:
                           - 'rust/persons_migrations/*.sql'
                           - 'rust/behavioral_cohorts_migrations/*.sql'
@@ -65,14 +65,6 @@ jobs:
                       nodejs:
                           - 'nodejs/**'
 
-            # rust_services matches any rust/** change except the migration directories
-            # the ! patterns carve out.
-            - uses: ./.github/actions/paths-filter
-              id: rust-filter
-              if: steps.skip-label.outputs.skip != 'true'
-              with:
-                  token: ${{ steps.app-token.outputs.token || github.token }}
-                  filters: |
                       rust_services:
                           - 'rust/**'
                           - '!rust/persons_migrations/**'
@@ -83,17 +75,17 @@ jobs:
               id: check
               if: steps.skip-label.outputs.skip != 'true'
               env:
-                  MIGRATIONS_CHANGED: ${{ steps.filter.outputs.migrations }}
+                  CLICKHOUSE_MIGRATIONS_CHANGED: ${{ steps.filter.outputs.clickhouse_migrations }}
                   NODEJS_CHANGED: ${{ steps.filter.outputs.nodejs }}
                   SQLX_MIGRATIONS_CHANGED: ${{ steps.filter.outputs.sqlx_migrations }}
-                  RUST_SERVICES_CHANGED: ${{ steps.rust-filter.outputs.rust_services }}
+                  RUST_SERVICES_CHANGED: ${{ steps.filter.outputs.rust_services }}
               run: |
                   has_error=false
                   error_messages=""
 
-                  # Check nodejs + Django migrations
-                  if [ "$MIGRATIONS_CHANGED" == "true" ] && [ "$NODEJS_CHANGED" == "true" ]; then
-                      error_messages="${error_messages}❌ Found both Django migration and nodejs changes\n"
+                  # Check nodejs + ClickHouse migrations
+                  if [ "$CLICKHOUSE_MIGRATIONS_CHANGED" == "true" ] && [ "$NODEJS_CHANGED" == "true" ]; then
+                      error_messages="${error_messages}❌ Found both ClickHouse migration and nodejs changes\n"
                       has_error=true
                   fi
 
@@ -110,27 +102,27 @@ jobs:
                   fi
 
                   if [ "$has_error" == "true" ]; then
-                      echo "error=true" >> $GITHUB_OUTPUT
+                      echo "error=true" >> "$GITHUB_OUTPUT"
                       echo -e "$error_messages"
                   else
-                      echo "error=false" >> $GITHUB_OUTPUT
+                      echo "error=false" >> "$GITHUB_OUTPUT"
                       echo "✅ No conflicting changes detected"
                   fi
 
             - name: Fail if conflicting changes detected
               if: steps.check.outputs.error == 'true'
               run: |
-                  echo "::error::This PR contains both migration files and service changes. These must be separated into different PRs."
+                  echo "::error::This PR contains both ClickHouse or sqlx migration files and service changes. These must be separated into different PRs."
                   echo ""
-                  echo "Why? Migration jobs are not orchestrated with service deployments. If you merge"
-                  echo "service code that depends on new database schema alongside the migration, your"
+                  echo "Why? ClickHouse and sqlx migrations are not orchestrated with service deployments."
+                  echo "If you merge service code that depends on new schema alongside the migration, your"
                   echo "service may deploy before the migration runs, causing failures."
+                  echo "Django migrations are not part of this check: the Node deploy hook waits for them."
                   echo ""
-                  echo "Solution: Split into two PRs:"
+                  echo "Solution: Split into two PRs, and do not stack them:"
                   echo "  1. First PR: Migration changes only (merge and wait for it to deploy)"
                   echo "  2. Second PR: Service code changes (merge after migration is deployed)"
                   echo ""
-                  echo "If every migration in this PR is DB-noop (e.g. SeparateDatabaseAndState"
-                  echo "with empty database_operations, or RunPython data-only steps), apply the"
+                  echo "If no migration in this PR changes schema that the service reads, apply the"
                   echo "'skip-migration-service-check' label and the check will skip."
                   exit 1

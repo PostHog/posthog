@@ -22,11 +22,12 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.constants import EventDefinitionType
-from posthog.models import ActivityLog, EventDefinition, Organization, Tag, Team
+from posthog.models import ActivityLog, Organization, Tag, Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.taxonomy import definition_search
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
+from products.event_definitions.backend.models import EventDefinition
 
 
 @time_machine.travel("2020-01-02", tick=False)
@@ -200,6 +201,16 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS)
+
+    def test_list_event_definitions_caps_the_limit_for_rows_and_next_link(self):
+        with patch("posthog.api.event_definition.CappedCountLimitOffsetPagination.max_limit", 2):
+            response = self.client.get("/api/projects/@current/event_definitions/?limit=5")
+
+        body = response.json()
+        assert response.status_code == status.HTTP_200_OK, body
+        assert len(body["results"]) == 2
+        assert "offset=2" in body["next"]
+        assert "limit=2" in body["next"]
 
     @parameterized.expand(
         [
@@ -651,7 +662,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert whitespace_search_names == default_names
 
     def test_event_type_event(self):
-        action = Action.objects.create(team=self.demo_team, name="action1_app")
+        action = create_action(team=self.demo_team, name="action1_app")
 
         response = self.client.get("/api/projects/@current/event_definitions/?search=app&event_type=event")
         assert response.status_code == status.HTTP_200_OK

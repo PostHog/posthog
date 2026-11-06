@@ -1,16 +1,21 @@
-import { SLACK_INTEGRATION_SCOPES } from '~/types'
+import { useValues } from 'kea'
+
+import { requestsSlackInReviewScopes } from 'lib/integrations/integrationScopes'
+import { preflightLogic } from 'lib/logic/preflightLogic'
+
+import { slackRequestedScopes } from '~/types'
 
 /**
  * Required Slack OAuth scopes for the current PostHog instance.
  *
- * Every scope PostHog requests is approved for the public app, so this is the same list
- * on every instance. If a future scope has to wait on Slack review, this is where the
- * DEV-only union goes back — see the note by ``SlackIntegrationScope`` in ``~/types``.
+ * The DEV instance and local development also require the scopes that wait on Slack review,
+ * because they request them at install. See the note by ``SlackIntegrationScopeInReview`` in ``~/types``.
  *
  * Used by both the settings-side ``SlackIntegration`` connect/manage UI and the OAuth
  * landing page's status hook so the two surfaces always agree on what "fully scoped"
  * means.
  */
 export function useSlackRequiredScopes(): string[] {
-    return [...SLACK_INTEGRATION_SCOPES]
+    const { preflight } = useValues(preflightLogic)
+    return slackRequestedScopes(requestsSlackInReviewScopes(preflight))
 }

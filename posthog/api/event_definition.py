@@ -47,7 +47,7 @@ from posthog.constants import EventDefinitionType
 from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import EventDefinition, ObjectMediaPreview, TaggedItem, Team
+from posthog.models import ObjectMediaPreview, TaggedItem, Team
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
 from posthog.models.event_filter_config import add_event_name_drop
 from posthog.models.tagged_item_registry import content_type_for
@@ -72,6 +72,7 @@ from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
@@ -180,8 +181,9 @@ def create_event_definitions_sql(
     if order_expressions is None:
         order_expressions = []
 
+    # Qualified by table, so a column name both joined tables carry stays unambiguous.
     event_definition_fields = {
-        f'"{f.column}"'
+        f'{f.model._meta.db_table}."{f.column}"'
         for f in event_definition_model(is_enterprise)._meta.get_fields()
         if isinstance(f, Field) and f.column is not None and f.column not in ["deprecated_tags", "tags"]
     }
@@ -486,7 +488,9 @@ class EventDefinitionViewSet(
 
         exclude_hidden = self.request.GET.get("exclude_hidden", "false").lower() == "true"
         if exclude_hidden and EE_AVAILABLE:
-            filter_query += " AND (hidden IS NULL OR hidden = false)"
+            filter_query += (
+                " AND (ee_enterpriseeventdefinition.hidden IS NULL OR ee_enterpriseeventdefinition.hidden = false)"
+            )
 
         if exclude_stale:
             # `last_seen_at` is not indexed: the predicate runs after the project-scoped
@@ -501,11 +505,14 @@ class EventDefinitionViewSet(
 
         if verified_param is not None:
             if verified_param.lower() == "true":
-                filter_query += " AND (verified = true OR posthog_eventdefinition.name = ANY(%(core_events)s))"
+                filter_query += (
+                    " AND (ee_enterpriseeventdefinition.verified = true"
+                    " OR posthog_eventdefinition.name = ANY(%(core_events)s))"
+                )
                 params["core_events"] = CORE_EVENTS
             else:
                 filter_query += (
-                    " AND (verified IS NULL OR verified = false)"
+                    " AND (ee_enterpriseeventdefinition.verified IS NULL OR ee_enterpriseeventdefinition.verified = false)"
                     " AND NOT posthog_eventdefinition.name = ANY(%(core_events)s)"
                 )
                 params["core_events"] = CORE_EVENTS
@@ -555,7 +562,8 @@ class EventDefinitionViewSet(
         paginator = cast(CappedCountLimitOffsetPagination, self.paginator)
         query = EventDefinitionQuerySerializer(data=self.request.query_params)
         query.is_valid(raise_exception=True)
-        params["limit"] = query.validated_data["limit"]
+        # The paginator builds `next` from its capped limit, so the SQL page has to use the same cap.
+        params["limit"] = min(query.validated_data["limit"], paginator.max_limit)
         params["offset"] = query.validated_data["offset"]
 
         conditions = search_query + filter_query

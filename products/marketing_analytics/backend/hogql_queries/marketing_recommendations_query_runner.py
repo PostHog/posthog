@@ -25,6 +25,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
     CampaignStats,
     OrganicQueryStats,
+    RankingPage,
     RecommendationInputs,
     SearchTermStats,
     TermKeywordStats,
@@ -85,6 +86,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         date_from, date_to = self.query_date_range.date_from(), self.query_date_range.date_to()
         organic_queries = tuple(query for source in organic for query in self._organic_queries(source))
         site_urls = tuple(url for source in organic for url in self._site_urls(source))
+        ranking_pages = tuple(page for source in organic for page in self._ranking_pages(source))
         days = max((date_to - date_from).days + 1, 1)
         # Each ad account has its own campaigns, costs and currency, so rules compare a campaign only with
         # campaigns from the same account. Search Console data is shared because it has no account link.
@@ -100,6 +102,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                     currency=self._currency(source),
                     days=self._days_with_data(source) or days,
                     term_keywords=tuple(self._term_keywords(source)),
+                    ranking_pages=ranking_pages,
                 )
             )
         ]
@@ -340,6 +343,27 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             if row[2]
         ]
 
+    def _ranking_pages(self, source: MarketingAnalyticsRecommendationsSource) -> list[RankingPage]:
+        if not source.queryPageTable or not self._readable(source.queryPageTable):
+            return []
+        rows = self._select(
+            f"""
+            SELECT q, argMax(page, page_impressions), max(page_impressions)
+            FROM (
+                SELECT lower(trim(query)) AS q, page, sum(impressions) AS page_impressions
+                FROM {{table}}
+                WHERE toDate(date) >= toDate({{date_from}}) AND toDate(date) <= toDate({{date_to}})
+                    AND notEmpty(q) AND notEmpty(page)
+                GROUP BY q, page
+            )
+            GROUP BY q
+            ORDER BY max(page_impressions) DESC
+            LIMIT {ROW_LIMIT}
+            """,
+            source.queryPageTable,
+        )
+        return [RankingPage(query=row[0], page=row[1], impressions=float(row[2] or 0)) for row in rows]
+
     def _site_urls(self, source: MarketingAnalyticsRecommendationsSource) -> list[str]:
         if not source.sitesTable or not self._readable(source.sitesTable):
             return []
@@ -393,6 +417,7 @@ def _recommendation_source(source_type: str, tables: dict[str, str]) -> Marketin
     return MarketingAnalyticsRecommendationsSource(
         sourceType=MarketingAnalyticsRecommendationsSourceType.GOOGLE_SEARCH_CONSOLE,
         queryTable=query_table,
+        queryPageTable=tables.get("search_analytics_by_query_page"),
         sitesTable=tables.get("sites"),
     )
 

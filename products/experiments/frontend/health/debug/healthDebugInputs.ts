@@ -155,7 +155,7 @@ export function buildFlagFacts(experiment: Experiment, state: HealthInputsState)
         {
             label: 'Called after the end',
             value: serverValue(state, ({ flag_called_after_end }) => yesNoUnknown(flag_called_after_end)),
-            help: "When this is No, the flag-state finding for an ended experiment is info. No needs 3 days without a recorded call after the end. Unknown before the end, before those 3 days are over, or when the organization's flag calls skip the events table.",
+            help: "Yes needs a recorded call after the end and in the last 3 days. Only Yes makes the flag-state finding for an ended experiment a warning. No only once 3 days have passed since the end. Unknown before the end, before those 3 days are over without a call, or when the organization's flag calls skip the events table.",
         },
     ]
 }
@@ -216,7 +216,7 @@ export function buildFlagHistoryFacts(state: HealthInputsState): SetupFact[] {
             help: 'The flag-change checks compare the changes with the exposures only for an exposure event without property filters. Every change counts from the first one, of any kind, with an exposure before it.',
         },
         ...(history
-            ? [{ label: 'Launched at', value: `${formatTimestamp(history.launched_at)} (${history.team_timezone})` }]
+            ? [{ label: 'Start date', value: `${formatTimestamp(history.start_date)} (${history.team_timezone})` }]
             : []),
         ...(hasCountedChange && history
             ? [
