@@ -1,5 +1,7 @@
-from collections.abc import AsyncIterator, Iterator
+import asyncio
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager
+from typing import TypeVar
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from posthog.models import Team
@@ -9,6 +11,32 @@ from products.signals.backend.trial.billing import paid_trial_continuation_autho
 from products.signals.backend.trial.funding import TrialFunding, direct_report_funding
 from products.signals.backend.trial.policy import TrialPolicy
 from products.signals.backend.trial.reports import task_funding, task_trial_context
+
+Reservation = TypeVar("Reservation")
+
+
+async def _finish_reservation(
+    reservation: asyncio.Task[Reservation], release: Callable[[Reservation], Awaitable[None]]
+) -> None:
+    async def finish() -> None:
+        try:
+            acquired = await reservation
+        except Exception:
+            return  # The acquisition error is already propagating from the context manager.
+        await release(acquired)
+
+    # Cancelling the await cannot stop a synchronous DB commit. Let acquisition finish,
+    # then release its attempt, even if cancellation is repeated during cleanup.
+    cleanup = asyncio.create_task(finish())
+    cancelled = None
+    while not cleanup.done():
+        try:
+            await asyncio.shield(cleanup)
+        except asyncio.CancelledError as error:
+            cancelled = error
+    cleanup.result()
+    if cancelled is not None:
+        raise cancelled
 
 
 def reserve_report(team: Team, run_id: UUID | None, emission_key: str) -> UUID | None:
@@ -25,10 +53,16 @@ def reserve_report(team: Team, run_id: UUID | None, emission_key: str) -> UUID |
 
 @asynccontextmanager
 async def trial_report_reservation(*, team: Team, run_id: UUID | None, emission_key: str) -> AsyncIterator[UUID | None]:
-    report_id = await database_sync_to_async(reserve_report)(team, run_id, emission_key)
+    reservation = asyncio.create_task(database_sync_to_async(reserve_report)(team, run_id, emission_key))
+
+    async def release(report_id: UUID | None) -> None:
+        if report_id is not None:
+            await database_sync_to_async(TrialPolicy(team).finish_direct_report_attempt)(report_id, run_id=run_id)
+
     token = None
     funding_token = None
     try:
+        report_id = await asyncio.shield(reservation)
         token = task_trial_context.set((team.id, run_id) if run_id is not None else None)
         funding = await database_sync_to_async(task_funding)(team.id, run_id) if run_id else None
         funding_token = direct_report_funding.set((team.id, funding) if funding else None)
@@ -38,8 +72,7 @@ async def trial_report_reservation(*, team: Team, run_id: UUID | None, emission_
             task_trial_context.reset(token)
         if funding_token is not None:
             direct_report_funding.reset(funding_token)
-        if report_id is not None:
-            await database_sync_to_async(TrialPolicy(team).finish_direct_report_attempt)(report_id, run_id=run_id)
+        await _finish_reservation(reservation, release)
 
 
 @contextmanager
@@ -79,11 +112,18 @@ async def custom_report_reservation(
             yield report_id
         return
     report_id = uuid5(NAMESPACE_URL, f"signals-custom-trial-report:{team.id}:{emission_key}")
-    funding = await database_sync_to_async_pool(_reserve_custom_report)(team, report_id)
-    token = direct_report_funding.set((team.id, funding))
-    try:
-        yield report_id if funding.grant_id else None
-    finally:
-        direct_report_funding.reset(token)
+    reservation = asyncio.create_task(database_sync_to_async_pool(_reserve_custom_report)(team, report_id))
+
+    async def release(funding: TrialFunding) -> None:
         if funding.grant_id is not None:
             await database_sync_to_async(TrialPolicy(team).finish_direct_report_attempt)(report_id)
+
+    token = None
+    try:
+        funding = await asyncio.shield(reservation)
+        token = direct_report_funding.set((team.id, funding))
+        yield report_id if funding.grant_id else None
+    finally:
+        if token is not None:
+            direct_report_funding.reset(token)
+        await _finish_reservation(reservation, release)

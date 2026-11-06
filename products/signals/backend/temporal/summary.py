@@ -406,7 +406,11 @@ class SignalReportSummaryWorkflow:
         return await workflow.execute_activity(
             check_report_quota_gate_activity,
             CheckReportQuotaGateInput(
-                team_id=inputs.team_id, report_id=inputs.report_id, stage=stage, admitted=self._quota_admitted
+                team_id=inputs.team_id,
+                report_id=inputs.report_id,
+                stage=stage,
+                admitted=self._quota_admitted,
+                signal_id=inputs.signal_id,
             ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -954,6 +958,7 @@ class CheckReportQuotaGateInput:
     report_id: str
     stage: str
     admitted: bool = False
+    signal_id: str | None = None
 
 
 @temporalio.activity.defn
@@ -966,8 +971,17 @@ async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> 
     if input.admitted or input.stage in {"pre_repo_selection", "pre_research"}:
         return False
     try:
+        if await (
+            SignalReport.objects.filter(team_id=input.team_id, id=input.report_id)
+            .exclude(billing_exempt_reason__isnull=True)
+            .exclude(billing_exempt_reason="")
+            .aexists()
+        ):
+            return False
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-        gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
+        gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(
+            team, signal_id=input.signal_id
+        )
         if gate.limited:
             capture_signal_report_quota_paused(
                 team, report_id=input.report_id, stage=input.stage, enforced=gate.enforced
@@ -1080,9 +1094,10 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
 
         team = await Team.objects.select_related("organization").aget(id=input.team_id)
         info = temporalio.activity.info()
-        operation_key = f"report-pass:{info.workflow_run_id}:{info.activity_id}"
+        # Internal refreshes share admission; an explicitly restarted workflow gets a new run ID.
+        operation_key = f"report-pass:{info.workflow_run_id}"
         paid_authorized = await database_sync_to_async_pool(report_pass_paid_authorized)(
-            team=team, report_id=input.report_id, operation_key=operation_key
+            team=team, report_id=input.report_id, operation_key=operation_key, signal_id=input.signal_id
         )
     try:
 
@@ -1098,7 +1113,11 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
                 lock_signal_spend(team_id=input.team_id, signal_id=signal_id)
             if team is not None:
                 prepare_report_pass(
-                    team=team, report_id=input.report_id, operation_key=operation_key, paid_authorized=paid_authorized
+                    team=team,
+                    report_id=input.report_id,
+                    operation_key=operation_key,
+                    paid_authorized=paid_authorized,
+                    signal_id=input.signal_id,
                 )
             if signal_id:
                 begin_report_spend(team_id=input.team_id, report_id=input.report_id, signal_id=signal_id)

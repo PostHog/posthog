@@ -17,7 +17,7 @@ from posthog.event_usage import groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.temporal.common.metrics import get_metric_meter
 
-from products.signals.backend.trial.funding import TrialFunding
+from products.signals.backend.trial.funding import TrialFunding, signal_funding
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited, self_driving_quota_resource
 
@@ -161,9 +161,10 @@ def prepare_self_driving_admission(team: "Team", *, parent: TrialFunding | None 
     )
 
 
-def self_driving_quota_gate(team: "Team") -> SelfDrivingQuotaGate:
-    """Expose the same new-work decision to workflows and the paused-state UI."""
-    return prepare_self_driving_admission(team).gate
+def self_driving_quota_gate(team: "Team", *, signal_id: str | None = None) -> SelfDrivingQuotaGate:
+    """Expose the same admission decision to workflows and the paused-state UI."""
+    parent = signal_funding(team.id, signal_id) if signal_id else None
+    return prepare_self_driving_admission(team, parent=parent).gate
 
 
 def self_driving_limit_name(team: "Team") -> str:
