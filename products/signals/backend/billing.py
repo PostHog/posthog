@@ -24,6 +24,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
     SignalSpend,
 )
+from products.signals.backend.pricing import SIGNALS_CREDITS_PER_DOLLAR as SIGNALS_CREDITS_PER_DOLLAR
 from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_is_proven_canonical
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.api import GITHUB_PR_URL_PREFIX
@@ -33,7 +34,6 @@ if TYPE_CHECKING:
 
 _IMPLEMENTATION = TASK_RUN_TYPE_IMPLEMENTATION
 
-SIGNALS_CREDITS_PER_DOLLAR = 100  # 1 credit = $0.01, matching ai_credits
 
 # Flat credits charged once per report whose implementation shipped a PR ($15).
 SIGNALS_CREDITS_PER_REPORT_WITH_PR = 15 * SIGNALS_CREDITS_PER_DOLLAR  # 1500

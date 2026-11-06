@@ -882,6 +882,9 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "usage_dashboard",
         "analytics_dashboards",
         "flag_evaluation_contexts",
+        # FeatureFlagCodeAnalysis is team-scoped, so reading this relation for a diff hits the
+        # fail-closed manager. A code analysis does not change the flag, so the diff skips it.
+        "code_analyses",
     ],
     "Experiment": [
         "feature_flag",
@@ -1567,7 +1570,7 @@ def log_activity(
             "user": user,
             "was_impersonated": was_impersonated,
             "is_system": user is None,
-            "item_id": str(item_id),
+            "item_id": str(item_id) if item_id is not None else None,
             "scope": scope,
             "activity": activity,
             "detail": detail,

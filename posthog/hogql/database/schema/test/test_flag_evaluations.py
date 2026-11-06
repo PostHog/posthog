@@ -54,7 +54,7 @@ from posthog.hogql.visitor import clear_locations
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.events_query_runner import SELECT_STAR_FROM_EVENTS_FIELDS
-from posthog.models import PropertyDefinition, Team
+from posthog.models import Team
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.property import TableColumn
@@ -69,6 +69,7 @@ from products.cohorts.backend.models.util import insert_static_cohort
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.data_tools.backend.models.expression import DataWarehouseExpression
+from products.event_definitions.backend.models import PropertyDefinition
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 

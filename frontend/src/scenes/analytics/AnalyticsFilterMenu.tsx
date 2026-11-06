@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconTrends } from '@posthog/icons'
 import {
@@ -8,6 +9,7 @@ import {
     DropdownMenuSeparator,
     FilterCheckboxSubMenu,
     FilterClearItem,
+    FilterMenuOpenTiming,
     FilterMenuTrigger,
     FilterOption,
     FilterRadioSubMenu,
@@ -54,6 +56,17 @@ const TYPE_OPTIONS: FilterOption<AnalyticsType>[] = ANALYTICS_TYPES.map((info) =
         </span>
     ),
 }))
+
+function captureFilterMenuOpened(
+    menu: 'analytics-tags' | 'analytics-created-by',
+    { durationMs, optionCount }: FilterMenuOpenTiming
+): void {
+    posthog.capture('filter menu opened', {
+        menu,
+        duration_ms: Math.round(durationMs),
+        option_count: optionCount,
+    })
+}
 
 /**
  * The list's controls in one menu, laid out like the nav rail's: sort, then a row per filter, then display choices, then
@@ -124,6 +137,7 @@ export function AnalyticsFilterMenu(): JSX.Element {
                         searchPlaceholder="Search people"
                         emptyText="No one matches"
                         onOpen={ensureAllMembersLoaded}
+                        onOpened={(timing) => captureFilterMenuOpened('analytics-created-by', timing)}
                         dataAttr="analytics-list-created-by"
                         optionDataAttr="analytics-list-created-by-option"
                     />
@@ -139,6 +153,7 @@ export function AnalyticsFilterMenu(): JSX.Element {
                     searchPlaceholder="Search tags"
                     emptyText="No tag matches"
                     onOpen={loadTagsIfNeeded}
+                    onOpened={(timing) => captureFilterMenuOpened('analytics-tags', timing)}
                     dataAttr="analytics-list-tags"
                     optionDataAttr="analytics-list-tags-option"
                 />

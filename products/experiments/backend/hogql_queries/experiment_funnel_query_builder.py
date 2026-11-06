@@ -534,13 +534,14 @@ class FunnelQueryBuilder:
             AND {funnel_steps_filter}
             """
 
+        distinct_id_column_sql = self._b.context.precompute_distinct_id_column_sql("distinct_id")
         query_string = f"""
             SELECT
                 {{entity_key}} AS entity_id,
                 timestamp AS timestamp,
                 uuid AS event_uuid,
                 `$session_id` AS session_id,
-                {steps_array_sql} AS steps
+                {steps_array_sql} AS steps{distinct_id_column_sql}
             FROM events
             WHERE timestamp >= {{time_window_min}}
                 AND timestamp < {{time_window_max}}

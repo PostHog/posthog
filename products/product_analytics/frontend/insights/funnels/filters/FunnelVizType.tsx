@@ -1,13 +1,8 @@
-import { useActions, useValues } from 'kea'
-
-import { IconClock, IconFilter, IconTrending } from '@posthog/icons'
-
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
-import { FunnelsFilter } from '~/queries/schema/schema-general'
 import { EditorFilterProps, FunnelVizType as VizType } from '~/types'
 
-import { funnelDataLogic } from '../funnelDataLogic'
+import { useFunnelVizType } from './useFunnelVizType'
 
 type LabelProps = {
     icon: JSX.Element
@@ -34,62 +29,22 @@ const LabelInMenu = ({ icon, title, description }: LabelInMenuProps): JSX.Elemen
 )
 
 export function FunnelVizType({ insightProps }: Pick<EditorFilterProps, 'insightProps'>): JSX.Element | null {
-    const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
-    const { insightFilter } = useValues(funnelDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+    const { value, options, setValue } = useFunnelVizType({ insightProps })
 
-    const { funnelVizType } = (insightFilter || {}) as FunnelsFilter
-
-    if (funnelVizType === VizType.Flow) {
+    if (value === VizType.Flow) {
         return null
     }
-
-    const options = [
-        {
-            value: VizType.Steps,
-            label: <Label icon={<IconFilter className="text-secondary" />} title="Conversion steps" />,
-            labelInMenu: (
-                <LabelInMenu
-                    icon={<IconFilter className="text-secondary" />}
-                    title="Conversion steps"
-                    description={`Track ${aggregationTargetLabel.plural} progress between steps of the funnel`}
-                />
-            ),
-        },
-        {
-            value: VizType.TimeToConvert,
-            label: <Label icon={<IconClock className="text-secondary" />} title="Time to convert" />,
-            labelInMenu: (
-                <LabelInMenu
-                    icon={<IconClock className="text-secondary" />}
-                    title="Time to convert"
-                    description={`Track how long it takes for ${aggregationTargetLabel.plural} to convert`}
-                />
-            ),
-        },
-        {
-            value: VizType.Trends,
-            label: <Label icon={<IconTrending className="text-secondary" />} title="Historical trends" />,
-            labelInMenu: (
-                <LabelInMenu
-                    icon={<IconTrending className="text-secondary" />}
-                    title="Historical trends"
-                    description="Track how this funnel's conversion rate is trending over time"
-                />
-            ),
-        },
-    ]
 
     return (
         <LemonSelect
             size="small"
-            value={funnelVizType || VizType.Steps}
-            onChange={(value) => {
-                if (funnelVizType !== value) {
-                    updateInsightFilter({ funnelVizType: value })
-                }
-            }}
-            options={options}
+            value={value}
+            onChange={setValue}
+            options={options.map(({ value, title, description, icon }) => ({
+                value,
+                label: <Label icon={icon} title={title} />,
+                labelInMenu: <LabelInMenu icon={icon} title={title} description={description} />,
+            }))}
             dropdownMatchSelectWidth={false}
             data-attr="funnel-viz-type-select"
         />

@@ -23,6 +23,7 @@ import { configureNotifications } from '@/features/notifications/pushRegistratio
 import { useNotificationRouting } from '@/features/notifications/useNotificationRouting'
 import { usePushRegistration } from '@/features/notifications/usePushRegistration'
 import { useAutomaticUpdates } from '@/features/updates/useAutomaticUpdates'
+import { useChartWidgetSync } from '@/features/widgets/useChartWidgetSync'
 import { track } from '@/lib/analytics'
 import { initAnalytics } from '@/lib/posthogClient'
 import { useScreenTracking } from '@/lib/useScreenTracking'
@@ -107,6 +108,7 @@ export default function RootLayout(): ReactElement {
     useScreenTracking(ready)
     usePushRegistration()
     useHedgehogWidgetSync()
+    useChartWidgetSync()
     useNotificationRouting()
     useAutomaticUpdates(ready && segments[0] === '(tabs)')
 

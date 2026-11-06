@@ -8,7 +8,7 @@ from typing import Any, Literal, Optional, Union, cast
 
 from posthog.hogql import ast
 from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.escape_sql import escape_clickhouse_identifier
+from posthog.hogql.escape_sql import escape_clickhouse_json_path
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -54,7 +54,7 @@ def get_property_string_expr(
 
     if use_new_events_schema and table == "events":
         if materialised_table_column in ("properties", "person_properties"):
-            return _json_events_property_expr(property_name, var, f"{table_string}{column}")
+            return _json_events_property_expr(property_name, f"{table_string}{column}")
         # The JSON events table has no mat_* columns at all; group columns there stay String blobs.
         allow_denormalized_props = False
 
@@ -84,10 +84,10 @@ def _json_events_to_json_string_expr(value: str) -> str:
     return f"if(getSetting('output_format_json_escape_forward_slashes'), replaceAll({serialized}, '\\\\/', '/'), {serialized})"
 
 
-def _json_events_property_expr(property_name: PropertyName, var: str, column_ref: str) -> tuple[str, bool]:
-    scalar_value = _json_events_subcolumn_expr(property_name, var, column_ref)
+def _json_events_property_expr(property_name: PropertyName, column_ref: str) -> tuple[str, bool]:
+    scalar_value = _json_events_subcolumn_expr(property_name, column_ref)
     object_value = _json_events_to_json_string_expr(
-        _json_events_subcolumn_expr(property_name, var, column_ref, sub_object=True)
+        _json_events_subcolumn_expr(property_name, column_ref, sub_object=True)
     )
     scalar_string = f"toString({scalar_value})"
     # Arrays and maps read as JSON text. Their plain text starts with '[' or '{', which a string can too, but a
@@ -102,21 +102,12 @@ def _json_events_property_expr(property_name: PropertyName, var: str, column_ref
     return f"ifNull({raw_value}, '')", False
 
 
-def _json_events_subcolumn_expr(
-    property_name: PropertyName, var: str, column_ref: str, *, sub_object: bool = False
-) -> str:
-    if "%" not in property_name and "." not in property_name:
-        separator = ".^" if sub_object else "."
-        return f"{column_ref}{separator}{escape_clickhouse_identifier(property_name)}"
-
+def _json_events_subcolumn_expr(property_name: PropertyName, column_ref: str, *, sub_object: bool = False) -> str:
     # A dot inside one key is stored as `%2E` (EVENTS_JSON_INSERT_SETTINGS), so it must not read as a path
-    # separator. `%` is spelled char(37) because callers run this SQL through parameter substitution, where a
-    # literal `%` is a format directive.
-    escaped_dots = f"replaceAll({var}, '.', concat(char(37), '2E'))"
-    escaped_backticks = f"replaceAll({escaped_dots}, char(96), concat(char(96), char(96)))"
-    quoted_subcolumn = f"concat(char(96), {escaped_backticks}, char(96))"
-    subcolumn = f"concat('^', {quoted_subcolumn})" if sub_object else escaped_dots
-    return f"getSubcolumn({column_ref}, {subcolumn})"
+    # separator. The path prints inline with its `%` as a `\x25` escape, which passes unchanged through the
+    # parameter substitution and str.format that callers run this SQL through.
+    separator = ".^" if sub_object else "."
+    return f"{column_ref}{separator}{escape_clickhouse_json_path(property_name.replace('.', '%2E'))}"
 
 
 def box_value(value: Any, remove_spaces=False) -> list[Any]:

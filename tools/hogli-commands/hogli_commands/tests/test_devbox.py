@@ -29,6 +29,8 @@ from hogli_commands.devbox import (
     worktree as devbox_worktree,
 )
 
+# Captured at import, before the autouse fixture in conftest.py replaces it.
+_REAL_FORGET_HERDR_MACHINE = devbox_herdr.forget_machine
 runner = CliRunner()
 
 
@@ -69,6 +71,13 @@ def recorded_properties(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
     recorded: dict[str, object] = {}
     monkeypatch.setattr(coder.telemetry, "add_command_properties", lambda **props: recorded.update(props))
     return recorded
+
+
+@pytest.fixture
+def stub_mutagen_setup(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(devbox_mutagen, "ensure_mutagen_installed", lambda **kw: None)
+    monkeypatch.setattr(devbox_mutagen, "ensure_daemon_with_shim", lambda: None)
+    monkeypatch.setattr(devbox_mutagen, "ensure_user_mutagen_config", lambda: Path("/tmp/mutagen.yml"))
 
 
 class TestDevboxConfig:
@@ -1047,7 +1056,7 @@ class TestWorktreeAutoProvision:
         monkeypatch.setattr(devbox_config, "get_config_path", lambda: tmp_path / "config.json")
         monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: tmp_path / "wt")
         monkeypatch.setattr(
-            devbox_worktree.shutil, "which", lambda name: "/bin/herdr" if herdr_installed and name == "herdr" else None
+            devbox_herdr.shutil, "which", lambda name: "/bin/herdr" if herdr_installed and name == "herdr" else None
         )
         herdr_calls: list[list[str]] = []
 
@@ -2206,7 +2215,9 @@ class TestDevboxCommands:
         assert "hogli devbox:update" in result.output
         assert "hogli devbox:destroy" in result.output
 
-    def test_devbox_setup_runs_explicit_setup_steps(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_devbox_setup_runs_explicit_setup_steps(
+        self, monkeypatch: pytest.MonkeyPatch, stub_mutagen_setup: None
+    ) -> None:
         calls: list[str] = []
 
         monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda setup_hint="": calls.append("reachable"))
@@ -2273,7 +2284,7 @@ class TestDevboxCommands:
         ]
 
     def test_devbox_setup_threads_resolved_identity_agent_into_ssh_config(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, stub_mutagen_setup: None
     ) -> None:
         captured: dict[str, object] = {}
 
@@ -2305,6 +2316,7 @@ class TestDevboxCommands:
         self,
         monkeypatch: pytest.MonkeyPatch,
         devbox_config_path: Path,
+        stub_mutagen_setup: None,
     ) -> None:
         monkeypatch.setattr(devbox_cli, "ensure_coder_reachable", lambda setup_hint="": None)
         monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
@@ -2337,6 +2349,7 @@ class TestDevboxCommands:
         self,
         monkeypatch: pytest.MonkeyPatch,
         devbox_config_path: Path,
+        stub_mutagen_setup: None,
     ) -> None:
         devbox_config_path.write_text(json.dumps({"git_name": "Existing User", "git_email": "existing@example.com"}))
 
@@ -2915,12 +2928,15 @@ class TestDevboxOpenHerdr:
             "folder": "/home/coder/posthog",
         }
 
+    @pytest.mark.parametrize(
+        "target", ["coder.devbox-test-user", "devbox-test-user.coder"], ids=["alias-prefix", "hostname-suffix"]
+    )
     def test_reuses_the_machine_and_space_already_in_herdr_once_it_reconnects(
-        self, herdr_calls: Callable[..., list[list[str]]], running_workspace: Callable[[str], None]
+        self, herdr_calls: Callable[..., list[list[str]]], running_workspace: Callable[[str], None], target: str
     ) -> None:
         running_workspace("running")
         calls = herdr_calls(
-            machines=[{"name": "box", "target": "coder.devbox-test-user"}],
+            machines=[{"name": "box", "target": target}],
             spaces=[{"id": "box/sp1", "machine": "box"}, {"id": "sp2", "machine": None}],
             connecting_polls=2,
         )
@@ -2944,6 +2960,83 @@ class TestDevboxOpenHerdr:
         assert "Devbox 'devbox-test-user' is stopped. Start it with `hogli devbox:start`" in result.output
         assert calls == []
 
+    @pytest.mark.parametrize(
+        ("registered_worktree", "expected_warning"),
+        [
+            (None, "Sync is active for 'devbox-test-user'"),
+            ("/work/posthog-feature", "'devbox-test-user' mirrors the worktree at /work/posthog-feature"),
+        ],
+        ids=["standalone-box", "worktree-box"],
+    )
+    def test_sync_warning_points_a_worktree_box_at_its_worktree(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        herdr_calls: Callable[..., list[list[str]]],
+        running_workspace: Callable[[str], None],
+        registered_worktree: str | None,
+        expected_warning: str,
+    ) -> None:
+        running_workspace("running")
+        herdr_calls(machines=[], spaces=[])
+        monkeypatch.setattr(devbox_cli.mutagen, "sync_list", lambda **kw: [{"name": "ph-x"}])
+        registry = (
+            {}
+            if registered_worktree is None
+            else {registered_worktree: devbox_config.WorktreeBoxRecord(workspace="devbox-test-user", git_dir="admin")}
+        )
+        monkeypatch.setattr(devbox_cli, "load_worktree_boxes", lambda: registry)
+
+        result = runner.invoke(cli, ["devbox:open", "--herdr"])
+
+        assert result.exit_code == 0, result.output
+        assert expected_warning in result.output
+
+    def test_forgetting_a_deleted_box_removes_only_its_own_machine(
+        self, herdr_calls: Callable[..., list[list[str]]]
+    ) -> None:
+        calls = herdr_calls(
+            machines=[
+                {"name": "renamed-by-user", "target": "coder.devbox-test-user"},
+                {"name": "added-by-hand", "target": "devbox-test-user.coder"},
+                {"name": "devbox-test-user-other", "target": "coder.devbox-test-user-other"},
+            ],
+            spaces=[],
+        )
+
+        _REAL_FORGET_HERDR_MACHINE("devbox-test-user")
+
+        assert [call for call in calls if call[:3] == ["hc", "machine", "rm"]] == [
+            ["hc", "machine", "rm", "renamed-by-user"],
+            ["hc", "machine", "rm", "added-by-hand"],
+        ]
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            subprocess.CompletedProcess(["hc"], 1, "", "daemon not running"),
+            subprocess.TimeoutExpired(["hc"], 30),
+            OSError("bad interpreter"),
+        ],
+        ids=["exits-nonzero", "times-out", "cannot-start"],
+    )
+    def test_forgetting_warns_when_herdr_machines_cannot_be_listed(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        failure: subprocess.CompletedProcess[str] | Exception,
+    ) -> None:
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            if isinstance(failure, Exception):
+                raise failure
+            return failure
+
+        monkeypatch.setattr(devbox_herdr.subprocess, "run", fake_run)
+        monkeypatch.setattr(devbox_herdr.shutil, "which", lambda name: f"/usr/local/bin/{name}")
+
+        _REAL_FORGET_HERDR_MACHINE("devbox-test-user")
+
+        assert "could not list Herdr machines to remove 'devbox-test-user'" in capsys.readouterr().out
+
     def test_a_timed_out_hc_call_fails_with_a_message(
         self, herdr_calls: Callable[..., list[list[str]]], running_workspace: Callable[[str], None]
     ) -> None:
@@ -2959,7 +3052,7 @@ class TestDevboxOpenHerdr:
 
 
 @pytest.fixture
-def stub_setup_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+def stub_setup_environment(monkeypatch: pytest.MonkeyPatch, stub_mutagen_setup: None) -> None:
     """No-op every external dependency in ``devbox_setup`` so reset/gate tests can run hermetically."""
     for name in ("ensure_coder_reachable", "ensure_coder_authenticated"):
         monkeypatch.setattr(devbox_cli, name, lambda *a, **kw: None)
@@ -5213,13 +5306,14 @@ class TestDevboxLifecycleSyncIntegration:
         monkeypatch.setattr(devbox_cli.mutagen, "sync_list", lambda label_selector=None: [{"name": "ph-x"}])
         monkeypatch.setattr(devbox_cli.mutagen, "sync_terminate", lambda sel: calls.append("terminate"))
         monkeypatch.setattr(devbox_cli, "delete_workspace", lambda name, verbose=False: calls.append("delete"))
+        monkeypatch.setattr(devbox_cli.herdr_app, "forget_machine", lambda name: calls.append(f"forget-herdr:{name}"))
 
         result = runner.invoke(cli, ["devbox:destroy"])
 
         assert result.exit_code == 0, result.output
         # terminate MUST run before delete: the remote endpoint disappearing
         # mid-sync produces noisy daemon errors otherwise.
-        assert calls == ["terminate", "delete"]
+        assert calls == ["terminate", "delete", "forget-herdr:devbox-test-user"]
 
     def test_destroy_proceeds_when_no_sync_session(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: list[str] = []

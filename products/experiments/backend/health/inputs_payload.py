@@ -143,7 +143,7 @@ def _health_inputs_flag_history(history: FlagHistory | FlagHistoryNotChecked) ->
     return {
         "checked": reason is None,
         "not_checked_reason": reason,
-        "launched_at": history.launched_at,
+        "start_date": history.start_date,
         "team_timezone": history.team_timezone,
         "changes": changes,
         "exposed_before_first": exposed_before_first,
