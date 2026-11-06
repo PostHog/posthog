@@ -1,5 +1,6 @@
 import logging
 from datetime import timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -8,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 from django.db import connection
 from django.utils import timezone
 
+from temporalio import activity
 from temporalio.client import ScheduleOverlapPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
@@ -17,7 +19,11 @@ from posthog.models import Team
 from posthog.redis import get_client as get_redis_client
 from posthog.sync import database_sync_to_async
 
-from products.customer_analytics.backend.logic.membership import MembershipExistence, MembershipKey
+from products.customer_analytics.backend.logic.membership import (
+    MembershipCleanupBusy,
+    MembershipExistence,
+    MembershipKey,
+)
 from products.customer_analytics.backend.logic.membership_discovery import (
     MembershipDiscoveryCounts,
     MembershipDiscoveryInput,
@@ -25,6 +31,11 @@ from products.customer_analytics.backend.logic.membership_discovery import (
     run_membership_discovery,
 )
 from products.customer_analytics.backend.models.membership_cleanup import MembershipCleanupCandidate
+from products.customer_analytics.backend.temporal.membership_common import (
+    BATCH_RETRY_ATTEMPTS,
+    BATCH_RETRY_DELAY,
+    HEARTBEAT_TIMEOUT,
+)
 from products.customer_analytics.backend.temporal.membership_discovery import (
     COORDINATOR_RUN_BUDGET,
     SCHEDULE_ID,
@@ -50,7 +61,10 @@ async def test_team_workflow_stops_at_scan_or_run_limit(
     execute_activity = AsyncMock(return_value=MembershipDiscoveryCounts(scanned=100, has_more=has_more))
     with (
         patch("products.customer_analytics.backend.temporal.membership_discovery.MAX_BATCHES_PER_TEAM", 3),
-        patch("temporalio.workflow.now", side_effect=[now, *[now + elapsed] * 3]),
+        patch("temporalio.workflow.now", side_effect=[now, *[now + elapsed] * 30]),
+        patch(
+            "temporalio.workflow.info", return_value=SimpleNamespace(start_time=now, execution_timeout=TEAM_RUN_BUDGET)
+        ),
         patch("temporalio.workflow.execute_activity", execute_activity),
     ):
         result = await MembershipDiscoveryTeamWorkflow().run(MembershipDiscoveryInput(team_id=1))
@@ -61,10 +75,16 @@ async def test_team_workflow_stops_at_scan_or_run_limit(
 @pytest.mark.asyncio
 async def test_coordinator_stops_between_teams_at_deadline() -> None:
     now = timezone.now()
+    clock = now
     execute_activity = AsyncMock(side_effect=[[1, 2], None])
-    execute_child = AsyncMock()
+
+    async def finish_child(*args: object, **kwargs: object) -> None:
+        nonlocal clock
+        clock = now + COORDINATOR_RUN_BUDGET
+
+    execute_child = AsyncMock(side_effect=finish_child)
     with (
-        patch("temporalio.workflow.now", side_effect=[now, now, now, now + COORDINATOR_RUN_BUDGET]),
+        patch("temporalio.workflow.now", side_effect=lambda: clock),
         patch("temporalio.workflow.execute_activity", execute_activity),
         patch("temporalio.workflow.execute_child_workflow", execute_child),
     ):
@@ -80,14 +100,15 @@ def test_discovery_lease_and_network_transaction_scope(team: Team) -> None:
     store = MembershipDiscoveryStore()
     lease = get_redis_client().lock(f"customer_analytics:membership_cleanup:{team.pk}", timeout=60)
     with lease, patch.object(store, "list_keys") as list_keys:
-        assert run_membership_discovery(MembershipDiscoveryInput(team_id=team.pk), store).scanned == 0
+        with pytest.raises(MembershipCleanupBusy):
+            run_membership_discovery(MembershipDiscoveryInput(team_id=team.pk), store)
         list_keys.assert_not_called()
 
     def list_keys_without_transaction(*args: object) -> list[MembershipKey]:
         assert not connection.in_atomic_block
         return [MembershipKey(group_type_index=0, group_key="test-account", distinct_id="test-person")]
 
-    def lookup_without_transaction(*args: object) -> MembershipExistence:
+    def lookup_without_transaction(*args: object, **kwargs: object) -> MembershipExistence:
         assert not connection.in_atomic_block
         return MembershipExistence(persons=frozenset(), groups=frozenset())
 
@@ -133,6 +154,17 @@ async def test_temporal_discovery_preserves_membership(
         assert MembershipCleanupCandidate.objects.for_team(other_team_id).count() == 2
         assert sync_execute("SELECT count() FROM person_group_membership") == [(3,)]
 
+    lost_result = False
+
+    @activity.defn(name="membership_discovery_activity")
+    async def retry_committed_batch(input: MembershipDiscoveryInput) -> MembershipDiscoveryCounts:
+        nonlocal lost_result
+        result = await membership_discovery_activity(input)
+        if not lost_result:
+            lost_result = True
+            raise RuntimeError("Simulated lost activity result after checkpoint commit")
+        return result
+
     await database_sync_to_async(seed_membership)()
     async with await WorkflowEnvironment.start_local() as environment:
         await create_membership_discovery_schedule(environment.client)
@@ -146,7 +178,7 @@ async def test_temporal_discovery_preserves_membership(
             workflows=[MembershipDiscoveryWorkflow, MembershipDiscoveryTeamWorkflow],
             activities=[
                 list_membership_discovery_teams_activity,
-                membership_discovery_activity,
+                retry_committed_batch,
                 record_membership_discovery_team_activity,
             ],
         ):
@@ -157,3 +189,25 @@ async def test_temporal_discovery_preserves_membership(
                 execution_timeout=timedelta(minutes=1),
             )
     await database_sync_to_async(assert_candidates)()
+    assert lost_result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("execution_budget", [TEAM_RUN_BUDGET, timedelta(minutes=5)])
+async def test_team_reserves_time_for_retries(execution_budget: timedelta) -> None:
+    now = timezone.now()
+    execute = AsyncMock(return_value=MembershipDiscoveryCounts())
+    with (
+        patch(
+            "temporalio.workflow.info", return_value=SimpleNamespace(start_time=now, execution_timeout=execution_budget)
+        ),
+        patch("temporalio.workflow.now", return_value=now),
+        patch("temporalio.workflow.execute_activity", execute),
+    ):
+        await MembershipDiscoveryTeamWorkflow().run(MembershipDiscoveryInput(team_id=1))
+    options = execute.call_args.kwargs
+    retry_time = options["start_to_close_timeout"] * BATCH_RETRY_ATTEMPTS + BATCH_RETRY_DELAY * (
+        BATCH_RETRY_ATTEMPTS - 1
+    )
+    assert retry_time + HEARTBEAT_TIMEOUT <= execution_budget
+    assert options["schedule_to_close_timeout"] == execution_budget

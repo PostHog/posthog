@@ -1,26 +1,13 @@
 from datetime import timedelta
 
 from temporalio import activity, workflow
-from temporalio.client import (
-    Client,
-    Schedule,
-    ScheduleActionStartWorkflow,
-    ScheduleIntervalSpec,
-    ScheduleOverlapPolicy,
-    SchedulePolicy,
-    ScheduleSpec,
-    ScheduleState,
-)
+from temporalio.client import Client
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ChildWorkflowError, WorkflowAlreadyStartedError
 
 with workflow.unsafe.imports_passed_through():
-    from django.conf import settings
-
-    from posthog.scheduling.jitter import deterministic_offset
     from posthog.sync import database_sync_to_async
     from posthog.temporal.common.heartbeat import Heartbeater
-    from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists
 
     from products.customer_analytics.backend.logic.membership_discovery import (
         MembershipDiscoveryCounts,
@@ -30,6 +17,16 @@ with workflow.unsafe.imports_passed_through():
         record_membership_discovery_team,
         run_membership_discovery,
     )
+
+from products.customer_analytics.backend.temporal.membership_common import (
+    BATCH_RETRY_POLICY,
+    HEARTBEAT_TIMEOUT,
+    MIN_TEAM_RUN_BUDGET,
+    create_membership_schedule,
+    get_membership_activity_timeout,
+    get_membership_query_deadline,
+    get_membership_run_deadline,
+)
 
 SCHEDULE_ID = "customer-analytics-membership-discovery"
 TEAM_WORKFLOW_NAME = "customer-analytics-membership-discovery-team"
@@ -55,7 +52,7 @@ async def record_membership_discovery_team_activity(team_id: int) -> None:
 async def membership_discovery_activity(input: MembershipDiscoveryInput) -> MembershipDiscoveryCounts:
     async with Heartbeater():
         return await database_sync_to_async(run_membership_discovery, thread_sensitive=False)(
-            input, MembershipDiscoveryStore()
+            input, MembershipDiscoveryStore(deadline=get_membership_query_deadline())
         )
 
 
@@ -63,15 +60,19 @@ async def membership_discovery_activity(input: MembershipDiscoveryInput) -> Memb
 class MembershipDiscoveryTeamWorkflow:
     @workflow.run
     async def run(self, input: MembershipDiscoveryInput) -> MembershipDiscoveryCounts:
-        deadline = workflow.now() + TEAM_RUN_BUDGET
+        deadline = get_membership_run_deadline(TEAM_RUN_BUDGET)
         total = MembershipDiscoveryCounts()
         for _ in range(MAX_BATCHES_PER_TEAM):
+            timeout = get_membership_activity_timeout(deadline)
+            if timeout is None:
+                break
             result = await workflow.execute_activity(
                 membership_discovery_activity,
                 input,
-                start_to_close_timeout=timedelta(minutes=10),
-                heartbeat_timeout=timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=timeout,
+                schedule_to_close_timeout=deadline - workflow.now(),
+                heartbeat_timeout=HEARTBEAT_TIMEOUT,
+                retry_policy=BATCH_RETRY_POLICY,
             )
             total = MembershipDiscoveryCounts(
                 scanned=total.scanned + result.scanned,
@@ -101,7 +102,7 @@ class MembershipDiscoveryWorkflow:
                 break
             for team_id in teams:
                 remaining = deadline - workflow.now()
-                if remaining <= timedelta():
+                if remaining <= MIN_TEAM_RUN_BUDGET:
                     return
                 try:
                     await workflow.execute_child_workflow(
@@ -121,28 +122,9 @@ class MembershipDiscoveryWorkflow:
 
 
 async def create_membership_discovery_schedule(client: Client) -> None:
-    if await a_schedule_exists(client, SCHEDULE_ID):
-        return
-    await a_create_schedule(
+    await create_membership_schedule(
         client,
         SCHEDULE_ID,
-        Schedule(
-            action=ScheduleActionStartWorkflow(
-                SCHEDULE_ID,
-                id=SCHEDULE_ID,
-                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                execution_timeout=COORDINATOR_RUN_BUDGET + timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            ),
-            spec=ScheduleSpec(
-                intervals=[
-                    ScheduleIntervalSpec(
-                        every=timedelta(hours=1), offset=deterministic_offset(SCHEDULE_ID, timedelta(hours=1))
-                    )
-                ]
-            ),
-            policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
-            state=ScheduleState(paused=True, note="Validate membership discovery before enabling this schedule."),
-        ),
-        trigger_immediately=False,
+        COORDINATOR_RUN_BUDGET + timedelta(minutes=5),
+        "Validate membership discovery before enabling this schedule.",
     )

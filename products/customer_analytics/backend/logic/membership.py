@@ -1,6 +1,8 @@
+import re
 import json
 from collections.abc import Sequence
 from hashlib import sha256
+from time import monotonic
 
 from redis.lock import Lock
 
@@ -24,6 +26,19 @@ QUERY_SETTINGS = {
     "timeout_overflow_mode": "throw",
     "read_overflow_mode": "throw",
 }
+
+
+class MembershipCleanupBusy(Exception):
+    pass
+
+
+def get_membership_query_settings(deadline: float | None = None) -> dict[str, str]:
+    if deadline is None:
+        return QUERY_SETTINGS
+    remaining = int(deadline - monotonic())
+    if remaining <= 0:
+        raise TimeoutError("The membership batch deadline has passed. Retry the batch.")
+    return {**QUERY_SETTINGS, "max_execution_time": str(min(QUERY_TIMEOUT_SECONDS, remaining))}
 
 
 def get_membership_cleanup_lease(team_id: int) -> Lock:
@@ -50,12 +65,15 @@ class MembershipExistence:
 
 def _parse_group_key(group_key: str) -> str:
     try:
-        return json.loads(f'"{group_key}"').replace("\x00", "\ufffd")
+        group_key = json.loads(f'"{group_key}"')
     except json.JSONDecodeError:
-        return group_key
+        pass
+    return re.sub(r"[\ud800-\udfff\x00]", "\ufffd", group_key)
 
 
-def _get_live_groups(team_id: int, keys: Sequence[MembershipKey]) -> frozenset[tuple[int, str]]:
+def _get_live_groups(
+    team_id: int, keys: Sequence[MembershipKey], deadline: float | None = None
+) -> frozenset[tuple[int, str]]:
     # Membership keeps JSON escapes, but group identity storage uses decoded keys.
     lookup_keys: dict[tuple[int, str], tuple[int, str]] = {
         (key.group_type_index, key.group_key): (key.group_type_index, _parse_group_key(key.group_key)) for key in keys
@@ -64,7 +82,7 @@ def _get_live_groups(team_id: int, keys: Sequence[MembershipKey]) -> frozenset[t
         """SELECT DISTINCT group_type_index, group_key FROM groups
         WHERE team_id = %(team_id)s AND (group_type_index, group_key) IN %(groups)s""",
         {"team_id": team_id, "groups": list(set(lookup_keys.values()))},
-        settings=QUERY_SETTINGS,
+        settings=get_membership_query_settings(deadline),
         workload=Workload.OFFLINE,
     )
     live_groups = {(row[0], row[1]) for row in groups}
@@ -90,7 +108,9 @@ def _get_live_groups(team_id: int, keys: Sequence[MembershipKey]) -> frozenset[t
     return frozenset(stored_key for stored_key, lookup_key in lookup_keys.items() if lookup_key in live_groups)
 
 
-def get_membership_existence(team_id: int, keys: Sequence[MembershipKey]) -> MembershipExistence:
+def get_membership_existence(
+    team_id: int, keys: Sequence[MembershipKey], deadline: float | None = None
+) -> MembershipExistence:
     if not keys:
         return MembershipExistence(persons=frozenset(), groups=frozenset())
     distinct_ids = {key.distinct_id for key in keys}
@@ -102,7 +122,7 @@ def get_membership_existence(team_id: int, keys: Sequence[MembershipKey]) -> Mem
         GROUP BY distinct_id
         HAVING mapping.2 = 0""",
         parameters,
-        settings=QUERY_SETTINGS,
+        settings=get_membership_query_settings(deadline),
         workload=Workload.OFFLINE,
     )
     person_ids = list({mapping[1][0] for mapping in mappings})
@@ -111,7 +131,7 @@ def get_membership_existence(team_id: int, keys: Sequence[MembershipKey]) -> Mem
             """SELECT id FROM person WHERE team_id = %(team_id)s AND id IN %(person_ids)s
             GROUP BY id HAVING argMax(is_deleted, version) = 0""",
             {"team_id": team_id, "person_ids": person_ids},
-            settings=QUERY_SETTINGS,
+            settings=get_membership_query_settings(deadline),
             workload=Workload.OFFLINE,
         )
         if person_ids
@@ -128,5 +148,5 @@ def get_membership_existence(team_id: int, keys: Sequence[MembershipKey]) -> Mem
         )
     return MembershipExistence(
         persons=frozenset(live_distinct_ids),
-        groups=_get_live_groups(team_id, keys),
+        groups=_get_live_groups(team_id, keys, deadline),
     )
