@@ -9,7 +9,7 @@ from django.contrib import messages
 from django.contrib.staticfiles import finders
 from django.core.exceptions import PermissionDenied
 from django.db.models import Model, Q
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseRedirect
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseRedirect, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_safe
@@ -433,7 +433,7 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
         is_record=False,
     )
     confirmation = ConfirmationToken(request, f"tool:{tool.key}", operation.key)
-    data = request.POST if request.method == "POST" else None
+    data: QueryDict | None = request.POST if request.method == "POST" else None
     confirm_token = request.POST.get("confirm_token") if request.method == "POST" else None
     if confirm_token is not None:
         data = confirmation.load(confirm_token)
