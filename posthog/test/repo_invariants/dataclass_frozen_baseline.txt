@@ -328,7 +328,6 @@
 1 products/warehouse_sources/sources/scaleway/scaleway.py
 1 products/warehouse_sources/sources/scaleway/settings.py
 1 products/warehouse_sources/sources/semgrep/settings.py
-1 products/warehouse_sources/sources/sendowl/settings.py
 1 products/warehouse_sources/sources/sentry/sentry.py
 1 products/warehouse_sources/sources/sentry/settings.py
 1 products/warehouse_sources/sources/servicenow/settings.py
@@ -400,7 +399,7 @@
 9 products/signals/backend/temporal/grouping.py
 10 products/signals/backend/temporal/summary.py
 10 products/tasks/backend/temporal/process_task/activities/provision_sandbox.py
-102 posthog/hogql/ast.py
+101 posthog/hogql/ast.py
 12 ee/clickhouse/materialized_columns/columns.py
 14 products/marketing_analytics/backend/hogql_queries/adapters/base.py
 14 products/subscriptions/backend/temporal/types.py
@@ -414,7 +413,6 @@
 2 posthog/dags/data_deletion_requests.py
 2 posthog/dags/part_breaker.py
 2 posthog/dags/person_overrides.py
-2 posthog/dags/scripts/extract_reconciliation_results.py
 2 posthog/helpers/email_utils.py
 1 posthog/hogql/context.py
 2 posthog/hogql/database/models.py
@@ -594,7 +592,6 @@
 4 products/warehouse_sources/backend/temporal/data_imports/sources/common/base.py
 5 posthog/api/proxy_record_diagnostics.py
 5 posthog/api/services/llm_prompt.py
-5 posthog/dags/person_property_reconciliation.py
 5 posthog/temporal/ai_observability/evaluation_clustering/models.py
 5 posthog/temporal/ai_observability/run_trace_evaluation.py
 5 posthog/temporal/proxy_service/create.py

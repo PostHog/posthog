@@ -34,6 +34,7 @@ from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 from posthog.temporal.alerts.activities import (
     admit_alert_evaluations,
+    emit_alert_firing_signal,
     evaluate_alert,
     notify_alert,
     prepare_alert,
@@ -189,6 +190,65 @@ async def test_check_alert_workflow_evaluates_ai_detectors_on_the_ai_task_queue(
     evaluate_call = execute_activity.await_args_list[1]
     assert evaluate_call.args[0] is evaluate_alert
     assert evaluate_call.kwargs["task_queue"] == expected_task_queue
+
+
+@pytest.mark.parametrize(
+    "patched,notify_error,signal_error,expected_activities,expect_raise",
+    [
+        pytest.param(True, None, None, [notify_alert, emit_alert_firing_signal], False, id="signal_after_notify"),
+        pytest.param(False, None, None, [notify_alert], False, id="run_started_before_the_patch"),
+        pytest.param(True, RuntimeError("smtp down"), None, [notify_alert], True, id="no_signal_after_failed_notify"),
+        pytest.param(
+            True,
+            None,
+            RuntimeError("signals down"),
+            [notify_alert, emit_alert_firing_signal],
+            False,
+            id="signal_failure_keeps_the_check",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_check_alert_workflow_sends_the_firing_signal_last(
+    patched: bool,
+    notify_error: Exception | None,
+    signal_error: Exception | None,
+    expected_activities: list[Callable[..., Any]],
+    expect_raise: bool,
+) -> None:
+    evaluation = EvaluateAlertResult(
+        alert_check_id=str(uuid.uuid4()),
+        should_notify=True,
+        new_state=AlertState.FIRING,
+        breaches=["value above threshold"],
+        signal_candidate=True,
+        previous_state=AlertState.NOT_FIRING,
+    )
+    execute_activity = AsyncMock(
+        side_effect=[PrepareAlertResult(action=PrepareAction.EVALUATE), evaluation, notify_error, signal_error]
+    )
+
+    with (
+        patch("posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity", new=execute_activity),
+        patch("posthog.temporal.alerts.workflows.temporalio.workflow.patched", return_value=patched),
+        patch("posthog.temporal.alerts.workflows.temporalio.workflow.logger"),
+        pytest.raises(RuntimeError) if expect_raise else nullcontext(),
+    ):
+        await CheckAlertWorkflow().run(
+            CheckAlertWorkflowInputs(
+                alert_id=str(uuid.uuid4()),
+                team_id=1,
+                distinct_id="alerts-signal-test",
+                calculation_interval=AlertCalculationInterval.DAILY.value,
+                insight_id=1,
+            )
+        )
+
+    assert [c.args[0] for c in execute_activity.await_args_list[2:]] == expected_activities
+    if emit_alert_firing_signal in expected_activities:
+        signal_inputs = execute_activity.await_args_list[3].args[1]
+        assert signal_inputs.alert_check_id == evaluation.alert_check_id
+        assert signal_inputs.previous_state == AlertState.NOT_FIRING
 
 
 @pytest.mark.asyncio
