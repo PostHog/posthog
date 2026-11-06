@@ -13,6 +13,8 @@ import type {
     AddSuppressionRequestApi,
     BulkAddOptOutsRequestApi,
     BulkAddOptOutsResultApi,
+    BulkRemoveSuppressionsRequestApi,
+    BulkRemoveSuppressionsResponseApi,
     EmailStatusApi,
     GenerateLinkRequestApi,
     ImportProviderOptionApi,
@@ -37,6 +39,7 @@ import type {
     PreferencesLinkApi,
     ProviderImportRunApi,
     RemoveOptOutRequestApi,
+    RemoveSuppressionRequestApi,
     SendEmailApi,
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
@@ -48,9 +51,11 @@ import type {
     TransactionalEmailLogListApi,
     TransactionalEmailLogListParams,
     TransactionalEmailLogResultsRetrieveParams,
+    TransactionalEmailLogStatsOverTimeRetrieveParams,
     TransactionalEmailLogStatsRetrieveParams,
     TransactionalEmailResultsApi,
     TransactionalEmailStatsApi,
+    TransactionalEmailStatsOverTimeApi,
     WebhookUrlApi,
 } from './api.schemas'
 
@@ -775,6 +780,30 @@ export const messagingSuppressionsAddSuppressionCreate = async (
     })
 }
 
+export const getMessagingSuppressionsBulkRemoveSuppressionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_suppressions/bulk_remove_suppressions/`
+}
+
+/**
+ * Remove up to 100 addresses from the suppression list so they can receive messages again.
+ * @summary Remove several email addresses from the suppression list
+ */
+export const messagingSuppressionsBulkRemoveSuppressionsCreate = async (
+    projectId: string,
+    bulkRemoveSuppressionsRequestApi: BulkRemoveSuppressionsRequestApi,
+    options?: RequestInit
+): Promise<BulkRemoveSuppressionsResponseApi> => {
+    return apiMutator<BulkRemoveSuppressionsResponseApi>(
+        getMessagingSuppressionsBulkRemoveSuppressionsCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(bulkRemoveSuppressionsRequestApi),
+        }
+    )
+}
+
 export const getMessagingSuppressionsRemoveSuppressionCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging_suppressions/remove_suppression/`
 }
@@ -785,14 +814,14 @@ export const getMessagingSuppressionsRemoveSuppressionCreateUrl = (projectId: st
  */
 export const messagingSuppressionsRemoveSuppressionCreate = async (
     projectId: string,
-    addSuppressionRequestApi: AddSuppressionRequestApi,
+    removeSuppressionRequestApi: RemoveSuppressionRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getMessagingSuppressionsRemoveSuppressionCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(addSuppressionRequestApi),
+        body: JSON.stringify(removeSuppressionRequestApi),
     })
 }
 
@@ -1124,4 +1153,41 @@ export const transactionalEmailLogStatsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getTransactionalEmailLogStatsOverTimeRetrieveUrl = (
+    projectId: string,
+    params?: TransactionalEmailLogStatsOverTimeRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/transactional_email_log/stats_over_time/?${stringifiedParams}`
+        : `/api/projects/${projectId}/transactional_email_log/stats_over_time/`
+}
+
+/**
+ * Count sends by delivery status per time bucket, with totals for the period before.
+ * @summary Get transactional email delivery stats over time
+ */
+export const transactionalEmailLogStatsOverTimeRetrieve = async (
+    projectId: string,
+    params?: TransactionalEmailLogStatsOverTimeRetrieveParams,
+    options?: RequestInit
+): Promise<TransactionalEmailStatsOverTimeApi> => {
+    return apiMutator<TransactionalEmailStatsOverTimeApi>(
+        getTransactionalEmailLogStatsOverTimeRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
