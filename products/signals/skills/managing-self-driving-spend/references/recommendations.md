@@ -25,7 +25,7 @@ Skip any change that saves less than about $10 a month, unless the user asked ab
 - **Scouts with no output.** Scouts that created and edited no reports in the period. Group them into one recommendation with their total spend, and name the largest ones.
 - **Frequent scouts with low yield.** Scouts that run hourly or more often and have a low settled rate.
   Recommend a slower schedule before a pause, and give the saving for the new schedule.
-  A scout that edits many reports keeps them current. Slow it down, do not pause it.
+  A scout that edits many reports keeps them current. Run it less often, do not pause it.
 - **Steering.** When one kind of report inside a source has a low settled rate and no setting selects it, suggest research instructions that name it.
   Give no dollar figure.
 - **Automatic pull requests.** Compare pull requests opened and merged per source.

@@ -14,7 +14,7 @@ description: >
 
 Start with `posthog:inbox-usage-get` for monthly recorded usage, including processing, research, repository selection, scout execution, and report implementation.
 Pass `month: "YYYY-MM"`, or omit it for this month; history starts in October 2026.
-Multiply decimal credits by the returned `pricing.usd_per_credit` to show USD.
+Show amounts as AI credits, with the USD value next to them: multiply decimal credits by the returned `pricing.usd_per_credit`.
 Recorded usage includes exempt work and is not an invoice; use `posthog:billing-limits-get` for the billing spend and limit.
 
 ## Workflow
