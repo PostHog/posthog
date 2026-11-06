@@ -96,7 +96,10 @@ test.describe('CRUD Survey', () => {
 
         await expect(page.locator('[data-attr=success-toast]')).toContainText('created')
 
-        await page.getByRole('button', { name: 'See survey details' }).click()
-        await expect(page.getByText('1 audience rule · 50% shown', { exact: true })).toBeVisible()
+        const audienceSection = page.locator('section', {
+            has: page.locator('[data-attr="survey-draft-review-edit-audience"]'),
+        })
+        await expect(audienceSection).toContainText(/1\s+audience rule/)
+        await expect(audienceSection).toContainText('50%')
     })
 })
