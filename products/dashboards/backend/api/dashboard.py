@@ -117,7 +117,6 @@ from posthog.utils import (
     variables_override_requested_by_client,
 )
 
-from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import (
     AccessControlLevel,
     UserAccessControl,
@@ -1251,10 +1250,8 @@ class InsightResultSerializer(InsightSerializer):
                 }
         return serializers.ModelSerializer.to_representation(self, instance)
 
-    def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
-        if isinstance(obj, Insight):
-            return self._insight_access_level(obj)
-        return super().get_user_access_level(obj)
+    def get_user_access_level(self, insight: Insight) -> Optional[str]:  # type: ignore[override]  # narrows the mixin's Model — DRF always dispatches with this serializer's instance
+        return self._insight_access_level(insight)
 
     def _insight_access_level(self, insight: Insight) -> Optional[AccessControlLevel]:
         user_access_control = self.user_access_control
