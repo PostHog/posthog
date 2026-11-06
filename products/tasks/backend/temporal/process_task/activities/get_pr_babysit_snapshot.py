@@ -12,6 +12,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.exceptions import GitHubRateLimitedError, ProcessTaskTransientError
 from products.tasks.backend.models import TaskRun
+from products.tasks.backend.task_done import wake_refusal
 from products.tasks.backend.temporal.babysit_pr.snapshot import PRSnapshot
 from products.tasks.backend.temporal.metrics import increment_pr_babysit_snapshot
 from products.tasks.backend.temporal.observability import log_activity_execution
@@ -44,6 +45,8 @@ def get_pr_babysit_snapshot(input: GetPrBabysitSnapshotInput) -> PRSnapshot | No
             task_run = TaskRun.objects.get(id=ctx.run_id)
         except TaskRun.DoesNotExist:
             activity.logger.warning("get_pr_babysit_snapshot_task_run_not_found", extra={"run_id": ctx.run_id})
+            return None
+        if wake_refusal(task_run.task, source="ci_follow_up") is not None:
             return None
 
         pr_url = (task_run.output or {}).get("pr_url")

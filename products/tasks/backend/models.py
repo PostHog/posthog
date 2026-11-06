@@ -646,6 +646,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     status_changed_by = models.CharField(max_length=64, null=True, blank=True)
     head_branch = models.CharField(max_length=255, null=True, blank=True)
     pr_urls = ArrayField(models.CharField(max_length=512), default=list, db_default=[], blank=True)
+    merged_pr_urls = ArrayField(models.CharField(max_length=512), default=list, db_default=[], blank=True)
+    closed_pr_urls = ArrayField(models.CharField(max_length=512), default=list, db_default=[], blank=True)
 
     # DEPRECATED - do not use
     signal_report = models.ForeignKey(
@@ -1140,6 +1142,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             )
             if task.created_by_id != expected_created_by_id or task.ownership_version != expected_ownership_version:
                 raise TaskOwnershipChangedError("Task ownership changed before the run was created")
+            from products.tasks.backend.task_done import check_wake
+
+            check_wake(task, source="create_run")
 
             if (
                 effective_environment == TaskRun.Environment.CLOUD
