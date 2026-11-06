@@ -346,6 +346,8 @@ export const slackAppWorkspaceSetupLogic = kea<slackAppWorkspaceSetupLogicType>(
                 lemonToast.warning(
                     `PostHog couldn't join ${failedNames.join(', ')}. Invite it with /invite @PostHog in those channels.`
                 )
+                // Slack's refusals arrive in a successful response, so the loader's failure listener never sees them.
+                actions.stepFailed('channels', [...new Set(failed.map((result) => result.error))].join(', '))
             }
             actions.completeStep('channels')
         },

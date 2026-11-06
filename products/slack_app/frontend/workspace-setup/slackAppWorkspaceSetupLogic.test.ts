@@ -118,6 +118,13 @@ describe('slackAppWorkspaceSetupLogic', () => {
             post_welcome: true,
         })
         expect(warning).toHaveBeenCalledWith(expect.stringContaining('#growth'))
+        expect(capture).toHaveBeenCalledWith('slack app workspace setup step failed', {
+            integration_id: 7,
+            entry: 'slack_page',
+            return_to: 'settings',
+            step: 'channels',
+            error: 'is_archived',
+        })
         await expectLogic(logic).toMatchValues({ currentStep: null })
     })
 
