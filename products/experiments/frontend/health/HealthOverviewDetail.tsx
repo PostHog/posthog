@@ -4,7 +4,7 @@ import { IconInfo, IconWarning } from '@posthog/icons'
 
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 
-import { groupsModel } from '~/models/groupsModel'
+import { type Noun, groupsModel } from '~/models/groupsModel'
 
 import type { EvaluationRuntimeEnumApi, ExperimentHealthSetupApi } from '../generated/api.schemas'
 import { HEALTH_CHECK_STATUS_DISPLAY } from './healthCheckStatusDisplay'
@@ -51,6 +51,48 @@ function releaseConditionsText(
         : sets.map((set, index) => `Set ${index + 1}: ${set}`).join(' · ')
 }
 
+function buildSetupReadings(
+    setup: ExperimentHealthSetupApi,
+    aggregationLabel: (groupTypeIndex: number) => Noun
+): HealthReading[] {
+    const pluralOf = (groupTypeIndex: number | null): string =>
+        groupTypeIndex !== null ? aggregationLabel(groupTypeIndex).plural : 'users'
+    const assignmentUnit = (groupTypeIndex: number | null): string =>
+        groupTypeIndex !== null
+            ? capitalizeFirstLetter(aggregationLabel(groupTypeIndex).singular)
+            : setup.bucketing_identifier === 'device_id'
+              ? 'Device (device ID)'
+              : 'User (distinct ID)'
+    const assignmentUnits = [
+        ...new Set(
+            setup.release_conditions.map(({ aggregation_group_type_index }) =>
+                assignmentUnit(aggregation_group_type_index)
+            )
+        ),
+    ]
+    return [
+        { label: 'Release conditions', text: releaseConditionsText(setup.release_conditions, pluralOf) },
+        // The flag page describes early exit in these words.
+        ...(setup.early_exit
+            ? [{ label: 'Early exit', text: 'Stops evaluation at first matching condition set' }]
+            : []),
+        ...(assignmentUnits.length > 0 ? [{ label: 'Assigns variants by', text: joinWithOr(assignmentUnits) }] : []),
+        { label: 'Evaluation runtime', text: RUNTIME_LABELS[setup.evaluation_runtime] },
+        ...(setup.evaluation_contexts.length > 0
+            ? [
+                  {
+                      label: 'Evaluation contexts',
+                      text: `Only SDKs that send ${joinWithOr(setup.evaluation_contexts)}, or no context`,
+                  },
+              ]
+            : []),
+        {
+            label: 'Persist flag across authentication steps',
+            text: setup.ensure_experience_continuity ? 'On' : 'Off',
+        },
+    ]
+}
+
 export function HealthOverviewDetail({
     checks,
     findings,
@@ -61,46 +103,7 @@ export function HealthOverviewDetail({
     setup: ExperimentHealthSetupApi | null
 }): JSX.Element {
     const { aggregationLabel } = useValues(groupsModel)
-    const pluralOf = (groupTypeIndex: number | null): string =>
-        groupTypeIndex !== null ? aggregationLabel(groupTypeIndex).plural : 'users'
-    const assignmentUnit = (groupTypeIndex: number | null): string =>
-        groupTypeIndex !== null
-            ? capitalizeFirstLetter(aggregationLabel(groupTypeIndex).singular)
-            : setup?.bucketing_identifier === 'device_id'
-              ? 'Device (device ID)'
-              : 'User (distinct ID)'
-    const assignmentUnits = [
-        ...new Set(
-            (setup?.release_conditions ?? []).map(({ aggregation_group_type_index }) =>
-                assignmentUnit(aggregation_group_type_index)
-            )
-        ),
-    ]
-    const setupReadings: HealthReading[] = setup
-        ? [
-              { label: 'Release conditions', text: releaseConditionsText(setup.release_conditions, pluralOf) },
-              // The flag page describes early exit in these words.
-              ...(setup.early_exit
-                  ? [{ label: 'Early exit', text: 'Stops evaluation at first matching condition set' }]
-                  : []),
-              ...(assignmentUnits.length > 0
-                  ? [{ label: 'Assigns variants by', text: joinWithOr(assignmentUnits) }]
-                  : []),
-              { label: 'Evaluation runtime', text: RUNTIME_LABELS[setup.evaluation_runtime] },
-              ...(setup.evaluation_contexts.length > 0
-                  ? [
-                        {
-                            label: 'Evaluation contexts',
-                            text: `Only SDKs that send ${joinWithOr(setup.evaluation_contexts)}, or no context`,
-                        },
-                    ]
-                  : []),
-              {
-                  label: 'Persist flag across authentication steps',
-                  text: setup.ensure_experience_continuity ? 'On' : 'Off',
-              },
-          ]
-        : []
+    const setupReadings = setup ? buildSetupReadings(setup, aggregationLabel) : []
     const issues = healthIssues(findings)
     const issueIcon = (
         <IconWarning
