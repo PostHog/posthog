@@ -19,7 +19,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.surveys.backend.api.survey import SurveySerializerCreateUpdateOnly
+from products.surveys.backend.api.survey import SurveySerializerCreateUpdateOnly, sanitize_survey_appearance
 from products.surveys.backend.models import MAX_ITERATION_COUNT, MAX_ITERATION_FREQUENCY_DAYS, Survey
 from products.surveys.backend.summarization.fetch import fetch_responses
 
@@ -199,7 +199,7 @@ def _build_appearance(team: Team) -> dict[str, Any]:
     team_appearance = get_team_survey_config(team).get("appearance", {})
     if team_appearance:
         appearance.update(team_appearance)
-    return appearance
+    return sanitize_survey_appearance(appearance)
 
 
 URL_MATCH_ALIASES: dict[str, str] = {

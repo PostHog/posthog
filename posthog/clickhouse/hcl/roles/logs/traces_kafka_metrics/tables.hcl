@@ -1,6 +1,6 @@
 # Kafka-consumer lag metrics for the trace-spans ingest, present on every logs
-# node. prod-us shards the storage table onto the logs cluster; the others keep
-# the single-shard ZK path declared here.
+# node. Aggregating, like logs_kafka_metrics and metrics_kafka_metrics, so the
+# max columns collapse to one row per (_topic, _partition).
 database "posthog" {
   table "trace_spans_kafka_metrics" {
     order_by = ["_topic", "_partition"]
@@ -28,7 +28,7 @@ database "posthog" {
     column "max_lag" {
       type = "SimpleAggregateFunction(max, UInt64)"
     }
-    engine "replicated_merge_tree" {
+    engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.trace_spans_kafka_metrics"
       replica_name = "{replica}-{shard}"
     }

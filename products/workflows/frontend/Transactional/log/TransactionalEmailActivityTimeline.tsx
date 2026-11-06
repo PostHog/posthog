@@ -1,21 +1,60 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
 
 import type { TransactionalEmailLogDetailApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { ACTIVITY_WINDOW_DAYS, PersonActivity, buildActivityTimeline, emailSentAt } from './emailActivity'
-import { TransactionalEmailActivityRow } from './TransactionalEmailActivityRow'
-import { TransactionalEmailActivitySummary } from './TransactionalEmailActivitySummary'
+import {
+    ACTIVITY_WINDOW_DAYS,
+    PersonActivity,
+    buildActivityTimeline,
+    describeComeback,
+    emailSentAt,
+} from './emailActivity'
+import { groupActivityRows } from './emailActivityGroups'
+import { gapLabel } from './emailDeliverySteps'
+import { TransactionalEmailActivityRail } from './TransactionalEmailActivityRail'
 import { transactionalEmailLogEntryLogic } from './transactionalEmailLogEntryLogic'
 
 /** How many events before the send show until the reader asks for more. */
 const BEFORE_PREVIEW = 5
 
-/** The person's loaded activity, split into what they did before and after the email. */
+/** How many sessions or runs of events after the send show until the reader asks for more. */
+const AFTER_GROUPS_PREVIEW = 5
+
+function sendLabel(email: TransactionalEmailLogDetailApi, sentAt: string): string {
+    const went = email.timeline.some((event) => event.kind === 'sent')
+    if (email.status === 'bounced') {
+        const bouncedAt = email.timeline.find((event) => event.kind === 'bounced')?.at
+        const gap = bouncedAt ? gapLabel(bouncedAt, sentAt) : null
+        return `Email sent, bounced${gap ? ` ${gap}` : ''}`
+    }
+    if (email.status === 'complained') {
+        return 'Email sent, marked as spam'
+    }
+    if (email.status === 'failed') {
+        return went ? 'Email sent, then failed' : "Email wasn't sent"
+    }
+    return 'Email sent'
+}
+
+function emptyAfterText(activity: PersonActivity, sentAt: string): string | null {
+    if (activity.after.length) {
+        return null
+    }
+    const days = pluralize(ACTIVITY_WINDOW_DAYS, 'day')
+    if (!activity.before.length) {
+        return `No events from this person in the ${days} before or after this email.`
+    }
+    return dayjs().isAfter(dayjs(sentAt).add(ACTIVITY_WINDOW_DAYS, 'day'))
+        ? `No activity in your product in the ${days} after this email.`
+        : 'No activity in your product since this email.'
+}
+
+/** The person's loaded activity on one rail, with the email pinned where it went out. */
 export function TransactionalEmailActivityTimeline({
     email,
     activity,
@@ -23,24 +62,28 @@ export function TransactionalEmailActivityTimeline({
     email: TransactionalEmailLogDetailApi
     activity: PersonActivity
 }): JSX.Element {
-    const { beforeExpanded, otherEmails, otherEmailsFailed, otherEmailsLoading } = useValues(
+    const { beforeExpanded, afterExpanded, otherEmails, otherEmailsFailed, otherEmailsLoading } = useValues(
         transactionalEmailLogEntryLogic
     )
-    const { showAllBefore, loadOtherEmails } = useActions(transactionalEmailLogEntryLogic)
+    const { showAllBefore, showAllAfter, loadOtherEmails } = useActions(transactionalEmailLogEntryLogic)
 
     const before = beforeExpanded ? activity.before : activity.before.slice(-BEFORE_PREVIEW)
     const hiddenBefore = activity.before.length - before.length
-    const emailEvents = email.timeline.filter((event) => event.kind !== 'queued')
     // Other emails before the send only show alongside the events the reader chose to show.
     const earliestShown = before[0]?.timestamp ?? email.created_at
     const shownOtherEmails = otherEmails.filter((entry) => !dayjs(entry.created_at).isBefore(earliestShown))
-    // Times read relative to when the email went out, which is what a reader compares against.
     const sentAt = emailSentAt(email)
-    const timeline = buildActivityTimeline([...before, ...activity.after], emailEvents, shownOtherEmails, sentAt)
+    const timeline = buildActivityTimeline([...before, ...activity.after], shownOtherEmails, sentAt)
+    const groupsBefore = groupActivityRows(timeline.before)
+    const allGroupsAfter = groupActivityRows(timeline.after)
+    const groupsAfter = afterExpanded ? allGroupsAfter : allGroupsAfter.slice(0, AFTER_GROUPS_PREVIEW)
+    const hiddenAfter = allGroupsAfter
+        .slice(groupsAfter.length)
+        .reduce((total, group) => total + Math.max(group.eventCount, group.rows.length), 0)
     const nothingAround = !activity.before.length && !activity.after.length
+    const noSessions = !nothingAround && ![...groupsBefore, ...allGroupsAfter].some((group) => group.sessionId)
     return (
-        <div className="flex flex-col gap-4">
-            <TransactionalEmailActivitySummary after={activity.after} timeline={email.timeline} />
+        <div className="flex flex-col gap-3">
             {otherEmailsFailed && !otherEmailsLoading && (
                 <LemonBanner
                     type="error"
@@ -53,54 +96,31 @@ export function TransactionalEmailActivityTimeline({
                     This person's other emails couldn't load. Check your connection and try again.
                 </LemonBanner>
             )}
-            {timeline.before.length > 0 && (
-                <div className="flex flex-col gap-2">
-                    <div className="flex items-center justify-between gap-2">
-                        <h4 className="text-sm font-semibold m-0">Before the email</h4>
-                        {hiddenBefore > 0 && (
-                            <LemonButton
-                                size="xsmall"
-                                type="tertiary"
-                                onClick={showAllBefore}
-                                data-attr="transactional-email-activity-show-earlier"
-                            >
-                                Show {pluralize(hiddenBefore, 'earlier event')}
-                            </LemonButton>
-                        )}
-                    </div>
-                    <ol className="flex flex-col gap-1 m-0 p-0 list-none">
-                        {timeline.before.map((row) => (
-                            <TransactionalEmailActivityRow key={row.key} row={row} sentAt={sentAt} />
-                        ))}
-                    </ol>
+            <TransactionalEmailActivityRail
+                before={groupsBefore}
+                after={groupsAfter}
+                sentAt={sentAt}
+                failed={['bounced', 'complained', 'failed'].includes(email.status)}
+                sendLabel={sendLabel(email, sentAt)}
+                sendDetail={email.template_name || null}
+                comeback={describeComeback(activity, email.timeline)}
+                emptyAfter={emptyAfterText(activity, sentAt)}
+                hiddenBefore={hiddenBefore}
+                onShowEarlier={showAllBefore}
+                hiddenAfter={hiddenAfter}
+                onShowLater={showAllAfter}
+            />
+            {(noSessions || (activity.hasMoreAfter && hiddenAfter === 0)) && (
+                <div className="flex flex-col gap-1 text-xs text-secondary">
+                    {noSessions && <span>These events have no session, so there's no replay to watch.</span>}
+                    {activity.hasMoreAfter && hiddenAfter === 0 && (
+                        <span>
+                            Showing the first {activity.after.length} events after the email. See the rest on the
+                            person's page.
+                        </span>
+                    )}
                 </div>
             )}
-            <div className="flex flex-col gap-2">
-                <h4 className="text-sm font-semibold m-0">After the email</h4>
-                <ol className="flex flex-col gap-1 m-0 p-0 list-none" data-attr="transactional-email-activity">
-                    {timeline.after.map((row) => (
-                        <TransactionalEmailActivityRow key={row.key} row={row} sentAt={sentAt} />
-                    ))}
-                </ol>
-                {!activity.after.length && (
-                    <p
-                        className="text-sm text-secondary m-0 rounded border border-dashed px-3 py-2"
-                        data-attr="transactional-email-activity-nothing-after"
-                    >
-                        {nothingAround
-                            ? `No events from this person in the ${pluralize(ACTIVITY_WINDOW_DAYS, 'day')} before or after this email.`
-                            : dayjs().isAfter(dayjs(sentAt).add(ACTIVITY_WINDOW_DAYS, 'day'))
-                              ? `No activity in your product in the ${pluralize(ACTIVITY_WINDOW_DAYS, 'day')} after this email.`
-                              : 'No activity in your product since this email.'}
-                    </p>
-                )}
-                {activity.hasMoreAfter && (
-                    <p className="text-xs text-secondary m-0">
-                        Showing the first {activity.after.length} events after the email. See the rest on the person's
-                        page.
-                    </p>
-                )}
-            </div>
         </div>
     )
 }
