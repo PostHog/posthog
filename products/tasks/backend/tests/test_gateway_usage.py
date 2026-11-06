@@ -5,7 +5,9 @@ from uuid import UUID
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
@@ -83,7 +85,9 @@ class TestGatewayUsage(BaseTest):
             self._response("second-turn", "0.005"),
             self._response("queued", "0.009"),
         ]
-        assert self._process(run).token_cost == 3
+        with CaptureQueriesContext(connection) as queries:
+            assert self._process(run).token_cost == 3
+        assert sum('"posthog_task_sandbox_session"' in query["sql"] for query in queries) <= 1
         assert observed_costs == {run.id: 29_010}
         assert not TaskRunGatewayRequest.objects.for_team(self.team.id).filter(task_run_id=run.id).exists()
         assert get.call_count == 5
