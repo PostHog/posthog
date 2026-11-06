@@ -447,8 +447,8 @@ export interface mcpDashboardOverviewLogicValues {
     dailyActivity: DailyActivity
     dashboardLoading: boolean
     dateFilter: DateFilter
-    feedbackContextKey: string
     failedLoads: FailedLoads
+    feedbackContextKey: string
     feedbackLoadFailed: boolean
     harnessRows: HarnessRow[]
     harnessRowsLoading: boolean
@@ -700,13 +700,28 @@ export interface mcpDashboardOverviewLogicMeta {
             activityRowsLoading: boolean,
             toolDailyRowsLoading: boolean
         ) => boolean
+        feedbackLoadFailed: (
+            failedLoads: Partial<
+                Record<
+                    | 'activityRows'
+                    | 'harnessRows'
+                    | 'kpis'
+                    | 'modelRows'
+                    | 'protocolVersionRows'
+                    | 'sessionRows'
+                    | 'toolDailyRows'
+                    | 'toolRows'
+                    | 'users',
+                    boolean
+                >
+            >
+        ) => boolean
         canShowFeedback: (
             hasFilterInteraction: boolean,
             dashboardLoading: boolean,
             feedbackLoadFailed: boolean,
             kpis: KPIData
         ) => boolean
-        feedbackLoadFailed: (failedLoads: FailedLoads) => boolean
         feedbackContextKey: (currentTeamId: number | null) => string
         queryFilters: (
             dateFilter: DateFilter,
