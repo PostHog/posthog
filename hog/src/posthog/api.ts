@@ -8,7 +8,7 @@ import { VERSION } from '@/version'
 
 import { hostUrl } from './host'
 import type { KeySession } from './key-session'
-import { challengedScopes, isScopeName, stepUpCommand } from './scope-challenge'
+import { challengedScopes, fewestScopes, isScopeName, stepUpCommand } from './scope-challenge'
 
 export const USER_AGENT = `hog/${VERSION}`
 // Generous, because a HogQL query can run for minutes. It only stops a connection that hangs.
@@ -198,7 +198,7 @@ export class PostHogApi {
         }
         const { scopesNotCovered } = await import('./scopes')
         const missing = scopesNotCovered(this.session.current.status().scopes ?? [], challenged)
-        return missing.length > 0 ? missing : undefined
+        return missing.length > 0 ? fewestScopes(missing) : undefined
     }
 
     // For lookups that only add detail: a missing scope fails them without a prompt.

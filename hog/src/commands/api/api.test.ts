@@ -250,23 +250,24 @@ describe('hog api', () => {
 
     test.each([
         [
-            'names every scope the login lacks, from its own scopes',
+            'stops before calling, naming every scope the login lacks',
             ['feature_flag:read'],
             'insight:write',
             {
                 code: 'step_up_required',
-                message: 'Your credentials need insight:write, query:read to call insight-create.',
                 scopes: ['insight:write', 'query:read'],
                 command: 'hog auth add --host https://eu.posthog.com insight:write query:read',
             },
+            0,
         ],
         [
             'never puts a scope from the refusal text into a command',
             ['insight:write', 'query:read'],
             'insight:write $(curl example.com)',
             { code: 'missing_scopes' },
+            1,
         ],
-    ])('a refused call from an OAuth login %s', async (_name, held, missingScope, expected) => {
+    ])('a call from an OAuth login %s', async (_name, held, missingScope, expected, calls) => {
         const EU = 'https://eu.posthog.com'
         const record = {
             store: 'keychain',
@@ -277,20 +278,22 @@ describe('hog api', () => {
             scopes: held,
             loginId: 'login-1',
         }
+        const library = fakeLibrary([], {
+            lookupFails: true,
+            callResult: {
+                ok: false,
+                error: { code: 'permission_denied', message: 'denied', status: 403, missingScope },
+            },
+        })
         const result = await runHog(['api', 'call', 'insight-create', '{}'], {
             env: { CLAUDECODE: '1' },
             files: { '/home/test/.config/hog/settings.json': JSON.stringify({ logins: { [EU]: record }, host: EU }) },
             keychain: { [EU]: JSON.stringify({ accessToken: 'pha_token', refreshToken: 'phr_token' }) },
-            apiTools: fakeLibrary([], {
-                lookupFails: true,
-                callResult: {
-                    ok: false,
-                    error: { code: 'permission_denied', message: 'denied', status: 403, missingScope },
-                },
-            }),
+            apiTools: library,
         })
 
         expect(result.error()).toMatchObject(expected)
         expect(String(result.error().command ?? '')).not.toContain('$(')
+        expect(library.calls).toHaveLength(calls)
     })
 })

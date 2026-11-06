@@ -9,6 +9,11 @@ export function isScopeName(scope: string): boolean {
     return SCOPE_NAME.test(scope)
 }
 
+// Asking for `x:write` grants `x:read` too, so the read scope would only lengthen the request.
+export function fewestScopes(scopes: readonly string[]): string[] {
+    return scopes.filter((scope) => !(scope.endsWith(':read') && scopes.includes(scope.replace(/:read$/, ':write'))))
+}
+
 // `--host` or posthog.json can pick a login that isn't the default. Only URL characters keep the command safe.
 const SHELL_SAFE_HOST = /^https?:\/\/[\w.:-]+(\/[\w./-]*)?$/
 

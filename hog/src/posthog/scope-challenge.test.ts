@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 
-import { challengedScopes } from './scope-challenge'
+import { challengedScopes, fewestScopes } from './scope-challenge'
 
-describe('challengedScopes', () => {
+describe('scope challenge', () => {
     test.each([
         ['another error', 'Bearer error="invalid_token", scope="insight:read"', undefined],
         // hog puts these scopes into a command an agent runs, so only scope names get through.
@@ -13,5 +13,12 @@ describe('challengedScopes', () => {
         ],
     ])('%s', (_name, header, expected) => {
         expect(challengedScopes(header)).toEqual(expected)
+    })
+
+    test('asking for write leaves out the read it grants', () => {
+        expect(fewestScopes(['endpoint:read', 'endpoint:write', 'query:read'])).toEqual([
+            'endpoint:write',
+            'query:read',
+        ])
     })
 })

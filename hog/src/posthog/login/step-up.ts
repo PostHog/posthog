@@ -1,8 +1,11 @@
 import { refuseInCi, runApproval, type PendingResult } from '@/core/approval'
 import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
+import type { AccessKey } from '@/posthog/access-key'
+import { stepUpRequired } from '@/posthog/api'
+import type { Credentials } from '@/posthog/credentials'
 import type { OAuthLogin } from '@/posthog/oauth'
-import { addToKeyHint, canStepUp } from '@/posthog/scope-challenge'
+import { addToKeyHint, canStepUp, fewestScopes, isScopeName } from '@/posthog/scope-challenge'
 import { scopesNotCovered } from '@/posthog/scopes'
 
 import { ADD_COMMAND, loginFlow, saveLogin } from './flow'
@@ -49,7 +52,7 @@ export async function promptStepUp(ctx: Context, scopes: readonly string[]): Pro
         return false
     }
     // An earlier step-up in this command can have added them already.
-    const missing = scopesNotCovered((await ctx.session()).current.status().scopes ?? [], scopes)
+    const missing = (await loginScopes(ctx, await ctx.credentials(), scopes))?.missing ?? []
     if (missing.length === 0) {
         return true
     }
@@ -61,16 +64,30 @@ export async function promptStepUp(ctx: Context, scopes: readonly string[]): Pro
     return true
 }
 
-// At a terminal this waits for the approval and saves the login. Agents get the link.
-export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<StepUpResult> {
-    const credentials = await ctx.credentials()
+async function loginScopes(
+    ctx: Context,
+    credentials: Credentials | undefined,
+    wanted: readonly string[]
+): Promise<{ key: AccessKey; held: string[]; missing: string[] } | undefined> {
+    if (!canStepUp(credentials)) {
+        return undefined
+    }
     // The session, not the credentials, holds the login an earlier step-up in this command saved.
     const key = (await ctx.session()).current
     const held = key.status().scopes
-    if (!canStepUp(credentials) || held === null) {
+    if (held === null) {
+        return undefined
+    }
+    return { key, held, missing: fewestScopes(scopesNotCovered(held, wanted)) }
+}
+
+// At a terminal this waits for the approval and saves the login. Agents get the link.
+export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<StepUpResult> {
+    const login = await loginScopes(ctx, await ctx.credentials(), wanted)
+    if (!login) {
         throw personalKeyCantGainScopes(wanted)
     }
-    const added = scopesNotCovered(held, wanted)
+    const { key, held, missing: added } = login
     if (added.length === 0) {
         return {
             status: 'already_granted',
@@ -89,4 +106,22 @@ export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<S
     const flow = loginFlow(ctx.runtime, key.host, [...held, ...added], { command: ADD_COMMAND, requiredScopes: added })
     const result = await runApproval(ctx, flow)
     return result.status === 'pending' ? { ...result, host: key.host } : finishStepUp(ctx, result.value)
+}
+
+// Only a login knows its scopes without asking PostHog, so a personal API key meets the 403 instead.
+export async function ensureScopes(ctx: Context, scopes: readonly string[], action = 'for this'): Promise<void> {
+    const credentials = await ctx.credentials().catch(() => undefined)
+    let login = await loginScopes(ctx, credentials, scopes)
+    if (!login?.missing.length || !login.missing.every(isScopeName)) {
+        return
+    }
+    // The person can untick scopes the login already had, so the whole set is checked again after.
+    if (await ctx.stepUp(login.missing)) {
+        login = await loginScopes(ctx, credentials, scopes)
+        if (!login?.missing.length) {
+            return
+        }
+    }
+    const { missing, key } = login
+    throw stepUpRequired(missing, { host: key.host, message: `Your login needs ${missing.join(', ')} ${action}.` })
 }

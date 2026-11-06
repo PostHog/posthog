@@ -1021,4 +1021,61 @@ describe('hog auth login', () => {
         expect(result.exitCode).toBe(0)
         expect(result.stdout).toContain('Hedgebox')
     })
+
+    test.each([
+        ['an endpoint', 'name: daily\nquery: SELECT 1\n', 'endpoint:write'],
+        [
+            'an endpoint with a variable PostHog lacks',
+            'name: daily\nquery: SELECT {variables.day}\nvariables:\n  - name: day\n    type: String\n',
+            'endpoint:write insight_variable:write',
+        ],
+    ])('push checks the login can create %s before it writes anything', async (_name, yaml, scopes) => {
+        const result = await runHog(['endpoints', 'push', 'daily.yaml', '--yes'], {
+            env: { CLAUDECODE: '1' },
+            files: { ...OAUTH_LOGIN.files, '/work/daily.yaml': yaml },
+            keychain: OAUTH_LOGIN.keychain,
+            respond: (url) =>
+                /\/(endpoints|insight_variables)\/(\?.*)?$/.test(url)
+                    ? { status: 200, body: { results: [] } }
+                    : { status: 404, body: { detail: 'Not found.' } },
+        })
+
+        expect(result.error()).toMatchObject({
+            code: 'step_up_required',
+            command: `hog auth add --host ${EU} ${scopes}`,
+        })
+        expect(result.requests.filter((request) => request.method !== 'GET')).toEqual([])
+    })
+
+    test('push stops when the approved step-up drops a scope the login already had', async () => {
+        const flow = deviceFlow(0, {
+            status: 200,
+            body: {
+                ...APPROVED,
+                access_token: STEPPED_UP_ACCESS,
+                refresh_token: STEPPED_UP_REFRESH,
+                scope: 'openid insight_variable:write',
+            },
+        })
+        const result = await runHog(['endpoints', 'push', 'daily.yaml', '--yes'], {
+            stdoutIsTTY: true,
+            answers: ['yes'],
+            files: {
+                ...OAUTH_LOGIN.files,
+                [SETTINGS_FILE]: OAUTH_LOGIN.files[SETTINGS_FILE].replace('"insight:read"', '"endpoint:write"'),
+                '/work/daily.yaml':
+                    'name: daily\nquery: SELECT {variables.day}\nvariables:\n  - name: day\n    type: String\n',
+            },
+            keychain: OAUTH_LOGIN.keychain,
+            respond: (url) =>
+                /\/(endpoints|insight_variables)\/(\?.*)?$/.test(url)
+                    ? { status: 200, body: { results: [] } }
+                    : flow(url),
+        })
+
+        expect(result.exitCode).toBe(1)
+        expect(
+            result.requests.filter((request) => request.method === 'POST' && !request.url.includes('/oauth/'))
+        ).toEqual([])
+    })
 })
