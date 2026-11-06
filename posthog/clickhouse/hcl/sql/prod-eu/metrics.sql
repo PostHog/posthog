@@ -43,7 +43,7 @@ CREATE TABLE posthog.metrics4_samples (
   instrumentation_scope SimpleAggregateFunction(any, String),
   histogram_bounds SimpleAggregateFunction(anyLast, Array(Float64)),
   _topic SimpleAggregateFunction(any, LowCardinality(String)),
-  timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(DoubleDelta, Default),
+  timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(Delta(8), Default),
   observed_timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(DoubleDelta, Default),
   value_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Float64)) CODEC(Gorilla(8), Default),
   count_arr SimpleAggregateFunction(groupArrayArray(10000), Array(UInt64)) CODEC(T64, Default),
@@ -94,6 +94,15 @@ CREATE TABLE posthog.metrics4_series (
 GROUP BY
   team_id, time_bucket, service_name)
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_series', '{replica}-{shard}', timestamp) ORDER BY (team_id, metric_name, series_fingerprint, time_bucket) PARTITION BY toStartOfWeek(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS deduplicate_merge_projection_mode = 'rebuild', index_granularity = 1024, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.metrics_kafka_metrics (
+  _partition UInt32,
+  _topic String,
+  max_offset SimpleAggregateFunction(max, UInt64),
+  max_observed_timestamp SimpleAggregateFunction(max, DateTime64(9)),
+  max_timestamp SimpleAggregateFunction(max, DateTime64(9)),
+  max_created_at SimpleAggregateFunction(max, DateTime64(9)),
+  max_lag SimpleAggregateFunction(max, UInt64)
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics_kafka_metrics', '{replica}-{shard}') ORDER BY (_topic, _partition) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.writable_query_log_archive_v3 (
   initial_query_start_time DateTime64(6, 'UTC'),
   team_id Int64,

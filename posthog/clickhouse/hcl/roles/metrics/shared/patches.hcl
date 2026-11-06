@@ -6,4 +6,13 @@ database "posthog" {
       storage_policy = "s3_tiered"
     }
   }
+
+  # The logs cluster keeps its per-shard path and replica name. This cluster is created by the
+  # migration, which uses the single-shard ones.
+  patch_table "metrics_kafka_metrics" {
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.metrics_kafka_metrics"
+      replica_name = "{replica}-{shard}"
+    }
+  }
 }

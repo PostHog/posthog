@@ -161,7 +161,7 @@ database "posthog" {
     }
     column "timestamp_arr" {
       type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
-      codec = "DoubleDelta, Default"
+      codec = "Delta(8), Default"
     }
     column "observed_timestamp_arr" {
       type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
@@ -341,6 +341,38 @@ SQL
       zoo_path       = "/clickhouse/tables/noshard/posthog.metrics4_series"
       replica_name   = "{replica}-{shard}"
       version_column = "timestamp"
+    }
+  }
+
+  table "metrics_kafka_metrics" {
+    order_by = ["_topic", "_partition"]
+    settings = {
+      index_granularity = "8192"
+    }
+    column "_partition" {
+      type = "UInt32"
+    }
+    column "_topic" {
+      type = "String"
+    }
+    column "max_offset" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    column "max_observed_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(9))"
+    }
+    column "max_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(9))"
+    }
+    column "max_created_at" {
+      type = "SimpleAggregateFunction(max, DateTime64(9))"
+    }
+    column "max_lag" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.metrics_kafka_metrics"
+      replica_name = "{replica}-{shard}"
     }
   }
 

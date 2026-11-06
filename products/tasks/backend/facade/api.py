@@ -214,6 +214,7 @@ from products.tasks.backend.repository_config_analytics import (
     capture_space_context_changed,
     repositories_differ,
 )
+from products.tasks.backend.task_profiles import SPACE_SETUP, USER, WIZARD
 from products.tasks.backend.task_sources import apply_task_source, idempotency_key_q, source_q
 from products.tasks.backend.visibility import (
     PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
@@ -2287,17 +2288,17 @@ def create_wizard_cloud_run(
         team=team,
         title="Set up PostHog",
         description=prompt,
-        origin_product=Task.OriginProduct.ONBOARDING,
+        profile=WIZARD,
         user_id=user_id,
         repository=repository,
+        options=TaskRunOptions(
+            adapter=WIZARD_CLOUD_RUN_RUNTIME_ADAPTER, model=WIZARD_CLOUD_RUN_MODEL, mcp_scopes="read_only"
+        ),
         create_pr=True,
         mode="background",
         branch=branch,
         wizard_config={},
         wizard_head_branch=head_branch,
-        posthog_mcp_scopes="read_only",
-        runtime_adapter=WIZARD_CLOUD_RUN_RUNTIME_ADAPTER,
-        model=WIZARD_CLOUD_RUN_MODEL,
         ai_stage=WIZARD_CLOUD_RUN_AI_STAGE,
         # The agent server boots idle; this is the message that actually kicks it off once ready
         # (delivered by forward_pending_user_message). Without it the run stalls after "Started agent".
@@ -2388,7 +2389,7 @@ def create_channel_task(team_id: int, user_id: int, channel_id: str | UUID, *, t
     return create_task_without_run(
         team=Team.objects.get(id=team_id),
         user_id=user_id,
-        origin_product=Task.OriginProduct.USER_CREATED,
+        profile=USER,
         title=title,
         description=description,
         channel=channel,
@@ -11594,16 +11595,18 @@ def start_space_setup(
                 description=build_space_setup_prompt(
                     team_id=team.id, channel_id=str(channel.id), channel_name=channel.name, request=request
                 ),
-                origin_product=Task.OriginProduct.SPACE_SETUP,
+                profile=SPACE_SETUP,
                 user_id=user_id,
                 channel=channel,
                 repository=repository,
+                options=TaskRunOptions(
+                    adapter=SPACE_SETUP_RUNTIME_ADAPTER,
+                    model=SPACE_SETUP_MODEL,
+                    reasoning_effort=SPACE_SETUP_REASONING_EFFORT,
+                    mcp_scopes=[*contracts.SPACE_SETUP_SCOPES, CONTEXT_LAYER_INTERNAL_SCOPE],
+                    permission_mode="auto",
+                ),
                 create_pr=False,
-                posthog_mcp_scopes=[*contracts.SPACE_SETUP_SCOPES, CONTEXT_LAYER_INTERNAL_SCOPE],
-                runtime_adapter=SPACE_SETUP_RUNTIME_ADAPTER,
-                model=SPACE_SETUP_MODEL,
-                reasoning_effort=SPACE_SETUP_REASONING_EFFORT,
-                initial_permission_mode="auto",
                 client_provenance=client_provenance,
             )
         except ValueError as e:

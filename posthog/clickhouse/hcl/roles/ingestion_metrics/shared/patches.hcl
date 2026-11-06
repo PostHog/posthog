@@ -52,4 +52,12 @@ database "posthog" {
       remote_table    = "metrics4_attributes"
     }
   }
+
+  patch_table "writable_metrics_kafka_metrics" {
+    engine "distributed" {
+      cluster_name    = "metrics"
+      remote_database = "posthog"
+      remote_table    = "metrics_kafka_metrics"
+    }
+  }
 }

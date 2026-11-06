@@ -4403,6 +4403,25 @@ export interface PatchedLLMProviderKeyApi {
     readonly last_used_at?: string | null
 }
 
+export interface LLMProxyModelInfoApi {
+    /** Provider-specific model identifier. */
+    id: string
+    /** Model display name. */
+    name: string
+    /** Provider display name. */
+    provider: string
+    /** Description of the model. */
+    description: string
+    /** Whether the provider recommends this model. */
+    is_recommended: boolean
+    /** Whether this model supports decision questions. */
+    supports_decisions?: boolean
+    /** Whether this model supports chat completions with written reasoning. */
+    supports_chat?: boolean
+    /** Whether an evaluation judge can set a reasoning level for this model. */
+    supports_reasoning?: boolean
+}
+
 export interface ReviewQueueItemApi {
     readonly id: string
     /** Review queue ID that currently owns this pending trace. */
