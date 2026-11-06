@@ -275,7 +275,7 @@ def check_admin_console_staff_groups(
     # The console registry imports every console panel and tool, which the lazy admin keeps off django.setup().
     from posthog.admin.console.registry import console  # noqa: PLC0415
 
-    staff_groups = {owner.staff_group for owner in console.owners() if owner.staff_group is not None}
+    staff_groups = console.staff_groups()
     try:
         existing = set(Group.objects.filter(name__in=staff_groups).values_list("name", flat=True))
     except DatabaseError:

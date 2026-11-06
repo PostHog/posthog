@@ -171,7 +171,7 @@ class TestSettingWarnings(SimpleTestCase):
 class TestAdminConsoleStaffGroupsCheck(TestCase):
     @parameterized.expand([("every_group_exists", 0), ("a_group_is_missing", 1)])
     def test_warns_about_a_staff_group_that_does_not_exist(self, _name: str, missing_count: int) -> None:
-        staff_groups = sorted({owner.staff_group for owner in console.owners() if owner.staff_group is not None})
+        staff_groups = sorted(console.staff_groups())
         assert staff_groups, "No console owner has a staff group, so this test checks nothing."
         missing = staff_groups[:missing_count]
         for name in staff_groups:
