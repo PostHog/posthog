@@ -378,8 +378,9 @@ def materialized_browser():
 
 @pytest.fixture
 def dmat_slot_for_plan(team):
-    from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
+    from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState
 
+    from products.event_definitions.backend.models import PropertyDefinition
     from products.event_definitions.backend.models.property_definition import PropertyType
 
     prop_def = PropertyDefinition.objects.create(

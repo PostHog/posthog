@@ -3929,6 +3929,7 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
 
     class ComputeSettleParkReason(models.TextChoices):
         HTTP_400 = "http_400", "HTTP 400"
+        HTTP_402 = "http_402", "HTTP 402"
         HTTP_409 = "http_409", "HTTP 409"
         ATTEMPTS_EXHAUSTED = "attempts_exhausted", "Attempts exhausted"
         UNEXPECTED_STATUS = "unexpected_status", "Unexpected status"

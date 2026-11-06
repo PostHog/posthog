@@ -69,8 +69,10 @@ METRICS4_POINT_ARRAY_COLUMNS: tuple[tuple[str, str], ...] = (
 # ClickHouse applies each codec to the continuous stream of array elements.
 # Each array keeps its insert order. The delta codecs compress adjacent values.
 # T64 and Gorilla can process values without a sort.
+# A merge appends point arrays in part order, so a merged timestamp array is not always in time order.
+# Delta encodes each out-of-order step as one large value. DoubleDelta encodes it as two.
 _ARRAY_CODECS: dict[str, str] = {
-    "timestamp": " CODEC(DoubleDelta, Default)",
+    "timestamp": " CODEC(Delta, Default)",
     "observed_timestamp": " CODEC(DoubleDelta, Default)",
     "value": " CODEC(Gorilla, Default)",
     "count": " CODEC(T64, Default)",
