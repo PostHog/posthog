@@ -40,6 +40,7 @@ logger = structlog.get_logger(__name__)
 # pinned: analytics event names, renaming breaks dashboards
 SUGGESTIONS_SENT_EVENT = "slack app work focus suggestions sent"
 SUGGESTION_CLICKED_EVENT = "slack app work focus suggestion clicked"
+WORK_FOCUS_SUGGESTION_BLOCK_PREFIX = "work_focus_suggestion_"
 
 SEARCH_LOOKBACK = timedelta(days=30)
 # Slack returns at most 20 results a page and allows a person about 10 search calls a minute. Three pages for each
@@ -97,9 +98,10 @@ Slack handoffs and feature tips."
 task. At most 100 characters. For example: "📈 Chart previews ignore edited query params. Want me to find out why?"
   - "request": the full task, written as the person would ask PostHog, such as "Find out why chart link previews \
 ignore edited query parameters, and open a pull request with the fix." At most 500 characters.
+  - "source": the number of the message the task comes from.
 
-Keep it short and friendly. Never quote a message, never name a person, and never copy private details. Suggest \
-nothing when no message shows work that PostHog can help with."""
+Keep it short and friendly, and never use em dashes. Never quote a message, never name a person, and never copy \
+private details. Suggest nothing when no message shows work that PostHog can help with."""
 
 _RESPONSE_FORMAT: ResponseFormatJSONSchema = {
     "type": "json_schema",
@@ -117,8 +119,9 @@ _RESPONSE_FORMAT: ResponseFormatJSONSchema = {
                         "properties": {
                             "offer": {"type": "string"},
                             "request": {"type": "string"},
+                            "source": {"type": "integer"},
                         },
-                        "required": ["offer", "request"],
+                        "required": ["offer", "request", "source"],
                         "additionalProperties": False,
                     },
                 },
@@ -138,12 +141,14 @@ class WorkFocusRateLimited(Exception):
 class _FoundMessage:
     content: str
     channel_name: str | None
+    permalink: str | None
 
 
 @frozen
 class WorkFocusSuggestion:
     offer: str
     request: str
+    source_permalink: str | None = None
 
 
 @frozen
@@ -249,9 +254,13 @@ def _search_messages(
                 key = (str(message.get("channel_id") or ""), str(message.get("message_ts") or ""))
                 if content and not message.get("is_author_bot") and key not in found:
                     channel_name = message.get("channel_name")
+                    permalink = message.get("permalink")
                     found[key] = _FoundMessage(
                         content=content[:MAX_MESSAGE_CHARS],
                         channel_name=channel_name if isinstance(channel_name, str) and channel_name else None,
+                        permalink=permalink
+                        if isinstance(permalink, str) and permalink.startswith("https://")
+                        else None,
                     )
             cursor = str((response.get("response_metadata") or {}).get("next_cursor") or "")
             if not cursor:
@@ -317,36 +326,45 @@ def _write(integration: WorkspaceIntegration, candidates: list[_FoundMessage]) -
     parsed = extract_json_object(response.choices[0].message.content or "") or {}
     return WorkFocus(
         intro=str(parsed.get("intro") or "").strip()[:MAX_INTRO_CHARS],
-        suggestions=_clean_suggestions(parsed.get("suggestions")),
+        suggestions=_clean_suggestions(parsed.get("suggestions"), candidates),
     )
 
 
-def _clean_suggestions(raw: Any) -> list[WorkFocusSuggestion]:
+def _clean_suggestions(raw: Any, candidates: list[_FoundMessage]) -> list[WorkFocusSuggestion]:
     suggestions = []
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict):
             continue
         offer = str(item.get("offer") or "").strip()[:MAX_OFFER_CHARS]
         request = str(item.get("request") or "").strip()[:MAX_REQUEST_CHARS]
-        if offer and request:
-            suggestions.append(WorkFocusSuggestion(offer=offer, request=request))
+        source = item.get("source")
+        if not offer or not request:
+            continue
+        permalink = (
+            candidates[source - 1].permalink if isinstance(source, int) and 1 <= source <= len(candidates) else None
+        )
+        suggestions.append(WorkFocusSuggestion(offer=offer, request=request, source_permalink=permalink))
     return suggestions[:MAX_SUGGESTIONS]
 
 
 def work_focus_blocks(integration: WorkspaceIntegration, focus: WorkFocus) -> list[dict]:
     blocks: list[dict] = [section_block(f"{focus.intro} Here's where I can jump in:")]
-    for suggestion in focus.suggestions:
+    for index, suggestion in enumerate(focus.suggestions):
+        # The DM posts with unfurling off, so the link shows no preview.
+        source = f" <{suggestion.source_permalink}|↗ message>" if suggestion.source_permalink else ""
+        value: dict[str, Any] = {"integration_id": integration.id, "request": suggestion.request}
+        if suggestion.source_permalink:
+            value["source"] = suggestion.source_permalink
         blocks.append(
             {
-                **section_block(f"• {suggestion.offer}"),
+                **section_block(f"• {suggestion.offer}{source}"),
+                "block_id": f"{WORK_FOCUS_SUGGESTION_BLOCK_PREFIX}{index}",
                 "accessory": {
                     "type": "button",
                     "text": {"type": "plain_text", "text": "Do it 🚀", "emoji": True},
                     "action_id": WORK_FOCUS_TASK_ACTION_ID,
                     # The full request opens the task's thread, so the person sees what runs.
-                    "value": json.dumps(
-                        {"integration_id": integration.id, "request": suggestion.request}, separators=(",", ":")
-                    ),
+                    "value": json.dumps(value, separators=(",", ":")),
                 },
             }
         )
@@ -354,6 +372,18 @@ def work_focus_blocks(integration: WorkspaceIntegration, focus: WorkFocus) -> li
         context_block("🔒 I read your recent messages once and kept nothing. Each one starts its own thread.")
     )
     return blocks
+
+
+def mark_work_focus_started(blocks: list[dict], block_id: str) -> list[dict]:
+    """The DM's blocks with the clicked suggestion's button replaced by a note, so it cannot start twice."""
+    marked = []
+    for block in blocks:
+        if block.get("block_id") == block_id and block.get("type") == "section":
+            text = (block.get("text") or {}).get("text") or ""
+            block = {key: value for key, value in block.items() if key != "accessory"}
+            block["text"] = {"type": "mrkdwn", "text": f"{text}\n✅ Started, see below"}
+        marked.append(block)
+    return marked
 
 
 def start_work_focus(integration: WorkspaceIntegration, slack_user_id: str) -> None:

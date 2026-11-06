@@ -64,6 +64,7 @@ from products.slack_app.backend.logic.onboarding.dispatch import request_onboard
 from products.slack_app.backend.logic.onboarding.step import read_action_value
 from products.slack_app.backend.logic.onboarding.work_focus import (
     SUGGESTION_CLICKED_EVENT as WORK_FOCUS_SUGGESTION_CLICKED_EVENT,
+    mark_work_focus_started,
 )
 from products.slack_app.backend.logic.untagged_question import is_untagged_question_candidate
 from products.slack_app.backend.models import (
@@ -4645,7 +4646,10 @@ def _handle_work_focus_task_click(payload: dict) -> HttpResponse:
     value = read_action_value(action) if action else None
     integration_id = value.get("integration_id") if value else None
     request = str(value.get("request") or "").strip() if value else ""
-    message_ts = (payload.get("container") or {}).get("message_ts")
+    source = value.get("source") if value else None
+    source = source if isinstance(source, str) and source.startswith("https://") else None
+    container = payload.get("container") or {}
+    message_ts = container.get("message_ts")
     block_id = (action or {}).get("block_id")
     if not (slack_team_id and slack_user_id and isinstance(integration_id, int) and request):
         return HttpResponse(status=200)
@@ -4670,21 +4674,39 @@ def _handle_work_focus_task_click(payload: dict) -> HttpResponse:
     if not cache.add(claim_key, slack_user_id, timeout=24 * 60 * 60):
         return HttpResponse(status=200)
 
-    # The thread opens with the whole request, so the person sees what the task works on.
-    posted = client.chat_postMessage(channel=slack_user_id, text=f"*Starting a task*\n{request}")
+    # The thread opens with the whole request and the message it came from, so the person sees what the task works on.
+    source_line = f"\n<{source}|↗ The message this came from>" if source else ""
+    posted = client.chat_postMessage(
+        channel=slack_user_id,
+        text=f"*Starting a task*\n{request}{source_line}",
+        unfurl_links=False,
+        unfurl_media=False,
+    )
     event = {
         "type": "message",
         "user": slack_user_id,
         "channel": posted["channel"],
         "ts": posted["ts"],
         "thread_ts": posted["ts"],
-        "text": request,
+        "text": f"{request}\n\nThe Slack message this came from: {source}" if source else request,
     }
     try:
         _start_mention_workflow(event, integration, slack_team_id, None, posthog_user=posthog_user)
     except Exception:
         cache.delete(claim_key)
         raise
+    blocks = (payload.get("message") or {}).get("blocks")
+    if isinstance(blocks, list) and isinstance(block_id, str) and container.get("channel_id") and message_ts:
+        try:
+            client.chat_update(
+                channel=container["channel_id"],
+                ts=message_ts,
+                text=(payload.get("message") or {}).get("text") or "",
+                blocks=mark_work_focus_started(blocks, block_id),
+            )
+        except Exception:
+            # The task already started, and the claim stops a second click from starting it again.
+            logger.warning("slack_app_work_focus_mark_started_failed", integration_id=integration.id, exc_info=True)
     capture_slack_event(
         integration, WORK_FOCUS_SUGGESTION_CLICKED_EVENT, slack_user_id=slack_user_id, posthog_user=posthog_user
     )

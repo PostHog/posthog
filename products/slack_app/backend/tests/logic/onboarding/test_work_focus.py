@@ -118,7 +118,7 @@ def slack(org_team_user) -> Iterator[dict[str, MagicMock]]:
         search_client.return_value.api_call.side_effect = _search(found=6)
         ranker.return_value.decide.side_effect = _rank
         writer.return_value.with_options.return_value.chat.completions.create.return_value = _written(
-            [{"offer": "Churn by plan looks off in #product. Want me to dig in?", "request": REQUEST}]
+            [{"offer": "Churn by plan looks off in #product. Want me to dig in?", "request": REQUEST, "source": 1}]
         )
         yield {
             "search": search_client,
@@ -158,6 +158,8 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
     # The DM stays short: no message previews, and the full request rides in the button.
     assert dm["unfurl_links"] is False and dm["unfurl_media"] is False
     assert REQUEST not in shown and REQUEST in json.dumps(dm["blocks"])
+    # The suggestion links the message Jev ranked first, which the writer named as its source.
+    assert "<https://example.slack.com/archives/C1/pmine0|↗ message>" in shown
     stored = SlackSettings.objects.get(slack_workspace_id=SLACK_TEAM_ID, slack_user_id=SLACK_USER_ID).onboarding
     assert isinstance(stored, dict) and stored["work_focus_outcome"] == "sent"
     assert SECRET_MESSAGE not in json.dumps(stored)
@@ -216,7 +218,7 @@ def test_runs_that_cannot_start_yet_store_nothing_so_they_run_later(
 @pytest.mark.django_db
 @override_settings(DEBUG=True)
 @patch("products.slack_app.backend.api.SlackIntegration")
-def test_a_suggestion_starts_its_shown_request_in_a_new_dm_thread_once(
+def test_a_suggestion_starts_its_request_in_a_new_dm_thread_once_and_loses_its_button(
     mock_slack_cls: MagicMock, org_team_user
 ) -> None:
     _, team, user = org_team_user
@@ -226,17 +228,29 @@ def test_a_suggestion_starts_its_shown_request_in_a_new_dm_thread_once(
     mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": secret}
     bot = mock_slack_cls.return_value.client
     bot.chat_postMessage.return_value = {"channel": "D1", "ts": "1700.1"}
+    source = "https://example.slack.com/archives/C1/p1"
     focus = WorkFocus(
         intro="Looks like your week is about churn.",
-        suggestions=[WorkFocusSuggestion(offer="Want me to dig in?", request=REQUEST)],
+        suggestions=[
+            WorkFocusSuggestion(offer="Want me to dig in?", request=REQUEST, source_permalink=source),
+            WorkFocusSuggestion(offer="Want me to check signups?", request="Check signups."),
+        ],
     )
-    button = work_focus_blocks(integration, focus)[1]["accessory"]
+    blocks = work_focus_blocks(integration, focus)
+    clicked = blocks[1]
     payload = {
         "type": "block_actions",
         "team": {"id": SLACK_TEAM_ID},
         "user": {"id": SLACK_USER_ID},
         "container": {"type": "message", "channel_id": "D1", "message_ts": "1690.1"},
-        "actions": [{"action_id": button["action_id"], "block_id": "b1", "value": button["value"]}],
+        "message": {"ts": "1690.1", "text": focus.intro, "blocks": blocks},
+        "actions": [
+            {
+                "action_id": clicked["accessory"]["action_id"],
+                "block_id": clicked["block_id"],
+                "value": clicked["accessory"]["value"],
+            }
+        ],
     }
     body = f"payload={json.dumps(payload)}"
     signed = sign_slack_request(body.encode(), secret)
@@ -263,6 +277,11 @@ def test_a_suggestion_starts_its_shown_request_in_a_new_dm_thread_once(
         "channel": "D1",
         "ts": "1700.1",
         "thread_ts": "1700.1",
-        "text": REQUEST,
+        "text": f"{REQUEST}\n\nThe Slack message this came from: {source}",
     }
-    assert REQUEST in bot.chat_postMessage.call_args.kwargs["text"]
+    starter = bot.chat_postMessage.call_args.kwargs
+    assert REQUEST in starter["text"] and f"<{source}|" in starter["text"] and starter["unfurl_links"] is False
+    bot.chat_update.assert_called_once()
+    updated = bot.chat_update.call_args.kwargs["blocks"]
+    assert "accessory" not in updated[1] and "Started" in updated[1]["text"]["text"]
+    assert "accessory" in updated[2]
