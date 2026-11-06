@@ -9,7 +9,6 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SidePanelTab } from '~/types'
 
 import { sidepanelTicketsLogic } from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
-import { ConversationTicket, SidePanelViewState } from 'products/conversations/frontend/types'
 
 import { projectSessionKey, readSessionValue, writeSessionValue } from './todaySessionStorage'
 import { todayShellLogic } from './todayShellLogic'
@@ -55,10 +54,8 @@ export interface todayContextPanelLogicValues {
     enabledTabs: SidePanelTab[] // sidePanelLogic
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     sidePanelOpen: boolean // sidePanelStateLogic
-    canCreateTicket: boolean // sidepanelTicketsLogic
-    currentTicket: ConversationTicket | null // sidepanelTicketsLogic
-    supportView: SidePanelViewState // sidepanelTicketsLogic
-    tickets: ConversationTicket[] // sidepanelTicketsLogic
+    canAccessTickets: boolean // sidepanelTicketsLogic
+    myTicketsUrl: string // sidepanelTicketsLogic
     onAiPage: boolean // todayShellLogic
     activeTab: SidePanelTab
     canUndock: boolean
@@ -151,10 +148,8 @@ export interface todayContextPanelLogicMeta {
         activeTab: (docked: boolean, selectedTab: SidePanelTab | null, floatingActiveTab: SidePanelTab) => SidePanelTab
         fullScreenUrl: (
             activeTab: SidePanelTab,
-            tickets: ConversationTicket[],
-            canCreateTicket: boolean,
-            supportView: SidePanelViewState,
-            currentTicket: ConversationTicket | null
+            canAccessTickets: boolean,
+            myTicketsUrl: string
         ) => string | null
     }
 }
@@ -179,7 +174,7 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
             sidePanelLogic,
             ['enabledTabs'],
             sidepanelTicketsLogic,
-            ['tickets', 'canCreateTicket', 'view as supportView', 'currentTicket'],
+            ['canAccessTickets', 'myTicketsUrl'],
             todayShellLogic,
             ['onAiPage'],
         ],
@@ -317,22 +312,14 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
         ],
         fullScreenUrl: [
             // PostHog AI's URL comes from the chat logic, which the header reads only while the panel is open.
-            (s) => [s.activeTab, s.tickets, s.canCreateTicket, s.supportView, s.currentTicket],
-            (
-                activeTab: SidePanelTab,
-                tickets: ConversationTicket[],
-                canCreateTicket: boolean,
-                supportView: SidePanelViewState,
-                currentTicket: ConversationTicket | null
+            (s) => [s.activeTab, s.canAccessTickets, s.myTicketsUrl],
+            (activeTab: SidePanelTab, canAccessTickets: boolean, myTicketsUrl: string
             ): string | null => {
                 switch (activeTab) {
                     case SidePanelTab.Activity:
                         return urls.advancedActivityLogs()
-                    // Matches the support panel's own expand button: the tickets page, on the open ticket if any.
                     case SidePanelTab.Support:
-                        return canCreateTicket || tickets.length > 0
-                            ? urls.myTickets(supportView === 'ticket' ? currentTicket?.id : undefined)
-                            : null
+                        return canAccessTickets ? myTicketsUrl : null
                     default:
                         return null
                 }

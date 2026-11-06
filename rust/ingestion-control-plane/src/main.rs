@@ -7,6 +7,7 @@ use common_metrics::setup_metrics_routes;
 use health::{readiness_handler, HealthRegistry};
 use ingestion_control_plane::api;
 use ingestion_control_plane::backup::{self, BackupStore, S3BackupStore};
+use ingestion_control_plane::changelog;
 use ingestion_control_plane::config::Config;
 use ingestion_control_plane::state::AppState;
 use tokio::signal;
@@ -67,6 +68,7 @@ async fn main() {
 
     let mut state = AppState::new(config).expect("failed to initialize app state");
     start_changelog_backups(&mut state).await;
+    record_changelog_cluster(&state);
 
     let router = api::router(state)
         .route("/_readiness", get(readiness_handler))
@@ -85,6 +87,37 @@ async fn main() {
         .with_graceful_shutdown(shutdown())
         .await
         .expect("server failed");
+}
+
+fn record_changelog_cluster(state: &AppState) {
+    let Some(etcd) = state.etcd.clone() else {
+        return;
+    };
+    let cluster = match state.config.current_changelog_cluster() {
+        Ok(Some(cluster)) => cluster,
+        Ok(None) => {
+            info!("no CHANGELOG_KAFKA_CLUSTERS entry matches PERSONHOG_KAFKA_HOSTS; the changelog's cluster stays unrecorded");
+            return;
+        }
+        Err(e) => {
+            warn!(error = %format!("{e:#}"), "could not read CHANGELOG_KAFKA_CLUSTERS; the changelog's cluster stays unrecorded");
+            return;
+        }
+    };
+    let prefix = state.config.personhog_etcd_prefix.clone();
+    tokio::spawn(async move {
+        let recorded = async {
+            let client = etcd.client().await?;
+            changelog::record_cluster(&client, &prefix, &cluster).await
+        };
+        match recorded.await {
+            Ok(true) => info!(cluster = %cluster.name, "recorded the live changelog's cluster"),
+            Ok(false) => info!("the live changelog's cluster was not recorded: it is unseeded, already recorded, or a migration is requested"),
+            Err(e) => {
+                warn!(error = %format!("{e:#}"), "could not record the live changelog's cluster; the next start retries")
+            }
+        }
+    });
 }
 
 async fn start_changelog_backups(state: &mut AppState) {

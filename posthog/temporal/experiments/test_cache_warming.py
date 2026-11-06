@@ -14,7 +14,6 @@ from posthog.schema import CachedExperimentQueryResponse, EventsNode, Experiment
 
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 from posthog.temporal.experiments.activities import (
     _calculate_experiment_regular_metric_sync,
@@ -23,6 +22,7 @@ from posthog.temporal.experiments.activities import (
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.event_definitions.backend.models import PropertyDefinition
 from products.experiments.backend.facade.timeseries import metric_calculation_keys
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
