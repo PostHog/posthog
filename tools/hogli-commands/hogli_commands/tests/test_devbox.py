@@ -1219,6 +1219,23 @@ class TestWorktreeAutoProvision:
         assert result.exit_code == 0, result.output
         assert len([command for command in spawned if "devbox:worktree:prune" in command]) == expected_prunes
 
+    def test_prune_does_nothing_while_another_prune_holds_the_lock(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: tmp_path)
+        pruned: list[str] = []
+        monkeypatch.setattr(
+            devbox_worktree, "prune_boxes_of_removed_worktrees", lambda *args: pruned.append("pruned") or []
+        )
+
+        with devbox_config.worktree_prune_lock() as first_holds_lock:
+            result = runner.invoke(cli, ["devbox:worktree:prune"])
+
+        assert first_holds_lock
+        assert result.exit_code == 0, result.output
+        assert pruned == []
+
 
 class TestDevboxWorktreeCommand:
     @pytest.fixture

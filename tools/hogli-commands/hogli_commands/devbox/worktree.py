@@ -60,6 +60,7 @@ from .config import (
     saved_worktree_box_cleanup,
     saved_worktree_provider,
     worktree_box_claimant,
+    worktree_prune_lock,
 )
 from .sync import _REMOTE_REPO_PATH, _detect_local_posthog_checkout, ensure_hogland_sync_session, ensure_sync_session
 
@@ -628,7 +629,11 @@ def _hogland_worktree(root: Path, label: str | None, on_clean: str | None, dry_r
 @click.option("--dry-run", is_flag=True, help="Print the boxes without changing anything")
 def devbox_worktree_prune(action: str | None, worktree_path: Path | None, dry_run: bool) -> None:
     box_action = action or saved_worktree_box_cleanup() or "stop"
-    pruned = prune_boxes_of_removed_worktrees(_detect_local_posthog_checkout(), box_action, worktree_path, dry_run)
+    with worktree_prune_lock() as holds_lock:
+        if not holds_lock:
+            click.echo("Another prune is running, so this one did nothing.")
+            return
+        pruned = prune_boxes_of_removed_worktrees(_detect_local_posthog_checkout(), box_action, worktree_path, dry_run)
     if not pruned:
         click.echo("No devboxes belong to removed worktrees.")
 
