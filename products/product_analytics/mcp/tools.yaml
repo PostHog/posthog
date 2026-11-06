@@ -103,10 +103,7 @@ tools:
 
 
             Null makes the project use the organization's period, which the monthly cleanup applies. When the
-            organization has no period either, the project uses the default period. If the default period is shorter
-            than the project's current period, a cleanup every 3 months deletes events past the default period, a whole
-            month at a time, so some events are kept a few months past it. The first one is at least 3 months from now,
-            on `first_pass_on` or later.
+            organization has no period either, the project uses the default period.
 
 
             Before you prepare the change, call events-retention-get and tell the user the current and new period. If
