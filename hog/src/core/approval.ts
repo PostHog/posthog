@@ -208,8 +208,7 @@ async function withSpinner<Value>(spinner: Spinner | undefined, noun: string, wa
     }
 }
 
-// A command that waits for a person can't finish in CI, where nobody is there to approve it. An
-// agent can still hand the link over, so agents pass.
+// Nobody approves anything in CI. Agents pass, because they hand the link to a person.
 export function refuseInCi(ctx: Context, command: string, hint: string): void {
     if (!ctx.prompts && ctx.mode.agent === undefined && ctx.mode.ci) {
         throw new HogError(

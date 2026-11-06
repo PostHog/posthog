@@ -13,10 +13,8 @@ export type StepUpResult =
           status: 'added' | 'already_granted'
           host: string
           projectId: string
-          // Set when the person picked another project on the approval page.
           previousProjectId: string | null
           scopes: string[]
-          // False when PostHog didn't revoke the replaced login, which then works until it expires.
           replacedRevoked: boolean | null
       }
 
