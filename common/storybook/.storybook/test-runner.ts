@@ -166,7 +166,9 @@ export default {
     async preVisit(page, context) {
         // Resets the scheme `takeSnapshotWithTheme` emulates, which is page-level and outlasts the story.
         // Not `null`: that stops emulation, so WebKit follows a dark host.
-        await page.emulateMedia({ colorScheme: 'light' })
+        // Reduced motion makes components skip animations the CSS override cannot reach, such as the
+        // requestAnimationFrame-driven camera moves in React Flow and d3 canvases, which a capture can catch mid-way.
+        await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
         await page.route(/\/(embedded|shared)\//, (route) =>
             route.fulfill({ status: 200, contentType: 'text/html', body: EMBED_STUB_HTML })
         )
@@ -529,6 +531,11 @@ async function waitForQuiet(page: Page, timeout: number, loaderTimeoutMs: number
                                 rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== 'hidden'
                             )
                         })
+                    // App renders this overlay while a scene's code chunk loads through import(), which the fetch
+                    // tracking cannot see. It holds even for stories that opt out of the loader wait, because a
+                    // scene that has not loaded is never a valid snapshot.
+                    const isSceneLoading = (): boolean =>
+                        document.querySelector('.SpinnerOverlay--scene-level') !== null
                     ;(work?.setTimeout ?? setTimeout)(finish, loaderDeadlineAt - startedAt)
                     observer.observe(document.documentElement, {
                         subtree: true,
@@ -543,7 +550,7 @@ async function waitForQuiet(page: Page, timeout: number, loaderTimeoutMs: number
                             lastSize = size
                             lastChange = now
                         }
-                        const loading = isLoaderVisible()
+                        const loading = isLoaderVisible() || isSceneLoading()
                         if (loading) {
                             lastChange = now
                         }
@@ -619,7 +626,7 @@ async function takeSnapshotWithTheme(
     // Set the right theme
     await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
     // `isDarkModeOn` does not list that attribute as a selector input, so only a scheme change recomputes it.
-    await page.emulateMedia({ colorScheme: theme })
+    await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
 
     // Wait until we're sure we've finished loading everything
     const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
