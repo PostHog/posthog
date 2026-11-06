@@ -73,3 +73,18 @@ def accumulator_scope() -> Iterator[dict[WarningKey, DataWarehouseSyncWarning]]:
         yield accumulator
     finally:
         reset_accumulator(token)
+
+
+@contextlib.contextmanager
+def detached_accumulator_scope() -> Iterator[None]:
+    """Hide the parent's accumulator, so the next runner inside installs its own.
+
+    For a composite runner whose inner runners cache their own responses: sharing the parent's
+    accumulator would store one inner runner's warnings in a sibling's cache entry, whose key carries
+    none of the access restrictions on the warehouse tables those warnings name.
+    """
+    token = _accumulator.set(None)
+    try:
+        yield
+    finally:
+        _accumulator.reset(token)
