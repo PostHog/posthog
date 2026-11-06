@@ -15895,6 +15895,40 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.json()["reason"], "startup_plan")
         mock_post.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("side_question", Task.Runtime.ACP, "side_question", {"question": "why?"}),
+            ("pi_prompt", Task.Runtime.PI, "pi/rpc", {"command": {"id": "c1", "type": "prompt", "message": "go"}}),
+            ("pi_steer", Task.Runtime.PI, "pi/rpc", {"command": {"id": "c1", "type": "steer", "message": "go"}}),
+            (
+                "pi_follow_up",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {"command": {"id": "c1", "type": "follow_up", "message": "go"}},
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.task_run_sync.posthoganalytics.get_feature_flag_payload")
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_that_starts_a_turn_is_refused_on_a_done_task(
+        self, _name: str, runtime: str, method: str, params: dict, mock_post: MagicMock, mock_payload: MagicMock
+    ) -> None:
+        mock_payload.return_value = {"user": "enforce"}
+        task = self.create_task(runtime=runtime)
+        run = self._create_run_with_sandbox(task)
+        Task.objects.filter(pk=task.pk).update(
+            profile="user", status=Task.Status.DONE, status_reason=Task.StatusReason.CLOSED
+        )
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": method, "id": "c1", "params": params},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        mock_post.assert_not_called()
+
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
     def test_command_pi_rpc_control_command_skips_code_access(self, mock_post):

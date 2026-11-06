@@ -2132,6 +2132,16 @@ def is_sandbox_agent_request(request, task_id: str) -> bool:
 
 # Command methods that inject caller-authored content and drive a new model turn.
 _HUMAN_STEERING_COMMAND_METHODS = frozenset({"user_message", "side_question"})
+_PI_TURN_COMMAND_TYPES = frozenset({"prompt", "steer", "follow_up"})
+
+
+def _command_starts_a_turn(method: str, params: object) -> bool:
+    if method == "side_question":
+        return True
+    if method != "pi/rpc" or not isinstance(params, dict):
+        return False
+    command = params.get("command")
+    return isinstance(command, dict) and command.get("type") in _PI_TURN_COMMAND_TYPES
 
 
 @extend_schema(tags=["task-runs", "tasks"])
@@ -3863,6 +3873,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 TaskRunErrorResponseSerializer({"error": tasks_facade.REPORT_WARM_RUN_NOT_ACTIVATED}).data,
                 status=status.HTTP_409_CONFLICT,
             )
+
+        if _command_starts_a_turn(method, params):
+            try:
+                tasks_facade.check_wake_by_task_id(task_id, source="command")
+            except tasks_facade.TaskDoneError:
+                return _task_done_response()
 
         # A side question drives the agent and spends model tokens on the caller's behalf. Unlike
         # user_message below, it has no Inbox surface to exempt, so every caller takes both gates.
