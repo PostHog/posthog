@@ -8560,6 +8560,22 @@
             "readOnlyHint": true
         }
     },
+    "integrations-email-sandbox-sender-create": {
+        "description": "Give the project a ready-made email sender for workflows, so a new team can send its first workflow email before it has its own sending domain. It sends from a PostHog-owned address, with the organization's name as the From name, for example \"Acme via PostHog\". It only delivers to verified members of the project's organization: when any To, CC or BCC address is someone else, the whole email is skipped. Tell the user this before they rely on it. It works in workflow email steps and test sends, not in broadcasts or transactional email, and sends are capped per day. For real recipients, the user needs their own domain: set it up with integrations-email-create. Calling it again returns the same sender. Returns the integration id to use as the email step's sender, with its From address and name. A 404 means the sandbox sender is not available for this project.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "Set up the sandbox email sender",
+        "title": "Set up the sandbox email sender",
+        "required_scopes": ["integration:write"],
+        "api_operations": ["POST /api/projects/{project_id}/integrations/email_sandbox_sender/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-sandbox-sender"
+    },
     "integrations-email-status-retrieve": {
         "description": "Get the setup progress of an email sender's domain by integration ID. Returns the overall status, the three setup steps, and every DNS record to publish with its current status (pending, found, verified). Poll it after adding DNS records until status is verified, waiting at least 10 seconds between calls. Pass refresh=true right after changing DNS to skip the 10 second cache. It does not change DNS or SES, and it does not mark the sender verified: once status is verified, call integrations-email-verify-create.",
         "category": "Integrations",

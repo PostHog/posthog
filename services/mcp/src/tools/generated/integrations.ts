@@ -129,6 +129,34 @@ const integrationsEmailVerifyCreate = (): ToolBase<
     },
 })
 
+const IntegrationsEmailSandboxSenderCreateSchema = () => z.object({})
+
+const integrationsEmailSandboxSenderCreate = (): ToolBase<
+    ReturnType<typeof IntegrationsEmailSandboxSenderCreateSchema>,
+    Schemas.IntegrationConfig
+> => ({
+    name: 'integrations-email-sandbox-sender-create',
+    schema: IntegrationsEmailSandboxSenderCreateSchema(),
+    handler: async (
+        context: Context,
+        _params: z.infer<ReturnType<typeof IntegrationsEmailSandboxSenderCreateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.IntegrationConfig>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/email_sandbox_sender/`,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'kind',
+            'display_name',
+            'config.email',
+            'config.name',
+        ]) as typeof result
+        return filtered
+    },
+})
+
 const IntegrationsGithubReposRetrieveSchema = () => {
     const IntegrationsGithubReposRetrieveParams = orvalSchemas.IntegrationsGithubReposRetrieveParams()
     const IntegrationsGithubReposRetrieveQueryParams = orvalSchemas.IntegrationsGithubReposRetrieveQueryParams()
@@ -350,6 +378,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'integrations-channels-retrieve': integrationsChannelsRetrieve,
     'integrations-email-status-retrieve': integrationsEmailStatusRetrieve,
     'integrations-email-verify-create': integrationsEmailVerifyCreate,
+    'integrations-email-sandbox-sender-create': integrationsEmailSandboxSenderCreate,
     'integrations-github-repos-retrieve': integrationsGithubReposRetrieve,
     'integrations-jira-projects-retrieve': integrationsJiraProjectsRetrieve,
     'integrations-linear-teams-retrieve': integrationsLinearTeamsRetrieve,
