@@ -88,6 +88,11 @@ DUCKGRES_PG_PORT: int = get_from_env("DUCKGRES_PG_PORT", 5432, type_cast=int)
 # HOGTOWER_API_URL is set, control-plane calls go to hogtower's /api/v2 instead of duckgres.
 HOGTOWER_API_URL: str | None = get_from_env("HOGTOWER_API_URL", optional=True)
 HOGTOWER_INTERNAL_SECRET: str | None = get_from_env("HOGTOWER_INTERNAL_SECRET", optional=True)
+# Hoglake's public endpoints, shown to warehouse owners next to their hoglake credentials:
+# the REST catalog URL and hogtower's public OAuth token endpoint the credentials are
+# exchanged at. HOGLAKE_OAUTH_TOKEN_URL unset turns hoglake credentials off (501).
+HOGLAKE_PUBLIC_URL: str | None = get_from_env("HOGLAKE_PUBLIC_URL", optional=True)
+HOGLAKE_OAUTH_TOKEN_URL: str | None = get_from_env("HOGLAKE_OAUTH_TOKEN_URL", optional=True)
 # Push each member's visible projects, with their warehouse access level, to hogtower, which
 # mints team-scoped hoglake tokens from its copy. Needs HOGTOWER_API_URL.
 HOGTOWER_MEMBER_TEAMS_PUSH_ENABLED: bool = get_from_env(
