@@ -16,6 +16,7 @@ class PropertyValueVisibility:
     def __init__(self, user: Any) -> None:
         self._user = user if getattr(user, "is_authenticated", False) else None
         self._restricted_group_properties: dict[int, frozenset[str]] = {}
+        self._admin_of_organization: dict[Any, bool] = {}
 
     @classmethod
     def from_serializer_context(cls, context: Mapping[str, Any]) -> Optional["PropertyValueVisibility"]:
@@ -36,6 +37,8 @@ class PropertyValueVisibility:
         changes = detail.get("changes")
         if not isinstance(name, str) or not isinstance(changes, list):
             return detail
+        if self._is_organization_admin(entry.organization_id):
+            return detail
         if name not in self._restricted_group_property_names(entry.team_id):
             return detail
         return {
@@ -45,6 +48,20 @@ class PropertyValueVisibility:
                 for change in changes
             ],
         }
+
+    def _is_organization_admin(self, organization_id: Any) -> bool:
+        # Org admins bypass property rules, so skip loading restrictions for them.
+        if self._user is None or organization_id is None:
+            return False
+        if organization_id not in self._admin_of_organization:
+            from posthog.models import OrganizationMembership  # noqa: PLC0415
+
+            self._admin_of_organization[organization_id] = OrganizationMembership.objects.filter(
+                user=self._user,
+                organization_id=organization_id,
+                level__gte=OrganizationMembership.Level.ADMIN,
+            ).exists()
+        return self._admin_of_organization[organization_id]
 
     def _restricted_group_property_names(self, team_id: int) -> frozenset[str]:
         if team_id not in self._restricted_group_properties:

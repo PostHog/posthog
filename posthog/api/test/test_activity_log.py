@@ -360,9 +360,17 @@ class TestActivityLogAuditLogsGate(APIBaseTest):
             },
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/{endpoint}")
+        from products.access_control.backend.facade import api as access_control_api
+
+        with patch.object(
+            access_control_api,
+            "get_restricted_properties_with_group_type_index_for_team",
+            wraps=access_control_api.get_restricted_properties_with_group_type_index_for_team,
+        ) as load_restrictions:
+            response = self.client.get(f"/api/projects/{self.team.id}/{endpoint}")
 
         assert response.status_code == status.HTTP_200_OK, response.content
+        assert load_restrictions.called is hidden
         body = response.content.decode()
         assert ("example-plan-before" in body) is not hidden
         assert ("example-plan-after" in body) is not hidden
