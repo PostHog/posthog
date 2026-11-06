@@ -1,10 +1,13 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+
+import { expect } from 'storybook/test'
 
 import { notebookTestTemplate } from './__mocks__/notebook-template-for-snapshot'
 import { buildMarkdownNotebookContent } from './markdownNotebookV2'
@@ -111,5 +114,19 @@ export default meta
 
 type Story = StoryObj<{}>
 
-export const BarChart: Story = { parameters: { pageUrl: urls.notebook('sql-cell-bar-chart') } }
-export const LineChart: Story = { parameters: { pageUrl: urls.notebook('sql-cell-line-chart') } }
+// Opening the notebook writes the SQL cell's height and chart settings back, which saves it and shows the "Saved"
+// tag for 3 s of real time. Wait for the tag to come and go, so a capture never lands inside that window.
+const waitForAutosaveTag: Story['play'] = async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.queryByText('Saved')).not.toBeNull(), { timeout: 3000 }).catch(() => undefined)
+    await waitFor(() => expect(canvas.queryByText('Saved')).toBeNull(), { timeout: 5000 })
+}
+
+export const BarChart: Story = {
+    parameters: { pageUrl: urls.notebook('sql-cell-bar-chart') },
+    play: waitForAutosaveTag,
+}
+export const LineChart: Story = {
+    parameters: { pageUrl: urls.notebook('sql-cell-line-chart') },
+    play: waitForAutosaveTag,
+}
