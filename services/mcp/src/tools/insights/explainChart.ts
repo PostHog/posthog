@@ -15,13 +15,15 @@ import type {
     StoryTrendsQuery,
 } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
 import { sqlEvidenceChart } from 'products/product_analytics/mcp/apps/explainChart/sqlEvidenceChart'
+import { insightPageShowsStory } from 'products/product_analytics/mcp/apps/explainChart/storyDisplays'
+import { storyEvidenceNode } from 'products/product_analytics/mcp/apps/explainChart/storyEvidenceNode'
 
 import { analyzeQuery } from '../shared'
 import { findStoryRange, lastBucketInProgress } from './storyRanges'
 
 const schema = ExplainChartInputSchema
 
-type Params = z.infer<typeof schema>
+export type Params = z.infer<typeof schema>
 
 type Result = ExplainChartData & { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: string }
 
@@ -137,8 +139,9 @@ function sqlProblems(chapters: Params['chapters'], sqlEvidence: Map<string, SqlE
     )
 }
 
-interface StoryChart {
+export interface StoryChart {
     query: StoryTrendsQuery
+    linkableInsightId: number | null
     insightName: string | null
     path: string
 }
@@ -161,21 +164,14 @@ function asTrendsQuery(query: unknown): StoryTrendsQuery {
 }
 
 function newInsightPath(query: Record<string, unknown>): string {
-    const kind = query.kind
-    const node =
-        kind === 'HogQLQuery'
-            ? { kind: 'DataVisualizationNode', source: query }
-            : typeof kind === 'string' && kind.endsWith('Node')
-              ? query
-              : { kind: 'InsightVizNode', source: query }
-    return `/insights/new#q=${encodeURIComponent(JSON.stringify(node))}`
+    return `/insights/new#q=${encodeURIComponent(JSON.stringify(storyEvidenceNode(query)))}`
 }
 
 async function loadChart(context: Context, projectId: string, params: Params): Promise<StoryChart> {
     if (params.insightId === undefined) {
         const query = asTrendsQuery(params.query)
         await applyProjectTestAccountDefault(context, query)
-        return { query, insightName: null, path: newInsightPath(query) }
+        return { query, linkableInsightId: null, insightName: null, path: newInsightPath(query) }
     }
     const insight = await context.api.insights({ projectId }).get({ insightId: params.insightId })
     if (!insight.success) {
@@ -183,6 +179,11 @@ async function loadChart(context: Context, projectId: string, params: Params): P
     }
     return {
         query: asTrendsQuery(insight.data.query),
+        linkableInsightId: insightPageShowsStory(
+            (analyzeQuery(insight.data.query).innerQuery as StoryTrendsQuery | undefined)?.trendsFilter?.display
+        )
+            ? insight.data.id
+            : null,
         insightName: insight.data.name || insight.data.derived_name || null,
         path: `/insights/${insight.data.short_id}`,
     }
@@ -194,16 +195,15 @@ function warningMessages(warnings: unknown[]): string[] {
     )
 }
 
-function describeResult(
-    chart: StoryChart,
-    series: StorySeriesResult,
-    chapters: Params['chapters'],
-    missed: string[],
-    warnings: unknown[],
-    evidenceProblems: string[]
-): string {
+function describeResult(built: BuiltExplanation, chapterCount: number): string {
+    const { chart, series, missed, warnings, evidenceProblems } = built
     const name = chart.insightName ?? series.label ?? 'the chart'
-    const lines = [`The explanation of "${name}" has ${chapters.length} chapters.`]
+    const lines = [`The explanation of "${name}" has ${chapterCount} chapters.`]
+    if (chart.linkableInsightId !== null) {
+        lines.push(
+            'Where the person cannot see it rendered inline, call explain-chart-save with the same arguments for a link that opens it beside the chart in PostHog.'
+        )
+    }
     if (warnings.length) {
         lines.push(`The query came with warnings the person should hear about: ${warningMessages(warnings).join(' ')}`)
     }
@@ -218,10 +218,18 @@ function describeResult(
     return lines.join(' ')
 }
 
-export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = async (
-    context: Context,
-    params: Params
-) => {
+export interface BuiltExplanation {
+    projectId: string
+    baseUrl: string
+    chart: StoryChart
+    series: StorySeriesResult
+    data: ExplainChartData
+    missed: string[]
+    warnings: unknown[]
+    evidenceProblems: string[]
+}
+
+export async function buildExplanation(context: Context, params: Params): Promise<BuiltExplanation> {
     const projectId = await context.stateManager.getProjectId()
     const chart = await loadChart(context, projectId, params)
 
@@ -258,8 +266,13 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
                 const sql = isSqlQuery(item.query) ? sqlEvidence.get(JSON.stringify(item.query)) : undefined
                 return {
                     text: item.text,
-                    url: item.query ? `${baseUrl}${newInsightPath(item.query)}` : (item.url ?? null),
-                    query: queryTool ? item.query : null,
+                    url: item.query
+                        ? `${baseUrl}${newInsightPath(item.query)}`
+                        : item.insightShortId
+                          ? `${baseUrl}/insights/${item.insightShortId}`
+                          : (item.url ?? null),
+                    query: item.query ?? null,
+                    insightShortId: item.insightShortId ?? null,
                     queryTool,
                     chart: sql && 'chart' in sql ? sql.chart : null,
                 }
@@ -267,7 +280,8 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
         }
     })
 
-    return {
+    const data: ExplainChartData = {
+        shape: 'time_series',
         query: chart.query,
         results,
         seriesIndex: params.series,
@@ -276,15 +290,28 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
         ...(warnings?.length ? { warnings } : {}),
         headline: params.headline,
         chapters,
-        _posthogUrl: `${baseUrl}${chart.path}`,
-        [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: describeResult(
-            chart,
-            series,
-            params.chapters,
-            missed,
-            warnings ?? [],
-            sqlProblems(params.chapters, sqlEvidence)
-        ),
+    }
+    return {
+        projectId,
+        baseUrl,
+        chart,
+        series,
+        data,
+        missed,
+        warnings: warnings ?? [],
+        evidenceProblems: sqlProblems(params.chapters, sqlEvidence),
+    }
+}
+
+export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
+    const built = await buildExplanation(context, params)
+    return {
+        ...built.data,
+        _posthogUrl: `${built.baseUrl}${built.chart.path}`,
+        [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: describeResult(built, params.chapters.length),
     }
 }
 

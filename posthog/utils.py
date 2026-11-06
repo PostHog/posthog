@@ -108,6 +108,10 @@ logger = structlog.get_logger(__name__)
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
 
+# C0 controls anywhere, and a leading space: characters URL parsers strip or drop before reading the authority.
+_URL_CONTROL_CHARS = re.compile(r"^[\x00-\x20]|[\x00-\x1f]")
+
+
 class PotentialSecurityProblemException(Exception):
     """
     When providing an absolutely-formatted URL
@@ -131,18 +135,29 @@ def absolute_uri(url: Optional[str] = None) -> str:
     if has_ambiguous_authority(url):
         raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
 
+    # urlparse and urljoin drop tabs and newlines and strip leading control characters and
+    # spaces, so the value they resolve can differ from the one checked below.
+    if _URL_CONTROL_CHARS.search(url):
+        raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
+
     provided_url = urlparse(url)
     if provided_url.hostname and provided_url.scheme:
         site_url = urlparse(settings.SITE_URL)
-        provided_url = provided_url
         if (
             site_url.hostname != provided_url.hostname
             or site_url.port != provided_url.port
             or site_url.scheme != provided_url.scheme
         ):
             raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
+        return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
 
-    return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
+    relative_url = url.lstrip("/")
+    # A relative value must stay on SITE_URL: anything still carrying an authority after the
+    # slashes are stripped would be read by urljoin as a protocol-relative URL.
+    if urlparse(relative_url).netloc:
+        raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
+
+    return urljoin(settings.SITE_URL.rstrip("/") + "/", relative_url)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
@@ -1226,7 +1241,7 @@ def _default_event_info_cache_key(team_id: int) -> str:
 
 @tracer.start_as_current_span("template.default_event_info")
 def get_default_event_info(team: "Team") -> dict:
-    from posthog.models import EventDefinition
+    from products.event_definitions.backend.models import EventDefinition
 
     cache_key = _default_event_info_cache_key(team.id)
     cached = get_safe_cache(cache_key)
@@ -1305,8 +1320,7 @@ def _has_person_email_ttl(team: "Team", has_person_email: bool) -> int:
 
 @tracer.start_as_current_span("template.has_person_email")
 def get_has_person_email(team: "Team") -> bool:
-    from posthog.models import PropertyDefinition
-
+    from products.event_definitions.backend.models import PropertyDefinition
     from products.event_definitions.backend.models.property_definition import PERSON_EMAIL_PROPERTY_NAME
 
     cache_key = _has_person_email_cache_key(team.project_id)
@@ -1998,10 +2012,10 @@ class GenericEmails:
             self.emails = {x.rstrip(): True for x in f}
 
     def is_generic(self, email: str) -> bool:
-        at_location = email.find("@")
-        if at_location == -1:
+        _, separator, domain = email.rpartition("@")
+        if not separator:
             return False
-        return self.is_generic_domain(email[(at_location + 1) :])
+        return self.is_generic_domain(domain)
 
     def is_generic_domain(self, domain: str) -> bool:
         return self.emails.get(domain, False)
@@ -2348,19 +2362,24 @@ def cast_timestamp_or_now(timestamp: Optional[Union[datetime.datetime, str]]) ->
     return timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
+def parse_crontab(schedule: str) -> crontab:
+    """Parse a five-field cron string. Raises for a wrong field count or an invalid field."""
+    minute, hour, day_of_month, month_of_year, day_of_week = schedule.strip().split(" ")
+    return crontab(
+        minute=minute,
+        hour=hour,
+        day_of_month=day_of_month,
+        month_of_year=month_of_year,
+        day_of_week=day_of_week,
+    )
+
+
 def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
     if schedule is None or schedule == "":
         return None
 
     try:
-        minute, hour, day_of_month, month_of_year, day_of_week = schedule.strip().split(" ")
-        return crontab(
-            minute=minute,
-            hour=hour,
-            day_of_month=day_of_month,
-            month_of_year=month_of_year,
-            day_of_week=day_of_week,
-        )
+        return parse_crontab(schedule)
     except Exception as err:
         capture_exception(err)
         return None
