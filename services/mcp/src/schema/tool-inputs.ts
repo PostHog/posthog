@@ -642,50 +642,63 @@ const ExplainChartChapterSchema = z.object({
     evidence: z.array(ExplainChartEvidenceSchema).max(6).optional().describe('What you checked, at most 6 findings.'),
 })
 
+const explainChartFields = {
+    insightId: z
+        .union([z.string(), z.number()])
+        .optional()
+        .describe('The saved insight to explain: its numeric `id` or 8-character `short_id`.'),
+    query: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe('A TrendsQuery to explain when the chart is not a saved insight. Pass this or `insightId`.'),
+    series: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .default(0)
+        .describe("Index of the series in the chart's results that the story follows. Defaults to the first one."),
+    headline: z
+        .string()
+        .min(1)
+        .max(300)
+        .describe(
+            'One sentence a person could read in place of the whole story. Name what stands out, with no numbers, and wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in **double asterisks**.'
+        ),
+    chapters: z
+        .array(ExplainChartChapterSchema)
+        .min(1)
+        .max(8)
+        .describe('The moments that stand out, in the order to read them. At most 8.'),
+}
+
+const onlyOneChart = {
+    check: (params: { insightId?: unknown; query?: unknown }): boolean =>
+        (params.insightId === undefined) !== (params.query === undefined),
+    message: 'Pass exactly one of `insightId` or `query`.',
+}
+
+const explainChartAliases = normalizeParamAliases({ insightId: ['id', 'insight_id', 'short_id', 'shortId'] })
+
 export const ExplainChartInputSchema = z.preprocess(
-    normalizeParamAliases({ insightId: ['id', 'insight_id', 'short_id', 'shortId'] }),
+    explainChartAliases,
+    z.object(explainChartFields).refine(onlyOneChart.check, { message: onlyOneChart.message })
+)
+
+export const ExplainChartSaveInputSchema = z.preprocess(
+    explainChartAliases,
     z
         .object({
-            insightId: z
-                .union([z.string(), z.number()])
-                .optional()
-                .describe('The saved insight to explain: its numeric `id` or 8-character `short_id`.'),
-            query: z
-                .record(z.string(), z.unknown())
-                .optional()
-                .describe('A TrendsQuery to explain when the chart is not a saved insight. Pass this or `insightId`.'),
-            series: z
-                .number()
-                .int()
-                .min(0)
-                .optional()
-                .default(0)
-                .describe(
-                    "Index of the series in the chart's results that the story follows. Defaults to the first one."
-                ),
-            headline: z
-                .string()
-                .min(1)
-                .max(300)
-                .describe(
-                    'One sentence a person could read in place of the whole story. Name what stands out, with no numbers, and wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in **double asterisks**.'
-                ),
-            chapters: z
-                .array(ExplainChartChapterSchema)
-                .min(1)
-                .max(8)
-                .describe('The moments that stand out, in the order to read them. At most 8.'),
+            ...explainChartFields,
             explanationId: z
                 .string()
                 .uuid()
                 .optional()
                 .describe(
-                    'The id an earlier `explain-chart` call on this chart returned, when you are fixing that explanation. Its link then shows the fix. Omit it for a new explanation.'
+                    'The id an earlier `explain-chart-save` call on this chart returned, when you are fixing that explanation. Its link then shows the fix. Omit it for a new explanation.'
                 ),
         })
-        .refine((params) => (params.insightId === undefined) !== (params.query === undefined), {
-            message: 'Pass exactly one of `insightId` or `query`.',
-        })
+        .refine(onlyOneChart.check, { message: onlyOneChart.message })
 )
 
 export const AIObservabilityGetCostsSchema = z.object({

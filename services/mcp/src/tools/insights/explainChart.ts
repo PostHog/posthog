@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import { PostHogApiError, wrapError } from '@/lib/errors'
+import { wrapError } from '@/lib/errors'
 import { withUiApp } from '@/resources/ui-apps'
 import { ExplainChartInputSchema } from '@/schema/tool-inputs'
 import { GENERATED_TOOLS } from '@/tools/generated/query-wrappers'
@@ -17,14 +17,13 @@ import type {
 import { sqlEvidenceChart } from 'products/product_analytics/mcp/apps/explainChart/sqlEvidenceChart'
 import { insightPageShowsStory } from 'products/product_analytics/mcp/apps/explainChart/storyDisplays'
 import { storyEvidenceNode } from 'products/product_analytics/mcp/apps/explainChart/storyEvidenceNode'
-import { storySeriesLabel } from 'products/product_analytics/mcp/apps/explainChart/storySeries'
 
 import { analyzeQuery } from '../shared'
 import { findStoryRange, lastBucketInProgress } from './storyRanges'
 
 const schema = ExplainChartInputSchema
 
-type Params = z.infer<typeof schema>
+export type Params = z.infer<typeof schema>
 
 type Result = ExplainChartData & { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: string }
 
@@ -140,7 +139,7 @@ function sqlProblems(chapters: Params['chapters'], sqlEvidence: Map<string, SqlE
     )
 }
 
-interface StoryChart {
+export interface StoryChart {
     query: StoryTrendsQuery
     linkableInsightId: number | null
     insightName: string | null
@@ -196,81 +195,13 @@ function warningMessages(warnings: unknown[]): string[] {
     )
 }
 
-// The page builds PostHog links from the query or insight id, so only GitHub links are stored.
-function storedExplanation(data: ExplainChartData): ExplainChartData {
-    return {
-        ...data,
-        results: data.results.map((result, index) =>
-            index === data.seriesIndex
-                ? { ...result, label: storySeriesLabel(result.label) }
-                : { label: storySeriesLabel(result.label) }
-        ),
-        chapters: data.chapters.map((chapter) => ({
-            ...chapter,
-            evidence: chapter.evidence.map((item) =>
-                item.query || item.insightShortId ? { ...item, url: null } : item
-            ),
-        })),
-    }
-}
-
-function isNotFound(error: unknown): boolean {
-    return error instanceof PostHogApiError && error.status === 404
-}
-
-type SavedExplanation = { id: string; path: string } | { error: string } | null
-
-async function saveExplanation(
-    context: Context,
-    projectId: string,
-    chart: StoryChart,
-    data: ExplainChartData,
-    explanationId: string | undefined
-): Promise<SavedExplanation> {
-    if (chart.linkableInsightId === null) {
-        return null
-    }
-    const insightId = chart.linkableInsightId
-    const insights = context.api.insights({ projectId })
-    try {
-        const stored = storedExplanation(data)
-        const updated = explanationId
-            ? await insights.updateExplanation({ insightId, explanationId, data: stored })
-            : null
-        // An id from another chart or another person is not found, so that fix becomes a new explanation.
-        const saved =
-            updated && (updated.success || !isNotFound(updated.error))
-                ? updated
-                : await insights.saveExplanation({ insightId, data: stored })
-        return saved.success
-            ? { id: saved.data.id, path: `${chart.path}?explanation=${saved.data.id}` }
-            : { error: saved.error.message }
-    } catch (error) {
-        return { error: error instanceof Error ? error.message : String(error) }
-    }
-}
-
-function describeResult(
-    chart: StoryChart,
-    series: StorySeriesResult,
-    chapters: Params['chapters'],
-    missed: string[],
-    warnings: unknown[],
-    evidenceProblems: string[],
-    saved: SavedExplanation,
-    baseUrl: string
-): string {
+function describeResult(built: BuiltExplanation, chapterCount: number): string {
+    const { chart, series, missed, warnings, evidenceProblems } = built
     const name = chart.insightName ?? series.label ?? 'the chart'
-    const lines = [`The explanation of "${name}" has ${chapters.length} chapters.`]
-    if (saved && 'path' in saved) {
+    const lines = [`The explanation of "${name}" has ${chapterCount} chapters.`]
+    if (chart.linkableInsightId !== null) {
         lines.push(
-            `Where the person cannot see it rendered inline, give them this link, which opens it beside the chart in PostHog: ${baseUrl}${saved.path}`,
-            `To fix this explanation, call explain-chart again with explanationId "${saved.id}", so the link shows the fix.`
-        )
-    }
-    if (saved && 'error' in saved) {
-        lines.push(
-            `The explanation was not saved, so there is no link to it. Where the person cannot see it rendered inline, give the findings in text and tell them why: ${saved.error}`
+            'Where the person cannot see it rendered inline, call explain-chart-save with the same arguments for a link that opens it beside the chart in PostHog.'
         )
     }
     if (warnings.length) {
@@ -287,10 +218,18 @@ function describeResult(
     return lines.join(' ')
 }
 
-export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = async (
-    context: Context,
-    params: Params
-) => {
+export interface BuiltExplanation {
+    projectId: string
+    baseUrl: string
+    chart: StoryChart
+    series: StorySeriesResult
+    data: ExplainChartData
+    missed: string[]
+    warnings: unknown[]
+    evidenceProblems: string[]
+}
+
+export async function buildExplanation(context: Context, params: Params): Promise<BuiltExplanation> {
     const projectId = await context.stateManager.getProjectId()
     const chart = await loadChart(context, projectId, params)
 
@@ -352,22 +291,27 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
         headline: params.headline,
         chapters,
     }
-    const saved = await saveExplanation(context, projectId, chart, data, params.explanationId)
-    const explanationUrl = saved && 'path' in saved ? `${baseUrl}${saved.path}` : null
-
     return {
-        ...data,
-        _posthogUrl: explanationUrl ?? `${baseUrl}${chart.path}`,
-        [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: describeResult(
-            chart,
-            series,
-            params.chapters,
-            missed,
-            warnings ?? [],
-            sqlProblems(params.chapters, sqlEvidence),
-            saved,
-            baseUrl
-        ),
+        projectId,
+        baseUrl,
+        chart,
+        series,
+        data,
+        missed,
+        warnings: warnings ?? [],
+        evidenceProblems: sqlProblems(params.chapters, sqlEvidence),
+    }
+}
+
+export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = async (
+    context: Context,
+    params: Params
+) => {
+    const built = await buildExplanation(context, params)
+    return {
+        ...built.data,
+        _posthogUrl: `${built.baseUrl}${built.chart.path}`,
+        [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: describeResult(built, params.chapters.length),
     }
 }
 
