@@ -201,7 +201,7 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == 200
         content = response.content.decode()
-        assert "team actions moved to PostHog Admin" in content
+        assert "This is the Django admin" in content
         for panel_key in ("remote-config", "email-sending", "ai-gateway", "api-token"):
             assert f"/admin/console/teams/{self.team.pk}/#panel-{panel_key}" in content
 

@@ -41,6 +41,11 @@ the user's actual question.
 - You are about to investigate an error, bug, metric change, or support ticket in code — see
   _Workflow: check for existing work before you investigate_
 
+**"My inbox" means `view=for_you`.**
+Without a `view`, `inbox-reports-list` returns reports from the whole project, not only the user's.
+When the user says "my inbox", "my reports", or "what needs me", pass `view: "for_you"`.
+Use project scope only when the user asks for the whole project or the team's inbox.
+
 When the user wants a personal shortlist ("let's look at my inbox", "my top 10 inbox reports"), use the
 **`prioritizing-my-inbox`** skill. It ranks reports by the user's activity summary, the ranking model, and
 what waits on them.
@@ -646,6 +651,26 @@ inbox-reports-set-state
   processed independently, so the call returns `200` even on partial failure — an id whose
   transition isn't allowed comes back as `skipped` (the single-report `409`) while the rest go
   through. Inspect the per-id outcomes rather than assuming the whole batch succeeded.
+
+### Bulk changes need a count and a confirmation
+
+A bulk dismiss or resolve closes each report's open implementation PR, and every dismissal note steers later scout runs.
+Before you change more than one report:
+
+1. Find the scope. "My inbox" is `view: "for_you"`. Use the whole project only when the user asks for it.
+2. Narrow the list on the server. For "older than N days", pass `created_before` with the cutoff. Do not read every page and filter on your side.
+3. Count the matches. Call `inbox-reports-list` with the same filters and `count_only: true`.
+4. Tell the user the count, the scope, and the filters, and get their confirmation before the first `inbox-reports-bulk-set-state` call.
+5. Change only the reports that the user confirmed. If the count grows while you work, or you find reports outside the confirmed scope, stop and ask again.
+
+```json
+inbox-reports-list
+{
+  "view": "for_you",
+  "created_before": "<ISO 8601 cutoff>",
+  "count_only": true
+}
+```
 
 ## Workflow: filter by topic or source
 
