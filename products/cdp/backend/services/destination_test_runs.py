@@ -221,9 +221,20 @@ def _host_forms(secret: str) -> set[str]:
     try:
         # UTS 46 without transitional mapping, as the WHATWG URL parser in the worker applies it.
         forms.add(idna.encode(secret, uts46=True, transitional=False).decode("ascii"))
+        # The mapped Unicode form, to match inside a decoded punycode label.
+        forms.add(idna.uts46_remap(secret, std3_rules=False, transitional=False))
     except idna.IDNAError:
         pass
     return {form for form in forms if form}
+
+
+def _decoded_label(label: str) -> str:
+    if not label.startswith("xn--"):
+        return label
+    try:
+        return label[4:].encode("ascii").decode("punycode")
+    except UnicodeError:
+        return label
 
 
 def _redact_subdomain(origin: str, pattern: Optional[re.Pattern[str]], short_forms: set[str]) -> str:
@@ -243,6 +254,11 @@ def _redact_subdomain(origin: str, pattern: Optional[re.Pattern[str]], short_for
     if not subdomain:
         return origin
     if pattern is not None:
+        # Punycode encodes a whole label, so a secret inside a longer non-ASCII label shows only once decoded.
+        subdomain = ".".join(
+            _REDACTED if label != _decoded_label(label) and pattern.search(_decoded_label(label)) else label
+            for label in subdomain.split(".")
+        )
         subdomain = pattern.sub(_REDACTED, subdomain)
     subdomain = ".".join(_REDACTED if label in short_forms else label for label in subdomain.split("."))
     return f"{scheme}{subdomain}.{kept}{port or ''}"

@@ -37,6 +37,12 @@ class TestDestinationTestRunContext(SimpleTestCase):
                 "https://xn--bcher-geheimnis-zvb.example.com",
                 "https://***REDACTED***.example.com",
             ),
+            (
+                "non_ascii_secret_inside_a_longer_label",
+                "Bücher-Geheimnis",
+                "https://xn--xbcher-geheimnis-kzb.example.com",
+                "https://***REDACTED***.example.com",
+            ),
             ("short_secret_inside_a_longer_label", "eu", "https://europe.example.com", "https://europe.example.com"),
             (
                 "short_secret_that_fills_a_label",
