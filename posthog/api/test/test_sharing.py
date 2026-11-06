@@ -29,7 +29,7 @@ from posthog.api.sharing_publish_gate import dashboard_filter_leaves
 from posthog.auth import SharingPasswordProtectedAuthentication
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, decode_jwt
-from posthog.models import ActivityLog, OrganizationMembership, PropertyDefinition, Team
+from posthog.models import ActivityLog, OrganizationMembership, Team
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -46,6 +46,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.event_definitions.backend.models import PropertyDefinition
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight

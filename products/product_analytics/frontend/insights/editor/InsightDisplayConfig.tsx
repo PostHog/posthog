@@ -22,6 +22,7 @@ import { ChartDisplayType } from '~/types'
 import { InsightDateFilter } from 'products/product_analytics/frontend/insights/editor/filters/InsightDateFilter'
 import { FunnelBinsPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelBinsPicker'
 import { FunnelDisplayLayoutPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelDisplayLayoutPicker'
+import { QuillFunnelVizType } from 'products/product_analytics/frontend/insights/funnels/filters/QuillFunnelVizType'
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 import { PathStepPicker } from 'products/product_analytics/frontend/insights/paths/filters/PathStepPicker'
 import { RetentionBreakdownFilter } from 'products/product_analytics/frontend/insights/retention/filters/RetentionBreakdownFilter'
@@ -174,12 +175,17 @@ export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: 
                         <RetentionChartPicker />
                     </ConfigFilter>
                 )}
-                {!!isStepsFunnel && (
+                {todayRailNav && isFunnels && (
+                    <ConfigFilter>
+                        <QuillFunnelVizType insightProps={insightProps} disabledReason={editingDisabledReason} />
+                    </ConfigFilter>
+                )}
+                {!!isStepsFunnel && !todayRailNav && (
                     <ConfigFilter>
                         <FunnelDisplayLayoutPicker />
                     </ConfigFilter>
                 )}
-                {!!isTimeToConvertFunnel && (
+                {!!isTimeToConvertFunnel && !todayRailNav && (
                     <ConfigFilter>
                         <FunnelBinsPicker />
                     </ConfigFilter>

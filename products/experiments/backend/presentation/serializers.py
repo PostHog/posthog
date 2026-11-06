@@ -3426,7 +3426,9 @@ class ExperimentHealthInputsFlagHistorySerializer(serializers.Serializer):
             "'exposure_filters', 'exposure_action' or 'exposure_criteria'. Null when they were."
         ),
     )
-    launched_at = serializers.DateTimeField(help_text="When the experiment launched.")
+    start_date = serializers.DateTimeField(
+        help_text="The experiment's start date. The flag history counts changes from it, as the results count exposures from it."
+    )
     team_timezone = serializers.CharField(help_text="The project's time zone, which the findings use for times.")
     changes = ExperimentHealthInputsFlagChangeSerializer(
         many=True,

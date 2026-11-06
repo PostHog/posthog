@@ -233,14 +233,14 @@ class TestEvaluate(TestCase):
                 "flag_changes_are_not_checked_without_the_history",
                 {
                     "flag_history": flag_history(
-                        [], launched_at=LAUNCHED_AT, not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS
+                        [], start_date=LAUNCHED_AT, not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS
                     )
                 },
                 {Key.FLAG_HISTORY: Status.FINDING, **dict.fromkeys(FLAG_CHANGE_KEYS, Status.NOT_CHECKED)},
             ),
             (
                 "flag_changes_pass_with_a_history_without_changes",
-                {"flag_history": flag_history([], launched_at=LAUNCHED_AT)},
+                {"flag_history": flag_history([], start_date=LAUNCHED_AT)},
                 {Key.FLAG_HISTORY: Status.PASSED, **dict.fromkeys(FLAG_CHANGE_KEYS, Status.PASSED)},
             ),
             (
