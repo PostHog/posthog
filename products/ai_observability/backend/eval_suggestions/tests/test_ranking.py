@@ -6,7 +6,7 @@ from posthog.schema import LLMTrace
 
 from products.ai_observability.backend.eval_suggestions import adapters, ranking
 from products.ai_observability.backend.eval_suggestions.measure import Measurement, Outcome, SampledTrace, TraceSample
-from products.ai_observability.backend.eval_suggestions.profile import StructuredGap, TeamProfile
+from products.ai_observability.backend.eval_suggestions.profile import FieldMeaning, StructuredGap, TeamProfile
 
 
 def _sampled(trace_id: str, product: str, held_out: bool = False, earlier: tuple[str, ...] = ()) -> SampledTrace:
@@ -248,7 +248,7 @@ def test_a_long_dedupe_key_is_bounded_and_stable() -> None:
 
 
 @parameterized.expand([("urgency", "deserves that level"), ("status", "in that state"), ("label", "fits that label")])
-def test_a_gap_judge_checks_what_the_field_means(meaning: str, phrase: str) -> None:
+def test_a_gap_judge_checks_what_the_field_means(meaning: FieldMeaning, phrase: str) -> None:
     gap = StructuredGap(
         field="findings[].priority",
         meaning=meaning,
