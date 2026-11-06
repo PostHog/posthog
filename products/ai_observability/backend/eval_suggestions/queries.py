@@ -17,7 +17,8 @@ MAX_EXECUTION_TIME_SECONDS = 60
 
 
 def _settings() -> HogQLGlobalSettings:
-    return HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME_SECONDS)
+    # A timeout fails the query. A profile set to break would hand back partial aggregates as if complete.
+    return HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME_SECONDS, timeout_overflow_mode="throw")
 
 
 def run_query(team: Team, sql: str, placeholders: dict[str, ast.Expr], query_type: str) -> list[tuple[Any, ...]]:

@@ -4,6 +4,7 @@ The sample is spread over the window by trace id hash rather than taken from the
 most recent day with traffic is held out so stage 6 can re-test each check on traces it was not picked on.
 """
 
+import re
 import json
 import math
 from collections import defaultdict
@@ -41,6 +42,10 @@ DISCOVERY_OVERSAMPLE = 20
 EVENTS_PER_TRACE = 40
 MAX_OUTPUT_BYTES = 16384
 MAX_INPUT_MESSAGE_BYTES = 8192
+# Custom metadata past this size marks the event unreadable, which keeps the sample's memory bounded.
+MAX_PROPERTIES_BYTES = 65536
+ROLE_LABEL = re.compile(r"^(assistant|ai|model):\s*", re.IGNORECASE)
+TOOL_CALL_MARKERS = ('"tool_calls"', '"tool_use"', '"function_call"', '"tool_call"', '"tool-call"')
 # Screening reads at most 3000 characters, so each part of a turn gets a third.
 TURN_TEXT_CHARS = 1000
 
@@ -50,13 +55,14 @@ SELECT
     uniq(toDate(timestamp)) AS days
 FROM events
 WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding')
-  AND timestamp >= {start}
-  AND timestamp < {end}
+  AND timestamp >= {read_start}
+  AND timestamp < {read_end}
   AND notEmpty(toString(properties.$ai_trace_id))
   AND length(toString(properties.$ai_trace_id)) <= 256
   AND cityHash64(toString(properties.$ai_trace_id)) % 1000 < {per_mille}
 GROUP BY trace_id
-HAVING countIf(event = '$ai_generation') > 0 AND count() <= {max_events}
+HAVING countIf(event = '$ai_generation' AND timestamp >= {start} AND timestamp < {end}) > 0
+   AND count() <= {max_events}
 ORDER BY cityHash64(trace_id)
 LIMIT {limit}
 """
@@ -78,8 +84,10 @@ SELECT
     has_tool_results,
     output_choices,
     output,
-    output_too_long,
-    previous_message
+    unreadable,
+    previous_message,
+    input_state,
+    output_state
 FROM (
     SELECT
         trace_id,
@@ -94,7 +102,13 @@ FROM (
         match(input, '"role":[[:space:]]*"tool"|"type":[[:space:]]*"(tool_result|function_call_output)"') AS has_tool_results,
         if(length(output_choices) <= {max_output}, output_choices, '') AS output_choices,
         if(length(output) <= {max_output}, output, '') AS output,
-        length(ai_events.output_choices) > {max_output} OR length(ai_events.output) > {max_output} AS output_too_long
+        if(length(input_state) <= {max_input}, input_state, '') AS input_state,
+        if(length(output_state) <= {max_output}, output_state, '') AS output_state,
+        length(ai_events.output_choices) > {max_output}
+            OR length(ai_events.output) > {max_output}
+            OR length(ai_events.output_state) > {max_output}
+            OR length(ai_events.input_state) > {max_input}
+            OR length(ai_events.properties) > {max_properties} AS unreadable
     FROM posthog.ai_events AS ai_events
     WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding')
       AND trace_id IN {trace_ids}
@@ -151,7 +165,10 @@ class DiscoveredTrace:
     days: int
 
 
-def _discover(team: Team, start: datetime, end: datetime, expected_traces: int, limit: int) -> list[DiscoveredTrace]:
+def _discover(
+    team: Team, start: datetime, end: datetime, expected_traces: int, limit: int, read: tuple[datetime, datetime]
+) -> list[DiscoveredTrace]:
+    """Traces with a generation between `start` and `end`, counting their events over the whole span hydration reads."""
     per_mille = (
         1000
         if expected_traces <= limit * DISCOVERY_OVERSAMPLE
@@ -163,6 +180,8 @@ def _discover(team: Team, start: datetime, end: datetime, expected_traces: int, 
         {
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
+            "read_start": ast.Constant(value=read[0]),
+            "read_end": ast.Constant(value=read[1]),
             "per_mille": ast.Constant(value=per_mille),
             "max_events": ast.Constant(value=EVENTS_PER_TRACE),
             "limit": ast.Constant(value=limit),
@@ -182,6 +201,7 @@ def _hydrate(team: Team, trace_ids: Sequence[str], start: datetime, end: datetim
             "end": ast.Constant(value=end),
             "max_input": ast.Constant(value=MAX_INPUT_MESSAGE_BYTES),
             "max_output": ast.Constant(value=MAX_OUTPUT_BYTES),
+            "max_properties": ast.Constant(value=MAX_PROPERTIES_BYTES),
             "rows_per_trace": ast.Constant(value=EVENTS_PER_TRACE + 1),
             "max_rows": ast.Constant(value=len(trace_ids) * (EVENTS_PER_TRACE + 1)),
         },
@@ -191,6 +211,22 @@ def _hydrate(team: Team, trace_ids: Sequence[str], start: datetime, end: datetim
     for row in rows:
         by_trace[str(row[0])].append(row)
     return by_trace
+
+
+def _calls_tools(generation: LLMTraceEvent) -> bool:
+    """Whether a generation's output asks for tools, which makes it a step of the turn and not its answer."""
+    output = json.dumps(
+        generation.properties.get("$ai_output_choices") or generation.properties.get("$ai_output") or ""
+    )
+    return any(marker in output for marker in TOOL_CALL_MARKERS)
+
+
+def _tokens(value: Any) -> float:
+    """Token counts as sent, where a malformed value counts as none rather than failing the sample."""
+    try:
+        return max(float(value or 0), 0.0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _assistant_text(raw: str) -> str:
@@ -217,7 +253,6 @@ def _sampled_trace(
     events: list[LLMTraceEvent] = []
     previous_replies: list[str] = []
     generations: list[tuple[LLMTraceEvent, int, bool]] = []
-    final_output_too_long = False
     for (
         _,
         event_uuid,
@@ -230,11 +265,23 @@ def _sampled_trace(
         has_tool_results,
         output_choices,
         output,
-        output_too_long,
+        unreadable,
         previous_message,
+        input_state,
+        output_state,
     ) in rows:
+        # Any event cut to fit (a long output, state or metadata) would grade the trace on part of its history.
+        if unreadable:
+            return None
         merged = merge_heavy_properties(
-            properties, {"input": last_input, "output_choices": output_choices, "output": output}
+            properties,
+            {
+                "input": last_input,
+                "output_choices": output_choices,
+                "output": output,
+                "input_state": input_state,
+                "output_state": output_state,
+            },
         )
         trace_event = LLMTraceEvent(
             id=str(event_uuid), event=str(event), createdAt=timestamp.isoformat(), properties=merged
@@ -242,17 +289,23 @@ def _sampled_trace(
         events.append(trace_event)
         if event == "$ai_generation":
             generations.append((trace_event, int(user_messages or 0), bool(has_tool_results)))
-            final_output_too_long = bool(output_too_long)
             previous_replies.append(_assistant_text(previous_message))
-    # A final answer too long to read would leave the checks grading an earlier step as the answer.
-    if not generations or final_output_too_long:
+    if not generations:
         return None
 
     def text(event: LLMTraceEvent, side: str) -> str:
         built = build_hog_event_global(event.event, event.properties, event_uuid=event.id, timestamp=event.createdAt)
         return str(built[f"{side}_text"])
 
-    final_text = next((t for t in (text(g, "output") for g, _, _ in reversed(generations)) if t.strip()), "")
+    # The answer is the last generation with text that is not a tool call, without the role label the renderer adds.
+    final_text = next(
+        (
+            ROLE_LABEL.sub("", t)
+            for t in (text(g, "output") for g, _, _ in reversed(generations) if not _calls_tools(g))
+            if t.strip()
+        ),
+        "",
+    )
     last_generation = generations[-1][0]
     raw_segments = {
         key: str(last_generation.properties[key])
@@ -296,34 +349,32 @@ def _sampled_trace(
         + f"User: {text(first, 'input')[-TURN_TEXT_CHARS:]}\n\nAssistant: {final_text[:TURN_TEXT_CHARS]}",
         user_messages=max(user_messages for _, user_messages, _ in generations),
         has_tool_results=any(tool_results for _, _, tool_results in generations),
-        input_tokens=sum(float(g.properties.get("$ai_input_tokens") or 0) for g, _, _ in generations),
+        input_tokens=sum(_tokens(g.properties.get("$ai_input_tokens")) for g, _, _ in generations),
     )
 
 
 def fetch_sample(team: Team, window: ProfileWindow, profile: TeamProfile) -> TraceSample:
+    # Hydration reads a day before the window too, for traces that started before it.
+    read = (window.start - timedelta(days=1), window.end)
     bucket = held_out_bucket(profile)
     if bucket is None:
-        main = _discover(team, window.start, window.end, profile.traces, MAIN_SAMPLE_TRACES)
+        main = _discover(team, window.start, window.end, profile.traces, MAIN_SAMPLE_TRACES, read)
         held: list[DiscoveredTrace] = []
     else:
         held_start, held_end = window.end - timedelta(days=bucket + 1), window.end - timedelta(days=bucket)
         held_traces = profile.traces_by_days_ago.get(bucket, 0)
-        main = _discover(team, window.start, held_start, profile.traces - held_traces, MAIN_SAMPLE_TRACES)
+        main = _discover(team, window.start, held_start, profile.traces - held_traces, MAIN_SAMPLE_TRACES, read)
         main_ids = {trace.trace_id for trace in main}
         # A trace that runs across the boundary is discovered on both sides, and hydration reads all of it
         # for each, so keeping it in both would re-test a check on a trace it was measured on.
         held = [
             trace
-            for trace in _discover(team, held_start, held_end, held_traces, HELD_OUT_SAMPLE_TRACES)
+            for trace in _discover(team, held_start, held_end, held_traces, HELD_OUT_SAMPLE_TRACES, read)
             if trace.trace_id not in main_ids
         ]
 
     discovered = [(trace, False) for trace in main] + [(trace, True) for trace in held]
-    rows = (
-        _hydrate(team, [trace.trace_id for trace, _ in discovered], window.start - timedelta(days=1), window.end)
-        if discovered
-        else {}
-    )
+    rows = _hydrate(team, [trace.trace_id for trace, _ in discovered], *read) if discovered else {}
     segment_keys = sorted(profile.segments)
     sample: dict[bool, list[SampledTrace]] = {False: [], True: []}
     for trace, is_held_out in discovered:

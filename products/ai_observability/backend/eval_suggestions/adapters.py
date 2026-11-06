@@ -67,10 +67,21 @@ def hog_list(values: Iterable[str]) -> str:
     return "[" + ", ".join(hog_string(value) for value in values) + "]"
 
 
-_FINAL_TEXT = """let final_text := ''
+# A generation that asks for tools is a step of the turn, so its rendered tool calls are not the answer.
+_FINAL_TEXT = """let tool_markers := ['"tool_calls"', '"tool_use"', '"function_call"', '"tool_call"', '"tool-call"']
+let final_text := ''
 for (let i, item in evaluation_events) {
     if (item.event == '$ai_generation' and length(trim(item.output_text)) > 0) {
-        final_text := item.output_text
+        let raw := toString(ifNull(item.output, ''))
+        let calls_tools := false
+        for (let m, marker in tool_markers) {
+            if (position(raw, marker) > 0) {
+                calls_tools := true
+            }
+        }
+        if (not calls_tools) {
+            final_text := item.output_text
+        }
     }
 }
 if (length(final_text) == 0) {
@@ -154,7 +165,7 @@ fun collect_calls(value, calls) {{
             return arrayPushBack(calls, [toString(value.function.name), jsonStringify(value.function.arguments), id])
         }}
     }}
-    if (has(['tool_use', 'function_call', 'tool-call'], toString(value.type))) {{
+    if (has(['tool_use', 'function_call', 'tool-call', 'tool_call'], toString(value.type))) {{
         let tool := ifNull(value.toolName, value.name)
         if (tool != null) {{
             let id := toString(ifNull(value.id, ifNull(value.call_id, ifNull(value.toolCallId, ''))))
