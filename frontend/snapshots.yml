@@ -215,7 +215,7 @@ snapshots:
     charts-flamegraph--compare-to-baseline--dark:
         hash: v1.k794b7964.b7842de83fbf16ace0542468002572671342673c5c3cfa9ada8ace5e753abe2b.p5kPtogHK5TEY2KkIcblwfDYmPoLmxKPD6SpfzpYH-A
     charts-flamegraph--compare-to-baseline--light:
-        hash: v1.k794b7964.4ad08b535e7863c0840b2ba579e7bae7b0a06a1271da91a657e37c57c7677111.Ib5KOoFtjUXN8xZx0LEgKwEhnB0OeWlAKb2TTilDTR8
+        hash: v1.k794b7964.c58ab8c2c8f80d1932ff710b23c05d07bb7b5625574a156d5a7b57c83386483d.08vsD8xgRvYnVB3y8Xr2lzjbhsPw05Ms3IkLC4itl4U
     charts-flamegraph--cpu-profile--dark:
         hash: v1.k794b7964.04d2ff46eedb4abbbf53e6ff3d57d3c988dd28cdd586ddd668e35e44a0721f7d.8RuH8reglzDiytwl80lQfmBTttaH_PLi-W-6qHpm9bQ
     charts-flamegraph--cpu-profile--light:
