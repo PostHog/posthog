@@ -94,11 +94,9 @@ import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
 import {
     convertToHogFunctionInvocationGlobals,
-    getConfiguredSensitiveValues,
     isConvertibleClickHouseEvent,
     isNativeHogFunction,
     isSegmentPluginHogFunction,
-    redactSensitiveValues,
     sanitizeLogMessage,
 } from './utils'
 import { recordRequestOrigins } from './utils/cdp-fetch'
@@ -210,10 +208,6 @@ const senderTheCallerChose = (from: AcceptedSend['from']): CallerChosenSender | 
     }
     return from.email ? { email: from.email, name: from.name } : { integrationId: from.integrationId, name: from.name }
 }
-
-// A template can build a hostname from a secret input, so the origins pass the same redaction as logs.
-const reportedOrigins = (origins: Set<string>, sensitiveValues: string[]): string[] =>
-    [...new Set([...origins].map((origin) => redactSensitiveValues(origin, sensitiveValues)))].sort()
 
 export class CdpApi {
     private hogExecutorAsync: HogExecutorAsyncService
@@ -586,7 +580,6 @@ export class CdpApi {
 
     private postFunctionInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         const requestOrigins = new Set<string>()
-        const originSecrets: string[] = []
         try {
             const { id, team_id } = req.params
             const { clickhouse_event, mock_async_functions, configuration, invocation_id } = req.body
@@ -647,7 +640,6 @@ export class CdpApi {
                 ...configuration,
                 team_id: team.id,
             }
-            originSecrets.push(...getConfiguredSensitiveValues(compoundConfiguration))
 
             let logs: MinimalLogEntry[] = []
             let result: any = null
@@ -694,7 +686,6 @@ export class CdpApi {
                         invocation.hogFunction,
                         invocation.state.globals.inputs ?? {}
                     )
-                    originSecrets.push(...sensitiveValues)
                     const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(
                         mock_async_functions,
                         logs,
@@ -724,7 +715,7 @@ export class CdpApi {
                     status: errors.length > 0 ? 'error' : wasSkipped ? 'skipped' : 'success',
                     errors: errors.map((e) => String(e)),
                     logs: logs,
-                    request_origins: reportedOrigins(requestOrigins, originSecrets),
+                    request_origins: [...requestOrigins].sort(),
                 })
             } else if (compoundConfiguration.type === 'transformation') {
                 // NOTE: We override the ID so that the transformer doesn't cache the result
@@ -762,7 +753,7 @@ export class CdpApi {
                     status: errors.length > 0 ? 'error' : wasSkipped ? 'skipped' : 'success',
                     errors: errors.map((e) => String(e)),
                     logs: logs,
-                    request_origins: reportedOrigins(requestOrigins, originSecrets),
+                    request_origins: [...requestOrigins].sort(),
                 })
             } else if (compoundConfiguration.type === 'transformation_log') {
                 const mock = globals.record as Record<string, unknown>
@@ -814,7 +805,7 @@ export class CdpApi {
                         status: 'error',
                         errors: [String(e)],
                         logs,
-                        request_origins: reportedOrigins(requestOrigins, originSecrets),
+                        request_origins: [...requestOrigins].sort(),
                     })
                 }
 
@@ -859,17 +850,14 @@ export class CdpApi {
                     status: errors.length > 0 ? 'error' : 'success',
                     errors: errors.map((e) => String(e)),
                     logs: logs,
-                    request_origins: reportedOrigins(requestOrigins, originSecrets),
+                    request_origins: [...requestOrigins].sort(),
                 })
             } else {
                 return res.status(400).json({ error: 'Invalid function type' })
             }
         } catch (e) {
             console.error(e)
-            res.status(500).json({
-                errors: [e.message],
-                request_origins: reportedOrigins(requestOrigins, originSecrets),
-            })
+            res.status(500).json({ errors: [e.message], request_origins: [...requestOrigins].sort() })
         } finally {
             await this.invocationResultsService.flush()
         }
@@ -877,7 +865,6 @@ export class CdpApi {
 
     private postHogflowInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         const requestOrigins = new Set<string>()
-        let originSecrets: string[] = []
         try {
             const { id, team_id } = req.params
             const { clickhouse_event, configuration, invocation_id, current_action_id, mock_async_functions } = req.body
@@ -1006,7 +993,6 @@ export class CdpApi {
             // Redact the flow's decrypted secret inputs from the mocked async-function logs, so a test
             // run can't echo a stored credential (e.g. an Authorization header) back to the caller.
             const sensitiveValues = await this.hogFlowExecutor.getSensitiveValues(compoundConfiguration)
-            originSecrets = sensitiveValues
             const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(
                 mock_async_functions,
                 logs,
@@ -1025,14 +1011,11 @@ export class CdpApi {
                 variables: result.invocation.state.variables ?? {},
                 execResult: result.execResult ?? null,
                 ...(result.emailSendResult ? { emailSendResult: result.emailSendResult } : {}),
-                request_origins: reportedOrigins(requestOrigins, originSecrets),
+                request_origins: [...requestOrigins].sort(),
             })
         } catch (e) {
             console.error(e)
-            res.status(500).json({
-                error: [e.message],
-                request_origins: reportedOrigins(requestOrigins, originSecrets),
-            })
+            res.status(500).json({ error: [e.message], request_origins: [...requestOrigins].sort() })
         }
     }
 
