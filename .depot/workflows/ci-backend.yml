@@ -722,6 +722,7 @@ jobs:
               if: github.event_name == 'pull_request'
               env:
                   PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
                   # The event base is the exact master revision in the synthetic merge checkout.
                   # Use it directly so cache compatibility does not depend on parent ordering.
@@ -755,9 +756,11 @@ jobs:
                   # checkout age (a day) because a re-run of an old run keeps its original
                   # commit: a stale checkout can lack migrations the newest dump records,
                   # and the migrate top-ups only apply forward, so they cannot repair a
-                  # dump that is newer than the code.
+                  # dump that is newer than the code. Master bases only: a stacked PR's base
+                  # branch can trail master by days, so the newest dump can record migrations
+                  # and swapped-model tables that the base never had.
                   HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
-                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                  if [ "$PR_BASE_REF" = "master" ] && [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
                       echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
                   fi
                   # Shared key: hash base schema inputs, not PR head, so PR migrations still
@@ -1194,8 +1197,8 @@ jobs:
               with:
                   path: schema.sql.gz
                   # Prefer the shared content key; fall back to the exact PR-base SHA key,
-                  # then to the newest dump of any migration set. Right after a migration
-                  # lands on master both exact keys miss until ci-backend re-dumps, and a
+                  # then, for master-based PRs, to the newest dump of any migration set. Right
+                  # after a migration lands on master both exact keys miss until ci-backend re-dumps, and a
                   # from-scratch migrate costs ~17 minutes per shard; pytest's keepdb
                   # migrate tops a slightly stale dump up in seconds instead.
                   key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key || format('posthog-schema-run-{0}', github.run_id) }}
@@ -3342,8 +3345,8 @@ jobs:
               with:
                   path: schema.sql.gz
                   # Prefer the shared content key; fall back to the exact PR-base SHA key,
-                  # then to the newest dump of any migration set. Right after a migration
-                  # lands on master both exact keys miss until ci-backend re-dumps, and a
+                  # then, for master-based PRs, to the newest dump of any migration set. Right
+                  # after a migration lands on master both exact keys miss until ci-backend re-dumps, and a
                   # from-scratch migrate costs ~17 minutes per shard; pytest's keepdb
                   # migrate tops a slightly stale dump up in seconds instead.
                   key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key || format('posthog-schema-run-{0}', github.run_id) }}
