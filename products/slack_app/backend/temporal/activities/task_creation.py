@@ -1114,6 +1114,13 @@ def forward_posthog_code_followup_activity(
     ):
         return True
 
+    try:
+        tasks_facade.check_wake_by_task_id(mapping.task_id, source="slack_follow_up")
+    except tasks_facade.TaskDoneError as error:
+        _clear_processing_reaction(slack, channel, user_message_ts)
+        post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=str(error))
+        return True
+
     # Reply-tag fallback for turns with no per-turn actor (boot prompt,
     # pre-rollout runs); the actor stamped at delivery normally wins.
     if slack_user_id != mapping.latest_actor_slack_user_id:
