@@ -361,6 +361,7 @@ Pass dates are dates in that local time zone, so the date shown in settings is t
 A billing sync that shortens the plan period writes the organization's rows straight away, the same way a settings save does.
 Each row whose period got shorter keeps the plan period from before in `downgraded_from_months`.
 The sync then sends an `events retention period shortened` event to each organization admin, with the previous and new plan periods and the first pass past the shorter period.
+It sends nothing when no team gets that pass, for example while the deletion flag covers none of the organization's teams, because the email needs the date.
 The first billing sync of a new organization sends nothing, because the organization has no previous plan period.
 `events_deletion_notice_schedule` runs daily at 10:00 local time and is stopped by default.
 Once the next cleanup is 14 days away or less, it sends an `events retention deletion upcoming` event to the admins of each organization with a downgraded row due at that cleanup, then clears the rows' `downgraded_from_months`.
