@@ -11126,17 +11126,19 @@ Diffed against: <https://docs.sim.ai/openapi.json>
 
 Note: Parsed every GET operation in the official OpenAPI specification and compared paths with the two static tables. Workflow versions resolve deployment identifiers already present in logs; rows and memberships require requests for each parent. Organization usage requires administrator access and Usage Monitoring; audit logs require Enterprise access. Excluded secrets, credentials, upload operations, and overlapping run lists.
 
-## SimFin — gaps
+## SimFin — covered
 
-Today (9): `balance_sheets`, `cash_flow_statements`, `common_shares_outstanding`, `companies`, `company_details`, `derived_ratios`, `income_statements`, `share_prices`, `weighted_shares_outstanding`
+Today (12): `balance_sheets`, `cash_flow_statements`, `common_shares_outstanding`, `companies`, `company_details`, `derived_ratios`, `income_statements`, `share_prices`, `weighted_shares_outstanding`, `filings`, `data_change_log`, `changed_companies`
 
 Diffed against: <https://simfin.readme.io/reference/1-1>
 
-- [ ] `filings/list (GET /api/v3/filings/list) and filings/by-company (GET /api/v3/filings/by-company)` — the SEC filing index — filing dates and types are what make a statement period's data auditable and tell you when a figure became public (high)
-- [ ] `companies/data-change-log (GET /api/v3/companies/data-change-log)` — restatement and revision history for figures already synced; also the natural driver for incremental refresh (medium)
-- [ ] `companies/changed-companies (GET /api/v3/companies/changed-companies)` — list of companies whose data moved in a window, useful as a change-detection lookup (low)
+- [x] `filings/by-company (GET /api/v3/filings/by-company)` - `filings` reads filing metadata for each configured ticker. The global `filings/list` overlaps this data and is omitted.
+- [x] `companies/data-change-log (GET /api/v3/companies/data-change-log)` - `data_change_log` reads database changes across all companies, with pagination.
+- [x] `companies/changed-companies (GET /api/v3/companies/changed-companies)` - `changed_companies` reads companies with modified data across SimFin.
 
-Note: The v3 API is small (14 paths total) and PostHog covers the whole fundamentals surface: companies/list, general/compact, statements/compact (income, balance, cash flow, derived ratios), prices/compact, and both shares-outstanding endpoints. Only the filings resource and the two change-tracking endpoints are unsynced. The /verbose variants of general, prices, and statements return the same data with richer metadata, so they are not separate tables.
+Verified against the official [filing reference](https://simfin.readme.io/reference/2-1), [change log reference](https://simfin.readme.io/reference/11-1), and [changed companies reference](https://simfin.readme.io/reference/12). All three tables use full refresh and are disabled by default. The change log has no date filter. Changed companies accepts `start`, but the reference specifies no response field for an incremental cursor. The utility tables ignore the configured tickers.
+
+Note: Filing document downloads return HTML or PDF, so they are excluded. The verbose variants of general, prices, and statements overlap the compact datasets and are not separate tables.
 
 ## Similarweb — **thin**
 
