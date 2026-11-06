@@ -69057,15 +69057,20 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
+      /** URL of the preview image. For an exported asset this is a signed link that works without a session. */
       readonly media_url: string;
-      /** Return 'uploaded' or 'exported' based on which media is set */
+      /** Where the image comes from: 'uploaded' for user-uploaded media, 'exported' for an exported asset. */
       readonly media_type: string;
       metadata?: unknown;
-      /** @nullable */
+      /**
+         * ID of uploaded media in this project to use as the preview. Required when creating a preview.
+         * @nullable
+         */
       uploaded_media_id?: string | null;
-      /** @nullable */
-      exported_asset_id?: string | null;
-      /** @nullable */
+      /**
+         * ID of the event definition the preview belongs to. Required when creating a preview.
+         * @nullable
+         */
       event_definition_id?: string | null;
     }
 
@@ -85347,15 +85352,20 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
+      /** URL of the preview image. For an exported asset this is a signed link that works without a session. */
       readonly media_url?: string;
-      /** Return 'uploaded' or 'exported' based on which media is set */
+      /** Where the image comes from: 'uploaded' for user-uploaded media, 'exported' for an exported asset. */
       readonly media_type?: string;
       metadata?: unknown;
-      /** @nullable */
+      /**
+         * ID of uploaded media in this project to use as the preview. Required when creating a preview.
+         * @nullable
+         */
       uploaded_media_id?: string | null;
-      /** @nullable */
-      exported_asset_id?: string | null;
-      /** @nullable */
+      /**
+         * ID of the event definition the preview belongs to. Required when creating a preview.
+         * @nullable
+         */
       event_definition_id?: string | null;
     }
 
@@ -132972,6 +132982,10 @@ export namespace Schemas {
     };
 
     export type ObjectMediaPreviewsListParams = {
+    /**
+     * ID of the event definition whose previews to list.
+     */
+    event_definition: string;
     /**
      * Number of results to return per page.
      */
