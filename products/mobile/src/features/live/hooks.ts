@@ -1,0 +1,307 @@
+import { useIsFocused } from 'expo-router'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+import {
+    fetchLiveProject,
+    fetchLiveQuery,
+    fetchLiveStats,
+    type LiveProjectApi,
+    type LiveQueryKey,
+    liveStatsHost,
+} from '@/api/live'
+import type { ProjectScope } from '@/api/reports'
+import { addSessionEndTask } from '@/auth/authStore'
+import { useProjectScope } from '@/auth/useProjectScope'
+import { type DataMode, useDataMode } from '@/demo/demoMode'
+import { LIVE_DEMO_READ_MS, liveDemo } from '@/demo/live'
+import { useAppActive } from '@/features/handoff/useTaskRun'
+import { reportScopeError } from '@/features/views/useViewsAccess'
+import { sleep } from '@/lib/sleep'
+import { liveUsersOnlineFromStats } from '@/model/adapters/live'
+import { EMPTY_LIVE_SNAPSHOT, type LiveSnapshot } from '@/model/live'
+
+import {
+    type LiveErrorKind,
+    trackLiveErrorShown,
+    trackLivePaused,
+    trackLiveRefreshed,
+    trackLiveResumed,
+} from './analytics'
+import {
+    LiveController,
+    type LiveControllerEvent,
+    type LiveControllerState,
+    type LiveReadResult,
+    type LiveStatus,
+    liveStatus,
+} from './liveController'
+import { readLiveSnapshot } from './liveRead'
+
+/** The web's HogQL reload interval. */
+const READ_INTERVAL_MS = 30_000
+const STATS_INTERVAL_MS = 10_000
+const BACKGROUND_GRACE_MS = 2000
+const MAX_BACKOFF_MS = 5 * 60_000
+/** After this many failed stats reads in a row, users online comes from the HogQL count instead. */
+const STATS_FAILURES_BEFORE_FALLBACK = 2
+
+interface LiveProjectInfo {
+    token: string | null
+    pathCleaning: boolean
+}
+
+interface LiveSource {
+    run: (key: LiveQueryKey, query: Record<string, unknown>, signal: AbortSignal) => Promise<unknown>
+    project: () => Promise<LiveProjectInfo | null>
+    /** The live events service for users online, or null when the HogQL count stands in for it. */
+    statsHost: string | null
+}
+
+// The token lives for the session: the server mints it for a week, and a new sign-in clears this.
+const projects = new Map<string, Promise<LiveProjectInfo | null>>()
+addSessionEndTask(() => projects.clear())
+
+function projectInfo(scope: ProjectScope): Promise<LiveProjectInfo | null> {
+    const key = `${scope.host}|${scope.projectId}`
+    let pending = projects.get(key)
+    if (!pending) {
+        pending = fetchLiveProject().then(
+            (project: LiveProjectApi) => ({
+                token: project.live_events_token || null,
+                pathCleaning: Array.isArray(project.path_cleaning_filters) && project.path_cleaning_filters.length > 0,
+            }),
+            () => {
+                // A failed read is not kept, so the next visit asks again.
+                projects.delete(key)
+                return null
+            }
+        )
+        projects.set(key, pending)
+    }
+    return pending
+}
+
+function sourceFor(mode: DataMode, scope: ProjectScope | null): LiveSource | null {
+    if (mode === 'demo') {
+        return {
+            run: async (key, _query, signal) => {
+                await sleep(LIVE_DEMO_READ_MS, signal)
+                return liveDemo().respond(key, Date.now())
+            },
+            project: () => Promise.resolve(null),
+            statsHost: null,
+        }
+    }
+    if (mode !== 'live' || !scope) {
+        return null
+    }
+    return {
+        run: async (_key, query, signal) => {
+            try {
+                return await fetchLiveQuery(query, signal)
+            } catch (error) {
+                reportScopeError(error, 'views')
+                throw error
+            }
+        },
+        project: () => projectInfo(scope),
+        statsHost: liveStatsHost(scope.host),
+    }
+}
+
+const INITIAL_STATE: LiveControllerState<never> = {
+    data: null,
+    updatedAt: null,
+    paused: false,
+    reading: false,
+    failures: 0,
+}
+
+interface PollerOptions<T> {
+    enabled: boolean
+    read: (signal: AbortSignal, previous: T | null) => Promise<LiveReadResult<T>>
+    intervalMs: number
+    onEvent?: (event: LiveControllerEvent) => void
+}
+
+function usePoller<T>({ enabled, read, intervalMs, onEvent }: PollerOptions<T>): {
+    state: LiveControllerState<T>
+    controller: LiveController<T> | null
+} {
+    const focused = useIsFocused()
+    const active = useAppActive()
+    const readRef = useRef(read)
+    readRef.current = read
+    const onEventRef = useRef(onEvent)
+    onEventRef.current = onEvent
+    const [controller, setController] = useState<LiveController<T> | null>(null)
+    const [state, setState] = useState<LiveControllerState<T>>(INITIAL_STATE)
+    useEffect(() => {
+        if (!enabled) {
+            return undefined
+        }
+        const next = new LiveController<T>({
+            read: (signal, previous) => readRef.current(signal, previous),
+            intervalMs,
+            graceMs: BACKGROUND_GRACE_MS,
+            maxBackoffMs: MAX_BACKOFF_MS,
+            onChange: setState,
+            onEvent: (event) => onEventRef.current?.(event),
+        })
+        setController(next)
+        return () => {
+            next.dispose()
+            setController(null)
+            setState(INITIAL_STATE)
+        }
+    }, [enabled, intervalMs])
+    // The app state goes first, so a controller made in the background never reads before it knows.
+    useEffect(() => controller?.setForeground(active), [controller, active])
+    useEffect(() => controller?.setVisible(focused), [controller, focused])
+    return { state, controller }
+}
+
+export interface LiveFeed {
+    snapshot: LiveSnapshot
+    status: LiveStatus
+    updatedAt: number | null
+    usersOnline: number | null
+    paused: boolean
+    reading: boolean
+    loadFailed: boolean
+    pulling: boolean
+    pull: () => void
+    pause: () => void
+    resume: () => void
+    retry: () => void
+}
+
+/**
+ * Polls the live queries while the screen is focused and the app is in the foreground. Mount it only when the session
+ * has access, keyed by the data scope, so a project switch starts from an empty screen.
+ */
+export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
+    const mode = useDataMode()
+    const scope = useProjectScope()
+    const source = useMemo(() => sourceFor(mode, scope), [mode, scope])
+    const [statsToken, setStatsToken] = useState<string | null>(null)
+    const [statsFailed, setStatsFailed] = useState(false)
+    const statsHost = source?.statsHost ?? null
+    const useStats = statsHost !== null && statsToken !== null && !statsFailed
+    const useStatsRef = useRef(useStats)
+    useStatsRef.current = useStats
+
+    useEffect(() => {
+        let cancelled = false
+        if (source && statsHost) {
+            void source.project().then((info) => {
+                if (!cancelled) {
+                    setStatsToken(info?.token ?? null)
+                }
+            })
+        }
+        return () => {
+            cancelled = true
+        }
+    }, [source, statsHost])
+
+    const read = useCallback(
+        async (signal: AbortSignal, previous: LiveSnapshot | null): Promise<LiveReadResult<LiveSnapshot>> => {
+            if (!source) {
+                throw new Error('Live has no data source yet.')
+            }
+            const project = await source.project()
+            return readLiveSnapshot({
+                run: source.run,
+                previous: previous ?? EMPTY_LIVE_SNAPSHOT,
+                countUsersOnline: !(source.statsHost !== null && project?.token && useStatsRef.current),
+                pathCleaning: project?.pathCleaning ?? false,
+                now: Date.now(),
+                signal,
+            })
+        },
+        [source]
+    )
+    const onEvent = useCallback((event: LiveControllerEvent) => {
+        if (event === 'background_stopped') {
+            trackLivePaused({ trigger: 'background' })
+        } else {
+            trackLiveResumed({ trigger: 'foreground' })
+        }
+    }, [])
+    const main = usePoller<LiveSnapshot>({ enabled: source !== null, read, intervalMs: READ_INTERVAL_MS, onEvent })
+
+    const readStats = useCallback(
+        async (signal: AbortSignal): Promise<LiveReadResult<number | null>> => {
+            if (!statsHost || !statsToken) {
+                throw new Error('Live has no stats token.')
+            }
+            const count = liveUsersOnlineFromStats(await fetchLiveStats(statsHost, statsToken, signal))
+            return { data: count, complete: count !== null }
+        },
+        [statsHost, statsToken]
+    )
+    const stats = usePoller<number | null>({ enabled: useStats, read: readStats, intervalMs: STATS_INTERVAL_MS })
+    useEffect(() => {
+        if (stats.state.failures >= STATS_FAILURES_BEFORE_FALLBACK) {
+            setStatsFailed(true)
+        }
+    }, [stats.state.failures])
+
+    const paused = main.state.paused
+    useEffect(() => {
+        if (paused) {
+            stats.controller?.pause()
+        } else {
+            void stats.controller?.resume()
+        }
+    }, [paused, stats.controller])
+
+    // One message per failure streak: when the first failed read follows data on screen, or the first load fails.
+    const failing = main.state.failures > 0
+    const hasData = main.state.data !== null
+    const errorKind: LiveErrorKind | null = failing ? (hasData ? 'refresh_failed' : 'load_failed') : null
+    const onErrorRef = useRef(onError)
+    onErrorRef.current = onError
+    useEffect(() => {
+        if (errorKind) {
+            trackLiveErrorShown({ kind: errorKind })
+            onErrorRef.current(errorKind)
+        }
+    }, [errorKind])
+
+    const [pulling, setPulling] = useState(false)
+    const pull = useCallback(() => {
+        trackLiveRefreshed({ trigger: 'pull' })
+        setPulling(true)
+        void Promise.all([main.controller?.refresh(), stats.controller?.refresh()]).finally(() => setPulling(false))
+    }, [main.controller, stats.controller])
+    const pause = useCallback(() => {
+        trackLivePaused({ trigger: 'button' })
+        main.controller?.pause()
+    }, [main.controller])
+    const resume = useCallback(() => {
+        trackLiveResumed({ trigger: 'button' })
+        trackLiveRefreshed({ trigger: 'resume' })
+        void main.controller?.resume()
+    }, [main.controller])
+    const retry = useCallback(() => {
+        void main.controller?.refresh()
+    }, [main.controller])
+
+    const snapshot = main.state.data ?? EMPTY_LIVE_SNAPSHOT
+    return {
+        snapshot,
+        status: source ? liveStatus(main.state) : 'loading',
+        updatedAt: main.state.updatedAt,
+        usersOnline: (useStats ? stats.state.data : null) ?? snapshot.usersOnline,
+        paused,
+        reading: main.state.reading,
+        loadFailed: failing && !hasData,
+        pulling,
+        pull,
+        pause,
+        resume,
+        retry,
+    }
+}

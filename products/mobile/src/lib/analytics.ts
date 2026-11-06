@@ -176,6 +176,15 @@ export type AnalyticsEvent =
     | 'mobile_replay_summary_ready'
     | 'mobile_replay_chat_opened'
     | 'mobile_replay_issue_opened'
+    | 'mobile_live_opened'
+    | 'mobile_live_opened_in_web'
+    | 'mobile_live_error_shown'
+    | 'mobile_live_refreshed'
+    | 'mobile_live_paused'
+    | 'mobile_live_resumed'
+    | 'mobile_live_breakdown_changed'
+    | 'mobile_live_event_sheet_opened'
+    | 'mobile_live_event_action_taken'
 
 export type AnalyticsProperties = Record<string, string | number | boolean | null | undefined>
 
