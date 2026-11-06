@@ -1,3 +1,4 @@
+import time
 from collections.abc import Iterable
 from typing import Any, Literal, Optional, Union, cast
 
@@ -46,6 +47,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
 from posthog.models import Property, Team
+from posthog.models.event import MAX_SELECTOR_LENGTH
 from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_TYPE
 from posthog.models.property import PropertyGroup
 from posthog.models.property.util import get_property_string_expr
@@ -967,6 +969,16 @@ class TestProperty(BaseTest):
             clear_locations(tag_name_to_expr("a")),
             clear_locations(elements_chain_match("(^|;)a(\\.|$|;|:)")),
         )
+
+    def test_selector_to_expr_rejects_overlong_selector(self):
+        self._selector_to_expr("a" * MAX_SELECTOR_LENGTH)
+        with self.assertRaises(QueryError):
+            self._selector_to_expr("a" * (MAX_SELECTOR_LENGTH + 1))
+
+    def test_selector_to_expr_parses_max_length_selector(self):
+        started = time.perf_counter()
+        self._selector_to_expr("[" * MAX_SELECTOR_LENGTH)
+        self.assertLess(time.perf_counter() - started, 1.0)
 
     def test_selector_to_expr(self):
         self.assertEqual(

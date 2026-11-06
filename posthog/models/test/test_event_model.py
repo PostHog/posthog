@@ -1,4 +1,5 @@
 import re
+import time
 from uuid import uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -10,7 +11,8 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Element
 from posthog.models.element.element import elements_to_string
-from posthog.models.event import Selector
+from posthog.models.event import MAX_SELECTOR_LENGTH, Selector, SelectorTooLongError
+from posthog.models.event.event import SELECTOR_ATTRIBUTE_REGEX, _find_attribute_selectors, _split_classes
 from posthog.models.event.util import bulk_create_events, create_event, events_only_in_active_schema
 from posthog.models.property.util import build_selector_regex
 from posthog.test.test_journeys import journeys_for
@@ -171,6 +173,49 @@ class TestSelectors(SimpleTestCase):
             selector1.parts[0].data,
             {"attributes__attr__type": "button", "attributes__attr__ng-click": "save()"},
         )
+
+    @parameterized.expand(
+        [
+            ("open_brackets", "[" * MAX_SELECTOR_LENGTH),
+            ("unclosed_attribute_values", "[a='" * (MAX_SELECTOR_LENGTH // 4)),
+            ("unclosed_keys", "[a" * (MAX_SELECTOR_LENGTH // 2)),
+            ("dots_without_brackets", "a" + "." * (MAX_SELECTOR_LENGTH - 1)),
+            ("many_attributes", "[a='b']" * (MAX_SELECTOR_LENGTH // 7)),
+            ("many_parts", "a " * (MAX_SELECTOR_LENGTH // 2)),
+        ]
+    )
+    def test_max_length_selector_parses(self, _name, selector):
+        started = time.perf_counter()
+        build_selector_regex(Selector(selector, escape_slashes=False))
+        # Linear parsing takes milliseconds; generous bound to avoid flakiness on slow CI.
+        self.assertLess(time.perf_counter() - started, 1.0)
+
+    def test_attribute_parser_matches_reference_regex(self):
+        selectors = [
+            '[data-id="foo bar]"]',
+            "[[a='b']",
+            "[a = 'x' ] [b='y\\'z']",
+            "[a='x' y']",
+            "div[a='1'][b=\"2\"].c:nth-child(2)",
+            "[a='[b=\"c\"]']",
+            "[a='unclosed",
+            "[='x']",
+        ]
+        for selector in selectors:
+            expected = [
+                (m.start(), m.end(), m.group(1), m.group(3)) for m in re.finditer(SELECTOR_ATTRIBUTE_REGEX, selector)
+            ]
+            actual = [(m.start, m.end, m.key, m.value) for m in _find_attribute_selectors(selector)]
+            self.assertEqual(actual, expected, selector)
+
+    def test_class_split_matches_reference_regex(self):
+        for tag in ["div.a.b", "div.shadow-[0_4px_6px_rgba(0,0,0,0.1)].text-blue-500", "a.b]c.d[e.f", ".", "a[.]b.c"]:
+            self.assertEqual(_split_classes(tag), re.split(r"\.(?![^\[]*\])", tag), tag)
+
+    def test_selector_length_is_capped(self):
+        Selector("a" * MAX_SELECTOR_LENGTH)
+        with self.assertRaises(SelectorTooLongError):
+            Selector("a" * (MAX_SELECTOR_LENGTH + 1))
 
 
 class TestSelectorRegexMatching(SimpleTestCase):

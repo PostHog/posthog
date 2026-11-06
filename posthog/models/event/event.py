@@ -2,6 +2,7 @@ import re
 import copy
 import datetime
 from collections import defaultdict
+from dataclasses import dataclass
 from typing import Optional, Union
 
 from django.db import models
@@ -11,6 +12,12 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.models.team import Team
 
+# Selectors come from users (action steps, element property filters), so parsing has to stay
+# linear in their length. The cap bounds the work done on, and the regex generated from, a
+# single selector; real CSS selectors are a small fraction of it.
+MAX_SELECTOR_LENGTH = 4096
+# Kept for reference: _find_attribute_selectors parses exactly what this regex matches with
+# re.finditer, in a single linear pass.
 SELECTOR_ATTRIBUTE_REGEX = r"\[\s*([^\]\s=]+)\s*=\s*(['\"])(.*?)\2\s*\]"
 # The chain records an element's position as nth-child and nth-of-type, and a selector
 # can carry either or both. Matching each one lets a selector keep the rest of itself.
@@ -60,6 +67,118 @@ TEAM_ACTION_QUERY_CACHE: dict[int, str] = {}
 DEFAULT_EARLIEST_TIME_DELTA = relativedelta(weeks=1)
 
 
+class SelectorTooLongError(ValueError):
+    def __init__(self, length: int):
+        super().__init__(f"Selector is too long ({length} characters). The maximum is {MAX_SELECTOR_LENGTH}.")
+
+
+@dataclass(frozen=True)
+class _AttributeMatch:
+    start: int
+    end: int
+    key: str
+    value: str
+
+
+def _find_attribute_selectors(tag: str) -> list[_AttributeMatch]:
+    r"""Linear-time equivalent of re.finditer(SELECTOR_ATTRIBUTE_REGEX, tag).
+
+    The end of each key run and the next closing quote are precomputed right to left, so every
+    candidate "[" is resolved in constant time.
+    """
+    n = len(tag)
+    # next_non_space[i]: first index >= i that is not whitespace (n when there is none).
+    next_non_space = [n] * (n + 1)
+    for i in range(n - 1, -1, -1):
+        next_non_space[i] = next_non_space[i + 1] if tag[i].isspace() else i
+    # key_end[i]: first index >= i holding "]", whitespace or "=" (n when there is none).
+    # The key ([^\]\s=]+) is always maximal, because a shorter key would be followed by a key
+    # character, which is neither whitespace nor "=".
+    key_end = [n] * (n + 1)
+    for i in range(n - 1, -1, -1):
+        char = tag[i]
+        key_end[i] = i if (char == "]" or char == "=" or char.isspace()) else key_end[i + 1]
+    # next_close[quote][i]: first index j >= i where tag[j] is that quote and the next
+    # non-whitespace character after it is "]" -- the end of the lazy (.*?)\2\s*\].
+    next_close: dict[str, list[int]] = {}
+    for quote in ("'", '"'):
+        closes = [n] * (n + 1)
+        for j in range(n - 1, -1, -1):
+            after = next_non_space[j + 1]
+            closes[j] = j if tag[j] == quote and after < n and tag[after] == "]" else closes[j + 1]
+        next_close[quote] = closes
+
+    matches: list[_AttributeMatch] = []
+    i = 0
+    while i < n:
+        if tag[i] != "[":
+            i += 1
+            continue
+        key_start = next_non_space[i + 1]
+        end_of_key = key_end[key_start] if key_start < n else n
+        if end_of_key == key_start:
+            i += 1
+            continue
+        equals = next_non_space[end_of_key]
+        if equals >= n or tag[equals] != "=":
+            i += 1
+            continue
+        quote_at = next_non_space[equals + 1]
+        if quote_at >= n or tag[quote_at] not in ("'", '"'):
+            i += 1
+            continue
+        quote = tag[quote_at]
+        close = next_close[quote][quote_at + 1]
+        if close >= n:
+            i += 1
+            continue
+        end = next_non_space[close + 1] + 1
+        matches.append(
+            _AttributeMatch(start=i, end=end, key=tag[key_start:end_of_key], value=tag[quote_at + 1 : close])
+        )
+        i = end
+    return matches
+
+
+def _split_classes(tag: str) -> list[str]:
+    r"""Linear-time equivalent of re.split(r"\.(?![^\[]*\])", tag).
+
+    A dot separates classes unless a "]" comes before the next "[" (it sits inside a Tailwind
+    arbitrary value such as shadow-[0_4px_6px_rgba(0,0,0,0.1)]). The regex rescans the rest
+    of the string for every dot; one right-to-left pass answers that for every position.
+    """
+    n = len(tag)
+    # inside_brackets[i]: a "]" occurs at or after i before any "[".
+    inside_brackets = [False] * (n + 1)
+    for i in range(n - 1, -1, -1):
+        char = tag[i]
+        if char == "]":
+            inside_brackets[i] = True
+        elif char == "[":
+            inside_brackets[i] = False
+        else:
+            inside_brackets[i] = inside_brackets[i + 1]
+    parts: list[str] = []
+    start = 0
+    for i, char in enumerate(tag):
+        if char == "." and not inside_brackets[i + 1]:
+            parts.append(tag[start:i])
+            start = i + 1
+    parts.append(tag[start:])
+    return parts
+
+
+def _excise_spans(text: str, spans: list[tuple[int, int]]) -> str:
+    # One pass instead of re-slicing the whole string once per span.
+    pieces: list[str] = []
+    previous_end = 0
+    for start, end in spans:
+        pieces.append(text[previous_end:start])
+        previous_end = end
+    pieces.append(text[previous_end:])
+    return "".join(pieces)
+
+
 class SelectorPart:
     direct_descendant = False
     unique_order = 0
@@ -70,20 +189,18 @@ class SelectorPart:
         self.ch_attributes: dict[str, Union[str, list]] = {}  # attributes for CH
         self.unsatisfiable = False
 
-        attribute_matches = list(re.finditer(SELECTOR_ATTRIBUTE_REGEX, tag))
+        attribute_matches = _find_attribute_selectors(tag)
         # Saved actions count on the loose reading of a single attribute: its bare key
         # also matches the end of a longer key (label inside aria-label), and its value
         # keeps backslashes such as the hex escape in \31. Two or more attributes without
         # an id never matched under the earlier parser, so no saved count depends on
         # their reading, and they take the strict one: unescaped values and the full
         # chain key.
-        self.strict_attributes = len(attribute_matches) >= 2 and all(
-            match.group(1) != "id" for match in attribute_matches
-        )
+        self.strict_attributes = len(attribute_matches) >= 2 and all(match.key != "id" for match in attribute_matches)
         if attribute_matches:
             for match in attribute_matches:
-                key = match.group(1)
-                value = match.group(3)
+                key = match.key
+                value = match.value
                 if self.strict_attributes:
                     value = re.sub(r"\\(.)", r"\1", value)
                 if key == "id":
@@ -94,24 +211,19 @@ class SelectorPart:
                     self._require(key, value)
             # Excise the attribute spans and keep the rest, so a class, id or
             # nth-child written after an attribute selector is not discarded.
-            for match in reversed(attribute_matches):
-                tag = tag[: match.start()] + tag[match.end() :]
+            tag = _excise_spans(tag, [(match.start, match.end) for match in attribute_matches])
         positional_matches = list(re.finditer(POSITIONAL_PSEUDO_CLASS_REGEX, tag))
         for match in positional_matches:
             pseudo_class, position = match.group(1), match.group(2)
             self.data["nth_child" if pseudo_class == "nth-child" else "nth_of_type"] = position
             self._require(pseudo_class, position)
-        for match in reversed(positional_matches):
-            tag = tag[: match.start()] + tag[match.end() :]
+        tag = _excise_spans(tag, [match.span() for match in positional_matches])
         if "." in tag:
-            # Regex pattern that matches dots that are NOT inside square brackets
-            # Uses negative lookahead to ensure the dot is not followed by content ending with ]
-            # without an opening [ in between
-            # Handles Tailwind arbitrary values with square brackets properly.
+            # Split on dots that are NOT inside square brackets, so Tailwind arbitrary values
+            # keep their dots.
             # Example: 'div.shadow-[0_4px_6px_rgba(0,0,0,0.1)].text-blue-500'
             # Returns: ['div', 'shadow-[0_4px_6px_rgba(0,0,0,0.1)]', 'text-blue-500']
-            pattern = r"\.(?![^\[]*\])"
-            parts = re.split(pattern, tag)
+            parts = _split_classes(tag)
             # Strip all slashes that are not followed by another slash
             self.data["attr_class__contains"] = [self._unescape_class(p) if escape_slashes else p for p in parts[1:]]
             tag = parts[0]
@@ -157,17 +269,25 @@ class Selector:
 
     def __init__(self, selector: str, escape_slashes=True):
         self.parts = []
+        if len(selector) > MAX_SELECTOR_LENGTH:
+            raise SelectorTooLongError(len(selector))
         # Sometimes people manually add *, just remove them as they don't do anything
         selector = selector.replace("> * > ", "").replace("> *", "").replace("\\:", ":").strip()
         tags = list(self._split(selector))
         tags.reverse()
         # Detecting selector parts
+        seen_data: dict[tuple, int] = defaultdict(int)
         for index, tag in enumerate(tags):
             if tag == ">" or tag == "":
                 continue
             direct_descendant = index > 0 and tags[index - 1] == ">"
             part = SelectorPart(tag, direct_descendant, escape_slashes)
-            part.unique_order = len([p for p in self.parts if p.data == part.data])
+            # How many earlier parts carry the same data, counted without rescanning them all.
+            data_key = tuple(
+                sorted((key, tuple(value) if isinstance(value, list) else value) for key, value in part.data.items())
+            )
+            part.unique_order = seen_data[data_key]
+            seen_data[data_key] += 1
             self.parts.append(copy.deepcopy(part))
 
     def _split(self, selector):
