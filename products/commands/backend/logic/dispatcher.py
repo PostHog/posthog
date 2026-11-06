@@ -24,23 +24,12 @@ from prometheus_client import Counter
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.exceptions_capture import capture_exception
-from posthog.models.scoping.manager import resolve_effective_team_id
-from posthog.models.team import Team
+from posthog.github.requesters import Requester, members_with_resource_access, resolve_requester
 from posthog.models.user import User
-from posthog.permissions import UserAccessControl
 
-from .commands import (
-    SUBJECT_NAMES,
-    Answer,
-    CommandContext,
-    CommandRequest,
-    DispatchOutcome,
-    FollowUpAddress,
-    ProjectMember,
-)
-from .identity import Requester, resolve_requester
+from .commands import SUBJECT_NAMES, Answer, CommandContext, CommandRequest, DispatchOutcome, FollowUpAddress
 from .registry import COMMANDS, CommandSpec, Invocation, help_text
-from .schema import HELP_VERB, ArgumentError, ResourceAccess, resolve_verb, usage
+from .schema import HELP_VERB, ArgumentError, resolve_verb, usage
 from .subjects import Subject
 
 logger = structlog.get_logger(__name__)
@@ -156,7 +145,7 @@ class CommandDispatcher:
                 return target
             team_ids, not_member_message = target.team_ids, target.not_member_message
         users = self._channel.linked_users()
-        requester = resolve_requester(users, team_ids)
+        requester = resolve_requester(users, team_ids, call_site="command")
         if not isinstance(requester, Requester):
             if requester.reason == "refused":
                 return Answer(outcome="account_refused", message="I can't run commands for your PostHog account.")
@@ -171,7 +160,7 @@ class CommandDispatcher:
 
         access = declaration.access
         if access is not None:
-            members = _members_with_access(members, access, {user.id: user for user in users})
+            members = members_with_resource_access(members, users, resource=access.resource, level=access.level)
             if not members:
                 return Answer(
                     outcome="access_denied",
@@ -198,21 +187,3 @@ class CommandDispatcher:
             return "failed"
         self._channel.reply(outcome.message)
         return "accepted" if outcome.accepted else "refused"
-
-
-def _members_with_access(
-    members: tuple[ProjectMember, ...], access: ResourceAccess, users: dict[int, User]
-) -> tuple[ProjectMember, ...]:
-    # Products keep their rows, and their access rules, on the parent project.
-    effective_team_ids = {member.team_id: resolve_effective_team_id(member.team_id) for member in members}
-    teams = Team.objects.in_bulk(set(effective_team_ids.values()))
-
-    def has_access(member: ProjectMember) -> bool:
-        team = teams.get(effective_team_ids[member.team_id])
-        if team is None:
-            return False
-        user = users[member.user_id]
-        access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
-        return access_control.check_access_level_for_resource(access.resource, access.level)
-
-    return tuple(member for member in members if has_access(member))

@@ -92,6 +92,7 @@ pub const ISSUE_CREATED_EVENT_PROPERTIES_STORE_SKIPPED: &str =
 pub const ISSUE_CREATED_EVENT_PROPERTIES_BYTES: &str =
     "cymbal_issue_created_event_properties_bytes";
 pub const ISSUE_REOPENED: &str = "cymbal_issue_reopened";
+pub const INGESTION_NOTIFICATION_SKIPPED: &str = "cymbal_ingestion_notification_skipped";
 pub const FRAME_RESOLUTION_RESULTS_DELETED: &str = "cymbal_frame_resolution_results_deleted";
 pub const CHUNK_ID_NOT_FOUND: &str = "cymbal_chunk_id_not_found";
 pub const CHUNK_ID_FAILURE_FETCHED: &str = "cymbal_chunk_id_failure_fetched";
