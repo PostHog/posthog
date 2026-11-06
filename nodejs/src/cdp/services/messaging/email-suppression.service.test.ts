@@ -135,6 +135,49 @@ describe('EmailSuppressionService', () => {
 
             expect((await readRow(email))?.transient_bounce_count).toBe(0)
         })
+
+        it.each([
+            [
+                'an old bounce, then the delivery that followed it, resets',
+                [
+                    ['bounce', 2],
+                    ['delivery', 1],
+                ],
+                0,
+            ],
+            [
+                'a late bounce does not move the last bounce back, so an older delivery cannot reset',
+                [
+                    ['bounce', 1],
+                    ['bounce', 3],
+                    ['delivery', 2],
+                ],
+                2,
+            ],
+            [
+                'a bounce without a parseable time falls back to now',
+                [
+                    ['bounce', 'not-a-timestamp'],
+                    ['delivery', 1],
+                ],
+                1,
+            ],
+        ] as const)('%s', async (_label, events, expectedCount) => {
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            const email = 'replayed@example.com'
+            const hoursAgo = (offset: number | string): string =>
+                typeof offset === 'string' ? offset : new Date(Date.now() - offset * 60 * 60 * 1000).toISOString()
+
+            for (const [kind, offset] of events) {
+                if (kind === 'bounce') {
+                    await svc.recordTransientBounces(team.id, [email], 'temp', hoursAgo(offset))
+                } else {
+                    await svc.recordDeliveries(team.id, [email], hoursAgo(offset))
+                }
+            }
+
+            expect((await readRow(email))?.transient_bounce_count).toBe(expectedCount)
+        })
     })
 
     describe('recordHardBounces', () => {

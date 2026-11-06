@@ -991,9 +991,10 @@ describe('EmailTrackingService', () => {
                 suppressed: boolean
                 transient_bounce_count: number
                 deleted: boolean
+                last_bounce_at: string
             }>(
                 PostgresUse.COMMON_READ,
-                `SELECT identifier, source, suppressed, transient_bounce_count, deleted
+                `SELECT identifier, source, suppressed, transient_bounce_count, deleted, last_bounce_at
                  FROM posthog_messagesuppression
                  WHERE team_id = $1 AND identifier = $2`,
                 [team.id, email],
@@ -1006,6 +1007,7 @@ describe('EmailTrackingService', () => {
                     suppressed: true,
                     transient_bounce_count: 1,
                     deleted: false,
+                    last_bounce_at: '2024-01-01T00:00:00.000Z',
                 },
             ])
         })
