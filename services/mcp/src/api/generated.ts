@@ -21436,6 +21436,25 @@ export namespace Schemas {
       results: BulkObserveResult[];
     }
 
+    export interface BulkRemoveSuppressionsRequest {
+      /**
+         * The email addresses to remove, at most 100 per request.
+         * @minItems 1
+         * @maxItems 100
+         * @items.maxLength 512
+         */
+      identifiers: string[];
+      /** Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400. */
+      confirm_complaints?: boolean;
+    }
+
+    export interface BulkRemoveSuppressionsResponse {
+      /** Addresses removed from the suppression list. */
+      removed: string[];
+      /** Addresses that were not on the suppression list. */
+      not_found: string[];
+    }
+
     /**
      * * `new` - New
      * * `open` - Open
@@ -61063,6 +61082,25 @@ export namespace Schemas {
       version: number;
     }
 
+    export interface LLMProxyModelInfo {
+      /** Provider-specific model identifier. */
+      id: string;
+      /** Model display name. */
+      name: string;
+      /** Provider display name. */
+      provider: string;
+      /** Description of the model. */
+      description: string;
+      /** Whether the provider recommends this model. */
+      is_recommended: boolean;
+      /** Whether this model supports decision questions. */
+      supports_decisions?: boolean;
+      /** Whether this model supports chat completions with written reasoning. */
+      supports_chat?: boolean;
+      /** Whether an evaluation judge can set a reasoning level for this model. */
+      supports_reasoning?: boolean;
+    }
+
     /**
      * Arbitrary key-value metadata.
      */
@@ -73052,6 +73090,28 @@ export namespace Schemas {
       results: PlatformAlertConfiguration[];
     }
 
+    export interface PlaygroundChatList {
+      /** Playground chat id. */
+      id: string;
+      /** First question, truncated. Empty until someone asks. */
+      title: string;
+      /** When this chat was created. */
+      created_at: string;
+      /** When this chat was last asked in. */
+      updated_at: string;
+      /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
+      has_open_turn: boolean;
+    }
+
+    export interface PaginatedPlaygroundChatListList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: PlaygroundChatList[];
+    }
+
     /**
      * * `SYSTEM` - SYSTEM
      * * `PLUGIN` - PLUGIN
@@ -73759,6 +73819,8 @@ export namespace Schemas {
       input_schema: ResolvedToolPolicyInputSchema;
       /** Whether the canonical gateway heuristic treats this tool as destructive. */
       is_destructive: boolean;
+      /** Whether the tool only reads data: the server marks it readOnlyHint and its name starts with a read verb and has no write or destructive verb. */
+      is_read_only: boolean;
       /** Effective state for the scope.
        *
        * * `approved` - Approved
@@ -91777,19 +91839,6 @@ export namespace Schemas {
       turns: PlaygroundTurn[];
     }
 
-    export interface PlaygroundChatList {
-      /** Playground chat id. */
-      id: string;
-      /** First question, truncated. Empty until someone asks. */
-      title: string;
-      /** When this chat was created. */
-      created_at: string;
-      /** When this chat was last asked in. */
-      updated_at: string;
-      /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
-      has_open_turn: boolean;
-    }
-
     /**
      * Query parameters to send to the target.
      */
@@ -99319,6 +99368,16 @@ export namespace Schemas {
       identifier: string;
       /** Optional message category key. If omitted, the recipient is opted back in to all marketing messages. */
       category_key?: string;
+    }
+
+    export interface RemoveSuppressionRequest {
+      /**
+         * The email address to remove.
+         * @maxLength 512
+         */
+      identifier: string;
+      /** Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400. */
+      confirm_complaints?: boolean;
     }
 
     export interface ReorderTilesRequest {
@@ -124085,6 +124144,17 @@ export namespace Schemas {
      * When provided, returns per-ticket gap rows instead of aggregated view. Requires `ticket:read` scope in addition to `business_knowledge:read`.
      */
     ticket_id?: string;
+    };
+
+    export type BusinessKnowledgePlaygroundChatsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type BusinessKnowledgeRepositoriesFileRetrieveParams = {

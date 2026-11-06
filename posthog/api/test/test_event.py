@@ -24,7 +24,7 @@ from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Element, Organization, PropertyDefinition, User
+from posthog.models import Element, Organization, User
 from posthog.models.event.legacy_events_query import _execute_events_list_query
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
@@ -33,6 +33,7 @@ from posthog.test.test_journeys import journeys_for
 
 from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class TestEvents(ClickhouseTestMixin, APIBaseTest):

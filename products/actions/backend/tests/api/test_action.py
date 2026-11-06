@@ -335,7 +335,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         # test queries
-        with self.assertNumQueries(FuzzyInt(7, 9)):
+        with self.assertNumQueries(FuzzyInt(6, 8)):
             # Django session,  user,  team,  org membership, instance setting,  org,
             # count, action
             self.client.get(f"/api/projects/{self.team.id}/actions/")
@@ -509,7 +509,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         # No actions yet, so no tags prefetch query
-        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(5), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
@@ -519,7 +519,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         # With actions, there's an extra tags prefetch query
-        with self.assertNumQueries(7), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
@@ -528,7 +528,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_by=User.objects.create_and_join(self.organization, "b", ""),
         )
 
-        with self.assertNumQueries(7), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
     @parameterized.expand(

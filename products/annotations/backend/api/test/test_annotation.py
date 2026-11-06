@@ -68,7 +68,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
     @patch("products.annotations.backend.activity_logging.report_user_action")
     def test_retrieving_annotation_is_not_n_plus_1(self, _mock_capture: MagicMock) -> None:
-        with self.assertNumQueries(FuzzyInt(7, 8)), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(FuzzyInt(6, 7)), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             assert len(response["results"]) == 0
 
@@ -80,7 +80,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             content=now().isoformat(),
         )
 
-        with self.assertNumQueries(FuzzyInt(7, 8)), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(FuzzyInt(6, 7)), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             assert len(response["results"]) == 1
 
@@ -92,7 +92,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             content=now().isoformat(),
         )
 
-        with self.assertNumQueries(FuzzyInt(7, 8)), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(FuzzyInt(6, 7)), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             assert len(response["results"]) == 2
 
@@ -110,7 +110,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
                 scope=Annotation.Scope.PROJECT,
             )
 
-        with self.assertNumQueries(FuzzyInt(7, 8)), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(FuzzyInt(6, 7)), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             assert len(response["results"]) == 4
 

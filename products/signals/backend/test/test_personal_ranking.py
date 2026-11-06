@@ -549,14 +549,21 @@ class TestConfig(SimpleTestCase):
                         "skip_team_ids": [1, True, "2"],
                         "self_driving_organization_percentage": 101,
                         "max_pairs_per_tick": 10_000,
+                        "max_concurrency": 100,
                         "max_tick_builds_per_day": -1,
                         "max_org_share": 2,
-                    }
+                    },
+                    "max_builds_per_day": 100_000,
                 },
                 PersonalRankingConfig(
+                    max_builds_per_day=50_000,
                     tick=PersonalRankingTickConfig(
-                        enabled=True, organization_ids=("org",), skip_team_ids=(1,), max_pairs_per_tick=500
-                    )
+                        enabled=True,
+                        organization_ids=("org",),
+                        skip_team_ids=(1,),
+                        max_pairs_per_tick=2000,
+                        max_concurrency=50,
+                    ),
                 ),
             ),
             (
@@ -973,7 +980,7 @@ class TestForMeEndpoint(APIBaseTest):
         self._claimed_report("Not in the stored list")
         with (
             patch.object(personal_ranking_serve, "gather_candidates") as gather,
-            self.assertNumQueries(28),
+            self.assertNumQueries(24),
         ):
             body = self._get(max_age_minutes=60)
         assert (self._state(body), self.queued, gather.call_count) == ((True, True, False), [], 0)

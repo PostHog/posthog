@@ -26,8 +26,10 @@ from rest_framework import serializers
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
-from posthog.models import EventDefinition, Organization, PropertyDefinition, Team, User
+from posthog.models import Organization, Team, User
 from posthog.settings.utils import get_from_env
+
+from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
 
 if TYPE_CHECKING:
     from posthog.models.group_type_mapping import GroupTypeMapping
