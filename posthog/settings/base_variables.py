@@ -98,6 +98,9 @@ HOGLAKE_OAUTH_TOKEN_URL: str | None = get_from_env("HOGLAKE_OAUTH_TOKEN_URL", op
 HOGTOWER_MEMBER_TEAMS_PUSH_ENABLED: bool = get_from_env(
     "HOGTOWER_MEMBER_TEAMS_PUSH_ENABLED", False, type_cast=str_to_bool
 )
+# Members' personal, project-scoped hoglake credentials. Off until hogtower vends S3 access
+# for them: without it their tokens reach their projects' catalog metadata but no data files.
+HOGLAKE_TEAM_CREDENTIALS_ENABLED: bool = get_from_env("HOGLAKE_TEAM_CREDENTIALS_ENABLED", False, type_cast=str_to_bool)
 # MANAGED_WAREHOUSE_INGRESS_IPS is the comma-separated address set the shared managed-warehouse
 # `dw` load balancer answers on. The warehouse-source host guard exempts a managed warehouse host
 # from the private-address check only when every resolved address is in this set, so an empty value
