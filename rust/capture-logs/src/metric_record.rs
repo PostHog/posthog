@@ -411,14 +411,8 @@ fn hash_sorted_map(hasher: &mut SipHasher13, map: &HashMap<String, String>) {
     }
 }
 
-/// Removes trailing non-finite explicit bounds and adds their bucket counts to the
-/// bucket before them. A prom-client histogram that declares an explicit
-/// `Infinity` bucket arrives with `+Inf` as its last bound, followed by an
-/// overflow bucket that is always empty. Readers reject a non-finite bound, so
-/// this stores the layout that Prometheus reads from the duplicate `+Inf`. It
-/// matches the remote-write path, where `histogram_assembly` drops a repeated
-/// `+Inf` bucket. A data point whose counts do not match its bounds, or whose
-/// fold overflows, is left unchanged.
+/// prom-client histograms with an explicit `Infinity` bucket send `+Inf` as their last
+/// bound, which readers reject. Remote write drops the duplicate in `histogram_assembly`.
 fn fold_trailing_infinite_bounds(
     mut bounds: Vec<f64>,
     mut counts: Vec<i64>,
