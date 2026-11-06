@@ -631,6 +631,13 @@ export interface AccessControlFilterWarning {
     message: string
 }
 
+export interface BreakdownNotAppliedWarning {
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type: 'breakdown_not_applied'
+    /** Human-readable warning shown to the user */
+    message: string
+}
+
 /**
  * `no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds
  * where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.
@@ -2886,9 +2893,10 @@ export interface AnalyticsQueryResponseBase {
      * is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data.
      * Accumulated across every HogQL execution that contributes to this response — so insights backed
      * by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.
-     * Also carries access control warnings when a system-table query filters out objects the user can't access.
+     * Also carries access control warnings when a system-table query filters out objects the user can't access,
+     * and a breakdown warning when the query ran without its requested breakdown.
      */
-    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[]
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsage[]
 }
