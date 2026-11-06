@@ -527,9 +527,8 @@ export class CyclotronV2Janitor {
 
     async sweepEmailAttachments(): Promise<number> {
         try {
-            // A scheduled send can wait past the max age, so the rows of a job that has not finished stay.
-            // Each sweep examines one batch after the cursor, so a backlog of such rows costs one batch per
-            // sweep rather than a scan of all of them every time.
+            // The rows of a scheduled send that still waits stay past the max age, so each sweep examines one batch
+            // after the cursor instead of rescanning all of them.
             const after = this.attachmentSweepCursor
             const result = await this.pool.query<{
                 swept: string
