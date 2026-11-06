@@ -308,8 +308,22 @@
     }
 }
 
+// The gutter holds the insert toolbar and the block handle, so neither sits on the email or on each other.
 .EmailDocumentEditor__scroll {
+    --email-editor-gutter: 112px;
+
+    padding-right: var(--email-editor-gutter);
+    padding-left: var(--email-editor-gutter);
     container: email-editor / inline-size;
+
+    // Below this the email can't be centered with a gutter each side, and only the left one is needed.
+    @media (max-width: 1100px) {
+        padding-right: 8px;
+    }
+}
+
+.EmailDocumentEditor__toolbar {
+    margin-left: calc(-1 * var(--email-editor-gutter));
 }
 
 .EmailDocumentEditor__body {

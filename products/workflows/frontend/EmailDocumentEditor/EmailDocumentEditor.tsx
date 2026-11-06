@@ -411,7 +411,7 @@ export function EmailDocumentEditor(): JSX.Element {
                             style={{ backgroundColor: page.backgroundColor }}
                             data-attr="email-editor-scroll"
                         >
-                            <div className="sticky top-2 z-10 h-0 pl-2">
+                            <div className="EmailDocumentEditor__toolbar sticky top-2 z-10 h-0 pl-2">
                                 <div className="inline-block">
                                     <EmailInsertToolbar editor={editor} />
                                 </div>
@@ -421,7 +421,7 @@ export function EmailDocumentEditor(): JSX.Element {
                                 style={{
                                     maxWidth: page.bodyWidth,
                                     padding: page.padding || undefined,
-                                    marginLeft: page.align === 'left' ? (narrow ? 56 : 64) : undefined,
+                                    marginLeft: page.align === 'left' ? 0 : undefined,
                                     marginRight: page.align === 'right' ? 0 : undefined,
                                 }}
                             >

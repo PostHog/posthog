@@ -8,6 +8,8 @@ import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import { EmailBlockAt, blockAtPos, deleteBlock, duplicateBlock, moveBlock } from '../emailCommands'
 import { useEscapeToClose } from './useEscapeToClose'
 
+const HANDLE_GAP = 8
+
 interface HandlePosition {
     top: number
     left: number
@@ -58,7 +60,7 @@ export function EmailBlockHandle({
             const parent = container.getBoundingClientRect()
             setPosition({
                 top: rect.top - parent.top + container.scrollTop,
-                left: rect.left - parent.left + container.scrollLeft - 26,
+                left: rect.left - parent.left + container.scrollLeft - HANDLE_GAP,
                 pos: block.pos,
             })
         }
@@ -112,8 +114,8 @@ export function EmailBlockHandle({
     return (
         <div
             data-email-handle
-            className="absolute z-10 flex items-center rounded border bg-surface-primary shadow-sm"
-            style={{ top: position.top + 4, left: position.left - 22 }}
+            className="absolute z-10 flex items-center rounded border bg-surface-primary shadow-sm -translate-x-full"
+            style={{ top: position.top + 4, left: position.left }}
             contentEditable={false}
         >
             <LemonMenu
