@@ -1,6 +1,8 @@
 import { useState } from 'react'
 
-import { LemonButton, LemonDialog, LemonLabel, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonLabel, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
 
 import { EventsRetentionChangeNote } from './EventsRetentionChangeNote'
 import { EventsRetentionLevel } from './eventsRetentionDeletionCountLogic'
@@ -24,6 +26,7 @@ export function EventsRetentionPeriodSelect(props: EventsRetentionPeriodSelectPr
         retentionMonths,
         defaultMonths,
         choices,
+        planMonths,
         level,
         scope,
         owner,
@@ -36,6 +39,7 @@ export function EventsRetentionPeriodSelect(props: EventsRetentionPeriodSelectPr
     const [changingSupportPeriod, setChangingSupportPeriod] = useState(false)
     const options = eventsRetentionPeriodOptions(props)
     const supportMonths = retentionMonths !== null && !choices.includes(retentionMonths) ? retentionMonths : null
+    const abovePlanMonths = retentionMonths !== null && retentionMonths > planMonths ? retentionMonths : null
 
     const confirm = (months: number | null): void => {
         const period = retentionPeriodLabel(months ?? defaultMonths)
@@ -63,6 +67,19 @@ export function EventsRetentionPeriodSelect(props: EventsRetentionPeriodSelectPr
 
     return (
         <div className="flex flex-col gap-1 max-w-160">
+            {abovePlanMonths !== null && (
+                <LemonBanner
+                    type="warning"
+                    className="mb-2"
+                    action={{
+                        children: 'Upgrade',
+                        to: urls.organizationBilling(),
+                        'data-attr': `${dataAttr}-above-plan-upgrade`,
+                    }}
+                >
+                    {`The saved period of ${retentionPeriodLabel(abovePlanMonths)} is longer than your plan allows. Your plan keeps events for up to ${retentionPeriodLabel(planMonths)}. Choose a period of ${retentionPeriodLabel(planMonths)} or less, or upgrade your plan.`}
+                </LemonBanner>
+            )}
             <LemonLabel>Retention period</LemonLabel>
             {supportMonths === null ? (
                 <LemonSelect<number | null>
