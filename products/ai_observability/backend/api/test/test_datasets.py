@@ -8,6 +8,7 @@ from unittest.mock import ANY, DEFAULT, AsyncMock, MagicMock, Mock, patch
 from django.core.cache import cache
 from django.db import IntegrityError, connection, transaction
 from django.db.models.deletion import RestrictedError
+from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -193,7 +194,7 @@ class TestDatasetsApi(APIBaseTest):
         )
         for offset in range(2):
             page = self.client.get(
-                f"{self.datasets_url}retention/", {"kind": "revisions", "limit": 1, "offset": offset}
+                f"{self.datasets_url}retention/", {"kind": "revisions", "limit": "1", "offset": str(offset)}
             )
             self.assertEqual(page.status_code, status.HTTP_200_OK)
             self.assertEqual(page.data["count"], 2)
@@ -1040,6 +1041,16 @@ class TestDatasetsApi(APIBaseTest):
             str(DatasetItem.objects.for_team(self.team.id).get(id=item["id"]).current_version_id),
             update_response.data["version_id"],
         )
+
+        Dataset.objects.for_team(self.team.id).filter(id=dataset["id"]).update(current_revision=None)
+        with CaptureQueriesContext(connection) as single_revision_queries:
+            first_page = self.client.get(f"{self.datasets_url}{dataset['id']}/revisions/", {"limit": 1})
+        self.assertEqual(first_page.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(first_page.data["results"]), 1)
+        with self.assertNumQueries(len(single_revision_queries)):
+            all_revisions = self.client.get(f"{self.datasets_url}{dataset['id']}/revisions/", {"limit": 100})
+        self.assertEqual(all_revisions.status_code, status.HTTP_200_OK)
+        self.assertEqual([revision["revision"] for revision in all_revisions.data["results"]], [2, 1])
 
     def test_history_deletion_requires_deleting_the_dataset(self) -> None:
         dataset = self._create_dataset()

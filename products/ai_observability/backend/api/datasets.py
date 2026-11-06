@@ -993,13 +993,17 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         queryset = (
             DatasetRevision.objects.for_team(self.team.id, canonical=True)
             .filter(dataset_id=dataset.id, expired_at__isnull=True)
-            .select_related("created_by", "dataset")
+            .select_related("created_by")
             .order_by("-revision")
         )
         page = self.paginate_queryset(queryset)
+        revisions = page if page is not None else list(queryset)
+        for revision in revisions:
+            revision.dataset = dataset
+        data = DatasetRevisionReadSerializer(revisions, many=True).data
         if page is not None:
-            return self.get_paginated_response(DatasetRevisionReadSerializer(page, many=True).data)
-        return Response(DatasetRevisionReadSerializer(queryset, many=True).data)
+            return self.get_paginated_response(data)
+        return Response(data)
 
     @extend_schema(
         operation_id="datasets_exports_create",
