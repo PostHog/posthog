@@ -53,7 +53,12 @@ from products.batch_exports.backend.facade import api as batch_exports_api
 from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters
 from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSerializer
 from products.cdp.backend.filters import DATA_WAREHOUSE_SOURCES
-from products.cdp.backend.integration_origins import integration_inputs, integration_origins, integration_worker_calls
+from products.cdp.backend.integration_origins import (
+    integration_inputs,
+    integration_origins,
+    integration_worker_calls,
+    public_config,
+)
 from products.cdp.backend.internal_events import (
     generic_api_editable_alert_scope,
     is_managed_alert_internal_event,
@@ -1301,9 +1306,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             return []
 
         hog = attrs.get("hog", instance.hog if instance else "") or ""
-        # The worker resolves a connection to its config overlaid with its sensitive config.
         configs = {
-            key: {name: value for name, value in found[0].config.items() if name not in found[0].sensitive_config}
+            key: public_config(found[0].config, found[0].sensitive_config)
             for key, found in connections.items()
             if len(found) == 1 and key not in multi_keys
         }

@@ -90,6 +90,18 @@ def integration_origins(kind: str, config: Mapping[str, Any]) -> frozenset[str] 
     return frozenset({origin}) if origin else frozenset()
 
 
+# The worker resolves `access_token` to a placeholder and adds the raw token as `access_token_raw`.
+_CREDENTIAL_FIELDS = frozenset({"access_token", "access_token_raw"})
+
+
+def public_config(config: Mapping[str, Any], sensitive_config: Mapping[str, Any]) -> dict[str, Any]:
+    """The fields of a connection that the worker resolves to their value in its config, which the API
+    shows to every member of the team. Code can read or log them without reaching the credentials."""
+    return {
+        name: value for name, value in config.items() if name not in sensitive_config and name not in _CREDENTIAL_FIELDS
+    }
+
+
 def integration_worker_calls(kind: str) -> frozenset[str]:
     rule = INTEGRATION_ORIGINS.get(kind)
     return rule.worker_calls if rule else frozenset()

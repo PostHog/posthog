@@ -4,7 +4,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.cdp.backend.integration_origins import integration_origins, integration_worker_calls
+from products.cdp.backend.integration_origins import integration_origins, integration_worker_calls, public_config
 from products.cdp.backend.secret_origins import secret_origins
 from products.cdp.backend.templates import HOG_FUNCTION_TEMPLATES
 
@@ -61,6 +61,16 @@ class TestIntegrationOrigins(SimpleTestCase):
     )
     def test_integration_origins(self, _name: str, kind: str, config: dict, expected: Optional[frozenset[str]]) -> None:
         assert integration_origins(kind, config) == expected
+
+    @parameterized.expand(
+        [
+            ("plain_field", {"scope": "chat:write"}, {}, {"scope": "chat:write"}),
+            ("field_the_sensitive_config_replaces", {"token": "old"}, {"token": "secret"}, {}),
+            ("access_token_the_worker_swaps", {"access_token": "t", "access_token_raw": "t"}, {}, {}),
+        ]
+    )
+    def test_public_config(self, _name: str, config: dict, sensitive_config: dict, expected: dict) -> None:
+        assert public_config(config, sensitive_config) == expected
 
     @parameterized.expand(TEMPLATE_INTEGRATION_INPUTS)
     def test_template_sends_its_connection_only_to_its_service(self, _name: str, hog: str, key: str, kind: str) -> None:

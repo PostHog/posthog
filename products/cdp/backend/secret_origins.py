@@ -146,11 +146,11 @@ def analyze_secret_origins(
     integration_configs: Optional[Mapping[str, Mapping[str, Any]]] = None,
     worker_calls: Optional[Mapping[str, frozenset[str]]] = None,
 ) -> SecretOriginsAnalysis:
-    """With `integration_configs`, the keys are integration inputs and each maps to the config the worker
-    resolves it to, so that `inputs.<key>.<field>` reads a value from it. The worker's by-name fetch
-    options read the stored inputs, where an integration input holds only its id, so a string naming an
-    integration key does not reach its credentials. `worker_calls` names, for a key, the worker
-    functions it may be handed to, which resolve its credentials themselves."""
+    """With `integration_configs`, the keys are integration inputs and each maps to the public config the
+    worker resolves it to, so that `inputs.<key>.<field>` reads a value from it that holds no credential.
+    The worker's by-name fetch options read the stored inputs, where an integration input holds only its
+    id, so a string naming an integration key does not reach its credentials. `worker_calls` names, for
+    a key, the worker functions it may be handed to, which resolve its credentials themselves."""
     reason: UnanalyzableReason
     try:
         analysis = _Analysis(hog, [inputs, *mapping_input_sets], secret_keys, integration_configs, worker_calls)
@@ -833,6 +833,10 @@ class _Analysis:
             if not self.resolvable_by_name or not isinstance(node.value, str):
                 return frozenset()
             return frozenset({node.value}) & self.secret_keys
+        config_field = _config_field(node)
+        if config_field is not None and config_field[1] in self.integration_configs.get(config_field[0], {}):
+            # A field from the public config holds none of the connection's credentials.
+            return frozenset()
         input_key = _input_key(node)
         if input_key is not None:
             return self.inputs.get(input_key, (_UNKNOWN, frozenset()))[1]
