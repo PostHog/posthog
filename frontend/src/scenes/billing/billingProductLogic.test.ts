@@ -271,6 +271,69 @@ describe('billingProductLogic', () => {
     })
 
     describe('unsubscribe survey state', () => {
+        it.each([
+            {
+                name: 'cancelling a paid plan',
+                subscriptionLevel: 'paid' as const,
+                productType: 'product_analytics',
+                expected: ['free-20230117'],
+            },
+            {
+                name: 'unsubscribing from product analytics alone',
+                subscriptionLevel: 'custom' as const,
+                productType: 'product_analytics',
+                expected: ['free-20230117', 'scale-addon-20250429'],
+            },
+            {
+                name: 'removing the platform package',
+                subscriptionLevel: 'paid' as const,
+                productType: BillingPlan.Scale,
+                expected: ['paid-20240111'],
+            },
+            {
+                name: 'unsubscribing from another product',
+                subscriptionLevel: 'custom' as const,
+                productType: 'session_replay',
+                expected: null,
+            },
+        ])(
+            'compares events retention against the plans left after $name',
+            async ({ subscriptionLevel, productType, expected }) => {
+                const subscribedScale: BillingProductV2AddonType = {
+                    ...scaleAddon,
+                    subscribed: true,
+                    plans: scaleAddon.plans.map((plan) => ({ ...plan, current_plan: true })),
+                }
+                useMocks({
+                    get: {
+                        '/api/billing': () => [
+                            200,
+                            {
+                                ...billingJson,
+                                subscription_level: subscriptionLevel,
+                                products: billingJson.products.map((product) =>
+                                    product.type === 'platform_and_support'
+                                        ? { ...product, addons: [subscribedScale] }
+                                        : product
+                                ),
+                            },
+                        ],
+                    },
+                })
+                billingLogic.mount()
+                await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+                const logic = billingProductLogic({
+                    product: productType === BillingPlan.Scale ? subscribedScale : productByType(productType),
+                })
+                logic.mount()
+                mounted.push(logic)
+
+                expect(
+                    logic.values.eventsRetentionPlansAfterUnsubscribe?.map((plan) => plan?.plan_key ?? null) ?? null
+                ).toEqual(expected)
+            }
+        )
+
         it('keeps survey responses isolated per product type', async () => {
             await seedBilling({})
             const analytics = mountProduct('product_analytics')

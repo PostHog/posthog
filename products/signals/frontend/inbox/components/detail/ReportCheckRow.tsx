@@ -1,6 +1,7 @@
 import { IconClock, IconTrends } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 import { ReportCheckRowData } from './reportCheckPresentation'
@@ -19,6 +20,7 @@ export function ReportCheckRow({
     onSuggestMetric: () => void
     suggestionDisabledReason?: string | null
 }): JSX.Element {
+    const monitoringEnabled = useFeatureFlag('SIGNALS_REPORT_MONITORING')
     const { check, reportStatus, tag, detail, cancelled, cancellable } = row
 
     return (
@@ -51,15 +53,17 @@ export function ReportCheckRow({
             </div>
             {cancellable && (
                 <div className="-mt-1 flex h-0 flex-wrap justify-end gap-1 overflow-hidden group-hover:mt-0 group-hover:h-auto group-focus-within:mt-0 group-focus-within:h-auto group-focus-within:overflow-visible [@media(hover:none)]:mt-0 [@media(hover:none)]:h-auto">
-                    <LemonButton
-                        type="tertiary"
-                        size="xsmall"
-                        disabledReason={cancelling ? 'Canceling this check' : suggestionDisabledReason}
-                        data-attr="signals-report-check-suggest-metric"
-                        onClick={onSuggestMetric}
-                    >
-                        Suggest a better metric
-                    </LemonButton>
+                    {monitoringEnabled && (
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            disabledReason={cancelling ? 'Canceling this check' : suggestionDisabledReason}
+                            data-attr="signals-report-check-suggest-metric"
+                            onClick={onSuggestMetric}
+                        >
+                            Suggest a better metric
+                        </LemonButton>
+                    )}
                     <LemonButton
                         type="tertiary"
                         size="xsmall"

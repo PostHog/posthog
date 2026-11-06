@@ -30,7 +30,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import AvailableFeature, GroupTypeIndex
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.models import PropertyDefinition
 from posthog.models.group.group import Group
 from posthog.models.group.util import ListGroupsResult, create_group, list_groups, raw_create_group_ch
 from posthog.models.group_type_mapping import (
@@ -48,6 +47,7 @@ from posthog.test.persons import create_group_type_mapping, create_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.event_definitions.backend.models import PropertyDefinition
 from products.groups.backend.presentation.views import _decode_groups_cursor, _encode_groups_cursor
 from products.notebooks.backend.facade.content import convert_notebook_content_to_markdown, is_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, ResourceNotebook

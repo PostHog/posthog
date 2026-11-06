@@ -1,4 +1,6 @@
-from posthog.models import PropertyDefinition, Team, User
+from posthog.models import Team, User
+
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 def restricted_property_names(team: Team, user: User | None, property_type: PropertyDefinition.Type) -> set[str]:
