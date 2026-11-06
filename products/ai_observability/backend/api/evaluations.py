@@ -1675,6 +1675,115 @@ def _config_length(instance: Evaluation) -> int:
     return 0
 
 
+def update_evaluation(
+    serializer: EvaluationSerializer,
+    *,
+    request: Request,
+    team: Team,
+    tracking_properties: Mapping[str, Any] | None = None,
+) -> None:
+    """Save a validated evaluation update, restart its reports when they become supported, and track the change.
+
+    Shared by the evaluations API and applied eval suggestion fixes, which add the suggestion to the event.
+    """
+    previously_supported_reports = evaluation_supports_reports(
+        serializer.instance.output_type, serializer.instance.target, serializer.instance.output_config
+    )
+    # Check if this is a deletion (soft delete)
+    is_deletion = serializer.validated_data.get("deleted") is True and not serializer.instance.deleted
+
+    # Capture old enabled state before save (for deletion tracking)
+    old_enabled_value = serializer.instance.enabled
+
+    # Track changes before update
+    changed_fields: list[str] = []
+    enabled_changed = False
+    enabled_new_value = None
+    condition_count_changed = False
+    condition_count_new = 0
+    config_content_changed = False
+
+    for field in [
+        "name",
+        "description",
+        "directory",
+        "enabled",
+        "evaluation_type",
+        "output_type",
+        "evaluation_config",
+        "output_config",
+        "conditions",
+        "deleted",
+    ]:
+        if field in serializer.validated_data:
+            old_value = getattr(serializer.instance, field)
+            new_value = serializer.validated_data[field]
+            if old_value != new_value:
+                changed_fields.append(field)
+
+                if field == "enabled":
+                    enabled_changed = True
+                    enabled_new_value = new_value
+                elif field == "conditions":
+                    condition_count_changed = True
+                    condition_count_new = len(new_value) if new_value else 0
+                elif field == "evaluation_config":
+                    eval_type = serializer.validated_data.get("evaluation_type", serializer.instance.evaluation_type)
+                    config_key = get_evaluation_config_content_key(eval_type)
+                    old_content = old_value.get(config_key, "") if config_key and isinstance(old_value, dict) else ""
+                    new_content = new_value.get(config_key, "") if config_key and isinstance(new_value, dict) else ""
+                    if old_content != new_content:
+                        config_content_changed = True
+
+    with transaction.atomic():
+        instance = serializer.save()
+        if (
+            not previously_supported_reports
+            and not instance.deleted
+            and evaluation_supports_reports(instance.output_type, instance.target, instance.output_config)
+        ):
+            report, created = EvaluationReport.objects.get_or_create(evaluation=instance, team_id=team.id)
+            if not created:
+                report.restart_reporting()
+
+    # Track appropriate event
+    if is_deletion:
+        report_user_action(
+            request.user,
+            "llma evaluation deleted",
+            {
+                "evaluation_id": str(instance.id),
+                "evaluation_name": instance.name,
+                "was_enabled": old_enabled_value,
+            },
+            team=team,
+            request=request,
+        )
+    elif changed_fields:
+        event_properties: dict[str, Any] = {
+            "evaluation_id": str(instance.id),
+            "changed_fields": changed_fields,
+            **(tracking_properties or {}),
+        }
+
+        if enabled_changed:
+            event_properties["enabled_changed"] = True
+            event_properties["enabled_new_value"] = enabled_new_value
+        if condition_count_changed:
+            event_properties["condition_count_changed"] = True
+            event_properties["condition_count_new"] = condition_count_new
+        if config_content_changed:
+            event_properties["config_content_changed"] = True
+
+        report_user_action(
+            request.user,
+            "llma evaluation updated",
+            event_properties,
+            team=team,
+            request=request,
+        )
+
+
 def create_evaluation(
     serializer: EvaluationSerializer,
     *,
@@ -1769,107 +1878,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         create_evaluation(serializer, request=self.request, team=self.team)
 
     def perform_update(self, serializer):
-        previously_supported_reports = evaluation_supports_reports(
-            serializer.instance.output_type, serializer.instance.target, serializer.instance.output_config
-        )
-        # Check if this is a deletion (soft delete)
-        is_deletion = serializer.validated_data.get("deleted") is True and not serializer.instance.deleted
-
-        # Capture old enabled state before save (for deletion tracking)
-        old_enabled_value = serializer.instance.enabled
-
-        # Track changes before update
-        changed_fields: list[str] = []
-        enabled_changed = False
-        enabled_new_value = None
-        condition_count_changed = False
-        condition_count_new = 0
-        config_content_changed = False
-
-        for field in [
-            "name",
-            "description",
-            "directory",
-            "enabled",
-            "evaluation_type",
-            "output_type",
-            "evaluation_config",
-            "output_config",
-            "conditions",
-            "deleted",
-        ]:
-            if field in serializer.validated_data:
-                old_value = getattr(serializer.instance, field)
-                new_value = serializer.validated_data[field]
-                if old_value != new_value:
-                    changed_fields.append(field)
-
-                    if field == "enabled":
-                        enabled_changed = True
-                        enabled_new_value = new_value
-                    elif field == "conditions":
-                        condition_count_changed = True
-                        condition_count_new = len(new_value) if new_value else 0
-                    elif field == "evaluation_config":
-                        eval_type = serializer.validated_data.get(
-                            "evaluation_type", serializer.instance.evaluation_type
-                        )
-                        config_key = get_evaluation_config_content_key(eval_type)
-                        old_content = (
-                            old_value.get(config_key, "") if config_key and isinstance(old_value, dict) else ""
-                        )
-                        new_content = (
-                            new_value.get(config_key, "") if config_key and isinstance(new_value, dict) else ""
-                        )
-                        if old_content != new_content:
-                            config_content_changed = True
-
-        with transaction.atomic():
-            instance = serializer.save()
-            if (
-                not previously_supported_reports
-                and not instance.deleted
-                and evaluation_supports_reports(instance.output_type, instance.target, instance.output_config)
-            ):
-                report, created = EvaluationReport.objects.get_or_create(evaluation=instance, team_id=self.team_id)
-                if not created:
-                    report.restart_reporting()
-
-        # Track appropriate event
-        if is_deletion:
-            report_user_action(
-                self.request.user,
-                "llma evaluation deleted",
-                {
-                    "evaluation_id": str(instance.id),
-                    "evaluation_name": instance.name,
-                    "was_enabled": old_enabled_value,
-                },
-                team=self.team,
-                request=self.request,
-            )
-        elif changed_fields:
-            event_properties: dict[str, Any] = {
-                "evaluation_id": str(instance.id),
-                "changed_fields": changed_fields,
-            }
-
-            if enabled_changed:
-                event_properties["enabled_changed"] = True
-                event_properties["enabled_new_value"] = enabled_new_value
-            if condition_count_changed:
-                event_properties["condition_count_changed"] = True
-                event_properties["condition_count_new"] = condition_count_new
-            if config_content_changed:
-                event_properties["config_content_changed"] = True
-
-            report_user_action(
-                self.request.user,
-                "llma evaluation updated",
-                event_properties,
-                team=self.team,
-                request=self.request,
-            )
+        update_evaluation(serializer, request=self.request, team=self.team)
 
     @llma_track_latency("llma_evaluations_list")
     @monitor(feature=None, endpoint="llma_evaluations_list", method="GET")

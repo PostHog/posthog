@@ -107,11 +107,12 @@ export const evaluationFixSuggestionLogic = kea<evaluationFixSuggestionLogicType
     }),
 
     selectors({
-        // A link copied onto another evaluation, or a fix someone already handled, shows nothing.
+        // A link copied onto another evaluation, a fix someone already handled, or one the eval outgrew shows nothing.
         openFix: [
             (s, p) => [s.suggestion, p.evaluationId],
             (suggestion: EvalSuggestionApi | null, evaluationId: string): EvalSuggestionApi | null =>
                 suggestion?.status === 'proposed' &&
+                suggestion.applies &&
                 suggestion.kind === 'fix_eval' &&
                 suggestion.target_evaluation === evaluationId
                     ? suggestion

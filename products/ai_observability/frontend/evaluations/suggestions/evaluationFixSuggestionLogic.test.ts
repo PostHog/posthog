@@ -47,6 +47,7 @@ const FIX: EvalSuggestionApi = {
     id: 'fix-1',
     kind: 'fix_eval',
     status: 'proposed',
+    applies: true,
     template_key: '',
     headline: 'Your "Scout findings are grounded" eval stopped running',
     outcome: 'Its filter looks for ai_product = signals, which your traffic stopped sending.',

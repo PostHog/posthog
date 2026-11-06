@@ -42998,6 +42998,8 @@ export namespace Schemas {
        * * `dismissed` - Dismissed
        * * `expired` - Expired */
       readonly status: EvalSuggestionStatusEnum;
+      /** False for a fix_eval whose evaluation is gone or changed after the run, so its patch would undo that change. Always true for other kinds. */
+      readonly applies: boolean;
       /** Catalog template or adapted check the suggestion comes from. Empty for fix_eval. */
       readonly template_key: string;
       /** The problem in the project's own terms, with the number that makes it concrete, such as '1 in 125 traces ends on a failed call'. Judges carry no rate, because only Hog checks are measured. */
