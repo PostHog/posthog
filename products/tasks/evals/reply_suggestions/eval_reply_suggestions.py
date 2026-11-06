@@ -4,8 +4,8 @@ Each case prompt is the agent's answer, not a user request. Watch `no_unasked_bu
 for the reason `suggest_replies` gives, then `reply_offer`, then `suggested_replies_fit`.
 
 To run:
-    hogli evals eval_reply_suggestions
-    hogli evals eval_reply_suggestions --eval rhetorical_question
+    hogli evals tasks/eval_reply_suggestions
+    hogli evals tasks/eval_reply_suggestions --eval rhetorical_question
 """
 
 from __future__ import annotations
@@ -16,10 +16,14 @@ from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.one_shot import OneShotEval
-from products.slack_app.backend.logic.reply_suggestions import slack_reply_attribution
-from products.slack_app.evals.offline_config import offline_suite
-from products.slack_app.evals.scorers import REPLY_OFFER_KEY, NoUnaskedButtons, ReplyOfferMatch, SuggestedRepliesFit
 from products.tasks.backend.facade import reply_suggestions
+from products.tasks.evals.reply_suggestions.offline_config import REPLY_SUGGESTIONS_SUITE
+from products.tasks.evals.reply_suggestions.scorers import (
+    REPLY_OFFER_KEY,
+    NoUnaskedButtons,
+    ReplyOfferMatch,
+    SuggestedRepliesFit,
+)
 
 SUITE_KIND = SuiteKind.ONE_SHOT
 
@@ -193,7 +197,7 @@ async def eval_reply_suggestions(ctx: EvalContext) -> None:
             suggestions = await asyncio.to_thread(
                 reply_suggestions.request_reply_suggestions,
                 case.prompt,
-                slack_reply_attribution(),
+                reply_suggestions.ReplySuggestionAttribution(ai_product="posthog_ai", properties={}),
                 person_message,
             )
         except Exception as error:
@@ -207,12 +211,8 @@ async def eval_reply_suggestions(ctx: EvalContext) -> None:
         }
 
     await OneShotEval(
-        experiment_name="slack-app-reply-suggestions",
-        offline_suite=offline_suite(
-            "slack_app/eval_reply_suggestions::eval_reply_suggestions",
-            metrics=["reply_offer", "no_unasked_buttons", "suggested_replies_fit"],
-            suite_kind=SUITE_KIND,
-        ),
+        experiment_name="tasks-reply-suggestions",
+        offline_suite=REPLY_SUGGESTIONS_SUITE,
         cases=[*WAITING_CASES, *BARE_CASES],
         scorers=[ReplyOfferMatch(), NoUnaskedButtons(), SuggestedRepliesFit()],
         task=task,
