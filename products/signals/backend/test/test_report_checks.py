@@ -1235,10 +1235,12 @@ class TestReportCheckExecution(APIBaseTest):
             due = collect_due_checks(now, limit=2)
         assert other_check.id in {check.id for check in due}
 
-    @parameterized.expand([("protected", 2, 1), ("capped", 8, 6), ("empty", 3, 0), ("zero", 0, 1), ("single", 1, 1)])
+    @parameterized.expand(
+        [("protected", 2, 1), ("priority", 8, 6), ("spare", 8, 6, 0), ("empty", 3, 0), ("zero", 0, 1), ("single", 1, 1)]
+    )
     @time_machine.travel("2026-10-02T12:00:00Z", tick=False)
     def test_interim_capacity_is_separate_from_older_legacy_agents(
-        self, _name: str, limit: int, metric_count: int
+        self, _name: str, limit: int, metric_count: int, legacy_count: int = 8
     ) -> None:
         now = timezone.now()
         metrics = []
@@ -1251,7 +1253,7 @@ class TestReportCheckExecution(APIBaseTest):
             )
             metrics.append(self._monitoring_check(start=now - timedelta(days=1), report=report))
         legacy_organization = Organization.objects.create(name="Legacy checks")
-        for index in range(8):
+        for index in range(legacy_count):
             team = Team.objects.create(organization=legacy_organization, name=f"Legacy project {index}")
             report = SignalReport.objects.create(team=team, status=SignalReport.Status.RESOLVED, title="Checkout fix")
             LLMSkill.objects.create(team=team, name=FALLBACK_CHECK_SKILL_NAME, body="Verify checkout errors.")
@@ -1280,19 +1282,29 @@ class TestReportCheckExecution(APIBaseTest):
             ),
         ):
             summary = run_due_report_checks(now=now, limit=limit)
-        assert summary.observed == min(metric_count, limit, 5)
-        assert summary.deferred == limit - summary.observed
+        assert summary.observed == min(metric_count, limit)
+        assert summary.deferred == min(legacy_count, limit - summary.observed)
         assert summary.dispatched == summary.errored == 0
         assert SignalReportArtefact.objects.filter(team=self.team, type="check_observation").count() == summary.observed
         for metric in metrics:
             metric.refresh_from_db()
             assert metric.runs_remaining == 1 and metric.last_outcome is None
 
-    @parameterized.expand(["slots", "time"])
+    @parameterized.expand([("slots", 1, 2), ("time", 1, 2), ("reservation_cap", 6, 6)])
     @time_machine.travel("2026-10-02T12:00:00Z", tick=False)
-    def test_final_verification_cannot_spend_reserved_interim_capacity(self, exhausted: str) -> None:
+    def test_final_verification_cannot_spend_reserved_interim_capacity(
+        self, exhausted: str, interim_count: int, limit: int
+    ) -> None:
         now = timezone.now()
         interim = self._monitoring_check(start=now - timedelta(days=1))
+        for index in range(1, interim_count):
+            report = SignalReport.objects.create(
+                team=self.team,
+                status=SignalReport.Status.MONITORING,
+                monitoring_started_at=now - timedelta(days=1),
+                title=f"Metric fix {index}",
+            )
+            self._monitoring_check(start=now - timedelta(days=1), report=report)
         finals = []
         for index in range(2):
             report = SignalReport.objects.create(
@@ -1326,9 +1338,9 @@ class TestReportCheckExecution(APIBaseTest):
                 complete_implementation(
                     team_id=self.team.id, report_id=final.report_id, monitoring_started_at=now - timedelta(hours=2)
                 )
-            summary = run_due_report_checks(now=now, limit=2)
+            summary = run_due_report_checks(now=now, limit=limit)
         assert summary.passed == 1
-        assert summary.observed == 1
+        assert summary.observed == min(interim_count, limit - 1)
         assert summary.errored == summary.deferred == 0
 
     def test_a_check_riding_a_report_metric_measures_that_metric(self) -> None:

@@ -88,7 +88,7 @@ logger = structlog.get_logger(__name__)
 MAX_CHECK_RUNS_PER_TICK = 50
 MAX_CHECK_RUNS_PER_TEAM_PER_TICK = 10
 CHECK_RUN_TIME_BUDGET_SECONDS = 120.0
-MAX_INTERIM_CHECK_RUNS_PER_TICK = 5
+RESERVED_INTERIM_CHECK_RUNS_PER_TICK = 5
 INTERIM_CHECK_TIME_BUDGET_SECONDS = 40.0
 # Rows swept per tick when their horizon passed without a run. Bounded so a backlog costs one
 # bounded UPDATE rather than a table-wide one.
@@ -948,11 +948,11 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
     deadline = time.monotonic() + CHECK_RUN_TIME_BUDGET_SECONDS
     interim_checks = collect_due_checks(
         now,
-        limit=min(limit, MAX_INTERIM_CHECK_RUNS_PER_TICK),
+        limit=limit,
         disabled_monitoring_organization_ids=disabled_organizations,
         kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
     )
-    final_limit = max(0, limit - len(interim_checks))
+    final_limit = max(0, limit - min(len(interim_checks), RESERVED_INTERIM_CHECK_RUNS_PER_TICK))
     # Final verification runs first, but cannot spend the interim lane's slots or query allowance.
     final_deadline = (
         deadline - min(INTERIM_CHECK_TIME_BUDGET_SECONDS, CHECK_RUN_TIME_BUDGET_SECONDS) if interim_checks else deadline
@@ -981,7 +981,8 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
     agents = run_due_final_agents(now=now, deadline=final_deadline, limit=remaining)
     counts["dispatched"] += agents.dispatched
     counts["deferred"] += agents.deferred
-    for check in interim_checks:
+    remaining = max(0, limit - sum(counts.values()))
+    for check in interim_checks[:remaining]:
         if time.monotonic() >= deadline:
             break
         try:
