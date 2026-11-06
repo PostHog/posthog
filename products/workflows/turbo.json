@@ -14,7 +14,8 @@
                 "backend/data_freshness.py",
                 "backend/models/**",
                 "backend/providers/ses.py",
-                "backend/migrations/**"
+                "backend/migrations/**",
+                "backend/scopes.py"
             ],
             "outputs": [],
             "cache": true

@@ -10,7 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { composerSeedLogic } from 'products/posthog_ai/frontend/api/logics'
+import { composerSeedLogic, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { MAX_MESSAGE_LENGTH } from '../max-constants'
 import { maxGlobalLogic } from '../maxGlobalLogic'
@@ -138,6 +138,51 @@ describe.each([
 
         await user.type(input, '/')
         await waitFor(() => expect(slashCommandItem()).toBeInTheDocument())
+    })
+
+    describe('reply suggestions', () => {
+        const suggestion = 'Yes, open the pull request with the fix'
+        const hint = (): Element | null => document.querySelector('[data-attr="max-reply-suggestion"]')
+
+        beforeEach(() => {
+            const stream = runStreamLogic({ streamKey: maxLogicInstance.values.frontendConversationId })
+            act(() => {
+                stream.actions.pushHumanMessage('Why does the relay keep retrying?')
+                stream.actions.markTurnComplete()
+                stream.actions.setReplySuggestions({
+                    turnIndex: 0,
+                    replies: [suggestion],
+                })
+            })
+        })
+
+        it.each(['{Tab}', '{ArrowRight}'])('puts the suggestion in the input on %s without sending it', async (key) => {
+            const askMaxSpy = jest.spyOn(threadLogicInstance.actions, 'askMax')
+            const user = userEvent.setup()
+            const input = screen.getByRole('textbox') as HTMLTextAreaElement
+            await waitFor(() => expect(hint()).toHaveTextContent(suggestion))
+
+            input.focus()
+            await user.keyboard(key)
+
+            expect(input.value).toBe(suggestion)
+            expect(document.activeElement).toBe(input)
+            expect(hint()).not.toBeInTheDocument()
+            expect(askMaxSpy).not.toHaveBeenCalled()
+        })
+
+        it('hides the suggestion on Escape and leaves Tab to move focus', async () => {
+            const user = userEvent.setup()
+            const input = screen.getByRole('textbox') as HTMLTextAreaElement
+            await waitFor(() => expect(hint()).toBeInTheDocument())
+
+            input.focus()
+            await user.keyboard('{Escape}')
+            expect(hint()).not.toBeInTheDocument()
+
+            await user.keyboard('{Tab}')
+            expect(input.value).toBe('')
+        })
     })
 
     describe('message length limit', () => {
