@@ -115,6 +115,8 @@ export class CyclotronV2Janitor {
     private intervalHandle: ReturnType<typeof setInterval> | null = null
     // Queue names this process has seen hold work, so a drained queue can report 0.
     private readonly seenQueues = new Set<string>()
+    // created_at travels as text, because a Date drops the microseconds and would land on the last row again.
+    private attachmentSweepCursor: { createdAt: string; id: string } | null = null
 
     private readonly cleanupBatchSize: number
     private readonly cleanupIntervalMs: number
@@ -525,21 +527,52 @@ export class CyclotronV2Janitor {
 
     async sweepEmailAttachments(): Promise<number> {
         try {
-            const result = await this.pool.query(
-                // A scheduled send can wait past the max age, so the rows of a job that has not finished stay.
-                `DELETE FROM cyclotron_email_attachments
-                 WHERE id IN (
-                     SELECT a.id FROM cyclotron_email_attachments a
+            // A scheduled send can wait past the max age, so the rows of a job that has not finished stay.
+            // Each sweep examines one batch after the cursor, so a backlog of such rows costs one batch per
+            // sweep rather than a scan of all of them every time.
+            const after = this.attachmentSweepCursor
+            const result = await this.pool.query<{
+                swept: string
+                examined: string
+                last_created_at: string | null
+                last_id: string | null
+            }>(
+                `WITH examined AS (
+                     SELECT a.id, a.job_id, a.created_at FROM cyclotron_email_attachments a
                      WHERE a.created_at < $1
-                       AND NOT EXISTS (
-                           SELECT 1 FROM cyclotron_jobs j WHERE j.id = a.job_id AND j.status IN ('available', 'running')
-                       )
+                       AND ($3::timestamptz IS NULL OR (a.created_at, a.id) > ($3::timestamptz, $4::uuid))
+                     ORDER BY a.created_at, a.id
                      LIMIT $2
                      FOR UPDATE OF a SKIP LOCKED
-                 )`,
-                [new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS), this.cleanupBatchSize]
+                 ), swept AS (
+                     DELETE FROM cyclotron_email_attachments d
+                     USING examined e
+                     WHERE d.id = e.id
+                       AND NOT EXISTS (
+                           SELECT 1 FROM cyclotron_jobs j WHERE j.id = e.job_id AND j.status IN ('available', 'running')
+                       )
+                     RETURNING d.id
+                 ), last AS (
+                     SELECT created_at, id FROM examined ORDER BY created_at DESC, id DESC LIMIT 1
+                 )
+                 SELECT (SELECT count(*) FROM swept) AS swept,
+                        (SELECT count(*) FROM examined) AS examined,
+                        (SELECT created_at::text FROM last) AS last_created_at,
+                        (SELECT id FROM last) AS last_id`,
+                [
+                    new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS),
+                    this.cleanupBatchSize,
+                    after?.createdAt ?? null,
+                    after?.id ?? null,
+                ]
             )
-            const swept = result.rowCount ?? 0
+            const { swept: sweptCount, examined, last_created_at, last_id } = result.rows[0]
+            // A short batch reached the end, so the next sweep starts over and rechecks the rows that waited.
+            this.attachmentSweepCursor =
+                Number(examined) < this.cleanupBatchSize || !last_created_at || !last_id
+                    ? null
+                    : { createdAt: last_created_at, id: last_id }
+            const swept = Number(sweptCount)
             if (swept > 0) {
                 emailAttachmentOutcomesTotal.inc({ outcome: 'swept' }, swept)
                 logger.info('CyclotronV2Janitor swept email attachment rows', { count: swept })
