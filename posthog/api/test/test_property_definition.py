@@ -13,6 +13,7 @@ from rest_framework import status
 from posthog.models import ActivityLog, EventDefinition, EventProperty, Organization, PropertyDefinition, Team
 from posthog.taxonomy.property_definition_api import (
     PropertyDefinitionQuerySerializer,
+    PropertyDefinitionSerializer,
     PropertyDefinitionViewSet,
     PropertyUsageMetricsRequestSerializer,
     QueryContext,
@@ -66,13 +67,36 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         EventProperty.objects.get_or_create(team=self.team, event="$pageview", property="first_visit")
         EventProperty.objects.create(team=self.team, event="another_event", property="first_visit")
 
-    def test_individual_property_formats(self):
+    @parameterized.expand(
+        [
+            ("event", PropertyDefinition.Type.EVENT, None, "event", None),
+            ("group", PropertyDefinition.Type.GROUP, 0, "group", 0),
+        ]
+    )
+    def test_individual_property_formats(
+        self,
+        _name: str,
+        definition_type: int,
+        group_type_index: Optional[int],
+        expected_type: str,
+        expected_group_type_index: Optional[int],
+    ):
         property = PropertyDefinition.objects.create(
-            team=self.team, name="timestamp_property", property_type="DateTime"
+            team=self.team,
+            name="timestamp_property",
+            property_type="DateTime",
+            type=definition_type,
+            group_type_index=group_type_index,
         )
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/{property.id}")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["property_type"] == "DateTime"
+        expected = {
+            "property_type": "DateTime",
+            "type": expected_type,
+            "group_type_index": expected_group_type_index,
+        }
+        assert {key: response.json()[key] for key in expected} == expected
+        assert {key: PropertyDefinitionSerializer(property).data[key] for key in expected} == expected
 
     def test_warehouse_origin_provenance_is_exposed(self):
         origin = {"source_id": "s1", "table_name": "github.issues", "column": "plan_tier"}
