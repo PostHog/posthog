@@ -346,6 +346,11 @@ async function gotoStorybookIframe(page: Page, iframeURL: string, targetURL: str
     }
 }
 
+/** Dashboards and Max load more data than other stories, so slower CI runners need longer for their loaders. */
+function loaderTimeout(context: TestContext): number {
+    return context.id.includes('dashboards') || context.id.includes('max') ? 10000 : 5000
+}
+
 async function expectStoryToMatchSnapshot(
     page: Page,
     context: TestContext,
@@ -442,10 +447,7 @@ async function expectStoryToMatchSnapshot(
     if (waitForLoadersToDisappear) {
         // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong
         // Use 'hidden' instead of 'detached' because some elements (like toasts) may remain in DOM but be invisible
-        // Timeout is 5000ms by default, but increased to 10000ms for stories with async data loading (Dashboards, Max)
-        // to account for slower CI environments while still catching stuck elements
-        const timeout = context.id.includes('dashboards') || context.id.includes('max') ? 10000 : 5000
-        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout })
+        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout: loaderTimeout(context) })
     }
 
     if (typeof waitForSelector === 'string') {
@@ -481,11 +483,18 @@ async function waitForPossiblyFramedSelector(page: Page, selector: string, timeo
     await page.frameLocator(frameSelector.trim()).locator(innerSelector.trim()).first().waitFor({ timeout })
 }
 
-/** Resolves when the DOM is quiet for QUIET_WINDOW_MS and no timer or request is due before `timeout`, or at `timeout`. */
-async function waitForQuiet(page: Page, timeout: number): Promise<void> {
+/**
+ * Resolves when the DOM is quiet for QUIET_WINDOW_MS and no timer or request is due before `timeout`, or at `timeout`.
+ *
+ * With `loaderTimeoutMs`, a visible loader also counts as a change, and the wait keeps going past `timeout`
+ * until `loaderTimeoutMs` while one is visible. The earlier `waitForSelector(..., { state: 'hidden' })` checks
+ * only the first match and passes before any loader exists, so a spinner that a late request mounts
+ * afterwards would otherwise reach the screenshot.
+ */
+async function waitForQuiet(page: Page, timeout: number, loaderTimeoutMs: number = 0): Promise<void> {
     await page
         .evaluate(
-            ([quietWindowMs, timeoutMs]) =>
+            ([quietWindowMs, timeoutMs, loaderMs, loaderSelector]) =>
                 new Promise<void>((resolve) => {
                     const work = (
                         window as unknown as {
@@ -495,8 +504,10 @@ async function waitForQuiet(page: Page, timeout: number): Promise<void> {
                             }
                         }
                     ).__testRunnerWork
-                    const deadlineAt = performance.now() + timeoutMs
-                    let lastChange = performance.now()
+                    const startedAt = performance.now()
+                    const deadlineAt = startedAt + timeoutMs
+                    const loaderDeadlineAt = startedAt + Math.max(timeoutMs, loaderMs)
+                    let lastChange = startedAt
                     let lastSize = ''
                     const observer = new MutationObserver(() => {
                         lastChange = performance.now()
@@ -509,7 +520,16 @@ async function waitForQuiet(page: Page, timeout: number): Promise<void> {
                             resolve()
                         }
                     }
-                    ;(work?.setTimeout ?? setTimeout)(finish, timeoutMs)
+                    // Playwright counts an element with an empty box or `visibility: hidden` as hidden, so this matches it.
+                    const isLoaderVisible = (): boolean =>
+                        loaderMs > 0 &&
+                        Array.from(document.querySelectorAll(loaderSelector)).some((element) => {
+                            const rect = element.getBoundingClientRect()
+                            return (
+                                rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== 'hidden'
+                            )
+                        })
+                    ;(work?.setTimeout ?? setTimeout)(finish, loaderDeadlineAt - startedAt)
                     observer.observe(document.documentElement, {
                         subtree: true,
                         childList: true,
@@ -517,12 +537,21 @@ async function waitForQuiet(page: Page, timeout: number): Promise<void> {
                         characterData: true,
                     })
                     const check = (): void => {
+                        const now = performance.now()
                         const size = `${document.body.scrollWidth}:${document.body.scrollHeight}`
                         if (size !== lastSize) {
                             lastSize = size
-                            lastChange = performance.now()
+                            lastChange = now
                         }
-                        if (performance.now() - lastChange >= quietWindowMs && !work?.pendingBefore(deadlineAt)) {
+                        const loading = isLoaderVisible()
+                        if (loading) {
+                            lastChange = now
+                        }
+                        if (now - lastChange >= quietWindowMs && !work?.pendingBefore(deadlineAt)) {
+                            finish()
+                            return
+                        }
+                        if (!loading && now >= deadlineAt) {
                             finish()
                             return
                         }
@@ -532,9 +561,26 @@ async function waitForQuiet(page: Page, timeout: number): Promise<void> {
                     }
                     requestAnimationFrame(check)
                 }),
-            [QUIET_WINDOW_MS, timeout]
+            [QUIET_WINDOW_MS, timeout, loaderTimeoutMs, LOADER_SELECTORS.join(',')] as const
         )
         .catch(() => undefined)
+}
+
+/**
+ * The 0 ms animations that base.scss forces in the test runner sometimes paint their first keyframe in headless
+ * Chromium instead of the last. Finishing every animation commits the last keyframe, which is the state the
+ * forwards fill is meant to hold. An animation with infinite iterations cannot finish and keeps its frame.
+ */
+async function finishAnimations(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        for (const animation of document.getAnimations()) {
+            try {
+                animation.finish()
+            } catch {
+                continue
+            }
+        }
+    })
 }
 
 /** A resize wipes a quill chart canvas before its repaint, and the body-size check cannot see a chart resizing inside a fixed-height card. */
@@ -657,9 +703,12 @@ async function takeSnapshotWithTheme(
         }
     })
 
-    await waitForQuiet(page, CONTENT_SETTLE_TIMEOUT_MS)
+    const { waitForLoadersToDisappear = true } = storyContext.parameters?.testOptions ?? {}
+    await waitForQuiet(page, CONTENT_SETTLE_TIMEOUT_MS, waitForLoadersToDisappear ? loaderTimeout(context) : 0)
 
     await waitForChartCanvasesPainted(page)
+
+    await finishAnimations(page)
 
     // Do take the snapshot
     await doTakeSnapshotWithTheme(page, context, browser, theme, storyContext)
