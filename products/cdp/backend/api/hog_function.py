@@ -72,7 +72,7 @@ from products.cdp.backend.presentation.hog_invocations.rerun import (
     HogInvocationRerunRequestSerializer,
     HogInvocationRerunResponseSerializer,
 )
-from products.cdp.backend.secret_hosts import SecretHosts, parse_stored_hosts, secret_hosts, stored_hosts
+from products.cdp.backend.secret_origins import SecretOrigins, parse_stored_origins, secret_origins, stored_origins
 from products.cdp.backend.services.destination_test_runs import (
     destination_test_run_context,
     record_test_run_request_origins,
@@ -146,7 +146,7 @@ SECRET_HOST_BINDING_FLAG = "cdp-secret-host-binding"
 SECRET_REENTRY_MESSAGE = "This change would send the secret to a new address. Enter the secret again to confirm."
 SECRET_HOST_BINDING_COUNTER = Counter(
     "posthog_cdp_secret_host_binding_total",
-    "Secret inputs saved with the hosts they may be sent to, by outcome and by the API surface that saved them.",
+    "Secret inputs saved with the origins they may be sent to, by outcome and by the API surface that saved them.",
     labelnames=["outcome", "surface"],
 )
 
@@ -338,7 +338,7 @@ def _analyzed_config(hog: Optional[str], inputs: dict, mappings: Any, without: s
     return hog or "", comparable(inputs), [comparable(mapping_inputs) for mapping_inputs in _mapping_inputs(mappings)]
 
 
-def _sends_within(derived: SecretHosts, baseline: SecretHosts) -> bool:
+def _sends_within(derived: SecretOrigins, baseline: SecretOrigins) -> bool:
     return isinstance(derived, frozenset) and isinstance(baseline, frozenset) and derived <= baseline
 
 
@@ -919,11 +919,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 raise serializers.ValidationError({"hog": "Required."})
 
         if hog_type not in TYPES_WITH_JAVASCRIPT_SOURCE:
-            self._bind_secret_hosts(attrs, team, instance)
+            self._bind_secret_origins(attrs, team, instance)
 
         return attrs
 
-    def _bind_secret_hosts(self, attrs: dict, team: Team, instance: Optional[HogFunction]) -> None:
+    def _bind_secret_origins(self, attrs: dict, team: Team, instance: Optional[HogFunction]) -> None:
         inputs = attrs.get("inputs") or {}
         schemas = attrs.get("inputs_schema") or []
         secret_keys = {schema["key"] for schema in schemas if schema.get("secret") and schema["key"] in inputs}
@@ -932,36 +932,36 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         hog = attrs.get("hog", instance.hog if instance else "")
         mappings = attrs.get("mappings", instance.mappings if instance else None)
-        derived = secret_hosts(hog or "", inputs, _mapping_inputs(mappings), secret_keys)
+        derived = secret_origins(hog or "", inputs, _mapping_inputs(mappings), secret_keys)
         entered = entered_secret_input_keys(self.initial_data.get("inputs"))
         stored_secrets = self.context.get("encrypted_inputs") or {}
         stored_inputs = {**((instance.inputs or {}) if instance else {}), **stored_secrets}
-        stored_derived: Optional[dict[str, SecretHosts]] = None
+        stored_derived: Optional[dict[str, SecretOrigins]] = None
 
         refused = []
         outcomes = []
         for key in secret_keys:
             stored = stored_secrets.get(key)
             if instance is None or key in entered or not isinstance(stored, dict):
-                hosts, outcome = derived[key], "bound"
+                origins, outcome = derived[key], "bound"
             else:
                 unchanged = _analyzed_config(hog, inputs, mappings, key) == _analyzed_config(
                     instance.hog, stored_inputs, instance.mappings, key
                 )
-                baseline = parse_stored_hosts(stored.get("allowed_hosts"))
+                baseline = parse_stored_origins(stored.get("allowed_origins"))
                 if baseline is None and unchanged:
                     baseline = derived[key]
                 elif baseline is None:
                     if stored_derived is None:
-                        stored_derived = secret_hosts(
+                        stored_derived = secret_origins(
                             instance.hog or "", stored_inputs, _mapping_inputs(instance.mappings), secret_keys
                         )
                     baseline = stored_derived[key]
-                hosts = baseline
+                origins = baseline
                 outcome = "kept" if unchanged or _sends_within(derived[key], baseline) else "refused"
                 if outcome == "refused":
                     refused.append(key)
-            inputs[key]["allowed_hosts"] = stored_hosts(hosts)
+            inputs[key]["allowed_origins"] = stored_origins(origins)
             outcomes.append(outcome)
 
         view = self.context.get("view")
@@ -1560,7 +1560,7 @@ class HogFunctionViewSet(
             data = {**data, "configuration": self._draft_test_configuration(hog_function)}
             if hog_function is not None:
                 # In memory only. Recovering staged secrets like live ones keeps them under the same
-                # host check, which plaintext values in the configuration would skip as newly entered.
+                # origin check, which plaintext values in the configuration would skip as newly entered.
                 hog_function.encrypted_inputs = {
                     **(hog_function.encrypted_inputs or {}),
                     **(hog_function.draft_encrypted_inputs or {}),
@@ -1771,11 +1771,11 @@ class HogFunctionViewSet(
             entered = supplied & draft_secrets.keys()
             if entered:
                 draft_inputs = {**(draft.get("inputs") or {}), **(locked.encrypted_inputs or {}), **draft_secrets}
-                hosts = secret_hosts(
+                origins = secret_origins(
                     draft.get("hog") or "", draft_inputs, _mapping_inputs(draft.get("mappings")), set(draft_secrets)
                 )
                 for key in entered:
-                    draft_secrets[key] = {**draft_secrets[key], "allowed_hosts": stored_hosts(hosts[key])}
+                    draft_secrets[key] = {**draft_secrets[key], "allowed_origins": stored_origins(origins[key])}
         else:
             # This edit didn't touch inputs, so whatever is already staged still applies — and with
             # nothing staged, publish recovers the live secrets.

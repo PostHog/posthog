@@ -1250,9 +1250,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "bytecode_contract": RUNTIME_CONTRACT,
                     "value": "I AM SECRET",
                     "order": 0,
-                    "allowed_hosts": "*",
+                    "allowed_origins": "*",
                 },
-                "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1VQVJqL13wH-WALMn9obfpLYD_WWOUdMA6VurFg1TxdopDxFtIztV_BWe5ApI2TtI5TGtE3dw7Y8AT_Gs7SFzpwuQM3rhYDmuNnIMwpZRsSnWkcHUxDsKXKZpnGcn2Kuw4478ORMch-0hpkZQ1A2lJBhuJw1MYovyQkGmiITTdFXA==",
+                "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1VQVJqL13wH-WALMn9obfpLYD_WWOUdMA6VurFg1TxdopDxFtIztV_BWe5ApI2TtI5TGtE3dw7Y8AT_Gs7SFzpwH0Ci-pTeS9qE6bJ7Y6poHawTvlQGHeYDqGDsKgOed-3ZWciJO6RbG1JUhCt1uewQ4K50T2byam1WpqcjCZf8xA==",
                 {"secret": True},
                 [],
             ),
@@ -1267,7 +1267,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "templating": False,
                 },
                 {"Authorization": "Bearer I AM SECRET"},
-                {"value": {"Authorization": "Bearer I AM SECRET"}, "order": 0, "allowed_hosts": []},
+                {"value": {"Authorization": "Bearer I AM SECRET"}, "order": 0, "allowed_origins": []},
                 None,
                 {"secret": True, "value": {"Authorization": "********"}},
                 [{"key": "headers", "type": "dictionary", "label": "Headers", "required": False}],
@@ -1283,7 +1283,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "templating": False,
                 },
                 {"I AM SECRET": "account-1"},
-                {"value": {"I AM SECRET": "account-1"}, "order": 0, "allowed_hosts": []},
+                {"value": {"I AM SECRET": "account-1"}, "order": 0, "allowed_origins": []},
                 None,
                 {"secret": True},
                 [],
@@ -1438,15 +1438,15 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("rename", "patch", {"name": "Renamed"}, True, status.HTTP_200_OK, ["hooks.example.com"]),
-            ("disable", "patch", {"enabled": False}, True, status.HTTP_200_OK, ["hooks.example.com"]),
+            ("rename", "patch", {"name": "Renamed"}, True, status.HTTP_200_OK, ["https://hooks.example.com"]),
+            ("disable", "patch", {"enabled": False}, True, status.HTTP_200_OK, ["https://hooks.example.com"]),
             (
                 "filter_edit",
                 "patch",
                 {"filters": {"source": "events"}},
                 True,
                 status.HTTP_200_OK,
-                ["hooks.example.com"],
+                ["https://hooks.example.com"],
             ),
             (
                 "unchanged_resave",
@@ -1454,7 +1454,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"inputs": _sender_inputs(SENDER_URL)},
                 True,
                 status.HTTP_200_OK,
-                ["hooks.example.com"],
+                ["https://hooks.example.com"],
             ),
             (
                 "same_host",
@@ -1462,7 +1462,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"inputs": _sender_inputs("https://hooks.example.com/b")},
                 True,
                 status.HTTP_200_OK,
-                ["hooks.example.com"],
+                ["https://hooks.example.com"],
             ),
             (
                 "new_host",
@@ -1470,7 +1470,15 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"inputs": _sender_inputs(MOVED_URL)},
                 True,
                 status.HTTP_400_BAD_REQUEST,
-                ["hooks.example.com"],
+                ["https://hooks.example.com"],
+            ),
+            (
+                "same_host_without_tls",
+                "patch",
+                {"inputs": _sender_inputs("http://hooks.example.com/a")},
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                ["https://hooks.example.com"],
             ),
             (
                 "new_host_by_put",
@@ -1478,7 +1486,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"inputs": _sender_inputs(MOVED_URL)},
                 True,
                 status.HTTP_400_BAD_REQUEST,
-                ["hooks.example.com"],
+                ["https://hooks.example.com"],
             ),
             (
                 "new_host_with_the_flag_off",
@@ -1486,7 +1494,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"inputs": _sender_inputs(MOVED_URL)},
                 False,
                 status.HTTP_200_OK,
-                ["hooks.example.com"],
+                ["https://hooks.example.com"],
             ),
             (
                 "new_host_with_the_secret_entered",
@@ -1494,7 +1502,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"inputs": _sender_inputs(MOVED_URL, {"value": "I AM NEW"})},
                 True,
                 status.HTTP_200_OK,
-                ["evil.example.com"],
+                ["https://evil.example.com"],
             ),
             (
                 "code_sends_it_elsewhere",
@@ -1502,7 +1510,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"hog": MOVED_SENDER_HOG},
                 True,
                 status.HTTP_400_BAD_REQUEST,
-                ["hooks.example.com"],
+                ["https://hooks.example.com"],
             ),
             (
                 "code_cannot_be_analyzed",
@@ -1510,12 +1518,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"hog": "fetch(event.properties.url, {'body': inputs.token});"},
                 True,
                 status.HTTP_400_BAD_REQUEST,
-                ["hooks.example.com"],
+                ["https://hooks.example.com"],
             ),
         ]
     )
     def test_moving_a_stored_secret_needs_it_entered_again(
-        self, _name: str, method: str, change: dict, flag_on: bool, expected_status: int, expected_hosts: list[str]
+        self, _name: str, method: str, change: dict, flag_on: bool, expected_status: int, expected_origins: list[str]
     ) -> None:
         res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=SECRET_SENDER)
         assert res.status_code == status.HTTP_201_CREATED, res.json()
@@ -1532,26 +1540,26 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert (res.json()["attr"], res.json()["code"]) == ("inputs__token", "secret_reentry_required")
         stored = HogFunction.objects.get(id=function_id).encrypted_inputs["token"]
         assert stored["value"] == change.get("inputs", {}).get("token", {}).get("value", "I AM SECRET")
-        assert stored["allowed_hosts"] == expected_hosts
+        assert stored["allowed_origins"] == expected_origins
 
     @parameterized.expand(
         [
-            ("known_hosts_new_host", SENDER_HOG, {"inputs": _sender_inputs(MOVED_URL)}, status.HTTP_400_BAD_REQUEST),
+            ("known_origins_new_host", SENDER_HOG, {"inputs": _sender_inputs(MOVED_URL)}, status.HTTP_400_BAD_REQUEST),
             (
-                "unknown_hosts_rename",
+                "unknown_origins_rename",
                 "fetch(event.properties.url, {'body': inputs.token});",
                 {"name": "Renamed"},
                 status.HTTP_200_OK,
             ),
             (
-                "unknown_hosts_any_config_change",
+                "unknown_origins_any_config_change",
                 "fetch(event.properties.url, {'body': inputs.token});",
                 {"inputs": _sender_inputs("https://hooks.example.com/b")},
                 status.HTTP_400_BAD_REQUEST,
             ),
         ]
     )
-    def test_secret_saved_before_hosts_were_bound_is_checked_against_its_stored_config(
+    def test_secret_saved_before_origins_were_bound_is_checked_against_its_stored_config(
         self, _name: str, hog: str, change: dict, expected_status: int
     ) -> None:
         function = HogFunction.objects.create(
