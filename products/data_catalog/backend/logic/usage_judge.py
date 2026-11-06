@@ -30,12 +30,17 @@ _MAX_FIELD_CHARS = 8000
 
 _SYSTEM_PROMPT = """You review how AI agents answer data questions for a team that keeps a catalog of approved metric definitions.
 
-You get one catalog metric and one SQL query an agent ran, with the question the agent said it was answering.
-Decide how the query relates to the metric:
+You get one catalog metric and one SQL query an agent ran. You also get the agent's note for that query and, when known, the question the agent's whole session tried to answer.
 
-- "serves": the query computes the metric's measure for the agent's question. A different time range, grain, grouping, sort order or row limit still serves.
-- "slice": the query computes the metric's measure, restricted by an extra filter the metric does not have, for example one plan, one country or one event property.
-- "different": the query computes a different measure, or serves a different purpose, even when it reads the same tables.
+First decide whether the agent needed the metric's number. The metric's number is the value its definition computes, such as a count, a sum or a ratio. The agent needed it when the session question or the query note asks for that value, or for that value in a smaller population.
+
+If the agent did not need the metric's number, the relation is "different", even when the query reads the same events or columns as the metric. Examples: the query profiles one person's activity, counts the parts of a ratio as columns of a wider report, finds which properties exist, or samples rows to read them.
+
+If the agent needed the metric's number, decide how the query relates to the metric:
+
+- "serves": the query computes the metric's number for the agent's question. A different time range, grain, grouping, sort order or row limit still serves.
+- "slice": the query computes the metric's number, restricted by an extra filter the metric does not have, for example one plan, one country or one tool.
+- "different": the query computes a different number, even when it reads the same tables.
 
 Reply with one JSON object and nothing else, in this key order:
 {"reasoning": "<two or three sentences>", "relation": "serves" | "slice" | "different", "confidence": <number from 0 to 1>}"""
@@ -66,17 +71,20 @@ class _JudgeReply(BaseModel):
     confidence: float = Field(ge=0, le=1)
 
 
-def build_judge_prompt(metric: MetricBrief, intent: str, sql: str) -> str:
+def build_judge_prompt(metric: MetricBrief, intent: str, sql: str, question: str = "") -> str:
     return (
         f"Metric name: {metric.name}\n"
         f"Metric description: {metric.description[:_MAX_FIELD_CHARS]}\n"
         f"Metric definition:\n{metric.definition[:_MAX_FIELD_CHARS]}\n\n"
-        f"Agent question: {intent[:_MAX_FIELD_CHARS] or '(not given)'}\n"
+        f"Session question: {question[:_MAX_FIELD_CHARS] or '(not given)'}\n"
+        f"Agent note for this query: {intent[:_MAX_FIELD_CHARS] or '(not given)'}\n"
         f"Agent SQL:\n{sql[:_MAX_FIELD_CHARS]}"
     )
 
 
-async def judge_pair(client: AsyncAnthropic, metric: MetricBrief, intent: str, sql: str) -> JudgeVerdict:
+async def judge_pair(
+    client: AsyncAnthropic, metric: MetricBrief, intent: str, sql: str, question: str = ""
+) -> JudgeVerdict:
     """The judge's verdict. A failed call or reply is ``different`` and marked ``failed``.
 
     A failure never guesses a match, so a broken judge can only undercount re-derivations. The mark
@@ -86,7 +94,7 @@ async def judge_pair(client: AsyncAnthropic, metric: MetricBrief, intent: str, s
         response = await client.messages.create(
             model=JUDGE_MODEL,
             system=_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": build_judge_prompt(metric, intent, sql)}],
+            messages=[{"role": "user", "content": build_judge_prompt(metric, intent, sql, question)}],
             max_tokens=_JUDGE_MAX_TOKENS,
         )
         text = "".join(block.text for block in response.content if block.type == "text")

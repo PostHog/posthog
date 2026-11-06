@@ -9,11 +9,12 @@ import json
 import asyncio
 import hashlib
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import datetime, timedelta
 from uuid import UUID
 
 import structlog
+from anthropic import AsyncAnthropic
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -47,6 +48,9 @@ _JUDGE_CONCURRENCY = 24
 
 _DESCRIBE_TOOLS = frozenset({"metric-describe", "data-catalog-metric-run"})
 _LIST_TOOL = "metric-list"
+_SEARCH_TOOL = "execute-sql"
+# A metadata search that selects no description cannot read the catalog, for example a check of column types.
+_CATALOG_SEARCH_COLUMN = "description"
 
 # One day of agent SQL fits in one query result. The page is a day so the scan stays under the
 # HogQL row cap as traffic grows.
@@ -82,22 +86,25 @@ LIMIT 50000
 """
 
 # `input_state` holds the tool arguments as a JSON string, so the metric name sits one decode down.
+# An `execute-sql` span exists only for a metadata search, because every other query is a `$ai_generation`.
 _CATALOG_CALLS_QUERY = """
 SELECT
     a.trace_id,
     a.timestamp,
     a.span_name,
-    JSONExtractString(JSONExtractString(ifNull(a.input_state, '')), 'name') AS metric_name
+    JSONExtractString(JSONExtractString(ifNull(a.input_state, '')), 'name') AS metric_name,
+    JSONExtractString(JSONExtractString(ifNull(a.input_state, '')), 'query') AS search_query,
+    a.is_error
 FROM posthog.ai_events AS a
 WHERE a.event = '$ai_span'
-    AND a.span_name IN ('metric-describe', 'data-catalog-metric-run', 'metric-list')
+    AND a.span_name IN ('metric-describe', 'data-catalog-metric-run', 'metric-list', 'execute-sql')
     AND a.timestamp >= {start}
     AND a.timestamp < {end}
     AND toString(a.properties.$mcp_project_uuid) = {project}
     AND a.trace_id IN (
         SELECT properties.$ai_trace_id FROM events
         WHERE event = '$ai_span'
-            AND properties.$ai_span_name IN ('metric-describe', 'data-catalog-metric-run', 'metric-list')
+            AND properties.$ai_span_name IN ('metric-describe', 'data-catalog-metric-run', 'metric-list', 'execute-sql')
             AND timestamp >= {start}
             AND timestamp < {end}
             AND toString(properties.$mcp_project_uuid) = {project}
@@ -122,6 +129,7 @@ class CatalogCall:
     occurred_at: datetime
     tool: str
     metric_name: str
+    failed: bool = False
 
 
 @frozen
@@ -154,7 +162,10 @@ def build_candidate_groups(queries: Iterable[AgentQuery], index: CatalogIndex) -
         matched = {
             match.metric_id
             for measure in measures
-            if (match := index.classify(measure)).outcome != ShapeOutcome.UNCOVERED and match.metric_id is not None
+            if (match := index.classify(measure)).outcome != ShapeOutcome.UNCOVERED
+            and match.metric_id is not None
+            # A query cannot have ignored a metric that did not exist yet.
+            and index.existed_at(match.metric_id, query.occurred_at)
         }
         sql_key = hashlib.sha256(query.sql.strip().encode()).hexdigest()
         for metric_id in matched:
@@ -238,11 +249,15 @@ def fetch_catalog_calls(
     *, team: Team, telemetry_team: Team, window_start: datetime, window_end: datetime
 ) -> dict[str, list[CatalogCall]]:
     calls: dict[str, list[CatalogCall]] = defaultdict(list)
-    for trace_id, occurred_at, tool, metric_name in paged_rows(
+    for trace_id, occurred_at, tool, metric_name, search_query, is_error in paged_rows(
         _CATALOG_CALLS_QUERY, team, telemetry_team, window_start, window_end, "DataCatalogUsageCatalogCalls"
     ):
+        if tool == _SEARCH_TOOL and _CATALOG_SEARCH_COLUMN not in search_query.lower():
+            continue
         calls[trace_id].append(
-            CatalogCall(trace_id=trace_id, occurred_at=occurred_at, tool=tool, metric_name=metric_name)
+            CatalogCall(
+                trace_id=trace_id, occurred_at=occurred_at, tool=tool, metric_name=metric_name, failed=bool(is_error)
+            )
         )
     return calls
 
@@ -293,7 +308,7 @@ def _plan_detection(*, team_id: int, snapshot_id: UUID, telemetry_team_id: int) 
     telemetry_team = Team.objects.get(id=telemetry_team_id)
     window = usage_snapshot_window(team_id, snapshot_id)
     index = CatalogIndex.for_team(team)
-    briefs = {metric.id: _brief(metric, team) for metric in Metric.objects.for_team(team.id).filter(deleted=False)}
+    briefs = metric_briefs(team)
 
     queries = fetch_agent_queries(
         team=team, telemetry_team=telemetry_team, window_start=window.start, window_end=window.end
@@ -307,6 +322,10 @@ def _plan_detection(*, team_id: int, snapshot_id: UUID, telemetry_team_id: int) 
     return _DetectionPlan(selection=selection, briefs=briefs, calls_by_trace=calls)
 
 
+def metric_briefs(team: Team) -> dict[UUID, MetricBrief]:
+    return {metric.id: _brief(metric, team) for metric in Metric.objects.for_team(team.id).filter(deleted=False)}
+
+
 def _brief(metric: Metric, team: Team) -> MetricBrief:
     definition = metric.definition or {}
     if definition.get("kind") == HOGQL_DEFINITION_KIND:
@@ -314,6 +333,30 @@ def _brief(metric: Metric, team: Team) -> MetricBrief:
     else:
         text = definition_to_hogql(definition, team) or json.dumps(definition)
     return MetricBrief(name=metric.name, description=metric.description, definition=text)
+
+
+async def judge_groups(
+    client: AsyncAnthropic,
+    groups: Sequence[CandidateGroup],
+    briefs: dict[UUID, MetricBrief],
+    heartbeat: Callable[[], None],
+    questions: Mapping[str, str] | None = None,
+) -> list[JudgeVerdict]:
+    """Judge each group once. ``questions`` maps a trace id to its session question.
+
+    A group runs one SQL text, and the judge reads the question of its first run that has one.
+    """
+    semaphore = asyncio.Semaphore(_JUDGE_CONCURRENCY)
+    known = questions or {}
+
+    async def judge(group: CandidateGroup) -> JudgeVerdict:
+        question = next((known[run.trace_id] for run in group.occurrences if known.get(run.trace_id)), "")
+        async with semaphore:
+            verdict = await judge_pair(client, briefs[group.metric_id], group.intent, group.sql, question)
+        heartbeat()
+        return verdict
+
+    return await asyncio.gather(*(judge(group) for group in groups))
 
 
 async def detect_adjusted_runs_into_snapshot(
@@ -324,7 +367,6 @@ async def detect_adjusted_runs_into_snapshot(
         team_id=team_id, snapshot_id=snapshot_id, telemetry_team_id=telemetry_team_id
     )
     groups = plan.selection.groups
-    semaphore = asyncio.Semaphore(_JUDGE_CONCURRENCY)
 
     async with build_async_anthropic_client(
         product="django",
@@ -332,14 +374,7 @@ async def detect_adjusted_runs_into_snapshot(
         team_id=team_id,
         trace_id=f"data-catalog-usage-{snapshot_id}",
     ) as client:
-
-        async def judge(group: CandidateGroup) -> JudgeVerdict:
-            async with semaphore:
-                verdict = await judge_pair(client, plan.briefs[group.metric_id], group.intent, group.sql)
-            heartbeat()
-            return verdict
-
-        verdicts = await asyncio.gather(*(judge(group) for group in groups))
+        verdicts = await judge_groups(client, groups, plan.briefs, heartbeat)
 
     names = {metric_id: brief.name for metric_id, brief in plan.briefs.items()}
     runs = assemble_adjusted_runs(groups, verdicts, names, plan.calls_by_trace)

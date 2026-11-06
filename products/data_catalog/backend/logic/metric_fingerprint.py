@@ -54,7 +54,9 @@ class CatalogIndex:
     def __init__(self, measures: Iterable[CatalogMeasure], *, unmeasured_metric_ids: Iterable[UUID] = ()) -> None:
         self._by_digest: dict[str, list[CatalogMeasure]] = defaultdict(list)
         self._by_source: dict[tuple[tuple[str, ...], str], list[CatalogMeasure]] = defaultdict(list)
+        self._created_at: dict[UUID, datetime] = {}
         for measure in measures:
+            self._created_at[measure.metric_id] = measure.created_at
             self._by_digest[measure.fingerprint.digest].append(measure)
             self._by_source[(measure.fingerprint.tables, measure.fingerprint.aggregate)].append(measure)
         # Metrics the index cannot match: markdown, funnels, multi-series trends, or no aggregate.
@@ -79,6 +81,9 @@ class CatalogIndex:
                 for fingerprint in fingerprints
             )
         return cls(measures, unmeasured_metric_ids=unmeasured)
+
+    def existed_at(self, metric_id: UUID, moment: datetime) -> bool:
+        return self._created_at[metric_id] <= moment
 
     def classify(self, shape: MeasureFingerprint) -> ShapeMatch:
         """``covered`` when the shape equals any measure of a metric, ``slice`` when it adds filters to one."""

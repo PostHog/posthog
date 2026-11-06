@@ -1,4 +1,5 @@
 import json
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
@@ -472,6 +473,9 @@ class TestTopicSessionsQuery(ClickhouseTestMixin, BaseTest):
             team=self.team, telemetry_team=self.team, window_start=end - timedelta(days=1), window_end=end
         )
 
+        assert {session.started_at for session in sessions} == {at}
+        assert {session.source for session in sessions} == {"mcp"}
+        sessions = [dataclasses.replace(session, started_at=None, source="") for session in sessions]
         assert sorted(sessions, key=lambda session: session.session_id) == [
             _session(
                 "person",
@@ -484,3 +488,11 @@ class TestTopicSessionsQuery(ClickhouseTestMixin, BaseTest):
             ),
             _session("trends", "query-trends", person="d1", notes=("weekly signups",)),
         ]
+        capped = fetch_topic_sessions(
+            team=self.team,
+            telemetry_team=self.team,
+            window_start=end - timedelta(days=1),
+            window_end=end,
+            session_limit=1,
+        )
+        assert len(capped) == 1
