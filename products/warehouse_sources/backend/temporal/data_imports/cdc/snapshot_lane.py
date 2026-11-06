@@ -32,6 +32,8 @@ BUFFER_LANE = "buffer"
 # Marks a table whose reset waits for a sync that can still hand over. The slot or the request moves
 # on meanwhile, so this key is what makes a later capture run finish the reset.
 CDC_RESET_PENDING_KEY = "cdc_reset_pending"
+# A `_ph_cdc_seq` value: the snapshot holds every change at or below it.
+CDC_SNAPSHOT_POSITION_KEY = "cdc_snapshot_position"
 
 
 def snapshot_in_buffer(schema: ExternalDataSchema) -> bool:
