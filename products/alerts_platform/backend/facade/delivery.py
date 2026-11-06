@@ -41,6 +41,11 @@ def register_source_describer(source: SourceKind, describer: SourceDescriber) ->
     describers.register(source, describer)
 
 
+def register_appearance_describer(source: SourceKind, describer: SourceDescriber) -> None:
+    """How a source words its appearance alerts, which announce an identity rather than a count."""
+    describers.register(source, describer, appearance=True)
+
+
 def register_image_resolver(source: SourceKind, resolver: SourceImageResolver) -> None:
     describers.register_image_resolver(source, resolver)
 

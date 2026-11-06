@@ -15,6 +15,7 @@ const CONFIGURATION: PlatformAlertConfigurationApi = {
     labels: {},
     annotations: {},
     source_kind: 'logs',
+    alert_kind: 'threshold',
     source_config: {
         filters: { serviceNames: ['checkout'], severityLevels: ['error'] },
         condition: { threshold_count: 100, threshold_operator: 'above', window_minutes: 5 },

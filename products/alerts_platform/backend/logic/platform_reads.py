@@ -60,6 +60,7 @@ def _configuration_view(configuration: PlatformAlertConfiguration) -> PlatformAl
         name=configuration.name,
         enabled=configuration.enabled,
         source_kind=configuration.source_kind,
+        alert_kind=configuration.alert_kind,
         source_config=configuration.source_config,
         check_interval_minutes=configuration.check_interval_minutes,
         recurrence_unit=configuration.recurrence_unit,

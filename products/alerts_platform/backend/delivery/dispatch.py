@@ -24,6 +24,7 @@ from products.alerts_platform.backend.delivery.transport import (
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
+    AlertEventKind,
     AnnouncedTransition,
     DeliveryPath,
     EvaluationAnnouncement,
@@ -108,7 +109,8 @@ def deliver(
         except Exception:
             thread_store.release(claim)
             raise
-        if claim.handle is not None:
+        # An appearance holds no firing, so the root's state line would read as resolved.
+        if claim.handle is not None and transition.kind != AlertEventKind.APPEARED:
             # A reply landed under an opening message, so the opening message catches up. It runs
             # before `delivered` releases the claim, so edits to one root happen in send order and
             # a slow edit cannot land after a newer one.

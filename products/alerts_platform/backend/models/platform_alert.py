@@ -28,6 +28,7 @@ from products.alerts_platform.backend.facade.enums import (
     PlatformAlertCheckStatus,
     PlatformAlertConfigurationRecurrenceUnit,
     PlatformAlertConfigurationSourceKind,
+    PlatformAlertKind,
     PlatformAlertOwner,
     PlatformAlertState,
 )
@@ -54,6 +55,7 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
     # import this module. The attribute stays so `PlatformAlertConfiguration.SourceKind` reads
     # the way every other model in the repo does.
     SourceKind = PlatformAlertConfigurationSourceKind
+    Kind = PlatformAlertKind
     RecurrenceUnit = PlatformAlertConfigurationRecurrenceUnit
     Owner = PlatformAlertOwner
     CheckStatus = PlatformAlertCheckStatus
@@ -71,6 +73,9 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
     enabled = models.BooleanField(default=True, db_default=True)
 
     source_kind = models.CharField(max_length=32, choices=source_kind_choices)
+    alert_kind = models.CharField(
+        max_length=16, choices=Kind.choices, default=Kind.THRESHOLD.value, db_default=Kind.THRESHOLD.value
+    )
     source_config = models.JSONField(default=dict)
     # The stored form of the facade's `Grouping`.
     grouping = models.JSONField(default=single_instance_grouping, db_default={"mode": "single", "keys": []})
@@ -126,6 +131,9 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
     destinations_owner = models.CharField(
         max_length=16, choices=Owner.choices, default=Owner.SOURCE.value, db_default=Owner.SOURCE.value
     )
+    # Where a check that reads closed windows starts its next one. Null until its first check, which starts at
+    # `created_at`.
+    evaluated_until = models.DateTimeField(null=True, blank=True)
 
     activity_logging_on_delete = True
 

@@ -97,6 +97,7 @@ class TestAlertmanagerBody(SimpleTestCase):
                 "2026-09-30T09:00:00+00:00",
                 "2026-09-30T10:00:00+00:00",
             ),
+            ("appeared", AlertEventKind.APPEARED, "resolved", "2026-09-30T09:00:00+00:00", "2026-09-30T10:00:00+00:00"),
         ]
     )
     def test_each_kind_maps_onto_an_alertmanager_status(

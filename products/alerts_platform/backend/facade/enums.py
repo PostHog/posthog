@@ -18,6 +18,15 @@ class PlatformAlertConfigurationSourceKind(LabeledStrEnum):
     METRICS = "metrics", "Metrics"
 
 
+class PlatformAlertKind(LabeledStrEnum):
+    """How a configuration's checks decide. Each kind has its own evaluator and its own `source_config`."""
+
+    # A measured value crosses a bound, and resolves when it stops.
+    THRESHOLD = "threshold", "Threshold"
+    # Something new, or back after a resolve, is announced once. The platform evaluates these itself.
+    APPEARANCE = "appearance", "Appearance"
+
+
 class PlatformAlertOwner(LabeledStrEnum):
     """The one stack that evaluates and delivers an alert, and the only one that writes it."""
 

@@ -34,7 +34,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
     source_condition,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import PlatformAlertKind, PlatformAlertOwner, PlatformAlertState
 from products.alerts_platform.backend.facade.lifecycle import NotificationAction
 from products.alerts_platform.backend.facade.platform_metrics import (
     increment_groups_over_cap,
@@ -232,18 +232,27 @@ def suppressed() -> Q:
 RULE_METADATA_FIELDS: Final = ("labels", "annotations")
 
 
-def _due(team_id: int, source_kind: str, cutoff: datetime) -> QuerySet[PlatformAlertConfiguration]:
+def _due(
+    team_id: int, source_kind: str, cutoff: datetime, alert_kind: PlatformAlertKind
+) -> QuerySet[PlatformAlertConfiguration]:
     return (
         PlatformAlertConfiguration.objects.for_team(team_id)
         .defer(*RULE_METADATA_FIELDS)
-        .filter(enabled=True, source_kind=source_kind)
+        .filter(enabled=True, source_kind=source_kind, alert_kind=alert_kind)
         .filter(due_q(cutoff))
         .exclude(suppressed())
     )
 
 
 def due_check_ids(
-    team_id: int, source_kind: str, slot: str, cutoff: datetime, *, exclude: Collection[str] = (), limit: int
+    team_id: int,
+    source_kind: str,
+    slot: str,
+    cutoff: datetime,
+    *,
+    exclude: Collection[str] = (),
+    limit: int,
+    alert_kind: PlatformAlertKind = PlatformAlertKind.THRESHOLD,
 ) -> tuple[str, ...]:
     """The first `limit` due ids of one batch key, in id order, without reading their runtime rows.
 
@@ -251,7 +260,7 @@ def due_check_ids(
     reload every configuration and its alert row each time a check finishes.
     """
     rows = (
-        _due(team_id, source_kind, cutoff)
+        _due(team_id, source_kind, cutoff, alert_kind)
         .exclude(id__in=list(exclude))
         .order_by("id")
         .values_list("id", "next_check_at")
@@ -267,14 +276,20 @@ def due_check_ids(
 
 
 def due_checks(
-    team_id: int, source_kind: str, slot: str, cutoff: datetime, *, configuration_ids: Collection[str] | None = None
+    team_id: int,
+    source_kind: str,
+    slot: str,
+    cutoff: datetime,
+    *,
+    configuration_ids: Collection[str] | None = None,
+    alert_kind: PlatformAlertKind = PlatformAlertKind.THRESHOLD,
 ) -> tuple[PlatformAlertCheckInput, ...]:
     """Every configuration in one batch key, with its runtime state, ready to evaluate.
 
     `configuration_ids` narrows the batch to those rows, for a source that evaluates one check at
     a time and must still read nothing the batch would not.
     """
-    due = _due(team_id, source_kind, cutoff)
+    due = _due(team_id, source_kind, cutoff, alert_kind)
     if configuration_ids is not None:
         due = due.filter(id__in=list(configuration_ids))
     # Ordered so a retried attempt keeps the same alerts under any downstream cap.
@@ -308,6 +323,8 @@ def _check(c: PlatformAlertConfiguration, alerts: Sequence[PlatformAlert]) -> Pl
         owned_by_platform=c.owner == PlatformAlertConfiguration.Owner.PLATFORM,
         recurrence_unit=c.recurrence_unit,
         anchor_time=c.anchor_time,
+        created_at=c.created_at,
+        evaluated_until=c.evaluated_until,
     )
 
 
@@ -496,6 +513,7 @@ def _without_stale_groups(
 
 _HELD_BY_MUTE: Final = {
     AlertEventKind.FIRING: NotificationAction.FIRE.value,
+    AlertEventKind.APPEARED: NotificationAction.FIRE.value,
     AlertEventKind.RESOLVED: NotificationAction.RESOLVE.value,
 }
 
@@ -638,6 +656,8 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                 configuration.overflow_is_lower_bound = outcome.overflow_is_lower_bound
             if outcome.disable:
                 configuration.enabled = False
+            if outcome.evaluated_until is not None:
+                configuration.evaluated_until = outcome.evaluated_until
             configuration.next_check_at = advance_schedule(
                 current_next_check_at=configuration.next_check_at,
                 check_interval_minutes=configuration.check_interval_minutes,
@@ -664,6 +684,7 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                 "next_check_at",
                 "overflowed_groups",
                 "overflow_is_lower_bound",
+                "evaluated_until",
             ],
         )
         # In this transaction, because a recorded firing whose hold was lost would never be sent. A
@@ -831,11 +852,13 @@ def create_native_configuration(
     check_interval_minutes: int,
     destinations_owner: PlatformAlertOwner,
     now: datetime,
+    alert_kind: PlatformAlertKind = PlatformAlertKind.THRESHOLD,
 ) -> PlatformAlertConfiguration:
     """Creates an alert the platform owns from the start, for a kind whose source keeps no row for it."""
     configuration = PlatformAlertConfiguration(
         team_id=team_id,
         source_kind=source_kind.value,
+        alert_kind=alert_kind.value,
         check_interval_minutes=check_interval_minutes,
         next_check_at=now,
         owner=PlatformAlertOwner.PLATFORM,

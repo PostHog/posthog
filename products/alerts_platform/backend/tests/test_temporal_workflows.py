@@ -3,6 +3,7 @@ import asyncio
 import logging
 import datetime as dt
 from collections.abc import AsyncIterator, Iterator
+from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
@@ -46,6 +47,7 @@ from products.alerts_platform.backend.facade.contracts import (
     OrchestrateResult,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertKind
 from products.alerts_platform.backend.facade.temporal import (
     DELIVERY_ACTIVITIES,
     DELIVERY_EXECUTION_TIMEOUT,
@@ -546,7 +548,13 @@ async def test_probe_workflow_cancellation_does_not_start_delivery() -> None:
 
 class TestDemandDiscovery(APIBaseTest):
     def _configuration(
-        self, *, minutes_ago: int | None, enabled: bool = True, name: str = "alert", check_status: str = "ok"
+        self,
+        *,
+        minutes_ago: int | None,
+        enabled: bool = True,
+        name: str = "alert",
+        check_status: str = "ok",
+        alert_kind: str = "threshold",
     ):
         with team_scope(self.team.id):
             return PlatformAlertConfiguration.objects.create(
@@ -555,6 +563,7 @@ class TestDemandDiscovery(APIBaseTest):
                 enabled=enabled,
                 check_status=check_status,
                 source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
+                alert_kind=alert_kind,
                 source_config={},
                 check_interval_minutes=5,
                 next_check_at=None if minutes_ago is None else self.tick - dt.timedelta(minutes=minutes_ago),
@@ -598,11 +607,19 @@ class TestDemandDiscovery(APIBaseTest):
         self._configuration(minutes_ago=1, name="first")
         self._configuration(minutes_ago=1, name="second")
         self._configuration(minutes_ago=2, name="older")
+        self._configuration(minutes_ago=1, name="new patterns", alert_kind="appearance")
 
         discovered = demand.discover_demand(self.tick.isoformat())
 
-        # Two configurations, one key: a key is a team and a minute, not an alert.
-        assert discovered.batch_keys_by_source == {SourceKind.LOGS: [self._key(2), self._key(1)]}
+        # Two configurations, one key: a key is a team and a minute, not an alert. An appearance alert
+        # in the same minute gets a key of its own, because the platform evaluates it, not the source.
+        assert discovered.batch_keys_by_source == {
+            SourceKind.LOGS: [
+                self._key(2),
+                self._key(1),
+                replace(self._key(1), alert_kind=PlatformAlertKind.APPEARANCE),
+            ]
+        }
 
     def test_the_bound_keeps_the_oldest_due_keys_and_counts_the_rest(self) -> None:
         self._configuration(minutes_ago=1, name="newer")
