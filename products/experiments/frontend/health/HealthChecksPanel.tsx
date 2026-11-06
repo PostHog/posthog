@@ -168,7 +168,7 @@ export function HealthChecksPanel({
                             checkedAt={checkedAt(selection.check.key)}
                         />
                     ) : (
-                        <HealthOverviewDetail checks={checks} findings={findings} setup={setup} />
+                        <HealthOverviewDetail checks={checks} findings={findings} setup={setup} exposures={exposures} />
                     )}
                 </section>
             </div>

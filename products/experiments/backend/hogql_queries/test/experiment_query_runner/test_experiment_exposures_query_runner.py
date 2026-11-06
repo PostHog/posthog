@@ -32,7 +32,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.user import User
 from posthog.test.persons import create_group_type_mapping
@@ -1821,7 +1821,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         ]
     )
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
-    def test_srm_library_segments_add_up_to_the_total_exposures(
+    def test_library_counts_add_up_to_the_total_exposures(
         self, _name: str, by_group: bool, multiple_variant_handling: str, use_precomputation: bool
     ) -> None:
         self._setup_precomputation_test(use_precomputation)
@@ -1843,7 +1843,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         def exposure(unit: int, variant: str, timestamp: str, library: str | None) -> dict[str, Any]:
             return {
-                "event": "$feature_flag_called",
+                # An experiment on $feature_flag_called also counts $experiment_exposure, which carries the `$lib` of
+                # the SDK that sent it.
+                "event": "$experiment_exposure" if unit % 5 == 0 else "$feature_flag_called",
                 "timestamp": timestamp,
                 "properties": {
                     "$feature_flag_response": variant,
@@ -1890,7 +1892,17 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             elif (match := re.fullmatch(r"library_\d+_exposed_(.+)", key)) and isinstance(value, int | float):
                 exposed_by_variant[match.group(1)] = exposed_by_variant.get(match.group(1), 0) + value
         self.assertEqual(
-            (exposed_by_variant, BREAKDOWN_OTHER_STRING_LABEL in segments), (response.total_exposures, True)
+            (
+                exposed_by_variant,
+                BREAKDOWN_OTHER_STRING_LABEL in segments,
+                response.exposed_by_library,
+            ),
+            (
+                response.total_exposures,
+                True,
+                # The precomputed exposures carry no library.
+                None if use_precomputation else {library or BREAKDOWN_NULL_STRING_LABEL: 15 for library in libraries},
+            ),
         )
 
     @parameterized.expand([("timeout", ClickHouseQueryTimeOut(), True), ("other_error", RuntimeError("boom"), False)])
