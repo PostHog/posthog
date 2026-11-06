@@ -10972,18 +10972,18 @@ Threads and audience subscribers use paginated mailbox and audience listings as 
 
 ## Shippo — gaps
 
-Today (9): `addresses`, `carrier_accounts`, `customs_declarations`, `customs_items`, `orders`, `parcels`, `refunds`, `shipments`, `transactions`
+Today (13): `addresses`, `carrier_accounts`, `customs_declarations`, `customs_items`, `manifests`, `orders`, `parcels`, `rates`, `refunds`, `shipments`, `shippo_accounts`, `tracks`, `transactions`
 
 Diffed against: <https://docs.goshippo.com/spec/shippoapi/public-api.yaml>
 
-- [ ] `GET /shipments/{ShipmentId}/rates (and /rates/{CurrencyCode})` — All quoted rates per shipment, not just the purchased one — the only way to analyze rate shopping and how much was saved or overspent per label (high)
-- [ ] `GET /manifests` — End-of-day carrier manifests; the batch handoff record that groups transactions and is missing entirely (medium)
-- [ ] `GET /tracks/{Carrier}/{TrackingNumber}` — Delivery status and tracking-event history for the transactions already synced — turns labels into a delivery-performance fact table (medium)
+- [x] `GET /shipments/{ShipmentId}/rates (and /rates/{CurrencyCode})`: The `rates` table imports all quotes for each available shipment. Currency conversion is excluded because it re-queues the shipment (high).
+- [x] `GET /manifests`: The `manifests` table imports carrier handoff records and their transaction identifiers (medium).
+- [x] `GET /tracks/{Carrier}/{TrackingNumber}`: The `tracks` table imports delivery status and tracking history for trackable transactions. Carrier accounts supply the carrier tokens (medium).
 - [ ] `GET /parcel-templates and GET /user-parcel-templates` — Lookup resolving the parcel template tokens referenced by parcels and shipments (low)
-- [ ] `GET /shippo-accounts` — Platform sub-account lookup; needed to attribute shipments when operating Shippo on behalf of multiple merchants (low)
+- [x] `GET /shippo-accounts`: The `shippo_accounts` table imports managed accounts for platform customers with access (low).
 - [ ] `GET /v2/reporting/runs` — Reporting API run history (added Sep 2026); returns job metadata for the most recent runs only, not report rows, so it was skipped (low)
 
-Note: Coverage is proportionate for the core objects: 9 of roughly 15 listable collections are synced, including all the transactional ones (transactions, shipments, orders, refunds, parcels, addresses, customs). Batches are only retrievable by ID (no list endpoint), so they are not syncable as a table. The rates sub-resource is the one materially valuable analytical gap.
+Note: Verified against the official OpenAPI spec on 2026-11-06. The four added tables use full refresh because their endpoints have no server-side timestamp filters. Rates are limited to shipments that Shippo returns within its 390-day retention period. Tracking covers trackable transactions available to the configured token. Transactions with expired rates are skipped because their carrier cannot be resolved. The managed account table does not expand shipment imports across those accounts. Batches have no list endpoint.
 
 Note on `/v2/reporting/runs`: skipped deliberately. Each row is a report job the account created (`report_type`, `interval`, `status`, `result.row_count`), not the invoices, charges or refunds the report contains. The list has no pagination or date filter and returns at most the 500 most recent runs, so a table of it cannot hold full history. It also omits the download URL. The report data itself needs a different design: create a run (`POST /v2/reporting/runs`), poll it, then download the CSV or Parquet file. That is a write on the customer's account, and each interval can span 92 days at most.
 
