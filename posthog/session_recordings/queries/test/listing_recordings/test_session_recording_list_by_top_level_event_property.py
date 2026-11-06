@@ -10,7 +10,7 @@ from parameterized import parameterized, parameterized_class
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
-from posthog.models import Element, EventProperty
+from posthog.models import Element
 from posthog.models.team import Team
 from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingQueryResult
@@ -24,6 +24,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SES
 from posthog.test.persons import create_person
 
 from products.actions.backend.facade.testing import create_action
+from products.event_definitions.backend.models import EventProperty
 
 
 @parameterized_class([{"allow_event_property_expansion": True}, {"allow_event_property_expansion": False}])
