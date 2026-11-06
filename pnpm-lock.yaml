@@ -1628,8 +1628,8 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1(patch_hash=a8248109885bda6ff3ce8663332190cabec9ca5da4deab47603ea6b1dbca27c4)(@bufbuild/protobuf@2.11.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.11.0))
       '@dsnp/parquetjs':
-        specifier: ^1.8.8
-        version: 1.8.8
+        specifier: ^1.8.7
+        version: 1.8.7
       '@google-cloud/pubsub':
         specifier: 4.11.0
         version: 4.11.0(encoding@0.1.13)(supports-color@10.2.2)
@@ -8079,8 +8079,8 @@ packages:
     peerDependencies:
       react: 18.3.1
 
-  '@dsnp/parquetjs@1.8.8':
-    resolution: {integrity: sha512-3uNpZGvr/3LPgqgxHcqEIkKkiDREvHwtKMUrWAkqNs6/beERnlcl7selzsV0JMn+5ASjL46i26pW0pub78wkWg==}
+  '@dsnp/parquetjs@1.8.7':
+    resolution: {integrity: sha512-3DkkN3FKJ++BQy8PE3LONoVSVBONG7hld9D+VqBp1Dcfw2PGSnWyg20NET5cJkiygWK2y2H1ra8GWk3yixzuuA==}
     engines: {node: '>=18.18.2'}
 
   '@emnapi/core@1.11.0':
@@ -15086,9 +15086,10 @@ packages:
   '@xyflow/system@0.0.57':
     resolution: {integrity: sha512-1YpBo0WgmZLR5wQw9Jvk3Tu0gISi/oYc4uSimrDuAsA/G2rGleulLrKkM59uuT/QU5m6DYC2VdBDAzjSNMGuBA==}
 
-  '@zenfs/core@2.3.8':
-    resolution: {integrity: sha512-E+x5b7lbwyWVnnOu7igvk0blMlsZcINq7aknZaSOC6qQFyAOVDkZ7p3hQOUYLeW9uVWwWIaKK/XBVyiZ2e/6RA==}
+  '@zenfs/core@1.11.4':
+    resolution: {integrity: sha512-jFihhedKitw1X9rlImtaca4KTs1Xk9awo4GxUemqt2ucE1jLi10lyRfFFbiYXZsFDkuCWGHwEQwv7BeDIEXMbQ==}
     engines: {node: '>= 18'}
+    deprecated: v1 is no longer supported. Please update ZenFS (or whatever ZenFS dependent you depend on).
     hasBin: true
 
   abab@2.0.6:
@@ -15701,8 +15702,8 @@ packages:
   bser@2.1.1:
     resolution: {integrity: sha512-gQxTNE/GAfIIrmHLUE3oJyp5FO6HRBfhjnw4/wMmA63ZGDJnWBmgY/lyQBpnDUkGmAhbSe39tx2d/iTOAfglwQ==}
 
-  bson@6.10.4:
-    resolution: {integrity: sha512-WIsKqkSC0ABoBJuT1LEX+2HEvNmNKKgnTAyd0fL8qzK4SH2i9NXg+t08YtdZp/V9IZ33cxe3iV4yM0qg8lMQng==}
+  bson@6.10.3:
+    resolution: {integrity: sha512-MTxGsqgYTwfshYWTRdmZRC+M7FnG1b4y7RO7p2k3X24Wq0yv1m77Wsj0BzlPzd/IowgESfsruQCUToa7vbOpPQ==}
     engines: {node: '>=16.20.1'}
 
   btoa-lite@1.0.0:
@@ -19328,9 +19329,6 @@ packages:
     peerDependencies:
       react: 18.3.1
 
-  kerium@1.5.0:
-    resolution: {integrity: sha512-HJMvcFmkMR92VU4KRnvoibz6amtfR3bDUVcW03iluragLB2DFvZUE2myyhipnrCnOqXRnVo/Y7RkXCI3Hc3odA==}
-
   keyv@4.5.4:
     resolution: {integrity: sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw==}
 
@@ -19905,9 +19903,6 @@ packages:
     resolution: {integrity: sha512-/GodtwVeKVIHZKLUSr2ZdOxKBC5hHki4JNCU22DoCGPEHr5o2PD5U721zvESKyWwCfTfavFl9WZYgA13OAYK0g==}
     peerDependencies:
       tslib: '2'
-
-  memium@0.3.11:
-    resolution: {integrity: sha512-CwmIpLVSG7UToDj2sYAZFDkpco30OPsXpaCnt+7Z7JQaulCjH5UvwJIctTIHmgQdFqk8pliBsPLnH5OZcDLZyQ==}
 
   memoizerific@1.11.3:
     resolution: {integrity: sha512-/EuHYwAPdLtXwAwSZkh/Gutery6pD2KYd44oQLhAvQp/50mpyduZh8Q7PYHXTCJ+wuXxt7oij2LXyIJOOYFPog==}
@@ -23416,8 +23411,8 @@ packages:
   thread-stream@2.7.0:
     resolution: {integrity: sha512-qQiRWsU/wvNolI6tbbCKd9iKaTnCXsTwVxhhKM6nctPdujTyztjlbUkUTUymidWcMnZ5pWR0ej4a0tjsW021vw==}
 
-  thrift@0.23.0:
-    resolution: {integrity: sha512-j7F1ls8JogClU88Ta/pwD/OzYuiFeD6Z5GoWw7ip+jcDhcNYFKgfXYEsyLXYpiNfJO94fbLnITGxyfZ19YzA6Q==}
+  thrift@0.21.0:
+    resolution: {integrity: sha512-AW8rwHYjeqXisS8B1iwko2gkNMFwSRJ+bO/W0xTGqRspTD3lGHwZx438+pHdOJ3GwpRAnK7TKbjqPOrHAa7ZwQ==}
     engines: {node: '>= 10.18.0'}
 
   throat@6.0.2:
@@ -24092,15 +24087,9 @@ packages:
     resolution: {integrity: sha512-6Z7Ma2aVEWisaL6TvBCy7P8rm2LQoPv6dJ7ecIaIixHcwfbJ0x7mWdbcwlIM5IGQxPZSFYeqRCqlOOeKoJYMkw==}
     engines: {node: '>= 4'}
 
-  utilium@2.8.8:
-    resolution: {integrity: sha512-LPe6rQ1NB/FfnYhMKD6mlTyngYkScrFWWF2PWd7JvF1DIGId6vYI5YhPl/Vd1yokdZrs3wh21/AaUZfZXL8nFw==}
-    engines: {node: '>=22.0.0'}
-    hasBin: true
-
-  utilium@3.10.0:
-    resolution: {integrity: sha512-0FH6t7jWOp/OYxjoVpEevRMaJbVS3iN8FMjYmk1LdtKH6SgrC+g4sPTCSmuvz+yVHNWuvRkJ/Jlr2hUU6HCspg==}
-    engines: {node: '>=22.0.0'}
-    hasBin: true
+  utilium@1.10.1:
+    resolution: {integrity: sha512-GQINDTb/ocyz4acQj3GXAe0wipYxws6L+9ouqaq10KlInTk9DGvW9TJd0pYa/Xu3cppNnZuB4T/sBuSXpcN2ng==}
+    deprecated: v1 is no longer supported, please upgrade.
 
   utils-merge@1.0.1:
     resolution: {integrity: sha512-pMZTvIkT1d+TFGvDOqodOclx0QWkkgi6Tdoa8gC8ffGAAqz9pzPTZWAybbsHHoED/ztMtkv/VoYTYyShUn81hA==}
@@ -24112,10 +24101,6 @@ packages:
 
   uuid@12.0.0:
     resolution: {integrity: sha512-USe1zesMYh4fjCA8ZH5+X5WIVD0J4V1Jksm1bFTVBX2F/cwSXt0RO5w/3UXbdLKmZX65MiWV+hwhSS8p6oBTGA==}
-    hasBin: true
-
-  uuid@13.0.2:
-    resolution: {integrity: sha512-vzi9uRZ926x4XV73S/4qQaTwPXM2JBj6/6lI/byHH1jOpCzb0zDbfytgA9LcN/hzb2l7WQSQnxITOVx5un/wGw==}
     hasBin: true
 
   uuid@8.0.0:
@@ -27652,19 +27637,19 @@ snapshots:
       react: 18.3.1
       tslib: 2.8.1
 
-  '@dsnp/parquetjs@1.8.8':
+  '@dsnp/parquetjs@1.8.7':
     dependencies:
       '@aws-sdk/client-s3': 3.975.0
       '@types/node-int64': 0.4.32
       '@types/thrift': 0.10.17
-      '@zenfs/core': 2.3.8
+      '@zenfs/core': 1.11.4
       brotli-wasm: 3.0.1
-      bson: 6.10.4
+      bson: 6.10.3
       int53: 1.0.0
       long: 5.3.2
       node-int64: 0.4.0
       snappyjs: 0.7.0
-      thrift: 0.23.0
+      thrift: 0.21.0
       varint: 6.0.0
       xxhash-wasm: 1.1.0
     transitivePeerDependencies:
@@ -35309,15 +35294,13 @@ snapshots:
       d3-selection: 3.0.0
       d3-zoom: 3.0.0
 
-  '@zenfs/core@2.3.8':
+  '@zenfs/core@1.11.4':
     dependencies:
-      '@types/node': 24.13.3
+      '@types/node': 22.18.8
       buffer: 6.0.3
       eventemitter3: 5.0.1
-      kerium: 1.5.0
-      memium: 0.3.11
       readable-stream: 4.7.0
-      utilium: 2.8.8
+      utilium: 1.10.1
 
   abab@2.0.6: {}
 
@@ -36088,7 +36071,7 @@ snapshots:
     dependencies:
       node-int64: 0.4.0
 
-  bson@6.10.4: {}
+  bson@6.10.3: {}
 
   btoa-lite@1.0.0: {}
 
@@ -41002,10 +40985,6 @@ snapshots:
       reselect: 5.2.0
       use-sync-external-store: 1.6.0(react@18.3.1)
 
-  kerium@1.5.0:
-    dependencies:
-      utilium: 3.10.0
-
   keyv@4.5.4:
     dependencies:
       json-buffer: 3.0.1
@@ -41679,11 +41658,6 @@ snapshots:
       thingies: 2.5.0(tslib@2.8.1)
       tree-dump: 1.1.0(tslib@2.8.1)
       tslib: 2.8.1
-
-  memium@0.3.11:
-    dependencies:
-      kerium: 1.5.0
-      utilium: 2.8.8
 
   memoizerific@1.11.3:
     dependencies:
@@ -46389,13 +46363,12 @@ snapshots:
     dependencies:
       real-require: 0.2.0
 
-  thrift@0.23.0:
+  thrift@0.21.0:
     dependencies:
       browser-or-node: 1.3.0
       isomorphic-ws: 4.0.1(ws@5.2.7)
       node-int64: 0.4.0
       q: 1.5.1
-      uuid: 13.0.2
       ws: 5.2.7
     transitivePeerDependencies:
       - bufferutil
@@ -47055,23 +47028,17 @@ snapshots:
 
   utility-types@3.11.0: {}
 
-  utilium@2.8.8:
+  utilium@1.10.1:
     dependencies:
       eventemitter3: 5.0.1
     optionalDependencies:
       '@xterm/xterm': 5.5.0
-
-  utilium@3.10.0:
-    dependencies:
-      eventemitter3: 5.0.1
 
   utils-merge@1.0.1: {}
 
   uuid@11.1.1: {}
 
   uuid@12.0.0: {}
-
-  uuid@13.0.2: {}
 
   uuid@8.0.0: {}
 
