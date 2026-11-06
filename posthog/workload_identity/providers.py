@@ -10,6 +10,8 @@ from __future__ import annotations
 import string
 from enum import StrEnum
 
+from django.db import models
+
 from posthog.dataclasses import frozen
 from posthog.workload_identity.resolvers import resolve_github_repository, resolve_gitlab_project
 from posthog.workload_identity.subjects import SubjectResolver
@@ -64,6 +66,11 @@ class ConditionPreset:
         return any(PRESET_VALUE in value for _, value in self.conditions)
 
 
+class WorkloadProviderKey(models.TextChoices):
+    GITHUB_ACTIONS = "github_actions", "GitHub Actions"
+    GITLAB = "gitlab", "GitLab"
+
+
 @frozen
 class WorkloadProvider:
     key: str
@@ -95,7 +102,7 @@ class WorkloadProvider:
     condition_presets: tuple[ConditionPreset, ...] = ()
     claims_equal_to_subject: tuple[str, ...] = ()
     condition_companions: tuple[ConditionCompanions, ...] = ()
-    # The CI config a job needs, with SNIPPET_HOST and SNIPPET_PROJECT_ID where the values go.
+    # The CI config that gives a job an OIDC token, with SNIPPET_HOST and SNIPPET_PROJECT_ID where the values go.
     setup_snippet: str = ""
 
     def setup_snippet_for(self, *, host: str, project_id: int) -> str:
@@ -130,7 +137,7 @@ class WorkloadProvider:
 
 
 GITHUB_ACTIONS = WorkloadProvider(
-    key="github_actions",
+    key=WorkloadProviderKey.GITHUB_ACTIONS,
     name="GitHub Actions",
     issuer="https://token.actions.githubusercontent.com",
     jwks_url="https://token.actions.githubusercontent.com/.well-known/jwks",
@@ -233,17 +240,14 @@ GITHUB_ACTIONS = WorkloadProvider(
             default_value="production",
         ),
     ),
-    setup_snippet=f"""permissions:
+    setup_snippet="""permissions:
   id-token: write # lets hog get an OIDC token for PostHog
   contents: read
-env:
-  HOG_HOST: {SNIPPET_HOST}
-  HOG_PROJECT_ID: "{SNIPPET_PROJECT_ID}"
 """,
 )
 
 GITLAB = WorkloadProvider(
-    key="gitlab",
+    key=WorkloadProviderKey.GITLAB,
     name="GitLab",
     issuer="https://gitlab.com",
     jwks_url="https://gitlab.com/oauth/discovery/keys",
@@ -364,9 +368,6 @@ GITLAB = WorkloadProvider(
   id_tokens:
     HOG_ID_TOKEN: # lets hog get a PostHog token
       aud: {SNIPPET_HOST}
-  variables:
-    HOG_HOST: {SNIPPET_HOST}
-    HOG_PROJECT_ID: "{SNIPPET_PROJECT_ID}"
 """,
 )
 

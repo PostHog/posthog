@@ -1,6 +1,6 @@
 import { parseProviderIdToken } from '@/posthog/tokens'
 
-import type { WorkloadProvider } from './providers'
+import type { WorkloadProvider } from '../registry'
 
 export const GITLAB_ID_TOKEN_VARIABLE = 'HOG_ID_TOKEN'
 
@@ -30,14 +30,11 @@ export const GITLAB: WorkloadProvider = {
         environment_action: 'start',
         environment_protected: 'true',
     }),
-    snippet: ({ host, projectId }) =>
+    snippet: ({ host }) =>
         [
             'your-job:',
             '  id_tokens:',
             `    ${GITLAB_ID_TOKEN_VARIABLE}: # lets hog get a PostHog token`,
             `      aud: ${host}`,
-            '  variables:',
-            `    HOG_HOST: ${host}`,
-            `    HOG_PROJECT_ID: "${projectId}"`,
         ].join('\n'),
 }
