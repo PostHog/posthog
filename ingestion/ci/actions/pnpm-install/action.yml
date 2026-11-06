@@ -1,0 +1,83 @@
+name: Install pnpm dependencies
+description: |
+    Sets up pnpm + Node via `setup-pnpm`, restores the shared pnpm store cache,
+    and installs.
+
+    Single source of truth for the pnpm cache key. Every node workflow shares
+    one namespace (`pnpm-<os>-<lockfile-hash>`), so the store is cached once
+    instead of fragmenting across runner-arch casings or per-workflow keys.
+    Restore only: .github/workflows/pnpm-store-cache.yml writes the entry on
+    master from a cold install, and explains why no consumer may save it.
+
+    Deliberately does NOT use setup-node's `cache: pnpm`: that auto-saves on
+    every run (PRs included, and the post-save can't be gated) and keys on
+    `os.arch()` (lowercase `x64`), which never matches a hand-written
+    `runner.arch` key (uppercase `X64`). We restore/save explicitly instead.
+
+inputs:
+    install-command:
+        description: 'Command used to install dependencies. Override for filtered installs.'
+        required: false
+        default: 'pnpm install --frozen-lockfile'
+    node-version-file:
+        description: 'File specifying the Node version.'
+        required: false
+        default: .nvmrc
+    working-directory:
+        description: 'Directory to run the install command in.'
+        required: false
+        default: '.'
+    token:
+        description: |
+            GitHub token for setup-node's version-manifest lookup and Node download.
+            Pass an app token at high-fanout call sites to keep those API calls off
+            the shared per-repo GITHUB_TOKEN core bucket.
+        required: false
+        default: ${{ github.token }}
+
+runs:
+    using: composite
+    steps:
+        - name: Set up pnpm and Node
+          uses: ./.github/actions/setup-pnpm
+          with:
+              node-version-file: ${{ inputs.node-version-file }}
+              token: ${{ inputs.token }}
+
+        - name: Get pnpm store path
+          id: pnpm-store
+          shell: bash
+          run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+        - name: Restore pnpm store
+          uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          with:
+              path: ${{ steps.pnpm-store.outputs.path }}
+              key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+              restore-keys: pnpm-${{ runner.os }}-
+
+        # pnpm 11 checks the lockfile against the supply-chain policies in pnpm-workspace.yaml
+        # on every install, and the check fetches registry metadata even when the store is warm.
+        # pnpm records a passed check in lockfile-verified.jsonl, keyed by lockfile path, content
+        # and policy, and skips the check when the record matches. pnpm-store-cache.yml writes
+        # this file on master. No restore-keys: a record for another lockfile cannot match.
+        - name: Get pnpm cache path
+          id: pnpm-cache
+          shell: bash
+          run: echo "path=$(pnpm cache path --silent)" >> "$GITHUB_OUTPUT"
+
+        - name: Restore pnpm lockfile verdict
+          uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          with:
+              path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
+              key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
+
+        - name: Install dependencies
+          shell: bash
+          working-directory: ${{ inputs.working-directory }}
+          # Pass the command through env and eval it rather than interpolating
+          # ${{ }} straight into run: — that trips semgrep's run-shell-injection
+          # rule. eval keeps shell parsing so quoted --filter globs survive.
+          env:
+              INSTALL_COMMAND: ${{ inputs.install-command }}
+          run: eval "$INSTALL_COMMAND"

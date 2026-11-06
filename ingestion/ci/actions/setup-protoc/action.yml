@@ -1,0 +1,67 @@
+name: Setup Protoc
+description: |
+    Installs the Protocol Buffers compiler (protoc) for Rust builds.
+    Uses actions/cache to avoid repeated downloads from GitHub's releases CDN.
+    The protoc binary is pinned to a specific version for reproducibility.
+
+inputs:
+    version:
+        description: 'Protoc version to install (e.g. 28.3)'
+        required: false
+        default: '28.3'
+
+runs:
+    using: composite
+    steps:
+        - name: Restore protoc binary from cache
+          id: cache-protoc
+          uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+          with:
+              path: ${{ runner.temp }}/protoc
+              key: protoc-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+        - name: Download protoc on cache miss
+          if: steps.cache-protoc.outputs.cache-hit != 'true'
+          shell: bash
+          env:
+              PROTOC_VERSION: ${{ inputs.version }}
+          run: |
+              set -euo pipefail
+              echo "Cache miss — downloading protoc v$PROTOC_VERSION"
+
+              # Map runner arch to protoc archive naming
+              case "$RUNNER_ARCH" in
+                X64)  ARCH="x86_64" ;;
+                ARM64) ARCH="aarch_64" ;;
+                *) echo "::error::Unsupported architecture: $RUNNER_ARCH"; exit 1 ;;
+              esac
+
+              PROTOC_ZIP="protoc-${PROTOC_VERSION}-linux-${ARCH}.zip"
+              URL="https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/${PROTOC_ZIP}"
+
+              curl -fsSL --retry 10 --retry-delay 30 --retry-all-errors \
+                -o "$RUNNER_TEMP/${PROTOC_ZIP}" "$URL"
+
+              if [ ! -s "$RUNNER_TEMP/${PROTOC_ZIP}" ]; then
+                echo "::error::Downloaded protoc archive is empty"
+                exit 1
+              fi
+              echo "Downloaded $(du -h "$RUNNER_TEMP/${PROTOC_ZIP}" | cut -f1) archive"
+
+              mkdir -p "$RUNNER_TEMP/protoc"
+              unzip -o "$RUNNER_TEMP/${PROTOC_ZIP}" -d "$RUNNER_TEMP/protoc"
+              rm "$RUNNER_TEMP/${PROTOC_ZIP}"
+              chmod +x "$RUNNER_TEMP/protoc/bin/protoc"
+
+        - name: Save protoc binary to cache
+          if: steps.cache-protoc.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
+          uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+          with:
+              path: ${{ runner.temp }}/protoc
+              key: protoc-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+        - name: Add protoc to PATH
+          shell: bash
+          run: |
+              echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+              "$RUNNER_TEMP/protoc/bin/protoc" --version

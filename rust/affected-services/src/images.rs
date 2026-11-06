@@ -7,7 +7,6 @@ use guppy::graph::PackageGraph;
 pub const NON_CRATE_IMAGE_TRIGGERS: &[(&str, &[&str])] = &[(
     "sqlx-migrate",
     &[
-        "rust/persons_migrations/",
         "rust/behavioral_cohorts_migrations/",
         "rust/cyclotron-node-migrations/",
         "rust/flags_read_store_migrations/",
@@ -198,7 +197,8 @@ mod tests {
 
     #[test]
     fn non_crate_migration_trigger() {
-        let affected = non_crate_images_affected(&["rust/persons_migrations/new.sql".into()]);
+        let affected =
+            non_crate_images_affected(&["rust/cyclotron-node-migrations/new.sql".into()]);
         assert_eq!(affected, vec!["sqlx-migrate"]);
     }
 

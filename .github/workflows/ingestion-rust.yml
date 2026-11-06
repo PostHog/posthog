@@ -1,0 +1,575 @@
+name: Ingestion Rust CI
+
+# Every job here checks out ingestion/ and nothing else. That is what lets the merge queue
+# rules say that no change outside ingestion/ can affect these checks: a job cannot be broken
+# by a file it never downloads. Keep it that way when adding steps.
+
+on:
+    workflow_dispatch:
+    push:
+        branches: [master]
+    pull_request:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+    CARGO_TERM_COLOR: always
+    RUST_TOOLCHAIN: 1.91.1
+
+jobs:
+    changes:
+        name: Determine need to run ingestion Rust checks
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        if: github.repository == 'PostHog/posthog'
+        permissions:
+            contents: read
+            pull-requests: read
+        outputs:
+            rust: ${{ steps.filter.outputs.rust || 'true' }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+                  sparse-checkout: ingestion/ci/actions/paths-filter
+                  sparse-checkout-cone-mode: false
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: ./ingestion/ci/actions/paths-filter
+              id: filter
+              if: github.event_name != 'push'
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  filters: |
+                      rust:
+                        - 'ingestion/rust/**'
+                        - 'ingestion/proto/**'
+                        - 'ingestion/ci/**'
+                        - '.github/workflows/ingestion-rust.yml'
+
+    affected:
+        name: Compute affected crates
+        needs: changes
+        if: needs.changes.outputs.rust == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        permissions:
+            contents: read
+        outputs:
+            matrix: ${{ steps.shards.outputs.matrix }}
+            affected_crates: ${{ steps.affected.outputs.crates }}
+        steps:
+            # Full history so the determinator can diff against the merge base.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  sparse-checkout: ingestion
+                  clean: false
+            - uses: ./ingestion/ci/actions/setup-rust
+              with:
+                  toolchain: ${{ env.RUST_TOOLCHAIN }}
+            - name: Compute affected crates
+              id: affected
+              uses: ./ingestion/ci/actions/compute-affected
+              with:
+                  event-name: ${{ github.event_name }}
+                  pr-base-sha: ${{ github.event.pull_request.base.sha }}
+                  push-before-sha: ${{ github.event.before }}
+            # Bin-pack affected packages into balanced test shards.
+            - name: Compute test shards
+              id: shards
+              env:
+                  AFFECTED_CRATES: ${{ steps.affected.outputs.crates }}
+              run: python3 ingestion/ci/bin/rust_test_shards.py
+
+    build:
+        name: Build (${{ matrix.packages }})
+        needs: [changes, affected]
+        if: needs.changes.outputs.rust == 'true'
+        strategy:
+            matrix: ${{ fromJSON(needs.affected.outputs.matrix) }}
+        runs-on: depot-ubuntu-22.04-4
+        timeout-minutes: 20
+        permissions:
+            contents: read
+        defaults:
+            run:
+                working-directory: ingestion/rust
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: ingestion
+                  clean: false
+            - uses: ./ingestion/ci/actions/setup-protoc
+            - uses: ./ingestion/ci/actions/setup-rust
+              with:
+                  toolchain: ${{ env.RUST_TOOLCHAIN }}
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=ingestion-cargo-${{ hashFiles('ingestion/rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+            - uses: ./ingestion/ci/actions/setup-sccache
+            - name: Build
+              run: |
+                  for pkg in ${{ matrix.packages }}; do
+                      cargo build --locked -p "$pkg"
+                  done
+
+    test:
+        name: Test (${{ matrix.packages }})
+        needs: [changes, affected]
+        if: needs.changes.outputs.rust == 'true'
+        strategy:
+            matrix: ${{ fromJSON(needs.affected.outputs.matrix) }}
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 20
+        permissions:
+            contents: read
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        defaults:
+            run:
+                working-directory: ingestion/rust
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: ingestion
+                  clean: false
+            - name: Log in to Docker Hub
+              continue-on-error: true
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ vars.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+            # The persons database is created by the stack's Postgres init script and filled by
+            # ingestion's own migrations below. No Django runs here.
+            - name: Start the services
+              working-directory: ingestion/ci
+              env:
+                  COMPOSE_FILE: ${{ github.workspace }}/ingestion/ci/docker-compose.yml
+                  WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 10
+              run: |
+                  bin/ci-wait-for-docker launch --down db kafka kafka-secondary redis7 clickhouse etcd objectstorage seaweedfs
+                  bin/ci-wait-for-docker wait --only db kafka kafka-secondary redis7 clickhouse etcd objectstorage seaweedfs
+                  echo "127.0.0.1 db redis7 kafka clickhouse objectstorage seaweedfs" | sudo tee -a /etc/hosts
+            - uses: ./ingestion/ci/actions/setup-protoc
+            - uses: ./ingestion/ci/actions/setup-rust
+              with:
+                  toolchain: ${{ env.RUST_TOOLCHAIN }}
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=ingestion-cargo-${{ hashFiles('ingestion/rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+            - uses: ./ingestion/ci/actions/setup-sccache
+            - uses: ./ingestion/ci/actions/setup-sqlx-cli
+            - name: Run the persons migrations
+              env:
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
+              run: sqlx migrate run --source persons_migrations/
+            - name: Install cargo-binstall
+              uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
+            - name: Install cargo-nextest
+              run: cargo binstall --no-confirm --force --locked cargo-nextest@0.9.140
+            # continue-on-error so the quarantine gate below is the verdict.
+            - name: Run cargo test
+              id: run-tests
+              continue-on-error: true
+              env:
+                  RUST_BACKTRACE: 1
+              run: |
+                  run_nextest() {
+                      local junit_name=$1
+                      shift
+                      local rc=0
+                      cargo nextest run --profile ci --no-tests=pass "$@" || rc=$?
+                      if [ -f target/nextest/ci/junit.xml ]; then
+                          mv target/nextest/ci/junit.xml "junit-nextest-$junit_name.xml"
+                      fi
+                      return $rc
+                  }
+                  overall_rc=0
+                  for pkg in ${{ matrix.packages }}; do
+                      echo "::group::Testing $pkg"
+                      docker system prune -f --volumes 2>/dev/null || true
+                      extra_args=""
+                      if [ "$pkg" = "property-defs-rs" ]; then
+                          extra_args="--test-threads=4"
+                      fi
+                      run_nextest "$pkg" -p "$pkg" $extra_args || overall_rc=1
+                      echo "::endgroup::"
+                  done
+                  exit $overall_rc
+            - name: Dump Kafka logs on failure
+              if: ${{ !cancelled() && (failure() || steps.run-tests.outcome == 'failure') }}
+              working-directory: ingestion/ci
+              env:
+                  COMPOSE_FILE: ${{ github.workspace }}/ingestion/ci/docker-compose.yml
+              run: |
+                  docker compose logs --no-color --tail=500 kafka || true
+            - name: Run doctests
+              env:
+                  RUST_BACKTRACE: 1
+              run: |
+                  for pkg in ${{ matrix.packages }}; do
+                      if cargo metadata --no-deps --format-version 1 | jq -e --arg p "$pkg" '[.packages[] | select(.name == $p) | .targets[] | select(.kind | index("lib"))] | length > 0' >/dev/null; then
+                          cargo test --doc -p "$pkg"
+                      fi
+                  done
+            - name: Quarantine gate
+              uses: ./ingestion/ci/actions/trunk-quarantine-gate
+              with:
+                  junit-paths: ingestion/rust/junit-nextest-*.xml
+                  previous-step-outcome: ${{ steps.run-tests.outcome }}
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+                  variant: ingestion-rust
+
+    # Spawns a real personhog stack (replica, writer, leaders, leader-mode
+    # routers) against dockerized Postgres/Kafka/etcd and asserts that every
+    # write acked by the leader path is visible afterwards — in strong reads
+    # and in Postgres at the acked version — including under chaos: leader
+    # kill (lease-revoked and TTL-expiry), scale-up, graceful drain, zombie
+    # (SIGSTOP/SIGCONT), writer crash and lag, same-identity restart,
+    # coordinator failover, and a mid-handoff target kill. Not a required
+    # check while it soaks.
+    personhog-gate:
+        name: PersonHog e2e gate
+        needs: [changes, affected]
+        # Gated on the affected computation: a determinator package-rule
+        # marks the harness affected whenever a personhog service it spawns
+        # changes, so unrelated ingestion PRs skip the job entirely.
+        if: needs.changes.outputs.rust == 'true' && contains(needs.affected.outputs.affected_crates, 'personhog-test-harness')
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 35
+        permissions:
+            contents: read
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+        defaults:
+            run:
+                working-directory: ingestion/rust
+
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: ingestion
+                  clean: false
+
+            - name: Log in to Docker Hub
+              continue-on-error: true
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ vars.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            # kafka-secondary is a second, empty cluster for the cross-cluster changelog tests.
+            - name: Start Postgres, two Kafka clusters, and etcd
+              working-directory: ingestion/ci
+              env:
+                  COMPOSE_FILE: ${{ github.workspace }}/ingestion/ci/docker-compose.yml
+                  WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 10
+              run: |
+                  bin/ci-wait-for-docker launch --down db kafka kafka-secondary etcd
+                  bin/ci-wait-for-docker wait --only db kafka kafka-secondary etcd
+
+                  echo "127.0.0.1 db kafka" | sudo tee -a /etc/hosts
+
+            - uses: ./ingestion/ci/actions/setup-protoc
+            - uses: ./ingestion/ci/actions/setup-rust
+              with:
+                  toolchain: ${{ env.RUST_TOOLCHAIN }}
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=ingestion-cargo-${{ hashFiles('ingestion/rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+            - uses: ./ingestion/ci/actions/setup-sccache
+            - uses: ./ingestion/ci/actions/setup-sqlx-cli
+
+            - name: Create and migrate the persons database
+              env:
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
+              run: |
+                  sqlx database create
+                  sqlx migrate run --source persons_migrations/
+
+            - name: Build the personhog stack and harness
+              run: cargo build -p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-identity -p personhog-test-harness
+
+            # Unit tests for the harness's own verification logic — a
+            # false-negative verifier would pass gates that lost data.
+            # Ignored tests need the etcd this job already started, so
+            # they run here rather than in the plain test job.
+            - name: Test the harness verification logic
+              run: cargo test -p personhog-test-harness -- --include-ignored
+
+            # The leader warming, pruning, recovering and sealing a changelog generation
+            # on another cluster, against the second broker only this job
+            # starts. Elsewhere these tests run their single-cluster cases.
+            - name: Test the leader across two Kafka clusters
+              env:
+                  PERSONHOG_TEST_SECONDARY_KAFKA: 127.0.0.1:29092
+              run: >-
+                  cargo test -p personhog-leader --features test-support
+                  --test warming_integration --test fencing_integration --test integration
+
+            - name: Run the e2e gate
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 2 --partitions 4 --persons 100 --concurrency 10 --duration 10s
+
+            # The identity-service lifecycle path: persons are created
+            # through GetOrCreatePersonsByDistinctIds (stub insert on the
+            # primary, then initial properties through the router to the
+            # owning leader), updated through the router, and finally
+            # deleted through the lifecycle saga, whose outcomes the gate
+            # asserts (all deleted, then all not_found on a re-delete
+            # under a fresh op id). Create acks are journaled and held to
+            # the same visibility invariant as update acks, through a
+            # leader kill and a scale-up. The identity service writes the
+            # real posthog_person table (its distinct id FKs require it),
+            # so the whole stack targets it here instead of the default
+            # personhog_person_tmp.
+            - name: Run the e2e gate creating persons via the identity service
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --create-via-identity --pg-target-table posthog_person \
+                    --leaders 3 --partitions 8 --persons 100 \
+                    --concurrency 10 --duration 15s --kill-after 5s --scale-up-after 8s
+
+            # The merge saga under load and chaos: MergePersons calls against
+            # live persons while blast writes race each source's fence and
+            # each target's fold, through a leader kill and a scale-up. Two
+            # sources per call exercise the fold's request order. The wide
+            # persons make the flip repoint a thousand mappings per source.
+            # The gate asserts the folded survivor document, the merge
+            # event's $set and $set_once, that each source is gone (not-found
+            # reads, a tombstone above every acked version, no mapping left
+            # behind), and that the delete leg answers not_found for merged
+            # sources.
+            - name: Run the e2e gate merging persons under chaos (kill + scale-up)
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --pg-target-table posthog_person \
+                    --leaders 3 --partitions 8 --persons 200 \
+                    --concurrency 10 --duration 15s --merge-concurrency 4 --merge-rate 5 \
+                    --merge-sources 2 \
+                    --merge-wide-persons 3 --merge-wide-distinct-ids 1000 --merge-wide-role source \
+                    --kill-after 5s --scale-up-after 8s
+
+            # The publish plane: the identity service writes an outbox row for
+            # every create, attach, merge and delete, two publisher replicas
+            # drain it to per-run topics, and the gate reads the topics back
+            # once the outbox is empty. The latest row per distinct id must
+            # equal the Postgres mapping, the merge event pairs must equal the
+            # merged sources, and every mapping must carry a tombstone after
+            # the delete leg, through a leader kill, an identity crash and a
+            # publisher crash. Small wide merges keep the pointer cursor busy.
+            - name: Run the e2e gate publishing to Kafka under chaos (kill + identity crash + publisher crash)
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --publish --pg-target-table posthog_person \
+                    --leaders 3 --partitions 8 --persons 200 \
+                    --concurrency 10 --duration 15s --merge-concurrency 4 --merge-rate 5 \
+                    --merge-sources 2 \
+                    --merge-wide-persons 2 --merge-wide-distinct-ids 500 --merge-wide-role source \
+                    --kill-after 5s --identity-crash-after 7s --publisher-crash-after 9s
+
+            # Regression gate for eviction under writer lag: the cache is
+            # sized far below the person count so dirty entries evict while
+            # the paused writer guarantees their PG rows are stale. Before
+            # the dirty-index recovery this run lost thousands of acked
+            # writes.
+            - name: Run the e2e gate under cache eviction pressure + writer lag
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 3 --partitions 8 --persons 50 --concurrency 10 --duration 15s \
+                    --cache-capacity 4096 --writer-pause-after 3s --writer-pause-duration 8s
+
+            - name: Run the e2e gate under chaos (kill + scale-up) with cache compression
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 15s \
+                    --kill-after 5s --scale-up-after 8s \
+                    --leader-env CACHE_PROPERTIES_COMPRESSION_ENABLED=true
+
+            - name: Run the e2e gate under chaos (drain + zombie + writer lag)
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 18s \
+                    --shutdown-after 3s --zombie-after 8s --zombie-duration 6s \
+                    --writer-pause-after 4s --writer-pause-duration 6s
+
+            # The freeze has to outlive the lease, or the woken pod still
+            # holds a valid claim and nothing is ever asked. 27s is the
+            # lowest TTL validate_fencing_timescales accepts, so the
+            # freeze runs past it. Rejection is asserted by consequence:
+            # an unfenced landing fails the verifier.
+            - name: Run the e2e gate under chaos (zombie + writer lag)
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 45s \
+                    --leader-lease-ttl 27 \
+                    --zombie-after 5s --zombie-duration 32s \
+                    --writer-pause-after 4s --writer-pause-duration 6s
+
+            # A fenced write's budget rules out the short TTL this used
+            # to run, so the run is lengthened to keep the expiry inside.
+            - name: Run the e2e gate under chaos (TTL-expiry kill + restarts)
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 45s \
+                    --leader-lease-ttl 27 --kill-after 4s --kill-fast false \
+                    --writer-crash-after 9s --restart-after 12s
+
+            - name: Run the e2e gate under chaos (coordinator failover + mid-handoff kill)
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --routers 3 --leaders 3 --partitions 8 --persons 100 --concurrency 10 \
+                    --duration 18s --router-kill-after 4s --shutdown-after 8s --kill-handoff-target
+
+            - name: Run the e2e gate under chaos (graceful coordinator handover + drain)
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --routers 3 --leaders 3 --partitions 8 --persons 100 --concurrency 10 \
+                    --duration 15s --router-shutdown-after 4s --shutdown-after 8s
+
+            # A true coordinator crash: no lease is revoked, so the survivor
+            # is blind until the election and registration TTLs expire, and
+            # the drain issued inside that window must complete once they do.
+            - name: Run the e2e gate under chaos (coordinator crash, slow failover + drain)
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --routers 3 --leaders 3 --partitions 8 --persons 100 --concurrency 10 \
+                    --duration 18s --router-kill-after 4s --router-kill-fast false --shutdown-after 8s
+
+            # A changelog migration grows 4 to 8 partitions while the
+            # writer is paused, so a restarted partition must warm the old
+            # topic's tail itself. Write-once persons are what expose a
+            # warm that skips that tail: with a small person set every key
+            # is rewritten after the flip and the loss is masked.
+            - name: Run the e2e gate growing the changelog with the writer paused
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 2 --partitions 4 --persons 5000 --concurrency 10 --duration 30s \
+                    --migrate-after 8s --migrate-to-partitions 8 \
+                    --migrate-pause-writer --writer-pause-duration 8s
+
+            # A shrink dissolves the partitions past the new count, and a
+            # holder killed at Sealing leaves its partitions for its peers to
+            # seal. The slow coordinator keeps Sealing long enough to hit.
+            - name: Run the e2e gate shrinking the changelog with a leader killed at Sealing
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 30s \
+                    --migrate-after 8s --migrate-to-partitions 4 \
+                    --migrate-kill-leader-at-sealing --migrate-slow-coordinator-ms 500
+
+            # A migration onto the second cluster: the leaders seal the old
+            # topic on the first and produce on the second, and the writer
+            # exits once it drains the old topic and is restarted onto the
+            # new cluster, as its pod would be. The gate fails if it never does.
+            - name: Run the e2e gate migrating the changelog onto another cluster
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 2 --partitions 4 --persons 200 --concurrency 10 --duration 30s \
+                    --migrate-after 10s --migrate-to-partitions 8 \
+                    --migrate-to-kafka-hosts 127.0.0.1:29092
+
+            - name: Dump service logs on failure
+              if: failure()
+              run: |
+                  docker ps -a || true
+                  docker logs --tail=200 ci-kafka-1 || true
+                  docker logs --tail=200 ci-kafka-secondary-1 || true
+                  docker logs --tail=200 ci-etcd-1 || true
+
+            - name: Upload harness logs on failure
+              if: failure()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: personhog-test-harness-logs
+                  path: ingestion/rust/target/debug/harness-logs/
+                  if-no-files-found: ignore
+
+            - name: Report sccache counters
+              if: always()
+              continue-on-error: true
+              run: |
+                  if command -v sccache >/dev/null; then
+                      # The full report includes the cache endpoint, so allow only numeric counters.
+                      sccache --show-stats 2>/dev/null | awk '/^(Compile requests|Cache hits|Cache misses|Non-cacheable calls)[[:space:]]+[0-9]+$/ { print }'
+                  fi
+
+    lint:
+        name: Lint
+        needs: changes
+        if: needs.changes.outputs.rust == 'true'
+        runs-on: depot-ubuntu-22.04-4
+        timeout-minutes: 20
+        permissions:
+            contents: read
+        defaults:
+            run:
+                working-directory: ingestion/rust
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: ingestion
+                  clean: false
+            - uses: ./ingestion/ci/actions/setup-protoc
+            - uses: ./ingestion/ci/actions/setup-rust
+              with:
+                  toolchain: ${{ env.RUST_TOOLCHAIN }}
+                  components: rustfmt, clippy
+            - name: Check format
+              run: cargo fmt -- --check
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=ingestion-cargo-${{ hashFiles('ingestion/rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+            - uses: ./ingestion/ci/actions/setup-sccache
+            - name: Run clippy
+              run: cargo clippy --all-targets --all-features -- -D warnings
+            - name: Install cargo-binstall
+              uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
+            - name: Install cargo-shear
+              run: cargo binstall --no-confirm --force --locked cargo-shear
+            - name: Check for unused dependencies
+              run: cargo shear
+
+    ingestion_rust_tests:
+        name: Ingestion Rust Tests Pass
+        needs: [changes, affected, build, test, lint]
+        if: ${{ !cancelled() }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions: {}
+        steps:
+            - name: Check all ingestion Rust jobs
+              run: |
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                      echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
+                      exit 1
+                  fi
+                  if [[ "${{ needs.changes.outputs.rust }}" != "true" ]]; then
+                      echo "Ingestion Rust checks were skipped (no relevant changes)."
+                      exit 0
+                  fi
+                  if [[ "${{ needs.affected.result }}" != "success" && "${{ needs.affected.result }}" != "skipped" ]]; then
+                      echo "affected did not pass (result: ${{ needs.affected.result }})."
+                      exit 1
+                  fi
+                  if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
+                      echo "build did not pass (result: ${{ needs.build.result }})."
+                      exit 1
+                  fi
+                  if [[ "${{ needs.test.result }}" != "success" && "${{ needs.test.result }}" != "skipped" ]]; then
+                      echo "test did not pass (result: ${{ needs.test.result }})."
+                      exit 1
+                  fi
+                  if [[ "${{ needs.lint.result }}" != "success" && "${{ needs.lint.result }}" != "skipped" ]]; then
+                      echo "lint did not pass (result: ${{ needs.lint.result }})."
+                      exit 1
+                  fi

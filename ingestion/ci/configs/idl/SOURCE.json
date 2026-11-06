@@ -1,0 +1,15 @@
+{
+    "repository": "PostHog/posthog",
+    "path": "posthog/idl",
+    "commit": "4b6343d28c5f4bfb0ac6f850e7a5ee4bdc1ebd06",
+    "files": {
+        "events_dead_letter_queue.json": "b92863e04951826898616f8948d618c1e33219effcba052d5e995cebabd64316",
+        "events_json.json": "85d14cca1cb02b3de2d5eb27ee29a48f286933a222b87999079b1ed8ede51e38",
+        "groups.json": "8eb05a0da4031a5bd8d0d1c1ce103c7597939e3518cadd595a003e347ccaf695",
+        "idl.md": "e384be6656f15a7c76db481fbf91ccf13cf69bb3e41f6e3d49a2f86ace325b00",
+        "person.json": "d427ba94016b80a9f9059db57fe025e1542695f509863e2320b2168aa456a43f",
+        "person_distinct_id.json": "56dabd206510ac23ac72860266a90b7508dcc23d7241b93f3e45f83986aa9360",
+        "person_distinct_id2.json": "c9831578e949a6635d048b4cbc6a7c98372aa66f7e0d4022ed1840881c97d7cc",
+        "plugin_log_entries.json": "77f33b53ba11d26eccaf64e8ab982330321dd7675b0d1fa7aecf86b313b3134a"
+    }
+}

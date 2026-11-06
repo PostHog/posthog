@@ -1,0 +1,411 @@
+name: Build and deploy ingestion container images
+
+# Production build + deploy for ingestion's Rust services on master.
+# Uses selective builds: only images affected by changed files are built and deployed.
+# workflow_dispatch builds all images unless image-filter names a subset (escape hatch).
+#
+# Image list: ingestion/ci/images.yml
+# PR images: .github/workflows/ingestion-smoke-test-build.yml (smoke_test labels)
+# Build steps: .github/workflows/_ingestion-build-images.yml
+# Affected-set computation: ingestion/rust/affected-services (Rust binary crate)
+
+on:
+    workflow_dispatch:
+        inputs:
+            image-filter:
+                description: 'Comma-separated image names to build and deploy (empty = all)'
+                required: false
+                type: string
+                default: ''
+    push:
+        paths:
+            - 'ingestion/rust/**'
+            - 'ingestion/proto/**'
+            - 'ingestion/ci/images.yml'
+            - 'ingestion/ci/actions/compute-affected/**'
+            - '.github/workflows/ingestion-images.yml'
+            - '.github/workflows/_ingestion-build-images.yml'
+        branches:
+            - 'master'
+
+concurrency:
+    # Per-SHA: a shared group keeps one pending run, and the push that replaces it builds only the images its own diff affects.
+    group: ${{ github.workflow }}-${{ github.sha }}
+    cancel-in-progress: false
+
+jobs:
+    affected:
+        name: compute affected images
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        # workflow_dispatch skips this job and builds everything.
+        if: github.event_name != 'workflow_dispatch'
+        permissions:
+            contents: read
+        outputs:
+            image-filter: ${{ steps.compute.outputs.images }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  sparse-checkout: ingestion/
+                  sparse-checkout-cone-mode: false
+                  clean: false
+
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+
+            - name: Compute affected images
+              id: compute
+              uses: ./ingestion/ci/actions/compute-affected
+              with:
+                  event-name: ${{ github.event_name }}
+                  push-before-sha: ${{ github.event.before }}
+
+    build-images:
+        needs: affected
+        # !cancelled() keeps this job alive when workflow_dispatch skips 'affected',
+        # and still stops it after a manual cancellation.
+        if: |
+            !cancelled() &&
+            needs.affected.result != 'failure' &&
+            needs.affected.outputs.image-filter != 'none'
+        uses: ./.github/workflows/_ingestion-build-images.yml
+        with:
+            # Only the deploy repo pushes images.
+            push: ${{ vars.CD_DEPLOY_ENABLED == 'true' }}
+            image-filter: ${{ needs.affected.outputs.image-filter || inputs.image-filter || '' }}
+            tag-rules: |
+                type=ref,event=branch
+                type=semver,pattern={{version}}
+                type=semver,pattern={{major}}.{{minor}}
+                type=sha
+            timeout-minutes: 30
+            require-ecr: ${{ vars.CD_DEPLOY_ENABLED == 'true' }}
+        secrets:
+            AWS_ECR_SHARED_SERVICES_PUBLISH_IAM_ROLE: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+            POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
+            POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+            # Deliberately reuses the frontend sourcemap upload key: sourcemaps and
+            # native symbols go through the same symbol-set upload API on the same
+            # internal project, so there is no separate org secret to create.
+            # Rotating POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY affects both uploads.
+            POSTHOG_UPLOAD_SYMBOLS_CLI_API_KEY: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
+        permissions:
+            id-token: write
+            contents: read
+            packages: write
+
+    deploy:
+        name: deploy ${{ matrix.release }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        needs: build-images
+        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master'
+        strategy:
+            # fail-fast false so one missing digest doesn't cancel other deploys
+            fail-fast: false
+            matrix:
+                include:
+                    - release: capture
+                      digest_key: capture
+                      values_key: image
+                    - release: capture-replay
+                      digest_key: capture
+                      values_key: image
+                    - release: property-defs-rs
+                      digest_key: property-defs-rs
+                      values_key: image
+                    - release: property-vals-rs
+                      digest_key: property-vals-rs
+                      values_key: image
+                    - release: ingestion-consumer
+                      digest_key: ingestion-consumer
+                      values_key: image
+                    - release: ingestion-control-plane
+                      digest_key: ingestion-control-plane
+                      values_key: image
+                    - release: pgcollector
+                      digest_key: pgcollector
+                      values_key: image
+                    - release: pgapi
+                      digest_key: pgapi
+                      values_key: image
+                    - release: kafka-deduplicator
+                      digest_key: kafka-deduplicator
+                      values_key: image
+                    - release: persons-migrate
+                      digest_key: persons-migrate
+                      values_key: image
+                    - release: personhog-identity
+                      digest_key: personhog-identity
+                      values_key: image
+                    - release: personhog-publisher
+                      digest_key: personhog-publisher
+                      values_key: image
+                    - release: personhog-leader
+                      digest_key: personhog-leader
+                      values_key: image
+                    - release: personhog-replica
+                      digest_key: personhog-replica
+                      values_key: image
+                    - release: personhog-router
+                      digest_key: personhog-router
+                      values_key: image
+                    - release: personhog-writer
+                      digest_key: personhog-writer
+                      values_key: image
+                    - release: personhog-changelog-relay
+                      digest_key: personhog-changelog-relay
+                      values_key: image
+                    - release: personhog-test-harness
+                      digest_key: personhog-test-harness
+                      values_key: image
+                    - release: personhog-parity-monitor
+                      digest_key: personhog-parity-monitor
+                      values_key: image
+                    - release: kafka-assigner
+                      digest_key: kafka-assigner
+                      values_key: image
+        steps:
+            - name: check if image was built
+              id: check
+              env:
+                  DIGESTS: ${{ needs.build-images.outputs.digests }}
+                  KEY: ${{ matrix.digest_key }}
+              run: |
+                  digest=$(echo "$DIGESTS" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('$KEY',''))")
+                  if [ -n "$digest" ]; then
+                      echo "skip=false" >> "$GITHUB_OUTPUT"
+                      echo "digest=$digest" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "Skipping ${{ matrix.release }} — image not in this build"
+                      echo "skip=true" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: get deployer token
+              if: steps.check.outputs.skip != 'true'
+              id: deployer
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: charts
+
+            - name: trigger ${{ matrix.release }} deployment
+              if: steps.check.outputs.skip != 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {"${{ matrix.values_key }}": {"sha": "${{ steps.check.outputs.digest }}"}},
+                        "release": "${{ matrix.release }}",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": "PostHog/posthog",
+                        "labels": [],
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
+    ordered_image_alias:
+        name: publish ordered image aliases (${{ matrix.registry }})
+        needs: build-images
+        # Freight cadence v2 sorts releases by this tag, so every deployable ingestion
+        # image gets one. Mirrors the posthog_build alias job in container-images-cd.yml,
+        # against ghcr and the shared-services ECR. Best effort: a missing alias delays
+        # Freight for that build and never fails the deploy.
+        # One job per registry, so a stalled registry cannot spend the other's timeout.
+        strategy:
+            fail-fast: false
+            matrix:
+                registry: [ghcr, ecr]
+        if: ${{ needs.build-images.result == 'success' && needs.build-images.outputs.digests != '' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == 'refs/heads/master' }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        continue-on-error: true
+        permissions:
+            id-token: write
+            contents: read
+            packages: write
+
+        steps:
+            # Only the commit graph is needed here; the tree stays limited to ingestion/.
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: ingestion/
+                  sparse-checkout-cone-mode: false
+
+            - name: Compute ordered release tag
+              id: ordered-release
+              timeout-minutes: 2
+              shell: bash
+              env:
+                  ORDERED_RELEASE_TAG_REGEX: ^r[0-9]{12}-[0-9a-f]{6}$
+              run: |
+                  set -uo pipefail
+
+                  if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+                      fetch_status=0
+                      timeout --kill-after=10s 90s git fetch \
+                          --no-tags \
+                          --prune \
+                          --no-recurse-submodules \
+                          --unshallow \
+                          --filter=tree:0 \
+                          origin \
+                          "+${GITHUB_REF}:refs/remotes/origin/${GITHUB_REF_NAME}" || fetch_status=$?
+                      if [ "$fetch_status" -ne 0 ]; then
+                          echo "::warning title=Ordered release tag skipped::Source history could not be fetched (status $fetch_status)."
+                          exit 0
+                      fi
+                  fi
+
+                  if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" != "false" ]; then
+                      echo "::warning title=Ordered release tag skipped::Complete source history is unavailable."
+                      exit 0
+                  fi
+
+                  if ! head_revision="$(git rev-parse HEAD)" || [ "$head_revision" != "$GITHUB_SHA" ]; then
+                      echo "::warning title=Ordered release tag skipped::The checked-out revision does not match GITHUB_SHA."
+                      exit 0
+                  fi
+
+                  if ! position="$(git rev-list --first-parent --count "$GITHUB_SHA")"; then
+                      echo "::warning title=Ordered release tag skipped::The source position could not be computed."
+                      exit 0
+                  fi
+
+                  if ! [[ "$position" =~ ^[1-9][0-9]{0,11}$ ]]; then
+                      echo "::warning title=Ordered release tag skipped::The source position is out of range."
+                      exit 0
+                  fi
+
+                  if ! printf -v tag 'r%012d-%.6s' "$position" "$GITHUB_SHA"; then
+                      echo "::warning title=Ordered release tag skipped::The source position could not be formatted."
+                      exit 0
+                  fi
+
+                  if ! [[ "$tag" =~ $ORDERED_RELEASE_TAG_REGEX ]]; then
+                      echo "::warning title=Ordered release tag skipped::${tag} does not match the required format."
+                      exit 0
+                  fi
+
+                  echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+            - name: Warn when ordered image alias tag is unavailable
+              if: ${{ steps.ordered-release.outputs.tag == '' }}
+              shell: bash
+              run: echo "::warning title=Ordered image alias tag unavailable::Ordered image alias publication was skipped because no ordered release tag was generated."
+
+            - name: Set up Docker Buildx for ordered image aliases
+              if: ${{ steps.ordered-release.outputs.tag != '' }}
+              uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+            - name: Login to ghcr.io
+              if: ${{ steps.ordered-release.outputs.tag != '' && matrix.registry == 'ghcr' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Configure AWS credentials for the shared-services ECR
+              id: ecr-credentials
+              if: ${{ steps.ordered-release.outputs.tag != '' && matrix.registry == 'ecr' }}
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  aws-region: us-east-1
+
+            - name: Login to the shared-services ECR
+              id: ecr
+              if: ${{ steps.ecr-credentials.outcome == 'success' }}
+              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+
+            - name: Publish and reconcile ordered image aliases
+              if: ${{ steps.ordered-release.outputs.tag != '' && (matrix.registry == 'ghcr' || steps.ecr.outcome == 'success') }}
+              timeout-minutes: 8
+              shell: bash
+              env:
+                  DIGESTS: ${{ needs.build-images.outputs.digests }}
+                  ORDERED_ALIAS: ${{ steps.ordered-release.outputs.tag }}
+                  # The build pushed each digest to both registries, so each gets the alias.
+                  REGISTRY: ${{ matrix.registry == 'ghcr' && 'ghcr.io/posthog/posthog' || steps.ecr.outputs.registry }}
+              # Same reconciliation as PostHog/shared-actions container-image-metadata: read
+              # the alias before publishing, accept it when it already resolves to this
+              # build, and never move it when it resolves elsewhere. Kargo caches the alias
+              # as immutable, and a rebuild at the same commit can yield a new index digest.
+              run: |
+                  set -uo pipefail
+                  # jq errors inside the process substitution below never reach the loop,
+                  # so reject a malformed digest map here instead of exiting clean with no work.
+                  if ! jq -e 'type == "object"' <<<"$DIGESTS" >/dev/null 2>&1; then
+                      echo "::error title=Ordered image alias input invalid::The build digests output is not a JSON object."
+                      exit 1
+                  fi
+
+                  inspect_digest() {
+                      local output
+                      output="$(timeout --kill-after=10s 20s docker buildx imagetools inspect \
+                          --format '{{json .Manifest.Digest}}' "$1" 2>/dev/null)" || return $?
+                      [[ "$output" =~ ^\"(sha256:[0-9a-f]{64})\"$ ]] || return 65
+                      printf '%s\n' "${BASH_REMATCH[1]}"
+                  }
+
+                  # present-at-expected-digest | integrity-mismatch | absent | unknown
+                  classify_alias() {
+                      local target="$1" source="$2" expected="$3" observed
+                      if observed="$(inspect_digest "$target")" || observed="$(inspect_digest "$target")"; then
+                          if [ "$observed" = "$expected" ]; then echo present-at-expected-digest; else echo integrity-mismatch; fi
+                      elif inspect_digest "$source" >/dev/null; then
+                          echo absent
+                      else
+                          echo unknown
+                      fi
+                  }
+
+                  failures=0
+                  while IFS=$'\t' read -r image digest; do
+                      if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                          echo "::warning title=Ordered image alias skipped::${image}: no digest was resolved for this build."
+                          continue
+                      fi
+                      source_image="${REGISTRY}/${image}@${digest}"
+                      target_image="${REGISTRY}/${image}:${ORDERED_ALIAS}"
+                      state="$(classify_alias "$target_image" "$source_image" "$digest")"
+                      if [ "$state" = "absent" ]; then
+                          # --prefer-index=false re-tags the existing index by digest, so the
+                          # alias resolves to the same digest and keeps its annotations.
+                          timeout --kill-after=10s 35s docker buildx imagetools create \
+                              --prefer-index=false \
+                              --tag "$target_image" \
+                              "$source_image" >&2 || echo "::warning::${image}: alias publication client exited $?"
+                          state="$(classify_alias "$target_image" "$source_image" "$digest")"
+                      fi
+                      case "$state" in
+                          present-at-expected-digest)
+                              echo "::notice title=Ordered image alias present::${image}:${ORDERED_ALIAS} resolves to ${digest}."
+                              ;;
+                          integrity-mismatch)
+                              echo "::error title=Ordered image alias integrity mismatch::${image}:${ORDERED_ALIAS} resolves to a different digest; left untouched."
+                              failures=$((failures + 1))
+                              ;;
+                          absent)
+                              echo "::warning title=Ordered image alias absent::${image}:${ORDERED_ALIAS} is absent after publication."
+                              failures=$((failures + 1))
+                              ;;
+                          *)
+                              echo "::error title=Ordered image alias read-back unavailable::${image}:${ORDERED_ALIAS} could not be read back from ${REGISTRY}."
+                              failures=$((failures + 1))
+                              ;;
+                      esac
+                  done < <(echo "$DIGESTS" | jq -r 'to_entries[] | "\(.key)\t\(.value)"')
+                  if [ "$failures" -gt 0 ]; then
+                      exit 1
+                  fi

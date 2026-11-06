@@ -112,18 +112,6 @@ jobs:
             fail-fast: false
             matrix:
                 include:
-                    - release: capture
-                      digest_key: capture
-                      values_key: image
-                    - release: capture-replay
-                      digest_key: capture
-                      values_key: image
-                    - release: property-defs-rs
-                      digest_key: property-defs-rs
-                      values_key: image
-                    - release: property-vals-rs
-                      digest_key: property-vals-rs
-                      values_key: image
                     - release: replay-recorder-v4
                       digest_key: replay-recorder-v4
                       values_key: image
@@ -163,56 +151,11 @@ jobs:
                     - release: capture-apm-metrics
                       digest_key: capture-apm-metrics
                       values_key: image
-                    - release: ingestion-consumer
-                      digest_key: ingestion-consumer
-                      values_key: image
                     - release: logs-ingestion-rust
                       digest_key: logs-ingestion-rust
                       values_key: image
-                    - release: ingestion-control-plane
-                      digest_key: ingestion-control-plane
-                      values_key: image
-                    - release: pgcollector
-                      digest_key: pgcollector
-                      values_key: image
-                    - release: pgapi
-                      digest_key: pgapi
-                      values_key: image
-                    - release: kafka-deduplicator
-                      digest_key: kafka-deduplicator
-                      values_key: image
                     - release: sqlx-migrate
                       digest_key: sqlx-migrate
-                      values_key: image
-                    - release: personhog-identity
-                      digest_key: personhog-identity
-                      values_key: image
-                    - release: personhog-publisher
-                      digest_key: personhog-publisher
-                      values_key: image
-                    - release: personhog-leader
-                      digest_key: personhog-leader
-                      values_key: image
-                    - release: personhog-replica
-                      digest_key: personhog-replica
-                      values_key: image
-                    - release: personhog-router
-                      digest_key: personhog-router
-                      values_key: image
-                    - release: personhog-writer
-                      digest_key: personhog-writer
-                      values_key: image
-                    - release: personhog-changelog-relay
-                      digest_key: personhog-changelog-relay
-                      values_key: image
-                    - release: personhog-test-harness
-                      digest_key: personhog-test-harness
-                      values_key: image
-                    - release: personhog-parity-monitor
-                      digest_key: personhog-parity-monitor
-                      values_key: image
-                    - release: kafka-assigner
-                      digest_key: kafka-assigner
                       values_key: image
                     - release: hypercache-server
                       digest_key: hypercache-server

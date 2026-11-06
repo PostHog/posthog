@@ -1,0 +1,102 @@
+name: Build ingestion smoke test images
+
+# Builds ingestion's container images from PR branches labeled 'smoke_test'.
+# This is a build-only workflow — no deployment. Use it to get feature branch
+# images into ghcr.io for pre-merge smoke testing in staging/production.
+#
+# Usage:
+#   Build all images: add the 'smoke_test' label to your PR
+#   Build specific images: add 'smoke_test:capture', 'smoke_test:personhog-replica', etc.
+#   Manual trigger: Actions tab -> workflow_dispatch -> enter image names
+#
+# Image list: ingestion/ci/images.yml
+# Build steps: .github/workflows/_ingestion-build-images.yml
+
+on:
+    workflow_dispatch:
+        inputs:
+            images:
+                description: 'Comma-separated image names to build (empty = all)'
+                type: string
+                default: ''
+    pull_request:
+        types: [labeled, synchronize]
+        paths:
+            - 'ingestion/rust/**'
+            - 'ingestion/proto/**'
+            - 'ingestion/ci/images.yml'
+            - '.github/workflows/ingestion-smoke-test-build.yml'
+            - '.github/workflows/_ingestion-build-images.yml'
+
+concurrency:
+    group: ingestion-smoke-test-${{ github.event.pull_request.number || github.run_id }}
+    cancel-in-progress: true
+
+jobs:
+    authorize:
+        name: authorize smoke test
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        if: |
+            (github.event_name == 'workflow_dispatch' && github.repository == 'PostHog/posthog') ||
+            (github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
+             contains(toJson(github.event.pull_request.labels.*.name), 'smoke_test'))
+        permissions: {}
+        steps:
+            - run: echo "Authorized"
+
+    resolve-filter:
+        name: resolve image filter
+        runs-on: ubuntu-24.04
+        timeout-minutes: 2
+        if: (github.event_name == 'workflow_dispatch' && github.repository == 'PostHog/posthog') || github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+        permissions: {}
+        outputs:
+            filter: ${{ steps.parse.outputs.filter }}
+        steps:
+            - name: Parse image filter
+              id: parse
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
+                  DISPATCH_IMAGES: ${{ github.event.inputs.images }}
+                  PR_LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+              run: |
+                  if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+                      echo "filter=$DISPATCH_IMAGES" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+
+                  filter=""
+                  for label in $(echo "$PR_LABELS" | jq -r '.[]'); do
+                      case "$label" in
+                          smoke_test:*)
+                              img="${label#smoke_test:}"
+                              filter="${filter:+$filter,}$img"
+                              ;;
+                      esac
+                  done
+                  echo "filter=$filter" >> "$GITHUB_OUTPUT"
+
+    build-images:
+        needs: [authorize, resolve-filter]
+        uses: ./.github/workflows/_ingestion-build-images.yml
+        with:
+            image-filter: ${{ needs.resolve-filter.outputs.filter }}
+            tag-rules: |
+                type=ref,event=pr
+                type=sha
+                type=raw,value=${{ github.head_ref || github.ref_name }}
+            checkout-ref: ${{ github.event.pull_request.head.sha || github.sha }}
+            timeout-minutes: 30
+            event-name: posthog-ingestion-smoke-test-image-build
+            extra-failure-props: '"pr": "${{ github.event.pull_request.number }}"'
+            # PR builds go to the <image>-prs repositories, which expire pr-* tags after 2 days.
+            ecr-repository-suffix: -prs
+        secrets:
+            AWS_ECR_SHARED_SERVICES_PUBLISH_IAM_ROLE: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
+            POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
+            POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+        permissions:
+            id-token: write
+            contents: read
+            packages: write

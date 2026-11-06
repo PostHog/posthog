@@ -1,0 +1,10 @@
+{
+    "repository": "PostHog/posthog",
+    "path": ".github/actions/paths-filter",
+    "commit": "4b6343d28c5f4bfb0ac6f850e7a5ee4bdc1ebd06",
+    "files": {
+        "LICENSE": "5730dccb89882cb567a44c9035df1668df1b03c23e4d1a71c59924eeba8e405a",
+        "action.yml": "cc5d5ce71a18097de1b97d2f9b3678dc06069ec8c633fe3a1a99f4e908af57f7",
+        "dist/index.js": "bf5e19ab940d4acb4f67303d84a70ab6e6c4941d0a3ffdd12894a640426b678f"
+    }
+}

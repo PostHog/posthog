@@ -1,0 +1,335 @@
+name: Build ingestion container images
+
+# Reusable workflow — not triggered directly.
+# Called by ingestion-images.yml (production) and
+# ingestion-smoke-test-build.yml (smoke tests).
+# Image list lives in ingestion/ci/images.yml.
+#
+# Every job checks out only ingestion/, so a file outside that tree cannot
+# change what these builds produce.
+
+on:
+    workflow_call:
+        inputs:
+            tag-rules:
+                description: 'Docker metadata tag rules (newline-separated)'
+                required: true
+                type: string
+            checkout-ref:
+                description: 'Git ref for checkout (leave empty for default)'
+                type: string
+                default: ''
+            timeout-minutes:
+                description: 'Per-image build timeout'
+                type: number
+                default: 30
+            event-name:
+                description: 'PostHog event name for failure reporting'
+                type: string
+                default: 'posthog-ingestion-image-build'
+            extra-failure-props:
+                description: 'Additional JSON properties for failure reporting (without outer braces)'
+                type: string
+                default: ''
+            image-filter:
+                description: 'Comma-separated list of images to build (empty = all)'
+                type: string
+                default: ''
+            push:
+                description: 'Whether to push built images to the registry'
+                type: boolean
+                default: true
+            ecr-repository-suffix:
+                description: 'Suffix of the shared-services ECR repository (empty for <image>, -prs for <image>-prs)'
+                type: string
+                default: ''
+            require-ecr:
+                description: 'Fail a push when the shared-services ECR publish role is not set'
+                type: boolean
+                default: false
+        secrets:
+            POSTHOG_API_TOKEN:
+                required: false
+            POSTHOG_DEVEX_PROJECT_API_TOKEN:
+                required: false
+            POSTHOG_UPLOAD_SYMBOLS_CLI_API_KEY:
+                required: false
+            AWS_ECR_SHARED_SERVICES_PUBLISH_IAM_ROLE:
+                required: false
+        outputs:
+            digests:
+                description: 'JSON object mapping image name to digest (empty when push is false)'
+                value: ${{ jobs.collect.outputs.digests }}
+
+jobs:
+    load-matrix:
+        name: load image matrix
+        runs-on: ubuntu-24.04
+        timeout-minutes: 2
+        permissions:
+            contents: read
+        outputs:
+            matrix: ${{ steps.set.outputs.matrix }}
+        steps:
+            - name: Check out images.yml
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ inputs.checkout-ref || '' }}
+                  sparse-checkout: ingestion/ci/images.yml
+                  sparse-checkout-cone-mode: false
+
+            - name: Read and filter matrix
+              id: set
+              env:
+                  IMAGE_FILTER: ${{ inputs.image-filter }}
+              run: |
+                  full=$(yq -o=json -I=0 '.' ingestion/ci/images.yml)
+                  if [ -n "$IMAGE_FILTER" ]; then
+                      matrix=$(echo "$full" | jq -c --arg f "$IMAGE_FILTER" \
+                        '[.[] | select(.image as $img | ($f | split(",") | map(ltrimstr(" ") | rtrimstr(" ")) | index($img)) != null)]')
+                  else
+                      matrix="$full"
+                  fi
+                  if [ "$matrix" = "[]" ]; then
+                      echo "::error::image-filter '$IMAGE_FILTER' matched no images in ingestion/ci/images.yml"
+                      exit 1
+                  fi
+                  echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+    build:
+        name: build ${{ matrix.image }}
+        needs: load-matrix
+        strategy:
+            matrix:
+                include: ${{ fromJson(needs.load-matrix.outputs.matrix) }}
+        runs-on: depot-ubuntu-22.04
+        timeout-minutes: ${{ inputs.timeout-minutes }}
+        env:
+            ECR_PUBLISH_ROLE: ${{ secrets.AWS_ECR_SHARED_SERVICES_PUBLISH_IAM_ROLE }}
+        permissions:
+            id-token: write
+            contents: read
+            packages: write
+
+        defaults:
+            run:
+                working-directory: ingestion/rust
+
+        steps:
+            - name: Check Out Repo
+              # Non-cone sparse checkout of the ingestion tree alone: files in the
+              # project root are not included.
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ inputs.checkout-ref || '' }}
+                  sparse-checkout: ingestion/
+                  sparse-checkout-cone-mode: false
+
+            # The Dockerfile reads protos from ../proto relative to each crate, so the
+            # proto tree sits inside the build context at ingestion/rust/proto.
+            - name: Copy proto files into the build context
+              working-directory: .
+              run: cp -r ingestion/proto ingestion/rust/proto
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
+            - name: Login to ghcr.io
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            # The images also go to the shared-services ECR. Deploys pull them through the VPC
+            # endpoint instead of paying NAT egress to ghcr. ECR replication copies each push to
+            # eu-central-1.
+            - name: Require the shared-services ECR publish role
+              if: ${{ inputs.push && inputs.require-ecr && env.ECR_PUBLISH_ROLE == '' }}
+              run: |
+                  echo "::error::The shared-services ECR publish role is not set, so the image would reach ghcr only."
+                  exit 1
+
+            - name: Configure AWS credentials for the shared-services ECR
+              id: ecr-credentials
+              if: ${{ inputs.push && env.ECR_PUBLISH_ROLE != '' }}
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ env.ECR_PUBLISH_ROLE }}
+                  aws-region: us-east-1
+
+            - name: Login to the shared-services ECR
+              id: ecr
+              if: ${{ steps.ecr-credentials.outcome == 'success' }}
+              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+
+            - name: Docker meta
+              id: meta
+              uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
+              # Kargo reads org.opencontainers.image.revision from the image index to match an
+              # image to its source commit, so the annotations must land on the index, not only
+              # on the per-platform manifests.
+              env:
+                  DOCKER_METADATA_ANNOTATIONS_LEVELS: index
+              with:
+                  # One push writes the same digest to both registries.
+                  images: |
+                      ghcr.io/posthog/posthog/${{ matrix.image }}
+                      ${{ steps.ecr.outputs.registry && format('{0}/{1}{2}', steps.ecr.outputs.registry, matrix.image, inputs.ecr-repository-suffix) || '' }}
+                  tags: ${{ inputs.tag-rules }}
+                  labels: |
+                      org.opencontainers.image.title=posthog
+                      org.opencontainers.image.url=https://github.com/PostHog/posthog
+                      org.opencontainers.image.source=https://github.com/PostHog/posthog
+                  annotations: |
+                      org.opencontainers.image.title=posthog
+                      org.opencontainers.image.url=https://github.com/PostHog/posthog
+                      org.opencontainers.image.source=https://github.com/PostHog/posthog
+
+            - name: Retrieve sccache configuration
+              id: sccache
+              env:
+                  IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+              run: |
+                  echo "cache-key-prefix=cargo-${{ hashFiles('ingestion/rust/Cargo.lock') }}" >> "$GITHUB_OUTPUT"
+                  if [ "$IS_FORK_PR" = "true" ]; then
+                      echo "Fork PR — skipping sccache credentials (build runs without remote cache)"
+                      exit 0
+                  fi
+                  echo "endpoint=$SCCACHE_WEBDAV_ENDPOINT" >> "$GITHUB_OUTPUT"
+                  echo "::add-mask::$SCCACHE_WEBDAV_TOKEN"
+                  echo "token=$SCCACHE_WEBDAV_TOKEN" >> "$GITHUB_OUTPUT"
+
+            # Native debug symbols upload to PostHog error tracking from inside the
+            # image build (see ingestion/rust/Dockerfile). Only master builds on the
+            # canonical deploy repo get the token; everywhere else the Dockerfile skips
+            # the upload, so unrebased branches and forks are unaffected.
+            - name: Prepare symbol upload token
+              id: symbols
+              env:
+                  TOKEN: ${{ secrets.POSTHOG_UPLOAD_SYMBOLS_CLI_API_KEY }}
+                  ENABLED: ${{ github.event_name != 'pull_request' && vars.CD_DEPLOY_ENABLED == 'true' }}
+              run: |
+                  if [ "$ENABLED" = "true" ] && [ -n "$TOKEN" ]; then
+                      echo "::add-mask::$TOKEN"
+                      echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+                      # Unique per run: secret mounts don't participate in the layer
+                      # cache key, so this busts the cache to guarantee the upload
+                      # actually runs on token-bearing builds (see ingestion/rust/Dockerfile).
+                      echo "trigger=${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "Native symbol upload disabled for this build"
+                  fi
+
+            - name: Build and push image
+              id: docker_build
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  project: ${{ matrix.project }}
+                  context: ./ingestion/rust/
+                  file: ${{ matrix.dockerfile }}
+                  target: ${{ matrix.target || '' }}
+                  push: ${{ inputs.push }}
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  annotations: ${{ steps.meta.outputs.annotations }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: |
+                      SCCACHE_LOG=debug
+                      SCCACHE_NO_DAEMON=1
+                      BIN=${{ matrix.bin || matrix.image }}
+                      BUILD_FEATURES=${{ matrix.features || '' }}
+                      EXTRA_RUSTFLAGS=${{ matrix.extra_rustflags || '' }}
+                      EXTRA_CFLAGS=${{ matrix.extra_cflags || '' }}
+                      SCCACHE_WEBDAV_KEY_PREFIX=${{ steps.sccache.outputs.cache-key-prefix }}
+                      SYMBOL_UPLOAD_TRIGGER=${{ steps.symbols.outputs.trigger }}
+                  secrets: |
+                      SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
+                      SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
+                      posthog_upload_symbols_cli_api_key=${{ steps.symbols.outputs.token }}
+
+            - name: Build failure properties
+              if: failure()
+              id: failure-props
+              env:
+                  EXTRA: ${{ inputs.extra-failure-props }}
+              run: |
+                  props='{"status": "failure", "commit_hash": "${{ github.sha }}", "image": "${{ matrix.image }}"'
+                  if [ -n "$EXTRA" ]; then
+                      props="$props, $EXTRA"
+                  fi
+                  echo "json=${props}}" >> "$GITHUB_OUTPUT"
+
+            - name: Report failure
+              if: failure() && github.event_name != 'pull_request'
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  event: ${{ inputs.event-name }}
+                  properties: ${{ steps.failure-props.outputs.json }}
+            - name: Report failure to DevEx PostHog
+              if: failure() && github.event_name != 'pull_request'
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: ${{ inputs.event-name }}
+                  properties: ${{ steps.failure-props.outputs.json }}
+
+            # A build without a push has no registry digest to record.
+            - name: Container image digest
+              if: inputs.push
+              env:
+                  DIGEST: ${{ steps.docker_build.outputs.digest }}
+              run: echo "$DIGEST" > /tmp/digest-${{ matrix.image }}.txt
+
+            - name: Upload digest
+              if: inputs.push
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: digest-${{ matrix.image }}
+                  path: /tmp/digest-${{ matrix.image }}.txt
+                  retention-days: 1
+
+    collect:
+        name: collect digests
+        needs: [load-matrix, build]
+        if: inputs.push
+        runs-on: ubuntu-24.04
+        timeout-minutes: 2
+        permissions:
+            contents: read
+        outputs:
+            digests: ${{ steps.aggregate.outputs.digests }}
+        steps:
+            - name: Download all digest artifacts
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  pattern: digest-*
+                  path: /tmp/digests
+                  merge-multiple: true
+
+            - name: Aggregate digests
+              id: aggregate
+              run: |
+                  shopt -s nullglob
+                  echo "Contents of /tmp/digests/:"
+                  ls -laR /tmp/digests/ 2>/dev/null || echo "/tmp/digests/ does not exist"
+                  digests='{}'
+                  found=0
+                  for file in /tmp/digests/digest-*.txt; do
+                      found=1
+                      name="${file##*/digest-}"
+                      name="${name%.txt}"
+                      digest=$(cat "$file")
+                      if [ -z "$digest" ]; then
+                          echo "::error::Empty digest for $name (file: $file)"
+                          exit 1
+                      fi
+                      digests=$(echo "$digests" | jq -c --arg k "$name" --arg v "$digest" '. + {($k): $v}')
+                  done
+                  if [ "$found" -eq 0 ]; then
+                      echo "::error::No digest artifacts found under /tmp/digests/"
+                      exit 1
+                  fi
+                  echo "digests=$digests" >> "$GITHUB_OUTPUT"

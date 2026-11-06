@@ -1,0 +1,349 @@
+<?xml version="1.0"?>
+<yandex>
+    <!-- See also the files in users.d directory where the settings can be overridden. -->
+
+    <!-- Profiles of settings. -->
+    <profiles>
+        <!-- Default settings. -->
+        <default>
+            <!-- Maximum memory usage for processing single query, in bytes. -->
+            <max_memory_usage>10000000000</max_memory_usage>
+
+            <!-- How to choose between replicas during distributed query processing.
+                 random - choose random replica from set of replicas with minimum number of errors
+                 nearest_hostname - from set of replicas with minimum number of errors, choose replica
+                  with minimum number of different symbols between replica's hostname and local hostname
+                  (Hamming distance).
+                 in_order - first live replica is chosen in specified order.
+                 first_or_random - if first replica one has higher number of errors, pick a random one from replicas
+            with minimum number of errors.
+            -->
+            <load_balancing>random</load_balancing>
+
+            <allow_nondeterministic_mutations>1</allow_nondeterministic_mutations>
+
+            <compatibility>26.6</compatibility>
+            <!-- Preserve skip indexes in distributed queries with transform_null_in=1. -->
+            <optimize_rewrite_has_to_in>0</optimize_rewrite_has_to_in>
+            <!-- The funnel correlation query intentionally uses a materialized CTE
+                 to avoid re-running the actor subquery across UNION branches. -->
+            <enable_materialized_cte>1</enable_materialized_cte>
+            <!-- Keep inserts synchronous. Production configures async inserts explicitly
+                 (currently off); the 26.3 compatibility default turns them on, which makes
+                 every single-row test insert wait for the async flush and slows the suite. -->
+            <async_insert>0</async_insert>
+            <!-- 26.3 enables rewriting `col = ''` / `col != ''` into emptiness checks that
+                 skip DEFAULT-expression evaluation on parts written before the column was
+                 added. Materialized property columns rely on that evaluation for
+                 is_set / is_not_set filters on rows older than their backfill window, so
+                 pin the rewrite off until ClickHouse honors DEFAULTs there. -->
+            <optimize_empty_string_comparisons>0</optimize_empty_string_comparisons>
+            <distributed_product_mode>global</distributed_product_mode>
+            <enable_parallel_replicas>0</enable_parallel_replicas>
+            <max_parallel_replicas>1</max_parallel_replicas>
+            <allow_experimental_window_functions>1</allow_experimental_window_functions>
+            <allow_suspicious_low_cardinality_types>1</allow_suspicious_low_cardinality_types>
+            <insert_distributed_sync>1</insert_distributed_sync>
+            <throw_on_max_partitions_per_insert_block>false</throw_on_max_partitions_per_insert_block>
+            <number_of_mutations_to_throw>1</number_of_mutations_to_throw>
+            <!-- The native events_json table relies on these for every write, including
+                 mutations and backfills that cannot carry query-level settings. They keep
+                 dates as strings, keep the first of duplicated JSON paths, and store a
+                 dotted key such as `a.b` as one flat path instead of nesting it. -->
+            <input_format_try_infer_dates>0</input_format_try_infer_dates>
+            <input_format_try_infer_datetimes>0</input_format_try_infer_datetimes>
+            <type_json_skip_duplicated_paths>1</type_json_skip_duplicated_paths>
+            <json_type_escape_dots_in_keys>1</json_type_escape_dots_in_keys>
+
+            <stream_poll_timeout_ms>50</stream_poll_timeout_ms>
+            <stream_flush_interval_ms>100</stream_flush_interval_ms>
+
+            <!-- Development performance optimizations -->
+            <max_threads>2</max_threads>
+            <background_merges_mutations_concurrency_ratio>1</background_merges_mutations_concurrency_ratio>
+
+        </default>
+
+        <!-- Profile that allows only read queries. -->
+        <readonly>
+            <readonly>1</readonly>
+        </readonly>
+
+        <api>
+            <profile>default</profile>
+        </api>
+
+        <app>
+            <profile>default</profile>
+        </app>
+
+        <billing>
+            <profile>default</profile>
+        </billing>
+
+        <!-- Of course this is only for local dev, but mirrors prod to make tests useful.
+             readonly=2 pinned via <constraints> is the load-bearing safety (no writes, no client-side settings changes).
+             No resource constraints necessary, as autoresearch gets a dedicated cluster.
+             Add max_execution_time to prevent autoresearch run from spinning. -->
+        <autoresearch>
+            <readonly>2</readonly>
+            <max_execution_time>300</max_execution_time>
+            <constraints>
+                <readonly><readonly/></readonly>
+            </constraints>
+        </autoresearch>
+        <signals>
+            <profile>default</profile>
+            <readonly>2</readonly>
+        </signals>
+    </profiles>
+
+    <!-- Users and ACL. -->
+    <users>
+        <!-- If user name was not specified, 'default' user is used. -->
+        <default>
+            <!-- See also the files in users.d directory where the password can be overridden.
+
+                 Password could be specified in plaintext or in SHA256 (in hex format).
+
+                 If you want to specify password in plaintext (not recommended), place it in 'password' element.
+                 Example: <password>qwerty</password>.
+                 Password could be empty.
+
+                 If you want to specify SHA256, place it in 'password_sha256_hex' element.
+                 Example:
+            <password_sha256_hex>65e84be33532fb784c48129675f9eff3a682b27168c0ea744b2cf58ee02337c5</password_sha256_hex>
+                 Restrictions of SHA256: impossibility to connect to ClickHouse using MySQL JS client (as of July
+            2019).
+
+                 If you want to specify double SHA1, place it in 'password_double_sha1_hex' element.
+                 Example:
+            <password_double_sha1_hex>e395796d6546b1b65db9d665cd43f0e858dd4303</password_double_sha1_hex>
+
+                 If you want to specify a previously defined LDAP server (see 'ldap_servers' in the main config) for
+            authentication,
+                  place its name in 'server' element inside 'ldap' element.
+                 Example: <ldap><server>my_ldap_server</server></ldap>
+
+                 If you want to authenticate the user via Kerberos (assuming Kerberos is enabled, see 'kerberos' in
+            the main config),
+                  place 'kerberos' element instead of 'password' (and similar) elements.
+                 The name part of the canonical principal name of the initiator must match the user name for
+            authentication to succeed.
+                 You can also place 'realm' element inside 'kerberos' element to further restrict authentication to
+            only those requests
+                  whose initiator's realm matches it.
+                 Example: <kerberos />
+                 Example: <kerberos><realm>EXAMPLE.COM</realm></kerberos>
+
+                 How to generate decent password:
+                 Execute: PASSWORD=$(base64 < /dev/urandom | head -c8); echo "$PASSWORD"; echo -n "$PASSWORD" |
+            sha256sum | tr -d '-'
+                 In first line will be password and in second - corresponding SHA256.
+
+                 How to generate double SHA1:
+                 Execute: PASSWORD=$(base64 < /dev/urandom | head -c8); echo "$PASSWORD"; echo -n "$PASSWORD" |
+            sha1sum | tr -d '-' | xxd -r -p | sha1sum | tr -d '-'
+                 In first line will be password and in second - corresponding double SHA1.
+            -->
+            <password></password>
+
+            <!-- List of networks with open access.
+
+                 To open access from everywhere, specify:
+                    <ip>::/0</ip>
+
+                 To open access only from localhost, specify:
+                    <ip>::1</ip>
+                    <ip>127.0.0.1</ip>
+
+                 Each element of list has one of the following forms:
+                 <ip> IP-address or network mask. Examples: 213.180.204.3 or 10.0.0.1/8 or 10.0.0.1/255.255.255.0
+                     2a02:6b8::3 or 2a02:6b8::3/64 or 2a02:6b8::3/ffff:ffff:ffff:ffff::.
+                 <host> Hostname. Example: server01.yandex.ru.
+                     To check access, DNS query is performed, and all received addresses compared to peer address.
+                 <host_regexp> Regular expression for host names. Example, ^server\d\d-\d\d-\d\.yandex\.ru$
+                     To check access, DNS PTR query is performed for peer address and then regexp is applied.
+                     Then, for result of PTR query, another DNS query is performed and all received addresses compared
+            to peer address.
+                     Strongly recommended that regexp is ends with $
+                 All results of DNS requests are cached till server restart.
+            -->
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+
+            <!-- Settings profile for user. -->
+            <profile>default</profile>
+
+            <!-- Quota for user. -->
+            <quota>default</quota>
+
+            <!-- User can create other users and grant rights to them. -->
+            <access_management>1</access_management>
+            <named_collection_control>1</named_collection_control>
+            <show_named_collections>1</show_named_collections>
+            <show_named_collections_secrets>1</show_named_collections_secrets>
+        </default>
+
+        <api>
+            <password>apipass</password>
+
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+
+            <profile>api</profile>
+
+            <quota>default</quota>
+        </api>
+
+        <app>
+            <password>apppass</password>
+
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+
+            <profile>app</profile>
+
+            <quota>default</quota>
+        </app>
+
+        <billing>
+            <password>billingpass</password>
+
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+
+            <profile>billing</profile>
+
+            <quota>default</quota>
+        </billing>
+
+        <!-- Low-privilege reader baked into dictionary SOURCE(CLICKHOUSE(...)) clauses.
+             Mirrors prod's dict_reader: read-only, database-wide SELECT (not table-enumerated,
+             so new dictionary source tables are covered without editing this file). -->
+        <dict_reader>
+            <password>dictreaderpass</password>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <profile>readonly</profile>
+            <quota>default</quota>
+            <access_management>0</access_management>
+            <grants>
+                <query>GRANT SELECT ON default.*</query>
+                <query>GRANT SELECT ON posthog.*</query>
+                <query>GRANT SELECT ON posthog_test.*</query>
+            </grants>
+        </dict_reader>
+
+        <!-- Of course this is local dev, but mirrors prod to make tests useful.
+             - no table-function grants (url / s3 / file / executable / jdbc / ...)
+             - no DDL
+             - SELECT only on an explicit whitelist of PostHog tables
+             Grants are duplicated to support integration tests + regular usage -->
+        <autoresearch>
+            <password>autoresearchpass</password>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <profile>autoresearch</profile>
+            <quota>default</quota>
+            <access_management>0</access_management>
+            <grants>
+                <query>GRANT SELECT ON default.events</query>
+                <query>GRANT SELECT ON default.sharded_events</query>
+                <query>GRANT SELECT ON default.writable_events</query>
+                <query>GRANT SELECT ON posthog_test.events</query>
+                <query>GRANT SELECT ON posthog_test.sharded_events</query>
+                <query>GRANT SELECT ON posthog_test.writable_events</query>
+
+                <query>GRANT SELECT ON default.person</query>
+                <query>GRANT SELECT ON default.writable_person</query>
+                <query>GRANT SELECT ON posthog_test.person</query>
+                <query>GRANT SELECT ON posthog_test.writable_person</query>
+
+                <query>GRANT SELECT ON default.person_distinct_id_overrides</query>
+                <query>GRANT SELECT ON default.writable_person_distinct_id_overrides</query>
+                <query>GRANT SELECT ON posthog_test.person_distinct_id_overrides</query>
+                <query>GRANT SELECT ON posthog_test.writable_person_distinct_id_overrides</query>
+
+                <query>GRANT SELECT ON default.sessions</query>
+                <query>GRANT SELECT ON default.sharded_sessions</query>
+                <query>GRANT SELECT ON default.writable_sessions</query>
+                <query>GRANT SELECT ON posthog_test.sessions</query>
+                <query>GRANT SELECT ON posthog_test.sharded_sessions</query>
+                <query>GRANT SELECT ON posthog_test.writable_sessions</query>
+
+                <query>GRANT SELECT ON default.raw_sessions</query>
+                <query>GRANT SELECT ON default.sharded_raw_sessions</query>
+                <query>GRANT SELECT ON default.writable_raw_sessions</query>
+                <query>GRANT SELECT ON posthog_test.raw_sessions</query>
+                <query>GRANT SELECT ON posthog_test.sharded_raw_sessions</query>
+                <query>GRANT SELECT ON posthog_test.writable_raw_sessions</query>
+
+                <query>GRANT SELECT ON default.person_distinct_id2</query>
+                <query>GRANT SELECT ON default.writable_person_distinct_id2</query>
+                <query>GRANT SELECT ON posthog_test.person_distinct_id2</query>
+                <query>GRANT SELECT ON posthog_test.writable_person_distinct_id2</query>
+
+                <query>GRANT SELECT ON default.groups</query>
+                <query>GRANT SELECT ON default.writable_groups</query>
+                <query>GRANT SELECT ON posthog_test.groups</query>
+                <query>GRANT SELECT ON posthog_test.writable_groups</query>
+
+                <query>GRANT SELECT ON default.cohortpeople</query>
+                <query>GRANT SELECT ON posthog_test.cohortpeople</query>
+
+                <query>GRANT SELECT ON default.person_overrides</query>
+                <query>GRANT SELECT ON posthog_test.person_overrides</query>
+
+                <query>GRANT SELECT ON default.heatmaps</query>
+                <query>GRANT SELECT ON default.sharded_heatmaps</query>
+                <query>GRANT SELECT ON default.writable_heatmaps</query>
+                <query>GRANT SELECT ON posthog_test.heatmaps</query>
+                <query>GRANT SELECT ON posthog_test.sharded_heatmaps</query>
+                <query>GRANT SELECT ON posthog_test.writable_heatmaps</query>
+
+                <query>GRANT SELECT ON default.session_recording_events</query>
+                <query>GRANT SELECT ON default.sharded_session_recording_events</query>
+                <query>GRANT SELECT ON default.writable_session_recording_events</query>
+                <query>GRANT SELECT ON posthog_test.session_recording_events</query>
+                <query>GRANT SELECT ON posthog_test.sharded_session_recording_events</query>
+                <query>GRANT SELECT ON posthog_test.writable_session_recording_events</query>
+
+                <!-- Paired with the row policy in
+                     docker-entrypoint-initdb.d/autoresearch-row-policies.sql. -->
+                <query>GRANT SELECT ON system.query_log</query>
+            </grants>
+        </autoresearch>
+        <signals>
+            <password>signalspass</password>
+            <networks><ip>::/0</ip></networks>
+            <profile>signals</profile>
+            <quota>default</quota>
+        </signals>
+    </users>
+
+    <!-- Quotas. -->
+    <quotas>
+        <!-- Name of quota. -->
+        <default>
+            <!-- Limits for time interval. You could specify many intervals with different limits. -->
+            <interval>
+                <!-- Length of interval. -->
+                <duration>3600</duration>
+
+                <!-- No limits. Just calculate resource usage for time interval. -->
+                <queries>0</queries>
+                <errors>0</errors>
+                <result_rows>0</result_rows>
+                <read_rows>0</read_rows>
+                <execution_time>0</execution_time>
+            </interval>
+        </default>
+    </quotas>
+</yandex>

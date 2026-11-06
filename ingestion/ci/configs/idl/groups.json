@@ -1,0 +1,30 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "file://posthog/idl/groups.json",
+    "title": "groups",
+    "description": "Groups schema that is destined for ClickHouse",
+    "type": "object",
+    "properties": {
+        "group_type_index": {
+            "description": "Group type index",
+            "type": "number"
+        },
+        "group_key": {
+            "description": "Group Key",
+            "type": "string"
+        },
+        "created_at": {
+            "description": "Group creation timestamp",
+            "type": "number"
+        },
+        "team_id": {
+            "description": "Team ID associated with group",
+            "type": "number"
+        },
+        "group_properties": {
+            "description": "String representation of group JSON properties object",
+            "type": "string"
+        }
+    },
+    "required": ["group_type_index", "group_key", "created_at", "team_id", "group_properties"]
+}

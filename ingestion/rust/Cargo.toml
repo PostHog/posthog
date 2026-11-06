@@ -2,6 +2,7 @@
 resolver = "2"
 
 members = [
+    "affected-services",
     "capture",
     "capture-load-gen",
     "common/alloc",

@@ -6,7 +6,7 @@ The directory exists so that a change outside it can never affect ingestion's te
 
 ## Rules
 
-1. **One directory.** Ingestion's code, build files and CI live here. The only exception is the workflow files, which GitHub requires under `.github/workflows/`; ingestion's are named `ingestion-*.yml`.
+1. **One directory.** Ingestion's code, build files and CI live here. The only exception is the workflow files, which GitHub requires under `.github/workflows/`; ingestion's are named `ingestion-*.yml`, and the reusable ones `_ingestion-*.yml`.
 2. **Nothing crosses the boundary as source.** No file under `ingestion/` imports, extends, depends on or mounts a path outside it, and nothing outside depends on a path inside it.
 3. **What must cross is pinned to a version.** A library crosses as a published package. A format file, such as schema SQL or a proto, crosses as a copy under `pinned/` with a `SOURCE.json` that records its origin and checksums.
 4. **A bump is an ingestion PR.** Raising a package version or refreshing a pinned copy is a change under `ingestion/`, so it runs ingestion's tests and sits in ingestion's lane.

@@ -1,0 +1,26 @@
+# Migration container for the persons database. The sqlx-migrations chart runs
+# `/migrations/bin/migrate-entry persons` from it.
+FROM rust:1.91-bookworm AS builder
+
+RUN cargo install sqlx-cli --version 0.8.0 --features native-tls,postgres --no-default-features --locked
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libpq5 \
+    postgresql-client \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/cargo/bin/sqlx /usr/local/bin/sqlx
+
+WORKDIR /migrations
+
+COPY ./persons_migrations ./persons_migrations
+COPY ./bin/migrate-entry ./bin/migrate-entry
+
+RUN chmod +x /migrations/bin/migrate-entry
+
+ENTRYPOINT ["/migrations/bin/migrate-entry"]

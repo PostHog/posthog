@@ -1,0 +1,77 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "file://posthog/idl/events_dead_letter_queue.json",
+    "title": "events_dead_letter_queue",
+    "description": "Events that failed to be validated or processed and are sent to the DLQ",
+    "type": "object",
+    "properties": {
+        "id": {
+            "description": "uuid for the submission",
+            "type": "string"
+        },
+        "event_uuid": {
+            "description": "uuid for the event",
+            "type": "string"
+        },
+        "event": {
+            "description": "event type",
+            "type": "string"
+        },
+        "properties": {
+            "description": "String representation of the properties json object",
+            "type": "string"
+        },
+        "distinct_id": {
+            "description": "PostHog distinct_id",
+            "type": "string"
+        },
+        "team_id": {
+            "description": "team_id (maps to the project under the organization)",
+            "type": "number"
+        },
+        "elements_chain": {
+            "description": "Used for autocapture. DOM element hierarchy",
+            "type": "string"
+        },
+        "created_at": {
+            "description": "Used for autocapture. DOM element hierarchy",
+            "type": "number"
+        },
+        "ip": {
+            "description": "IP Address of the associated with the event",
+            "type": "string"
+        },
+        "site_url": {
+            "description": "Site URL associated with the event the event",
+            "type": "string"
+        },
+        "now": {
+            "description": "Timestamp of the DLQ event",
+            "type": "number"
+        },
+        "raw_payload": {
+            "description": "Raw payload of the event that failed to be consumed",
+            "type": "string"
+        },
+        "error_timestamp": {
+            "description": "Timestamp that the error of ingestion occurred",
+            "type": "number"
+        },
+        "error_location": {
+            "description": "Source of error if known",
+            "type": "string"
+        },
+        "error": {
+            "description": "Error if known",
+            "type": "string"
+        },
+        "tags": {
+            "description": "Tags associated with the error or event",
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        }
+    },
+    "required": ["raw_payload"]
+}

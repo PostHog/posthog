@@ -7,28 +7,9 @@
 #
 # To add a new service: append an entry here. The deploy matrix in
 # rust-docker-build.yml must also be updated for production deploys.
-- image: capture
-  dockerfile: ./rust/Dockerfile
-  project: kshskj225r
-
-# Dev/on-demand load generator for the capture /batch endpoint. Built and
-# pushed for use as a Kubernetes Job; not deployed as a standing service, so
-# it has no entry in the deploy matrix of rust-docker-build.yml.
-- image: capture-load-gen
-  dockerfile: ./rust/Dockerfile
-  project: wrsq3rsc1b
-
 - image: sqlx-migrate
   dockerfile: ./rust/Dockerfile.sqlx-migrate
   project: jmsz6gms8g
-
-- image: property-defs-rs
-  dockerfile: ./rust/Dockerfile
-  project: vznmbshh6q
-
-- image: property-vals-rs
-  dockerfile: ./rust/Dockerfile
-  project: vznmbshh6q
 
 - image: cymbal
   dockerfile: ./rust/Dockerfile
@@ -97,10 +78,6 @@
   dockerfile: ./rust/Dockerfile
   project: 7fzvz4wcsw
 
-- image: ingestion-consumer
-  dockerfile: ./rust/Dockerfile
-  project: mtvzx98zjn
-
 # rust/logs-ingestion. Named apart from the Node logs-ingestion release, and
 # shares ingestion-consumer's Depot project because both build on ingestion-framework.
 - image: logs-ingestion-rust
@@ -108,75 +85,10 @@
   dockerfile: ./rust/Dockerfile
   project: mtvzx98zjn
 
-# Internal web tool for the ingestion team (lag analysis, consumer debug
-# visualizer).
-- image: ingestion-control-plane
-  dockerfile: ./rust/Dockerfile
-  project: x5whcmg6rl
-
-# Postgres telemetry collector: scrapes pg_stat_* /
-# Aurora stats / logs from RDS clusters into a stats Postgres. See rust/pgcollector.
-- image: pgcollector
-  dockerfile: ./rust/Dockerfile
-  project: wb2br45dsr # pg-monitoring
-
-# API + MCP server over the pgcollector stats database (Postgres telemetry).
-# Internal, edge-authenticated (Cognito ingress + Tailscale whois). See rust/pgapi.
-- image: pgapi
-  dockerfile: ./rust/Dockerfile
-  project: wb2br45dsr # pg-monitoring
-
-- image: kafka-deduplicator
-  dockerfile: ./rust/Dockerfile
-  project: vznmbshh6q
-
-- image: personhog-identity
-  dockerfile: ./rust/Dockerfile
-  project: jfz76fgvqd
-
-# Second binary of the personhog-identity crate: drains the publish outbox
-# identity writes. Shares identity's Depot project like the flags-cache
-# binaries share feature-flags'.
-- image: personhog-publisher
-  dockerfile: ./rust/Dockerfile
-  project: jfz76fgvqd
-
-- image: personhog-leader
-  dockerfile: ./rust/Dockerfile
-  project: g0kjbvxgqx
-
-- image: personhog-replica
-  dockerfile: ./rust/Dockerfile
-  project: vq4lxdfdv2
-
-- image: personhog-router
-  dockerfile: ./rust/Dockerfile
-  project: wqvvpmzgbk
-
-- image: personhog-writer
-  dockerfile: ./rust/Dockerfile
-  project: hj9nd3cg9w
-
-- image: personhog-changelog-relay
-  dockerfile: ./rust/Dockerfile
-  project: lvsrh6c64c
-
 # Records the v4 AI research replay dataset (products/ai_training/docs/replay-data.md).
 - image: replay-recorder-v4
   dockerfile: ./rust/Dockerfile
   project: vznmbshh6q
-
-- image: personhog-test-harness
-  dockerfile: ./rust/Dockerfile
-  project: 6tl5lmb8l8
-
-- image: personhog-parity-monitor
-  dockerfile: ./rust/Dockerfile
-  project: jfz76fgvqd
-
-- image: kafka-assigner
-  dockerfile: ./rust/Dockerfile
-  project: 6kjc85bwm7
 
 - image: hypercache-server
   dockerfile: ./rust/Dockerfile

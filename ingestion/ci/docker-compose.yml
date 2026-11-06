@@ -1,0 +1,312 @@
+# The services ingestion's tests run against, with the configs they mount from ./configs.
+# Profiles are not used: a job names the services it needs.
+services:
+    db:
+        image: postgres:15.12-alpine
+        restart: on-failure
+        environment:
+            POSTGRES_USER: posthog
+            POSTGRES_DB: posthog
+            POSTGRES_PASSWORD: posthog
+        healthcheck:
+            test:
+                - CMD-SHELL
+                - pg_isready -U posthog -h 127.0.0.1
+            interval: 5s
+            timeout: 30s
+            retries: 30
+            start_period: 10s
+        volumes:
+            - postgres-15-data:/var/lib/postgresql/data
+        ports:
+            - 5432:5432
+        command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000 -c max_prepared_transactions=10
+    zookeeper:
+        image: zookeeper:3.7.0
+        restart: on-failure
+        ports:
+            - 2181:2181
+        environment:
+            ZOO_AUTOPURGE_PURGEINTERVAL: 1
+            ZOO_AUTOPURGE_SNAPRETAINCOUNT: 3
+        volumes:
+            - zookeeper-datalog:/datalog
+            - zookeeper-data:/data
+            - zookeeper-logs:/logs
+    kafka:
+        image: docker.io/redpandadata/redpanda:v25.1.9
+        restart: on-failure
+        command:
+            - redpanda
+            - start
+            - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+            - --advertise-kafka-addr internal://kafka:9092,external://localhost:19092
+            - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+            - --advertise-pandaproxy-addr internal://kafka:8082,external://localhost:18082
+            - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+            - --rpc-addr kafka:33145
+            - --advertise-rpc-addr kafka:33145
+            - --mode dev-container
+            - --smp 2
+            - --memory 3G
+            - --reserve-memory 500M
+            - --overprovisioned
+            - --set redpanda.empty_seed_starts_cluster=false
+            - --seeds kafka:33145
+            - --set redpanda.auto_create_topics_enabled=true
+        ulimits:
+            nofile:
+                soft: 65536
+                hard: 65536
+        volumes:
+            - redpanda-data:/var/lib/redpanda/data
+        environment:
+            ALLOW_PLAINTEXT_LISTENER: 'true'
+        healthcheck:
+            test: curl -f http://localhost:9644/v1/status/ready || exit 1
+            interval: 3s
+            timeout: 10s
+            retries: 10
+        ports:
+            - 9092:9092
+        depends_on:
+            - zookeeper
+    kafka-secondary:
+        image: docker.io/redpandadata/redpanda:v25.1.9
+        restart: on-failure
+        command:
+            - redpanda
+            - start
+            - --kafka-addr 0.0.0.0:29092
+            - --advertise-kafka-addr 127.0.0.1:29092
+            - --mode dev-container
+            - --smp 1
+            - --memory 1G
+            - --overprovisioned
+            - --set redpanda.auto_create_topics_enabled=true
+        ports:
+            - 127.0.0.1:29092:29092
+        healthcheck:
+            test: curl -f http://localhost:9644/v1/status/ready || exit 1
+            interval: 3s
+            timeout: 10s
+            retries: 10
+    kafka-init:
+        image: docker.io/redpandadata/redpanda:v25.1.9
+        entrypoint: /bin/sh
+        restart: 'no'
+        command:
+            - -c
+            - "set -x\n# Redpanda auto_create_topics_enabled=true only fires on producer-first\n# writes. Consumer-only services (e.g.\
+              \ embedding-worker) error on missing\n# topics, so we pre-create them here. Idempotent \u2014 re-running is safe.\n\
+              TIMEOUT=60\nELAPSED=0\nuntil rpk topic list --brokers kafka:9092 2>/dev/null; do\n    echo \"Waiting for Kafka broker...\
+              \ (elapsed: ${ELAPSED}s)\"\n    sleep 2\n    ELAPSED=$((ELAPSED + 2))\n    if [ $ELAPSED -ge $TIMEOUT ]; then\n    \
+              \    echo \"Timeout waiting for Kafka broker after ${TIMEOUT}s\"\n        exit 1\n    fi\ndone\n# The topic list is\
+              \ docker/kafka/topics.txt, mounted below. It is a\n# shared file rather than a literal here so a test can check it against\
+              \ the\n# Kafka tables in schema.py; that header explains what needs pre-creating.\nTOPICS=$$(grep -vE '^[[:space:]]*#|^[[:space:]]*$$'\
+              \ /topics.txt)\nEXISTING=$$(rpk topic list --brokers kafka:9092 | awk '{print $$1}')\nfor topic in $$TOPICS; do\n  \
+              \  if rpk topic create \"$$topic\" --brokers kafka:9092 -p 1 -r 1 2>&1; then\n        echo \"Topic $$topic created\"\
+              \n    elif echo \"$$EXISTING\" | grep -qx \"$$topic\"; then\n        echo \"Topic $$topic already exists\"\n    else\n\
+              \        echo \"Failed to create topic $$topic\"\n        exit 1\n    fi\ndone\n"
+        volumes:
+            - ./configs/kafka/topics.txt:/topics.txt:ro
+        depends_on:
+            kafka:
+                condition: service_healthy
+    redis7:
+        image: redis:7.2-alpine
+        restart: on-failure
+        command: redis-server --maxmemory-policy allkeys-lru --maxmemory 200mb
+        healthcheck:
+            test:
+                - CMD
+                - redis-cli
+                - ping
+            interval: 3s
+            timeout: 10s
+            retries: 10
+        ports:
+            - 6379:6379
+    valkey-cluster:
+        image: valkey/valkey:8.1-alpine
+        restart: on-failure
+        ports:
+            - 127.0.0.1:6390:6390
+        command:
+            - /bin/sh
+            - -ec
+            - '# 6390 inside the container as well as on the host, so the port CLUSTER SLOTS
+
+              # announces is right for both. It announces no address, which every cluster
+
+              # client reads as "the one you reached me on", so a host client stays on
+
+              # 127.0.0.1 and a container client stays on valkey-cluster. Announcing an
+
+              # address instead would name one of those two and break the other.
+
+              valkey-server --port 6390 --cluster-enabled yes --cluster-config-file /tmp/nodes.conf --cluster-node-timeout 5000 &
+
+              pid=$$!
+
+              until valkey-cli -p 6390 ping >/dev/null 2>&1; do sleep 0.1; done
+
+              valkey-cli -p 6390 cluster addslots $$(seq 0 16383)
+
+              wait $$pid
+
+              '
+        healthcheck:
+            test:
+                - CMD-SHELL
+                - valkey-cli -p 6390 cluster info | grep -q cluster_state:ok && test "$$(valkey-cli -p 6390 cluster info | sed -n "s/cluster_slots_assigned://p"
+                  | tr -d "\r")" = 16384
+            interval: 2s
+            timeout: 3s
+            retries: 15
+            start_period: 5s
+    clickhouse:
+        image: ${CLICKHOUSE_SERVER_IMAGE:-ghcr.io/posthog/clickhouse-posthog:26.9.5.2-posthog-aca5bdabb92f}
+        restart: on-failure
+        environment:
+            - AWS_ACCESS_KEY_ID=object_storage_root_user
+            - AWS_SECRET_ACCESS_KEY=object_storage_root_password
+            - CLICKHOUSE_SKIP_USER_SETUP=1
+        healthcheck:
+            test:
+                - CMD-SHELL
+                - wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+            interval: 3s
+            timeout: 10s
+            retries: 10
+        hostname: clickhouse
+        logging:
+            driver: json-file
+            options:
+                max-size: 50m
+                max-file: '3'
+        mem_limit: 8g
+        cpus: 2
+        ports:
+            - 8123:8123
+            - 8443:8443
+            - 9000:9000
+            - 9440:9440
+            - 9009:9009
+        volumes:
+            - ./configs/idl:/idl
+            - ./configs/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ./configs/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./configs/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
+            - ./configs/clickhouse/config.d/dev-memory.xml:/etc/clickhouse-server/config.d/dev-memory.xml
+            - ./configs/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+            - clickhouse-data:/var/lib/clickhouse
+        extra_hosts:
+            - host.docker.internal:host-gateway
+        depends_on:
+            - kafka
+            - zookeeper
+    etcd:
+        image: quay.io/coreos/etcd:v3.6.8
+        restart: on-failure
+        environment:
+            ETCD_NAME: etcd0
+            ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
+            ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+        ports:
+            - 127.0.0.1:2379:2379
+        healthcheck:
+            test:
+                - CMD
+                - etcdctl
+                - endpoint
+                - health
+            interval: 5s
+            timeout: 5s
+            retries: 10
+    objectstorage:
+        image: chrislusf/seaweedfs:4.29
+        restart: on-failure
+        entrypoint:
+            - /bin/sh
+            - -c
+            - "(\n    while true; do\n        printf 's3.configure -access_key=object_storage_root_user -secret_key=object_storage_root_password\
+              \ -user=posthog -actions=Admin -apply\\ns3.configure -user=anonymous -actions=Admin -apply\\ns3.bucket.create -name\
+              \ posthog\\ns3.bucket.create -name ducklake-dev\\ns3.bucket.create -name ai-blobs\\n' \\\n                | /usr/bin/weed\
+              \ shell -master=localhost:19001 >/dev/null 2>&1 || true\n        BUCKETS=$$(echo 's3.bucket.list' | /usr/bin/weed shell\
+              \ -master=localhost:19001 2>/dev/null || true)\n        IDENTITIES=$$(echo 's3.configure' | /usr/bin/weed shell -master=localhost:19001\
+              \ 2>/dev/null || true)\n        if echo \"$$BUCKETS\" | grep -q posthog \\\n                && echo \"$$BUCKETS\" |\
+              \ grep -q ducklake-dev \\\n                && echo \"$$BUCKETS\" | grep -q ai-blobs \\\n                && echo \"$$IDENTITIES\"\
+              \ | grep -q object_storage_root_user \\\n                && echo \"$$IDENTITIES\" | grep -q anonymous; then\n      \
+              \      touch /tmp/objectstorage-ready\n            echo \"Objectstorage SeaweedFS ready with required buckets and identities\"\
+              \n            break\n        fi\n        sleep 1\n    done\n) &\nexec /usr/bin/weed \"$$@\"\n"
+            - --
+        command:
+            - server
+            - -master.port=19001
+            - -s3
+            - -s3.port=19000
+            - -dir=/data
+            - -volume.max=1000
+            - -master.volumePreallocate=false
+        healthcheck:
+            test:
+                - CMD
+                - test
+                - -f
+                - /tmp/objectstorage-ready
+            interval: 5s
+            timeout: 5s
+            retries: 30
+            start_period: 10s
+        ports:
+            - 19000:19000
+            - 19001:19001
+        volumes:
+            - objectstorage-data:/data
+    seaweedfs:
+        image: chrislusf/seaweedfs:4.29
+        entrypoint:
+            - /bin/sh
+            - -c
+            - "/usr/bin/weed \"$$@\" &\nWEED_PID=$$!\necho \"Waiting for SeaweedFS to initialize...\"\nwhile true; do\n    sleep 5\n\
+              \    echo \"Checking if posthog bucket exists...\"\n    if echo \"s3.bucket.list\" | /usr/bin/weed shell -master=localhost:9333\
+              \ 2>&1 | grep -q \"posthog\"; then\n        echo \"Bucket posthog exists!\"\n        break\n    fi\n    echo \"Bucket\
+              \ not found, attempting to create...\"\n    echo \"s3.bucket.create -name posthog\" | /usr/bin/weed shell -master=localhost:9333\
+              \ 2>&1 || true\n    echo \"Retrying in 5s...\"\ndone\necho \"SeaweedFS ready with posthog bucket\"\nwait $$WEED_PID\n"
+            - --
+        command: server -s3 -s3.port=8333 -filer -dir=/data
+        container_name: ${SEAWEEDFS_DOCKER_NAME:-seaweedfs-main}
+        ports:
+            - 127.0.0.1:8333:8333
+            - 127.0.0.1:9333:9333
+            - 127.0.0.1:8888:8888
+        volumes:
+            - seaweedfs-data:/data
+    dynamodb:
+        image: amazon/dynamodb-local:3.3.1
+        command:
+            - -jar
+            - DynamoDBLocal.jar
+            - -inMemory
+            - -sharedDb
+            - -disableTelemetry
+        healthcheck:
+            test:
+                - CMD-SHELL
+                - exec 3<>/dev/tcp/localhost/8000
+            interval: 5s
+            timeout: 3s
+            retries: 12
+        container_name: ${DYNAMODB_DOCKER_NAME:-dynamodb-main}
+        ports:
+            - 127.0.0.1:18010:8000
+volumes:
+    clickhouse-data:
+    objectstorage-data:
+    postgres-15-data:
+    redpanda-data:
+    seaweedfs-data:
+    zookeeper-data:
+    zookeeper-datalog:
+    zookeeper-logs:

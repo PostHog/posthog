@@ -1,0 +1,94 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "file://posthog/idl/events_json.json",
+    "title": "events_json",
+    "description": "Event schema that is destined for ClickHouse",
+    "type": "object",
+    "properties": {
+        "uuid": {
+            "description": "uuid for the event",
+            "type": "string"
+        },
+        "event": {
+            "description": "event type",
+            "type": "string"
+        },
+        "properties": {
+            "description": "String representation of the properties json object",
+            "type": "string"
+        },
+        "timestamp": {
+            "description": "Timestamp that the event occurred",
+            "type": "number"
+        },
+        "team_id": {
+            "description": "team_id (maps to the project under the organization)",
+            "type": "number"
+        },
+        "distinct_id": {
+            "description": "PostHog distinct_id",
+            "type": "string"
+        },
+        "elements_chain": {
+            "description": "Used for autocapture. DOM element hierarchy",
+            "type": "string"
+        },
+        "created_at": {
+            "description": "Timestamp when event was created",
+            "type": "number"
+        },
+        "person_id": {
+            "description": "UUID for the associated person if available",
+            "type": "string"
+        },
+        "person_created_at": {
+            "description": "Timestamp for when the associated person was created",
+            "type": "number"
+        },
+        "person_properties": {
+            "description": "String representation of the person JSON object",
+            "type": "string"
+        },
+        "group0_properties": {
+            "description": "String representation of a group's properties",
+            "type": "string"
+        },
+        "group1_properties": {
+            "description": "String representation of a group's properties",
+            "type": "string"
+        },
+        "group2_properties": {
+            "description": "String representation of a group's properties",
+            "type": "string"
+        },
+        "group3_properties": {
+            "description": "String representation of a group's properties",
+            "type": "string"
+        },
+        "group4_properties": {
+            "description": "String representation of a group's properties",
+            "type": "string"
+        },
+        "group0_created_at": {
+            "description": "Group's creation timestamp",
+            "type": "number"
+        },
+        "group1_created_at": {
+            "description": "Group's creation timestamp",
+            "type": "number"
+        },
+        "group2_created_at": {
+            "description": "Group's creation timestamp",
+            "type": "number"
+        },
+        "group3_created_at": {
+            "description": "Group's creation timestamp",
+            "type": "number"
+        },
+        "group4_created_at": {
+            "description": "Group's creation timestamp",
+            "type": "number"
+        }
+    },
+    "required": ["uuid", "event", "properties", "timestamp", "team_id"]
+}
