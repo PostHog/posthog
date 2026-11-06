@@ -2722,6 +2722,11 @@ class TaskRun(models.Model):
                 name="task_run_terminal_updated_idx",
                 condition=models.Q(status__in=["completed", "failed", "cancelled"]),
             ),
+            models.Index(
+                fields=["origin_product"],
+                name="task_run_warm_pool_idx",
+                condition=models.Q(status__in=["queued", "in_progress"], state__await_user_message=True),
+            ),
         ]
 
     def __str__(self):
