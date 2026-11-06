@@ -51,8 +51,10 @@ async function refreshLiveBlock(element, failures) {
         return
     }
     let response
+    let body
     try {
         response = await fetch(element.dataset.consoleLive, { credentials: 'same-origin', redirect: 'manual' })
+        body = await response.text()
     } catch {
         scheduleLiveRefresh(element, failures + 1)
         return
@@ -65,7 +67,7 @@ async function refreshLiveBlock(element, failures) {
         return
     }
     const template = document.createElement('template')
-    template.innerHTML = (await response.text()).trim()
+    template.innerHTML = body.trim()
     const replacement = template.content.firstElementChild
     if (!replacement || !replacement.hasAttribute('data-console-live')) {
         return

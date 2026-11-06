@@ -1,12 +1,12 @@
 import asyncio
 import dataclasses
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
 from django import forms
 from django.conf import settings
 from django.contrib import messages
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 
 import structlog
 from temporalio.client import Client
@@ -28,6 +28,10 @@ logger = structlog.get_logger(__name__)
 TOOL_URL = "/admin/console/tools/health-checks/"
 RECENT_RUNS = 20
 REFRESH_SECONDS_WHILE_RUNNING = 10
+# Temporal can be away for a moment, so the history keeps asking, just less often.
+REFRESH_SECONDS_WHILE_TEMPORAL_IS_AWAY = 30
+# Bounds the history read, so a stalled Temporal cannot hold a web worker.
+TEMPORAL_READ_TIMEOUT = timedelta(seconds=5)
 STATUS_TONES = {
     "RUNNING": Tone.INFO,
     "CONTINUED_AS_NEW": Tone.INFO,
@@ -90,7 +94,7 @@ class HealthCheckRuns:
 
         async def fetch(client: Client) -> list[HealthCheckRun]:
             runs: list[HealthCheckRun] = []
-            async for workflow in client.list_workflows(query=query):
+            async for workflow in client.list_workflows(query=query, rpc_timeout=TEMPORAL_READ_TIMEOUT):
                 runs.append(
                     HealthCheckRun(
                         workflow_id=workflow.id,
@@ -155,7 +159,8 @@ class RunHealthCheck:
             messages.error(request, f"Could not start the run: {error}")
             return HttpResponse(status=502)
         messages.success(request, f"Started {workflow_id}.")
-        return None
+        # Temporal lists a new run only after a moment, so the page names it and keeps refreshing until it shows.
+        return HttpResponseRedirect(f"{TOOL_URL}?{urlencode({'check': self.check.kind, 'started': workflow_id})}")
 
 
 def _run_row(run: HealthCheckRun) -> Row:
@@ -230,8 +235,15 @@ class HealthChecksTool(ConsoleTool):
             return None
         runs = HealthCheckRuns.recent(check)
         if runs is None:
-            return Live(key="runs", block=Notice(text="Temporal did not answer, so the runs cannot be shown."))
-        running = any(run.status in ("RUNNING", "CONTINUED_AS_NEW") for run in runs)
+            return Live(
+                key="runs",
+                block=Notice(text="Temporal did not answer, so the runs cannot be shown. This retries on its own."),
+                refresh_seconds=REFRESH_SECONDS_WHILE_TEMPORAL_IS_AWAY,
+            )
+        # A run that continued as new is closed; its successor shows as its own running row.
+        running = any(run.status == "RUNNING" for run in runs)
+        started = request.GET.get("started")
+        waiting_for_new_run = started is not None and all(run.workflow_id != started for run in runs)
         return Live(
             key="runs",
             block=Table(
@@ -239,7 +251,7 @@ class HealthChecksTool(ConsoleTool):
                 rows=tuple(_run_row(run) for run in runs),
                 empty_text="This check has not run yet.",
             ),
-            refresh_seconds=REFRESH_SECONDS_WHILE_RUNNING if running else None,
+            refresh_seconds=REFRESH_SECONDS_WHILE_RUNNING if running or waiting_for_new_run else None,
         )
 
     def operations(self, request: HttpRequest) -> list[ToolOperation]:

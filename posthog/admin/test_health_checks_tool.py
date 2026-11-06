@@ -1,5 +1,5 @@
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -36,19 +36,28 @@ class TestHealthChecksTool(BaseTest):
         self.check = sorted(HEALTH_CHECKS.values(), key=lambda check: check.name)[0]
         self.check_url = f"{TOOL_URL}?check={self.check.kind}"
 
-    @parameterized.expand([("running", "RUNNING", True), ("finished", "COMPLETED", False)])
-    def test_the_runs_refresh_only_while_a_run_is_going(self, _name: str, status: str, refreshes: bool) -> None:
-        with patch.object(HealthCheckRuns, "recent", return_value=[_run(status)]):
-            page = self.client.get(self.check_url).content.decode()
-            live = self.client.get(f"{TOOL_URL}live/runs/?check={self.check.kind}")
+    @parameterized.expand(
+        [
+            ("running", [_run("RUNNING")], "", True),
+            ("finished", [_run("COMPLETED")], "", False),
+            ("continued_as_new_and_closed", [_run("CONTINUED_AS_NEW")], "", False),
+            ("started_run_not_listed_yet", [], "&started=health-check-example-manual-2", True),
+            ("started_run_listed_and_finished", [_run("COMPLETED")], "&started=health-check-example-manual-1", False),
+            ("temporal_away", None, "", True),
+        ]
+    )
+    def test_the_runs_refresh_only_while_there_is_something_to_wait_for(
+        self, _name: str, runs: list[HealthCheckRun] | None, extra_query: str, refreshes: bool
+    ) -> None:
+        with patch.object(HealthCheckRuns, "recent", return_value=runs):
+            page = self.client.get(self.check_url + extra_query).content.decode()
+            live = self.client.get(f"{TOOL_URL}live/runs/?check={self.check.kind}{extra_query}")
 
         assert f"/admin/console/tools/health-checks/run/?check={self.check.kind}" in page
-        assert f'data-console-live="{TOOL_URL}live/runs/?check={self.check.kind}"' in page
+        assert f'data-console-live="{TOOL_URL}live/runs/?check={self.check.kind}' in page
         assert live.status_code == 200
         assert live["X-Console-Live"] == "1"
-        content = live.content.decode()
-        assert "health-check-example-manual-1" in content
-        assert ("data-refresh-seconds" in content) == refreshes
+        assert ("data-refresh-seconds" in live.content.decode()) == refreshes
 
     # Mocks the connection one level down, so the real sync_connect wrapper runs: it refuses to run inside an
     # event loop, which a mock of sync_connect itself would hide.
@@ -57,7 +66,10 @@ class TestHealthChecksTool(BaseTest):
         workflow = MagicMock(id="health-check-example-manual-1", run_id="run-1", start_time=None, close_time=None)
         workflow.status.name = "RUNNING"
 
-        async def list_workflows(query: str):
+        timeouts = []
+
+        async def list_workflows(query: str, rpc_timeout: timedelta | None = None):
+            timeouts.append(rpc_timeout)
             yield workflow
 
         connect.return_value = MagicMock(list_workflows=list_workflows)
@@ -66,6 +78,7 @@ class TestHealthChecksTool(BaseTest):
 
         assert "health-check-example-manual-1" in content
         assert "data-refresh-seconds" in content
+        assert timeouts and all(timeout is not None for timeout in timeouts)
 
     @patch("posthog.admin.console.health_checks_tool.sync_connect")
     def test_a_double_submitted_run_form_starts_one_workflow(self, sync_connect: MagicMock) -> None:
@@ -79,7 +92,10 @@ class TestHealthChecksTool(BaseTest):
         responses = [self.client.post(f"{TOOL_URL}run/?check={self.check.kind}", data) for _ in range(2)]
 
         assert [response.status_code for response in responses] == [302, 302]
-        assert responses[0]["Location"] == self.check_url
+        assert (
+            responses[0]["Location"]
+            == f"{self.check_url}&started=health-check-{self.check.name}-manual-{nonce.group(1)}"
+        )
         workflow_ids = {call.kwargs["id"] for call in start_workflow.call_args_list}
         assert workflow_ids == {f"health-check-{self.check.name}-manual-{nonce.group(1)}"}
         assert {call.kwargs["id_reuse_policy"] for call in start_workflow.call_args_list} == {
