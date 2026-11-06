@@ -1040,11 +1040,13 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 raise serializers.ValidationError({"hog": "Required."})
 
         if hog_type not in TYPES_WITH_JAVASCRIPT_SOURCE:
-            self._bind_secret_origins(attrs, team, instance)
+            self._bind_secret_origins(attrs, team, instance, hog_type)
 
         return attrs
 
-    def _bind_secret_origins(self, attrs: dict, team: Team, instance: Optional[HogFunction]) -> None:
+    def _bind_secret_origins(
+        self, attrs: dict, team: Team, instance: Optional[HogFunction], function_type: str
+    ) -> None:
         inputs = attrs.get("inputs") or {}
         stored_secrets = (self.context.get("encrypted_inputs") or {}) if instance else {}
         secret_keys = {
@@ -1067,7 +1069,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 "secret_origins_unanalyzable",
                 team_id=team.id,
                 hog_function_id=str(instance.id) if instance else None,
-                function_type=self.context["function_type"],
+                function_type=function_type,
                 template_id=attrs.get("template_id", instance.template_id if instance else None),
                 reason=analysis.unanalyzable,
             )

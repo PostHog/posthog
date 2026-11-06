@@ -11,7 +11,9 @@ from django.db import DatabaseError, connection
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
+from structlog.testing import capture_logs
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
@@ -31,6 +33,7 @@ from products.cdp.backend.api.test.secret_sender import (
     SECRET_SENDER,
     SENDER_HOG,
     SENDER_URL,
+    counted_bindings,
     secret_host_binding_flag,
     sender_inputs,
 )
@@ -1420,8 +1423,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("rename", "patch", {"name": "Renamed"}, True, status.HTTP_200_OK, ["https://hooks.example.com"]),
-            ("disable", "patch", {"enabled": False}, True, status.HTTP_200_OK, ["https://hooks.example.com"]),
+            ("rename", "patch", {"name": "Renamed"}, True, status.HTTP_200_OK, ["https://hooks.example.com"], "kept"),
+            ("disable", "patch", {"enabled": False}, True, status.HTTP_200_OK, ["https://hooks.example.com"], "kept"),
             (
                 "filter_edit",
                 "patch",
@@ -1429,6 +1432,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 True,
                 status.HTTP_200_OK,
                 ["https://hooks.example.com"],
+                "kept",
             ),
             (
                 "unchanged_resave",
@@ -1437,6 +1441,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 True,
                 status.HTTP_200_OK,
                 ["https://hooks.example.com"],
+                "kept",
             ),
             (
                 "same_host",
@@ -1445,6 +1450,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 True,
                 status.HTTP_200_OK,
                 ["https://hooks.example.com"],
+                "kept",
             ),
             (
                 "new_host",
@@ -1453,6 +1459,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 True,
                 status.HTTP_400_BAD_REQUEST,
                 ["https://hooks.example.com"],
+                "refused",
             ),
             (
                 "same_host_without_tls",
@@ -1461,6 +1468,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 True,
                 status.HTTP_400_BAD_REQUEST,
                 ["https://hooks.example.com"],
+                "refused",
             ),
             (
                 "new_host_by_put",
@@ -1469,6 +1477,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 True,
                 status.HTTP_400_BAD_REQUEST,
                 ["https://hooks.example.com"],
+                "refused",
             ),
             (
                 "new_host_with_the_flag_off",
@@ -1477,6 +1486,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 False,
                 status.HTTP_200_OK,
                 ["https://evil.example.com"],
+                "would_refuse",
             ),
             (
                 "new_host_with_the_secret_entered",
@@ -1485,6 +1495,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 True,
                 status.HTTP_200_OK,
                 ["https://evil.example.com"],
+                "bound",
             ),
             (
                 "code_sends_it_elsewhere",
@@ -1493,6 +1504,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 True,
                 status.HTTP_400_BAD_REQUEST,
                 ["https://hooks.example.com"],
+                "refused",
             ),
             (
                 "code_moves_a_secret_the_request_leaves_out",
@@ -1501,6 +1513,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 True,
                 status.HTTP_400_BAD_REQUEST,
                 ["https://hooks.example.com"],
+                "refused",
             ),
             (
                 "code_cannot_be_analyzed",
@@ -1509,23 +1522,33 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 True,
                 status.HTTP_400_BAD_REQUEST,
                 ["https://hooks.example.com"],
+                "refused",
             ),
         ]
     )
     def test_moving_a_stored_secret_needs_it_entered_again(
-        self, _name: str, method: str, change: dict, flag_on: bool, expected_status: int, expected_origins: list[str]
+        self,
+        _name: str,
+        method: str,
+        change: dict,
+        flag_on: bool,
+        expected_status: int,
+        expected_origins: list[str],
+        expected_outcome: str,
     ) -> None:
         res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=SECRET_SENDER)
         assert res.status_code == status.HTTP_201_CREATED, res.json()
         function_id = res.json()["id"]
 
-        with secret_host_binding_flag(flag_on):
+        surface = "update" if method == "put" else "partial_update"
+        with secret_host_binding_flag(flag_on), counted_bindings(surface) as counted:
             res = getattr(self.client, method)(
                 f"/api/projects/{self.team.id}/hog_functions/{function_id}",
                 data={**SECRET_SENDER, **change} if method == "put" else change,
             )
 
         assert res.status_code == expected_status, res.json()
+        assert counted == {expected_outcome: 1}
         if expected_status == status.HTTP_400_BAD_REQUEST:
             assert (res.json()["attr"], res.json()["code"]) == ("inputs__token", "secret_reentry_required")
         stored = HogFunction.objects.get(id=function_id).encrypted_inputs["token"]
@@ -1580,6 +1603,33 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             res = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{function.id}", data=change)
 
         assert res.status_code == expected_status, res.json()
+
+    def test_code_it_cannot_analyze_is_counted_and_logged_without_the_code(self) -> None:
+        res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=SECRET_SENDER)
+        assert res.status_code == status.HTTP_201_CREATED, res.json()
+        function_id = res.json()["id"]
+        counter, labels = "posthog_cdp_secret_origins_unanalyzable_total", {"reason": "unsupported_code"}
+        before = REGISTRY.get_sample_value(counter, labels) or 0.0
+
+        with secret_host_binding_flag(True), capture_logs() as logs:
+            res = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{function_id}",
+                data={"hog": f"let fetch := print\n{SENDER_HOG}"},
+            )
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert REGISTRY.get_sample_value(counter, labels) == before + 1
+        assert [log for log in logs if log["event"] == "secret_origins_unanalyzable"] == [
+            {
+                "event": "secret_origins_unanalyzable",
+                "log_level": "warning",
+                "reason": "unsupported_code",
+                "team_id": self.team.id,
+                "hog_function_id": function_id,
+                "function_type": "destination",
+                "template_id": None,
+            }
+        ]
 
     @parameterized.expand(
         [("disable", {"enabled": False}), ("delete", {"deleted": True}), ("rename", {"name": "Renamed"})]

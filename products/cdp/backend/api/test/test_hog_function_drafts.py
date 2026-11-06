@@ -16,6 +16,7 @@ from products.cdp.backend.api.test.secret_sender import (
     MOVED_URL,
     SENDER_HOG,
     SENDER_URL,
+    counted_bindings,
     secret_host_binding_flag,
     sender_inputs,
 )
@@ -356,6 +357,24 @@ class TestHogFunctionDrafts(DraftTestCase):
         staged = HogFunction.objects.get(id=function_id).draft_encrypted_inputs["secret_headers"]["value"]
         assert staged == expected
 
+    def test_emptying_a_live_dictionary_secret_enters_it(self):
+        function_id = self._create(
+            hog="fetch(inputs.url, {'headers': inputs.secret_headers});",
+            inputs_schema=[
+                BASE_FUNCTION["inputs_schema"][0],
+                {"key": "secret_headers", "type": "dictionary", "label": "Secret headers", "secret": True},
+            ],
+            inputs={"url": {"value": SENDER_URL}, "secret_headers": {"value": {"Authorization": "live"}}},
+        )
+
+        with secret_host_binding_flag(True):
+            self._live_edit(
+                function_id, {"inputs": {"url": {"value": MOVED_URL}, "secret_headers": {"secret": True, "value": {}}}}
+            )
+
+        stored = HogFunction.objects.get(id=function_id).encrypted_inputs["secret_headers"]
+        assert (stored["value"], stored["allowed_origins"]) == ({}, ["https://evil.example.com"])
+
     def test_publishing_promotes_the_staged_secret(self):
         function_id = self._create()
         self._stage(function_id, {"inputs": {"url": {"value": "https://example.com/live"}, "token": {"value": "new"}}})
@@ -369,30 +388,41 @@ class TestHogFunctionDrafts(DraftTestCase):
 
     @parameterized.expand(
         [
-            ("moves_the_live_secret", [{"inputs": sender_inputs(MOVED_URL)}], status.HTTP_400_BAD_REQUEST),
+            (
+                "moves_the_live_secret",
+                [{"inputs": sender_inputs(MOVED_URL)}],
+                {"staged": 1},
+                status.HTTP_400_BAD_REQUEST,
+            ),
             (
                 "enters_the_secret_with_the_move",
                 [{"inputs": sender_inputs(MOVED_URL, {"value": "new"})}],
+                {"bound": 1},
                 status.HTTP_200_OK,
             ),
             (
                 "enters_the_secret_after_staging_code",
                 [{"hog": MOVED_SENDER_HOG}, {"inputs": sender_inputs(SENDER_URL, {"value": "new"})}],
+                {"staged": 1, "bound": 1},
                 status.HTTP_200_OK,
             ),
         ]
     )
-    def test_draft_that_sends_a_secret_to_a_new_host(self, _name: str, edits: list[dict], expected_status: int):
+    def test_draft_that_sends_a_secret_to_a_new_host(
+        self, _name: str, edits: list[dict], expected_staged_outcomes: dict[str, int], expected_status: int
+    ):
         function_id = self._create(hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}})
 
         with secret_host_binding_flag(True):
-            for edit in edits:
-                self._stage(function_id, edit)
+            with counted_bindings("draft") as staged_outcomes:
+                for edit in edits:
+                    self._stage(function_id, edit)
             tested, mock_invoke = self._test_invoke(function_id, {"use_draft": True, "mock_async_functions": False})
             published = self._publish(function_id)
 
         assert (tested.status_code, published.status_code) == (expected_status, expected_status), published.json()
         assert mock_invoke.called == (expected_status == status.HTTP_200_OK)
+        assert staged_outcomes == expected_staged_outcomes
         function = HogFunction.objects.get(id=function_id)
         expected_origins = (
             ["https://hooks.example.com"]
