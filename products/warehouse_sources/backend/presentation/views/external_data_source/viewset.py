@@ -32,7 +32,6 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
     latest_completed_job_prefetch,
-    latest_completed_job_subquery,
 )
 
 from . import credential_store, helpers, oauth_accounts, source_setup
@@ -155,11 +154,14 @@ class ExternalDataSourceViewSet(
         sources = self.get_queryset().select_related(None).prefetch_related(None)
         if not is_service_auth(request):
             sources = self.user_access_control.filter_queryset_by_access_level(sources)
-        source_rows = list(
-            sources.annotate(last_run_at=latest_completed_job_subquery(self.team_id, "created_at"))
-            .values_list("id", "status", "prefix", "description", "last_run_at")
-            .order_by("id")
+        sources = sources.only("id", "status", "prefix", "description").prefetch_related(
+            latest_completed_job_prefetch(self.team_id, "jobs", to_attr="ordered_jobs")
         )
+        source_rows = []
+        for source in sources.order_by("id"):
+            latest_completed_run = next(iter(getattr(source, "ordered_jobs", [])), None)
+            last_run_at = latest_completed_run.created_at if latest_completed_run else None
+            source_rows.append((source.id, source.status, source.prefix, source.description, last_run_at))
         schema_rows = list(
             ExternalDataSchema.objects.filter(team_id=self.team_id, source_id__in=[row[0] for row in source_rows])
             .exclude(deleted=True)
