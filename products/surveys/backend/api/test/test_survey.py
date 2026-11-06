@@ -5517,6 +5517,31 @@ class TestSurveysRecurringIterations(APIBaseTest):
         assert response_data["iteration_frequency_days"] == 30
         assert len(response_data["iteration_start_dates"]) == 2
 
+    @parameterized.expand(
+        [
+            # A fixed count sent alone ends an open-ended schedule instead of being stored and ignored.
+            ("count_ends_open_ended", True, {"iteration_count": 5}, 200, ("recurring", 5, False)),
+            ("flag_off_without_a_count", True, {"repeat_until_stopped": False}, 400, None),
+            ("flag_on_a_once_survey", False, {"repeat_until_stopped": True}, 200, ("recurring", None, True)),
+        ]
+    )
+    def test_patching_repeat_until_stopped(
+        self, _name: str, open_ended: bool, payload: dict, expected_status: int, expected: Optional[tuple]
+    ):
+        survey = self._create_non_recurring_survey()
+        Survey.objects.filter(pk=survey.pk).update(
+            schedule=Survey.Schedule.RECURRING if open_ended else Survey.Schedule.ONCE,
+            repeat_until_stopped=open_ended,
+            iteration_frequency_days=30,
+        )
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/surveys/{survey.id}/", data=payload)
+
+        assert response.status_code == expected_status
+        if expected is not None:
+            data = response.json()
+            assert (data["schedule"], data["iteration_count"], data["repeat_until_stopped"]) == expected
+
     def test_can_handle_non_nil_current_iteration(self):
         survey = self._create_non_recurring_survey()
         survey.current_iteration = 2

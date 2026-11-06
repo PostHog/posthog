@@ -315,7 +315,12 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
 
     @property
     def repeats_on_schedule(self) -> bool:
-        return bool(self.iteration_frequency_days) and bool(self.iteration_count or self.repeat_until_stopped)
+        if not self.iteration_frequency_days:
+            return False
+        # Stale iteration_count values have always repeated on their own; the newer flag only counts on a recurring schedule.
+        return bool(self.iteration_count) or (
+            bool(self.repeat_until_stopped) and self.schedule == self.Schedule.RECURRING
+        )
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Survey"]:
