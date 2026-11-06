@@ -20,6 +20,7 @@ import {
     isAccountRelationshipPropertyFilter,
     isBehavioralPropertyFilter,
     isGroupCardFilterKey,
+    isHogQLPropertyFilter,
     propertyFilterTypeToPropertyDefinitionType,
 } from '../utils'
 import { GroupKeyFilterTooltip } from './GroupKeyFilterTooltip'
@@ -98,6 +99,10 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
             groupTypeIndex !== undefined &&
             groupKeys.length === 1
 
+        // A HogQL filter's label is only its trailing comment, so the title carries the whole expression for
+        // anyone who cannot open the filter, such as a viewer of a workflow.
+        const fullLabel = !children && isHogQLPropertyFilter(item) ? item.key : label
+
         const closable = onClose !== undefined
         const clickable = onClick !== undefined
 
@@ -133,7 +138,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                 {...buttonRoleProps}
             >
                 <PropertyFilterIcon type={item.type} />
-                <span className="PropertyFilterButton-content" title={showGroupCard ? undefined : label}>
+                <span className="PropertyFilterButton-content" title={showGroupCard ? undefined : fullLabel}>
                     {wraps ? label : midEllipsis(label, 32)}
                 </span>
                 {closable &&
