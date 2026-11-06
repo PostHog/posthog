@@ -19,11 +19,11 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.restricted_properties import WEB_DIMENSIONAL_MIRRORED_COLUMNS
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
 from posthog.models.event.util import create_event
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 
 # Columns that hold no event or session property value: keys and aggregate states.
 _WEB_DIMENSIONAL_UNMIRRORED_COLUMNS = frozenset(
