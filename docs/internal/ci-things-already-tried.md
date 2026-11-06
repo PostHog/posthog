@@ -527,6 +527,7 @@ Backend test discovery needs 1000 commits of history.
 With `fetch-depth: 1000` and `filter: blob:none`, the checkout took 42 to 46 s, because it fetches every file of the tree in a second request.
 Without the filter it took 39 s, because the server then packs the file contents of all 1000 commits.
 A depth-1 checkout followed by `git fetch --filter=blob:none --depth=1000` takes about 7 s, and the job uses that now.
+The Dagster test selector uses the same sequence and fetches the exact run SHA before computing its merge base.
 `--deepen=999` in its place fetched nothing when GitHub had already replaced the PR's merge ref, which failed the run.
 The `test-selection-verdict` and `backend-coverage-report` jobs still use deep blobless checkouts. They run after the required gate, so no PR waits on them.
 
