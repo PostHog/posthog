@@ -1934,29 +1934,37 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             return
 
         if validated_data.get("repeat_until_stopped"):
-            frequency_days = validated_data.get(
-                "iteration_frequency_days", getattr(self.instance, "iteration_frequency_days", None)
-            )
-            if not frequency_days:
-                raise serializers.ValidationError(
-                    {"iteration_frequency_days": "Set a number of days between repeats to repeat until stopped."}
-                )
             validated_data["iteration_count"] = None
             validated_data["schedule"] = Survey.Schedule.RECURRING
-        elif validated_data.get("iteration_count"):
+        elif validated_data.get("iteration_count") is not None:
+            # Any explicit count, including 0 (repeats off), replaces an open-ended schedule.
             validated_data["repeat_until_stopped"] = False
-        elif validated_data.get("repeat_until_stopped") is False and self._ends_open_ended_schedule_without_a_count(
+        elif "repeat_until_stopped" in validated_data and self._ends_open_ended_schedule_without_a_count(
             validated_data
         ):
             raise serializers.ValidationError(
                 {"repeat_until_stopped": "Set iteration_count to give a recurring schedule a final repeat."}
             )
 
+        if self._effective(validated_data, "repeat_until_stopped") and not self._effective(
+            validated_data, "iteration_frequency_days"
+        ):
+            raise serializers.ValidationError(
+                {"iteration_frequency_days": "Set a number of days between repeats to repeat until stopped."}
+            )
+
+    def _effective(self, validated_data: dict, field: str) -> Any:
+        if field in validated_data:
+            return validated_data[field]
+        return getattr(self.instance, field, None)
+
     def _ends_open_ended_schedule_without_a_count(self, validated_data: dict) -> bool:
         if self.instance is None or not self.instance.repeat_until_stopped:
             return False
-        schedule = validated_data.get("schedule", self.instance.schedule)
-        return schedule == Survey.Schedule.RECURRING and not self.instance.iteration_count
+        return (
+            self._effective(validated_data, "schedule") == Survey.Schedule.RECURRING
+            and not self.instance.iteration_count
+        )
 
     def create(self, validated_data):
         if "remove_targeting_flag" in validated_data:

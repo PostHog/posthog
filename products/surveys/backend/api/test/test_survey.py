@@ -5532,6 +5532,8 @@ class TestSurveysRecurringIterations(APIBaseTest):
                 None,
             ),
             ("flag_on_a_once_survey", False, {"repeat_until_stopped": True}, 200, ("recurring", None, 30, True)),
+            ("count_zero_turns_repeats_off", True, {"iteration_count": 0}, 200, ("recurring", 0, 30, False)),
+            ("frequency_cleared_on_open_ended", True, {"iteration_frequency_days": None}, 400, None),
         ]
     )
     def test_patching_repeat_until_stopped(
