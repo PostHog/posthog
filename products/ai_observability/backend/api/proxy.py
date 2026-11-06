@@ -339,6 +339,7 @@ def _accessible_provider_key(provider_key_id: str, user) -> LLMProviderKey | Non
     current one, for example a second tab or a shared link, so the key's own project decides access, not
     `current_team`."""
     try:
+        # nosemgrep: idor-lookup-without-team (scoped by team__in=user.teams, the projects the user can open)
         return LLMProviderKey.objects.select_related("team").filter(id=provider_key_id, team__in=user.teams).first()
     except DjangoValidationError:
         return None
