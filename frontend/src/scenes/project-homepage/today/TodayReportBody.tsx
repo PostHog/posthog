@@ -30,17 +30,17 @@ export function TodayReportBody({
         <article className="TodayReportArticle flex flex-col gap-10">
             <div className="flex flex-col gap-5">
                 <TodayReportHeader report={report} linksToInbox={linksToInbox} />
-                <TodayReportAbstract report={report} />
-            </div>
-            <section className="flex flex-col gap-4 empty:hidden" aria-label="Proposal">
-                <TodayReportProposal reportId={report.id} />
                 <TodayReportNextStep
                     report={report}
                     reportTaskToOpen={live?.reportTaskToOpen ?? null}
                     slotClaim={live?.implementationSlotClaim ?? null}
                 />
+                <TodayReportAbstract report={report} />
+            </div>
+            <section className="flex flex-col gap-4 empty:hidden" aria-label="Proposal">
+                <TodayReportProposal reportId={report.id} />
             </section>
-            <TodayReportEvidence report={report} linksToInbox={linksToInbox} />
+            <TodayReportEvidence report={report} linksToInbox={linksToInbox} defaultCollapsed={!linksToInbox} />
             {live && (
                 <footer>
                     <TodayReportFeedback report={report} />

@@ -15,6 +15,7 @@ import { expect, userEvent } from 'storybook/test'
 
 import {
     allReports,
+    makeReport,
     mockArtefacts,
     mockReviewers,
     mockSignals,
@@ -268,12 +269,22 @@ function todayReportPage(reportId: string): ReportPageApi {
 
 // The Home-style list: "For you" rows in place of report cards.
 export const TodayStyleReports: Story = {
-    parameters: { featureFlags: todayStyleFlags },
+    parameters: { featureFlags: todayStyleFlags, layout: 'padded' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/reports/:id/page/': (req) => [
+                    200,
+                    todayReportPage(req.params.id as string),
+                ],
+            },
+        }),
+    ],
 }
 
 // The Home-style report: the single-page report, with the inbox sections under "Details".
 export const TodayStyleReport: Story = {
-    parameters: { featureFlags: todayStyleFlags },
+    parameters: { featureFlags: todayStyleFlags, layout: 'padded' },
     decorators: [
         routeTo(urls.inboxReport('reports', reportTabReports[0].id)),
         mswDecorator({
@@ -282,6 +293,46 @@ export const TodayStyleReport: Story = {
                     200,
                     todayReportPage(req.params.id as string),
                 ],
+            },
+        }),
+    ],
+}
+
+export const TodayStyleReportWithPullRequest: Story = {
+    ...TodayStyleReport,
+    parameters: {
+        ...TodayStyleReport.parameters,
+        testOptions: { snapshotBrowsers: [] },
+    },
+    decorators: [
+        ...(TodayStyleReport.decorators ?? []),
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports/:reportId': () => [
+                    200,
+                    makeReport({
+                        ...reportTabReports[0],
+                        created_at: '2026-05-01T12:00:00Z',
+                        implementation_pr_url: 'https://github.com/example/app/pull/42',
+                        implementation_pr_state: 'open',
+                        pull_requests: [
+                            {
+                                id: 'example-pull-request',
+                                url: 'https://github.com/example/app/pull/42',
+                                state: 'open',
+                                merged: false,
+                                review_decision: null,
+                                merged_at: null,
+                                claim_id: null,
+                                attached_at: '2026-06-10T12:00:00Z',
+                                attached_by: null,
+                            },
+                        ],
+                    }),
+                ],
+                '/api/projects/:id/tasks/:taskId': (req) => [200, mockTask(req.params.taskId as string, 'completed')],
+                '/api/projects/:id/signals/reports/:reportId/pr_checks/': () => [200, { checks: [] }],
+                '/api/projects/:id/signals/reports/:reportId/pr_comments/': () => [200, { comments: [] }],
             },
         }),
     ],

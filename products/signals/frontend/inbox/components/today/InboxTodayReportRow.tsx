@@ -1,10 +1,8 @@
-import { memo, useState } from 'react'
+import { memo } from 'react'
 
 import 'scenes/project-homepage/today/Today.scss'
-import { dayjs } from 'lib/dayjs'
+import { TZLabel } from 'lib/components/TZLabel'
 import { priorityTone } from 'scenes/project-homepage/today/todayPriority'
-import { reportPreview } from 'scenes/project-homepage/today/todayReportPreviews'
-import { TodayReportRowDetail } from 'scenes/project-homepage/today/TodayReportRowDetail'
 import { TodayRow } from 'scenes/project-homepage/today/TodayRow'
 import { pullRequestFact, rowFacts } from 'scenes/project-homepage/today/todayRowFacts'
 import { reportIcon } from 'scenes/project-homepage/today/todayRowIcons'
@@ -22,8 +20,6 @@ export const InboxTodayReportRow = memo(function InboxTodayReportRow({
     report: SignalReport
     sectionKey: InboxReportSectionKey
 }): JSX.Element {
-    const [expanded, setExpanded] = useState(false)
-    const preview = reportPreview(report)
     const to = inboxReportDetailUrl(report.id)
     const done = report.status === SignalReportStatus.RESOLVED || report.status === SignalReportStatus.SUPPRESSED
     return (
@@ -32,36 +28,24 @@ export const InboxTodayReportRow = memo(function InboxTodayReportRow({
             icon={reportIcon(report)}
             title={reportTitle(report)}
             label={report.priority ?? undefined}
-            facts={rowFacts([
-                pullRequestFact(
-                    report.implementation_pr_merged
-                        ? 'merged'
-                        : (report.implementation_pr_state ?? (report.implementation_pr_url ? 'open' : null))
-                ),
-                `Updated ${dayjs(report.updated_at).fromNow()}`,
-            ])}
+            facts={[
+                ...rowFacts([
+                    pullRequestFact(
+                        report.implementation_pr_merged
+                            ? 'merged'
+                            : (report.implementation_pr_state ?? (report.implementation_pr_url ? 'open' : null))
+                    ),
+                ]),
+                <span key="created" className="whitespace-nowrap">
+                    <span>Created&nbsp;</span>
+                    <TZLabel time={report.created_at} showPopover={false} />
+                </span>,
+                <span key="updated" className="whitespace-nowrap">
+                    <span>Updated&nbsp;</span>
+                    <TZLabel time={report.updated_at} showPopover={false} />
+                </span>,
+            ]}
             to={to}
-            expansion={
-                preview
-                    ? {
-                          expanded,
-                          onToggle: () => setExpanded((open) => !open),
-                          detail: (
-                              <TodayReportRowDetail
-                                  preview={preview}
-                                  to={to}
-                                  onOpen={() => {}}
-                                  actions={
-                                      done ? null : (
-                                          <InboxTodayVerdictButtons report={report} sectionKey={sectionKey} labelled />
-                                      )
-                                  }
-                                  dataAttr="inbox-today-row"
-                              />
-                          ),
-                      }
-                    : undefined
-            }
             actions={<InboxTodayVerdictButtons report={report} sectionKey={sectionKey} />}
             done={done}
             dataAttr="inbox-today-row"

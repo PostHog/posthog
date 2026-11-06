@@ -26,7 +26,7 @@ interface TodayRowProps {
     icon: TodayRowIcon
     title: string
     label?: string
-    facts: string[]
+    facts: ReactNode[]
     to?: string
     onOpen?: () => void
     expansion?: TodayRowExpansion
@@ -92,11 +92,12 @@ export function TodayRow({
                 <p className="TodayRow__meta">
                     {[label, ...facts].filter(Boolean).map((part, index) => (
                         <span
-                            key={`${index}-${part}`}
+                            key={index}
                             className={index === 0 && label ? 'TodayRow__label' : undefined}
                             data-tone={index === 0 && label ? tone : undefined}
                         >
-                            {index === 0 ? part : ` · ${part}`}
+                            {index > 0 && <span aria-hidden> · </span>}
+                            {part}
                         </span>
                     ))}
                 </p>

@@ -10,7 +10,7 @@ import { TodaySectionTitle } from './TodaySectionTitle'
 
 export function TodayReportProposal({ reportId }: { reportId: string }): JSX.Element | null {
     const { proposal, shownKeyClauses, currentReport, reportState } = useValues(todayReportLogic({ reportId }))
-    if (!proposal && reportState !== 'open') {
+    if (!proposal && (reportState !== 'open' || !hasActiveReportPullRequest(currentReport))) {
         return null
     }
     return (
