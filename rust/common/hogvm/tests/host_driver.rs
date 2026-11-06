@@ -1,5 +1,7 @@
 //! A host that drives the VM step by step: ordered globals, a raw result, host-answered calls and memory reads.
 
+use std::sync::Arc;
+
 use hogvm::{
     ExecutionContext, HogLiteral, HogVM, HogValue, Num, OrderedJson, Program, StepOutcome,
 };
@@ -11,7 +13,7 @@ fn program(bytecode: &str) -> Program {
 
 fn ordered_record() -> OrderedJson {
     let attributes = OrderedJson::Object(vec![
-        ("b".into(), OrderedJson::String("1".into())),
+        ("b".into(), OrderedJson::String(Arc::from("1"))),
         ("a".into(), OrderedJson::Number(Num::Integer(2))),
     ]);
     OrderedJson::Object(vec![(

@@ -142,6 +142,28 @@ impl<'a> HogVM<'a> {
         })
     }
 
+    /// The object the reference VM keeps for a closure or a callable value, which its
+    /// `convertHogToJS` passes through and `JSON.stringify` writes. `None` for any other value.
+    /// Upvalue ids count from 1 within this call, so they can differ from the reference's.
+    pub fn closure_json(&self, literal: &HogLiteral) -> Option<JsonValue> {
+        let mut registry = CellRegistry::default();
+        let header_len = self.context.program_header_len();
+        match literal {
+            HogLiteral::Closure(closure) => {
+                Some(closure_to_json(closure, &mut registry, header_len))
+            }
+            HogLiteral::Callable(callable) => Some(closure_to_json(
+                &Closure {
+                    captures: Vec::new(),
+                    callable: (**callable).clone(),
+                },
+                &mut registry,
+                header_len,
+            )),
+            _ => None,
+        }
+    }
+
     fn finish(&mut self, result: HogValue) -> Result<StepOutcome, VmError> {
         if self.context.raw_result {
             self.result = Some(result);
@@ -1295,7 +1317,7 @@ impl<'a> HogVM<'a> {
             OrderedJson::Null => Ok(HogLiteral::Null.into()),
             OrderedJson::Bool(b) => Ok(HogLiteral::Boolean(*b).into()),
             OrderedJson::Number(n) => Ok(HogLiteral::Number(n.clone()).into()),
-            OrderedJson::String(s) => Ok(HogLiteral::from(s.clone()).into()),
+            OrderedJson::String(s) => Ok(HogLiteral::String(HogStr::Shared(s.clone())).into()),
             OrderedJson::Array(arr) => {
                 let mut values = Vec::with_capacity(arr.len());
                 for value in arr {
