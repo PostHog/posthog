@@ -342,7 +342,7 @@ class TestHogFunctionDrafts(DraftTestCase):
         )
 
         staged = HogFunction.objects.get(id=function_id).draft_encrypted_inputs["secret_headers"]["value"]
-        assert staged["X-New"] == "typed"
+        assert staged == {"Authorization": "staged", "X-New": "typed"}
 
     def test_publishing_promotes_the_staged_secret(self):
         function_id = self._create()
