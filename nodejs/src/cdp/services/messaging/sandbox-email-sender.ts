@@ -355,7 +355,10 @@ export class AttributeBoundedParser extends Parser<DefaultTreeAdapterMap> {
         fragmentContext?: DefaultTreeAdapterMap['element'] | null
     ) {
         const given = options?.treeAdapter
-        const treeAdapter = isBoundedTreeAdapter(given) ? given : boundedTreeAdapter()
+        const treeAdapter = given && given !== defaultTreeAdapter ? given : boundedTreeAdapter()
+        const attributeLimit = isBoundedTreeAdapter(treeAdapter)
+            ? treeAdapter.attributeLimit
+            : (): number => MAX_ATTRIBUTES_PER_TAG
         super({ ...options, treeAdapter }, document, fragmentContext)
         const tokenizer = this.tokenizer as unknown as {
             currentToken: { tagName: string; attrs: unknown[] } | null
@@ -364,7 +367,7 @@ export class AttributeBoundedParser extends Parser<DefaultTreeAdapterMap> {
         const leaveAttrName = tokenizer._leaveAttrName.bind(tokenizer)
         tokenizer._leaveAttrName = () => {
             const token = tokenizer.currentToken
-            if (token && token.attrs.length >= treeAdapter.attributeLimit(token.tagName)) {
+            if (token && token.attrs.length >= attributeLimit(token.tagName)) {
                 throw new FooterNotRetained()
             }
             leaveAttrName()

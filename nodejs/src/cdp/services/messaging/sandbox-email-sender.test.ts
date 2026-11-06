@@ -337,6 +337,25 @@ describe('sandbox email content', () => {
             'The sandbox email template could not retain its identification footer. Update the template and try again.'
         )
     })
+    it('keeps a custom tree adapter and applies the attribute limit to it', () => {
+        const created: string[] = []
+        const treeAdapter: typeof defaultTreeAdapter = {
+            ...defaultTreeAdapter,
+            createElement: (tagName, namespaceURI, attrs) => {
+                created.push(tagName)
+                return defaultTreeAdapter.createElement(tagName, namespaceURI, attrs)
+            },
+        }
+
+        AttributeBoundedParser.parse(`<body><p ${manyAttributes(64)}>Hello</p></body>`, { treeAdapter })
+
+        expect(created).toContain('p')
+        expect(() =>
+            AttributeBoundedParser.parse(`<body><p ${manyAttributes(65)}>Hello</p></body>`, { treeAdapter })
+        ).toThrow(
+            'The sandbox email template could not retain its identification footer. Update the template and try again.'
+        )
+    })
     it.each([
         ['<body><p>Hello</p><script><!--<script>', null, null],
         ['<body><p>Hello</p><template><script><!--<script>', null, null],
