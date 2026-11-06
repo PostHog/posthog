@@ -14,7 +14,6 @@ import {
     type StoryEvidenceCharts,
 } from 'products/product_analytics/mcp/apps/explainChart/ExplainChartView'
 
-import { ExplainChartByline } from './ExplainChartByline'
 import { ExplainChartEvidenceChart } from './ExplainChartEvidenceChart'
 import { ExplainChartFollowUp } from './ExplainChartFollowUp'
 import { explainChartLogic } from './explainChartLogic'
@@ -41,7 +40,6 @@ export function InsightExplainChart({ insightProps, renderChart }: InsightExplai
         storyVisible,
         storyOutdated,
         storySeriesKey,
-        storyAuthor,
         formatValue,
     } = useValues(explainChartLogic(insightProps))
     const { askFollowUp } = useActions(explainChartLogic(insightProps))
@@ -63,7 +61,6 @@ export function InsightExplainChart({ insightProps, renderChart }: InsightExplai
     }
     return (
         <>
-            {storyAuthor && <ExplainChartByline author={storyAuthor} />}
             <div data-quill>
                 <ExplainChartView
                     key={story.headline}
