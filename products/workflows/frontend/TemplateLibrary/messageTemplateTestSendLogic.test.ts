@@ -108,22 +108,6 @@ describe('messageTemplateTestSendLogic', () => {
         }).toMatchValues({ recipientEmail: 'john.doe@posthog.com' })
     })
 
-    it('leaves the recipient empty with the sandbox flag on, so the member suggestions show with the user first', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
-            [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
-        })
-        try {
-            await expectLogic(logic, () => {
-                logic.actions.setModalOpen(true)
-            })
-                .toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
-                .toMatchValues({ recipientEmail: '' })
-            expect(logic.values.recipientSuggestions[0]).toBe('john.doe@posthog.com')
-        } finally {
-            featureFlagLogic.actions.setFeatureFlags([], {})
-        }
-    })
-
     it('defaults the sender to the first verified email integration, excluding unverified, sandbox and non-email kinds', async () => {
         await expectLogic(logic).toMatchValues({
             senderIntegrationId: 5,
@@ -283,7 +267,51 @@ describe('messageTemplateTestSendLogic', () => {
             })
         })
 
-        it('loads the member suggestions once when the flag lands on an open modal, and reloads them on reopen', async () => {
+        it.each([
+            {
+                description: 'leaves the recipient empty for the sandbox sender, so the member suggestions show',
+                integrations: [SANDBOX_SENDER],
+                expectedRecipient: '',
+            },
+            {
+                description: 'prefills the user email when an own sender is selected',
+                integrations: [SANDBOX_SENDER, VERIFIED_OWN_SENDER],
+                expectedRecipient: 'john.doe@posthog.com',
+            },
+        ])('$description', async ({ integrations, expectedRecipient }) => {
+            await loadIntegrations(integrations)
+
+            await expectLogic(logic, () => {
+                logic.actions.setModalOpen(true)
+            })
+                .toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
+                .toMatchValues({ recipientEmail: expectedRecipient })
+        })
+
+        it('waits for the senders to load before prefilling, so a modal opened first still suggests members', async () => {
+            integrationsLogic.actions.clearIntegrations()
+            logic.actions.setModalOpen(true)
+            expect(logic.values.recipientEmail).toBe('')
+
+            await loadIntegrations([SANDBOX_SENDER])
+
+            await expectLogic(logic)
+                .toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
+                .toMatchValues({ recipientEmail: '', isSandboxSenderSelected: true })
+        })
+
+        it('does not load the member list while the project has no sandbox sender', async () => {
+            await loadIntegrations([VERIFIED_OWN_SENDER])
+
+            await expectLogic(logic, () => {
+                logic.actions.setModalOpen(true)
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions([membersLogic.actionTypes.loadAllMembers])
+            expect(logic.values.recipientEmail).toBe('john.doe@posthog.com')
+        })
+
+        it('loads the member suggestions once when the flag lands on an open modal', async () => {
             featureFlagLogic.actions.setFeatureFlags([], {})
             await loadIntegrations([SANDBOX_SENDER])
             await expectLogic(logic, () => {
@@ -296,18 +324,19 @@ describe('messageTemplateTestSendLogic', () => {
                 })
             }).toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
 
-            await expectLogic(logic).toMatchValues({
-                senderIntegrationId: 7,
-                recipientSuggestions: expect.arrayContaining(['john.doe@posthog.com']),
-            })
-
             await expectLogic(logic, () => {
                 featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER, 'some-other-flag'], {
                     [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
                     'some-other-flag': true,
                 })
             }).toNotHaveDispatchedActions([membersLogic.actionTypes.loadAllMembers])
+        })
 
+        it('reloads the member suggestions on reopen, so a lapsed verification shows', async () => {
+            await loadIntegrations([SANDBOX_SENDER])
+            await expectLogic(logic, () => {
+                logic.actions.setModalOpen(true)
+            }).toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
             templateLogic.actions.setTemplateValue('content.email.text', 'Hello!')
             logic.actions.setRecipientEmail('rose.dawson@posthog.com')
             await expectLogic(logic).toMatchValues({ recipientNotSuggested: false })
@@ -464,7 +493,7 @@ describe('messageTemplateTestSendLogic', () => {
             expect(logic.values.recipientSuggestions).toEqual(['john.doe@posthog.com', VERIFIED_MEMBERS[1].user.email])
         })
 
-        it('holds the send while the member list loads, and does not warn before it has loaded', async () => {
+        it('holds the send while the member list loads or reloads, and does not warn before it has loaded', async () => {
             await loadIntegrations([SANDBOX_SENDER])
             templateLogic.actions.setTemplateValue('content.email.text', 'Hello!')
             logic.actions.setRecipientEmail('outsider@example.com')
@@ -478,7 +507,16 @@ describe('messageTemplateTestSendLogic', () => {
                     sendDisabledReason: 'Checking your organization members',
                 })
                 .toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
-                .toMatchValues({ recipientNotSuggested: true })
+                .toMatchValues({ recipientNotSuggested: true, sendDisabledReason: undefined })
+
+            await expectLogic(logic, () => {
+                logic.actions.setModalOpen(false)
+                logic.actions.setModalOpen(true)
+            })
+                .toDispatchActions(membersLogic, ['loadAllMembers'])
+                .toMatchValues({ sendDisabledReason: 'Checking your organization members' })
+                .toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
+                .toMatchValues({ sendDisabledReason: undefined })
         })
     })
 
