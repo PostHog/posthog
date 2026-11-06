@@ -342,7 +342,6 @@ describe('EmailService', () => {
                         sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                         sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
                         teamEmailCapMode: 'enforce',
-                        teamEmailTierHourlyCaps: [1],
                         teamEmailTierDailyCaps: [1],
                     },
                     hub.integrationManager,
