@@ -1,6 +1,7 @@
 import time
 from uuid import uuid4
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
 
@@ -367,21 +368,42 @@ class TestCleanupStaleExpiryTracking(BaseTest):
         assert self.entry_state(failing_team) == (False, False, False)
         assert failing_client.get(failing_key) is None
 
-    def test_an_entry_rewritten_during_the_cleanup_stays_tracked(self) -> None:
+    @parameterized.expand([("new_score", 60), ("same_score", 0)])
+    def test_an_entry_rewritten_during_the_cleanup_stays_tracked(self, _name: str, extra_ttl: int) -> None:
         self.given_cache(token_based=True)
         deleted_team = self.deleted_team()
-        self.write_entry(deleted_team)
         delete_object = object_storage.delete
 
         def delete_then_rewrite(key: str) -> None:
             delete_object(key)
             # A refresh run that loaded the team before it was deleted writes the entry again.
-            self.hypercache.set_cache_value(deleted_team, {"id": deleted_team.id}, ttl=self.hypercache.cache_ttl + 60)
+            # Within the same second and with the same TTL, the rewrite gets the score the cleanup read.
+            self.hypercache.set_cache_value(
+                deleted_team, {"id": deleted_team.id}, ttl=self.hypercache.cache_ttl + extra_ttl
+            )
 
-        with patch("posthog.storage.hypercache.object_storage.delete", side_effect=delete_then_rewrite):
-            cleanup_stale_expiry_tracking(self.config)
+        with time_machine.travel(time.time(), tick=False):
+            self.write_entry(deleted_team)
+            with patch("posthog.storage.hypercache.object_storage.delete", side_effect=delete_then_rewrite):
+                assert cleanup_stale_expiry_tracking(self.config) == 0
 
         assert self.entry_state(deleted_team) == (True, True, True)
+
+        assert cleanup_stale_expiry_tracking(self.config) == 1
+        assert self.entry_state(deleted_team) == (False, False, False)
+
+    def test_a_failed_existence_check_keeps_the_entry_tracked_for_the_next_cleanup(self) -> None:
+        self.given_cache(token_based=True)
+        deleted_team = self.deleted_team()
+        self.write_entry(deleted_team)
+
+        with patch(
+            "posthog.storage.cache_expiry_manager.object_storage.head_object_strict",
+            side_effect=object_storage.ObjectStorageError("down"),
+        ):
+            assert cleanup_stale_expiry_tracking(self.config) == 0
+
+        assert self.entry_state(deleted_team) == (False, False, True)
 
         assert cleanup_stale_expiry_tracking(self.config) == 1
         assert self.entry_state(deleted_team) == (False, False, False)

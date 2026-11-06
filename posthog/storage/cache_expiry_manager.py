@@ -12,6 +12,7 @@ import random
 from itertools import batched
 from typing import Literal
 
+import redis
 import structlog
 
 from posthog.dataclasses import frozen
@@ -19,6 +20,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.utils import mask_key_value
 from posthog.redis import get_client
+from posthog.storage import object_storage
 from posthog.storage.hypercache import HyperCache
 from posthog.storage.hypercache_manager import (
     HyperCacheManagementConfig,
@@ -452,6 +454,27 @@ def _refresh_one_team(config: HyperCacheManagementConfig, team: Team) -> Refresh
         return "failed"
 
 
+def _entry_was_rewritten(
+    hypercache: HyperCache, identifier: str | int, score: float, redis_client: redis.Redis
+) -> bool:
+    """Re-track the member when either tier holds the entry after the delete.
+
+    Every writer stores the entry before it adds the member. A rewrite whose member the delete
+    removed therefore shows up here, even when both writes produced the same score. A failed
+    check re-adds the member and raises, so the next cleanup retries the entry.
+    """
+    cache_key = hypercache.get_cache_key(identifier)
+    rewritten = True
+    try:
+        rewritten = hypercache.cache_client.get(cache_key) is not None or (
+            hypercache.s3_enabled and object_storage.head_object_strict(cache_key) is not None
+        )
+        return rewritten
+    finally:
+        if rewritten:
+            redis_client.zadd(hypercache.expiry_sorted_set_key, {str(identifier): score}, nx=True)
+
+
 def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
     """
     Delete the cache entries of deleted teams and remove them from the expiry tracking sorted set.
@@ -460,8 +483,9 @@ def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
     that loaded a team before the team was deleted can write the entry again after the delete
     path cleared it. The object-storage copy has no TTL. This cleanup deletes it.
 
-    The member leaves the sorted set only after every delete succeeds. A failed delete keeps the
-    member, and the next cleanup retries it.
+    The member leaves the sorted set only after every delete succeeds and neither tier holds the
+    entry again. A failed delete, a rewrite, or a failed existence check keeps the member, and the
+    next cleanup retries it.
 
     Args:
         config: HyperCache management config specifying which cache to clean up
@@ -504,6 +528,8 @@ def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
         for identifier, score in stale:
             try:
                 hypercache.delete_cache_entry(identifier, strict_mirror=True, tracked_expiry_score=score)
+                if _entry_was_rewritten(hypercache, identifier, score, redis_client):
+                    continue
                 removed += 1
             except Exception as e:
                 logger.exception(
