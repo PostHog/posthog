@@ -228,8 +228,8 @@ EMBEDDING_MODELS_2 = [SMALL_256_MODEL_NAME]
 # - Add the new models to a new list like the one above
 # - Create a new list like EMBEDDING_TABLES_1
 # - Add that new list to EMBEDDING_TABLES full-list, so all the HOGQL modelling is automatically updated
-# And then write a migration (similar to 0366_embedding_model_small_256) that:
-# - Drop the buffer-table-filling MV (outside deployed cloud only, see 0366)
+# And then write a migration (similar to 0369_embedding_model_small_256) that:
+# - Drop the buffer-table-filling MV (outside deployed cloud only, see 0369)
 # - Create the new tables and MVs for the new model-specific tables
 # - Replaces the union view
 # - Re-creates the buffer-table-filling MV (outside deployed cloud only)

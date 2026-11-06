@@ -1,1 +1,1 @@
-0366_embedding_model_small_256
+0369_embedding_model_small_256
