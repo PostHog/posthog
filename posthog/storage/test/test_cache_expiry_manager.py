@@ -355,7 +355,7 @@ class TestCleanupStaleExpiryTracking(BaseTest):
         self.write_entry(failing_team)
         self.write_entry(other_deleted_team)
         failing_client = getattr(self.hypercache, failing_client_attr)
-        failing_key = self.hypercache.get_cache_key(self.hypercache.get_cache_identifier(failing_team))
+        failing_key = self.hypercache.get_cache_key(failing_team)
         real_delete = failing_client.delete
 
         def fail_for_one_key(key, *args, **kwargs):
@@ -413,7 +413,7 @@ class TestCleanupStaleExpiryTracking(BaseTest):
             if "object_storage" in tiers_deleted_after_rewrite:
                 delete_object(key)
 
-        key = self.hypercache.get_cache_key(self.hypercache.get_cache_identifier(deleted_team))
+        key = self.hypercache.get_cache_key(deleted_team)
         with time_machine.travel(time.time(), tick=False):
             self.write_entry(deleted_team)
             with patch("posthog.storage.hypercache.object_storage.delete", side_effect=delete_then_rewrite):

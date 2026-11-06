@@ -474,8 +474,8 @@ def _retrack_if_still_stored(
 
     try:
         still_stored = (
-            hypercache.cache_client.get(cache_key) is not None
-            or (secondary is not None and secondary.get(cache_key) is not None)
+            hypercache.cache_client.has_key(cache_key)
+            or (secondary is not None and secondary.has_key(cache_key))
             # Without object storage the client is a stub whose existence check always raises.
             or (
                 hypercache.s3_enabled
@@ -547,8 +547,8 @@ def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
                 hypercache.delete_cache_entry(identifier, strict_mirror=True, tracked_expiry_score=score)
                 if _retrack_if_still_stored(hypercache, identifier, score, redis_client):
                     retracked += 1
-                    continue
-                removed += 1
+                else:
+                    removed += 1
             except Exception as e:
                 logger.exception(
                     f"Failed to delete stale {config.log_prefix[:-1]}",
