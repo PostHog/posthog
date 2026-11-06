@@ -211,7 +211,7 @@ In the job:
 
 - hog asks the provider for a token whose audience is the PostHog host, and exchanges it for a token that works in the project with the scopes the admin allowed.
 - Put the project ID and the host in `posthog.json` as `projectId` and `host`, which is simpler than setting `HOG_PROJECT_ID` and `HOG_HOST` in every job. The environment variables win when both are set.
-- A `host` in `posthog.json` counts here only when it is PostHog Cloud (`https://us.posthog.com` or `https://eu.posthog.com`), so a change to the file can't send the job's token elsewhere. A self-hosted PostHog needs `HOG_HOST`. Without either, hog uses `https://us.posthog.com`.
+- A `host` in `posthog.json` counts here only when it is PostHog Cloud (`https://us.posthog.com` or `https://eu.posthog.com`), so a change to the file can't send the job's token elsewhere. A self-hosted PostHog needs `HOG_HOST`, and a job stops when posthog.json names one without it. Without either, hog uses `https://us.posthog.com`.
 - The token lives a few minutes. hog keeps it in memory for the run, never on disk, and exchanges again before it expires.
 - `HOG_PERSONAL_API_KEY` still wins when it is set.
 
