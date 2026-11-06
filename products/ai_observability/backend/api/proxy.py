@@ -15,6 +15,7 @@ from time import perf_counter
 from typing import Any
 
 from django.core.cache import cache
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models
 from django.http.response import HttpResponseBase
 from django.utils import timezone
@@ -333,6 +334,22 @@ def serialize_decision_answer(answer: Answer) -> dict[str, Any]:
     return body
 
 
+def _accessible_provider_key(provider_key_id: str, user) -> LLMProviderKey | None:
+    """The key with this id in any project the user can open. A page can show a project other than the user's
+    current one, for example a second tab or a shared link, so the key's own project decides access, not
+    `current_team`."""
+    try:
+        return LLMProviderKey.objects.select_related("team").filter(id=provider_key_id, team__in=user.teams).first()
+    except DjangoValidationError:
+        return None
+
+
+def _request_provider_key_id(request: Request) -> str | None:
+    data = request.data if isinstance(request.data, dict) else {}
+    provider_key_id = request.query_params.get("provider_key_id") or data.get("provider_key_id")
+    return str(provider_key_id) if provider_key_id else None
+
+
 class PlaygroundAccessPermission(BasePermission):
     """Resource-level RBAC for the playground.
 
@@ -361,7 +378,10 @@ class PlaygroundAccessPermission(BasePermission):
             self.message = "This playground endpoint isn't available."
             return False
 
-        team = getattr(user, "current_team", None)
+        # A request on a provider key is checked in the key's project; anything else in the current one.
+        provider_key_id = _request_provider_key_id(request)
+        provider_key = _accessible_provider_key(provider_key_id, user) if provider_key_id else None
+        team = provider_key.team if provider_key else getattr(user, "current_team", None)
         if team is None:
             self.message = "Open a project before using the playground."
             return False
@@ -425,13 +445,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
         if not provider_key_id:
             return None
 
-        team = getattr(user, "current_team", None)
-        if not team:
-            raise ValueError("No team associated with user")
-
-        try:
-            key = LLMProviderKey.objects.get(id=provider_key_id, team=team)
-        except LLMProviderKey.DoesNotExist:
+        key = _accessible_provider_key(provider_key_id, user)
+        if key is None:
             raise ValueError("Provider key not found")
 
         api_key = key.encrypted_config.get("api_key")
