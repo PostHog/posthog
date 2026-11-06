@@ -44,32 +44,73 @@ class LastClicksPaginator(StatisticsPaginator):
     def __init__(self) -> None:
         super().__init__()
         self.before_date: str | None = None
+        self.limit = 30
 
     def init_request(self, request: Request) -> None:
-        request.json = {"period": "total", "tz": "UTC", "limit": 30}
+        request.json = {"period": "total", "tz": "UTC"}
         self.update_request(request)
 
     def update_state(self, response: Response, data: list[Any] | None = None) -> None:
         if not data:
             self._has_next_page = False
             return
+        full_page = len(data) >= self.limit
+        if self.before_date is not None:
+            if any(row["dt"] > self.before_date for row in data):
+                raise ValueError("Short.io click pagination did not advance")
+            # An inclusive boundary can repeat the complete timestamp group already yielded.
+            data[:] = [row for row in data if row["dt"] < self.before_date]
+        if not data:
+            if full_page:
+                self._expand_page(data)
+            else:
+                self._has_next_page = False
+            return
         before_date = min(row["dt"] for row in data)
-        if self.before_date is not None and before_date >= self.before_date:
-            raise ValueError("Short.io click pagination did not advance")
+        if full_page:
+            # Keep the oldest timestamp for the next request because this page may split its clicks.
+            complete_rows = [row for row in data if row["dt"] > before_date]
+            if not complete_rows:
+                self._expand_page(data)
+                return
+            data[:] = complete_rows
+            before_date = min(row["dt"] for row in data)
         self.before_date = before_date
+        self.limit = 30
+
+    def _expand_page(self, data: list[Any]) -> None:
+        # Bound memory use and fail instead of dropping an oversized timestamp group.
+        if self.limit >= 10000:
+            raise ValueError("Short.io returned too many clicks at one timestamp to paginate safely")
+        self.limit = min(self.limit * 2, 10000)
+        data.clear()
 
     def update_request(self, request: Request) -> None:
+        request.json = {**(request.json or {}), "limit": self.limit}
         if self.before_date is not None:
             request.json = {**(request.json or {}), "beforeDate": self.before_date}
 
     def get_resume_state(self) -> dict[str, Any] | None:
-        return {"before_date": self.before_date} if self.has_next_page and self.before_date else None
+        return {"before_date": self.before_date, "limit": self.limit} if self.has_next_page else None
 
     def set_resume_state(self, state: dict[str, Any]) -> None:
         self.before_date = state.get("before_date")
+        self.limit = state.get("limit", 30)
+
+
+class LinksBatchPaginator(JSONResponseCursorPaginator):
+    def __init__(self) -> None:
+        super().__init__(cursor_path="nextPageToken", cursor_param="pageToken", raise_on_repeated_cursor=True)
+
+    def update_state(self, response: Response, data: list[Any] | None = None) -> None:
+        super().update_state(response, data)
+        if data:
+            # The child resolves one request per row, so expose each links page as one batch.
+            data[:] = [{"api_id": quote(",".join(str(row["idString"]) for row in data), safe="")}]
 
 
 def _link_row(row: dict[str, Any]) -> dict[str, Any]:
+    row.pop("password", None)
     row["domain_id"] = row.pop("_domains_id")
     return row
 
@@ -132,18 +173,19 @@ def _resources(endpoint: str) -> list[EndpointResource]:
                 },
                 "data_selector": "links",
                 "data_selector_required": True,
-                "paginator": JSONResponseCursorPaginator(
+                "paginator": LinksBatchPaginator()
+                if endpoint == "link_clicks"
+                else JSONResponseCursorPaginator(
                     cursor_path="nextPageToken", cursor_param="pageToken", raise_on_repeated_cursor=True
                 ),
             },
             "include_from_parent": ["id"],
-            "data_map": _link_row,
+            "data_map": _link_row if endpoint in ("links", "link_clicks") else _link_parent_row,
         }
     )
     if endpoint == "links":
         return resources
 
-    resources[-1]["data_map"] = _link_parent_row
     stats_params: dict[str, Any] = {
         "link_id": {"type": "resolve", "resource": "links", "field": "api_id"},
     }
@@ -197,7 +239,7 @@ def shortio_source(
             "paginator": SinglePagePaginator(),
         },
         "resource_defaults": {},
-        "resources": _resources(endpoint),
+        "resources": [*_resources(endpoint)],
     }
 
     state = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None

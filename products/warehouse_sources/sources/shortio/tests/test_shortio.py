@@ -2,7 +2,7 @@ from parameterized import parameterized
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.sources.sdk import RESTClientRetryableError
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver, always
 from products.warehouse_sources.sources.shortio._config import ShortioSourceConfig
 from products.warehouse_sources.sources.shortio.shortio import SHORTIO_BASE_URL, ShortioResumeConfig
 from products.warehouse_sources.sources.shortio.source import ShortioSource
@@ -45,7 +45,9 @@ class TestShortioSource:
             "links",
             [
                 ScriptedResponse(json=[{"id": 1}, {"id": 2}]),
-                ScriptedResponse(json={"links": [{"idString": "lnk_a"}], "nextPageToken": "page-2"}),
+                ScriptedResponse(
+                    json={"links": [{"idString": "lnk_a", "password": "fake-link-password"}], "nextPageToken": "page-2"}
+                ),
                 ScriptedResponse(json={"links": [{"idString": "lnk_b"}], "nextPageToken": None}),
                 ScriptedResponse(json={"links": [{"idString": "lnk_c"}], "nextPageToken": None}),
             ],
@@ -58,6 +60,7 @@ class TestShortioSource:
             ("lnk_c", 2),
         ]
         assert result.params("domain_id") == [None, "1", "1", "2"]
+        assert all("password" not in row for row in result.rows)
         assert result.params("pageToken") == [None, None, "page-2", None]
         assert all(request.headers["authorization"] == "sk-key" for request in result.requests)
         assert result.committed_states
@@ -87,7 +90,7 @@ class TestShortioSource:
     @parameterized.expand([("link_clicks",), ("link_by_interval",)])
     def test_link_statistics_walk_all_links(self, endpoint: str) -> None:
         statistics = (
-            [{"lnk_a": 0}, {"lnk_b": 12}]
+            [{"lnk_a": 0, "lnk_z": 3}, {"lnk_b": 12}]
             if endpoint == "link_clicks"
             else [{"clickStatistics": []}, {"clickStatistics": [{"x": "2026-01-01T00:00:00Z", "y": 12}]}]
         )
@@ -95,7 +98,14 @@ class TestShortioSource:
             endpoint,
             [
                 ScriptedResponse(json=[{"id": 1}]),
-                ScriptedResponse(json={"links": [{"idString": "lnk_a"}], "nextPageToken": "page-2"}),
+                ScriptedResponse(
+                    json={
+                        "links": [{"idString": "lnk_a"}, {"idString": "lnk_z"}]
+                        if endpoint == "link_clicks"
+                        else [{"idString": "lnk_a"}],
+                        "nextPageToken": "page-2",
+                    }
+                ),
                 ScriptedResponse(json=statistics[0]),
                 ScriptedResponse(json={"links": [{"idString": "lnk_b"}], "nextPageToken": None}),
                 ScriptedResponse(json=statistics[1]),
@@ -107,10 +117,11 @@ class TestShortioSource:
         stats_requests = [request for request in result.requests if request.origin == "https://statistics.short.io"]
         assert len(stats_requests) == 2
         if endpoint == "link_clicks":
-            assert [request.param("ids") for request in stats_requests] == ["lnk_a", "lnk_b"]
+            assert [request.param("ids") for request in stats_requests] == ["lnk_a,lnk_z", "lnk_b"]
             assert all(request.path == "/statistics/domain/1/link_clicks" for request in stats_requests)
             assert result.rows == [
                 {"domain_id": 1, "link_id": "lnk_a", "clicks": 0},
+                {"domain_id": 1, "link_id": "lnk_z", "clicks": 3},
                 {"domain_id": 1, "link_id": "lnk_b", "clicks": 12},
             ]
         else:
@@ -148,30 +159,71 @@ class TestShortioSource:
         assert result.committed_states
         assert result.completed_state is None
 
-    def test_last_clicks_resume_before_date(self) -> None:
+    @parameterized.expand([(30,), (60,)])
+    def test_last_clicks_resume_before_date(self, limit: int) -> None:
         result = _driver().run(
             "last_clicks",
             [ScriptedResponse(json=[{"id": 1}]), ScriptedResponse(json=[])],
             resume_state=ShortioResumeConfig(
                 paginator_state={
                     "current": "https://statistics.short.io/statistics/domain/1/last_clicks",
-                    "child_state": {"before_date": "2026-01-01T00:00:00Z"},
+                    "child_state": {"before_date": "2026-01-01T00:00:00Z", "limit": limit},
                 }
             ),
         )
 
         assert result.raised is None
         assert result.requests[1].json()["beforeDate"] == "2026-01-01T00:00:00Z"
+        assert result.requests[1].json()["limit"] == limit
 
-    def test_last_clicks_repeated_boundary_fails(self) -> None:
+    @parameterized.expand([(0, False), (10, False), (0, True), (10, True)])
+    def test_last_clicks_preserve_clicks_sharing_page_boundary(self, newer_count: int, inclusive: bool) -> None:
+        newer = [{"dt": "2026-01-02T00:00:00Z", "path": "/newer"} for _ in range(newer_count)]
+        boundary = [{"dt": "2026-01-01T00:00:00Z", "path": "/same"} for _ in range(31)]
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/domains":
+                return ScriptedResponse(json=[{"id": 1}])
+            body = request.json()
+            before_date = body.get("beforeDate")
+            rows = [
+                row
+                for row in newer + boundary
+                if before_date is None or row["dt"] < before_date or (inclusive and row["dt"] == before_date)
+            ]
+            return ScriptedResponse(json=rows[: body["limit"]])
+
+        result = _driver().run(
+            "last_clicks",
+            respond,
+        )
+
+        assert result.raised is None
+        assert result.rows == [{**row, "domain_id": 1} for row in newer + boundary]
+        assert any(request.json()["limit"] == 60 for request in result.requests[1:])
+
+    @parameterized.expand([(False,), (True,)])
+    def test_last_clicks_reject_unsafe_pagination(self, oversized_group: bool) -> None:
         click = {"dt": "2026-01-01T00:00:00Z", "path": "/a"}
         result = _driver().run(
             "last_clicks",
-            [ScriptedResponse(json=[{"id": 1}]), ScriptedResponse(json=[click]), ScriptedResponse(json=[click])],
+            [
+                ScriptedResponse(json=[{"id": 1}]),
+                ScriptedResponse(json=[click] * (10000 if oversized_group else 1)),
+                ScriptedResponse(json=[{**click, "dt": "2026-01-02T00:00:00Z"}]),
+            ],
+            resume_state=ShortioResumeConfig(
+                paginator_state={
+                    "current": "https://statistics.short.io/statistics/domain/1/last_clicks",
+                    "child_state": {"limit": 10000},
+                }
+            )
+            if oversized_group
+            else None,
         )
 
         assert isinstance(result.raised, ValueError)
-        assert "did not advance" in str(result.raised)
+        assert ("too many clicks" if oversized_group else "did not advance") in str(result.raised)
 
     @parameterized.expand([({}, False), ({"message": "Invalid request"}, True), ({"lnk_a": None}, True)])
     def test_link_clicks_handle_empty_and_invalid_counts(self, counts: dict[str, object], invalid: bool) -> None:
