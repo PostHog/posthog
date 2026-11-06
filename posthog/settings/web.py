@@ -649,10 +649,6 @@ SPECTACULAR_SETTINGS = {
             "TicketPriorityEnum": "products.conversations.backend.models.constants.Priority",
             # ExperimentMetricsRecalculation and ExperimentTimeseriesRecalculation both define this Status.
             "MetricsRecalculationStatusEnum": "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status",
-            # The platform alert API and the metrics alert API offer the same destination types and event
-            # kinds while the metrics endpoint is replaced by the platform one.
-            "PlatformAlertDestinationTypeEnum": "products.alerts_platform.backend.presentation.views.platform_alert_destinations.PlatformAlertDestinationType.choices",
-            "AlertDestinationEventKindEnum": ["firing", "resolved", "errored", "broken"],
             # tasks' SpaceGoalPeriod measures a goal over day/week/month and alerts_platform's
             # recurrence unit repeats on one, so the pairs match and neither name fits both.
             "CalendarUnitEnum": "products.alerts_platform.backend.facade.enums.PlatformAlertConfigurationRecurrenceUnit.choices",

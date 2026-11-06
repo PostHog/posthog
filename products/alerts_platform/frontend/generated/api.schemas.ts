@@ -1760,10 +1760,10 @@ export const PlatformAlertDestinationTypeEnumApi = {
  * * `errored` - errored
  * * `broken` - broken
  */
-export type AlertDestinationEventKindEnumApi =
-    (typeof AlertDestinationEventKindEnumApi)[keyof typeof AlertDestinationEventKindEnumApi]
+export type PlatformAlertDestinationEventKindEnumApi =
+    (typeof PlatformAlertDestinationEventKindEnumApi)[keyof typeof PlatformAlertDestinationEventKindEnumApi]
 
-export const AlertDestinationEventKindEnumApi = {
+export const PlatformAlertDestinationEventKindEnumApi = {
     Firing: 'firing',
     Resolved: 'resolved',
     Errored: 'errored',
@@ -1810,7 +1810,7 @@ export interface PlatformAlertDestinationApi {
     /** Whether the destination is sent to. */
     enabled: boolean
     /** The alert transitions the destination hears about. A PagerDuty destination hears the incident trigger and resolve of every firing. */
-    event_kinds: AlertDestinationEventKindEnumApi[]
+    event_kinds: PlatformAlertDestinationEventKindEnumApi[]
     /** Integration ID of the Slack workspace. Set when type=slack. */
     slack_workspace_id?: number
     /** Slack channel ID. Set when type=slack. */
@@ -1870,7 +1870,7 @@ export interface PlatformAlertCreateDestinationApi {
      * The alert transitions to send about. Defaults to every kind, or to firing and resolved for PagerDuty, which then hears each incident's trigger and resolve.
      * @minItems 1
      */
-    event_kinds?: AlertDestinationEventKindEnumApi[]
+    event_kinds?: PlatformAlertDestinationEventKindEnumApi[]
 }
 
 export interface PlatformAlertDeleteDestinationApi {
