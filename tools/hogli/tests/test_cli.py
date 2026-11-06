@@ -159,7 +159,7 @@ class TestLazyClickCommands:
             lazy_commands.resolve_click_command("probe", "hogli_commands.no_such_module:cmd")
 
         assert ("could not import" in error.value.message) and (
-            (f"git -C {hogli_checkout} pull" in error.value.message) == borrowed
+            (f"shared packages from {hogli_checkout}" in error.value.message) == borrowed
         )
 
 
