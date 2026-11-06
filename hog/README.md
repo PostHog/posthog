@@ -87,6 +87,7 @@ A flag beats the environment variable, which beats `posthog.json`.
 | Option                    | Environment                        | `posthog.json`  | What it does                                                                                                                  |
 | ------------------------- | ---------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | `--host <url>`            | `HOG_HOST`                         | `host`          | The PostHog host to use instead of the one in your credentials                                                                |
+|                           | `HOG_PROJECT_ID`                   | `projectId`     | The project a personal API key or a CI job's token works in                                                                   |
 | `--dotenv-file <path>`    | `HOG_DOTENV_FILE`                  |                 | Read credentials from this file when the environment has none                                                                 |
 | `-o, --output <format>`   | `HOG_OUTPUT`                       |                 | `text` or `json`                                                                                                              |
 | `--raw`                   | `HOG_RAW`                          |                 | Print a command's full result as JSON                                                                                         |
@@ -111,6 +112,7 @@ hog sends usage events to PostHog, so the team can see who uses which commands a
 
 With a PostHog Cloud key, events belong to your PostHog user, organization and project, the same ones the web app uses.
 hog looks them up once per key with `/api/users/@me/` and `/api/projects/<id>/`, and keeps the answer in `~/.posthog/hog-telemetry-identity.json` for 30 days.
+A CI job that uses its OIDC token counts as its workload instead: events carry an ID hashed from the provider and the repository, the provider's name and your organization, and no person.
 Without a key, with a self-hosted PostHog, or with a key that can't read those, events belong to a random ID in `~/.posthog/hog-telemetry-id`.
 Usage events never carry argument or option values or API keys.
 
@@ -120,7 +122,7 @@ Turn it off with `--no-telemetry`, `HOG_NO_TELEMETRY=1`, `DO_NOT_TRACK=1`, or `"
 ## posthog.json
 
 Project settings live in `posthog.json`, which hog looks for from the current folder up to the git root.
-It never holds API keys.
+It never holds API keys, so it can hold the `host` and `projectId` hog uses in CI.
 When the file isn't valid, every command stops with `invalid_config` except `hog config check`, which lists the problems.
 Point `$schema` at the published schema to get validation in your editor:
 
@@ -182,9 +184,9 @@ hog uploads the same bytes and content hashes as posthog-cli, so either CLI can 
 
 `hog` reads credentials from these sources, in order:
 
-1. `HOG_PERSONAL_API_KEY` and `HOG_PROJECT_ID` in the environment, plus an optional `HOG_HOST`. The key is a personal API key: it acts as you, with your access.
+1. `HOG_PERSONAL_API_KEY` in the environment, with the project ID in `posthog.json` as `projectId` or in `HOG_PROJECT_ID`, plus an optional `HOG_HOST`. The key is a personal API key: it acts as you, with your access. Never put it in `posthog.json`.
 2. The same variables in the file `--dotenv-file` or `HOG_DOTENV_FILE` names. A missing file prints a warning and hog moves on to the next source.
-3. In a CI job of a supported provider that sets `HOG_PROJECT_ID`, the job's OIDC token. See [CI without a stored key](#ci-without-a-stored-key).
+3. In a CI job of a supported provider, with the project ID in `posthog.json` or `HOG_PROJECT_ID`, the job's OIDC token. See [CI without a stored key](#ci-without-a-stored-key).
 4. What `hog auth login` stored, one login per host: a short-lived OAuth token for one project, or a personal API key you pasted. It lives in the system keychain (Keychain on macOS, Credential Manager on Windows, Secret Service on Linux), or `credentials.json` in hog's folder when hog can't use the keychain, such as over SSH or in a container. Only you can read that file.
 
 hog doesn't read `~/.posthog/credentials.json`, the file `posthog-cli login` writes (`HOG_HOME` moves the folder). Run `hog auth migrate` once to move its key into hog's store.
@@ -199,8 +201,9 @@ hog's folder is `~/Library/Application Support/hog` on macOS, `$XDG_CONFIG_HOME/
 A CI job can trade the OIDC token its provider issues for a PostHog token, so no key is stored in the CI provider.
 An organization admin first trusts the repository in the project's settings, under "Trusted workloads".
 
-- hog asks the provider for a token whose audience is the PostHog host, and exchanges it for a token that works in the `HOG_PROJECT_ID` project with the scopes the admin allowed.
-- Set `HOG_HOST` to the address you open PostHog at, like `https://us.posthog.com`. hog uses `https://us.posthog.com` when neither `HOG_HOST` nor `posthog.json` names a host.
+- hog asks the provider for a token whose audience is the PostHog host, and exchanges it for a token that works in the project with the scopes the admin allowed.
+- Put the project ID and the host in `posthog.json` as `projectId` and `host`, which is simpler than setting `HOG_PROJECT_ID` and `HOG_HOST` in every job. The environment variables win when both are set.
+- A `host` in `posthog.json` counts here only when it is PostHog Cloud (`https://us.posthog.com` or `https://eu.posthog.com`), so a change to the file can't send the job's token elsewhere. A self-hosted PostHog needs `HOG_HOST`. Without either, hog uses `https://us.posthog.com`.
 - The token lives a few minutes. hog keeps it in memory for the run, never on disk, and exchanges again before it expires.
 - `HOG_PERSONAL_API_KEY` still wins when it is set.
 

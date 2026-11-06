@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import type { WorkloadProvider } from '@/ci/providers'
 import { HogError } from '@/core/errors'
+import { Telemetry } from '@/core/telemetry'
 import { fakeRuntime, type FakeRuntimeOptions } from '@/testing'
 
 import { resolveCredentials } from './credentials'
@@ -64,6 +65,18 @@ describe('workload credentials', () => {
         const runtime = runtimeWith({ env, files: STORED_LOGIN, respond: () => exchanged(WORKLOAD_TOKEN) })
         const credentials = await resolveCredentials(runtime, { workloadProviders: [FAKE_PROVIDER] })
         expect(credentials.source).toBe(source)
+    })
+
+    test('a job takes its project from posthog.json', async () => {
+        const runtime = runtimeWith({ env: { ...IN_CI, HOG_PROJECT_ID: '' }, respond: () => exchanged(WORKLOAD_TOKEN) })
+
+        const credentials = await resolveCredentials(runtime, {
+            workloadProviders: [FAKE_PROVIDER],
+            configProjectId: '42',
+        })
+
+        expect(credentials.source).toBe('workload')
+        expect(String(credentials.key.projectId)).toBe('42')
     })
 
     test.each([
@@ -134,6 +147,36 @@ describe('workload credentials', () => {
         expect(error).toBeInstanceOf(HogError)
         expect((error as HogError).code).toBe(code)
         expect((error as HogError).hint).toContain(hint)
+    })
+
+    test('usage data counts a job under its workload, never a person or the repository ID', async () => {
+        const payload = { org_id: 'org-uuid', workload: { provider: 'fake_ci', subject: '1234' } }
+        const token = `eyJhbGciOiJSUzI1NiJ9.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.c2ln`
+        const runtime = fakeRuntime({ env: IN_CI, telemetryToken: 'phc_test', respond: () => exchanged(token) })
+        const credentials = await resolveCredentials(runtime, { workloadProviders: [FAKE_PROVIDER] })
+        const mode = {
+            agent: undefined,
+            agentReason: '',
+            format: 'json',
+            color: false,
+            columns: undefined,
+            ci: true,
+        } as const
+        const telemetry = new Telemetry(runtime, mode, true)
+        telemetry.credentials = async () => credentials
+
+        telemetry.capture('hog command run')
+        await telemetry.flush()
+
+        const { batch } = runtime.requests.at(-1)!.body as { batch: { distinct_id: string; properties: object }[] }
+        expect(batch[0]!.distinct_id).toMatch(/^workload_[0-9a-f]{32}$/)
+        expect(JSON.stringify(batch)).not.toContain('1234')
+        expect(batch[0]!.properties).toMatchObject({
+            credential_type: 'workload',
+            workload_provider: 'fake_ci',
+            $process_person_profile: false,
+            $groups: { organization: 'org-uuid' },
+        })
     })
 
     test('a job with no credentials at all names the fix in the job', async () => {
