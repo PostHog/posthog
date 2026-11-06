@@ -919,7 +919,6 @@ describe('hog auth login', () => {
         expect(result.requests).toEqual([])
     })
 
-    // The login holds insight:read.
     const CHALLENGE = 'Bearer error="insufficient_scope", scope="insight:read query:read dashboard:write"'
     const ROWS = { columns: ['total'], results: [[1]], hasMore: false }
 
