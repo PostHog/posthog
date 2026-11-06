@@ -55,7 +55,9 @@ export function QuillEditorFilterGroupTile({
                     </CollapsibleTrigger>
                     {headerExtra && <div className="shrink-0 pe-2">{headerExtra}</div>}
                 </CollapsibleHeader>
-                <CollapsibleContent className="p-0">{items}</CollapsibleContent>
+                <CollapsibleContent keepMounted className="p-0">
+                    {items}
+                </CollapsibleContent>
             </Collapsible>
         </Card>
     )

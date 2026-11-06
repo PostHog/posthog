@@ -72,11 +72,7 @@ export function QuillFunnelBinCountOption({
                         value={draft}
                         placeholder={`${MIN_BINS}-${MAX_BINS}`}
                         onChange={(event) => setDraft(event.target.value)}
-                        onBlur={() => {
-                            if (draft) {
-                                commit()
-                            }
-                        }}
+                        onBlur={commit}
                         onKeyDown={(event) => {
                             if (event.key === 'Enter') {
                                 commit()
