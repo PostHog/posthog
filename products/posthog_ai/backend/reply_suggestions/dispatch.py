@@ -20,14 +20,19 @@ def enqueue_reply_suggestions(task_run: "TaskRun") -> bool:
         if task_run.origin_product != TaskOriginProduct.POSTHOG_AI:
             return False
         run_id = str(task_run.id)
-        if not cache.add(f"posthog_ai_reply_suggestions_enqueue:{run_id}", True, timeout=ENQUEUE_DEDUP_SECONDS):
+        reservation = f"posthog_ai_reply_suggestions_enqueue:{run_id}"
+        if not cache.add(reservation, True, timeout=ENQUEUE_DEDUP_SECONDS):
             return False
         from products.posthog_ai.backend.tasks import generate_reply_suggestions_task  # noqa: PLC0415
 
-        generate_reply_suggestions_task.apply_async(
-            kwargs={"run_id": run_id, "team_id": task_run.team_id},
-            expires=REPLY_SUGGESTIONS_EXPIRES_SECONDS,
-        )
+        try:
+            generate_reply_suggestions_task.apply_async(
+                kwargs={"run_id": run_id, "team_id": task_run.team_id},
+                expires=REPLY_SUGGESTIONS_EXPIRES_SECONDS,
+            )
+        except Exception:
+            cache.delete(reservation)
+            raise
     except Exception:
         logger.warning("posthog_ai_reply_suggestions_enqueue_failed", run_id=str(task_run.id), exc_info=True)
         return False

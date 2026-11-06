@@ -123,6 +123,15 @@ class TestGenerateReplySuggestions(BaseTest):
         assert queued == [True, False, False]
         apply_async.assert_called_once()
 
+    def test_a_failed_enqueue_leaves_the_turn_to_the_next_report(self):
+        with patch(
+            "products.posthog_ai.backend.tasks.generate_reply_suggestions_task.apply_async",
+            side_effect=[ConnectionError("broker"), None],
+        ):
+            queued = [enqueue_reply_suggestions(self.task_run) for _ in range(2)]
+
+        assert queued == [False, True]
+
     def test_a_long_answer_reaches_the_model_with_its_closing_question(self):
         answer = "Step details. " * 600 + "Should I open a pull request with the fix?"
         self.mocks["history"].return_value = [_user_message("Fix the relay"), _agent_final(answer), _turn_complete()]
