@@ -446,7 +446,9 @@ def _change_visibility(queue: DlqQueue, sqs: "SQSClient", receipt_handles: Seque
     refused = 0
     for start in range(0, len(receipt_handles), RECEIVE_BATCH_SIZE):
         pending = dict(enumerate(receipt_handles[start : start + RECEIVE_BATCH_SIZE]))
+        call_failed = False
         for _ in range(RELEASE_ATTEMPTS):
+            call_failed = True
             try:
                 response = sqs.change_message_visibility_batch(
                     QueueUrl=queue.url,
@@ -458,6 +460,7 @@ def _change_visibility(queue: DlqQueue, sqs: "SQSClient", receipt_handles: Seque
             except (BotoCoreError, ClientError) as error:
                 logger.warning("ses_events_dlq.visibility_change_failed", queue=queue.name, error=str(error))
                 continue
+            call_failed = False
             # SQS answers 200 even when single entries fail, and lists those under Failed.
             failed = {int(entry["Id"]) for entry in response.get("Failed", [])}
             pending = {index: handle for index, handle in pending.items() if index in failed}
@@ -466,4 +469,13 @@ def _change_visibility(queue: DlqQueue, sqs: "SQSClient", receipt_handles: Seque
         if pending:
             logger.error("ses_events_dlq.visibility_not_changed", queue=queue.name, timeout=timeout, count=len(pending))
         refused += len(pending)
+        if call_failed:
+            # Every attempt on this batch failed as a whole call, so SQS itself is failing. The calls for the
+            # remaining batches would each wait through the same timeouts, which delays the report by hours
+            # after a large run. The remaining messages become visible again when their leases expire.
+            skipped = len(receipt_handles) - start - RECEIVE_BATCH_SIZE
+            if skipped > 0:
+                logger.error("ses_events_dlq.visibility_change_skipped", queue=queue.name, count=skipped)
+                refused += skipped
+            break
     return refused
