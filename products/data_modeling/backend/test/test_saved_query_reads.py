@@ -1,3 +1,4 @@
+from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
@@ -12,6 +13,7 @@ from products.access_control.backend.facade.user_access_control import AccessCon
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade import api
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition, UpstreamTableRef
+from products.data_modeling.backend.logic.node_frequency import set_declared_target
 from products.data_modeling.backend.logic.saved_query_reads import POSTHOG_TABLE_ORIGIN
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.data_modeling_job import (
@@ -23,9 +25,72 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import Data
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_modeling.backend.test.helpers import saved_query_node, table_node
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 class TestSavedQueryReads(BaseTest):
+    @parameterized.expand(
+        [
+            ("valid",),
+            ("wrong_project",),
+            ("scheduled",),
+            ("inherited_schedule",),
+            ("new_attempt",),
+            ("unmaterialized",),
+            ("temporary",),
+            ("deleted",),
+        ]
+    )
+    def test_materialized_snapshot_requires_the_completed_paused_build(self, variant: str) -> None:
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="snapshot_rows",
+            format="Parquet",
+            url_pattern="https://example.com/snapshot/*.parquet",
+            columns={"group_key": "String"},
+        )
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="membership_snapshot",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            is_materialized=True,
+            table=table,
+        )
+        dag = DAG.objects.create(team=self.team, name="Snapshots")
+        node = Node.objects.create(team=self.team, dag=dag, name=view.name, saved_query=view, type=NodeType.MAT_VIEW)
+        job = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=view,
+            status=DataModelingJobStatus.COMPLETED,
+            rows_materialized=7,
+        )
+        team_id = self.team.id
+        if variant == "wrong_project":
+            team_id = Team.objects.create(organization=self.organization).id
+        elif variant in ("scheduled", "inherited_schedule"):
+            scheduled = node
+            if variant == "inherited_schedule":
+                scheduled = saved_query_node(self.team, dag, "downstream", NodeType.MAT_VIEW)
+                Edge.objects.create(team=self.team, dag=dag, source=node, target=scheduled)
+            set_declared_target(scheduled, timedelta(days=1))
+            scheduled.save(update_fields=["properties"])
+        elif variant == "new_attempt":
+            DataModelingJob.objects.create(team=self.team, saved_query=view, status=DataModelingJobStatus.RUNNING)
+        elif variant == "unmaterialized":
+            DataWarehouseSavedQuery.objects.filter(id=view.id).update(is_materialized=False)
+        elif variant == "temporary":
+            DataWarehouseSavedQuery.objects.filter(id=view.id).update(is_test=True)
+        elif variant == "deleted":
+            DataWarehouseSavedQuery.objects.filter(id=view.id).update(deleted=True)
+        if variant != "valid":
+            with self.assertRaises(ValueError):
+                api.get_materialized_query_snapshot(team_id, view.id, job.id)
+            return
+        snapshot = api.get_materialized_query_snapshot(team_id, view.id, job.id)
+        self.assertEqual((snapshot.view_id, snapshot.job_id, snapshot.rows_materialized), (view.id, job.id, 7))
+        DataWarehouseSavedQuery.objects.filter(id=view.id).update(query={"kind": "HogQLQuery", "query": "SELECT 2"})
+        self.assertNotEqual(snapshot.revision, api.get_materialized_query_snapshot(team_id, view.id, job.id).revision)
+
     @parameterized.expand(
         [
             ("legacy_viewer", False, "viewer"),
