@@ -845,7 +845,7 @@ class HogQLQueryExecutor:
                 if settings.read_overflow_mode is None:
                     settings.read_overflow_mode = "throw"
 
-            if should_check_team_first_in_prewhere(self.team, self.clickhouse_context.workload):
+            if should_check_team_first_in_prewhere(self.team, self.clickhouse_prepared_ast):
                 settings.move_primary_key_columns_to_end_of_prewhere = False
 
             with self.timings.measure("print_prepared_ast"):

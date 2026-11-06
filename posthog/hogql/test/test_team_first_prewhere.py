@@ -7,10 +7,13 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer.utils import prepare_ast_for_printing
 from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.team_first_prewhere import should_check_team_first_in_prewhere
 
-from posthog.clickhouse.workload import Workload
 from posthog.models.team.team_event_volume import TeamEventVolume
 
 FLAG_CHECK = "posthog.hogql.team_first_prewhere.feature_enabled_or_false"
@@ -22,6 +25,12 @@ class TestShouldCheckTeamFirstInPrewhere(BaseTest):
     def _add_volume(self, events_last_year: int, age: timedelta = timedelta()) -> None:
         TeamEventVolume.objects.unscoped().create(
             team=self.team, events_last_year=events_last_year, computed_at=timezone.now() - age
+        )
+
+    def _prepared_events_query(self) -> ast.AST | None:
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        return prepare_ast_for_printing(
+            parse_select("SELECT count() FROM events"), context=context, dialect="clickhouse"
         )
 
     @parameterized.expand(
@@ -41,7 +50,7 @@ class TestShouldCheckTeamFirstInPrewhere(BaseTest):
             self._add_volume(events_last_year, age)
 
         with patch(FLAG_CHECK, return_value=flag), patch(ERROR_REPORT) as report:
-            assert should_check_team_first_in_prewhere(self.team, Workload.DEFAULT) is expected
+            assert should_check_team_first_in_prewhere(self.team, self._prepared_events_query()) is expected
 
         report.assert_not_called()
 
@@ -51,17 +60,27 @@ class TestShouldCheckTeamFirstInPrewhere(BaseTest):
 
         with patch(FLAG_CHECK, return_value=True), patch(ERROR_REPORT) as report:
             with patch(failing_call, side_effect=RuntimeError("unavailable")):
-                assert should_check_team_first_in_prewhere(self.team, Workload.DEFAULT) is False
+                assert should_check_team_first_in_prewhere(self.team, self._prepared_events_query()) is False
 
         report.assert_called_once()
 
     @parameterized.expand(
         [
             ("events", "SELECT count() FROM events", True),
+            ("events_in_a_subquery", "SELECT count() FROM (SELECT event FROM events)", True),
+            ("events_in_a_cte", "WITH e AS (SELECT event FROM events) SELECT count() FROM e", True),
+            (
+                "events_joined_to_persons",
+                "SELECT count() FROM persons JOIN events ON persons.id = events.person_id",
+                True,
+            ),
+            ("events_through_a_lazy_join", "SELECT events.event FROM session_replay_events", True),
+            ("persons", "SELECT count() FROM persons", False),
+            ("session_replay_events", "SELECT count() FROM session_replay_events", False),
             ("logs", "SELECT count() FROM logs", False),
         ]
     )
-    def test_compiled_sql_carries_the_setting_for_events_but_not_logs(
+    def test_compiled_sql_carries_the_setting_only_when_the_query_reads_events(
         self, _name: str, query: str, expected: bool
     ) -> None:
         self._add_volume(1)

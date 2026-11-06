@@ -2,8 +2,11 @@ from datetime import timedelta
 
 from django.utils.timezone import now
 
+from posthog.hogql import ast
+from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.visitor import TraversingVisitor
+
 from posthog.cache_utils import cache_for
-from posthog.clickhouse.workload import Workload
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.team.team_event_volume import TeamEventVolume
@@ -24,9 +27,23 @@ def _recent_events_last_year(team_id: int) -> int | None:
     )
 
 
-def should_check_team_first_in_prewhere(team: Team, workload: Workload | None) -> bool:
-    if workload == Workload.LOGS:
+class _EventsTableFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        self.found = False
+
+    def visit_table_type(self, node: ast.TableType) -> None:
+        self.found = self.found or isinstance(node.table, EventsTable)
+
+
+def _reads_events_table(prepared_ast: ast.AST | None) -> bool:
+    if prepared_ast is None:
         return False
+    finder = _EventsTableFinder()
+    finder.visit(prepared_ast)
+    return finder.found
+
+
+def should_check_team_first_in_prewhere(team: Team, prepared_ast: ast.AST | None) -> bool:
     try:
         if not feature_enabled_or_false(
             TEAM_FIRST_PREWHERE_FLAG,
@@ -39,6 +56,9 @@ def should_check_team_first_in_prewhere(team: Team, workload: Workload | None) -
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         ):
+            return False
+        # The volume gate counts events, so it says nothing about how selective `team_id` is on other tables.
+        if not _reads_events_table(prepared_ast):
             return False
         events_last_year = _recent_events_last_year(team.pk)
     except Exception as e:
