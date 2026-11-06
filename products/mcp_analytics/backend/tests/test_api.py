@@ -25,7 +25,7 @@ from products.access_control.backend.models.property_access_control import Prope
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.mcp_analytics.backend import intent_generation, logic, mcp_harness
 from products.mcp_analytics.backend.facade import api, contracts, enums
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPSession
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness, MCPSession
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 INTERNAL_CLIENT = "internal-bot"
@@ -910,12 +910,14 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
 
     @parameterized.expand(
         [
-            ("same_request_is_served_from_cache", 1, False, "never", 0, 1),
-            ("empty_result_is_not_cached", 0, False, "never", 0, 2),
-            ("other_filters_query_again", 1, True, "never", 0, 2),
-            ("other_property_restrictions_query_again", 1, False, "between_requests", 0, 2),
-            ("unrestricted_entry_outlives_a_poll_interval", 1, False, "never", 61, 1),
-            ("restricted_entry_expires_before_the_next_poll", 1, False, "before_requests", 21, 2),
+            ("same_request_is_served_from_cache", 1, False, "never", 0, False, 1),
+            ("empty_result_is_not_cached", 0, False, "never", 0, False, 2),
+            ("other_filters_query_again", 1, True, "never", 0, False, 2),
+            ("other_property_restrictions_query_again", 1, False, "between_requests", 0, False, 2),
+            ("unrestricted_entry_outlives_a_poll_interval", 1, False, "never", 61, False, 1),
+            ("restricted_entry_expires_before_the_next_poll", 1, False, "before_requests", 21, False, 2),
+            ("refresh_within_the_cooldown_is_served_from_cache", 1, False, "never", 0, True, 1),
+            ("refresh_after_the_cooldown_skips_the_cache", 1, False, "never", 6, True, 2),
         ]
     )
     def test_caches_overview_per_filters_and_property_restrictions(
@@ -925,6 +927,7 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
         change_filters: bool,
         restrict_a_property: Literal["never", "before_requests", "between_requests"],
         seconds_later: int,
+        refresh: bool,
         expected_calls: int,
     ) -> None:
         self.team.test_account_filters = TEST_ACCOUNT_FILTERS
@@ -938,7 +941,9 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
         if restrict_a_property == "between_requests":
             self._restrict_a_property()
         with time_machine.travel(datetime.now(tz=UTC) + timedelta(seconds=seconds_later), tick=False):
-            overview = api.get_activity_overview(self.team, filter_test_accounts=change_filters, user=self.user)
+            overview = api.get_activity_overview(
+                self.team, filter_test_accounts=change_filters, user=self.user, refresh=refresh
+            )
 
         assert overview.stats.total_calls == expected_calls
 
@@ -1046,11 +1051,16 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
                 {"$mcp_oauth_client_name": "cursor-vscode"},
                 mcp_harness.UNIDENTIFIED_HARNESS_LABEL,
             ),
+            ("custom_rule_on_client_name", {"$mcp_client_name": "acme-agent"}, "Acme Agent"),
+            ("custom_rule_on_user_agent_only", {"$mcp_client_user_agent": "acme-agent/2.0 (node)"}, "Acme Agent"),
+            ("custom_rule_beats_built_in", {"$mcp_client_name": "cursor-internal"}, "Our Cursor"),
         ]
     )
     def test_attributes_clients_from_every_identity_signal(
         self, _name: str, properties: dict[str, Any], expected: str
     ) -> None:
+        MCPCustomHarness.objects.create(team=self.team, name="Acme Agent", match_pattern="acme-agent")
+        MCPCustomHarness.objects.create(team=self.team, name="Our Cursor", match_pattern="cursor-internal")
         self._emit_call(properties, count=2)
 
         overview = api.get_activity_overview(self.team)

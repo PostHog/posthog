@@ -7,6 +7,7 @@ from products.surveys.backend.responses.fetch_rows import (
 from products.surveys.backend.responses.per_question_stats import PerQuestionStats, fetch_per_question_stats
 from products.surveys.backend.responses.stats import (
     EventStats,
+    StatsWindow,
     SurveyRates,
     SurveyStats,
     calculate_rates,
@@ -19,6 +20,7 @@ from products.surveys.backend.responses.stats import (
 __all__ = [
     "EventStats",
     "PerQuestionStats",
+    "StatsWindow",
     "SurveyRates",
     "SurveyResponseRow",
     "SurveyStats",

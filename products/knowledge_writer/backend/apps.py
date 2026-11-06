@@ -7,6 +7,7 @@ class KnowledgeWriterConfig(AppConfig):
     label = "knowledge_writer"
 
     def ready(self) -> None:
-        from products.knowledge_writer.backend import receivers  # noqa: PLC0415 — needs the app registry
+        from products.knowledge_writer.backend import receivers, task_profiles  # noqa: PLC0415 — needs the app registry
 
         receivers.connect()
+        task_profiles.register()
