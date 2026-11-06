@@ -18,7 +18,7 @@ import structlog
 
 from posthog.admin.console.bridge import QueuedMessages
 from posthog.admin.console.confirm import ConfirmationToken
-from posthog.admin.console.panels import Fact, Operation, Panel, Tone
+from posthog.admin.console.panels import Fact, Gate, Operation, Owner, Panel, Tone
 from posthog.admin.console.records import RECORD_TYPES, RecordLink, RecordType
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import ConsoleTool, Page, ToolOperation
@@ -39,7 +39,9 @@ RECENT_TEAMS_LIMIT = 8
 class RenderedOperation:
     operation: Operation | ToolOperation
     url: str
-    # False when the operation's gate keeps this staff member out. The page shows it disabled, with who may run it.
+    # The operation's gate, with Gate.owner() resolved to the staff group of the panel or tool owner.
+    gate: Gate | None
+    # False when the gate keeps this staff member out. The page shows it disabled, with who may run it.
     allowed: bool
 
 
@@ -191,6 +193,17 @@ def _record_context(record_type: RecordType, obj: Model) -> dict[str, object]:
     }
 
 
+def _gate(operation: Operation | ToolOperation, owner: Owner) -> Gate | None:
+    return operation.gate.resolve(owner) if operation.gate is not None else None
+
+
+def _rendered_operation(
+    request: HttpRequest, operation: Operation | ToolOperation, owner: Owner, url: str
+) -> RenderedOperation:
+    gate = _gate(operation, owner)
+    return RenderedOperation(operation=operation, url=url, gate=gate, allowed=gate is None or gate.allows(request))
+
+
 def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse:
     record_type = _record_type(record)
     obj = get_object_or_404(record_type.queryset(), pk=pk)
@@ -201,13 +214,14 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
             panel=panel,
             facts=panel.facts(obj),
             operations=[
-                RenderedOperation(
-                    operation=operation,
-                    url=reverse(
+                _rendered_operation(
+                    request,
+                    operation,
+                    panel.owner,
+                    reverse(
                         record_type.operation_url_name,
                         kwargs={"pk": obj.pk, "panel_key": panel.key, "operation_key": operation.key},
                     ),
-                    allowed=_is_allowed(request, operation),
                 )
                 for operation in panel.operations(obj)
             ],
@@ -245,15 +259,14 @@ def _find_operation(panel: Panel, obj: Model, operation_key: str) -> Operation:
     raise Http404("This operation is not available for this record right now")
 
 
-def _is_allowed(request: HttpRequest, operation: Operation | ToolOperation) -> bool:
-    return operation.gate is None or operation.gate.allows(request)
-
-
-def _require_gate(request: HttpRequest, operation: Operation | ToolOperation, audit: structlog.BoundLogger) -> None:
+def _require_gate(
+    request: HttpRequest, operation: Operation | ToolOperation, owner: Owner, audit: structlog.BoundLogger
+) -> None:
     # The page only disables the button. This check is the one that keeps a hand-built request out.
-    if operation.gate is not None and not operation.gate.allows(request):
+    gate = _gate(operation, owner)
+    if gate is not None and not gate.allows(request):
         audit.warning("admin_console_operation_denied", method=request.method)
-        raise PermissionDenied(f"{operation.label} needs {operation.gate.label}")
+        raise PermissionDenied(f"Only {gate.label} can run {operation.label}")
 
 
 def _audited(audit: structlog.BoundLogger, run: Callable[[], R]) -> R:
@@ -335,7 +348,7 @@ def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str,
         operation=operation.key,
         triggered_by=cast(User, request.user).email,
     )
-    _require_gate(request, operation, audit)
+    _require_gate(request, operation, panel.owner, audit)
     if request.method == "GET" and operation.form_class is None:
         return redirect(record_url)
 
@@ -411,13 +424,14 @@ def _with_query(url: str, request: HttpRequest) -> str:
 def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
     tool = _get_tool(tool_key)
     operations = [
-        RenderedOperation(
-            operation=operation,
-            url=_with_query(
+        _rendered_operation(
+            request,
+            operation,
+            tool.owner,
+            _with_query(
                 reverse("admin_console_tool_operation", kwargs={"tool_key": tool.key, "operation_key": operation.key}),
                 request,
             ),
-            allowed=_is_allowed(request, operation),
         )
         for operation in tool.operations(request)
     ]
@@ -461,7 +475,7 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
     if request.method not in ("GET", "POST"):
         return HttpResponseNotAllowed(["GET", "POST"])
     audit = logger.bind(tool=tool.key, operation=operation.key, triggered_by=cast(User, request.user).email)
-    _require_gate(request, operation, audit)
+    _require_gate(request, operation, tool.owner, audit)
     if request.method == "GET" and operation.form_class is None:
         return redirect(tool_url)
 
