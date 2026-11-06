@@ -64,7 +64,6 @@ import {
     resolveQuery,
     tokenAtCursor,
 } from './commandKQuery'
-import { freeWords } from './commandKRanking'
 import {
     CommandKMode,
     CommandKRow,
@@ -775,7 +774,6 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 s.localLists,
                 s.remote,
                 s.displayedQuery,
-                s.featureFlags,
                 s.searchCorrection,
                 s.expandedGroups,
             ],
@@ -786,14 +784,10 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 local: LocalLists,
                 remote: RemoteSlots,
                 displayed: { query: SectionsQuery; stale: boolean },
-                featureFlags: FeatureFlagsSet,
                 searchCorrection: SearchCorrection | null,
                 expandedGroups: string[]
-            ): CommandKSection[] => {
-                const unifiedRanking =
-                    freeWords(displayed.query.remoteQueries.results ?? '').length > 0 &&
-                    featureFlags[FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING] === 'test'
-                return buildSections({
+            ): CommandKSection[] =>
+                buildSections({
                     mode,
                     context,
                     suggestions,
@@ -802,7 +796,6 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     ...displayed.query,
                     stale: displayed.stale,
                     personsFirst: !!displayed.query.remoteQueries.persons?.includes('@'),
-                    unifiedRanking,
                     expandedGroups,
                     searchCorrection:
                         searchCorrection &&
@@ -811,8 +804,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                         )
                             ? searchCorrection
                             : null,
-                })
-            },
+                }),
         ],
         selectableRows: [
             (s) => [s.sections],
@@ -853,14 +845,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     !!sourceQuery && !!values.remote[source as RemoteSource].failed?.[sourceQuery]
             )
             const empty = !values.sections.some((section) => section.rows.some((row) => row.kind === 'item'))
-            if (
-                corrected &&
-                settled &&
-                !failed &&
-                !values.displayedQuery.stale &&
-                empty &&
-                values.featureFlags[FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING] === 'test'
-            ) {
+            if (corrected && settled && !failed && !values.displayedQuery.stale && empty) {
                 actions.applyCorrection({ from: query, to: corrected })
             }
         }
