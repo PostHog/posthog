@@ -25,4 +25,5 @@ def __getattr__(name: str) -> type["SignalRemediation"]:
         SignalRemediation,  # noqa: PLC0415 - keeps payload schemas off Django startup
     )
 
+    globals()[name] = SignalRemediation
     return SignalRemediation

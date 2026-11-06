@@ -24,7 +24,7 @@ from django.utils import timezone
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 
-from products.aeo.backend import gaps
+from products.aeo.backend import gaps, suggestions
 from products.aeo.backend.brand import brand_names, mention_filter
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH, is_target_host, top_domains
 from products.aeo.backend.facade.contracts import (
@@ -49,6 +49,8 @@ from products.aeo.backend.facade.contracts import (
     PromptSetOverview,
     PromptSetTopicCounts,
     PromptStats,
+    PromptSuggestionJob,
+    PromptSuggestionRequest,
     PromptTextConflictError,
     PromptTopic,
     PromptUpdate,
@@ -58,6 +60,7 @@ from products.aeo.backend.facade.contracts import (
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt, AEOPromptVersion
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.seeding import PromptCandidate, normalize_prompt, prompt_hash, upsert_prompts
+from products.aeo.backend.tasks.tasks import suggest_aeo_prompts_task
 
 
 def run_citation_checks_for_team(team_id: int) -> CitationRunSummary:
@@ -492,13 +495,41 @@ def import_prompts(team_id: int, prompts: list[PromptImport]) -> PromptImportRes
             text=item.prompt,
             source=AEOPrompt.Source.IMPORTED,
             topic=item.topic,
-            evidence={"via": "api"}
+            evidence={"via": item.origin.value}
             | ({"external_visibility": item.external_visibility} if item.external_visibility is not None else {}),
         )
         for item in prompts
     ]
     result = upsert_prompts(team, candidates)
     return PromptImportResult(created=result["created"], updated=result["updated"], skipped=result["skipped"])
+
+
+def start_prompt_suggestions(team_id: int, request: PromptSuggestionRequest) -> PromptSuggestionJob:
+    """Queue prompt suggestions and return the pending job. Poll get_prompt_suggestions for the result."""
+    job = suggestions.create_job(team_id)
+    try:
+        suggest_aeo_prompts_task.delay(
+            team_id,
+            job.id,
+            {
+                "domain": request.domain,
+                "brand": request.brand,
+                "description": request.description,
+                "competitors": list(request.competitors),
+                "topics": list(request.topics),
+                "count": request.count,
+            },
+        )
+    except Exception:
+        # Without a queued task nothing would ever finish the pending job.
+        suggestions.fail_job(team_id, job.id, "Prompt suggestions could not start. Try again in a minute.")
+        raise
+    return job
+
+
+def get_prompt_suggestions(team_id: int, job_id: str) -> PromptSuggestionJob:
+    """Raises PromptSuggestionJobNotFoundError when the job is unknown or expired."""
+    return suggestions.load_job(team_id, job_id)
 
 
 def _get_prompt_row(team_id: int, prompt_id: str, *, lock: bool = False) -> AEOPrompt:

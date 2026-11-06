@@ -19,7 +19,7 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
 from posthog.kafka_client.topics import KAFKA_PERSON
-from posthog.models import OrganizationMembership, PropertyDefinition, Team, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.person import Person
 from posthog.models.person.divergence.datatypes import (
     DivergentPerson,
@@ -55,6 +55,7 @@ from posthog.test.persons import add_distinct_id, create_person
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 
 PG_PROPERTIES = {"email": "postgres@example.com"}
 CH_PROPERTIES = {"email": "clickhouse@example.com"}

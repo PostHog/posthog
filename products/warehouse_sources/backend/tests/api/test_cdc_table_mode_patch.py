@@ -367,6 +367,7 @@ def test_a_table_moved_off_cdc_during_a_handed_over_reset_syncs_again(
             **schema.sync_type_config,
             "cdc_reset_pending": {"trigger": True},
             "cdc_snapshot_lane": "buffer",
+            "cdc_snapshot_position": 23803368,
         }
     )
     client.force_login(user)
@@ -389,6 +390,7 @@ def test_a_table_moved_off_cdc_during_a_handed_over_reset_syncs_again(
     schema.refresh_from_db()
     assert "cdc_reset_pending" not in schema.sync_type_config
     assert "cdc_snapshot_lane" not in schema.sync_type_config
+    assert "cdc_snapshot_position" not in schema.sync_type_config
     unpause.assert_called_once_with(str(schema.id))
 
 

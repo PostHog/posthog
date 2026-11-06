@@ -53,18 +53,20 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
 WEB_STATS_DIMENSIONAL_READ_TABLE = "web_stats_dimensional_preaggregated"
 WEB_BOUNCES_DIMENSIONAL_READ_TABLE = "web_bounces_dimensional_preaggregated"
 
-# TTL tuned for "keep ~90 days warm, don't recompute every time": today's window
-# refreshes hourly, the last two days daily, everything older is computed once and
-# held for 90 days. The scheduled job re-runs over the rolling window and the
-# framework only recomputes windows whose jobs have expired. Today's TTL is shorter
-# than the hourly schedule so that every run finds today's job expired and rebuilds
-# it. A TTL equal to the schedule period lets a run find the job fresh by seconds,
-# skip it, and leave it expired until the next run.
+# Today's window refreshes hourly, the last two days daily, and older days are held for 90 to 97
+# days so a settled day is computed once. The scheduled job re-runs over the rolling window and the
+# framework only recomputes windows whose jobs have expired. Today's TTL is shorter than the hourly
+# schedule so that every run finds today's job expired and rebuilds it. A TTL equal to the schedule
+# period lets a run find the job fresh by seconds, skip it, and leave it expired until the next run.
+#
+# The jitter gives each older day a stable offset, so a backfill's days expire on different runs
+# and each run rebuilds only a few of them.
 DIMENSIONAL_TTL_SECONDS: dict[str, int] = {
     "0d": 45 * 60,
     "2d": 24 * 60 * 60,
     "default": 90 * 24 * 60 * 60,
 }
+DIMENSIONAL_DEFAULT_TTL_JITTER_SECONDS = 7 * 24 * 60 * 60
 
 
 def dimensional_ttl_schedule() -> TtlSchedule:
@@ -72,7 +74,9 @@ def dimensional_ttl_schedule() -> TtlSchedule:
     # team timezone, the current UTC day moves into the 1-day band when the team's local day
     # starts, and that day then stops refreshing until the next UTC midnight. The band cutoffs are
     # relative to now, so build the schedule per call.
-    return parse_ttl_schedule(DIMENSIONAL_TTL_SECONDS, "UTC")
+    return parse_ttl_schedule(
+        DIMENSIONAL_TTL_SECONDS, "UTC", default_ttl_jitter_seconds=DIMENSIONAL_DEFAULT_TTL_JITTER_SECONDS
+    )
 
 
 # Per-session row, then aggregated into hourly buckets. `host`/`device_type`/

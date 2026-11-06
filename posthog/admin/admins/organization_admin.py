@@ -1,17 +1,12 @@
-import re
-from datetime import UTC, timedelta
-from typing import Any
-from uuid import UUID
+from datetime import UTC
 
 from django import forms
 from django.apps import apps
 from django.conf import settings
 from django.contrib import admin, messages
-from django.core import signing
 from django.core.exceptions import PermissionDenied
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.db import transaction
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
@@ -25,6 +20,8 @@ from django.views.decorators.http import require_http_methods
 
 from posthog.admin.ai_training_opt_in_history import get_ai_training_opt_in_history
 from posthog.admin.authorization import can_trigger_admin_deletion
+from posthog.admin.console.moved import MovedToConsole
+from posthog.admin.console.usage_reports_tool import ReportDateForm
 from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.events_retention_config_inline import OrganizationEventsRetentionConfigInline
 from posthog.admin.inlines.organization_domain_inline import OrganizationDomainInline
@@ -37,7 +34,6 @@ from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 from posthog.models.organization import Organization
 from posthog.person_db_router import PERSONS_DB_MODELS
 from posthog.tasks.ai_observability_usage_report import internal_reporting_team_id
-from posthog.utils import pluralize
 
 from products.ai_observability.backend.facade.admin import dataset_retention_enabled, set_dataset_retention_enabled
 from products.batch_exports.backend.facade import api as batch_exports_api
@@ -128,16 +124,6 @@ def get_model_counts_for_organization(organization: Organization) -> list[dict]:
     return sorted(results, key=lambda x: x["name"])
 
 
-class UsageReportForm(forms.Form):
-    report_date = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}))
-
-    def clean_report_date(self):
-        report_date = self.cleaned_data["report_date"]
-        if report_date > (timezone.now().date() + timedelta(days=1)):
-            raise forms.ValidationError("The date cannot be more than one day in the future.")
-        return report_date
-
-
 class DatasetRetentionForm(forms.Form):
     enabled = forms.TypedChoiceField(
         label="Dataset cleanup",
@@ -145,104 +131,6 @@ class DatasetRetentionForm(forms.Form):
         coerce=lambda value: value == "enabled",
         widget=forms.RadioSelect,
     )
-
-
-class BulkDeactivateOrganizationsForm(forms.Form):
-    CUSTOM_REASON = "__custom__"
-    MAX_ORGANIZATIONS = 100
-    PREVIEW_TOKEN_SALT = "posthog.admin.bulk_deactivate_organizations"
-
-    organization_ids = forms.CharField(
-        label="Organization IDs",
-        widget=forms.Textarea(
-            attrs={
-                "rows": 10,
-                "placeholder": "Paste one organization ID per line, or separate IDs with commas.",
-            }
-        ),
-        help_text=f"Paste up to {MAX_ORGANIZATIONS} organization IDs separated by new lines, commas, or spaces.",
-    )
-    reason = forms.ChoiceField(
-        label="Reason",
-        choices=[*Organization.DeactivationReason.choices, (CUSTOM_REASON, "Custom reason")],
-        initial=Organization.DeactivationReason.DESKTOP_ABUSE,
-    )
-    custom_reason = forms.CharField(
-        label="Custom reason",
-        required=False,
-        max_length=Organization._meta.get_field("is_not_active_reason").max_length,
-        widget=forms.Textarea(attrs={"rows": 3}),
-        help_text="Used only when reason is set to custom reason.",
-    )
-
-    def clean_organization_ids(self) -> list[UUID]:
-        raw_value = self.cleaned_data["organization_ids"]
-        invalid_tokens: list[str] = []
-        organization_ids: list[UUID] = []
-        seen_ids: set[UUID] = set()
-        token_count = 0
-
-        for match in re.finditer(r"[^,\s]+", raw_value):
-            token_count += 1
-            if token_count > self.MAX_ORGANIZATIONS:
-                raise forms.ValidationError(f"Enter {self.MAX_ORGANIZATIONS} organization IDs or fewer.")
-
-            token = match.group()
-            try:
-                organization_id = UUID(token)
-            except ValueError:
-                invalid_tokens.append(token)
-                continue
-
-            if organization_id in seen_ids:
-                continue
-
-            seen_ids.add(organization_id)
-            organization_ids.append(organization_id)
-
-        if token_count == 0:
-            raise forms.ValidationError("Enter at least one organization ID.")
-
-        if invalid_tokens:
-            raise forms.ValidationError(
-                "These organization IDs are not valid UUIDs: %(ids)s",
-                params={"ids": ", ".join(invalid_tokens[:10])},
-            )
-
-        return organization_ids
-
-    def clean(self) -> dict[str, Any]:
-        cleaned_data = super().clean() or {}
-        reason = cleaned_data.get("reason")
-        custom_reason = (cleaned_data.get("custom_reason") or "").strip()
-
-        if reason == self.CUSTOM_REASON:
-            if not custom_reason:
-                self.add_error("custom_reason", "Enter a custom reason.")
-                return cleaned_data
-            cleaned_data["resolved_reason"] = custom_reason
-        elif reason:
-            cleaned_data["resolved_reason"] = reason
-
-        return cleaned_data
-
-    def preview_payload(self) -> dict[str, str | list[str]]:
-        return {
-            "organization_ids": [str(organization_id) for organization_id in self.cleaned_data["organization_ids"]],
-            "reason": self.cleaned_data["resolved_reason"],
-        }
-
-    def preview_token(self) -> str:
-        return signing.dumps(self.preview_payload(), salt=self.PREVIEW_TOKEN_SALT)
-
-    def preview_token_matches(self, preview_token: str) -> bool:
-        if not preview_token:
-            return False
-
-        try:
-            return signing.loads(preview_token, salt=self.PREVIEW_TOKEN_SALT) == self.preview_payload()
-        except signing.BadSignature:
-            return False
 
 
 @admin.register(Organization)
@@ -381,7 +269,13 @@ class OrganizationAdmin(admin.ModelAdmin):
         return mark_safe(
             render_to_string(
                 "admin/organization/limited_products.html",
-                {"limited": limited, "organization_id": organization.id, "total_teams": total_teams},
+                {
+                    "limited": limited,
+                    "total_teams": total_teams,
+                    "actions_moved": MovedToConsole.action(
+                        "organization", organization, "billing", "Limit and unlimit"
+                    ),
+                },
                 request=request,
             )
         )
@@ -462,15 +356,7 @@ class OrganizationAdmin(admin.ModelAdmin):
     def sync_to_billing_display(self, organization: Organization):
         if not organization.pk:
             return "-"
-        request = getattr(self, "_current_request", None)
-        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
-        return mark_safe(
-            render_to_string(
-                "admin/organization/sync_to_billing.html",
-                {"organization_id": organization.pk},
-                request=request,
-            )
-        )
+        return MovedToConsole.action("organization", organization, "billing", "Sync members to billing")
 
     @admin.display(description="Danger zone")
     def trigger_deletion_display(self, organization: Organization):
@@ -570,71 +456,9 @@ class OrganizationAdmin(admin.ModelAdmin):
         )
         return redirect(change_url)
 
-    def sync_to_billing_view(self, request, organization_id):
-        from posthog.tasks.sync_billing import sync_members_to_billing
-
-        try:
-            organization = Organization.objects.get(id=organization_id)
-        except Organization.DoesNotExist:
-            messages.error(request, f"Organization with id {organization_id} not found.")
-            return redirect(reverse("admin:posthog_organization_changelist"))
-
-        if request.method == "POST":
-            try:
-                sync_members_to_billing.delay(organization.id)
-                messages.success(
-                    request, f"Queued sync to billing for organization {organization.name} ({organization.id})."
-                )
-            except Exception as e:
-                messages.error(request, f"Error queuing sync to billing: {e}")
-
-        return redirect(reverse("admin:posthog_organization_change", args=[organization_id]))
-
-    def limit_product_view(self, request, organization_id):
-        from ee.billing.quota_limiting import QuotaResource
-
-        organization: Organization = Organization.objects.get(id=organization_id)
-        assert organization
-
-        if request.method == "POST":
-            resource_name = request.POST.get("resource")
-            try:
-                resource = QuotaResource(resource_name)
-                organization.limit_product_until_end_of_billing_cycle(resource)
-                messages.success(request, f"Successfully limited {resource_name} for organization {organization.name}")
-            except ValueError:
-                messages.error(request, f"Invalid resource: {resource_name}")
-            except Exception as e:
-                messages.error(request, f"Error limiting {resource_name}: {str(e)}")
-
-        return redirect(reverse("admin:posthog_organization_change", args=[organization_id]))
-
-    def unlimit_product_view(self, request, organization_id):
-        from ee.billing.quota_limiting import QuotaResource
-
-        organization = Organization.objects.get(id=organization_id)
-
-        if request.method == "POST":
-            resource_name = request.POST.get("resource")
-            try:
-                resource = QuotaResource(resource_name)
-                organization.unlimit_product(resource)
-                messages.success(
-                    request, f"Successfully unlimited {resource_name} for organization {organization.name}"
-                )
-            except ValueError:
-                messages.error(request, f"Invalid resource: {resource_name}")
-            except Exception as e:
-                messages.error(request, f"Error unlimiting {resource_name}: {str(e)}")
-
-        return redirect(reverse("admin:posthog_organization_change", args=[organization_id]))
-
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
-            path(
-                "send-usage-report/", self.admin_site.admin_view(self.send_usage_report_view), name="send-usage-report"
-            ),
             path(
                 "send-ai-observability-usage-report/",
                 self.admin_site.admin_view(self.send_ai_observability_usage_report_view),
@@ -646,29 +470,9 @@ class OrganizationAdmin(admin.ModelAdmin):
                 name="ai-observability-dataset-retention",
             ),
             path(
-                "bulk-deactivate/",
-                self.admin_site.admin_view(self.bulk_deactivate_view),
-                name="organization_bulk_deactivate",
-            ),
-            path(
-                "<path:organization_id>/limit-product/",
-                self.admin_site.admin_view(self.limit_product_view),
-                name="limit_product",
-            ),
-            path(
-                "<path:organization_id>/unlimit-product/",
-                self.admin_site.admin_view(self.unlimit_product_view),
-                name="unlimit_product",
-            ),
-            path(
                 "<path:organization_id>/model-counts/",
                 self.admin_site.admin_view(self.model_counts_view),
                 name="organization_model_counts",
-            ),
-            path(
-                "<path:organization_id>/sync-to-billing/",
-                self.admin_site.admin_view(self.sync_to_billing_view),
-                name="organization_sync_to_billing",
             ),
             path(
                 "<path:organization_id>/trigger-deletion/",
@@ -677,110 +481,6 @@ class OrganizationAdmin(admin.ModelAdmin):
             ),
         ]
         return custom_urls + urls
-
-    def _bulk_deactivation_candidates(self, organization_ids: list[UUID]) -> tuple[list[Organization], list[str]]:
-        organizations_by_id = Organization.objects.only("id", "name", "is_active", "is_not_active_reason").in_bulk(
-            organization_ids
-        )
-        organizations = [
-            organizations_by_id[organization_id]
-            for organization_id in organization_ids
-            if organization_id in organizations_by_id
-        ]
-        missing_ids = [
-            str(organization_id) for organization_id in organization_ids if organization_id not in organizations_by_id
-        ]
-        return organizations, missing_ids
-
-    def bulk_deactivate_view(self, request):
-        if not self.has_change_permission(request):
-            raise PermissionDenied
-
-        form = BulkDeactivateOrganizationsForm(request.POST or None)
-        preview_organizations: list[Organization] = []
-        deactivation_organizations: list[Organization] = []
-        already_inactive_organizations: list[Organization] = []
-        missing_ids: list[str] = []
-        preview_token = ""
-        resolved_reason = ""
-
-        if request.method == "POST" and form.is_valid():
-            organization_ids = form.cleaned_data["organization_ids"]
-            resolved_reason = form.cleaned_data["resolved_reason"]
-            preview_organizations, missing_ids = self._bulk_deactivation_candidates(organization_ids)
-            deactivation_organizations = [
-                organization for organization in preview_organizations if organization.is_active is not False
-            ]
-            already_inactive_organizations = [
-                organization for organization in preview_organizations if organization.is_active is False
-            ]
-
-            if not preview_organizations:
-                form.add_error("organization_ids", "No organizations matched these IDs.")
-            elif not deactivation_organizations:
-                form.add_error("organization_ids", "All matched organizations are already inactive.")
-            elif "confirm" in request.POST:
-                preview_token = form.preview_token()
-                if not form.preview_token_matches(request.POST.get("preview_token", "")):
-                    form.add_error(None, "Review the organizations again before deactivating.")
-                else:
-                    deactivation_ids = [organization.id for organization in deactivation_organizations]
-                    with transaction.atomic():
-                        locked_deactivation_organizations = list(
-                            Organization.objects.select_for_update()
-                            .only("id", "is_active", "is_not_active_reason")
-                            .filter(id__in=deactivation_ids)
-                            .exclude(is_active=False)
-                        )
-                        for organization in locked_deactivation_organizations:
-                            organization.is_active = False
-                            organization.is_not_active_reason = resolved_reason
-                            organization.save(update_fields=["is_active", "is_not_active_reason", "updated_at"])
-
-                    count = len(locked_deactivation_organizations)
-                    if count:
-                        messages.success(request, f"Deactivated {pluralize(count, 'organization')}.")
-                    if missing_ids:
-                        missing_count = len(missing_ids)
-                        messages.warning(
-                            request,
-                            (
-                                f"Skipped {pluralize(missing_count, 'organization ID')} "
-                                f"that {'were' if missing_count != 1 else 'was'} not found."
-                            ),
-                        )
-                    skipped_inactive_count = len(already_inactive_organizations) + (
-                        len(deactivation_organizations) - count
-                    )
-                    if skipped_inactive_count:
-                        messages.warning(
-                            request,
-                            (
-                                f"Skipped {pluralize(skipped_inactive_count, 'already inactive organization')} "
-                                "without changing the existing reason."
-                            ),
-                        )
-                    return redirect(reverse("admin:posthog_organization_changelist"))
-            else:
-                preview_token = form.preview_token()
-
-        return render(
-            request,
-            "admin/posthog/organization/bulk_deactivate.html",
-            {
-                **self.admin_site.each_context(request),
-                "title": "Bulk deactivate organizations",
-                "opts": self.model._meta,
-                "form": form,
-                "preview_organizations": preview_organizations,
-                "deactivation_organizations": deactivation_organizations,
-                "already_inactive_organizations": already_inactive_organizations,
-                "missing_ids": missing_ids,
-                "preview_token": preview_token,
-                "resolved_reason": resolved_reason,
-                "custom_reason_value": BulkDeactivateOrganizationsForm.CUSTOM_REASON,
-            },
-        )
 
     def model_counts_view(self, request, organization_id):
         organization = Organization.objects.get(id=organization_id)
@@ -799,28 +499,11 @@ class OrganizationAdmin(admin.ModelAdmin):
             },
         )
 
-    def send_usage_report_view(self, request):
-        if not request.user.groups.filter(name="Billing Team").exists():
-            messages.error(request, "You are not authorized to send usage reports.")
-            return redirect(reverse("admin:posthog_organization_changelist"))
-
-        if request.method == "POST":
-            form = UsageReportForm(request.POST)
-            if form.is_valid():
-                report_date = form.cleaned_data["report_date"]
-                call_command("send_usage_report", f"--date={report_date.strftime('%Y-%m-%d')}", "--async=1")
-                messages.success(request, f"Usage report for date {report_date} was sent successfully.")
-                return redirect(reverse("admin:posthog_organization_changelist"))
-        else:
-            form = UsageReportForm()
-
-        return render(request, "admin/posthog/organization/send_usage_report.html", {"form": form})
-
     def send_ai_observability_usage_report_view(self, request):
         # Staff-only on purpose, unlike the sibling billing view: nothing here is customer-facing, and
         # the task now skips organizations that already have a report for the period.
         if request.method == "POST":
-            form = UsageReportForm(request.POST)
+            form = ReportDateForm(request.POST)
             if form.is_valid():
                 report_date = form.cleaned_data["report_date"]
                 try:
@@ -835,7 +518,7 @@ class OrganizationAdmin(admin.ModelAdmin):
                     messages.success(request, f"AI observability usage report for date {report_date} was queued.")
                 return redirect(reverse("admin:posthog_organization_changelist"))
         else:
-            form = UsageReportForm()
+            form = ReportDateForm()
 
         return render(
             request,

@@ -2138,8 +2138,8 @@ class Database(BaseModel):
 
             # A direct-connection catalog has no "posthog" node to hold the table.
             include_flag_evaluations_table = not is_direct_query and is_flag_evaluations_table_enabled(team)
-            # This checks the read mode, not is_flag_evaluations_table_enabled. That one is true under DEBUG for an
-            # organization still on EVENTS.
+            # This checks the read mode, not is_flag_evaluations_table_enabled. That one is true on Cloud and under
+            # DEBUG for an organization still on EVENTS.
             read_mode: int = FlagEvaluationsMode.EVENTS
             if include_flag_evaluations_table:
                 read_mode = get_flag_evaluations_read_mode(team.organization_id)

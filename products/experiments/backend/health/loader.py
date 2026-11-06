@@ -47,7 +47,12 @@ def load_experiment_health_inputs(
     experiment = _load_experiment(team_id, experiment_id)
     return HealthInputs(
         context=_health_context(experiment, reader_access, user),
-        exposures=load_exposure_inputs(experiment, user=user, can_query_events=reader_access.can_query_events),
+        exposures=load_exposure_inputs(
+            experiment,
+            user=user,
+            can_query_events=reader_access.can_query_events,
+            can_read_flag_history=reader_access.can_read_flag_history,
+        ),
         reader_access=reader_access,
         flag_version=experiment.feature_flag.version if experiment.feature_flag_id else None,
         project=build_project_setup_facts(
@@ -70,7 +75,9 @@ def _health_context(
     experiment: Experiment, reader_access: ExperimentHealthReaderAccess, user: User | None
 ) -> HealthContext:
     flag_history = load_flag_history(experiment, reader_access=reader_access)
-    context = load_health_context(experiment, flag_history=flag_history)
+    context = load_health_context(
+        experiment, flag_history=flag_history, can_read_flag_history=reader_access.can_read_flag_history
+    )
     traffic = load_condition_set_traffic(experiment, context, reader_access=reader_access)
     latest_calculation = load_latest_calculation(experiment)
     return replace(
@@ -78,7 +85,9 @@ def _health_context(
         condition_set_traffic=traffic,
         pause_history=load_pause_history(experiment, reader_access=reader_access),
         primary_metric=load_primary_metric(experiment),
-        primary_metric_windows=load_primary_metric_windows(experiment),
+        primary_metric_windows=load_primary_metric_windows(
+            experiment, can_read_flag_history=reader_access.can_read_flag_history
+        ),
         metric_compiles=load_metric_compiles(experiment, user=user),
         latest_calculation=latest_calculation,
         exposure_filters_without_column=load_filters_without_column(experiment)
