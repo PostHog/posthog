@@ -575,9 +575,16 @@ describe('RateLimiterService', () => {
                     return client.get(`${KEY}/during-outage`)
                 })
 
+                // A queued command can still hit the optional pool's timeout before the reconnect, so
+                // that rejection counts as queued; any other error fails the row with its message.
                 const settled = await duringOutage.then(
                     () => 'queued',
-                    (error: Error) => (error.message.includes('enableOfflineQueue') ? 'refused' : 'queued')
+                    (error: Error) =>
+                        error.message.includes('enableOfflineQueue')
+                            ? 'refused'
+                            : error.message === 'Command timed out'
+                              ? 'queued'
+                              : error.message
                 )
                 expect(settled).toBe(handling)
             } finally {

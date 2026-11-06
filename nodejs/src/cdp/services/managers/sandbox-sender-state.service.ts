@@ -11,13 +11,14 @@ const MAX_OPEN_LOOKUPS = 5
 const REFRESH_AGE_MS = 30_000
 const REFRESH_JITTER_MS = 5_000
 
-type CachedRead = { paused: Promise<boolean>; expiresAt: number }
+type CachedRead = { paused: Promise<boolean>; expiresAt: number; number: number }
 
 export class SandboxSenderStateService {
     private lookup: BoundedPrimaryLookup
     private cached: CachedRead | undefined
     private lastGood: CachedRead | undefined
     private reloads = 0
+    private readsStarted = 0
 
     constructor(
         private postgres: PostgresRouter,
@@ -58,12 +59,18 @@ export class SandboxSenderStateService {
         const read: CachedRead = {
             paused: this.readWithRetry(giveUpAt),
             expiresAt: Date.now() + REFRESH_AGE_MS + Math.random() * REFRESH_JITTER_MS,
+            number: ++this.readsStarted,
         }
         this.cached = read
         read.paused.then(
             () => {
-                if (reloads === this.reloads) {
+                // Overlapping reads can finish out of order, so only a read that started after
+                // the last good one replaces it, and it also replaces an older read in the cache.
+                if (reloads === this.reloads && read.number > (this.lastGood?.number ?? 0)) {
                     this.lastGood = read
+                    if (!this.cached || this.cached.number < read.number) {
+                        this.cached = read
+                    }
                 }
             },
             () => {
