@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
+import { eventsDeletedSentence } from './eventsDeletedSentence'
 import {
     EventsRetentionDeletionCountLogicProps,
     eventsRetentionDeletionCountLogic,
@@ -26,9 +26,5 @@ export function EventsRetentionDeletionCount(props: EventsRetentionDeletionCount
     if (eventsDeleted === 0) {
         return <p className="mb-0">{`No events are older than ${retentionPeriodLabel(props.months)} yet.`}</p>
     }
-    return (
-        <p className="mb-0 font-semibold">
-            {`This would delete about ${humanFriendlyLargeNumber(eventsDeleted)} ${eventsDeleted === 1 ? 'event' : 'events'}.`}
-        </p>
-    )
+    return <p className="mb-0 font-semibold">{eventsDeletedSentence(eventsDeleted)}</p>
 }

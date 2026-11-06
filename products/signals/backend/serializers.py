@@ -588,11 +588,12 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
     anomaly_scoring_enabled = serializers.BooleanField(
         required=False,
         help_text=(
-            "Legacy off switch for anomaly scoring. The Product analytics source (analytics / "
-            "anomaly_investigation) now controls scoring: when that source is on, anomaly scoring scores "
-            "this project's active trends insights and writes the results as $anomaly_score events, which "
-            "are not billed. True by default. False still stops new scores; events written before stay. "
-            "Turning it on does not enroll a project that anomaly_scoring_available reports as not covered."
+            "Whether anomaly scoring runs while the Product analytics source (analytics / anomaly_investigation) "
+            "is on. Scoring checks this project's active trends insights for anomalies and writes the results "
+            "as $anomaly_score events, which are not billed. True by default. False stops new scores and keeps "
+            "alert signals; events written before stay. Turning the source off stops scoring whatever this "
+            "value is, and turning the source on again keeps this value. Turning it on does not enroll a "
+            "project that anomaly_scoring_available reports as not covered."
         ),
     )
     anomaly_scoring_available = serializers.SerializerMethodField(
@@ -2680,8 +2681,8 @@ class SignalReportListSerializer(SignalReportSerializer):
         ranker = self.context.get("inbox_ranker")
         if ranker is None:
             return None
-        score = None if ranker == "priority" else getattr(obj, f"ranking_{ranker}_score", None)
-        key = inbox_merge_key(ranker, score, getattr(obj, "priority_sort_rank", None))
+        score = None if ranker == "priority" else getattr(obj, f"inbox_ranking_{ranker}_score", None)
+        key = inbox_merge_key(ranker, score, getattr(obj, "inbox_priority_sort_rank", None))
         personal_order: PersonalListOrder | None = self.context.get("personal_order")
         if personal_order is None:
             return key
@@ -3896,6 +3897,19 @@ class PullRequestChecksPermissionErrorSerializer(serializers.Serializer):
 
     code = serializers.CharField(read_only=True, help_text="Stable code for a missing GitHub Checks permission.")
     error = serializers.CharField(read_only=True, help_text="What the GitHub App permission prevents.")
+    remediation_url = serializers.CharField(
+        read_only=True,
+        help_text="Project integrations settings where a project admin can reconnect GitHub.",
+    )
+
+
+class GitHubRepositoryInaccessibleErrorSerializer(serializers.Serializer):
+    """Response when none of the team's GitHub integrations can access the repository."""
+
+    code = serializers.CharField(
+        read_only=True, help_text="Stable code for a repository no GitHub integration can access."
+    )
+    error = serializers.CharField(read_only=True, help_text="Which repository GitHub can't access, and who can fix it.")
     remediation_url = serializers.CharField(
         read_only=True,
         help_text="Project integrations settings where a project admin can reconnect GitHub.",

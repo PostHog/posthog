@@ -3,7 +3,7 @@ import './FeatureFlag.scss'
 import { useActions, useValues } from 'kea'
 
 import { IconCode, IconFlag, IconGlobe, IconLaptop, IconList, IconServer } from '@posthog/icons'
-import { LemonCollapse, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -21,11 +21,11 @@ import {
     isV1FeatureFlagConfig,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { FeatureFlagConfigReadonlyNotice } from 'products/feature_flags/frontend/FeatureFlagConfigReadonlyNotice'
+import { FeatureFlagImplementationPanel } from 'products/feature_flags/frontend/FeatureFlagImplementationPanel'
 import { FeatureFlagRulesV2Readonly } from 'products/feature_flags/frontend/FeatureFlagRulesV2Readonly'
 
 import { EditableOverviewSection } from './EditableOverviewSection'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
-import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsReadonly } from './FeatureFlagReleaseConditionsReadonly'
 import { FeatureFlagVariantsSection } from './FeatureFlagVariantsSection'
@@ -76,9 +76,6 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
     const multivariateEnabled = !!v1Filters?.multivariate
     const variants = v1Filters?.multivariate?.variants || []
     const hasPayload = !!v1Filters?.payloads?.['true']
-    const showImplementation =
-        !!v1Filters ||
-        (isRulesV2FeatureFlagConfig(featureFlag.filters) && featureFlag.filters.return_type === 'boolean')
 
     const getFlagTypeDisplay = (): { icon: JSX.Element; label: string; description: string } => {
         if (featureFlag.is_remote_configuration) {
@@ -296,25 +293,7 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
                 </div>
             </div>
 
-            {showImplementation && (
-                <LemonCollapse
-                    className="bg-bg-light"
-                    panels={[
-                        {
-                            key: 'implementation',
-                            header: 'How to implement',
-                            content: (
-                                <div className="flex flex-col gap-4">
-                                    <p className="text-sm text-muted m-0">
-                                        Use the following code to implement this feature flag.
-                                    </p>
-                                    <FeatureFlagInstructions featureFlag={featureFlag} />
-                                </div>
-                            ),
-                        },
-                    ]}
-                />
-            )}
+            <FeatureFlagImplementationPanel featureFlag={featureFlag} />
         </div>
     )
 }

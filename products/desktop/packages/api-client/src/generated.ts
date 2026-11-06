@@ -3606,6 +3606,9 @@ export namespace Schemas {
         enabled: boolean | null;
         forceSamplingRate: SamplingRate | null;
     }>;
+    export type WebAnalyticsQueryModifiers = Partial<{
+        useDimensionalTables: boolean | null;
+    }>;
     export type WebStatsTableQuery = {
         aggregation_group_type_index?: (number | null) | undefined;
         breakdownBy: WebStatsBreakdown;
@@ -3646,6 +3649,7 @@ export namespace Schemas {
         useSessionsTable?: (boolean | null) | undefined;
         useWebAnalyticsPrecompute?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
+        webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
     export type WebAnalyticsItemKind =
         | "unit"
@@ -3721,6 +3725,7 @@ export namespace Schemas {
         useSessionsTable?: (boolean | null) | undefined;
         useWebAnalyticsPrecompute?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
+        webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
     export type InsightActorsQuery = {
         breakdown?: (string | Array<string> | number | null) | undefined;
@@ -7955,6 +7960,7 @@ export namespace Schemas {
         tags?: (QueryLogTags | null) | undefined;
         useSessionsTable?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
+        webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
     export type WebBotsBreakdown = "Crawler" | "Path";
     export type WebBotsTableQueryResponse = {
@@ -8015,6 +8021,7 @@ export namespace Schemas {
         tags?: (QueryLogTags | null) | undefined;
         useSessionsTable?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
+        webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
     export type WebGoalsQueryResponse = {
         columns?: (Array<unknown> | null) | undefined;
@@ -8081,6 +8088,7 @@ export namespace Schemas {
         useSessionsTable?: (boolean | null) | undefined;
         useWebAnalyticsPrecompute?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
+        webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
     export type WebVitalsQuery = {
         aggregation_group_type_index?: (number | null) | undefined;
@@ -8123,6 +8131,7 @@ export namespace Schemas {
         tags?: (QueryLogTags | null) | undefined;
         useSessionsTable?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
+        webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
     export type WebVitalsMetric = "INP" | "LCP" | "CLS" | "FCP";
     export type WebVitalsPercentile = "p75" | "p90" | "p99";
@@ -8187,6 +8196,7 @@ export namespace Schemas {
         useSessionsTable?: (boolean | null) | undefined;
         useWebAnalyticsPrecompute?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
+        webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
     export type Filters = Partial<{
         dateRange: DateRange | null;
@@ -8459,6 +8469,7 @@ export namespace Schemas {
         tags?: (QueryLogTags | null) | undefined;
         useSessionsTable?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
+        webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
     export type MarketingAnalyticsAggregatedQueryResponse = {
         dataComputedAt?: (string | null) | undefined;
@@ -8523,6 +8534,7 @@ export namespace Schemas {
         tags?: (QueryLogTags | null) | undefined;
         useSessionsTable?: (boolean | null) | undefined;
         version?: (number | null) | undefined;
+        webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
     export type OrderDirection2 = "ASC" | "DESC";
     export type ErrorTrackingPendingFingerprintIssueStateUpdate = {
@@ -16031,6 +16043,7 @@ export namespace Schemas {
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
+     * * `feature_flags` - Feature Flags
      */
     export type TaskOriginProductEnum =
         | "onboarding"
@@ -16060,7 +16073,8 @@ export namespace Schemas {
         | "business_knowledge"
         | "metrics_import"
         | "knowledge_writer"
-        | "context_layer";
+        | "context_layer"
+        | "feature_flags";
     /**
      * * `default` - default
      * * `acceptEdits` - acceptEdits
@@ -19302,7 +19316,8 @@ export namespace Endpoints {
                     | "business_knowledge"
                     | "metrics_import"
                     | "knowledge_writer"
-                    | "context_layer";
+                    | "context_layer"
+                    | "feature_flags";
                 hog_flow_id: string;
                 internal: "true" | "false" | "all";
                 limit: number;
@@ -19321,6 +19336,7 @@ export namespace Endpoints {
                     | "error_tracking"
                     | "eval_clusters"
                     | "experiments"
+                    | "feature_flags"
                     | "hogdesk"
                     | "image_builder"
                     | "knowledge_writer"
