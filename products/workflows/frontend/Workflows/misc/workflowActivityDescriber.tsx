@@ -261,6 +261,20 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         }
     }
 
+    if (logItem.activity == 'tested') {
+        const workflowName = nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)
+
+        return {
+            summary: activityLogSummary(logItem, `Tested a ${objectNoun} step with real requests`, workflowName),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> tested a step of the {objectNoun} with real requests:{' '}
+                    {workflowName}
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity == 'revision_restored') {
         return {
             summary: activityLogSummary(
