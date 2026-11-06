@@ -21,7 +21,7 @@ from posthog.egress.limiter.policies import Priority
 from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
-from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.profiles import get_task_profile
 
 from .fixtures import FIXTURE_VERSION, SELECTOR_CASES, fixture_fingerprint
 from .offline_config import REPO_SELECTION_SUITE
@@ -59,7 +59,7 @@ async def eval_repo_selection(ctx: EvalContext) -> None:
         # `signals_repo_selection`, and report generation runs at batch priority.
         case_runner=selector_case_runner(
             {case.scenario.name: case.scenario for case in SELECTOR_CASES},
-            origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+            profile=get_task_profile("signals.repo_selection_without_report"),
             priority=Priority.BATCH,
         ),
         ctx=ctx,
