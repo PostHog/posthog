@@ -182,12 +182,16 @@ def _distinct_id_restriction_cell(
             return Cell(text=f"Applied to all: {restriction.label}", href=_change_url(restriction), tone=Tone.SUCCESS)
         if distinct_id in restriction.distinct_ids:
             return Cell(text=f"Applied: {restriction.label}", href=_change_url(restriction), tone=Tone.SUCCESS)
-    first = restrictions[0]
-    return Cell(
-        text=f"Not in list: {first.label}",
-        href=_restrict_url(request, token, distinct_id, first.restriction_type),
-        tone=Tone.WARNING,
-    )
+    # These cells carry no tone, because the table renders a toned cell as a badge without its link.
+    restrictable_types = {choice for choice, _label in RESTRICTION_CHOICES}
+    for restriction in restrictions:
+        if restriction.restriction_type in restrictable_types:
+            return Cell(
+                text=f"Not in list: {restriction.label}",
+                href=_restrict_url(request, token, distinct_id, restriction.restriction_type),
+            )
+    # The restrict form offers no redirect types, so the link leaves the type to staff.
+    return Cell(text=f"Not in list: {restrictions[0].label}", href=_restrict_url(request, token, distinct_id))
 
 
 def _team_restriction_cell(restrictions: tuple[TokenRestriction, ...]) -> Cell:

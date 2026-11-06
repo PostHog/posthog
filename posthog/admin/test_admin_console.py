@@ -525,10 +525,22 @@ class TestAdminConsoleViews(BaseTest):
             restriction_type=RestrictionType.SKIP_PERSON_PROCESSING,
             distinct_ids=["heavy-user"],
         )
+        EventIngestionRestrictionConfig.objects.create(
+            token=self.team.api_token,
+            restriction_type=RestrictionType.REDIRECT_TO_DLQ,
+            distinct_ids=["other-user"],
+        )
+        redirected_team = Team.objects.create(organization=self.organization, name="Redirected")
+        EventIngestionRestrictionConfig.objects.create(
+            token=redirected_team.api_token,
+            restriction_type=RestrictionType.REDIRECT_TO_DLQ,
+            distinct_ids=["other-user"],
+        )
         queries.high_usage.return_value = [(self.team.pk, "heavy-user", 200_000, 300_000, 66.67)]
         queries.high_cardinality.side_effect = RuntimeError("Timeout exceeded")
         queries.distinct_id_bursts.return_value = [
-            (self.team.pk, "bursty-user", datetime(2026, 11, 6, 10, 5, tzinfo=UTC), 150_000)
+            (self.team.pk, "bursty-user", datetime(2026, 11, 6, 10, 5, tzinfo=UTC), 150_000),
+            (redirected_team.pk, "bursty-user", datetime(2026, 11, 6, 10, 5, tzinfo=UTC), 150_000),
         ]
         queries.team_bursts.return_value = []
         query = (
@@ -543,6 +555,10 @@ class TestAdminConsoleViews(BaseTest):
         content = response.content.decode()
         assert "Applied: Skip person processing" in content
         assert "Not in list: Skip person processing" in content
+        assert "Not in list: Redirect to dlq" in content
+        # The restrict form offers no redirect types, so a redirect must never be prefilled.
+        assert "restriction_type=skip_person_processing" in content
+        assert "restriction_type=redirect_to_dlq" not in content
         assert "The high cardinality query failed: Timeout exceeded" in content
         assert "/admin/console/tools/distinct-id-usage/restrict/?" in content
 
