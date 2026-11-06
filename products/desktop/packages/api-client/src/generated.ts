@@ -16963,6 +16963,11 @@ export namespace Schemas {
         values: Array<PropertyItem>;
     };
     /**
+     * * `signal_report` - Signal Report
+     * * `hog_flow` - Hog Flow
+     */
+    export type PublicTaskSourceKindEnum = "signal_report" | "hog_flow";
+    /**
      * One desktop-only MCP server relayed into the run — a name only, never configuration.
      */
     export type RelayedMcpServer = { name: string };
@@ -17556,6 +17561,36 @@ export namespace Schemas {
         rates: Record<string, unknown>;
         per_question_stats?: Array<unknown> | undefined;
     };
+    export type TaskRunOptionsRepository = {
+        /**
+         * GitHub repository in `organization/repo` format.
+         */
+        name: string;
+        initial_branch?: (string | null) | undefined;
+    };
+    export type TaskRunOptionsRequest = Partial<{
+        runtime: TaskRuntimeEnum;
+        adapter: RuntimeAdapterEnum;
+        model: string;
+        reasoning_effort: ReasoningEffortEnum;
+        repositories: Array<TaskRunOptionsRepository>;
+        output_schema: Record<string, unknown>;
+        permission_mode: TaskRunBootstrapCreateRequestInitialPermissionModeEnum;
+        auto_publish: boolean;
+    }>;
+    export type TaskSourceRequest = {
+        /**
+         * The kind of row the task starts from. It must be the kind the profile takes.
+         *
+         * * `signal_report` - Signal Report
+         * * `hog_flow` - Hog Flow
+         */
+        kind: PublicTaskSourceKindEnum;
+        /**
+         * ID of that row. It must belong to the current project.
+         */
+        id: string;
+    };
     export type TaskCreate = Partial<{
         title: string;
         title_manually_set: boolean;
@@ -17588,6 +17623,10 @@ export namespace Schemas {
         sandbox_environment_id: string | null;
         custom_image_id: string | null;
         runtime: TaskRuntimeEnum;
+        profile: string;
+        options: TaskRunOptionsRequest & unknown;
+        source: TaskSourceRequest & unknown;
+        idempotency_key: string;
     }>;
     /**
      * Detail response for a task.
@@ -19392,9 +19431,11 @@ export namespace Endpoints {
             body: Schemas.TaskCreate;
         };
         responses: {
+            200: Schemas.TaskCreateResponseDTO;
             201: Schemas.TaskCreateResponseDTO;
             402: Schemas.TaskRunErrorResponse;
             403: Schemas.TaskRunErrorResponse;
+            409: Schemas.TaskRunErrorResponse;
             429: Schemas.TaskRunErrorResponse;
             503: Schemas.TaskRunErrorResponse;
         };

@@ -94872,6 +94872,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `signal_report` - Signal Report
+     * * `hog_flow` - Hog Flow
+     */
+    export type PublicTaskSourceKindEnum = typeof PublicTaskSourceKindEnum[keyof typeof PublicTaskSourceKindEnum];
+
+
+    export const PublicTaskSourceKindEnum = {
+      SignalReport: 'signal_report',
+      HogFlow: 'hog_flow',
+    } as const;
+
+    /**
      * * `published` - published
      * * `deprecated` - deprecated
      */
@@ -111136,6 +111148,81 @@ export namespace Schemas {
       next: string | null;
     }
 
+    export interface TaskRunOptionsRepository {
+      /**
+         * GitHub repository in `organization/repo` format.
+         * @maxLength 255
+         */
+      name: string;
+      /**
+         * Branch the first run starts from. Omit to use the repository's default branch.
+         * @maxLength 255
+         * @nullable
+         */
+      initial_branch?: string | null;
+    }
+
+    /**
+     * JSON schema that the agent's final answer must match.
+     */
+    export type TaskRunOptionsRequestOutputSchema = { [key: string]: unknown };
+
+    export interface TaskRunOptionsRequest {
+      /** Agent protocol and harness for the task. It must be one the profile allows.
+       *
+       * * `acp` - ACP
+       * * `pi` - Pi */
+      runtime?: TaskRuntimeEnum;
+      /** Agent harness for the first run. Derived from the model when omitted.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      adapter?: RuntimeAdapterEnum;
+      /** LLM model for the first run. */
+      model?: string;
+      /** Reasoning effort for the first run, for models that support it.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max
+       * * `ultracode` - ultracode */
+      reasoning_effort?: ReasoningEffortEnum;
+      /**
+         * GitHub repositories available to the task. The first one's initial branch starts the first run.
+         * @maxItems 10
+         */
+      repositories?: TaskRunOptionsRepository[];
+      /** JSON schema that the agent's final answer must match. */
+      output_schema?: TaskRunOptionsRequestOutputSchema;
+      /** The agent's starting permission mode for the first run.
+       *
+       * * `default` - default
+       * * `acceptEdits` - acceptEdits
+       * * `plan` - plan
+       * * `bypassPermissions` - bypassPermissions
+       * * `auto` - auto
+       * * `read-only` - read-only
+       * * `full-access` - full-access */
+      permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnum;
+      /** When true, the agent pushes its work and opens a draft pull request when it finishes. */
+      auto_publish?: boolean;
+    }
+
+    export interface TaskSourceRequest {
+      /** The kind of row the task starts from. It must be the kind the profile takes.
+       *
+       * * `signal_report` - Signal Report
+       * * `hog_flow` - Hog Flow */
+      kind: PublicTaskSourceKindEnum;
+      /**
+         * ID of that row. It must belong to the current project.
+         * @maxLength 64
+         */
+      id: string;
+    }
+
     export interface TaskCreate {
       /**
          * Short human-readable title. Auto-generated from `description` when omitted.
@@ -111303,6 +111390,20 @@ export namespace Schemas {
        * * `acp` - ACP
        * * `pi` - Pi */
       runtime?: TaskRuntimeEnum;
+      /**
+         * Key of a public task profile, which sets the limits for this kind of task. Omit it to create a task from `origin_product` as before.
+         * @maxLength 64
+         */
+      profile?: string;
+      /** Settings for this task, checked against the profile. Only the options the profile makes public are accepted. Requires `profile`. Do not repeat a setting that you also send at the top level. Settings for the first run also require `start_run`: `adapter`, `model`, `reasoning_effort`, `permission_mode`, `auto_publish` and the `initial_branch` of a repository. */
+      options?: TaskRunOptionsRequest;
+      /** The row this task starts from, for profiles that take one. Requires `profile`. */
+      source?: TaskSourceRequest;
+      /**
+         * Makes the request safe to retry. Sending the same key with the same body returns the task that the first request created. The same key with a different body is refused. Requires `profile`.
+         * @maxLength 64
+         */
+      idempotency_key?: string;
     }
 
     /**
