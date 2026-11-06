@@ -7,6 +7,7 @@ import {
     LemonBanner,
     LemonButton,
     LemonInput,
+    LemonSelect,
     LemonTable,
     LemonTableColumn,
     LemonTableColumns,
@@ -14,6 +15,8 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
+import { TagSelect } from 'lib/components/TagSelect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -32,15 +35,77 @@ import { urls } from 'scenes/urls'
 import { tagsModel } from '~/models/tagsModel'
 import type { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 
+import { ExperimentSavedMetricsListMetricType } from 'products/experiments/frontend/generated/api.schemas'
+
 export const scene: SceneExport = {
     component: ExperimentsSharedMetricsScene,
     logic: sharedMetricsLogic,
 }
 
+// Labels match the Type column, so a value a person reads in the table is the value they filter on.
+const METRIC_TYPE_OPTIONS: { label: string; value: ExperimentSavedMetricsListMetricType | 'all' }[] = [
+    { label: 'All', value: 'all' },
+    { label: 'Mean', value: ExperimentSavedMetricsListMetricType.Mean },
+    { label: 'Funnel', value: ExperimentSavedMetricsListMetricType.Funnel },
+    { label: 'Ratio', value: ExperimentSavedMetricsListMetricType.Ratio },
+    { label: 'Retention', value: ExperimentSavedMetricsListMetricType.Retention },
+    { label: 'Trend', value: ExperimentSavedMetricsListMetricType.Trend },
+]
+
+const SharedMetricsFilters = (): JSX.Element => {
+    const { searchTerm, createdByIds, tagFilter, metricType, count, page } = useValues(sharedMetricsLogic)
+    const { setSearchTerm, setCreatedByIds, setTagFilter, setMetricType } = useActions(sharedMetricsLogic)
+
+    const startCount = count === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
+    const endCount = page * PAGE_SIZE < count ? page * PAGE_SIZE : count
+
+    return (
+        <div className="flex items-center gap-2 flex-wrap">
+            <LemonInput
+                type="search"
+                placeholder="Search shared metrics..."
+                value={searchTerm}
+                onChange={setSearchTerm}
+            />
+            <span>
+                <b>Created by</b>
+            </span>
+            <MemberMultiSelect defaultLabel="Any user" value={createdByIds} size="xsmall" onChange={setCreatedByIds} />
+            <span>
+                <b>Tags</b>
+            </span>
+            <TagSelect
+                defaultLabel="Any tags"
+                value={tagFilter}
+                size="xsmall"
+                onChange={setTagFilter}
+                data-attr="shared-metric-select-tags"
+            />
+            <span>
+                <b>Type</b>
+            </span>
+            <LemonSelect
+                size="xsmall"
+                value={metricType ?? 'all'}
+                options={METRIC_TYPE_OPTIONS}
+                onChange={(value) => setMetricType(value === 'all' ? null : value)}
+                dropdownMatchSelectWidth={false}
+                dropdownMaxContentWidth
+                data-attr="shared-metric-select-type"
+            />
+            {count ? (
+                <span className="text-secondary whitespace-nowrap">
+                    {`${startCount}${endCount > startCount ? '-' + endCount : ''} of ${pluralize(count, 'metric')}`}
+                </span>
+            ) : null}
+        </div>
+    )
+}
+
 export function ExperimentsSharedMetricsScene(): JSX.Element {
-    const { sharedMetrics, sharedMetricsLoading, searchTerm, savingTagsMetricId, count, page } =
+    const { sharedMetrics, sharedMetricsLoading, hasFilters, savingTagsMetricId, count, page } =
         useValues(sharedMetricsLogic)
-    const { setSearchTerm, setPage, updateSharedMetricTags, deleteSharedMetric } = useActions(sharedMetricsLogic)
+    const { setPage, updateSharedMetricTags, deleteSharedMetric } = useActions(sharedMetricsLogic)
     const { tags: allTags } = useValues(tagsModel)
     const { currentProjectId } = useValues(teamLogic)
     const [deleteCheckMetricId, setDeleteCheckMetricId] = useState<number | null>(null)
@@ -181,23 +246,8 @@ export function ExperimentsSharedMetricsScene(): JSX.Element {
                 ideal for tracking key metrics like conversion rates or revenue across different experiments without
                 having to set them up each time.
             </LemonBanner>
-            <div className="flex justify-between items-center gap-2">
-                <div className="flex items-center gap-2">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search shared metrics..."
-                        value={searchTerm}
-                        onChange={setSearchTerm}
-                    />
-                    {count ? (
-                        <span className="text-secondary whitespace-nowrap">
-                            {`${startCount}${endCount > startCount ? '-' + endCount : ''} of ${pluralize(
-                                count,
-                                'metric'
-                            )}`}
-                        </span>
-                    ) : null}
-                </div>
+            <div className="flex justify-between items-start gap-2 flex-wrap">
+                <SharedMetricsFilters />
                 <LemonButton size="small" type="primary" to={urls.experimentsSharedMetric('new')}>
                     New shared metric
                 </LemonButton>
@@ -206,7 +256,13 @@ export function ExperimentsSharedMetricsScene(): JSX.Element {
                 columns={columns}
                 dataSource={sharedMetrics}
                 loading={sharedMetricsLoading}
-                emptyState={<div>You haven't created any shared metrics yet.</div>}
+                emptyState={
+                    <div>
+                        {hasFilters
+                            ? 'No shared metrics match these filters. Clear a filter to see more.'
+                            : "You haven't created any shared metrics yet."}
+                    </div>
+                }
             />
             {count > PAGE_SIZE ? (
                 <div className="flex items-center justify-end gap-1">

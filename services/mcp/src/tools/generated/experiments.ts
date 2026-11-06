@@ -1213,10 +1213,13 @@ const experimentSavedMetricsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiment_saved_metrics/`,
             query: {
+                created_by_id: params.created_by_id,
                 event: params.event,
                 limit: params.limit,
+                metric_type: params.metric_type,
                 offset: params.offset,
                 search: params.search,
+                tags: params.tags,
             },
         })
         const filtered = {

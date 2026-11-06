@@ -72,6 +72,22 @@ describe('sharedMetricsLogic', () => {
         expect(api.get).toHaveBeenLastCalledWith(expect.stringContaining('search=revenue'))
     })
 
+    it.each([
+        ['setCreatedByIds', (): void => logic.actions.setCreatedByIds([7]), 'created_by_id=[7]'],
+        ['setTagFilter', (): void => logic.actions.setTagFilter(['growth']), 'tags=["growth"]'],
+        ['setMetricType', (): void => logic.actions.setMetricType('funnel'), 'metric_type=funnel'],
+    ])('%s resets page to 1 and reloads with the filter', async (_name, applyFilter, expectedParam) => {
+        logic.actions.setPage(3)
+        await expectLogic(logic).toMatchValues({ page: 3 })
+
+        jest.spyOn(api, 'get')
+        await expectLogic(logic, applyFilter).toFinishAllListeners()
+
+        await expectLogic(logic).toMatchValues({ page: 1, hasFilters: true })
+        const calls = (api.get as jest.Mock).mock.calls
+        expect(decodeURIComponent(calls[calls.length - 1][0])).toContain(expectedParam)
+    })
+
     it('exposes current page and total count', async () => {
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(logic).toMatchValues({ page: 1, count: 2 })
