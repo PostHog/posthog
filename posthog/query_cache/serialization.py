@@ -42,12 +42,7 @@ class CachedEntry:
 
 
 def _item_has_custom_name(item: Any) -> bool:
-    if not isinstance(item, dict):
-        return False
-    if item.get("custom_name") is not None:
-        return True
-    action = item.get("action")
-    return isinstance(action, dict) and action.get("custom_name") is not None
+    return isinstance(item, dict) and item.get("custom_name") is not None
 
 
 def results_have_custom_names(results: list) -> bool:

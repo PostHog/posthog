@@ -761,6 +761,7 @@ Marketstack,access_key,,,symbols cik_codes,,marketstack
 Mastodon,,,,,,mastodon
 Matomo,host site_id api_token,,,,,matomo
 Maxio,subdomain api_key region,,,,,maxio
+Measure,,,,,,measure
 Medusa,base_url api_key,,,,,medusa
 Meetup,,,,,,meetup
 Megaphone,api_token organization_id,,,,,megaphone
@@ -1023,7 +1024,7 @@ RakutenAdvertising,,,,,,rakuten-advertising
 Ramp,environment client_id client_secret,,,,,ramp
 Rapid7Insightvm,api_key region,,,,,rapid7-insightvm
 Raygun,personal_access_token,,,,,raygun
-Razorpay,key_id key_secret,,,,,razorpay
+Razorpay,key_id key_secret razorpayx_account_number,,,,,razorpay
 RecallAI,api_key region,,,,,recall-ai
 Recharge,api_key,,,,,recharge
 Recreation,api_key,,,,,recreation
@@ -1098,7 +1099,7 @@ SelectStar,api_token,,,,,select-star
 SemanticScholar,api_key,,,query,,semantic-scholar
 Semaphore,api_token organization project_id,,,,,semaphore
 Semgrep,api_token,,,,,semgrep
-Semrush,api_key project_id,,,,,semrush
+Semrush,api_key project_id,,,domain database,,semrush
 SendGrid,api_key,,,,,send-grid
 SendPulse,,,,,,send-pulse
 Sendowl,api_key api_secret,,,,,sendowl
@@ -1186,6 +1187,7 @@ Square,access_token environment,,,,,square
 Squarespace,api_key,,,,,squarespace
 StackAdapt,,,,,,stack-adapt
 StackOverflowForTeams,team api_token,,,,,stack-overflow-for-teams
+Stamped,,,,,,stamped
 Starburst,,,,,,starburst
 Statsig,api_key,,,,,statsig
 Statuscake,api_key,,,,,statuscake
@@ -1341,6 +1343,7 @@ Wasabi,api_key,,,,,wasabi
 Watchmode,api_key,,,,,watchmode
 Waydev,api_key,,,,,waydev
 Wayfair,,,,,,wayfair
+Webengage,,,,,,webengage
 Webflow,api_token site_id,,,,,webflow
 WeightsAndBiases,api_key entity host,,,,,weights-and-biases
 WhatsappBusinessManagement,,,,,,whatsapp-business-management

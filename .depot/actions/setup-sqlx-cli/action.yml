@@ -57,7 +57,7 @@ runs:
               chmod +x "$HOME/.cache/sqlx-cli/bin/sqlx"
 
         - name: Save sqlx-cli binary to cache
-          if: steps.cache-sqlx-cli.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
+          if: steps.cache-sqlx-cli.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master' && github.event_name != 'api'
           uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
           with:
               path: ~/.cache/sqlx-cli

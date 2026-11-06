@@ -1,6 +1,11 @@
+from datetime import timedelta
+from types import SimpleNamespace
+from typing import Optional
 from uuid import UUID, uuid4
 
+import time_machine
 from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone as django_timezone
 
@@ -13,7 +18,9 @@ from products.autoresearch.backend.models import (
     AutoresearchTrainingRun,
 )
 from products.autoresearch.backend.testing import TeamScopedTestMixin
+from products.autoresearch.backend.training.artifacts import BundleNotFound
 from products.autoresearch.backend.training.ingestion import FinishedTaskRun, handle_task_run_completed
+from products.autoresearch.backend.training.stale import STALE_TRAINING_RUN_AFTER, fail_stale_training_runs
 
 _TASK_RUN_ID = UUID("00000000-0000-0000-0000-000000000001")
 
@@ -186,3 +193,85 @@ class TestHandleTaskRunCompleted(TeamScopedTestMixin, BaseTest):
         pipeline.refresh_from_db()
         assert training_run.status == AutoresearchTrainingRun.Status.FAILED
         assert pipeline.status == expected_status
+
+    @parameterized.expand(
+        [
+            ("lost_driver_live_task_run", "in_progress", True, True, AutoresearchTrainingRun.Status.FAILED, True),
+            ("lost_driver_missing_task_run", None, True, True, AutoresearchTrainingRun.Status.FAILED, False),
+            ("missed_handoff_finalizes", "completed", True, True, AutoresearchTrainingRun.Status.COMPLETED, False),
+            ("inside_the_cutoff", "in_progress", False, True, AutoresearchTrainingRun.Status.RUNNING, False),
+            ("external_run_without_task", None, True, False, AutoresearchTrainingRun.Status.RUNNING, False),
+        ]
+    )
+    @time_machine.travel("2026-09-11T12:00:00Z", tick=False)
+    @patch("products.autoresearch.backend.training.stale.tasks_cancellation")
+    @patch("products.autoresearch.backend.training.stale.tasks_facade.get_task_run")
+    def test_fail_stale_training_runs(
+        self,
+        _name: str,
+        task_run_status: Optional[str],
+        stale: bool,
+        bound: bool,
+        expected_status: str,
+        expect_cancel: bool,
+        get_task_run: MagicMock,
+        cancellation: MagicMock,
+    ) -> None:
+        pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.BOOTSTRAPPING)
+        age = STALE_TRAINING_RUN_AFTER + timedelta(minutes=1) if stale else STALE_TRAINING_RUN_AFTER / 2
+        training_run = self._make_training_run(
+            pipeline,
+            started_at=django_timezone.now() - age,
+            task_run_id=_TASK_RUN_ID if bound else None,
+        )
+        self._record_iteration(training_run, number=0, status="kept", holdout=0.82)
+        get_task_run.return_value = (
+            None
+            if task_run_status is None
+            else SimpleNamespace(
+                id=_TASK_RUN_ID,
+                task_id=uuid4(),
+                team_id=self.team.id,
+                status=task_run_status,
+                is_terminal=task_run_status == "completed",
+                state={"autoresearch_training_run_id": str(training_run.id)},
+                error_message=None,
+            )
+        )
+        cancellation.cancel_task_run.return_value = ("accepted", None)
+
+        with patch("products.autoresearch.backend.training.artifacts.read_bundle", side_effect=BundleNotFound):
+            fail_stale_training_runs()
+
+        training_run.refresh_from_db()
+        assert training_run.status == expected_status
+        assert cancellation.cancel_task_run.called == expect_cancel
+        if expected_status == AutoresearchTrainingRun.Status.FAILED:
+            assert training_run.error
+            pipeline.refresh_from_db()
+            assert pipeline.status == AutoresearchPipeline.Status.DRAFT
+
+    @time_machine.travel("2026-09-11T12:00:00Z", tick=False)
+    @patch("products.autoresearch.backend.training.stale.tasks_cancellation")
+    @patch("products.autoresearch.backend.training.stale.tasks_facade.get_task_run")
+    def test_fail_stale_training_runs_keeps_a_run_that_completed_meanwhile(
+        self, get_task_run: MagicMock, cancellation: MagicMock
+    ) -> None:
+        pipeline = self._make_pipeline()
+        training_run = self._make_training_run(
+            pipeline, started_at=django_timezone.now() - STALE_TRAINING_RUN_AFTER - timedelta(minutes=1)
+        )
+
+        def completed_by_agent(*_args: object, **_kwargs: object) -> None:
+            AutoresearchTrainingRun.objects.filter(pk=training_run.pk).update(
+                status=AutoresearchTrainingRun.Status.COMPLETED
+            )
+            return None
+
+        get_task_run.side_effect = completed_by_agent
+
+        assert fail_stale_training_runs(team_id=self.team.id) == 0
+
+        training_run.refresh_from_db()
+        assert training_run.status == AutoresearchTrainingRun.Status.COMPLETED
+        cancellation.cancel_task_run.assert_not_called()

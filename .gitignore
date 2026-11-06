@@ -129,6 +129,8 @@ frontend/.unminified-chunks/
 frontend/.stable-chunks-rewritten/
 frontend/dist-report/
 frontend/eager-graph-report*.json
+frontend/layer-report*.json
+frontend/layer-graph.html
 frontend/pnpm-error.log
 frontend/public/Matter*.woff*
 frontend/tmp
@@ -157,6 +159,9 @@ posthog/management/commands/clear_demo_data.py
 .claude/worktrees/
 .claude/scheduled_tasks.lock
 .claude/plans/
+
+# Ignore Conductor local settings
+.conductor/settings.local.toml
 
 # Ignore local mprocs configs
 bin/mprocs*.local.yaml

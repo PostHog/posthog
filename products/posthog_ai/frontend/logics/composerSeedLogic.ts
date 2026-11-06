@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, kea, key, path, props, reducers } from 'kea'
 
-import type { AttachedContextItem } from '../types/contextTypes'
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 
 export interface ComposerSeed {
     prompt: string

@@ -6,7 +6,7 @@ import type { PaginatedApi } from '@/api/reports'
 import { demoDashboardRefFor, demoDashboardRows, demoInsightRows } from '@/demo/views'
 import { toError } from '@/lib/errors'
 import { dashboardRows, insightRows } from '@/model/adapters/viewPins'
-import { errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
+import { connectionLoadingQuery, errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
 import type { QueryState } from '@/model/types'
 import type { BrowseRow, PinView, RecentView } from '@/model/views'
 
@@ -108,7 +108,7 @@ function useBrowseList<T extends DashboardBasicApi | InsightBasicApi>(
     if (list.isError) {
         return { ...errorQuery(toError(list.error), refetch), ...NO_PAGING }
     }
-    return { ...loadingQuery<BrowseRow[]>(), refetch, ...NO_PAGING }
+    return { ...connectionLoadingQuery<BrowseRow[]>(context.offline, refetch), ...NO_PAGING }
 }
 
 /** Browse, Dashboards: the web Views order (`-last_viewed_at`), without deleted dashboards. */
@@ -173,7 +173,7 @@ function useServerSearch(kind: 'dashboards' | 'insights', query: string, active:
     if (search.isError) {
         return errorQuery(toError(search.error), search.refetch)
     }
-    return loadingQuery()
+    return connectionLoadingQuery(context.ready && context.offline, search.refetch)
 }
 
 function useDebouncedSearchText(text: string): string {

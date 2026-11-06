@@ -1,5 +1,6 @@
-import { ApiError, apiFetch, apiJson, projectPath } from './client'
+import { ApiError, apiJson, apiReadResponse, projectPath } from './client'
 import { type ProjectScope, scopeKey } from './reports'
+import { transport } from './transport'
 
 // Shapes follow `ReplayObservationSerializer`, `InlineScanResponseSerializer` and `WatchFeedResponseSerializer` in
 // `products/replay_vision/backend/api/`, keeping the fields the app reads. The summarizer's `model_output` follows
@@ -118,23 +119,28 @@ export async function fetchFrameUrl(
     chapter: number | null,
     signal?: AbortSignal
 ): Promise<string> {
-    const response = await apiFetch(
+    return apiReadResponse(
         projectPath(`vision/observations/${encodeURIComponent(observationId)}/thumbnail/`),
         {
             query: { chapter },
             redirect: 'manual',
             signal,
+        },
+        async (response) => {
+            const location = response.headers.get('Location')
+            if (response.status >= 300 && response.status < 400 && location) {
+                return location
+            }
+            if (response.ok) {
+                // Local dev and a deployment without object storage serve the bytes from the API itself.
+                return frameDataUri(
+                    await transport(() => response.arrayBuffer()),
+                    response.headers.get('Content-Type') ?? 'image/png'
+                )
+            }
+            throw new ApiError(response.status, undefined, response.headers)
         }
     )
-    const location = response.headers.get('Location')
-    if (response.status >= 300 && response.status < 400 && location) {
-        return location
-    }
-    if (response.ok) {
-        // Local dev and a deployment without object storage serve the bytes from the API itself.
-        return frameDataUri(await response.arrayBuffer(), response.headers.get('Content-Type') ?? 'image/png')
-    }
-    throw new ApiError(response.status, undefined, response.headers)
 }
 
 function frameDataUri(bytes: ArrayBuffer, contentType: string): string {

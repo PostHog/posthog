@@ -21,6 +21,7 @@ from django.core.exceptions import MultipleObjectsReturned
 from django.db.models import CharField, F, Func, Q, QuerySet, Value
 from django.db.models.functions import Lower, Replace
 
+import re2
 import requests
 import structlog
 import posthoganalytics
@@ -32,20 +33,26 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
+# The lookbehind and the possessive repeats scan each run of scheme characters once, which keeps the scan linear.
 _URL_SCHEME_RE = re.compile(
-    r"[a-z][a-z0-9+.\-]*://"
+    r"(?<![a-z0-9+.\-])[0-9+.\-]*+[a-z][a-z0-9+.\-]*+://"
     r"|\b(?:javascript|data|vbscript|file|ftp|mailto|tel|sms):"
     r"|www\.",
     re.IGNORECASE,
 )
-_BARE_DOMAIN_RE = re.compile(
-    r"\b(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}\b",
-    re.IGNORECASE,
+# re2 keeps the scan linear. Do not limit the label count to get this with `re`, because a match
+# would then stop inside a long chain and leave the domain at its end linkable.
+# re2 case folding excludes `ı` and `İ`, so the pattern names them. Its `\b` treats them as non-word
+# characters, so the pattern has no `\b`. Without `\b`, some text gets an extra invisible defang.
+_BARE_DOMAIN_RE = re2.compile(
+    r"(?i)(?:[a-z0-9\x{130}\x{131}](?:[a-z0-9\x{130}\x{131}\-]{0,61}[a-z0-9\x{130}\x{131}])?\.)+"
+    r"[a-z\x{130}\x{131}]{2,24}"
 )
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f\u0085\u2028\u2029]")
 _NON_NEWLINE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\u0085\u2028\u2029]")
 _BRACKET_RE = re.compile(r"[<>]")
-_INVISIBLE_CHAR_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
+# Includes lone surrogates, because re2 raises UnicodeEncodeError on them.
+_INVISIBLE_CHAR_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff\ud800-\udfff]")
 
 _URL_ERROR = "URLs are not allowed in this field."
 _CONTROL_ERROR = "Line breaks and control characters are not allowed in this field."
@@ -110,18 +117,6 @@ def validate_message_body(value: str | None) -> str | None:
         raise serializers.ValidationError(_CONTROL_ERROR, code="invalid_control_char")
     _check_shared(value)
     return value
-
-
-def contains_bare_domain(value: str | None) -> bool:
-    """
-    True if `value` contains a bare domain (e.g. `example.com`) after NFKC
-    normalization. The `validate_*` helpers above intentionally *allow* bare
-    domains; callers that want to reject domains entirely (e.g. so mail clients
-    can't auto-link them in a branded email) layer this check on top.
-    """
-    if not value:
-        return False
-    return bool(_BARE_DOMAIN_RE.search(unicodedata.normalize("NFKC", value)))
 
 
 def _extract_error_code(err: serializers.ValidationError) -> str:
@@ -260,6 +255,19 @@ class EmailNormalizer:
         return email.translate(_ASCII_UPPER_TO_LOWER)
 
 
+def email_domain(email: str) -> str | None:
+    """The domain of `email`, or None when it carries no domain.
+
+    The domain follows the last `@`. A local part may hold an `@` of its own inside a quoted
+    string, which Django's `EmailValidator` accepts, so reading from the first `@` returns part of
+    the local part and then matches no configured domain.
+    """
+    _, separator, domain = email.rpartition("@")
+    if not separator or not domain:
+        return None
+    return domain
+
+
 def strip_email_alias(email: str) -> str:
     """
     Strip a Gmail-style '+suffix' from the local part of an email (e.g.
@@ -302,7 +310,7 @@ GMAIL_CANONICAL_LOCAL_EXPRESSION = Replace(
 
 def reject_plus_addressed_email(value: str) -> None:
     """Raise if the local part of `value` contains '+'."""
-    local = value.split("@", 1)[0]
+    local = value.rsplit("@", 1)[0]
     if "+" in local:
         raise serializers.ValidationError(
             "Email addresses with a '+' aren't supported. Please use your primary email address.",

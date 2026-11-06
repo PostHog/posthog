@@ -14,7 +14,7 @@ from products.workflows.backend.facade.contracts import (
     TRANSACTIONAL_EMAIL_ACTION_ID,
     TransactionalEmailContent,
     TransactionalEmailContentInvalid,
-    TransactionalEmailSender,
+    TransactionalEmailSenderRequired,
     TransactionalEmailSenderUnavailable,
     WorkflowNotFound,
 )
@@ -43,45 +43,37 @@ def transactional_email_actions(content: TransactionalEmailContent, from_integra
             "message_category_id": str(content.message_category_id) if content.message_category_id else None,
             "sensitive": content.sensitive,
         },
-        sender_integration_id=from_integration_id,
-        from_email=content.from_email,
-        from_name=content.from_name,
-        reply_to=content.reply_to,
-        subject=content.subject,
-        preheader=content.preheader,
-        text=content.text,
-        html=content.html,
+        email={
+            "from": {
+                "integrationId": from_integration_id,
+                **({"email": content.from_email} if content.from_email else {}),
+                **({"name": content.from_name} if content.from_name else {}),
+            },
+            "replyTo": content.reply_to,
+            "subject": content.subject,
+            "preheader": content.preheader,
+            "text": content.text,
+            "html": content.html,
+        },
     )
 
 
 def code_email_actions(key: str) -> list[dict]:
     return _actions(
         name=key,
-        step_config={"message_category_id": None, "sensitive": False},
-        sender_integration_id=None,
-        from_email="",
-        from_name="",
-        reply_to="",
-        subject="",
-        preheader="",
-        text="",
-        html="",
+        step_config={"template_key": key, "message_category_id": None, "sensitive": True},
+        email={
+            "from": {"integrationId": None},
+            "replyTo": "",
+            "subject": "",
+            "preheader": "",
+            "text": "",
+            "html": "",
+        },
     )
 
 
-def _actions(
-    *,
-    name: str,
-    step_config: dict,
-    sender_integration_id: int | None,
-    from_email: str,
-    from_name: str,
-    reply_to: str,
-    subject: str,
-    preheader: str,
-    text: str,
-    html: str,
-) -> list[dict]:
+def _actions(*, name: str, step_config: dict, email: dict) -> list[dict]:
     return [
         {
             "id": TRIGGER_ACTION_ID,
@@ -105,21 +97,7 @@ def _actions(
                 "inputs": {
                     "email": {
                         "templating": "liquid",
-                        "value": {
-                            "to": {"email": RECIPIENT_EXPRESSION, "name": ""},
-                            "from": {
-                                "integrationId": sender_integration_id,
-                                **({"email": from_email} if from_email else {}),
-                                **({"name": from_name} if from_name else {}),
-                            },
-                            "replyTo": reply_to,
-                            "cc": "",
-                            "bcc": "",
-                            "subject": subject,
-                            "preheader": preheader,
-                            "text": text,
-                            "html": html,
-                        },
+                        "value": {"to": {"email": RECIPIENT_EXPRESSION, "name": ""}, "cc": "", "bcc": "", **email},
                     }
                 },
             },
@@ -176,6 +154,19 @@ def resolve_transactional_email_sender(team_id: int, requested_id: int | None) -
     return sender.id
 
 
+def _sender_without_address(team_id: int) -> int:
+    if _default_sender_id(team_id) is not None:
+        return resolve_transactional_email_sender(team_id, None)
+    verified = [
+        sender.id for sender in IntegrationManager.email.credentials.list(team_id) if sender.config.get("verified")
+    ]
+    if len(verified) > 1:
+        raise TransactionalEmailSenderRequired()
+    if not verified:
+        raise TransactionalEmailSenderUnavailable()
+    return verified[0]
+
+
 def _sender_on_domain(team_id: int, email: str) -> int:
     address = email.lower()
     domain = address.rpartition("@")[2]
@@ -196,12 +187,8 @@ def _sender_on_domain(team_id: int, email: str) -> int:
     return on_domain[0]
 
 
-def code_send_sender(*, team_id: int, email: str | None, name: str | None) -> TransactionalEmailSender:
-    if email is None:
-        return TransactionalEmailSender(
-            integration_id=resolve_transactional_email_sender(team_id, None), email=None, name=None
-        )
-    return TransactionalEmailSender(integration_id=_sender_on_domain(team_id, email), email=email, name=name)
+def code_send_sender_id(*, team_id: int, email: str | None) -> int:
+    return _sender_without_address(team_id) if email is None else _sender_on_domain(team_id, email)
 
 
 def _current_sender(flow: HogFlow) -> int | None:

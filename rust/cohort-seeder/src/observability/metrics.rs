@@ -31,9 +31,9 @@ pub const LOOKBACK_TRUNCATED: &str = "seeder_lookback_truncated_total";
 /// replica counts every run, because the once-per-run gate is process-local. The paired `info!` line
 /// carries one run's exact numbers.
 ///
-/// `team_id` names a team only while `REALTIME_COHORT_TEAM_ALLOWLIST` names few enough of them, and
-/// collapses to `other` otherwise. It is here because the question these counters answer is about
-/// one team's catalog; blended across teams they answer nobody's.
+/// `team_id` names a team only while `REALTIME_COHORT_TEAM_ALLOWLIST` names it and few enough other
+/// teams, and collapses to `other` otherwise. It is here because the question these counters answer
+/// is about one team's catalog; blended across teams they answer nobody's.
 pub const CONDITIONS_CLASSIFIED: &str = "seeder_conditions_classified_total";
 /// Conditions the static read could not narrow, labelled by a closed `reason`, the `op` that
 /// stopped it (`none` when no opcode did), and `team_id` (counter). Counted on the same
@@ -241,15 +241,17 @@ const UNLABELLED_TEAM: &str = "other";
 
 /// The team a metric belongs to, as a label value.
 ///
-/// A team gets its own series only while `REALTIME_COHORT_TEAM_ALLOWLIST` names few enough of them.
-/// The allowlist does not bound this on its own: it accepts `all` (which a set-but-empty variable
-/// also parses to) and ranges of up to 100,000 ids, and the recorder never evicts a series, so a
-/// wide rollout would retain one per team that ever seeded. The label exists because these series
-/// answer questions about one team's catalog and scans, which a blended counter cannot; the paired
-/// log lines carry the exact team either way, so collapsing costs the dashboard, not the answer.
+/// A team gets its own series only while `REALTIME_COHORT_TEAM_ALLOWLIST` names it and few enough
+/// other teams. The allowlist does not bound this on its own: it accepts `all` (which a set-but-empty
+/// variable also parses to) and ranges of up to 100,000 ids, and the recorder never evicts a series,
+/// so a wide rollout would retain one per team that ever seeded. Teams that only the access record
+/// grants share the collapsed label too, because grants have no such bound. The label exists
+/// because these series answer questions about one team's catalog and scans, which a blended
+/// counter cannot; the paired log lines carry the exact team either way, so collapsing costs the
+/// dashboard, not the answer.
 pub fn team_label(allowlist: &TeamAllowlist, team_id: TeamId) -> Arc<str> {
     match allowlist {
-        TeamAllowlist::Only(ids) if ids.len() <= MAX_LABELLED_TEAMS => {
+        TeamAllowlist::Only(ids) if ids.len() <= MAX_LABELLED_TEAMS && ids.contains(&team_id.0) => {
             Arc::from(team_id.0.to_string().as_str())
         }
         TeamAllowlist::Only(_) | TeamAllowlist::All => Arc::from(UNLABELLED_TEAM),
@@ -531,6 +533,8 @@ mod tests {
     fn only_a_narrow_allowlist_names_teams_in_a_per_team_label() {
         let narrow = TeamAllowlist::Only(HashSet::from([2, 7]));
         assert_eq!(&*team_label(&narrow, TeamId(2)), "2");
+        // A team outside the env list, which only the access record can have granted.
+        assert_eq!(&*team_label(&narrow, TeamId(3)), UNLABELLED_TEAM);
 
         let wide = TeamAllowlist::Only((0..=MAX_LABELLED_TEAMS as i32).collect());
         assert_eq!(&*team_label(&wide, TeamId(2)), UNLABELLED_TEAM);

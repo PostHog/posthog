@@ -7,6 +7,7 @@ from products.product_analytics.backend.presentation.events_retention import (
     OrganizationEventsRetentionViewSet,
 )
 from products.product_analytics.backend.presentation.insight import InsightViewSet
+from products.product_analytics.backend.presentation.insight_explanation import InsightExplanationViewSet
 from products.product_analytics.backend.presentation.insight_variable import InsightVariableViewSet
 from products.product_analytics.backend.presentation.paths_v2 import PathsV2ViewSet
 
@@ -20,6 +21,13 @@ def register_routes(routers: RouterRegistry) -> None:
         r"sharing",
         sharing.SharingConfigurationViewSet,
         "project_insight_sharing",
+        ["team_id", "insight_id"],
+    )
+
+    insights_router.register(
+        r"explanations",
+        InsightExplanationViewSet,
+        "project_insight_explanations",
         ["team_id", "insight_id"],
     )
 

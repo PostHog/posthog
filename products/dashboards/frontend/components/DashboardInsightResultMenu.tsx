@@ -9,8 +9,13 @@ import {
 } from 'lib/components/ResultMenu/resultMenuTrigger'
 import { urls } from 'scenes/urls'
 
+import {
+    isBIVisualizationNode,
+    isDataTableNode,
+    isDataVisualizationNode,
+    isHogQLQuery,
+} from '~/queries/schema/node-guards'
 import { DataTableNode, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
-import { isBIVisualizationNode, isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { ChartDisplayType, InsightModel } from '~/types'
 
 import { DashboardInsightResultMenuPopover } from './DashboardInsightResultMenuPopover'

@@ -2,9 +2,9 @@ import numpy as np
 from scipy import stats
 
 from products.experiments.stats.shared.enums import DifferenceType
-from products.experiments.stats.shared.utils import get_mean, get_sample_size, get_variance
+from products.experiments.stats.shared.utils import get_mean, get_sample_size, get_variance, validate_test_inputs
 
-from ..shared.statistics import AnyStatistic, StatisticError
+from ..shared.statistics import AnyStatistic, QuantileStatistic, StatisticError
 
 
 def calculate_point_estimate(
@@ -224,6 +224,22 @@ def validate_sample_sizes(treatment_stat: AnyStatistic, control_stat: AnyStatist
         raise StatisticError(f"Treatment sample size ({treatment_n}) below minimum ({min_sample_size})")
     if control_n < min_sample_size:
         raise StatisticError(f"Control sample size ({control_n}) below minimum ({min_sample_size})")
+
+
+def validate_quantile_inputs(treatment_stat: AnyStatistic, control_stat: AnyStatistic) -> None:
+    """
+    Run the shared statistic validation when either arm is a QuantileStatistic.
+
+    The variance floor turns a degenerate quantile into a small positive variance, so the
+    frequentist tests would report a result instead of an error. Other statistic types
+    skip this check because the shared validation also rejects proportions near 0 or 1,
+    which the frequentist tests accept.
+
+    Raises:
+        StatisticError: If a quantile statistic fails validation
+    """
+    if isinstance(treatment_stat, QuantileStatistic) or isinstance(control_stat, QuantileStatistic):
+        validate_test_inputs(treatment_stat, control_stat)
 
 
 def sequential_rho(alpha: float, sequential_tuning_parameter: float) -> float:

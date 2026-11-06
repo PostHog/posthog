@@ -69,3 +69,7 @@ class ExperimentsConfig(AppConfig):
 
         register_post_delete_hook("experiment", _post_delete)
         register_post_restore_hook("experiment", _post_restore)
+
+        from products.experiments.backend import task_profiles  # noqa: PLC0415
+
+        task_profiles.register()
