@@ -1,7 +1,7 @@
 import json
 import uuid
 from collections.abc import Collection
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from django.contrib.postgres.fields import ArrayField
@@ -468,7 +468,7 @@ def update_survey_iterations(sender, instance, *args, **kwargs):
     instance.iteration_start_dates = list(
         rrule(
             DAILY,
-            count=_iteration_window_count(instance),
+            count=_iteration_window_count(instance, instance.start_date, instance.iteration_frequency_days),
             interval=instance.iteration_frequency_days,
             dtstart=instance.start_date,
         )
@@ -479,12 +479,12 @@ def update_survey_iterations(sender, instance, *args, **kwargs):
         instance.current_iteration_start_date = instance.start_date
 
 
-def _iteration_window_count(survey: "Survey") -> int:
+def _iteration_window_count(survey: "Survey", start_date: datetime, frequency_days: int) -> int:
     if not survey.repeat_until_stopped:
         return min(survey.iteration_count or 0, MAX_ITERATION_COUNT)
     # An open-ended schedule has no last window, so keep a rolling list that ends one window past today.
     # update_survey_iteration saves on every iteration change, which extends it.
-    iterations_started = (timezone.now() - survey.start_date).days // survey.iteration_frequency_days + 1
+    iterations_started = (timezone.now() - start_date).days // frequency_days + 1
     return max(iterations_started, 1) + 1
 
 

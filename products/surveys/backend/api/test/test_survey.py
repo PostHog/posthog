@@ -3029,6 +3029,7 @@ class TestSurvey(APIBaseTest):
                     ],
                     "iteration_count": None,
                     "iteration_frequency_days": None,
+                    "repeat_until_stopped": False,
                     "iteration_start_dates": [],
                     "current_iteration": None,
                     "current_iteration_start_date": None,

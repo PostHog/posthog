@@ -74,6 +74,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.recurring_survey.iteration_count = None
         self.recurring_survey.start_date = now() - timedelta(days=self.iteration_frequency_days * 3 + 1)
         self.recurring_survey.save()
+        assert self.recurring_survey.iteration_start_dates is not None
         # Windows as stored after the first run, before the task missed the next two.
         stale_windows = self.recurring_survey.iteration_start_dates[:2]
         Survey.objects.filter(pk=self.recurring_survey.pk).update(iteration_start_dates=stale_windows)
@@ -83,8 +84,9 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.recurring_survey.refresh_from_db()
         self.assertIsNone(self.recurring_survey.end_date)
         self.assertEqual(self.recurring_survey.current_iteration, 4)
-        assert self.recurring_survey.iteration_start_dates is not None
-        self.assertGreater(self.recurring_survey.iteration_start_dates[-1], now())
+        last_window_start = (self.recurring_survey.iteration_start_dates or [None])[-1]
+        assert last_window_start is not None
+        self.assertGreater(last_window_start, now())
 
     def test_survey_with_once_schedule_is_not_ended_by_stale_iteration_fields(self) -> None:
         self.recurring_survey.schedule = Survey.Schedule.ONCE
