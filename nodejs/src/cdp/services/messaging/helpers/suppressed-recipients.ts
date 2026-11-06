@@ -50,8 +50,6 @@ const parseAddressList = (value: string | undefined): ParsedAddress[] =>
               })
         : []
 
-// The mailboxes SES delivers to, without display names or comments, so a check of this list covers exactly
-// what is delivered.
 export const parseDeliveryMailboxes = (value: string | undefined): string[] =>
     parseAddressList(value).map(({ email }) => quoteMailbox(email))
 
