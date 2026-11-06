@@ -26,14 +26,15 @@ function PrimaryAction({
     reportUrl,
     isSample,
     startReason,
+    onOpenTask,
 }: {
     primary: TodayPrimaryAction
     report: SignalReport
     reportUrl: string
     isSample: boolean
     startReason: string | null
+    onOpenTask: (taskId: string, runId: string) => void
 }): JSX.Element {
-    const { openReportTask } = useActions(inboxTaskKickoffLogic)
     if (primary.kind === 'review') {
         return (
             <Button
@@ -54,7 +55,7 @@ function PrimaryAction({
             <Button
                 variant="primary"
                 className="me-1"
-                onClick={() => openReportTask(report, primary.taskId, primary.runId)}
+                onClick={() => onOpenTask(primary.taskId, primary.runId)}
                 data-attr="today-report-open-task"
             >
                 <IconClock />
@@ -82,11 +83,13 @@ export function TodayReportNextStep({
     slotClaim: ImplementationSlotClaim | null
 }): JSX.Element | null {
     const { createPrDisabledReason, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { openReportTask } = useActions(inboxTaskKickoffLogic)
     const logic = todayReportLogic({ reportId: report.id })
     const { reportState, reportUrl, isSample, page, askingAi, composerOpen, draft } = useValues(logic)
     const { askAboutReport, openComposer, setDraft } = useActions(logic)
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const task = reportTaskToOpen?.task
+    const runId = task?.latest_run?.id
     const { primary, note, taskPickedUp } = todayNextStep(report, {
         namedPullRequest: page?.named_pull_request ?? null,
         solutionNamesPullRequest: page?.solution_names_pull_request ?? false,
@@ -99,6 +102,10 @@ export function TodayReportNextStep({
     }
 
     const askDisabledReason = isSample ? SAMPLE_REPORT_REASON : null
+    const openTask = (taskId: string, runId: string): void => {
+        captureInboxReportAction({ report, actionType: 'resume_discussion', surface: 'today' })
+        openReportTask(report, taskId, runId)
+    }
 
     const focusComposer = (): void => {
         openComposer()
@@ -118,11 +125,22 @@ export function TodayReportNextStep({
                         report={report}
                         reportUrl={reportUrl}
                         isSample={isSample}
+                        onOpenTask={openTask}
                         startReason={startDisabledReason(report, taskPickedUp, {
                             createPrDisabledReason,
                             aiConsentDisabledReason,
                         })}
                     />
+                )}
+                {task && runId && primary?.kind !== 'open_task' && (
+                    <Button
+                        onClick={() => openTask(task.id, runId)}
+                        disabledReason={askDisabledReason}
+                        data-attr="today-report-open-task"
+                    >
+                        <IconClock />
+                        Open run
+                    </Button>
                 )}
                 <Button
                     className={primary ? undefined : '-ms-2'}

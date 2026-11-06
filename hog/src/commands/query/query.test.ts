@@ -10,6 +10,7 @@ const ROWS = {
         ['signup', null],
     ],
     hasMore: false,
+    clickhouse: 'SELECT 1',
 }
 
 describe('hog query', () => {
@@ -37,7 +38,7 @@ describe('hog query', () => {
             '--raw prints the full response',
             false,
             ['--raw'],
-            '{"columns":["event","total"],"hasMore":false,"results":[["$pageview",70],["signup",null]]}\n',
+            '{"clickhouse":"SELECT 1","columns":["event","total"],"hasMore":false,"results":[["$pageview",70],["signup",null]]}\n',
         ],
     ])('run: %s', async (_name, tty, flags, expected) => {
         const result = await runHog(['query', 'run', 'select 1', ...flags], {

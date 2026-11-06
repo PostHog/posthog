@@ -46,6 +46,7 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
                 planMonths={projectRetention.plan_retention_months}
                 nextMonthlyCleanupOn={projectRetention.next_monthly_cleanup_on}
                 passSchedule={projectRetention}
+                level="project"
                 scope="Events in this project"
                 owner="this project"
                 note={

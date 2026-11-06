@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 
+import { IconChevronDown } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -23,7 +24,7 @@ const NOT_LINKED = 'This reviewer is not linked to a PostHog member and cannot r
 
 /**
  * The quill sibling of `ReviewerRowMenu`, for the report page behind `today-rail-nav`. It also draws the
- * reviewer's avatar and name as the trigger, which both quill reviewer rows share.
+ * reviewer's avatar menu and name, which both quill reviewer rows share.
  */
 export function QuillReviewerRowMenu({
     reviewer,
@@ -41,45 +42,48 @@ export function QuillReviewerRowMenu({
     const { title, reasons } = reviewerRemovalMenu(reviewer, displayName, user?.uuid)
 
     return (
-        <DropdownMenu>
-            <DropdownMenuTrigger
-                render={
-                    <Button
-                        left
-                        className={cn('w-full min-w-0', !reviewer.user && 'opacity-75')}
-                        tooltip={reviewer.user ? undefined : NOT_LINKED}
-                        aria-label={`Actions for ${displayName}`}
-                        data-attr="inbox-reviewer-row"
-                    />
-                }
-            >
-                <QuillPersonAvatar name={displayName} email={reviewer.user?.email} size="xs" />
-                <span className="ph-no-capture min-w-0 truncate">{displayName}</span>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-                {/* The trigger's tooltip never shows on touch, so the menu repeats it. */}
-                {!reviewer.user && (
-                    <Text size="xs" variant="muted" className="m-0 max-w-64 px-2 py-1.5 whitespace-normal">
-                        {NOT_LINKED}
-                    </Text>
-                )}
-                <DropdownMenuGroup>
-                    <DropdownMenuLabel>{title}</DropdownMenuLabel>
-                    {reasons.map((option) => (
-                        <DropdownMenuItem
-                            key={option.value}
-                            disabledReason={disabledReason}
-                            onClick={() => onRemove({ reason: option.value })}
-                        >
-                            {option.label}
-                        </DropdownMenuItem>
-                    ))}
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem disabledReason={disabledReason} onClick={() => onRemove()}>
-                    Without a reason
-                </DropdownMenuItem>
-            </DropdownMenuContent>
-        </DropdownMenu>
+        <div className={cn('flex min-w-0 items-center gap-2', !reviewer.user && 'opacity-75')}>
+            <DropdownMenu>
+                <DropdownMenuTrigger
+                    render={
+                        <Button
+                            className="shrink-0 gap-1"
+                            tooltip={`Actions for ${displayName}`}
+                            aria-label={`Actions for ${displayName}`}
+                            data-attr="inbox-reviewer-row"
+                        />
+                    }
+                >
+                    <QuillPersonAvatar name={displayName} email={reviewer.user?.email} size="xs" />
+                    <IconChevronDown />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                    {!reviewer.user && (
+                        <Text size="xs" variant="muted" className="m-0 max-w-64 px-2 py-1.5 whitespace-normal">
+                            {NOT_LINKED}
+                        </Text>
+                    )}
+                    <DropdownMenuGroup>
+                        <DropdownMenuLabel>{title}</DropdownMenuLabel>
+                        {reasons.map((option) => (
+                            <DropdownMenuItem
+                                key={option.value}
+                                disabledReason={disabledReason}
+                                onClick={() => onRemove({ reason: option.value })}
+                            >
+                                {option.label}
+                            </DropdownMenuItem>
+                        ))}
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem disabledReason={disabledReason} onClick={() => onRemove()}>
+                        Without a reason
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+            <Text size="xs" className="ph-no-capture min-w-0 truncate" render={<span />}>
+                {displayName}
+            </Text>
+        </div>
     )
 }
