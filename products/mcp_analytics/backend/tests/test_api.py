@@ -1225,6 +1225,7 @@ class TestListMCPToolCalls(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
                 ("api_5xx", "503"),
             ),
             ("string_argument", {"$mcp_parameters": 'say "hi"\nnow \\ done'}, 'say "hi"\nnow \\ done', ("", "")),
+            ("numeric_string_argument", {"$mcp_parameters": "123"}, "123", ("", "")),
             (
                 "big_integer_argument",
                 {"$mcp_parameters": {"id": 1234567890123456789}},
