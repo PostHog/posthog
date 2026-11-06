@@ -575,8 +575,7 @@ describe('RateLimiterService', () => {
                     return client.get(`${KEY}/during-outage`)
                 })
 
-                // A queued command can still hit the optional pool's timeout before the reconnect, so
-                // that rejection counts as queued; any other error fails the row with its message.
+                // A queued command can still hit the optional pool's timeout before the reconnect.
                 const settled = await duringOutage.then(
                     () => 'queued',
                     (error: Error) =>
