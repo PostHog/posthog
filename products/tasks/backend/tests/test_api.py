@@ -7127,6 +7127,7 @@ ACP_ONLY_ENFORCED_PROFILE = replace(
     ACP_ONLY_PROFILE, key="test.acp_only_enforced", enforced_checks=frozenset({ContractCheck.RUNTIMES})
 )
 REPORT_PROFILE = replace(PUBLIC_PROFILE, key="test.report", source_kind=SourceKind.SIGNAL_REPORT)
+SIGNAL_REPORT_ORIGIN_PROFILE = replace(REPORT_PROFILE, key="test.signal_report", origin_product="signal_report")
 TEST_PUBLIC_PROFILES = {
     profile.key: profile
     for profile in (
@@ -7136,6 +7137,7 @@ TEST_PUBLIC_PROFILES = {
         ACP_ONLY_PROFILE,
         ACP_ONLY_ENFORCED_PROFILE,
         REPORT_PROFILE,
+        SIGNAL_REPORT_ORIGIN_PROFILE,
     )
 }
 UNKNOWN_SOURCE_ID = str(uuid.uuid4())
@@ -7374,7 +7376,9 @@ class TestTaskPublicCreateAPI(BaseTaskAPITest):
         with patch(
             "products.tasks.backend.logic.repo_selection.cascade.cascade_select_repository", return_value="acme/web"
         ):
-            response = self._create(profile="signals.inbox", source={"kind": "signal_report", "id": str(report.id)})
+            response = self._create(
+                profile="test.signal_report", source={"kind": "signal_report", "id": str(report.id)}
+            )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         task = Task.objects.get(id=response.json()["id"])
@@ -7387,7 +7391,7 @@ class TestTaskPublicCreateAPI(BaseTaskAPITest):
                 task.source_id,
                 task.repository,
             ),
-            ("signals.inbox", "signal_report", report.id, "signal_report", str(report.id), "acme/web"),
+            ("test.signal_report", "signal_report", report.id, "signal_report", str(report.id), "acme/web"),
         )
         self.assertEqual(signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION), [str(task.id)])
 
@@ -7406,7 +7410,7 @@ class TestTaskPublicCreateAPI(BaseTaskAPITest):
         ):
             statuses = [
                 self._create(
-                    profile="signals.inbox", source={"kind": "signal_report", "id": str(report.id)}
+                    profile="test.signal_report", source={"kind": "signal_report", "id": str(report.id)}
                 ).status_code
                 for report in reports
             ]
