@@ -197,12 +197,12 @@ Group restrictions retain their group type index, so a same-named property on an
 
 Native event JSON keeps parsing diagnostics in `$unparseable_properties`, which can embed raw property values as a string. If an event or person property is restricted, the shared restriction resolver also restricts that class's diagnostic marker. Blob reads omit it, and direct or JSON-extraction reads cannot retrieve it. Unrestricted readers retain diagnostic access.
 
-Native event JSON stores a flat dotted key such as `customer.ssn` under the path `customer%2Essn`, and a read of `customer%2Essn` returns the same value. Restricting a dotted event or person property therefore also restricts its `%2E` spelling.
+Native event JSON without reversible keys stores a flat dotted key such as `customer.ssn` under the path `customer%2Essn`, and a read of `customer%2Essn` returns the same value. Restricting a dotted event or person property therefore also restricts its `%2E` spelling. With reversible keys (`EVENTS_JSON_REVERSIBLE_KEYS`), the two are distinct stored paths and only the restricted spelling is masked.
 
 Native reads of a parent containing restricted children use the masked JSON document instead of a raw subcolumn. This also covers multi-key `JSONHas` calls with computed keys. Unrestricted siblings remain readable.
 A JSON function whose first key is computed per row reads the masked `properties` document, and the masked `temporary_properties` document on rows where the key names a moved property, so a restricted property stays unreadable through a computed key.
 
-Person property restrictions also apply inside event `$set` and `$set_once` containers, including native `%2E` key spellings. Restricted values read as `NULL` and are removed from blob reads; unrestricted siblings stay readable.
+Person property restrictions also apply inside event `$set` and `$set_once` containers, including native `%2E` key spellings without reversible keys. Restricted values read as `NULL` and are removed from blob reads; unrestricted siblings stay readable.
 
 The restriction set is loaded once per query in `prepare_ast_for_printing()` and cached per `(team_id, user_id)` for the request lifetime.
 
