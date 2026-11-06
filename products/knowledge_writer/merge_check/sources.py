@@ -10,9 +10,8 @@ import requests
 from posthog.egress.github.transport import github_request
 from posthog.egress.limiter.policies import Priority
 
-POSTHOG_REPOSITORY = "PostHog/posthog"
-POSTHOG_MAINLINE = "master"
 COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+NULL_COMMIT_SHA = "0" * 40
 GITHUB_API_URL = "https://api.github.com"
 GITHUB_EGRESS_SOURCE = "knowledge_writer"
 SITEMAP_URL = "https://posthog.com/sitemap/sitemap-0.xml"
@@ -28,9 +27,6 @@ TEST_PATH_PATTERN = re.compile(
 )
 
 
-MAINLINE_COMPARE_STATUSES = frozenset({"behind", "identical"})
-
-
 @dataclass(frozen=True)
 class MergedPullRequest:
     number: int
@@ -40,9 +36,9 @@ class MergedPullRequest:
 
 
 @dataclass(frozen=True)
-class MergedCommit:
-    commit_sha: str
-    pull_request_number: int
+class LandedChange:
+    repository: str
+    after: str
 
 
 class GitHubReader(Protocol):
@@ -99,61 +95,50 @@ def read_github(
     return response
 
 
-def merged_commit(pull_request: Mapping[str, Any]) -> MergedCommit | None:
-    commit_sha = pull_request.get("merge_commit_sha")
-    number = pull_request.get("number")
-    if not pull_request.get("merged_at") or not isinstance(commit_sha, str) or not isinstance(number, int):
+def commit_sha_or_none(value: object) -> str | None:
+    if not isinstance(value, str) or not COMMIT_SHA_PATTERN.match(value) or value == NULL_COMMIT_SHA:
         return None
-    if not COMMIT_SHA_PATTERN.match(commit_sha):
+    return value
+
+
+def landed_change(push: Mapping[str, Any], source_repositories: tuple[str, ...]) -> LandedChange | None:
+    repository = push.get("repository") or {}
+    full_name = repository.get("full_name")
+    after = commit_sha_or_none(push.get("after"))
+    if after is None or push.get("deleted") or repository.get("private") is not False:
         return None
-    return MergedCommit(commit_sha=commit_sha, pull_request_number=number)
+    if not isinstance(full_name, str) or full_name.lower() not in {name.lower() for name in source_repositories}:
+        return None
+    if push.get("ref") != f"refs/heads/{repository.get('default_branch')}":
+        return None
+    return LandedChange(repository=full_name, after=after)
 
 
 def merged_pull_request(listed: Mapping[str, Any], commit_sha: str) -> MergedPullRequest | None:
-    merge = merged_commit(listed)
-    if merge is None or merge.commit_sha != commit_sha:
+    if not listed.get("merged_at") or listed.get("merge_commit_sha") != commit_sha:
         return None
     return MergedPullRequest(
-        number=merge.pull_request_number,
+        number=listed["number"],
         title=listed["title"],
         url=listed["html_url"],
         is_trusted_author=listed.get("author_association") in TRUSTED_AUTHOR_ASSOCIATIONS,
     )
 
 
-def read_merged_pull_request(github: GitHubReader, number: int, commit_sha: str) -> MergedPullRequest | None:
+def find_merged_pull_request(github: GitHubReader, repository: str, commit_sha: str) -> MergedPullRequest | None:
     response = read_github(
         github,
-        f"/repos/{POSTHOG_REPOSITORY}/pulls/{number}",
-        endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
-    )
-    return merged_pull_request(response.json(), commit_sha)
-
-
-def find_merged_pull_request(github: GitHubReader, commit_sha: str) -> MergedPullRequest | None:
-    response = read_github(
-        github,
-        f"/repos/{POSTHOG_REPOSITORY}/commits/{commit_sha}/pulls",
+        f"/repos/{repository}/commits/{commit_sha}/pulls",
         endpoint="/repos/{owner}/{repo}/commits/{sha}/pulls",
     )
     merged = (merged_pull_request(listed, commit_sha) for listed in response.json())
     return next((pull_request for pull_request in merged if pull_request is not None), None)
 
 
-def is_on_mainline(github: GitHubReader, commit_sha: str) -> bool:
+def read_diff_by_path(github: GitHubReader, change: LandedChange) -> dict[str, str]:
     response = read_github(
         github,
-        f"/repos/{POSTHOG_REPOSITORY}/compare/{POSTHOG_MAINLINE}...{commit_sha}",
-        endpoint="/repos/{owner}/{repo}/compare/{basehead}",
-        params={"per_page": 1},
-    )
-    return response.json().get("status") in MAINLINE_COMPARE_STATUSES
-
-
-def read_commit_diff_by_path(github: GitHubReader, commit_sha: str) -> dict[str, str]:
-    response = read_github(
-        github,
-        f"/repos/{POSTHOG_REPOSITORY}/commits/{commit_sha}",
+        f"/repos/{change.repository}/commits/{change.after}",
         endpoint="/repos/{owner}/{repo}/commits/{sha}",
         headers={"Accept": "application/vnd.github.diff"},
     )
@@ -172,10 +157,10 @@ def is_test_path(path: str) -> bool:
     return TEST_PATH_PATTERN.search(path) is not None
 
 
-def read_generated_path_patterns(github: GitHubReader, commit_sha: str) -> list[str]:
+def read_generated_path_patterns(github: GitHubReader, repository: str, commit_sha: str) -> list[str]:
     response = github.api_request(
         "GET",
-        f"/repos/{POSTHOG_REPOSITORY}/contents/.gitattributes",
+        f"/repos/{repository}/contents/.gitattributes",
         endpoint="/repos/{owner}/{repo}/contents/{path}",
         params={"ref": commit_sha},
         headers={"Accept": "application/vnd.github.raw"},
@@ -200,11 +185,11 @@ def is_generated_path(path: str, generated_path_patterns: list[str]) -> bool:
     )
 
 
-def is_published_from_repository(github: GitHubReader, commit_sha: str, page_path: str) -> bool:
+def is_published_from_repository(github: GitHubReader, repository: str, commit_sha: str, page_path: str) -> bool:
     for extension in PUBLISHED_DOCS_EXTENSIONS:
         response = github.api_request(
             "GET",
-            f"/repos/{POSTHOG_REPOSITORY}/contents/{PUBLISHED_DOCS_DIRECTORY}/{page_path.strip('/')}{extension}",
+            f"/repos/{repository}/contents/{PUBLISHED_DOCS_DIRECTORY}/{page_path.strip('/')}{extension}",
             endpoint="/repos/{owner}/{repo}/contents/{path}",
             params={"ref": commit_sha},
             priority=Priority.NORMAL,

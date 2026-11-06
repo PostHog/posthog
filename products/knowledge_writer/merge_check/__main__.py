@@ -8,7 +8,7 @@ import httpx
 
 from .check import run_merge_check
 from .judge import judge_client
-from .sources import POSTHOG_MAINLINE, POSTHOG_REPOSITORY, GitHubReader, PersonalTokenGitHub, read_github
+from .sources import GitHubReader, LandedChange, PersonalTokenGitHub, read_github
 
 MAX_RECENT_MERGES = 100
 
@@ -18,12 +18,17 @@ def replay_command(arguments: argparse.Namespace) -> int:
     flagged = 0
     github = PersonalTokenGitHub(github_token)
     with httpx.Client(timeout=30) as http:
-        merges = recent_master_merges(github, arguments.recent) if arguments.recent else read_merges(arguments.merges)
+        merges = (
+            recent_merges(github, arguments.repository, arguments.recent)
+            if arguments.recent
+            else read_merges(arguments.merges)
+        )
         for merge in merges:
+            change = LandedChange(repository=arguments.repository, after=merge["commit_sha"])
             with judge_client(merge["commit_sha"]) as anthropic_client:
                 report = run_merge_check(
-                    merge["commit_sha"],
-                    pull_request_number=None,
+                    change,
+                    is_final_attempt=True,
                     github=github,
                     http=http,
                     anthropic_client=anthropic_client,
@@ -40,12 +45,12 @@ def read_merges(merges_path: Path) -> list[dict]:
     return [json.loads(line) for line in merges_path.read_text().splitlines() if line.strip()]
 
 
-def recent_master_merges(github: GitHubReader, count: int) -> list[dict]:
+def recent_merges(github: GitHubReader, repository: str, count: int) -> list[dict]:
     response = read_github(
         github,
-        f"/repos/{POSTHOG_REPOSITORY}/commits",
+        f"/repos/{repository}/commits",
         endpoint="/repos/{owner}/{repo}/commits",
-        params={"sha": POSTHOG_MAINLINE, "per_page": count},
+        params={"per_page": count},
     )
     return [{"commit_sha": commit["sha"]} for commit in response.json()]
 
@@ -64,8 +69,9 @@ def main(argv: list[str] | None = None) -> int:
     merge_source = replay.add_mutually_exclusive_group(required=True)
     merge_source.add_argument("merges", type=Path, nargs="?")
     merge_source.add_argument(
-        "--recent", type=recent_merge_count, help="replay the last N PostHog/posthog master merges"
+        "--recent", type=recent_merge_count, help="replay the last N merges to the repository's default branch"
     )
+    replay.add_argument("--repository", default="PostHog/posthog", help="owner/name of the merged repository")
     replay.set_defaults(handler=replay_command)
     arguments = parser.parse_args(argv)
     return arguments.handler(arguments)

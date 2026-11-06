@@ -17,7 +17,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from ...merge_check.check import run_merge_check
 from ...merge_check.judge import judge_client
-from ...merge_check.sources import POSTHOG_REPOSITORY
+from ...merge_check.sources import LandedChange
 from ..adapters.registry import REGISTRY
 from ..facade.contracts import AdapterVerdict
 from ..facade.enums import DocsRequestSource
@@ -41,7 +41,7 @@ MERGE_CHECK_RETRYABLE_ERRORS = (
 class MergeCheckInputs:
     commit_sha: str
     team_id: int
-    pull_request_number: int | None = None
+    repository: str | None = None
 
 
 def record_merge_check_failed(inputs: MergeCheckInputs) -> None:
@@ -56,7 +56,10 @@ def record_merge_check_failed(inputs: MergeCheckInputs) -> None:
 
 
 def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
-    github = docs_github(inputs.team_id, POSTHOG_REPOSITORY.split("/", 1)[0], priority=Priority.NORMAL)
+    if inputs.repository is None:
+        record_merge_check_failed(inputs)
+        return
+    github = docs_github(inputs.team_id, inputs.repository.split("/", 1)[0], priority=Priority.NORMAL)
     if github is None:
         record_merge_check_failed(inputs)
         return
@@ -68,8 +71,8 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
     try:
         with httpx.Client(timeout=30) as http, anthropic_client:
             report = run_merge_check(
-                inputs.commit_sha,
-                pull_request_number=inputs.pull_request_number,
+                LandedChange(repository=inputs.repository, after=inputs.commit_sha),
+                is_final_attempt=is_final_attempt,
                 github=github,
                 http=http,
                 anthropic_client=anthropic_client,
