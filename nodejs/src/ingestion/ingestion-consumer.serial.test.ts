@@ -13,6 +13,7 @@ import { compileHog } from '~/cdp/templates/compiler'
 import { HogFunctionType } from '~/cdp/types'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { COOKIELESS_SENTINEL_VALUE } from '~/common/persons/person-utils'
+import { UsageIngestionClient, UsageRecordInput } from '~/common/usage-ingestion/client'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -793,6 +794,60 @@ describe('IngestionConsumer', () => {
                     ).toHaveLength(0)
                 })
             })
+        })
+    })
+
+    describe('usage records', () => {
+        let usageIngester: IngestionConsumer | undefined
+        let ingest: jest.SpyInstance<Promise<UsageRecordInput[]>, [UsageRecordInput[]]> | undefined
+
+        afterEach(async () => {
+            ingest?.mockRestore()
+            await usageIngester?.stop()
+            usageIngester = undefined
+        })
+
+        it('bills a flagged migration under the migration keys and an unflagged late event as usual', async () => {
+            infra.config.USAGE_INGESTION_ADDR = 'localhost:1'
+            infra.config.USAGE_INGESTION_REPORT_TEAMS = '*'
+            usageIngester = await createIngestionConsumer(infra)
+            const ingestSpy = jest
+                .spyOn(UsageIngestionClient.prototype, 'ingest')
+                .mockImplementation((records) => Promise.resolve(records))
+            ingest = ingestSpy
+
+            // Capture time differs from the mocked clock, so a lost `now` header cannot pass as the flush fallback.
+            const captureTime = fixedTime.minus({ minutes: 5 })
+            // Different days, so the record ID prefix shows which event each record came from.
+            const migratedAt = fixedTime.minus({ hours: 50 })
+            const lateAt = fixedTime.minus({ hours: 74 })
+            const [migrated, late] = createKafkaMessages([
+                createEvent({ distinct_id: 'migrated', timestamp: migratedAt.toISO()!, now: captureTime.toISO()! }),
+                createEvent({ distinct_id: 'late', timestamp: lateAt.toISO()!, now: captureTime.toISO()! }),
+            ])
+            migrated.headers!.push({ historical_migration: Buffer.from('true') })
+
+            const { backgroundTask } = await usageIngester.handleKafkaBatch([migrated, late])
+            await backgroundTask
+
+            const record = (usageKey: string, day: DateTime) => ({
+                teamId: team.id,
+                usageKey,
+                unit: 'events',
+                quantity: 1,
+                timestampMs: captureTime.toMillis(),
+                recordId: expect.stringMatching(new RegExp(`^${day.toISODate()}:[0-9a-f]{32}$`)),
+            })
+            const sent = ingestSpy.mock.calls.flatMap(([records]) => records)
+            expect(sent).toHaveLength(4)
+            expect(sent).toEqual(
+                expect.arrayContaining([
+                    record('historical_migration_events', migratedAt),
+                    record('historical_migration_enhanced_person_events', migratedAt),
+                    record('events', lateAt),
+                    record('enhanced_person_events', lateAt),
+                ])
+            )
         })
     })
 
