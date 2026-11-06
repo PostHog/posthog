@@ -102,13 +102,11 @@ def _window_start() -> datetime:
 
 
 def _window_tokens(user_id: int) -> QuerySet[DevGatewayToken]:
-    return DevGatewayToken.objects.filter(user_id=user_id, created_at__gte=_window_start()).annotate(
-        counted_usd=Coalesce("spent_usd", "cap_usd")
-    )
+    return DevGatewayToken.objects.filter(user_id=user_id, created_at__gte=_window_start())
 
 
 def _used_usd(user_id: int) -> Decimal:
-    used = _window_tokens(user_id).aggregate(total=Sum("counted_usd"))["total"]
+    used = _window_tokens(user_id).aggregate(total=Sum(Coalesce("spent_usd", "cap_usd")))["total"]
     return used or Decimal("0")
 
 
@@ -132,8 +130,9 @@ def _to_dto(row: DevGatewayToken, remaining: dict[str, Decimal] | None = None) -
 
 
 def _available_at(user_id: int, left: Decimal) -> datetime:
-    for created_at, counted in _window_tokens(user_id).order_by("created_at").values_list("created_at", "counted_usd"):
-        left += counted
+    tokens = _window_tokens(user_id).order_by("created_at").values_list("created_at", "spent_usd", "cap_usd")
+    for created_at, spent_usd, cap_usd in tokens:
+        left += cap_usd if spent_usd is None else spent_usd
         if left >= TOKEN_CAP_MIN_USD:
             return created_at + timedelta(days=1)
     return timezone.now()
