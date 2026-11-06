@@ -1,21 +1,4 @@
 .marketing-analytics-table-container {
-    .DataTable__second-row {
-        // This padding aligns the Reload and Export buttons with the table padding
-        padding: 1rem 1rem 0;
-    }
-
-    .DataTable > .ScrollableShadows > .ScrollableShadows__inner {
-        max-height: 28rem;
-    }
-
-    .LemonTable__content > table > thead > tr > th {
-        position: sticky;
-        top: 0;
-        z-index: 9;
-        padding: 0.5rem;
-        background: var(--lemon-table-background-color);
-    }
-
     .LemonTable__content > table > tbody > tr > td {
         height: 100%; // Add this to make cells use full height
         padding: 0;
@@ -29,5 +12,27 @@
     // Ensure rows stretch to full height
     .LemonTable__content > table > tbody > tr {
         height: 100%;
+    }
+
+    .LemonTable__content > table > thead th [data-attr='table-header-more'],
+    .LemonTable__content > table > tbody td [data-attr='more-button'] {
+        opacity: 0;
+        transition: opacity 100ms ease;
+    }
+
+    .LemonTable__content > table > thead th:hover [data-attr='table-header-more'],
+    .LemonTable__content > table > thead th:focus-within [data-attr='table-header-more'],
+    .LemonTable__content > table > tbody tr:hover td [data-attr='more-button'],
+    .LemonTable__content > table > tbody td:focus-within [data-attr='more-button'],
+    .LemonTable__content [aria-expanded='true'][data-attr='table-header-more'],
+    .LemonTable__content [aria-expanded='true'][data-attr='more-button'] {
+        opacity: 1;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .LemonTable__content [data-attr='table-header-more'],
+        .LemonTable__content [data-attr='more-button'] {
+            transition: none;
+        }
     }
 }

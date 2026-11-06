@@ -37,6 +37,10 @@ import { PersonsManagerService } from './services/managers/persons-manager.servi
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { SandboxSenderStateService } from './services/managers/sandbox-sender-state.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
+import {
+    EMAIL_ATTACHMENTS_MAX_CONNECTIONS,
+    EmailAttachmentsService,
+} from './services/messaging/email-attachments.service'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
@@ -47,7 +51,10 @@ import { PushNotificationService } from './services/messaging/push-notification.
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { SandboxEmailSender, sandboxBlockedEventRedisConfig } from './services/messaging/sandbox-email-sender'
-import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
+import {
+    HogFunctionMonitoringService,
+    parseInternalLogsSources,
+} from './services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
 import { WorkflowsActivationReporter } from './services/monitoring/workflows-activation-reporter'
@@ -128,6 +135,7 @@ export interface CdpCoreServices {
     messageAssetsService: MessageAssetsService
     /** Buffers transactional email status rows. `invocationResultsService.flush()` produces them. */
     emailStatusService: EmailStatusService
+    emailAttachmentsService: EmailAttachmentsService
 }
 
 export type CdpCoreServicesConfig = Pick<
@@ -186,8 +194,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'WORKFLOWS_SANDBOX_DAILY_TEAM_CAP'
         | 'WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP'
         | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
+        | 'EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE'
         | 'EMAIL_TEAM_SENDING_CAP_MODE'
-        | 'EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER'
         | 'EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER'
         | 'CDP_EMAIL_UTM_LINK_SCANNER_TEAMS'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
@@ -480,6 +488,7 @@ export function createCdpCoreServices(
     // choke point regardless of whether the invocation came from a workflow action or a hog function.
     const emailSuppressionService = new EmailSuppressionService(deps.postgres, {
         transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
+        globalHardBounceEnforce: config.EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE,
     })
     const recipientsManager = new RecipientsManagerService(deps.postgres)
     const personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)
@@ -496,6 +505,10 @@ export function createCdpCoreServices(
         ? new RateLimiterService(deps.emailValidationValkey, { name: 'team-email' })
         : null
     const sandboxEmailRateLimiter = createSandboxDailyCapLimiter(deps)
+    const emailAttachmentsService = new EmailAttachmentsService(
+        config.CYCLOTRON_NODE_DATABASE_URL,
+        EMAIL_ATTACHMENTS_MAX_CONNECTIONS
+    )
     const sandboxEmailSender = new SandboxEmailSender(
         {
             enabled: config.WORKFLOWS_SANDBOX_SENDER_ENABLED,
@@ -519,7 +532,6 @@ export function createCdpCoreServices(
             sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
             sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
             teamEmailCapMode: parseTeamEmailCapMode(config.EMAIL_TEAM_SENDING_CAP_MODE),
-            teamEmailTierHourlyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER),
             teamEmailTierDailyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER),
             utmLinkScannerTeams: config.CDP_EMAIL_UTM_LINK_SCANNER_TEAMS,
         },
@@ -535,6 +547,7 @@ export function createCdpCoreServices(
         messageAssetsService,
         workflowEmailRateLimiter,
         teamEmailRateLimiter,
+        emailAttachmentsService,
         sandboxEmailSender,
         new OrganizationMembersService(deps.postgres)
     )
@@ -625,11 +638,7 @@ export function createCdpCoreServices(
         { awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED }
     )
 
-    const internalLogsSources = new Set(
-        config.CDP_INTERNAL_LOGS_SOURCES.split(',')
-            .map((source) => source.trim())
-            .filter(Boolean)
-    )
+    const internalLogsSources = parseInternalLogsSources(config.CDP_INTERNAL_LOGS_SOURCES)
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(
         outputs,
         internalLogsSources.size > 0 ? new InternalLogsProducer(config, deps.teamManager) : undefined,
@@ -686,6 +695,7 @@ export function createCdpCoreServices(
         outputs,
         emailService,
         sandboxEmailSender,
+        emailAttachmentsService,
         messageAssetsService,
         emailStatusService,
     }

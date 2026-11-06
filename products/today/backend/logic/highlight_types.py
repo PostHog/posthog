@@ -48,6 +48,10 @@ def property_restrictions(team: Team, user: User) -> str:
     )[:16]
 
 
+def ignore_pulse(_found: HighlightFindings, _slots: list[PulseSlot]) -> None:
+    return None
+
+
 class Context:
     """Today's `HighlightContext`. A source sees only the protocol, so these internals stay private."""
 
@@ -65,7 +69,7 @@ class Context:
         self.today = today
         self.scopes = scopes
         self.pinned = pinned
-        self.publish_pulse = publish_pulse
+        self.publish_pulse = publish_pulse or ignore_pulse
         self.failures: list[str] = []
         self.access = UserAccessControl(user=user, team=team)
 

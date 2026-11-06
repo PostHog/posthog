@@ -20,9 +20,15 @@ import click
 
 from . import hogland, mutagen
 from .cli import _workspace_arg_suffix, resolve_workspace_name, workspace_argument
-from .coder import _fail, ensure_runtime_ready, get_workspace, get_workspace_status, run_in_workspace
+from .coder import (
+    REMOTE_REPO_PATH as _REMOTE_REPO_PATH,
+    _fail,
+    ensure_runtime_ready,
+    get_workspace,
+    get_workspace_status,
+    run_in_workspace,
+)
 
-_REMOTE_REPO_PATH = "/home/coder/posthog"
 _REMOTE_GIT_TIMEOUT_SECONDS = 120
 _DETACHED = "HEAD"
 

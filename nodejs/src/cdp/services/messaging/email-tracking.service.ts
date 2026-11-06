@@ -12,9 +12,10 @@ import {
     MinimalAppMetric,
 } from '~/cdp/types'
 import { ModifiedRequest } from '~/common/api/router'
+import { RedisV2 } from '~/common/redis/redis-v2'
 import { isDevEnv, isTestEnv } from '~/common/utils/env-utils'
 import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
+import { logger, serializeError } from '~/common/utils/logger'
 
 import { CapturedEventsService } from '../captured-events/captured-events.service'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
@@ -89,6 +90,29 @@ const emailTrackingLogSkipsCounter = new Counter({
     help: 'Total number of email tracking log entries skipped (expected, non-error)',
     labelNames: ['reason', 'source'],
 })
+
+const ENGAGEMENT_PERSON_METRICS: Partial<Record<MinimalAppMetric['metric_name'], MinimalAppMetric['metric_name'][]>> = {
+    email_opened: ['email_opened_by_person'],
+    email_link_clicked: ['email_opened_by_person', 'email_clicked_by_person'],
+}
+// An open after this counts its person again. Almost all opens and clicks come in the first days.
+const ENGAGEMENT_PEOPLE_TTL_SECONDS = 30 * 24 * 60 * 60
+// A slow Redis costs a person count, never an open or click webhook.
+const ENGAGEMENT_REDIS_TIMEOUT_MS = 500
+// PFADD returns 0 for many new people once a HyperLogLog fills, so the growth of PFCOUNT is what counts. Each pair of
+// keys is a HyperLogLog and the total already reported. Returns how much each total grew.
+const ENGAGEMENT_PEOPLE_SCRIPT = `
+local grew = {}
+for index = 1, #KEYS, 2 do
+    redis.call('PFADD', KEYS[index], ARGV[1])
+    local total = redis.call('PFCOUNT', KEYS[index])
+    local reported = tonumber(redis.call('GET', KEYS[index + 1]) or '0')
+    redis.call('SET', KEYS[index + 1], math.max(total, reported), 'EX', ARGV[2])
+    redis.call('EXPIRE', KEYS[index], ARGV[2])
+    grew[#grew + 1] = math.max(total - reported, 0)
+end
+return grew
+`
 
 // Allowlist of metrics that surface as PostHog events when engagement-event capture is enabled.
 // Metrics not in this map are deliberately ignored (no `$messaging_${metricName}` fallback) so a new
@@ -296,7 +320,8 @@ export class EmailTrackingService {
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
         private sandboxEmailSender: SandboxEmailSender,
-        private emailStatusService: EmailStatusService | null = null
+        private emailStatusService: EmailStatusService | null = null,
+        private engagementRedis: RedisV2 | null = null
     ) {
         const allowedTopicArns = (process.env.SES_ALLOWED_SNS_TOPIC_ARNS ?? '').split(',')
         this.sesWebhookHandler = new SesWebhookHandler(
@@ -406,6 +431,27 @@ export class EmailTrackingService {
             },
             hogFlow ? 'hog_flow' : 'hog_function'
         )
+
+        if (parentRunId) {
+            for (const { metric, count } of await this.newEngagedPeople(
+                parentRunId,
+                invocationId,
+                metricName,
+                source
+            )) {
+                this.hogFunctionMonitoringService.queueAppMetric(
+                    {
+                        team_id: teamId,
+                        app_source_id: parentRunId,
+                        instance_id: instanceIdOverride || actionId || invocationId,
+                        metric_name: metric,
+                        metric_kind: 'email',
+                        count,
+                    },
+                    hogFlow ? 'hog_flow' : 'hog_function'
+                )
+            }
+        }
 
         const eventName = METRIC_NAME_TO_EVENT_NAME[metricName]
         if (eventName && distinctId && (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(teamId))) {
@@ -586,10 +632,13 @@ export class EmailTrackingService {
             // processed first so a delivery + bounce in the same batch nets out conservatively
             // (count resets, then the fresh bounce re-counts from a clean slate).
             try {
-                for (const { teamId, emailAddresses, timestamp } of deliveredRecipients || []) {
+                for (const { teamId, emailAddresses, timestamp, clearsGlobalHardBounces } of deliveredRecipients ||
+                    []) {
                     const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
                     if (parsedTeamId && !isNaN(parsedTeamId)) {
-                        await this.emailSuppressionService.recordDeliveries(parsedTeamId, emailAddresses, timestamp)
+                        await this.emailSuppressionService.recordDeliveries(parsedTeamId, emailAddresses, timestamp, {
+                            clearGlobal: clearsGlobalHardBounces ?? false,
+                        })
                     }
                 }
                 for (const { teamId, emailAddresses, diagnostic } of transientBounceRecipients || []) {
@@ -602,10 +651,22 @@ export class EmailTrackingService {
                         )
                     }
                 }
-                for (const { teamId, emailAddresses, diagnostic } of hardBounceRecipients || []) {
+                for (const {
+                    teamId,
+                    emailAddresses,
+                    diagnostic,
+                    nonexistentAddresses,
+                    bounceTimestamp,
+                } of hardBounceRecipients ?? []) {
                     const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
                     if (parsedTeamId && !isNaN(parsedTeamId)) {
                         await this.emailSuppressionService.recordHardBounces(parsedTeamId, emailAddresses, diagnostic)
+                        if (nonexistentAddresses) {
+                            await this.emailSuppressionService.recordGlobalHardBounces(
+                                nonexistentAddresses,
+                                bounceTimestamp
+                            )
+                        }
                     }
                 }
                 for (const { teamId, emailAddresses, feedbackType } of complainedRecipients || []) {
@@ -624,7 +685,7 @@ export class EmailTrackingService {
             return { status, message: body as string }
         } catch (error) {
             emailTrackingErrorsCounter.inc({ error_type: error.name || 'unknown' })
-            logger.error('[EmailService] handleWebhook: SES webhook error', { error })
+            logger.error('[EmailService] handleWebhook: SES webhook error', { error: serializeError(error) })
             throw error
         }
     }
@@ -664,6 +725,48 @@ export class EmailTrackingService {
                   })
                 : {}
         return Object.fromEntries(ids.map((id) => [id, onReplica[id] ?? onPrimary[id] ?? null]))
+    }
+
+    // How many people this open or click adds to each per-person metric of its run. One email goes to one person, so
+    // the email's invocation id stands for the person. A click also counts as an open, because the open pixel is often
+    // blocked. A HyperLogLog stays small for any audience and is about 1% off. When Redis fails, the counts read low.
+    private async newEngagedPeople(
+        parentRunId: string,
+        invocationId: string,
+        metricName: MinimalAppMetric['metric_name'],
+        source: 'direct' | 'ses'
+    ): Promise<{ metric: MinimalAppMetric['metric_name']; count: number }[]> {
+        const metrics = ENGAGEMENT_PERSON_METRICS[metricName]
+        if (!metrics || !this.engagementRedis) {
+            return []
+        }
+        const keys = metrics.flatMap((metric) => {
+            const key = `@posthog/email-engagement-people/{${parentRunId}}/${metric}`
+            return [key, `${key}/reported`]
+        })
+        let timer: NodeJS.Timeout | undefined
+        const grew = await Promise.race([
+            this.engagementRedis.useClient(
+                { name: 'email-engagement-people', failOpen: true },
+                (client) =>
+                    client.eval(
+                        ENGAGEMENT_PEOPLE_SCRIPT,
+                        keys.length,
+                        ...keys,
+                        invocationId,
+                        ENGAGEMENT_PEOPLE_TTL_SECONDS
+                    ) as Promise<number[]>
+            ),
+            new Promise<null>((resolve) => {
+                timer = setTimeout(() => resolve(null), ENGAGEMENT_REDIS_TIMEOUT_MS)
+            }),
+        ])
+        clearTimeout(timer)
+        if (!grew) {
+            emailTrackingErrorsCounter.inc({ error_type: 'engagement_people_not_counted', source })
+            return []
+        }
+        return metrics.map((metric, index) => ({ metric, count: grew[index] })).filter(({ count }) => count > 0)
     }
 
     private parseTrackingParams(query: Record<string, any>): {
