@@ -47,6 +47,13 @@ pub fn default_internal_source_policies() -> HashMap<String, InternalSourcePolic
                 team_rules: false,
             },
         ),
+        (
+            "session_replay".to_string(),
+            InternalSourcePolicy {
+                billed: false,
+                team_rules: false,
+            },
+        ),
     ])
 }
 

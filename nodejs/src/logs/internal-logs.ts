@@ -38,6 +38,7 @@ export type InternalLogs = InternalSourcePolicy & { source: string }
 export const INTERNAL_SOURCE_POLICIES: Readonly<Record<string, InternalSourcePolicy>> = {
     hog_flow: { billed: false, teamRules: false, serviceName: 'posthog-internal-workflows' },
     hog_function: { billed: false, teamRules: false, serviceName: 'posthog-internal-hog-functions' },
+    session_replay: { billed: false, teamRules: false, serviceName: 'posthog-internal-session-replay' },
 }
 
 type NotInternalReason =
