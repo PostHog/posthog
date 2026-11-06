@@ -79,6 +79,7 @@ export interface sourceManagementLogicValues {
     filteredDirectSources: ExternalDataSource[]
     filteredManagedSources: ExternalDataSource[]
     filteredSelfManagedTables: DatabaseSchemaDataWarehouseTable[]
+    hasSelfManagedTables: boolean
     hasZendeskSource: boolean
     managedSearchTerm: string
     managedSources: ExternalDataSource[]
@@ -231,6 +232,10 @@ export interface sourceManagementLogicMeta {
             selfManagedTables: DatabaseSchemaDataWarehouseTable[],
             searchTerm: string
         ) => DatabaseSchemaDataWarehouseTable[]
+        hasSelfManagedTables: (
+            selfManagedTables: DatabaseSchemaDataWarehouseTable[],
+            pendingSelfManagedTableIdsLoading: boolean
+        ) => boolean
         managedSources: (dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null) => ExternalDataSource[]
         directSources: (dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null) => ExternalDataSource[]
         filteredDirectSources: (directSources: ExternalDataSource[], directSearchTerm: string) => ExternalDataSource[]
@@ -411,6 +416,14 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
                 const normalizedSearch = searchTerm.toLowerCase()
                 return selfManagedTables.filter((table) => table.name.toLowerCase().includes(normalizedSearch))
             },
+        ],
+        // Until the pending ids load, tables that a managed source will import still count as self-managed.
+        hasSelfManagedTables: [
+            (s) => [s.selfManagedTables, s.pendingSelfManagedTableIdsLoading],
+            (
+                selfManagedTables: DatabaseSchemaDataWarehouseTable[],
+                pendingSelfManagedTableIdsLoading: boolean
+            ): boolean => !pendingSelfManagedTableIdsLoading && selfManagedTables.length > 0,
         ],
         managedSources: [
             (s) => [s.dataWarehouseSources],

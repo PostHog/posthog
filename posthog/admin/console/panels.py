@@ -61,6 +61,8 @@ class Operation:
     handler: OperationHandler
     danger: bool = False
     form_class: type[forms.Form] | None = None
+    # Starting values for the form, usually the record's current state, so an unchanged submit changes nothing.
+    form_initial: dict[str, object] | None = None
     description: str = ""
     undo_hint: str = ""
 

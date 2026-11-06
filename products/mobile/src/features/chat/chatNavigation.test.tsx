@@ -29,6 +29,7 @@ jest.mock('@/demo/demoMode', () => ({
 }))
 jest.mock('@/features/chat/draftPersistence', () => ({}))
 jest.mock('@/features/hedgehog/useHedgehogWidgetSync', () => ({ useHedgehogWidgetSync: jest.fn() }))
+jest.mock('@/features/widgets/useChartWidgetSync', () => ({ useChartWidgetSync: jest.fn() }))
 jest.mock('@/features/notifications/pushRegistration', () => ({ configureNotifications: jest.fn() }))
 jest.mock('@/features/notifications/usePushRegistration', () => ({ usePushRegistration: jest.fn() }))
 jest.mock('expo-notifications', () => ({
@@ -39,14 +40,14 @@ jest.mock('expo-notifications', () => ({
 jest.mock('@/features/notifications/pushSupport', () => ({ notificationsSupported: () => true }))
 jest.mock('@/features/notifications/taskLookup', () => ({ findTask: jest.fn() }))
 jest.mock('@/lib/posthogClient', () => ({ initAnalytics: jest.fn() }))
-jest.mock('@/features/chat/ChatScreen', () => {
+jest.mock('@/features/chat/ChatEntryScreen', () => {
     const { useEffect, useState } = jest.requireActual<typeof import('react')>('react')
     const { Button, Text, TextInput, View } = jest.requireActual<typeof import('react-native')>('react-native')
     const { setViewedNotificationTask } = jest.requireActual<
         typeof import('@/features/notifications/foregroundNotifications')
     >('@/features/notifications/foregroundNotifications')
     return {
-        ChatScreen: ({ initialTaskId, onBack }: { initialTaskId?: string; onBack: () => void }): ReactElement => {
+        ChatEntryScreen: ({ initialTaskId, onBack }: { initialTaskId?: string; onBack: () => void }): ReactElement => {
             const [taskId, setTaskId] = useState(initialTaskId)
             const [draft, setDraft] = useState('')
             useEffect(() => {
