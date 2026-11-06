@@ -9,17 +9,18 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { TransactionalEmailMetricsDateRange } from './TransactionalEmailMetricsDateRange'
 import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic'
+import { TransactionalEmailMetricTiles } from './TransactionalEmailMetricTiles'
 import { TransactionalEmailResults } from './TransactionalEmailResults'
 import { TransactionalEmailStatsTable } from './TransactionalEmailStatsTable'
 
 export function TransactionalEmailMetrics(): JSX.Element {
     const { templateStats, templateStatsLoading, domainStats, domainStatsLoading, statsFailed } =
         useValues(transactionalEmailMetricsLogic)
-    const { loadTemplateStats, loadDomainStats } = useActions(transactionalEmailMetricsLogic)
+    const { loadTemplateStats, loadDomainStats, loadStatsOverTime } = useActions(transactionalEmailMetricsLogic)
     const emptyState = statsFailed ? "The numbers couldn't load" : 'No transactional emails were sent in this period'
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="@container flex flex-col gap-4">
             {statsFailed && !templateStatsLoading && !domainStatsLoading && (
                 <LemonBanner
                     type="error"
@@ -28,6 +29,7 @@ export function TransactionalEmailMetrics(): JSX.Element {
                         onClick: () => {
                             loadTemplateStats()
                             loadDomainStats()
+                            loadStatsOverTime()
                         },
                         'data-attr': 'transactional-email-metrics-retry',
                     }}
@@ -35,10 +37,13 @@ export function TransactionalEmailMetrics(): JSX.Element {
                     The numbers couldn't load. Check your connection and try again.
                 </LemonBanner>
             )}
+            <SceneSection title="All transactional emails" actions={<TransactionalEmailMetricsDateRange />}>
+                <TransactionalEmailMetricTiles />
+            </SceneSection>
+            <SceneDivider />
             <SceneSection
                 title="By email"
                 description="Delivered and bounced are shares of what was sent. Marked as spam, opened and clicked are shares of what was delivered."
-                actions={<TransactionalEmailMetricsDateRange />}
             >
                 <TransactionalEmailStatsTable
                     id="by_email"

@@ -48,7 +48,7 @@ from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializ
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
+from posthog.constants import DEFAULT_SURVEY_APPEARANCE, SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
@@ -58,8 +58,14 @@ from posthog.helpers.trigram_search import (
     apply_trigram_search,
     drop_similar_when_exact_exists,
 )
+from posthog.ip_restrictions import ip_restrictions_exempt
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
-from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
+from posthog.models.activity_logging.activity_page import (
+    ActivityLogPaginatedResponseSerializer,
+    ActivityQueryParamsSerializer,
+    activity_page_response,
+    parse_activity_page_params,
+)
 from posthog.models.proxy_record import ProxyRecord
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -714,6 +720,18 @@ class SurveyTabPosition(models.TextChoices):
 LEGACY_SURVEY_POSITIONS = {"bottom-right": SurveyPosition.RIGHT.value}
 
 
+def thank_you_screen_defaults(team: Team) -> dict[str, Any]:
+    survey_config = team.survey_config if isinstance(team.survey_config, dict) else {}
+    team_appearance = survey_config.get("appearance")
+    if not isinstance(team_appearance, dict):
+        team_appearance = {}
+    defaults = {}
+    for field in ("displayThankYouMessage", "thankYouMessageHeader"):
+        team_value = team_appearance.get(field)
+        defaults[field] = DEFAULT_SURVEY_APPEARANCE[field] if team_value is None else team_value
+    return sanitize_survey_appearance(defaults)
+
+
 def normalize_survey_appearance(appearance: dict[str, Any]) -> dict[str, Any]:
     position = appearance.get("position")
     replacement = LEGACY_SURVEY_POSITIONS.get(position) if isinstance(position, str) else None
@@ -1090,6 +1108,7 @@ class SurveySerializer(SearchMatchTypeSerializerMixin, UserAccessControlSerializ
             "feature_flag_keys",
             "iteration_count",
             "iteration_frequency_days",
+            "repeat_until_stopped",
             "iteration_start_dates",
             "current_iteration",
             "current_iteration_start_date",
@@ -1243,6 +1262,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "responses_limit",
             "iteration_count",
             "iteration_frequency_days",
+            "repeat_until_stopped",
             "iteration_start_dates",
             "current_iteration",
             "current_iteration_start_date",
@@ -1391,8 +1411,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             )
         if normalized == base_language:
             raise serializers.ValidationError(
-                f"{context}: '{raw_key}' matches the survey's base language ('{base_language}'). "
-                "The original text already covers this language — translate to a different language."
+                f"{context}: '{raw_key}' matches the survey's base language ('{base_language}'), so the untranslated "
+                "text already covers it. Remove this translation, or set base_language to the language the untranslated "
+                "text is written in."
             )
         return normalized
 
@@ -1894,10 +1915,18 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         # updates where only base_language is sent (otherwise get_survey_api_translations would silently
         # drop the matching translation from the SDK payload, making it unreachable with no warning).
         incoming_base_language = data.get("base_language")
-        if incoming_base_language and "translations" not in data and self.instance is not None:
-            normalized_base = _normalize_language_code(incoming_base_language)
-            instance_translations = getattr(self.instance, "translations", None) or {}
-            for existing_key in instance_translations:
+        normalized_base = _normalize_language_code(incoming_base_language) if incoming_base_language else None
+        if (
+            normalized_base
+            and self.instance is not None
+            and normalized_base != _normalize_language_code(self.instance.base_language or DEFAULT_BASE_LANGUAGE)
+        ):
+            existing_keys = list(self.instance.translations or {}) if "translations" not in data else []
+            if "questions" not in data:
+                for question in self.instance.questions or []:
+                    if isinstance(question, dict) and isinstance(question.get("translations"), dict):
+                        existing_keys.extend(question["translations"])
+            for existing_key in existing_keys:
                 if isinstance(existing_key, str) and _normalize_language_code(existing_key) == normalized_base:
                     raise serializers.ValidationError(
                         {
@@ -1911,14 +1940,15 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         self._reconcile_schedule_with_iterations(data)
         return data
 
-    @staticmethod
-    def _reconcile_schedule_with_iterations(validated_data: dict) -> None:
+    def _reconcile_schedule_with_iterations(self, validated_data: dict) -> None:
         # The edit form reads `schedule` while update_survey_iteration reads the iteration columns,
         # so the two must agree or the survey repeats while presenting itself as one-shot.
+        if "repeat_until_stopped" in validated_data and validated_data["repeat_until_stopped"] is None:
+            validated_data["repeat_until_stopped"] = False
         schedule = validated_data.get("schedule")
         if (
             schedule is None
-            and validated_data.get("iteration_count")
+            and (validated_data.get("iteration_count") or validated_data.get("repeat_until_stopped"))
             and validated_data.get("iteration_frequency_days")
         ):
             # Iteration fields alone have always configured repeats, so keep the caller's values.
@@ -1927,12 +1957,52 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             # An explicit null counts as non-recurring: the edit form reads it as "Once".
             validated_data["iteration_count"] = None
             validated_data["iteration_frequency_days"] = None
+            validated_data["repeat_until_stopped"] = False
+            return
+
+        if validated_data.get("repeat_until_stopped"):
+            validated_data["iteration_count"] = None
+            validated_data["schedule"] = Survey.Schedule.RECURRING
+        elif validated_data.get("iteration_count") is not None:
+            # Any explicit count, including 0 (repeats off), replaces an open-ended schedule.
+            validated_data["repeat_until_stopped"] = False
+        elif "repeat_until_stopped" in validated_data and self._ends_open_ended_schedule_without_a_count(
+            validated_data
+        ):
+            raise serializers.ValidationError(
+                {"repeat_until_stopped": "Set iteration_count to give a recurring schedule a final repeat."}
+            )
+
+        if self._effective(validated_data, "repeat_until_stopped") and not self._effective(
+            validated_data, "iteration_frequency_days"
+        ):
+            raise serializers.ValidationError(
+                {"iteration_frequency_days": "Set a number of days between repeats to repeat until stopped."}
+            )
+
+    def _effective(self, validated_data: dict, field: str) -> Any:
+        if field in validated_data:
+            return validated_data[field]
+        return getattr(self.instance, field, None)
+
+    def _ends_open_ended_schedule_without_a_count(self, validated_data: dict) -> bool:
+        if self.instance is None or not self.instance.repeat_until_stopped:
+            return False
+        return (
+            self._effective(validated_data, "schedule") == Survey.Schedule.RECURRING
+            and not self.instance.iteration_count
+        )
 
     def create(self, validated_data):
         if "remove_targeting_flag" in validated_data:
             validated_data.pop("remove_targeting_flag")
 
-        validated_data["team_id"] = self.context["team_id"]
+        team = Team.objects.get(id=self.context["team_id"])
+        validated_data["team_id"] = team.id
+        validated_data["appearance"] = {
+            **thank_you_screen_defaults(team),
+            **(validated_data.get("appearance") or {}),
+        }
         if validated_data.get("targeting_flag_id"):
             # Attaching an existing flag takes write control of it: its active state is later
             # synced to the survey's lifecycle (start/stop/archive). Require feature_flag:write
@@ -1972,7 +2042,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             self._associate_actions(instance, validated_data.get("conditions"))
             self._add_internal_response_sampling_filters(instance)
 
-        team = Team.objects.get(id=self.context["team_id"])
         log_activity(
             organization_id=team.organization_id,
             team_id=self.context["team_id"],
@@ -2084,10 +2153,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     )
                     validated_data["targeting_flag_id"] = new_flag.id
                 validated_data.pop("targeting_flag_filters")
-
-            if iteration_count is not None:
-                instance.iteration_count = iteration_count
-                instance.iteration_frequency_days = validated_data.get("iteration_frequency_days")
 
             instance = super().update(instance, validated_data)
 
@@ -2213,7 +2278,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         should_flag_be_active = self._should_survey_flags_be_active(instance)
 
         survey_key = f"{instance.id}"
-        if instance.iteration_count is not None and instance.iteration_count > 0:
+        if (instance.iteration_count or 0) > 0 or instance.repeats_on_schedule:
             survey_key = f"{instance.id}/{instance.current_iteration or 1}"
 
         base_properties = [
@@ -2397,7 +2462,8 @@ class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
         allow_null=True,
         help_text=(
             "Survey scheduling behavior: 'once' = show once per user (default), "
-            "'recurring' = repeat based on iteration_count and iteration_frequency_days settings, "
+            "'recurring' = repeat every iteration_frequency_days, either iteration_count times or until stopped "
+            "(repeat_until_stopped), "
             "'always' = show every time conditions are met (mainly for widget surveys)"
         ),
     )
@@ -2411,7 +2477,7 @@ class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
         allow_null=True,
         max_value=MAX_ITERATION_COUNT,
         min_value=1,
-        help_text="For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.",
+        help_text="For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it.",
     )
     iteration_frequency_days = serializers.IntegerField(
         required=False,
@@ -3136,6 +3202,10 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
 
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
+    @extend_schema(
+        parameters=[ActivityQueryParamsSerializer],
+        responses={200: ActivityLogPaginatedResponseSerializer},
+    )
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
         page_params = parse_activity_page_params(request)
@@ -3596,6 +3666,7 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
                         "responses_limit": source_survey.responses_limit,
                         "iteration_count": source_survey.iteration_count,
                         "iteration_frequency_days": source_survey.iteration_frequency_days,
+                        "repeat_until_stopped": source_survey.repeat_until_stopped,
                         "schedule": source_survey.schedule,
                         "enable_partial_responses": source_survey.enable_partial_responses,
                     }
@@ -4012,6 +4083,7 @@ def _is_another_organizations_proxy_domain(request: HttpRequest, survey: Survey)
 
 @csrf_exempt
 @axes_dispatch
+@ip_restrictions_exempt
 def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
     """
     Server-side rendered public survey page with security and performance optimizations
@@ -4083,6 +4155,8 @@ def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
 
     serializer = SurveyAPISerializer(survey)
     survey_data = serializer.data
+    if survey_data.get("appearance") is None:
+        survey_data["appearance"] = thank_you_screen_defaults(survey.team)
     context = {
         "name": survey.name,
         "survey_id": survey_id,
@@ -4128,7 +4202,11 @@ def create_flag_with_survey_errors():
         if matching_errors:
             original_detail = str(matching_errors[0].get("message"))
             raise serializers.ValidationError(
-                detail=original_detail.replace("feature flags", "surveys"),
+                detail=(
+                    f"{original_detail.replace('feature flags', 'surveys')} To show the survey after someone does an "
+                    "event, add an event trigger to the survey's display conditions. To keep this audience, duplicate "
+                    "the cohort as a static cohort and target that."
+                ),
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
             )
         raise
