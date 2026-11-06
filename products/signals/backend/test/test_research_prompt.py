@@ -78,6 +78,8 @@ class TestRenderSignalForResearch:
         )
         assert ("Use repository ownership files" in presentation) is code_available
         assert ("inspect their relevant changes" in presentation) is code_available
+        assert ("2 ** (-max(0, age_in_days) / 30)" in presentation) is code_available
+        assert ("git log --format='%h %aI %an %s'" in presentation) is code_available
         followup = build_signal_investigation_prompt(_make_signal({}), 2, 2, code_available=code_available)
         for finding_prompt in [prompt, followup]:
             schema = json.loads(finding_prompt.split("<jsonschema>")[1].split("</jsonschema>")[0])
@@ -572,6 +574,9 @@ class TestBuildReportPresentationPrompt:
         assert "owners.yaml" not in prompt
         assert ("Match reviewer UUIDs" in prompt) == enabled
         assert ("not a global ban" in prompt) == enabled
+        assert ("Read their `teams` and `activity`" in prompt) == enabled
+        assert ("An explicit departure or transfer" in prompt) == enabled
+        assert ("Current maintainers can still be the right reviewers" in prompt) == enabled
 
     def test_metric_guidance_and_schema_field_only_present_when_enabled(self):
         off = build_report_presentation_prompt(2, metrics_enabled=False)

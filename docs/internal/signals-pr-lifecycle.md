@@ -307,6 +307,13 @@ It also reads relevant notes, older activity logs when available, and `reviewer:
 Corrections apply only to the affected area. Research does not save its own choices as reviewer memory.
 Research and scouts check each candidate against the affected behavior or entity.
 For code reports, they inspect specific ownership rules and substantive implementation or review work.
+Research compares each candidate's current teams and activity with the affected work, including the activity summary's age and stale marker.
+An explicit departure or transfer takes precedence over older authorship and an outdated ownership file.
+A different team or missing recent activity alone does not establish a departure; a current maintainer can own stable code without recent commits.
+Research retains original author dates and weights equally relevant changes by `2 ** (-max(0, age_in_days) / 30)`.
+This reduces historical commit evidence by half every 30 days, after checking relevance and current responsibility.
+It does not turn commit volume into ownership or refresh old evidence when a change merges or rebases.
+Selection reasons include the dates of cited changes and explain conflicts with current responsibility.
 Broad directory activity, commit counts, mechanical changes, and team roster order alone do not establish responsibility.
 Each reason names the affected behavior and cites its source. Responsibility and review expertise are distinct reasons to include someone.
 Recipients are ordered by relevance, with at most three. Agents can return fewer recipients or none when evidence is insufficient.

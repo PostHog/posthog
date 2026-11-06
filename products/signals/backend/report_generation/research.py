@@ -5,6 +5,7 @@ import json
 import asyncio
 import logging
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from html import escape
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
@@ -127,7 +128,12 @@ class ReportLayer(BaseModel):
 class ResearchReviewer(BaseModel):
     user_uuid: UUID = Field(description="Project member UUID returned by scout-members-list. Never invent an identity.")
     reason: str = Field(
-        min_length=1, max_length=500, description="Evidence that this person should review this report."
+        min_length=1,
+        max_length=500,
+        description=(
+            "Evidence of current responsibility or relevant review expertise. "
+            "Include dates for changes used as evidence and explain any conflict with current ownership."
+        ),
     )
 
 
@@ -1479,7 +1485,14 @@ def build_report_presentation_prompt(
     if reviewer_selection_enabled:
         reviewer_evidence = (
             "Use repository ownership files, CODEOWNERS when present, relevant code history, and report evidence to find candidates.\n"
-            "Use broader paths to find candidates, then inspect their relevant changes. Directory depth alone is not evidence."
+            "Use broader paths to find candidates, then inspect their relevant changes. Directory depth alone is not evidence.\n"
+            "Keep author dates when you inspect history: `git log --format='%h %aI %an %s' -- <affected paths>`.\n"
+            "For equally relevant substantive changes, weight each by `2 ** (-max(0, age_in_days) / 30)`.\n"
+            "A change from 30, 60, 90, or 120 days ago has weight 0.5, 0.25, 0.125, or 0.0625.\n"
+            "Use the original author date, so a recent merge or rebase does not refresh old work.\n"
+            "Do not replace dated evidence with author counts over a flat time window. An undated change is not recent evidence.\n"
+            "Apply this weighting only after you check relevance and current responsibility. It is not an ownership score.\n"
+            "Old blame can explain the defect without making its author a suitable reviewer now."
             if code_available
             else "Use project context, report evidence, and human reviewer corrections to find project members.\n"
             "Use evidence about the affected behavior or entity to establish responsibility."
@@ -1487,9 +1500,17 @@ def build_report_presentation_prompt(
         visual_sections.append(f"""## Select reviewers
 
 Return `reviewer_decision` after you check who should act on this report.
+The selection date is {datetime.now(UTC).date().isoformat()} (UTC).
 {reviewer_evidence}
 Identify the affected behavior or entity, and the specific files or component when code is involved.
 For each candidate, check current responsibility or substantive work on that behavior, such as an implementation or review.
+Read their `teams` and `activity` from `scout-members-list`, including `generated_at` and `stale` when available.
+Compare that context with the affected work before selecting them. Do not just use the roster to copy a UUID.
+A fresh activity summary about another area weakens old authorship as evidence of current responsibility.
+Missing or stale activity, a different team, or no recent commits alone does not prove that a person left the area.
+An explicit departure or transfer for the affected area takes precedence over older history and an outdated ownership file.
+Do not include a former owner as an extra expert without new evidence of involvement after that change.
+Current maintainers can still be the right reviewers for stable code with no recent changes.
 Do not select a person based only on broad directory activity, commit counts, job titles, or mechanical edits.
 If an ownership rule names a team, check individual evidence; do not select the first members in the roster.
 First read `recent_reviewer_corrections` from `scout-project-profile-get`. It lists recent human reviewer edits on every plan.
@@ -1510,7 +1531,8 @@ Use `scout-members-list` to verify each candidate's project membership and copy 
 You can search by name or filter by team. Do not guess a UUID or infer a GitHub login from a display name.
 Order reviewers by the strength of their relevance to this report. Keep at most three; do not fill unused places.
 Each additional person needs evidence of a relevant responsibility or expertise.
-Give each person a short reason that names the affected behavior and cites an ownership rule, change, entity, or human correction.
+Give each person a short reason that names the affected behavior and cites current responsibility or review expertise.
+Include dates for changes used as evidence. Explain any conflict with current teams, activity, ownership rules, or human corrections.
 Distinguish owning the affected work from contributing relevant review expertise. Do not infer either from activity alone.
 If no eligible person fits, return an empty `reviewers` list and explain why in `reason`.
 This includes cases where only broad activity or mechanical edits connect candidates to the report.
