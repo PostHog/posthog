@@ -98,7 +98,6 @@ describe('LogsIngestionConsumer thread relief', () => {
             [JSON.stringify({ pii_scrub_logs: true, json_parse_logs: true }), team.id],
             'updateTeamLogsForThreadRelief'
         )
-        hub.teamManager['lazyLoader'].markForRefresh(String(team.id))
 
         consumer = new LogsIngestionConsumer(hub, {
             ...hub,

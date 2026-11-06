@@ -8,7 +8,9 @@ from parameterized import parameterized
 
 from products.warehouse_sources.sources.polar import polar as polar_module
 from products.warehouse_sources.sources.polar._config import PolarSourceConfig
-from products.warehouse_sources.sources.polar.source import PolarSource
+from products.warehouse_sources.sources.polar.polar import NO_READABLE_SCOPE_MESSAGE
+from products.warehouse_sources.sources.polar.settings import ENDPOINTS
+from products.warehouse_sources.sources.polar.source import INVALID_TOKEN_MESSAGE, PolarSource
 from products.warehouse_sources.sources.sdk import DEFAULT_RETRY
 from products.warehouse_sources.sources.sdk.testing import error_message_matches
 
@@ -90,15 +92,45 @@ class TestPolarRetryableErrors:
 
 
 class TestPolarValidateCredentials:
-    def test_invalid_token_maps_401_without_leaking_url(self) -> None:
+    @parameterized.expand(
+        [
+            ("connect_invalid_token", None, [401] * len(ENDPOINTS), False, INVALID_TOKEN_MESSAGE),
+            ("connect_no_readable_scope", None, [403] * len(ENDPOINTS), False, NO_READABLE_SCOPE_MESSAGE),
+            ("connect_one_readable_scope_is_enough", None, [403, 403, 200], True, None),
+            (
+                "connect_forbidden_then_invalid_token",
+                None,
+                [403] + [401] * (len(ENDPOINTS) - 1),
+                False,
+                INVALID_TOKEN_MESSAGE,
+            ),
+            (
+                "table_missing_its_scope",
+                "orders",
+                [403],
+                False,
+                "Your Polar Organization Access Token can't read orders. "
+                "Create a token with the orders:read scope, then reconnect.",
+            ),
+            ("table_invalid_token", "orders", [401], False, INVALID_TOKEN_MESSAGE),
+        ]
+    )
+    def test_maps_probe_failures_to_actionable_messages(
+        self,
+        _name: str,
+        schema_name: Optional[str],
+        statuses: list[int],
+        expected_ok: bool,
+        expected_error: Optional[str],
+    ) -> None:
         session = MagicMock()
-        session.request.return_value = _FakeResponse(401)
+        session.request.side_effect = [_FakeResponse(status) for status in statuses]
         with patch.object(polar_module, "_get_polar_session", return_value=session):
-            ok, error = PolarSource().validate_credentials(PolarSourceConfig(polar_api_key="polar_oat_test"), team_id=1)
-        assert ok is False
-        assert error is not None
-        assert "api.polar.sh" not in error
-        assert "invalid or expired" in error
+            ok, error = PolarSource().validate_credentials(
+                PolarSourceConfig(polar_api_key="polar_oat_test"), team_id=1, schema_name=schema_name
+            )
+        assert ok is expected_ok
+        assert error == expected_error
 
 
 class TestPolarApiVersion:

@@ -3,9 +3,8 @@ Temporal registration wiring for batch_exports.
 
 Re-exports what core registers with Temporal: the worker bootstrap commands
 (``start_temporal_worker``, ``start_temporal_workflow``, ``execute_temporal_workflow``)
-take ``WORKFLOWS`` and ``ACTIVITIES``, ``posthog/temporal/common/worker.py`` takes the
-metrics interceptor, and the shared Temporal test conftest and payload-codec test take
-the no-op workflow and its activity.
+take ``WORKFLOWS`` and ``ACTIVITIES``, and ``posthog/temporal/common/worker.py`` takes the
+metrics interceptor.
 
 Names resolve lazily (PEP 562), mirroring ``backend/temporal/__init__.py``. Eager imports
 here would put every destination's vendor SDK (databricks, snowflake, bigquery, ...) on
@@ -17,7 +16,6 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
-    from products.batch_exports.backend.temporal.noop import NoOpWorkflow, noop_activity
     from products.batch_exports.backend.temporal.workflows import ACTIVITIES, WORKFLOWS
 
 _B = "products.batch_exports.backend.temporal."
@@ -26,16 +24,12 @@ _LAZY = {
     "ACTIVITIES": "workflows",
     "WORKFLOWS": "workflows",
     "BatchExportsMetricsInterceptor": "metrics",
-    "NoOpWorkflow": "noop",
-    "noop_activity": "noop",
 }
 
 __all__ = [
     "ACTIVITIES",
     "WORKFLOWS",
     "BatchExportsMetricsInterceptor",
-    "NoOpWorkflow",
-    "noop_activity",
 ]
 
 
