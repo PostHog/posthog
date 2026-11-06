@@ -12698,9 +12698,12 @@ def forward_thread_message(
         author = message.author
         author_name = (author.get_full_name() or author.email) if author else "A teammate"
         content = f"[Thread comment from {author_name}] {message.content}"
-        signal_result = signal_task_run_user_message(
-            run.id, task.id, team_id, content=content, artifact_ids=[], actor_user_id=user_id
-        )
+        try:
+            signal_result = signal_task_run_user_message(
+                run.id, task.id, team_id, content=content, artifact_ids=[], actor_user_id=user_id
+            )
+        except TaskDoneError:
+            return "no_run", None
         if not signal_result:
             return "signal_failed", None
 
