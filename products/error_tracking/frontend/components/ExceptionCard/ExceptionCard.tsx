@@ -13,6 +13,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tabs, TabsList, TabsTrigger } from 'lib/ui/quill'
 
 import { ViewLogsButton } from 'products/logs/frontend/components/ViewLogsButton'
+import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
 
 import { ExceptionCardFooter } from './ExceptionCardFooter'
 import { exceptionCardLogic } from './exceptionCardLogic'
@@ -90,6 +91,7 @@ function ExceptionCardContent({
     const { sessionId, spanId, traceId } = useValues(errorPropertiesLogic)
     const { setCurrentTab } = useActions(exceptionCardLogic)
     const logsEnabled = useFeatureFlag('LOGS_IN_ERROR_TRACKING')
+    const openTraceDialog = useOpenTraceDialog()
     const headerRef = useRef<HTMLDivElement>(null)
 
     // Base UI scrolls the active tab into view on mount and on keyboard navigation, but not when the
@@ -201,6 +203,16 @@ function ExceptionCardContent({
                                 timestamp={timestamp}
                                 size="xsmall"
                                 data-attr="error-tracking-view-trace"
+                                onClick={(event) => {
+                                    const usableTraceId = usableId(traceId)
+                                    if (usableTraceId) {
+                                        openTraceDialog(
+                                            event,
+                                            { traceId: usableTraceId, spanId: usableId(spanId), ts: timestamp },
+                                            { entryPoint: 'exception' }
+                                        )
+                                    }
+                                }}
                             />
                             {sessionId && (currentTab === 'timeline' || currentTab === 'recording') ? (
                                 <ViewLogsButton
