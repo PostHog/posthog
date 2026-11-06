@@ -33,7 +33,7 @@ export function TabsChrome(): ReactElement {
     const [confirmingSignOut, setConfirmingSignOut] = useState(false)
     const scope = useProjectScope()
     const status = usePostHogStatus(scope?.host)
-    // The pinned list's tab has no menu of its own, so its Unpin toast draws from here, inside the tabs' overlay host.
+    // A list's tab has no menu of its own, so its pin toast draws from here, inside the tabs' overlay host.
     const toasts = useNavToasts()
 
     const closeMenu = (): void => {
@@ -54,14 +54,16 @@ export function TabsChrome(): ReactElement {
     const editPins = slot?.editPins ?? null
     const pins = useNavPins()
     const productFlags = useMobileProductFlags()
-    // A list unpinned from its own tab keeps its slot until the person leaves, but no longer offers Unpin.
-    const list = isNavPin(tab) && navPinEnabled(tab, productFlags) && pins.includes(tab) ? tab : null
+    // An unpinned list's tab (a start page, or just unpinned) offers Pin instead of Unpin.
+    const list = isNavPin(tab) && navPinEnabled(tab, productFlags) ? tab : null
+    const listPinned = list !== null && pins.includes(list)
     const listUrl = list ? navListWebUrl(scope, list) : undefined
     const webUrl = listUrl ? safeHttpsUrl(listUrl) : undefined
     const navList = list && {
-        onUnpin: () => {
+        pinned: listPinned,
+        onTogglePin: () => {
             setMenuOpen(false)
-            changeNavPin(list, false, 'list_menu', toasts.show)
+            changeNavPin(list, !listPinned, 'list_menu', toasts.show)
         },
         onOpenWeb: webUrl
             ? () => {

@@ -295,6 +295,26 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
         expect(screen.getByTestId(`nav-pin-${pin}`).props.accessibilityState).toEqual({ selected: true })
     })
 
+    test('offers Pin to navigation on an unpinned start page tab and pins it', async () => {
+        await renderRouter(
+            {
+                '(tabs)/_layout': TabsLayout,
+                '(tabs)/inbox': InboxStub,
+                '(tabs)/chats': ChatsStub,
+                '(tabs)/views': ViewsStub,
+                ...LIST_TABS,
+            },
+            { initialUrl: '/live' }
+        )
+        fireEvent.press(screen.getByTestId('tabs-more'))
+
+        expect(screen.queryByTestId('nav-list-unpin')).toBeNull()
+        fireEvent.press(screen.getByTestId('nav-list-pin'))
+
+        expect(useNavPinStore.getState().pins).toEqual(['live'])
+        expect(screen.getByTestId('views-toast')).toBeTruthy()
+    })
+
     test.each([
         { width: 402, height: 874 },
         { width: 951, height: 669 },
