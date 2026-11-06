@@ -2481,7 +2481,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         path: 'AI visibility',
         intents: [ProductKey.WEB_ANALYTICS],
         category: ProductItemCategory.ANALYTICS,
-        iconType: 'web_analytics',
+        iconType: 'ai_visibility',
         iconColor: ['var(--color-product-web-analytics-light)'] as FileSystemIconColor,
         href: urls.aiVisibility(),
         flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,

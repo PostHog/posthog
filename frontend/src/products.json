@@ -280,7 +280,7 @@
         {
             "path": "AI visibility",
             "category": "Analytics",
-            "iconType": "web_analytics",
+            "iconType": "ai_visibility",
             "type": null,
             "intents": ["web_analytics"]
         },
