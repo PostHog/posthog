@@ -110,8 +110,6 @@ def update_native(
 
     Raises `InvalidPlatformAlertEdit` for an edit the platform's logs schema rejects.
     """
-
-    # The same settings a logs row carries onto its copy, so the two kinds of alert edit alike.
     for field, value in changes.items():
         setattr(alert, field, value)
 
