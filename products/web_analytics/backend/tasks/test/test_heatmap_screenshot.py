@@ -403,7 +403,9 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
         assert body["viewport"]["isMobile"] is is_mobile
         assert body["options"]["fullPage"] is True
         assert body["options"]["type"] == "jpeg"
-        assert body["scrollPage"] is True
+        assert body["scrollPage"] is False
+        assert body["waitForFunction"]["timeout"] == 30_000
+        assert "addScriptTag" not in body
         assert body["blockConsentModals"] is True
         assert "cookies" not in body
         assert "blockAds" not in body
