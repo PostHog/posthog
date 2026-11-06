@@ -145,8 +145,8 @@ export interface slackAppWorkspaceSetupLogicActions {
         step: WorkspaceSetupStepKey,
         error: string
     ) => {
-        step: SlackSetupStepKeyEnumApi
         error: string
+        step: SlackSetupStepKeyEnumApi
     }
 }
 
