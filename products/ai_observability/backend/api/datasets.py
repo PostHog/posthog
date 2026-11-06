@@ -13,7 +13,6 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema_field
 from rest_framework import serializers, status
 from rest_framework.decorators import action
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -23,6 +22,7 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.api.documentation import extend_schema
 from posthog.api.fields import RepeatedOrCommaSeparatedListField
 from posthog.api.monitoring import monitor
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import InternalAPIAuthentication
@@ -544,17 +544,17 @@ class DatasetItemRetrieveQuerySerializer(serializers.Serializer):
     )
 
 
-class DatasetPagination(LimitOffsetPagination):
+class DatasetPagination(BoundedLimitOffsetPagination):
     default_limit = 50
     max_limit = 100
 
 
-class DatasetItemPagination(LimitOffsetPagination):
+class DatasetItemPagination(BoundedLimitOffsetPagination):
     default_limit = 10
     max_limit = 25
 
 
-class DatasetItemVersionPagination(LimitOffsetPagination):
+class DatasetItemVersionPagination(BoundedLimitOffsetPagination):
     default_limit = 25
     max_limit = 100
 
@@ -1153,6 +1153,8 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 archived=archived,
             ).values("id")
             queryset = _item_version_queryset().filter(
+                team_id=self.team.id,
+                dataset_id=dataset.id,
                 id__in=Subquery(version_ids),
             )
 

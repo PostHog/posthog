@@ -340,12 +340,14 @@ describe('loginLogic', () => {
     describe('available login methods', () => {
         let logic: ReturnType<typeof loginLogic.build>
         let precheckResponse: Record<string, any>
+        let resetHandler: jest.Mock
         const originalVendor = window.navigator.vendor
 
         beforeEach(() => {
             setVendor(WEBKIT_VENDOR) // skip the passkey auto-trigger, isolate the precheck response
             precheckResponse = { saml_available: false }
-            useMocks({ post: { '/api/login/precheck': () => [200, precheckResponse] } })
+            resetHandler = jest.fn(() => [200, { success: true }])
+            useMocks({ post: { '/api/login/precheck': () => [200, precheckResponse], '/api/reset/': resetHandler } })
             initKeaTests()
             router.actions.push('/login')
             logic = loginLogic()
@@ -358,9 +360,10 @@ describe('loginLogic', () => {
             jest.clearAllMocks()
         })
 
-        async function precheck(response: Record<string, any>): Promise<void> {
+        async function precheck(response: Record<string, any>, email = 'user@example.com'): Promise<void> {
             precheckResponse = response
-            logic.actions.precheck({ email: 'user@example.com' })
+            logic.actions.setLoginValues({ email })
+            logic.actions.precheck({ email })
             await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
         }
 
@@ -406,7 +409,7 @@ describe('loginLogic', () => {
             })
             expect(logic.values.availableLoginMethods).toEqual(['passkey'])
             expect(logic.values.hasNoConfiguredLoginMethod).toBe(false)
-            expect(logic.values.restrictToProviders).toEqual([])
+            expect(logic.values.restrictToProviders).toBe(null)
         })
 
         it('offers SAML for a passwordless account on a SAML domain', async () => {
@@ -426,11 +429,28 @@ describe('loginLogic', () => {
             expect(logic.values.hasNoConfiguredLoginMethod).toBe(false)
         })
 
-        it('reports a dead end for a passwordless account with nothing else', async () => {
+        it('offers every provider and a set-password email to a passwordless account with nothing linked', async () => {
             await precheck({ saml_available: false, password_login_available: false, social_providers: [] })
             expect(logic.values.isPasswordLoginUnavailable).toBe(true)
             expect(logic.values.availableLoginMethods).toEqual([])
             expect(logic.values.hasNoConfiguredLoginMethod).toBe(true)
+            expect(logic.values.restrictToProviders).toBe(null)
+
+            logic.actions.sendSetPasswordLink('user@example.com')
+            await expectLogic(logic).toDispatchActions(['sendSetPasswordLinkSuccess'])
+
+            expect(resetHandler).toHaveBeenCalledTimes(1)
+            expect(logic.values.setPasswordLinkSentTo).toBe('user@example.com')
+        })
+
+        it('ignores a passwordless precheck once the email in the field changes', async () => {
+            await precheck({ saml_available: false, password_login_available: false, social_providers: [] })
+
+            logic.actions.setLoginValues({ email: 'other@example.com' })
+
+            expect(logic.values.isPasswordLoginUnavailable).toBe(false)
+            expect(logic.values.hasNoConfiguredLoginMethod).toBe(false)
+            expect(logic.values.restrictToProviders).toBe(null)
         })
 
         it('defers entirely to enforced SSO', async () => {

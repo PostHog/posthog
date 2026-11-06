@@ -25,7 +25,6 @@ import { useChartDraw } from './hooks/useChartDraw'
 import { useChartInteraction } from './hooks/useChartInteraction'
 import { useChartMargins } from './hooks/useChartMargins'
 import { useChartScales } from './hooks/useChartScales'
-import { useLatest } from './hooks/useLatest'
 import { useStableResolveValue } from './hooks/useStableResolveValue'
 import { useYAxisMaps } from './hooks/useYAxisMaps'
 import { useResolvedChartTheme } from './theme'
@@ -329,10 +328,8 @@ export function Chart<Meta = unknown>({
         resolveHoverIndex,
     })
 
-    // ref keeps composedDrawHover stable across drawHover identity changes
-    const drawHoverRef = useLatest(drawHover)
     const composedDrawHover = useMemo(() => {
-        const withCrosshair = composeDrawHoverWithCrosshair(() => drawHoverRef.current, {
+        const withCrosshair = composeDrawHoverWithCrosshair(drawHover, {
             crosshairColor: theme.crosshairColor,
             crosshairDash: theme.crosshairDashPattern,
             showCrosshair,
@@ -340,14 +337,7 @@ export function Chart<Meta = unknown>({
             labelToCoord,
         })
         return composeDrawHoverWithSelection(withCrosshair)
-    }, [
-        showCrosshair,
-        theme.crosshairColor,
-        theme.crosshairDashPattern,
-        axisOrientation,
-        labelToCoord,
-        drawHoverRef.current,
-    ])
+    }, [showCrosshair, theme.crosshairColor, theme.crosshairDashPattern, axisOrientation, labelToCoord, drawHover])
 
     useChartDraw({
         ctx,

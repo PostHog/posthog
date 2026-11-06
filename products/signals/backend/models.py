@@ -1492,11 +1492,13 @@ class SignalReportArtefact(UUIDModel):
         COMMIT = "commit"
         TASK_RUN = "task_run"
         NOTE = "note"
+        SCOUT_NOTE_LEFT = "scout_note_left"
         TITLE_CHANGE = "title_change"
         SUMMARY_CHANGE = "summary_change"
         CODE_REVIEW = "code_review"
         RELATED_TO = "related_to"
         REPORT_LINK = "report_link"
+        SOURCE_ISSUE = "source_issue"
         AUTOSTART_SKIP = "autostart_skip"
         WORK_CLAIM = "work_claim"
         WORK_RELEASE = "work_release"
@@ -1565,11 +1567,13 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.COMMIT,
             ArtefactType.TASK_RUN,
             ArtefactType.NOTE,
+            ArtefactType.SCOUT_NOTE_LEFT,
             ArtefactType.TITLE_CHANGE,
             ArtefactType.SUMMARY_CHANGE,
             ArtefactType.CODE_REVIEW,
             ArtefactType.RELATED_TO,
             ArtefactType.REPORT_LINK,
+            ArtefactType.SOURCE_ISSUE,
             ArtefactType.AUTOSTART_SKIP,
             ArtefactType.IMPLEMENTATION_REPLACEMENT,
             ArtefactType.IMPLEMENTATION_HANDOVER,
@@ -1843,7 +1847,9 @@ class SignalReportArtefact(UUIDModel):
                     claim_id=claim_id,
                 )
                 if reevaluate_autostart and (not update.protected or rules.effects_enabled):
-                    cls._schedule_autostart_reevaluation(team_id=team_id, report_id=str(report_id))
+                    cls._schedule_autostart_reevaluation(
+                        team_id=team_id, report_id=str(report_id), triggering_user_id=attribution.user_id
+                    )
                 return artefact
         return cls._create(
             team_id=team_id, report_id=report_id, content=content, attribution=attribution, claim_id=claim_id
@@ -1958,7 +1964,9 @@ class SignalReportArtefact(UUIDModel):
         )
 
     @staticmethod
-    def _schedule_autostart_reevaluation(*, team_id: int, report_id: str) -> None:
+    def _schedule_autostart_reevaluation(
+        *, team_id: int, report_id: str, triggering_user_id: int | None = None
+    ) -> None:
         """After the current transaction commits, re-evaluate auto-start for the report.
 
         Changing a report's suggested reviewers can newly satisfy auto-start (e.g. adding a
@@ -1972,7 +1980,9 @@ class SignalReportArtefact(UUIDModel):
             from products.signals.backend import auto_start
 
             try:
-                async_to_sync(auto_start.maybe_autostart_from_report_artefacts)(team_id=team_id, report_id=report_id)
+                async_to_sync(auto_start.maybe_autostart_from_report_artefacts)(
+                    team_id=team_id, report_id=report_id, triggering_user_id=triggering_user_id
+                )
             except Exception:
                 logger.exception(
                     "signals reviewer-change auto-start re-evaluation failed", extra={"report_id": report_id}
@@ -3857,6 +3867,7 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
         REPORT_DISCUSSION = "report_discussion", "Derived from inbox discussion feedback"
         REPORT_FEEDBACK = "report_feedback", "Derived from inbox report feedback"
         REPORT_REVIEWER_CORRECTION = "report_reviewer_correction", "Derived from an inbox reviewer correction"
+        REPORT_NOTE = "report_note", "Left from an inbox report"
 
     @classmethod
     def derived_origins(cls) -> tuple[str, ...]:
@@ -4132,6 +4143,9 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     accounting_failed = models.BooleanField(default=False)
     finalized_at = models.DateTimeField(null=True, blank=True, db_index=True)
     billing_exempt = models.BooleanField(default=False, db_default=False)
+    # Freeze the meter at admission: a later plan change must not bill the same work twice.
+    # Existing receipts and old workers retain the legacy PR meter.
+    usage_billing = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
