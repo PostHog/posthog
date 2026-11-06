@@ -169,6 +169,7 @@ class TestTrialConcurrency(NonAtomicBaseTest):
             try:
                 assert first_locked.wait(timeout=10)
                 with transaction.atomic():
+                    spend_module.lock_signal_spend(team_id=self.team.id, signal_id=str(pending_id))
                     SignalSpend.objects.for_team(self.team.id).select_for_update().get(signal_id=pending_id)
                     pending_locked.set()
                     assert finalizing_pending.wait(timeout=10)

@@ -166,6 +166,21 @@ class TestSignalsBilling(BaseTest):
         # 1 credit = $0.01, so $15 == 1500 credits.
         self.assertEqual(SIGNALS_CREDITS_PER_REPORT_WITH_PR, 1500)
 
+    def test_operator_run_does_not_charge_or_exempt_later_automatic_work(self) -> None:
+        report = self._report()
+        operator_run = self._pr_run(report, created_at=_at(10))
+        operator_run.state = {"self_driving_funding": {"funding": "operator", "policy_version": 1}}
+        operator_run.save(update_fields=["state"])
+        assert self._credits() == {}
+        assert first_billable_pr_run(report.id, team_id=self.team.id) is None
+
+        automatic_run = self._pr_run(report, created_at=_at(11))
+        assert self._credits() == {self.team.id: 1500}
+        assert (
+            first_billable_pr_run_at_by_report([report.id], team_id=self.team.id)[str(report.id)]
+            == automatic_run.created_at
+        )
+
     @parameterized.expand([(as_list, usage_billing) for as_list in (False, True) for usage_billing in (False, True)])
     def test_organization_filter_excludes_other_organizations(self, as_list: bool, usage_billing: bool) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other org"))

@@ -104,7 +104,7 @@ def trial_quota_gate(team: "Team") -> SelfDrivingQuotaGate | None:
     return None
 
 
-def self_driving_quota_gate(team: "Team") -> SelfDrivingQuotaGate:
+def self_driving_quota_gate(team: "Team", *, signal_id: str | None = None) -> SelfDrivingQuotaGate:
     """Resolve the quota gate for one team: is it quota-limited, and is enforcement on.
 
     The limit itself is org-level (the org's billing cap): the quota cron sums usage across all
@@ -116,6 +116,12 @@ def self_driving_quota_gate(team: "Team") -> SelfDrivingQuotaGate:
     paths pay a single cached Redis read. Blocking network I/O; wrap in `sync_to_async` from
     async code.
     """
+    if signal_id is not None:
+        from products.signals.backend.trial.funding import signal_funding  # noqa: PLC0415 -- model registration cycle
+
+        funding = signal_funding(team.id, signal_id)
+        if funding is not None and funding.grant_id is not None:
+            return SelfDrivingQuotaGate(limited=False, enforced=False)
     trial_gate = trial_quota_gate(team)
     if trial_gate is not None:
         return trial_gate

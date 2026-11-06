@@ -10,7 +10,7 @@ from django.db import transaction
 from posthog.models import Team
 
 from products.signals.backend.trial.billing import paid_trial_continuation_authorized
-from products.signals.backend.trial.funding import TrialFunding, direct_report_funding
+from products.signals.backend.trial.funding import TrialFunding, direct_report_funding, signal_funding
 from products.signals.backend.trial.models import SignalTrialReportReservation
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
 from products.tasks.backend.facade.api import get_task_run
@@ -53,12 +53,16 @@ def task_funding(team_id: int, run_id: UUID) -> TrialFunding | None:
 def report_funding(team: Team, report_id: UUID | str) -> TrialFunding | None:
     from products.signals.backend.models import SignalReport  # noqa: PLC0415 -- model registration cycle
 
-    snapshot = (
+    report = (
         SignalReport.objects.filter(team_id=team.id, id=report_id)
-        .values_list("self_driving_funding", flat=True)
+        .values("self_driving_funding", "billing_exempt_reason")
         .first()
     )
-    return TrialFunding.from_dict(snapshot)
+    if report is None:
+        return None
+    if report["billing_exempt_reason"] and (report["self_driving_funding"] or {}).get("funding") != "operator":
+        return TrialFunding(funding="existing")
+    return TrialFunding.from_dict(report["self_driving_funding"])
 
 
 def context_funding(team: Team) -> TrialFunding | None:
@@ -74,9 +78,12 @@ def context_funding(team: Team) -> TrialFunding | None:
     return None
 
 
-def requires_trial_accounting(team_id: int) -> bool:
+def requires_trial_accounting(team_id: int, signal_id: str | None = None) -> bool:
     team = Team.objects.get(id=team_id)
     parent = context_funding(team)
+    if parent is not None and parent.funding == "operator":
+        return False
+    parent = signal_funding(team_id, signal_id) or parent
     if parent is not None:
         return parent.grant_id is not None
     grant = TrialPolicy(team).admission_grant()
@@ -90,8 +97,8 @@ def requires_trial_accounting(team_id: int) -> bool:
 def implementation_requires_trial_opt_in(team_id: int, report_id: str) -> bool:
     team = Team.objects.get(id=team_id)
     funding = report_funding(team, report_id)
-    if funding is not None and funding.funding == "trial":
-        return True
+    if funding is not None:
+        return funding.funding == "trial"
     if not TrialPolicy(team).enabled():
         return False
     return SignalTrialReportReservation.objects.for_team(team_id).filter(
@@ -99,22 +106,40 @@ def implementation_requires_trial_opt_in(team_id: int, report_id: str) -> bool:
     ).exists() or requires_trial_accounting(team_id)
 
 
-def prepare_report_pass(*, team: Team, report_id: str, operation_key: str) -> None:
+def report_pass_paid_authorized(
+    *, team: Team, report_id: str, operation_key: str, signal_id: str | None = None
+) -> bool:
     from products.signals.backend.models import SignalReport  # noqa: PLC0415 -- model registration cycle
 
     policy = TrialPolicy(team)
-    snapshot = (
+    report = (
         SignalReport.objects.filter(team_id=team.id, id=report_id)
-        .values_list("self_driving_funding", flat=True)
+        .values("self_driving_funding", "billing_exempt_reason")
         .first()
     )
-    previous = TrialFunding.from_dict(snapshot)
+    if report is not None and report["billing_exempt_reason"]:
+        return False
+    previous = TrialFunding.from_dict(report["self_driving_funding"] if report else None)
     if previous is not None and previous.report_pass_key == operation_key:
-        return
+        return False
+    if signal_funding(team.id, signal_id, for_report=True) is not None:
+        return False
     grant = policy.admission_grant()
-    if grant is None:
-        return
-    paid_authorized = paid_trial_continuation_authorized(team) if grant.exhausted_at else False
+    return bool(grant and grant.exhausted_at and paid_trial_continuation_authorized(team))
+
+
+def prepare_report_pass(
+    *,
+    team: Team,
+    report_id: str,
+    operation_key: str,
+    paid_authorized: bool = False,
+    signal_id: str | None = None,
+    operator_rerun: bool = False,
+) -> None:
+    from products.signals.backend.models import SignalReport  # noqa: PLC0415 -- model registration cycle
+
+    policy = TrialPolicy(team)
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().get(team_id=team.id, id=report_id)
         previous = TrialFunding.from_dict(report.self_driving_funding)
@@ -122,7 +147,17 @@ def prepare_report_pass(*, team: Team, report_id: str, operation_key: str) -> No
             return
         if previous is not None and report.status == SignalReport.Status.IN_PROGRESS:
             raise TrialRefused("report_pass_in_progress")
-        funding = policy.admit(paid_authorized=paid_authorized, report_id=report.id)
+        # Operator repairs are free for this pipeline, not for later automatic refreshes.
+        if operator_rerun:
+            funding = TrialFunding(funding="operator")
+        elif report.billing_exempt_reason:
+            funding = TrialFunding(funding="existing")
+        else:
+            funding = policy.admit(
+                paid_authorized=paid_authorized,
+                report_id=report.id,
+                parent=signal_funding(team.id, signal_id, for_report=True),
+            )
         SignalReport.objects.filter(team_id=team.id, id=report.id).update(
             self_driving_funding=replace(funding, report_pass_key=operation_key).as_dict()
         )
