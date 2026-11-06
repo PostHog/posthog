@@ -26,11 +26,14 @@ import { DARK_MODE_INVERT_ICON_KINDS, IntegrationConnectSurface, getIntegrationN
 export function IntegrationView({
     integration,
     suffix,
+    actions,
     schema,
     hideWebhookReconnect,
 }: {
     integration: IntegrationType
     suffix?: JSX.Element
+    /** Shown before the default Disconnect button. Ignored when `suffix` is set. */
+    actions?: JSX.Element | null
     schema?: { requiredScopes?: string }
     hideWebhookReconnect?: boolean
 }): JSX.Element {
@@ -75,6 +78,7 @@ export function IntegrationView({
 
     suffix = suffix || (
         <div className="flex flex-row gap-2">
+            {actions}
             <LemonButton
                 type="secondary"
                 status="danger"

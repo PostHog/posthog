@@ -5229,6 +5229,16 @@
                   "table": null,
                   "type": "integer"
               },
+              "expired_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "expired_at",
+                  "id": null,
+                  "name": "expired_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
               "created_by_id": {
                   "chain": null,
                   "fields": null,
@@ -5307,6 +5317,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "boolean"
+              },
+              "expired_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "expired_at",
+                  "id": null,
+                  "name": "expired_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
               },
               "current_revision_id": {
                   "chain": null,
@@ -10919,6 +10939,16 @@
                   "table": null,
                   "type": "string"
               },
+              "triggering_signal_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "triggering_signal_id",
+                  "id": null,
+                  "name": "triggering_signal_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "title": {
                   "chain": null,
                   "fields": null,
@@ -12946,6 +12976,16 @@
                   "table": null,
                   "type": "integer"
               },
+              "spend_credits": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "spend_credits",
+                  "id": null,
+                  "name": "spend_credits",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "decimal"
+              },
               "summary": {
                   "chain": null,
                   "fields": null,
@@ -13029,6 +13069,135 @@
           },
           "id": "system.scout_runs",
           "name": "system.scout_runs",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.signal_spend": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "kind": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "kind",
+                  "id": null,
+                  "name": "kind",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "credits": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "credits",
+                  "id": null,
+                  "name": "credits",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "decimal"
+              },
+              "signal_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "signal_id",
+                  "id": null,
+                  "name": "signal_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "scout_run_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "scout_run_id",
+                  "id": null,
+                  "name": "scout_run_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "report_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "report_id",
+                  "id": null,
+                  "name": "report_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "task_run_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "task_run_id",
+                  "id": null,
+                  "name": "task_run_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "billing_exempt": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "billing_exempt",
+                  "id": null,
+                  "name": "billing_exempt",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "accounting_failed": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "accounting_failed",
+                  "id": null,
+                  "name": "accounting_failed",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "finalized_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "finalized_at",
+                  "id": null,
+                  "name": "finalized_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.signal_spend",
+          "name": "system.signal_spend",
           "row_count": null,
           "type": "system"
       },
@@ -20185,6 +20354,16 @@
                   "table": null,
                   "type": "integer"
               },
+              "expired_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "expired_at",
+                  "id": null,
+                  "name": "expired_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
               "created_by_id": {
                   "chain": null,
                   "fields": null,
@@ -20263,6 +20442,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "boolean"
+              },
+              "expired_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "expired_at",
+                  "id": null,
+                  "name": "expired_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
               },
               "current_revision_id": {
                   "chain": null,
@@ -25875,6 +26064,16 @@
                   "table": null,
                   "type": "string"
               },
+              "triggering_signal_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "triggering_signal_id",
+                  "id": null,
+                  "name": "triggering_signal_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "title": {
                   "chain": null,
                   "fields": null,
@@ -27902,6 +28101,16 @@
                   "table": null,
                   "type": "integer"
               },
+              "spend_credits": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "spend_credits",
+                  "id": null,
+                  "name": "spend_credits",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "decimal"
+              },
               "summary": {
                   "chain": null,
                   "fields": null,
@@ -27985,6 +28194,135 @@
           },
           "id": "system.scout_runs",
           "name": "system.scout_runs",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.signal_spend": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "kind": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "kind",
+                  "id": null,
+                  "name": "kind",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "credits": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "credits",
+                  "id": null,
+                  "name": "credits",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "decimal"
+              },
+              "signal_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "signal_id",
+                  "id": null,
+                  "name": "signal_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "scout_run_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "scout_run_id",
+                  "id": null,
+                  "name": "scout_run_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "report_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "report_id",
+                  "id": null,
+                  "name": "report_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "task_run_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "task_run_id",
+                  "id": null,
+                  "name": "task_run_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "billing_exempt": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "billing_exempt",
+                  "id": null,
+                  "name": "billing_exempt",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "accounting_failed": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "accounting_failed",
+                  "id": null,
+                  "name": "accounting_failed",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "finalized_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "finalized_at",
+                  "id": null,
+                  "name": "finalized_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.signal_spend",
+          "name": "system.signal_spend",
           "row_count": null,
           "type": "system"
       },

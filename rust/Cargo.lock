@@ -2752,6 +2752,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "chrono-tz",
+ "common-types",
  "dashmap 6.1.0",
  "hogvm",
  "metrics",
@@ -2773,6 +2774,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "axum 0.7.9",
+ "cohort-core",
  "common-alloc",
  "common-cohort-team-access",
  "common-database",
@@ -4108,6 +4110,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "twox-hash",
  "url",
  "uuid",
 ]
@@ -7734,6 +7737,49 @@ dependencies = [
 ]
 
 [[package]]
+name = "logs-ingestion"
+version = "0.1.0"
+dependencies = [
+ "ahash 0.8.12",
+ "anyhow",
+ "async-trait",
+ "axum 0.7.9",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "common-alloc",
+ "common-database",
+ "futures",
+ "hashbrown 0.15.5",
+ "hex",
+ "hmac 0.12.1",
+ "ingestion-framework",
+ "itoa",
+ "lifecycle",
+ "metrics",
+ "rand 0.8.5",
+ "rdkafka",
+ "redis",
+ "regex",
+ "regex-automata",
+ "reqwest 0.12.28",
+ "rustls 0.23.37",
+ "serde",
+ "serde_json",
+ "serve-metrics",
+ "sha2 0.10.9",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tonic 0.12.3",
+ "tracing",
+ "tracing-subscriber",
+ "usage-ingestion-proto",
+ "uuid",
+ "zstd 0.13.3",
+]
+
+[[package]]
 name = "lru"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9211,6 +9257,7 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "tonic 0.12.3",
  "tower 0.4.13",
  "tracing",

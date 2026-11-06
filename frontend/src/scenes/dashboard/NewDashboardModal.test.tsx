@@ -5,8 +5,9 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { type ReactNode } from 'react'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+
+import { dashboardTemplateVariablesLogic } from 'products/dashboards/frontend/dashboardTemplateVariablesLogic'
 
 import { NewDashboardModal } from './NewDashboardModal'
 
@@ -28,27 +29,27 @@ jest.mock('scenes/dashboard/newDashboardLogic', () => ({
     newDashboardLogic: { __mock: 'newDashboardLogic' },
 }))
 
-jest.mock('scenes/dashboard/dashboards/templates/dashboardTemplatesLogic', () => ({
+jest.mock('products/dashboards/frontend/dashboards/templates/dashboardTemplatesLogic', () => ({
     dashboardTemplatesLogic: jest.fn(),
 }))
 
-jest.mock('scenes/dashboard/dashboards/templates/dashboardTemplateChooserLogic', () => {
+jest.mock('products/dashboards/frontend/dashboards/templates/dashboardTemplateChooserLogic', () => {
     const actual = jest.requireActual<
-        typeof import('scenes/dashboard/dashboards/templates/dashboardTemplateChooserLogic')
-    >('scenes/dashboard/dashboards/templates/dashboardTemplateChooserLogic')
+        typeof import('products/dashboards/frontend/dashboards/templates/dashboardTemplateChooserLogic')
+    >('products/dashboards/frontend/dashboards/templates/dashboardTemplateChooserLogic')
     return {
         ...actual,
         dashboardTemplateChooserLogic: jest.fn(),
     }
 })
 
-jest.mock('./dashboards/templates/DashboardTemplateChooser', () => ({
+jest.mock('products/dashboards/frontend/dashboards/templates/DashboardTemplateChooser', () => ({
     DashboardTemplateChooser: ({ redirectAfterCreation }: { redirectAfterCreation?: boolean }) => (
         <div data-attr="dashboard-template-chooser" data-redirect-after-creation={String(redirectAfterCreation)} />
     ),
 }))
 
-jest.mock('./DashboardTemplateVariables', () => ({
+jest.mock('products/dashboards/frontend/DashboardTemplateVariables', () => ({
     DashboardTemplateVariables: () => <div data-attr="dashboard-template-variables" />,
 }))
 
@@ -67,10 +68,10 @@ const mockedUseActions = useActions as jest.Mock
 const mockedUseMountedLogic = useMountedLogic as jest.Mock
 const mockedDashboardTemplatesLogic = jest.requireMock<{
     dashboardTemplatesLogic: jest.Mock
-}>('scenes/dashboard/dashboards/templates/dashboardTemplatesLogic').dashboardTemplatesLogic
+}>('products/dashboards/frontend/dashboards/templates/dashboardTemplatesLogic').dashboardTemplatesLogic
 const mockedDashboardTemplateChooserLogic = jest.requireMock<{
     dashboardTemplateChooserLogic: jest.Mock
-}>('scenes/dashboard/dashboards/templates/dashboardTemplateChooserLogic').dashboardTemplateChooserLogic
+}>('products/dashboards/frontend/dashboards/templates/dashboardTemplateChooserLogic').dashboardTemplateChooserLogic
 
 const mockTemplatesLogic = { __mock: 'dashboardTemplatesLogic' as const }
 const mockChooserLogic = { __mock: 'dashboardTemplateChooserLogic' as const }

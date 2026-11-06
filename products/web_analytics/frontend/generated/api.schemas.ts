@@ -83,7 +83,7 @@ export interface PatchedAEOPromptUpdateRequestApi {
     topic?: string
     /**
      * New text for the prompt. A change adds the next version and makes it current; the prompt keeps its id and its check history, and each check records the version that ran. A change of case or whitespace only adds no version. Fails with 409 when another prompt in the set already has the text.
-     * @maxLength 10000
+     * @maxLength 2000
      */
     prompt?: string
     /**
@@ -1542,6 +1542,11 @@ export interface ContentAutopilotOpportunityApi {
      * @nullable
      */
     readonly proposal_id: string | null
+    /**
+     * Tracked AI visibility prompt this opportunity came from.
+     * @nullable
+     */
+    readonly aeo_prompt_id: string | null
     /** Type of visibility gap.
      *
      * * `ai_visibility_gap` - AI visibility gap */
@@ -2095,6 +2100,10 @@ export type AeoPromptsListParams = {
      * @maximum 1000
      */
     limit?: number
+    /**
+     * Only list prompts that the engines answered in the last 30 days without citing a target domain. Prompts with no answered check in that window are left out.
+     */
+    needs_improvement?: boolean
     /**
      * The initial index from which to return the results.
      */

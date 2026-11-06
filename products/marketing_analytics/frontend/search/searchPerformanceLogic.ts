@@ -96,7 +96,7 @@ export interface searchPerformanceLogicActions
     extends
         Pick<
             marketingAnalyticsLogicActions,
-            'loadSources' | 'loadSourcesSuccess' | 'loadSourcesFailure' | 'setIntegrationFilter' | 'setDates'
+            'loadSources' | 'loadSourcesSuccess' | 'loadSourcesFailure' | 'setIntegrationFilter'
         >,
         Pick<teamLogicActions, 'updateCurrentTeamSuccess'> {
     setWrapText: (wrapText: boolean) => { wrapText: boolean }
@@ -140,7 +140,7 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
         ],
         actions: [
             marketingAnalyticsLogic,
-            ['loadSources', 'loadSourcesSuccess', 'loadSourcesFailure', 'setIntegrationFilter', 'setDates'],
+            ['loadSources', 'loadSourcesSuccess', 'loadSourcesFailure', 'setIntegrationFilter'],
             teamLogic,
             ['updateCurrentTeamSuccess'],
         ],
@@ -222,17 +222,11 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
                 ),
         ],
         hasActiveFilters: [
-            (s) => [s.querySearch, s.channel, s.integrationFilter, s.dateFilter, s.allSearchSources],
-            (search, channel, filter, dates, sources: ExternalDataSource[]): boolean => {
+            (s) => [s.querySearch, s.channel, s.integrationFilter, s.allSearchSources],
+            (search, channel, filter, sources: ExternalDataSource[]): boolean => {
                 const ids = filter.integrationSourceIds ?? []
                 const allSourcesSelected = sources.length > 0 && sources.every((source) => ids.includes(source.id))
-                return (
-                    !!search.trim() ||
-                    channel !== 'all' ||
-                    (ids.length > 0 && !allSourcesSelected) ||
-                    dates.dateFrom !== '-7d' ||
-                    !!dates.dateTo
-                )
+                return !!search.trim() || channel !== 'all' || (ids.length > 0 && !allSourcesSelected)
             },
         ],
         hasSearchConsole: [
@@ -426,7 +420,6 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
             actions.setQuerySearch('')
             actions.setChannel('all')
             actions.setIntegrationFilter({ ...values.integrationFilter, integrationSourceIds: [] })
-            actions.setDates('-7d', null)
         },
         setBreakdown: ({ breakdown }) => {
             if (breakdown === 'search_term') {

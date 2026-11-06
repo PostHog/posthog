@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
-from django.db.models import Aggregate, Count, Max, Min, Q, QuerySet
+from django.db.models import Aggregate, Count, Exists, Max, Min, OuterRef, Q, QuerySet
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
@@ -72,6 +72,9 @@ def list_citation_gaps(team_id: int, *, since: dt.datetime) -> list[CitationGap]
     return gaps.list_citation_gaps(team_id, since=since)
 
 
+NEEDS_IMPROVEMENT_DAYS = 30
+
+
 def list_prompts(
     team_id: int,
     *,
@@ -80,6 +83,7 @@ def list_prompts(
     topic: str | None = None,
     active: bool | None = None,
     include_archived: bool = False,
+    needs_improvement: bool = False,
 ) -> tuple[list[Prompt], int]:
     """One page of the team's prompt set and the total count, paged in SQL.
     A topic of "" selects the prompts that have no topic."""
@@ -90,6 +94,15 @@ def list_prompts(
         prompts = prompts.filter(topic=topic)
     if active is not None:
         prompts = prompts.filter(active=active)
+    if needs_improvement:
+        # Only the current wording counts, as in citation gaps: checks before version 2 carry no version.
+        answered = AEOCitationCheck.objects.for_team(team_id).filter(
+            Q(prompt_version=OuterRef("current_version")) | Q(prompt_version__isnull=True, prompt__current_version=1),
+            prompt_id=OuterRef("pk"),
+            check_failed=False,
+            created_at__gte=timezone.now() - dt.timedelta(days=NEEDS_IMPROVEMENT_DAYS),
+        )
+        prompts = prompts.filter(Exists(answered), ~Exists(answered.filter(cited=True)))
     page = list(prompts.order_by("topic", "-rank", "created_at", "id")[offset : offset + limit])
     return _to_prompts(team_id, page), prompts.count()
 

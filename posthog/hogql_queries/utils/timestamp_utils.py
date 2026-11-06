@@ -37,7 +37,7 @@ from posthog.models.event.new_events_schema import get_events_route, use_new_eve
 from posthog.models.team import WeekStartDay
 from posthog.utils import get_safe_cache
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
 from products.data_modeling.backend.facade import api as data_modeling_api
 
 EARLIEST_TIMESTAMP_CACHE_TTL = 24 * 60 * 60
@@ -92,7 +92,7 @@ def _get_event_earliest_timestamp_query(team: Team, node: Union[EventsNode, Acti
     ]
 
     if isinstance(node, ActionsNode):
-        action = Action.objects.get(pk=node.id, team=team)
+        action = get_action(action_id=node.id, team_id=team.pk)
         where_exprs.append(action_to_expr(action))
     elif isinstance(node, EventsNode) and node.event is not None:
         where_exprs.append(

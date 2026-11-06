@@ -8,7 +8,6 @@ import { LemonButton, LemonInput, LemonSegmentedButton, Tooltip } from '@posthog
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lazyWithRetry } from 'lib/utils/retryImport'
-import { DashboardModalLoading } from 'scenes/dashboard/DashboardModalLoading'
 import { teamLogic } from 'scenes/teamLogic'
 import { TileId } from 'scenes/web-analytics/common'
 import { WebTileHeader } from 'scenes/web-analytics/WebTileHeader'
@@ -31,6 +30,7 @@ import { useMarketingAnalyticsPrecompute } from '~/scenes/marketing-analytics/us
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
 import { InsightLogicProps } from '~/types'
 
+import { DashboardModalLoading } from 'products/dashboards/frontend/DashboardModalLoading'
 import { MetricSourceBadge } from 'products/marketing_analytics/frontend/components/MetricSourceBadge'
 import {
     conversionRecordingsTableQuery,
