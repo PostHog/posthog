@@ -346,7 +346,7 @@ describe('OrganizationMembersService', () => {
             }
         })
 
-        it('shares one reload between blocked sends that arrive while it runs', async () => {
+        it('shares one follow-up reload between blocked sends that arrive while a reload runs', async () => {
             jest.useFakeTimers()
             const start = Date.now()
             let reloadStarted: () => void = () => {}
@@ -379,9 +379,10 @@ describe('OrganizationMembersService', () => {
                 expect(query).toHaveBeenCalledTimes(2)
 
                 releaseReload()
-                await jest.advanceTimersByTimeAsync(0)
-                const checks = await Promise.all([first, ...later])
-                expect(checks.map((check) => check.blocked)).toEqual(Array(6).fill(outsider))
+                const checks = Promise.all([first, ...later])
+                await jest.advanceTimersByTimeAsync(100)
+                expect((await checks).map((check) => check.blocked)).toEqual(Array(6).fill(outsider))
+                expect(query).toHaveBeenCalledTimes(3)
             } finally {
                 jest.useRealTimers()
             }
