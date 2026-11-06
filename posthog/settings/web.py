@@ -544,9 +544,10 @@ WHITENOISE_ADD_HEADERS_FUNCTION = static_varies_origin
 # cache-bust can hold a stale SDK bundle after a release.
 WHITENOISE_MAX_AGE = get_from_env("WHITENOISE_MAX_AGE", 3600, type_cast=int)
 
-# Per-IP signup throttle rate (see posthog.rate_limit.SignupIPThrottle). Overridable per-env so
-# non-prod (e.g. dev deploy smoke-tests) can raise it without weakening the prod default.
+# Per-IP signup throttle rates (see posthog.rate_limit). Overridable per-env so non-prod
+# (e.g. dev deploy smoke-tests) can raise them without weakening the prod defaults.
 SIGNUP_IP_THROTTLE_RATE = get_from_env("SIGNUP_IP_THROTTLE_RATE", "5/day")
+SIGNUP_ATTEMPT_IP_THROTTLE_RATE = get_from_env("SIGNUP_ATTEMPT_IP_THROTTLE_RATE", "10/hour")
 
 # Billing usage and spend exports stream a file from the billing service for as long as the
 # browser reads it, so both limits are per user (see ee.api.billing): how often an export may
@@ -1639,4 +1640,4 @@ WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS: list[int] = [
 # 0 rejects every stream (emergency lever).
 SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS = get_from_env("SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS", 500, type_cast=int)
 
-CONTEXT_SELECTION_TIMEOUT_SECONDS = 3.0
+CONTEXT_SELECTION_TIMEOUT_SECONDS = 8.0

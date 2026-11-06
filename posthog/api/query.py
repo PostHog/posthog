@@ -215,6 +215,7 @@ def _process_query_request(
 # API token must hold the product scope, not just query:read, to run them through
 # the generic endpoint.
 _QUERY_KIND_SCOPES: dict[str, list[str]] = {
+    "InboxUsageQuery": ["query:read", "signal_usage:read"],
     "AccountUsersQuery": ["query:read", "account:read", "person:read"],
     "AccountsTableQuery": ["query:read", "account:read"],
     "ErrorTrackingFingerprintProjectionQuery": ["query:read", "error_tracking:read"],

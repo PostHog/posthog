@@ -31,6 +31,7 @@ from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY
 
 from products.alerts.backend.evaluation.contract import (
     CREATOR_LEFT_DISABLE_REASON,
+    AlertDataUnavailableError,
     AlertExtractionError,
     AlertOwnerAccessError,
 )
@@ -137,6 +138,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         *,
         truncated: bool = False,
         breach: str = "above 100",
+        error: Exception | None = None,
     ) -> PlatformAlertOutcome:
         slot = slot_of(configuration.next_check_at, CUTOFF)
         expires_at = time.time() + 3600
@@ -153,7 +155,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             ),
             truncated=truncated,
         )
-        with patch(f"{_MODULE}.check_alert_per_series", return_value=evaluated):
+        with patch(f"{_MODULE}.check_alert_per_series", return_value=evaluated, side_effect=error):
             evaluation = evaluate_insight_check(
                 self.team.id, slot, CUTOFF, str(configuration.id), held_until=expires_at, evaluation_id="test"
             )
@@ -526,21 +528,19 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            # name, allowlisted, was_firing, owned, paged, breaks, (incident_actions, sends_messages) or no delivery
-            ("allowlisted", True, False, False, False, False, ({}, True)),
-            ("not_allowlisted", False, False, False, False, False, None),
-            ("allowlisted_resolve", True, True, False, False, False, None),
-            ("platform_owned", False, False, True, False, False, ({}, True)),
-            ("paged_firing", False, False, True, True, False, ({"": IncidentAction.TRIGGER}, True)),
-            ("paged_resolve", False, True, True, True, False, ({"": IncidentAction.RESOLVE}, False)),
-            ("paged_firing_that_breaks", False, True, True, True, True, ({}, True)),
-            ("paged_but_not_allowlisted", False, False, False, True, False, None),
+            # name, was_firing, owned, paged, breaks, (incident_actions, sends_messages) or no delivery
+            ("source_owned", False, False, False, False, None),
+            ("platform_owned", False, True, False, False, ({}, True)),
+            ("platform_owned_resolve", True, True, False, False, None),
+            ("paged_firing", False, True, True, False, ({"": IncidentAction.TRIGGER}, True)),
+            ("paged_resolve", True, True, True, False, ({"": IncidentAction.RESOLVE}, False)),
+            ("paged_firing_that_breaks", True, True, True, True, ({}, True)),
+            ("paged_but_source_owned", False, False, True, False, None),
         ]
     )
-    def test_only_an_allowlisted_or_platform_owned_firing_failure_or_incident_edge_asks_for_a_delivery(
+    def test_only_a_platform_owned_firing_failure_or_incident_edge_asks_for_a_delivery(
         self,
         _name: str,
-        allowlisted: bool,
         was_firing: bool,
         owned: bool,
         paged: bool,
@@ -549,7 +549,6 @@ class TestPlatformInsightEvaluation(APIBaseTest):
     ) -> None:
         alert = self._alert()
         configuration = self._copy(alert, **({"owner": PlatformAlertOwner.PLATFORM} if owned else {}))
-        allowlist = frozenset({str(alert.id)}) if allowlisted else frozenset()
         if paged:
             HogFunction.objects.create(
                 team=self.team,
@@ -571,13 +570,12 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             with team_scope(self.team.id):
                 platform_testing.set_due_at(configuration.id, CUTOFF - timedelta(minutes=1))
 
-        with patch(f"{_MODULE}.LIVE_DELIVERY_INSIGHT_ALERT_IDS", allowlist):
-            self._evaluate(
-                configuration,
-                result=AlertExtractionError("bad query shape")
-                if breaks
-                else AlertEvaluationResult(value=50.0, breaches=[] if was_firing else ["above 100"]),
-            )
+        self._evaluate(
+            configuration,
+            result=AlertExtractionError("bad query shape")
+            if breaks
+            else AlertEvaluationResult(value=50.0, breaches=[] if was_firing else ["above 100"]),
+        )
 
         expected = (
             [
@@ -757,6 +755,25 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             False,
         )
         assert outcome.failure.source_detail["error_code"] == LLM_DETECTOR_PAUSED_ERROR_CODE
+
+    @parameterized.expand([("single", False), ("breakdown", True)])
+    def test_a_check_without_enough_data_errors_and_stays_enabled(self, _name: str, breakdown: bool) -> None:
+        error = AlertDataUnavailableError("not enough rows")
+        outcome: PlatformAlertOutcome | None
+        if breakdown:
+            grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("breakdown",))
+            outcome = self._evaluate_per_series(
+                self._copy(self._alert(), grouping=grouping.to_stored()), {}, error=error
+            )
+        else:
+            outcome, _ = self._evaluate(self._copy(self._alert()), result=error)
+
+        assert outcome is not None and outcome.failure is not None
+        assert (outcome.failure.kind, outcome.error_message, outcome.disable) == (
+            AlertEventKind.ERRORED,
+            "not enough rows",
+            False,
+        )
 
     @parameterized.expand([("retried", False), ("last_attempt", True)])
     def test_an_ai_detector_without_a_verdict_is_retried_and_only_its_last_attempt_records_an_error(
@@ -956,6 +973,44 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert (outcome.held_delivery is not None) is held
         if owner == PlatformAlertOwner.PLATFORM:
             assert len(self.deliveries) == (0 if held else 1)
+
+    @parameterized.expand(
+        [
+            ("a statistical detector renotifies", {"type": "zscore", "threshold": 0.95, "window": 30}, True),
+            ("the ai detector announces the firing once", {"type": "llm"}, False),
+        ]
+    )
+    def test_a_firing_that_stays_breached_renotifies_only_for_a_statistical_detector(
+        self, _name: str, detector_config: dict[str, Any], renotifies: bool
+    ) -> None:
+        alert = self._alert(
+            detector_config=detector_config,
+            investigation_agent_enabled=True,
+            investigation_gates_notifications=True,
+        )
+        configuration = self._copy(alert, owner=PlatformAlertOwner.PLATFORM)
+        uses_llm_detector = detector_config["type"] == "llm"
+        result = AlertEvaluationResult(value=150.0, breaches=["above 100"])
+
+        with patch(f"{_MODULE}.render_alert_insight_chart"):
+            first, _ = self._evaluate(configuration, result=result, uses_llm_detector=uses_llm_detector)
+            assert first is not None
+            assert first.groups[0].kind == AlertEventKind.FIRING
+            assert requested_investigation(first) is not None
+            assert first.held_delivery is not None
+            record_outcomes(self.team.id, (first,), CUTOFF)
+            with team_scope(self.team.id):
+                platform_testing.set_due_at(configuration.id, CUTOFF - timedelta(minutes=1))
+
+            second, _ = self._evaluate(configuration, result=result, uses_llm_detector=uses_llm_detector)
+
+        assert second is not None
+        assert second.groups[0].new_state == "firing"
+        assert (second.groups[0].kind == AlertEventKind.FIRING) is renotifies
+        assert (requested_investigation(second) is not None) is renotifies
+        if not renotifies:
+            assert second.held_delivery is None
+            assert self.deliveries == ()
 
     def test_a_firing_past_its_budget_is_muted_by_the_firing_last_verdict(self) -> None:
         alert, configuration = self._investigated_alert(investigation_gates_notifications=True)
