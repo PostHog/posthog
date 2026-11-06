@@ -139,7 +139,9 @@ struct Arc {
 
 impl Arc {
     /// The arc is the smallest multiple of `ring_len` units that covers
-    /// `min_width` workers, and at most the whole ring.
+    /// `min_width` workers. `spans` visits each unit of the ring once, so a
+    /// longer arc would still cover the ring only once. The clamp keeps the
+    /// numbers small.
     fn new(ring_len: usize, peer_count: usize, index: usize, min_width: usize) -> Self {
         let units_per_worker = peer_count as u64;
         let spacing = ring_len as u64;
