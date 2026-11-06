@@ -230,9 +230,7 @@ def build_person_properties_at_time(
         # person profile regardless of retention, so a floored scan rebuilds a profile that never existed and
         # drops every property set before the window. The scan reconstructs person state. It does not expose
         # events past the floor.
-        #
-        # `user` must be on the context: HogQL loads the user's property access-control restrictions from it and
-        # masks restricted person properties inside `$set` / `$set_once`. Without it only default rules apply.
+        # HogQL loads the user's property restrictions from the context to mask `$set` / `$set_once`.
         context=HogQLContext(team_id=team.pk, user=user, limit_top_select=False, apply_events_retention_floor=False),
     )
 

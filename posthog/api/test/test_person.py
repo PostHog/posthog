@@ -2683,7 +2683,6 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
         self, _name: str, member_access_level: Optional[PropertyAccessLevel], ssn_visible: bool
     ) -> None:
         if member_access_level is not None:
-            # A member-specific rule overrides the default NONE rule for this user only.
             PropertyAccessControl.objects.create(
                 team=self.team,
                 property_definition=PropertyDefinition.objects.get(team=self.team, name="ssn"),
