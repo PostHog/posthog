@@ -428,12 +428,13 @@ def validate_destination(
         _check_file_format(merged_config, AZURE_BLOB_SUPPORTED_COMPRESSIONS)
 
     if destination_type == BatchExportDestinationType.REDSHIFT:
-        # Sticky integration: an export that uses one cannot drop back to inline credentials.
+        # Sticky integration: an export that uses one cannot drop back to inline credentials. A
+        # PATCH that omits `integration` keeps the linked one, so only an explicit null is rejected.
         # TODO: remove this guard once inline credentials are gone.
-        if instance is not None and instance.destination.integration is not None and requested_integration is None:
+        if instance is not None and instance.destination.integration is not None and kept_integration is None:
             raise contracts.InvalidBatchExportDestinationError(
                 "Cannot remove the integration from a Redshift batch export that uses one. "
-                "Re-send its `integration` to keep it (or a different one to swap)."
+                "Omit `integration` to keep it, or send a different one to swap."
             )
 
         # New Redshift exports must use an Integration for credentials. Exports created before

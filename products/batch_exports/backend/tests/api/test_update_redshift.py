@@ -77,8 +77,8 @@ def test_can_patch_redshift_batch_export(
         batch_export_data,
     )
 
-    # Updates bucket name, leaves everything else untouched. The integration is re-sent because an
-    # export that has one cannot drop it, matching what the edit form submits.
+    # Updates bucket name, leaves everything else untouched. The integration is re-sent, matching
+    # what the edit form submits.
     new_destination_data = {
         "type": "Redshift",
         "config": {
@@ -223,3 +223,44 @@ def test_can_patch_redshift_batch_export_swapping_copy_integration(
     batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
     assert batch_export["destination"]["config"]["copy_inputs"]["bucket_credentials"] == other_integration.pk
     assert batch_export["destination"]["config"]["copy_inputs"]["authorization"] == other_integration.pk
+
+
+@pytest.mark.parametrize(
+    "destination_patch, expected_status",
+    [
+        ({"integration": None}, status.HTTP_400_BAD_REQUEST),
+        ({}, status.HTTP_200_OK),
+    ],
+    ids=["explicit_null_is_rejected", "omitted_keeps_integration"],
+)
+def test_updating_redshift_batch_export_keeps_its_integration(
+    client: HttpClient, temporal, organization, team, user, aws_redshift_integration, destination_patch, expected_status
+):
+    """A config-only PATCH keeps the linked integration; an explicit null cannot remove it."""
+    client.force_login(user)
+    batch_export = create_batch_export_ok(
+        client,
+        team.pk,
+        {
+            "name": "my-redshift-destination",
+            "destination": {
+                "type": "Redshift",
+                "config": {"database": "my-db", "host": "localhost", "schema": "public", "table_name": "my_events"},
+                "integration": aws_redshift_integration.pk,
+            },
+            "interval": "hour",
+        },
+    )
+
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {"destination": {"type": "Redshift", "config": {"table_name": "my_new_events"}, **destination_patch}},
+    )
+
+    assert response.status_code == expected_status, response.json()
+    if expected_status == status.HTTP_200_OK:
+        assert response.json()["destination"]["integration"] == aws_redshift_integration.pk
+    else:
+        assert response.json()["detail"].startswith("Cannot remove the integration from a Redshift batch export")
