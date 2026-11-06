@@ -1,6 +1,7 @@
 import sys
 import logging
 import argparse
+from collections.abc import Callable
 
 from django.core.management.base import BaseCommand
 
@@ -122,7 +123,9 @@ def run(options) -> None:
 
     if dry_run:
         if erasing:
-            _log_erasure(team_id, plan_orphan_data_erasure(team_id, uuids, pending_uuids=[o.uuid for o in orphans]))
+            preview = plan_orphan_data_erasure(team_id, uuids, pending_uuids=[o.uuid for o in orphans])
+            _log_erasure(team_id, preview)
+            _report_erasure_gaps(team_id, preview, delete_recordings=delete_recordings, log=logger.warning)
         logger.info("Dry run: no tombstones were produced. Re-run with --no-dry-run to apply.")
         return
 
@@ -142,20 +145,45 @@ def run(options) -> None:
     erasure = plan_orphan_data_erasure(team_id, uuids)
     _log_erasure(team_id, erasure)
     if delete_recordings:
-        queue_recording_deletion_by_distinct_id(
+        workflow_ids = queue_recording_deletion_by_distinct_id(
             team_id, erasure.recording_distinct_ids, deleted_by="fix_orphaned_ch_persons", reason=reason
         )
+        if workflow_ids:
+            logger.info(
+                "Recording deletion started and has not finished. Check these workflows for the result.",
+                team_id=team_id,
+                workflow_ids=workflow_ids,
+            )
     if delete_events:
         queue_event_deletion_by_uuid(team_id, erasure.person_uuids, actor=None)
-    if delete_recordings and (erasure.unconfirmed_distinct_ids or erasure.persons_without_distinct_ids):
-        logger.error(
-            "Some recordings may remain. Check each unconfirmed distinct id printed above, then delete its recordings "
-            "from the team admin. For a person with no distinct ids, use the ids from the erasure request.",
-            team_id=team_id,
-            unconfirmed_distinct_ids=len(erasure.unconfirmed_distinct_ids),
-            persons_without_distinct_ids=erasure.persons_without_distinct_ids,
-        )
+    if _report_erasure_gaps(team_id, erasure, delete_recordings=delete_recordings, log=logger.error):
         exit(1)
+
+
+def _report_erasure_gaps(
+    team_id: int, erasure: OrphanDataErasure, *, delete_recordings: bool, log: Callable[..., object]
+) -> bool:
+    recordings_may_remain = delete_recordings and bool(
+        erasure.unconfirmed_distinct_ids or erasure.excluded_distinct_ids or erasure.persons_without_distinct_ids
+    )
+    if not recordings_may_remain and not erasure.not_erasable_uuids:
+        return False
+    log(
+        "This erasure is incomplete. A person in not_erasable_uuids has no persons-DB tombstone, so nothing of theirs "
+        "is erased. Recordings may remain under the distinct ids printed above and for a person in "
+        "persons_without_distinct_ids. Check each one, then delete its recordings from the team admin.",
+        team_id=team_id,
+        not_erasable_uuids=erasure.not_erasable_uuids,
+        persons_without_distinct_ids=erasure.persons_without_distinct_ids,
+    )
+    return True
+
+
+def _print_for_operator(label: str, values: list[str]) -> None:
+    # Written to the operator's terminal and not logged, because a distinct id can be an email address and this
+    # command runs to erase that data.
+    if values:
+        sys.stdout.write(f"{label}:\n" + "\n".join(values) + "\n")
 
 
 def _log_erasure(team_id: int, erasure: OrphanDataErasure) -> None:
@@ -167,11 +195,10 @@ def _log_erasure(team_id: int, erasure: OrphanDataErasure) -> None:
         excluded_distinct_ids=len(erasure.excluded_distinct_ids),
         unconfirmed_distinct_ids=len(erasure.unconfirmed_distinct_ids),
         persons_without_distinct_ids=erasure.persons_without_distinct_ids,
+        not_erasable_uuids=erasure.not_erasable_uuids,
     )
-    if erasure.unconfirmed_distinct_ids:
-        # Written to the operator's terminal and not logged, because a distinct id can be an email address and this
-        # command runs to erase that data.
-        sys.stdout.write("Unconfirmed distinct ids:\n" + "\n".join(erasure.unconfirmed_distinct_ids) + "\n")
+    _print_for_operator("Unconfirmed distinct ids", erasure.unconfirmed_distinct_ids)
+    _print_for_operator("Excluded distinct ids", erasure.excluded_distinct_ids)
 
 
 def _log_result(team_id: int, result: OrphanRepairResult) -> None:
@@ -191,5 +218,8 @@ def _log_result(team_id: int, result: OrphanRepairResult) -> None:
             "Found distinct_ids tombstoned in ClickHouse whose person is still live in the persons DB "
             "(reverse drift). Repair these with person_divergence repair, not this command.",
             team_id=team_id,
-            reverse_drift=result.reverse_drift_mappings,
+        )
+        _print_for_operator(
+            "Reverse drift mappings",
+            [f"{distinct_id} {person}" for distinct_id, person in result.reverse_drift_mappings],
         )

@@ -875,12 +875,15 @@ def queue_recording_deletion_by_distinct_id(
     *,
     deleted_by: str,
     reason: str,
-) -> None:
-    """Delete recordings and training data for distinct ids that have no ``Person`` to carry them."""
+) -> builtins.list[str]:
+    """Delete recordings and training data for distinct ids that have no ``Person`` to carry them.
+
+    Returns the ids of the started workflows. Each workflow can still fail after it starts.
+    """
     if not distinct_ids:
-        return
+        return []
     queue_person_training_deletion(team_id, distinct_ids)
-    _start_recording_workflow_batches(
+    return _start_recording_workflow_batches(
         team_id,
         [
             distinct_ids[i : i + _MAX_DISTINCT_IDS_PER_WORKFLOW]
@@ -942,8 +945,8 @@ def _start_recording_workflow_batches(
     batches: builtins.list[builtins.list[str]],
     deleted_by: str,
     reason: str,
-) -> None:
-    """Start one ``delete-recordings-with-person`` workflow per batch of distinct ids.
+) -> builtins.list[str]:
+    """Start one ``delete-recordings-with-person`` workflow per batch of distinct ids, and return the workflow ids.
 
     The Temporal connection is established here (rather than in the caller) so
     that tests patching this seam don't need to mock ``sync_connect`` separately.
@@ -954,10 +957,10 @@ def _start_recording_workflow_batches(
     temporal = sync_connect()
     config = DeletionConfig(deleted_by=deleted_by, reason=reason)
 
-    async def start_all_workflows():
+    async def start_all_workflows() -> builtins.list[str]:
         semaphore = asyncio.Semaphore(_MAX_CONCURRENT_WORKFLOW_STARTS)
 
-        async def start_workflow(distinct_ids: builtins.list[str]) -> None:
+        async def start_workflow(distinct_ids: builtins.list[str]) -> str:
             workflow_input = RecordingsWithPersonInput(distinct_ids=distinct_ids, team_id=team_id, config=config)
             workflow_id = f"delete-recordings-{team_id}-persons-{uuid_lib.uuid4()}"
             async with semaphore:
@@ -971,7 +974,8 @@ def _start_recording_workflow_batches(
                         initial_interval=timedelta(minutes=1),
                     ),
                 )
+            return workflow_id
 
-        await asyncio.gather(*(start_workflow(batch) for batch in batches))
+        return list(await asyncio.gather(*(start_workflow(batch) for batch in batches)))
 
-    asyncio.run(start_all_workflows())
+    return asyncio.run(start_all_workflows())

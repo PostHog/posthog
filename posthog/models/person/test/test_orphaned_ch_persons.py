@@ -6,12 +6,17 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
+from personhog.types.v1 import person_pb2
 
 from posthog.clickhouse.client import sync_execute
-from posthog.management.commands.fix_orphaned_ch_persons import run as run_orphan_repair
+from posthog.management.commands.fix_orphaned_ch_persons import (
+    _log_result,
+    run as run_orphan_repair,
+)
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.deletion import (
     OrphanedPerson,
+    OrphanRepairResult,
     find_orphaned_ch_persons,
     plan_orphan_data_erasure,
     tombstone_orphaned_ch_persons,
@@ -299,11 +304,58 @@ class TestOrphanedCHPersonRepair(ClickhouseTestMixin, BaseTest):
         self._seed_rest_of_team()
         live = create_person(team=self.team, distinct_ids=["did-live"], properties={})
 
-        recording_ids, training = self._erase([orphan, str(live.uuid)])
+        recording_ids, training = self._erase_expecting_exit([orphan, str(live.uuid)])
 
         assert self._queued_event_deletions() == {orphan}
         assert recording_ids == ["did-orphan"]
         training.assert_called_once_with(self.team.pk, ["did-orphan"])
+        assert plan_orphan_data_erasure(self.team.pk, [orphan, str(live.uuid)]).not_erasable_uuids == [str(live.uuid)]
+
+    def test_erasure_with_no_gaps_exits_cleanly_and_logs_its_workflows(self):
+        orphan = str(uuid4())
+        self._seed_ch_only_person(orphan, ["did-a"], version=5)
+        self._seed_rest_of_team()
+
+        with patch("posthog.management.commands.fix_orphaned_ch_persons.logger") as logger:
+            recording_ids, _training = self._erase([orphan])
+
+        assert recording_ids == ["did-a"]
+        [started] = [c for c in logger.info.call_args_list if "workflow_ids" in c.kwargs]
+        assert len(started.kwargs["workflow_ids"]) == 1
+
+    @parameterized.expand(
+        [
+            ("sentinel", "$posthog_cookieless"),
+            ("any_case", "AnOnYmOuS"),
+            ("quoted", '"null"'),
+            ("blank", "   "),
+        ]
+    )
+    def test_erasure_never_deletes_by_a_distinct_id_people_share(self, _name: str, shared: str):
+        orphan = str(uuid4())
+        self._seed_ch_only_person(orphan, [shared, "did-own"], version=5)
+        self._seed_rest_of_team()
+
+        recording_ids, _training = self._erase_expecting_exit([orphan])
+
+        assert recording_ids == ["did-own"]
+        assert plan_orphan_data_erasure(self.team.pk, [orphan]).unconfirmed_distinct_ids == [shared]
+
+    def test_erasure_treats_a_mapping_row_that_outlived_its_person_as_unconfirmed(self):
+        orphan = str(uuid4())
+        self._seed_ch_only_person(orphan, ["did-a"], version=5)
+        self._seed_rest_of_team()
+        self._erase([orphan], delete_events=False, delete_recordings=False)
+        row = person_pb2.DistinctIdRow(distinct_id="did-a", person_id=1, version=0, is_deleted=False)
+
+        with patch("posthog.models.person.deletion.get_distinct_id_rows", return_value=[row]):
+            plan = plan_orphan_data_erasure(self.team.pk, [orphan])
+
+        assert (plan.recording_distinct_ids, plan.unconfirmed_distinct_ids, plan.excluded_distinct_ids) == (
+            [],
+            ["did-a"],
+            [],
+        )
 
     def test_erasure_skips_a_distinct_id_a_live_person_owns(self):
         orphan = str(uuid4())
@@ -311,7 +363,7 @@ class TestOrphanedCHPersonRepair(ClickhouseTestMixin, BaseTest):
         self._seed_rest_of_team()
         create_person(team=self.team, distinct_ids=["did-shared"], properties={})
 
-        recording_ids, _training = self._erase([orphan])
+        recording_ids, _training = self._erase_expecting_exit([orphan])
 
         assert recording_ids == ["did-own"]
 
@@ -374,6 +426,21 @@ class TestOrphanedCHPersonRepair(ClickhouseTestMixin, BaseTest):
 
         assert "did-t" in terminal.getvalue()
         assert "did-t" not in str(logger.mock_calls)
+        assert any("incomplete" in str(c.args) for c in logger.warning.call_args_list)
+
+    def test_reverse_drift_ids_reach_the_terminal_and_not_the_logs(self):
+        result = OrphanRepairResult(orphaned_person_uuids=[], dry_run=True)
+        result.reverse_drift_mappings = [("did-drift", str(uuid4()))]
+
+        terminal = StringIO()
+        with (
+            patch("posthog.management.commands.fix_orphaned_ch_persons.logger") as logger,
+            redirect_stdout(terminal),
+        ):
+            _log_result(self.team.pk, result)
+
+        assert "did-drift" in terminal.getvalue()
+        assert "did-drift" not in str(logger.mock_calls)
 
     def test_erasure_keeps_unconfirmed_distinct_ids_out_of_the_logs_when_it_fails(self):
         uuid = self._tombstoned_person_with_stored_distinct_id("did-t")
@@ -422,6 +489,9 @@ class TestOrphanedCHPersonRepair(ClickhouseTestMixin, BaseTest):
         plan = plan_orphan_data_erasure(self.team.pk, [uuid])
 
         assert (plan.recording_distinct_ids, plan.unconfirmed_distinct_ids) == ([], [])
+        assert plan.excluded_distinct_ids == ["did-t"]
+        recording_ids, _training = self._erase_expecting_exit([uuid])
+        assert recording_ids == []
 
     def test_erasure_dry_run_deletes_nothing(self):
         orphan = str(uuid4())
