@@ -2431,7 +2431,8 @@ SQL
   }
 
   table "metrics4_samples" {
-    order_by     = ["team_id", "metric_name", "time_bucket", "series_fingerprint"]
+    primary_key  = ["team_id", "metric_name", "time_bucket", "series_fingerprint"]
+    order_by     = ["team_id", "metric_name", "time_bucket", "series_fingerprint", "histogram_bounds_hash"]
     partition_by = "original_expiry_date"
     ttl          = "original_expiry_date"
     settings = {
@@ -2481,6 +2482,9 @@ SQL
     }
     column "histogram_bounds" {
       type = "SimpleAggregateFunction(anyLast, Array(Float64))"
+    }
+    column "histogram_bounds_hash" {
+      type = "UInt64"
     }
     column "_topic" {
       type = "SimpleAggregateFunction(any, LowCardinality(String))"
@@ -3713,7 +3717,7 @@ SQL
     column "max_lag" {
       type = "SimpleAggregateFunction(max, UInt64)"
     }
-    engine "replicated_merge_tree" {
+    engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.trace_spans_kafka_metrics"
       replica_name = "{replica}-{shard}"
     }

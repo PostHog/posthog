@@ -18,6 +18,8 @@ from pydantic.dataclasses import dataclass
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
+from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
+
 
 @dataclass(frozen=True)
 class DataModelingJob:
@@ -141,3 +143,18 @@ class MaterializationRanRecentlyError(Exception):
 
 class MaterializationFailedError(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class NodeDescriptionTarget:
+    """What a node stands for, which decides where its description lives."""
+
+    node_id: UUID
+    saved_query_id: UUID | None = None
+    warehouse_table_id: UUID | None = None
+
+
+@dataclass(frozen=True)
+class NodeDescription:
+    text: str = ""
+    source: WarehouseColumnAnnotationDescriptionSource | None = None
