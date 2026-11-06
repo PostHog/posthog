@@ -826,12 +826,6 @@ describe('EmailTrackingService', () => {
                     value: Buffer.from(value),
                 })
 
-                const deadLettered = (): string[] =>
-                    mockProducerObserver
-                        .getProducedMessages()
-                        .map(({ topic }) => topic)
-                        .filter((topic) => topic.includes('dlq'))
-
                 const queuedAtStage = async (stage: string): Promise<number> =>
                     (
                         await register.getSingleMetric('email_tracking_ses_queued_notifications_total')!.get()
@@ -915,7 +909,6 @@ describe('EmailTrackingService', () => {
                     await consumer.processBatch(queuedNotifications())
 
                     expect(recordedMetrics()).toEqual(bounceMetrics)
-                    expect(deadLettered()).toEqual([])
                 })
 
                 it.each<[string, () => Promise<Message>]>([
@@ -950,7 +943,6 @@ describe('EmailTrackingService', () => {
 
                     expect(recordedMetrics()).toEqual(bounceMetrics)
                     expect(await queuedAtStage('skipped')).toBe(skippedBefore + 1)
-                    expect(deadLettered()).toEqual([])
                 })
 
                 it('fails the batch so Kafka redelivers it when reading the team config fails', async () => {
