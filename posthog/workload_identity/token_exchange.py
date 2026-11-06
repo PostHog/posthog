@@ -302,8 +302,16 @@ def _verify_subject_token(subject_token: str, provider: WorkloadProvider) -> tup
             WorkloadExchangeErrorCode.TOKEN_INVALID, "The OIDC token's exp claim must be numeric."
         )
 
+    subject = _required_claim(claims, provider.subject_claim)
+    for name in provider.claims_equal_to_subject:
+        if _claim_string(claims.get(name)) != subject:
+            raise WorkloadExchangeError(
+                WorkloadExchangeErrorCode.TOKEN_INVALID,
+                f"The job runs in another {provider.subject_claim.label.lower()} than the one its token names "
+                f"(claim {name}), and {provider.name} tokens from such jobs aren't trusted.",
+            )
     workload = VerifiedWorkload(
-        subject=_required_claim(claims, provider.subject_claim),
+        subject=subject,
         subject_name=_required_claim(claims, provider.subject_name_claim),
         condition_claims=_claims_by_name(claims, provider.condition_claims),
         recorded_claims=_claims_by_name(claims, provider.recorded_claims),

@@ -7,6 +7,7 @@ stores the repository ID the token carries, so nobody has to find that ID by han
 from __future__ import annotations
 
 import re
+import time
 from typing import Any
 from urllib.parse import quote, urlsplit
 
@@ -122,10 +123,12 @@ GITLAB_COM = "https://gitlab.com"
 GITLAB_PROJECT_ENDPOINT = "/api/v4/projects/{id}"
 GITLAB_UNAVAILABLE = "GitLab didn't answer. Try again in a minute, or enter the project ID by hand."
 _GITLAB_PROJECT_PATH = re.compile(r"^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$")
+# The lookup holds a web worker, so slow integrations get this long in total.
+GITLAB_LOOKUP_DEADLINE_SECONDS = 15
 _GITLAB_REMOTE_PREFIX = re.compile(r"^(?:(?:https?://|ssh://git@|git@)?gitlab\.com[:/])", re.IGNORECASE)
 
 
-def _gitlab_project(token: str | None, path: str) -> requests.Response:
+def _gitlab_project(token: str | None, path: str, timeout: float = 10) -> requests.Response:
     return gitlab_request(
         "GET",
         f"{GITLAB_COM}/api/v4/projects/{quote(path, safe='')}",
@@ -133,7 +136,7 @@ def _gitlab_project(token: str | None, path: str) -> requests.Response:
         source=EGRESS_SOURCE,
         endpoint=GITLAB_PROJECT_ENDPOINT,
         allow_redirects=False,
-        timeout=10,
+        timeout=timeout,
     )
 
 
@@ -156,14 +159,18 @@ def _gitlab_subject(
 
 def _gitlab_through_integration(team_id: int, path: str) -> tuple[ResolvedWorkloadSubject | None, bool]:
     unavailable = False
+    deadline = time.monotonic() + GITLAB_LOOKUP_DEADLINE_SECONDS
     for integration in IntegrationManager.gitlab.token.list(team_id):
+        remaining = deadline - time.monotonic()
+        if remaining <= 1:
+            return None, True
         hostname = urlsplit(str(integration.config.get("hostname") or "")).hostname or ""
         token = integration.sensitive_config.get("access_token")
         # Only gitlab.com issues tokens PostHog trusts, and a self-managed instance's token must not go there.
         if hostname.lower() != "gitlab.com" or not token:
             continue
         try:
-            response = _gitlab_project(token, path)
+            response = _gitlab_project(token, path, timeout=min(10, remaining))
         except requests.RequestException:
             unavailable = True
             continue
@@ -184,6 +191,9 @@ def resolve_gitlab_project(team_id: int, name: str) -> ResolvedWorkloadSubject:
         return found
     try:
         response = _gitlab_project(settings.GITLAB_TOKEN or None, path)
+        if response.status_code == 401 and settings.GITLAB_TOKEN:
+            # GitLab answers 401 for every project once the shared token expires, even a public one.
+            response = _gitlab_project(None, path)
     except requests.RequestException:
         raise WorkloadSubjectLookupUnavailable(GITLAB_UNAVAILABLE)
     if response.status_code == 200 and (found := _gitlab_subject(response, "GitLab", require_public=True)):

@@ -1,5 +1,6 @@
 import json
 import time
+import dataclasses
 from datetime import timedelta
 from typing import Any
 
@@ -28,7 +29,11 @@ from posthog.redis import TEST_clear_clients
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.test.authentication_checks import covers_authentication
 from posthog.token_bucket import Budget, TEST_reset_scripts
-from posthog.workload_identity.test.fixtures import FAKE_WORKLOAD_ISSUER, with_fake_workload_provider
+from posthog.workload_identity.test.fixtures import (
+    FAKE_WORKLOAD_ISSUER,
+    FAKE_WORKLOAD_PROVIDER,
+    with_fake_workload_provider,
+)
 from posthog.workload_identity.token_exchange import TOKEN_EXCHANGE_GRANT_TYPE
 
 from products.annotations.backend.models import Annotation
@@ -239,6 +244,19 @@ class TestWorkloadTokenExchange(APIBaseTest):
         assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert second.json()["error_code"] == "workload_rate_limited"
         assert second["Retry-After"] == str(second.json()["retry_after"])
+
+    @parameterized.expand(
+        [("same_project", "1234", True), ("another_project", "999", False), ("claim_missing", None, False)]
+    )
+    def test_exchange_refuses_a_job_that_runs_outside_the_subject(
+        self, _name: str, job_repository_id: str | None, accepted: bool
+    ) -> None:
+        provider = dataclasses.replace(FAKE_WORKLOAD_PROVIDER, claims_equal_to_subject=("job_repository_id",))
+
+        with patch("posthog.workload_identity.providers.SUPPORTED_WORKLOAD_PROVIDERS", (provider,)):
+            response = self._exchange(_oidc_token(job_repository_id=job_repository_id))
+
+        assert (response.status_code == status.HTTP_200_OK) is accepted, response.json()
 
     def test_exchange_refuses_a_token_signed_by_another_key(self) -> None:
         response = self._exchange(_oidc_token(signing_key=_OTHER_KEY_PEM))

@@ -82,6 +82,7 @@ class WorkloadProvider:
     # when the provider has no API PostHog can ask.
     resolve_subject: SubjectResolver | None = None
     condition_presets: tuple[ConditionPreset, ...] = ()
+    claims_equal_to_subject: tuple[str, ...] = ()
     # A condition claim that matches unexpected runs on its own, with the claims a policy must set beside it.
     condition_claim_companions: tuple[tuple[str, tuple[str, ...]], ...] = ()
     # The CI config a job needs, with SNIPPET_HOST and SNIPPET_PROJECT_ID where the values go.
@@ -274,6 +275,12 @@ GITLAB = WorkloadProvider(
             placeholder="true",
         ),
         WorkloadClaim(
+            name="environment_action",
+            label="Environment action",
+            help_text="What the job does to the environment: start deploys, while prepare, verify and access don't wait for approval.",
+            placeholder="start",
+        ),
+        WorkloadClaim(
             name="pipeline_source",
             label="Pipeline source",
             help_text="What started the pipeline, like push, schedule or web.",
@@ -302,6 +309,10 @@ GITLAB = WorkloadProvider(
     run_url_template="https://gitlab.com/{job_project_path}/-/jobs/{job_id}",
     docs_url="https://posthog.com/docs/api/workload-identity/gitlab",
     resolve_subject=resolve_gitlab_project,
+    # project_id names a merge request's source project, so a pipeline in another project would pair it with that project's environments.
+    claims_equal_to_subject=("job_project_id",),
+    # A tag can carry a branch's short name, and only start jobs wait for deployment approval.
+    condition_claim_companions=(("ref", ("ref_type",)), ("environment", ("environment_action",))),
     condition_presets=(
         ConditionPreset(
             key="branch",
@@ -318,7 +329,11 @@ GITLAB = WorkloadProvider(
             label="A protected environment",
             # Anyone who can push a branch can name any unprotected environment in a job.
             help_text="Jobs that deploy to this environment while it is protected. Protected environments need GitLab Premium or Ultimate.",
-            conditions=(("environment", PRESET_VALUE), ("environment_protected", "true")),
+            conditions=(
+                ("environment", PRESET_VALUE),
+                ("environment_protected", "true"),
+                ("environment_action", "start"),
+            ),
             placeholder="production",
             default_value="production",
         ),
