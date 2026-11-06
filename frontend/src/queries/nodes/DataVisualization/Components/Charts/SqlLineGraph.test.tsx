@@ -447,7 +447,7 @@ describe('SqlLineGraph', () => {
             await screen.findByLabelText(/chart with/i)
             await waitFor(() => expect(getChart().xTicks().length).toBeGreaterThan(0))
             // Date-axis tick formatter renders month names (year shown at the Jan boundary).
-            expect(getChart().xTicks()).toEqual(expect.arrayContaining(['October', 'November', 'December']))
+            expect(getChart().xTicks()).toEqual(expect.arrayContaining(['Oct', 'Nov', 'Dec']))
         })
 
         it('hides x-axis ticks while preserving its title', async () => {

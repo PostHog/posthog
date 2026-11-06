@@ -27,7 +27,7 @@ describe('createXAxisTickCallback', () => {
             scenario: 'inferred month interval from ~30 day gaps',
             interval: undefined,
             allDays: ['2025-01-01', '2025-02-01', '2025-03-01'],
-            expected: ['2025', 'February', 'March'],
+            expected: ['2025', 'Feb', 'Mar'],
         },
         {
             scenario: 'inferred quarter interval from ~90 day gaps',
@@ -39,7 +39,7 @@ describe('createXAxisTickCallback', () => {
             scenario: 'inferred day interval from 1 day gaps',
             interval: undefined,
             allDays: ['2025-04-01', '2025-04-02', '2025-04-03'],
-            expected: ['April', 'Apr 2', 'Apr 3'],
+            expected: ['Apr', 'Apr 2', 'Apr 3'],
         },
         {
             scenario: 'inferred week interval from 7 day gaps',
@@ -75,17 +75,17 @@ describe('createXAxisTickCallback', () => {
             scenario: 'inferred day interval from newest-first daily results',
             interval: undefined,
             allDays: ['2025-04-03 00:00:00', '2025-04-02 00:00:00', '2025-04-01 00:00:00'],
-            expected: ['Apr 3', 'Apr 2', 'April'],
+            expected: ['Apr 3', 'Apr 2', 'Apr'],
         },
         {
             scenario: 'weekly, long span, newest-first → same month labels as oldest-first',
             interval: 'week' as const,
             allDays: weeklyDates('2025-09-01', 18).reverse(),
             expected: sparseLabels(18, {
-                0: 'December',
-                5: 'November',
-                9: 'October',
-                13: 'September',
+                0: 'Dec',
+                5: 'Nov',
+                9: 'Oct',
+                13: 'Sep',
             }),
         },
         {
@@ -120,19 +120,19 @@ describe('createXAxisTickCallback', () => {
             scenario: 'monthly, same year starting Jan → year then full month names',
             interval: 'month' as const,
             allDays: ['2025-01-01', '2025-02-01', '2025-03-01', '2025-04-01'],
-            expected: ['2025', 'February', 'March', 'April'],
+            expected: ['2025', 'Feb', 'Mar', 'Apr'],
         },
         {
             scenario: 'monthly, same year mid-year → full month names',
             interval: 'month' as const,
             allDays: ['2025-04-01', '2025-05-01', '2025-06-01'],
-            expected: ['April', 'May', 'June'],
+            expected: ['Apr', 'May', 'Jun'],
         },
         {
             scenario: 'monthly, cross year → year at January boundary',
             interval: 'month' as const,
             allDays: ['2025-11-01', '2025-12-01', '2026-01-01', '2026-02-01'],
-            expected: ['November', 'December', '2026', 'February'],
+            expected: ['Nov', 'Dec', '2026', 'Feb'],
         },
         {
             scenario: 'quarterly, cross year → year at Q1 boundary, [Q]Q otherwise',
@@ -174,19 +174,19 @@ describe('createXAxisTickCallback', () => {
             scenario: 'weekly, short span with 1st → full month name on 1st',
             interval: 'week' as const,
             allDays: ['2025-09-22', '2025-09-29', '2025-10-06', '2025-10-13', '2025-11-01', '2025-11-08'],
-            expected: ['Sep 22', 'Sep 29', 'Oct 6', 'Oct 13', 'November', 'Nov 8'],
+            expected: ['Sep 22', 'Sep 29', 'Oct 6', 'Oct 13', 'Nov', 'Nov 8'],
         },
         {
             scenario: 'weekly, long span starting mid-month → drops partial first month',
             interval: 'week' as const,
             allDays: weeklyDates('2025-08-24', 26),
             expected: sparseLabels(26, {
-                2: 'September',
-                6: 'October',
-                10: 'November',
-                15: 'December',
+                2: 'Sep',
+                6: 'Oct',
+                10: 'Nov',
+                15: 'Dec',
                 19: '2026',
-                23: 'February',
+                23: 'Feb',
             }),
         },
         {
@@ -194,10 +194,10 @@ describe('createXAxisTickCallback', () => {
             interval: 'week' as const,
             allDays: weeklyDates('2025-09-01', 18),
             expected: sparseLabels(18, {
-                0: 'September',
-                5: 'October',
-                9: 'November',
-                13: 'December',
+                0: 'Sep',
+                5: 'Oct',
+                9: 'Nov',
+                13: 'Dec',
             }),
         },
         {
@@ -205,17 +205,17 @@ describe('createXAxisTickCallback', () => {
             interval: 'week' as const,
             allDays: weeklyDates('2025-06-02', 52),
             expected: sparseLabels(52, {
-                0: 'June',
-                5: 'July',
-                9: 'August',
-                13: 'September',
-                18: 'October',
-                22: 'November',
-                26: 'December',
+                0: 'Jun',
+                5: 'Jul',
+                9: 'Aug',
+                13: 'Sep',
+                18: 'Oct',
+                22: 'Nov',
+                26: 'Dec',
                 31: '2026',
-                35: 'February',
-                39: 'March',
-                44: 'April',
+                35: 'Feb',
+                39: 'Mar',
+                44: 'Apr',
                 48: 'May',
             }),
         },
@@ -341,9 +341,9 @@ describe('createXAxisTickCallback', () => {
                 allDays: ['2023-06-01', '2023-07-01', '2023-08-01'],
                 timezone: 'US/Pacific',
             })
-            expect(callback?.('ignored', 0)).toBe('June')
-            expect(callback?.('ignored', 1)).toBe('July')
-            expect(callback?.('ignored', 2)).toBe('August')
+            expect(callback?.('ignored', 0)).toBe('Jun')
+            expect(callback?.('ignored', 1)).toBe('Jul')
+            expect(callback?.('ignored', 2)).toBe('Aug')
         })
     })
 

@@ -176,7 +176,7 @@ function formatMonthLabel(date: Dayjs): string {
     if (date.month() === 0) {
         return String(date.year())
     }
-    return date.format('MMMM')
+    return date.format('MMM')
 }
 
 // Mirrors formatMonthLabel's convention: the year marks the year boundary, "Q2".."Q4" otherwise.
