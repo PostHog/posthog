@@ -775,6 +775,37 @@ async function takeSnapshotWithTheme(
 
     await finishAnimations(page)
 
+    // Diagnostic for the evidence PR only: names rendered content that sits below the story root,
+    // which adds a blank strip to fullscreen snapshots in some runs.
+    const strayContent = await page.evaluate(() => {
+        const root = document.getElementById('storybook-root')
+        if (!root) {
+            return null
+        }
+        const bottomOf = (element: Element): number => element.getBoundingClientRect().bottom + window.scrollY
+        const rootBottom = bottomOf(root)
+        const lastChildBottom = Math.max(0, ...Array.from(root.children).map(bottomOf))
+        const describe = (element: Element): string => {
+            const style = getComputedStyle(element)
+            const rect = element.getBoundingClientRect()
+            return `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ''}[${String(element.className).slice(0, 60)}] display=${style.display} position=${style.position} top=${Math.round(rect.top + window.scrollY)} h=${Math.round(rect.height)}`
+        }
+        const bodyExtra = document.body.scrollHeight - Math.ceil(rootBottom)
+        const rootExtra = Math.floor(rootBottom) - Math.ceil(lastChildBottom)
+        if (bodyExtra <= 1 && rootExtra <= 1) {
+            return null
+        }
+        const outside = Array.from(document.body.children)
+            .filter((element) => element !== root && getComputedStyle(element).display !== 'none')
+            .map(describe)
+        const insideTail = Array.from(root.children).slice(-3).map(describe)
+        return `body=${document.body.scrollHeight} rootBottom=${Math.round(rootBottom)} lastChildBottom=${Math.round(lastChildBottom)} outside=[${outside.join(' | ')}] rootTail=[${insideTail.join(' | ')}]`
+    })
+    if (strayContent) {
+        // eslint-disable-next-line no-console
+        console.log(`[test-runner] ${context.id} (${theme}): content below the story root: ${strayContent}`)
+    }
+
     // Do take the snapshot
     await doTakeSnapshotWithTheme(page, context, browser, theme, storyContext)
 }
