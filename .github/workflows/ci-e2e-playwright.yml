@@ -865,27 +865,37 @@ jobs:
                         # depends on the posthog_instancesetting table in Postgres.
                         # On cache hit this is near no-op; on cache miss it's a full migrate.
                         # Either way, any PR-added migrations get applied here.
-                        python manage.py migrate --noinput
+                        TIMEFORMAT='Django migrations: %3R seconds'
+                        time python manage.py migrate --noinput
 
                         # Run Rust migrations for persons e2e test database
                         PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test"
-                        sqlx database create -D "$PERSONS_DATABASE_URL"
-                        sqlx migrate run -D "$PERSONS_DATABASE_URL" --source rust/persons_migrations/
+                        TIMEFORMAT='Persons database preparation: %3R seconds'
+                        time {
+                            sqlx database create -D "$PERSONS_DATABASE_URL"
+                            sqlx migrate run -D "$PERSONS_DATABASE_URL" --source rust/persons_migrations/
+                        }
 
                         # Cyclotron node DB — the plugins container runs the CDP rerun worker
                         # (default capabilities), which requires CYCLOTRON_NODE_DATABASE_URL to point
                         # at a real, migrated database or it throws on startup and the server exits.
                         CYCLOTRON_NODE_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron_node"
-                        sqlx database create -D "$CYCLOTRON_NODE_DATABASE_URL"
-                        sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source rust/cyclotron-node-migrations/
+                        TIMEFORMAT='Cyclotron database preparation: %3R seconds'
+                        time {
+                            sqlx database create -D "$CYCLOTRON_NODE_DATABASE_URL"
+                            sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source rust/cyclotron-node-migrations/
+                        }
 
-                        python manage.py migrate_clickhouse 2>&1
+                        TIMEFORMAT='ClickHouse migrations: %3R seconds'
+                        time python manage.py migrate_clickhouse 2>&1
 
                         # Person/group reads go through personhog (no ORM fallback), so the replica
                         # and router must be running before setup_dev creates demo persons.
-                        COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=ingestion bin/ci-wait-for-docker launch personhog-replica personhog-router
+                        TIMEFORMAT='Personhog startup: %3R seconds'
+                        time COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=ingestion bin/ci-wait-for-docker launch personhog-replica personhog-router
 
-                        python manage.py setup_dev
+                        TIMEFORMAT='Demo data setup: %3R seconds'
+                        time python manage.py setup_dev
 
                   - name: Build frontend and collect static files
                     run: |

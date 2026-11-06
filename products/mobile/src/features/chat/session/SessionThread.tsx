@@ -1,4 +1,5 @@
 import { memo, type ReactElement, type ReactNode, useCallback, useMemo, useRef } from 'react'
+import type { ScrollViewInstance } from 'react-native'
 import { type NativeScrollEvent, type NativeSyntheticEvent, ScrollView, Text, View } from 'react-native'
 
 import { PullRequestCard } from '@/features/handoff/PullRequestCard'
@@ -17,8 +18,22 @@ import { ProgressRow } from './ProgressRow'
 import { errorItemText, groupSessionItems, shouldShowRunError } from './sessionDisplay'
 import type { Session, SessionAssistantItem, SessionDisplayItem, SessionErrorItem } from './types'
 
+export type SessionThreadState = Pick<
+    Session,
+    | 'history'
+    | 'items'
+    | 'invocations'
+    | 'phase'
+    | 'stage'
+    | 'decision'
+    | 'pullRequests'
+    | 'pullRequest'
+    | 'runStatus'
+    | 'runError'
+>
+
 interface SessionThreadProps {
-    session: Session
+    session: SessionThreadState
     onRetryHistory: () => void
     topInset?: number
 }
@@ -27,7 +42,7 @@ const AssistantRow = memo(function AssistantRow({ item }: { item: SessionAssista
     const styles = useStyles()
     return (
         <View style={styles.assistant} testID="session-assistant">
-            <ChatMarkdown text={item.text} streaming={!item.complete} />
+            <ChatMarkdown text={item.text} streaming={!item.complete} projectUrl={item.projectUrl} />
         </View>
     )
 })
@@ -41,7 +56,7 @@ const TurnEndRow = memo(function TurnEndRow(): ReactElement {
     return <View style={styles.turnEnd} />
 })
 
-function statusLine(session: Session): string | null {
+function statusLine(session: SessionThreadState): string | null {
     switch (session.phase) {
         case 'working':
             return session.stage ?? 'Thinking…'
@@ -55,7 +70,7 @@ function statusLine(session: Session): string | null {
 export function SessionThread({ session, onRetryHistory, topInset = 0 }: SessionThreadProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const scroll = useRef<ScrollView>(null)
+    const scroll = useRef<ScrollViewInstance>(null)
     const positioned = useRef(false)
     const following = useRef(true)
     const displayItems = useMemo(() => groupSessionItems(session.items), [session.items])

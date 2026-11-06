@@ -665,12 +665,16 @@ impl Committer {
     /// The producer was acquired on the capture's topic, so its records land there.
     #[allow(clippy::result_large_err)]
     fn stream_of(&self, partition: u32) -> Result<Stream, Status> {
-        let topic = self
+        let (topic, cluster) = self
             .captures
             .get(&partition)
-            .map(|c| Arc::clone(&c.topic))
+            .map(|c| (Arc::clone(&c.topic), c.cluster.clone()))
             .ok_or_else(|| not_served(partition))?;
-        Ok(Stream { topic, partition })
+        Ok(Stream {
+            topic,
+            cluster,
+            partition,
+        })
     }
 
     async fn commit(
@@ -2128,6 +2132,7 @@ mod tests {
             Arc::new(DashMap::from_iter([(
                 0,
                 crate::coordination::Capture {
+                    cluster: None,
                     topic: Arc::from("personhog_updates"),
                     config: personhog_coordination::types::ChangelogConfig::new(
                         "personhog_updates",
