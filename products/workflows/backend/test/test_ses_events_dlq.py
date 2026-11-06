@@ -322,20 +322,31 @@ class TestReplaySesEventsDlq(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("entry_refused", {"b"}, 0, {"a"}, 1),
-            ("transient_client_error", set(), 1, {"a", "b"}, 0),
-            ("client_error_every_attempt", set(), 3, set(), 2),
+            ("entry_refused", 2, {"b"}, 0, {"a"}, 1, 3),
+            ("transient_client_error", 2, set(), 1, {"a", "b"}, 0, 2),
+            ("client_error_every_attempt", 2, set(), 3, set(), 2, 3),
+            # A cleanup that tried every batch through an outage would block the report for hours.
+            ("outage_stops_after_one_batch", 25, set(), 99, set(), 25, 3),
         ]
     )
     def test_kept_messages_sqs_will_not_release_are_retried_and_reported(
-        self, _name: str, refuse: set[str], release_errors: int, visible: set[str], unreleased: int
+        self,
+        _name: str,
+        count: int,
+        refuse: set[str],
+        release_errors: int,
+        visible: set[str],
+        unreleased: int,
+        release_calls: int,
     ) -> None:
-        sqs = FakeSqs([sns_message("a"), sns_message("b")], refuse_release=refuse, release_errors=release_errors)
+        ids = [chr(ord("a") + index) for index in range(count)]
+        sqs = FakeSqs([sns_message(mid) for mid in ids], refuse_release=refuse, release_errors=release_errors)
 
-        report = run(sqs, StubWebhook({"a": 500, "b": 500}))
+        report = run(sqs, StubWebhook(dict.fromkeys(ids, 500)))
 
         assert sqs.visible_ids == visible
         assert report.to_dict()["unreleased"] == unreleased
+        assert sqs.release_calls == release_calls
 
     def test_posts_are_spaced_by_the_rate_limit(self) -> None:
         sqs = FakeSqs([sns_message(str(i)) for i in range(3)])
