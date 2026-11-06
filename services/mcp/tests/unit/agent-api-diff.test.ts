@@ -1,3 +1,7 @@
+import { spawnSync } from 'node:child_process'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -22,6 +26,49 @@ function surface(
 }
 
 describe('agent API diff', () => {
+    it.each(['directory', 'git ref'])('runs the CLI with native Node.js using a base %s', (baseSource) => {
+        const sourceRoot = path.resolve(import.meta.dirname, '../../../..')
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-api-cli-'))
+        try {
+            for (const file of ['scripts/agent-api-diff.ts', 'scripts/lib/agent-api-diff.ts']) {
+                const target = path.join(root, 'services/mcp', file)
+                fs.mkdirSync(path.dirname(target), { recursive: true })
+                fs.copyFileSync(path.join(sourceRoot, 'services/mcp', file), target)
+            }
+            const schemaDir = path.join(root, 'services/mcp/schema')
+            const snapshotDir = path.join(root, 'services/mcp/tests/unit/__snapshots__/tool-schemas')
+            fs.mkdirSync(schemaDir, { recursive: true })
+            fs.mkdirSync(snapshotDir, { recursive: true })
+            fs.writeFileSync(path.join(schemaDir, 'tool-definitions.json'), JSON.stringify({ 'example-tool': {} }))
+            fs.writeFileSync(path.join(schemaDir, 'generated-tool-definitions.json'), '{}')
+            fs.writeFileSync(path.join(snapshotDir, 'example-tool.json'), JSON.stringify({ properties: {} }))
+            for (const args of [
+                ['init', '-q'],
+                ['add', '.'],
+            ]) {
+                expect(spawnSync('git', args, { cwd: root }).status).toBe(0)
+            }
+            const tree = spawnSync('git', ['write-tree'], { cwd: root, encoding: 'utf-8' })
+            expect(tree.status).toBe(0)
+            const result = spawnSync(
+                process.execPath,
+                [
+                    path.join(root, 'services/mcp/scripts/agent-api-diff.ts'),
+                    ...(baseSource === 'directory' ? ['--base-dir', root] : ['--base-ref', tree.stdout.trim()]),
+                ],
+                { encoding: 'utf-8' }
+            )
+
+            expect({ status: result.status, stdout: result.stdout, stderr: result.stderr }).toEqual({
+                status: 0,
+                stdout: '',
+                stderr: '',
+            })
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true })
+        }
+    })
+
     it('renders nothing when the tool surface is unchanged', () => {
         const same = surface({ 'a-list': { params: ['limit'] } })
         expect(renderAgentApiDiff(diffToolSurfaces(same, surface({ 'a-list': { params: ['limit'] } })))).toBe('')

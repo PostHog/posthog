@@ -92,8 +92,10 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
     const reliabilityUnavailable = reliabilityFailed || reliabilityRows.length === 0
     const harnessErrorRows = useMemo(() => harnessErrorRateRows(harnessRows), [harnessRows])
     const errorRateLines = useMemo(
-        () => [{ key: 'error-rate', label: 'Error rate', data: reliabilitySeries.errorRatePct }],
-        [reliabilitySeries]
+        () => [
+            { key: 'error-rate', label: 'Error rate', color: theme.colors[4], data: reliabilitySeries.errorRatePct },
+        ],
+        [reliabilitySeries, theme]
     )
     const latencyLines = useMemo(
         () => [
@@ -177,6 +179,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                             filters={queryFilters}
                             colorOf={modelColorOf}
                             rowLabels={modelRowLabelMap}
+                            fillHeight
                         />
                     )}
                 </TwoColumns>
@@ -192,7 +195,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         interval={interval}
                         colorOf={labColorOf}
                     />
-                    <HarnessBarChart rows={harnessRows} loading={harnessRowsLoading} theme={theme} />
+                    <HarnessBarChart rows={harnessRows} loading={harnessRowsLoading} theme={theme} fillHeight />
                 </TwoColumns>
             </Section>
 
@@ -248,6 +251,12 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     />
                 </TwoColumns>
                 <TwoColumns>
+                    <ToolErrorRateChart
+                        rows={toolRows}
+                        loading={toolRowsLoading}
+                        theme={theme}
+                        onToolClick={openToolReport}
+                    />
                     <FacetShareCard
                         title="Why calls fail"
                         rows={facets.errorType}
@@ -255,20 +264,14 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         failed={failedFacet('errorType')}
                         theme={theme}
                     />
+                </TwoColumns>
+                <TwoColumns>
                     <ToolErrorRateChart
                         rows={harnessErrorRows}
                         loading={harnessRowsLoading}
                         theme={theme}
                         title="Error rate by harness"
                         emptyMessage="No harness data yet."
-                    />
-                </TwoColumns>
-                <TwoColumns>
-                    <ToolErrorRateChart
-                        rows={toolRows}
-                        loading={toolRowsLoading}
-                        theme={theme}
-                        onToolClick={openToolReport}
                     />
                     <NotableSessionsTable sessions={notableSessions} loading={sessionRowsLoading} />
                 </TwoColumns>

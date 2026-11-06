@@ -21,9 +21,9 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
-from posthog.models.event.new_events_schema import new_events_schema_for_request
+from posthog.models.event.new_events_schema import events_read_settings, new_events_schema_for_request
 from posthog.models.instance_setting import override_instance_config
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.settings import CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
     job_channel,
@@ -43,6 +43,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationQuery,
     LazyComputationResult,
     LazyComputationTable,
+    ServedWindow,
     TtlSchedule,
     _build_manual_insert_sql,
     _get_insert_settings,
@@ -1978,8 +1979,12 @@ class TestComputationExecutorExecute(BaseTest):
 
         assert result.ready is True
         assert ready_job.id in result.job_ids
-        # The materialized-at time of the served window is surfaced for the "data as of X" badge.
         assert result.computed_at == computed_at
+        assert result.served_windows == (
+            ServedWindow(
+                start=datetime(2024, 1, 1, tzinfo=UTC), end=datetime(2024, 1, 2, tzinfo=UTC), computed_at=computed_at
+            ),
+        )
 
     def test_inserts_missing_ranges_and_returns_all_job_ids(self):
         query_info, query_hash = self._make_query_info()
@@ -2307,6 +2312,9 @@ class TestComputationExecutorExecute(BaseTest):
         if served:
             assert result.stale is True
             assert result.job_ids == [stale_job.id]
+            assert [(w.start, w.end) for w in result.served_windows] == [
+                (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 2, tzinfo=UTC))
+            ]
             assert insert_count[0] == 0, "serve-stale must not compute inline"
         else:
             assert result.stale is False
@@ -3560,6 +3568,23 @@ class TestInsertSettings(BaseTest):
             assert _get_insert_settings(self.team.pk, table)["insert_quorum"] == "auto"
             assert _get_insert_settings(self.team.pk, table, read_after_write=False)["insert_quorum"] == 0
 
+    def test_insert_settings_carry_the_native_read_settings_for_a_switched_team(self):
+        table = LazyComputationTable.PREAGGREGATION_RESULTS
+        if not CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "json_type_escape_dots_in_keys" not in _get_insert_settings(self.team.pk, table)
+        with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)):
+            switched = _get_insert_settings(self.team.pk, table)
+        assert switched["json_type_escape_dots_in_keys"] == 1
+        assert switched["output_format_json_escape_forward_slashes"] == 0
+        # The INSERT's SELECT is printed with the job's modifiers, so a per-query switch wins over the team's.
+        forced_on = _get_insert_settings(self.team.pk, table, modifiers=HogQLQueryModifiers(useNewEventsSchema=True))
+        assert forced_on["json_type_escape_dots_in_keys"] == 1
+        with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)):
+            forced_off = _get_insert_settings(
+                self.team.pk, table, modifiers=HogQLQueryModifiers(useNewEventsSchema=False)
+            )
+        assert "json_type_escape_dots_in_keys" not in forced_off
+
     @parameterized.expand(_INSERT_LOAD_BALANCING_CASES)
     def test_insert_load_balancing_follows_the_read_table(self, table, expected_load_balancing):
         assert _get_insert_settings(self.team.pk, table).get("load_balancing") == expected_load_balancing
@@ -3595,6 +3620,13 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
                 "auto",
                 {"max_memory_usage": 7, "max_bytes_before_external_group_by": 3},
             ),
+            # The modifiers switch the SELECT's events table, and the read settings must follow it, not the team.
+            (
+                "modifier_switches_events_table",
+                {"modifiers": HogQLQueryModifiers(useNewEventsSchema=not CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA)},
+                "auto",
+                events_read_settings(not CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA),
+            ),
         ]
     )
     def test_manual_insert_path_passes_insert_settings_to_clickhouse(
@@ -3624,6 +3656,7 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
                 spill_to_disk=extra_kwargs.get("spill_to_disk", False),
                 read_after_write=extra_kwargs.get("read_after_write", True),
                 overrides=extra_kwargs.get("insert_settings"),
+                modifiers=extra_kwargs.get("modifiers"),
             )
 
         assert result.ready is True
@@ -3688,7 +3721,12 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
             },
         )
         assert isinstance(query, ast.SelectQuery)
-        query_info = LazyComputationQuery(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS)
+        # Read the table the test leg does not read by default, so the settings only match when the INSERT
+        # forwards the job's modifiers instead of asking the team.
+        modifiers = HogQLQueryModifiers(useNewEventsSchema=not CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA)
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, modifiers=modifiers
+        )
 
         with patch(
             "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute"
@@ -3696,9 +3734,11 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
             run_lazy_computation_insert(self.team, job, query_info)
 
         assert mock_execute.call_count == 1
-        assert mock_execute.call_args.kwargs["settings"] == _get_insert_settings(
-            self.team.pk, LazyComputationTable.PREAGGREGATION_RESULTS
+        settings = mock_execute.call_args.kwargs["settings"]
+        assert settings == _get_insert_settings(
+            self.team.pk, LazyComputationTable.PREAGGREGATION_RESULTS, modifiers=modifiers
         )
+        assert ("json_type_escape_dots_in_keys" in settings) == (not CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA)
 
 
 class TestInsertsReportRowsWritten(BaseTest):

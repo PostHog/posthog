@@ -7,6 +7,8 @@ from parameterized import parameterized
 
 from posthog.models.organization import Organization
 from posthog.models.project import Project
+from posthog.storage import object_storage
+from posthog.storage.team_metadata_cache import team_metadata_hypercache, update_team_metadata_cache
 
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 
@@ -103,6 +105,21 @@ class TestOrgProjectDeleteCascadesToTeamClear(BaseTest):
             project.delete()
 
         self.assertIn(team_id, cleared_team_ids)
+
+    def test_team_delete_clears_team_metadata_cache_in_redis_and_s3(self) -> None:
+        update_team_metadata_cache(self.team)
+        cache_key = team_metadata_hypercache.get_cache_key(self.team)
+        assert team_metadata_hypercache.cache_client.get(cache_key) is not None
+        assert object_storage.read(cache_key, missing_ok=True) is not None
+
+        with self.captureOnCommitCallbacks(execute=True):
+            api_token = self.team.api_token
+            self.team.delete()
+            # This write stands in for a refresh that runs after the pre_delete clear and before the commit.
+            team_metadata_hypercache.set_cache_value(api_token, {"api_token": api_token})
+
+        assert team_metadata_hypercache.cache_client.get(cache_key) is None
+        assert object_storage.read(cache_key, missing_ok=True) is None
 
 
 @override_settings(FLAGS_REDIS_URL="redis://localhost:6379")

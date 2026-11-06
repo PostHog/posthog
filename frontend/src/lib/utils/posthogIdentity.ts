@@ -17,7 +17,7 @@ interface UserIdentity {
 
 /**
  * Feature flags target these person and group properties, so this list also decides what a user's flags can use.
- * `_flag_identity` in `posthog/utils.py` builds the same inputs for the server flag bootstrap. Change both together.
+ * `flag_identity` in `posthog/utils.py` builds the same inputs for the server flag bootstrap. Change both together.
  */
 function userIdentity(user: UserType): UserIdentity {
     const groups: PostHogGroup[] = []

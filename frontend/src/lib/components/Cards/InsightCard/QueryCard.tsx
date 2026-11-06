@@ -1,3 +1,5 @@
+import './InsightCard.scss'
+
 import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import React, { useState } from 'react'

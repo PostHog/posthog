@@ -7,7 +7,6 @@ from typing import Any, Optional
 import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
-from unittest import mock
 from unittest.mock import ANY, MagicMock, Mock, patch
 
 from django.test import override_settings
@@ -38,7 +37,7 @@ from posthog.storage.object_storage import ObjectStorageError
 from posthog.test.test_journeys import journeys_for
 from posthog.utils import absolute_uri
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.source_authentication import assert_export_authorization
 from products.exports.backend.tasks import csv_exporter
@@ -69,7 +68,7 @@ class TestCSVExporter(APIBaseTest):
             # API responses copied from https://github.com/PostHog/posthog/runs/7221634689?check_suite_focus=true
             mock_response.json.side_effect = [
                 {
-                    "next": "http://testserver/api/projects/169/events?orderBy=%5B%22-timestamp%22%5D&properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D&after=2022-07-06T19%3A27%3A43.206326&limit=1&before=2022-07-06T19%3A37%3A43.095295%2B00%3A00",
+                    "next": f"http://testserver/api/projects/{self.team.id}/events?orderBy=%5B%22-timestamp%22%5D&properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D&after=2022-07-06T19%3A27%3A43.206326&limit=1&before=2022-07-06T19%3A37%3A43.095295%2B00%3A00",
                     "results": [
                         {
                             "id": "e9ca132e-400f-4854-a83c-16c151b2f145",
@@ -84,7 +83,7 @@ class TestCSVExporter(APIBaseTest):
                     ],
                 },
                 {
-                    "next": "http://testserver/api/projects/169/events?orderBy=%5B%22-timestamp%22%5D&properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D&after=2022-07-06T19%3A27%3A43.206326&limit=1&before=2022-07-06T19%3A37%3A43.095279%2B00%3A00",
+                    "next": f"http://testserver/api/projects/{self.team.id}/events?orderBy=%5B%22-timestamp%22%5D&properties=%5B%7B%22key%22%3A%22%24browser%22%2C%22value%22%3A%5B%22Safari%22%5D%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22event%22%7D%5D&after=2022-07-06T19%3A27%3A43.206326&limit=1&before=2022-07-06T19%3A37%3A43.095279%2B00%3A00",
                     "results": [
                         {
                             "id": "1624228e-a4f1-48cd-aabc-6baa3ddb22e4",
@@ -124,7 +123,7 @@ class TestCSVExporter(APIBaseTest):
             team=self.team,
             created_by=self.user,
             export_format=ExportedAsset.ExportFormat.CSV,
-            export_context={"path": "/api/literally/anything", **extra_context},
+            export_context={"path": f"/api/environments/{self.team.id}/persons/", **extra_context},
             source_authentication=ExportedAsset.SourceAuthentication.SESSION,
         )
         asset.save()
@@ -322,7 +321,7 @@ class TestCSVExporter(APIBaseTest):
     def test_csv_exporter_limits_breakdown_insights_correctly(
         self, mocked_request: Any, mocked_object_storage_write: Any, mocked_uuidt: Any
     ) -> None:
-        path = "api/projects/1/insights/trend/?insight=TRENDS&breakdown=email&date_from=-7d"
+        path = f"api/projects/{self.team.id}/insights/trend/?insight=TRENDS&breakdown=email&date_from=-7d"
         exported_asset = self._create_asset({"path": path})
         mock_response = Mock()
         mock_response.status_code = 200
@@ -337,6 +336,7 @@ class TestCSVExporter(APIBaseTest):
             timeout=60,
             json=None,
             headers=ANY,
+            allow_redirects=False,
         )
 
     @patch("products.exports.backend.tasks.csv_exporter.logger")
@@ -446,7 +446,7 @@ class TestCSVExporter(APIBaseTest):
             csv_exporter.export_tabular(exported_asset)
 
             assert patched_make_api_call.call_count == 4
-            patched_make_api_call.assert_called_with(mock.ANY, mock.ANY, 64, mock.ANY, mock.ANY, mock.ANY)
+            assert patched_make_api_call.call_args.args[2] == 64
 
     @patch("products.exports.backend.tasks.csv_exporter.logger")
     def test_404_mid_export_returns_rows_already_fetched(self, _mock_logger: MagicMock) -> None:
@@ -1454,7 +1454,7 @@ class TestCSVExporter(APIBaseTest):
             _create_person(distinct_ids=["user_1"], team=self.team)
             _create_person(distinct_ids=["user_2"], team=self.team)
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Test Action",
             steps_json=[{"event": "test_action_event"}],
@@ -1751,7 +1751,7 @@ class TestCSVExporter(APIBaseTest):
             exported_asset = ExportedAsset(
                 team=self.team,
                 export_format=ExportedAsset.ExportFormat.XLSX,
-                export_context={"path": "/api/test/endpoint"},
+                export_context={"path": f"/api/environments/{self.team.id}/persons/"},
                 source_authentication=ExportedAsset.SourceAuthentication.SESSION,
             )
             exported_asset.save()
@@ -1789,6 +1789,98 @@ class TestCSVExporter(APIBaseTest):
         assert _format_breakdown_value([]) == ""
         assert _format_breakdown_value(["a", "b", "c"]) == "a::b::c"
         assert _format_breakdown_value(["single"]) == "single"
+
+
+def _funnel_step(order: int, name: str | None, count: int) -> dict[str, Any]:
+    return {
+        "name": name,
+        "custom_name": None,
+        "order": order,
+        "count": count,
+        "average_conversion_time": None,
+        "median_conversion_time": None,
+    }
+
+
+class TestFunnelStepRows:
+    @pytest.mark.parametrize(
+        "series,funnels_filter,steps,expected",
+        [
+            pytest.param(
+                [
+                    {"kind": "EventsNode", "event": None},
+                    {"kind": "EventsNode", "event": "checkout started", "name": "checkout started"},
+                ],
+                {"funnelVizType": "steps"},
+                [_funnel_step(0, None, 10), _funnel_step(1, "checkout started", 4)],
+                [("All events", "", 10), ("checkout started", "checkout started", 4)],
+                id="all events first",
+            ),
+            pytest.param(
+                [
+                    {
+                        "kind": "FunnelsDataWarehouseNode",
+                        "id": "invoices",
+                        "table_name": "invoices",
+                        "id_field": "id",
+                        "timestamp_field": "created_at",
+                        "aggregation_target_field": "customer_id",
+                    },
+                    {"kind": "ActionsNode", "id": 7, "name": "Paid"},
+                    {
+                        "kind": "GroupNode",
+                        "operator": "OR",
+                        "nodes": [
+                            {"kind": "EventsNode", "event": "refund requested"},
+                            {"kind": "EventsNode", "event": "chargeback"},
+                        ],
+                    },
+                ],
+                {"funnelVizType": "steps"},
+                [
+                    _funnel_step(0, "invoices", 25),
+                    _funnel_step(1, "Paid", 9),
+                    _funnel_step(2, "refund requested, chargeback", 2),
+                ],
+                [("invoices", "invoices", 25), ("Paid", 7, 9), ("refund requested, chargeback", "", 2)],
+                id="warehouse, action and group steps",
+            ),
+            pytest.param(
+                [
+                    {"kind": "EventsNode", "event": "signed up", "name": "signed up"},
+                    {"kind": "EventsNode", "event": "invited teammate", "name": "invited teammate"},
+                ],
+                {"funnelVizType": "steps", "funnelOrderType": "unordered"},
+                [_funnel_step(0, "Completed 1 step", 12), _funnel_step(1, "Completed 2 steps", 5)],
+                [("Completed 1 step", "", 12), ("Completed 2 steps", "", 5)],
+                id="unordered",
+            ),
+            pytest.param(
+                [{"kind": "EventsNode", "event": None}, {"kind": "ActionsNode", "id": 7, "name": "Paid"}],
+                {"funnelVizType": "steps"},
+                [
+                    {**_funnel_step(0, None, 10), "compare_label": "current"},
+                    {**_funnel_step(1, "Paid", 4), "compare_label": "current"},
+                    {**_funnel_step(0, None, 8), "compare_label": "previous"},
+                    {**_funnel_step(1, "Paid", 3), "compare_label": "previous"},
+                ],
+                [("All events", "", 10), ("Paid", 7, 4), ("All events", "", 8), ("Paid", 7, 3)],
+                id="compared periods",
+            ),
+        ],
+    )
+    def test_exports_funnel_step_rows_from_query_series(
+        self,
+        series: list[dict[str, Any]],
+        funnels_filter: dict[str, Any],
+        steps: list[dict[str, Any]],
+        expected: list[tuple[str, str | int, int]],
+    ) -> None:
+        query = {"kind": "FunnelsQuery", "series": series, "funnelsFilter": funnels_filter}
+
+        rows = list(_convert_response_to_csv_data({"results": steps}, series_query=query))
+
+        assert [(row["name"], row["action_id"], row["count"]) for row in rows] == expected
 
 
 class TestExcelWriter:

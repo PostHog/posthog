@@ -1,9 +1,10 @@
 import { IconCheck, IconX } from '@posthog/icons'
-import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonTagType } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { EvalsChipData } from '../types'
+import { ChipButton } from './ChipButton'
 
 export interface EvalsChipProps {
     chip: EvalsChipData
@@ -32,11 +33,9 @@ export function EvalsChip({ chip, onClick }: EvalsChipProps): JSX.Element {
     const { type, icon } = chipStyle(chip)
     return (
         <Tooltip title={unratedNote(chip)}>
-            <button type="button" onClick={onClick} data-attr="trace-view-evals-chip" className="rounded">
-                <LemonTag type={type} icon={icon} weight="normal" className="cursor-pointer">
-                    <span>{chipText(chip)}</span>
-                </LemonTag>
-            </button>
+            <ChipButton type={type} icon={icon} onClick={onClick} data-attr="trace-view-evals-chip">
+                {chipText(chip)}
+            </ChipButton>
         </Tooltip>
     )
 }

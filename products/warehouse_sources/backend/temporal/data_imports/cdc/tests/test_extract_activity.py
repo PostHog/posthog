@@ -1,9 +1,10 @@
 import uuid
+import dataclasses
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from typing import Literal
+from typing import Any, Literal, cast
 
 import pytest
 from unittest.mock import ANY, DEFAULT, MagicMock, patch
@@ -34,15 +35,25 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
     CDC_SEQ_PROVENANCE,
+    HISTORY_NAMING,
+    LEGACY_HISTORY_NAMING,
     ChangeEventBatcher,
+    HistoryNaming,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
+from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
+    CDCErrorCategory,
+    CDCMaskedKeyError,
+    CDCMaskingKeyError,
+    CDCReservedColumnError,
+    cdc_error_info,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
     cancel_running_sync,
     stage_handed_over_reset,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import has_queued_batches
-from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCLag, ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.masking import mask_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
@@ -144,6 +155,7 @@ def _stub_app_db_writes():
             "_update_schema_sync_type_config",
             side_effect=_fake_update_schema_sync_type_config,
         ),
+        patch.object(CDCExtractActivity, "_read_masked_columns", side_effect=lambda schema: schema.masked_columns),
         patch(f"{_ACTIVITIES}.cancel_running_sync", return_value=None),
     ):
         yield
@@ -151,7 +163,7 @@ def _stub_app_db_writes():
 
 @contextmanager
 def _capture_harness(source, schemas, events=()) -> Iterator[SimpleNamespace]:
-    reader = MagicMock(last_commit_end_lsn=None)
+    reader = MagicMock(last_commit_position=None)
     reader.read_changes.return_value = iter(events)
     reader.truncated_tables = []
     # Below CDC_MAX_CHANGES_PER_READ so the bounded read loop treats this as a single drained pass.
@@ -310,6 +322,39 @@ def _make_extract_activity(source, log=None) -> CDCExtractActivity:
     activity_obj.source = source
     activity_obj.log = log or MagicMock()
     return activity_obj
+
+
+class TestMaskEventColumns:
+    def test_masks_configured_columns_and_types_them_as_text(self):
+        activity_obj = _make_extract_activity(_make_source())
+        activity_obj._load_masked_columns(cast(Any, SimpleNamespace(name="users", masked_columns=["email", "Visits"])))
+        event = dataclasses.replace(
+            _make_event(columns={"id": 1, "Email": "a@example.com", "visits": None}),
+            column_types={"id": pa.int64(), "Email": pa.string(), "visits": pa.int64()},
+        )
+
+        out = activity_obj._mask_event_columns(event)
+
+        assert out.columns == {"id": 1, "Email": mask_value(1, "a@example.com"), "visits": None}
+        assert out.column_types == {"id": pa.int64(), "Email": pa.string(), "visits": pa.string()}
+
+    def test_a_table_without_masks_is_untouched(self):
+        activity_obj = _make_extract_activity(_make_source())
+        event = _make_event(columns={"id": 1, "email": "a@example.com"})
+
+        assert activity_obj._mask_event_columns(event) is event
+
+    def test_no_secret_key_fails_capture_before_any_change_is_read(self):
+        activity_obj = _make_extract_activity(_make_source())
+
+        with (
+            patch(
+                f"{_ACTIVITIES}.value_masker",
+                side_effect=NonRetryableException("WAREHOUSE_COLUMN_MASKING_KEY must be set"),
+            ),
+            pytest.raises(CDCMaskingKeyError),
+        ):
+            activity_obj._load_masked_columns(cast(Any, SimpleNamespace(name="users", masked_columns=["email"])))
 
 
 class TestSetupSelfCleansUnrunnableSchedules:
@@ -485,7 +530,7 @@ class TestCDCExtractActivity:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock(last_commit_end_lsn=None)
+        mock_reader = MagicMock(last_commit_position=None)
         mock_reader.read_changes.side_effect = RuntimeError("connection lost")
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
@@ -595,7 +640,7 @@ class TestErrorClassification:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock(last_commit_end_lsn=None)
+        mock_reader = MagicMock(last_commit_position=None)
         mock_reader.read_changes.side_effect = psycopg.errors.InvalidPassword(
             'password authentication failed for user "test"'
         )
@@ -682,7 +727,7 @@ class TestErrorClassification:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock(last_commit_end_lsn=None)
+        mock_reader = MagicMock(last_commit_position=None)
         mock_reader.read_changes.side_effect = exc_cls(exc_message)
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
@@ -749,7 +794,7 @@ class TestErrorClassification:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock(last_commit_end_lsn=None)
+        mock_reader = MagicMock(last_commit_position=None)
         mock_adapter = MagicMock()
         mock_adapter.create_reader.return_value = mock_reader
         mock_adapter.is_slot_invalidation_error.return_value = False
@@ -767,7 +812,7 @@ class TestErrorClassification:
         # Never streamed and never tried to recover — the guard fired first.
         mock_reader.connect.assert_not_called()
         mock_reader.read_changes.assert_not_called()
-        mock_adapter.recreate_slot.assert_not_called()
+        mock_adapter.recreate_stream.assert_not_called()
         # Broken state persisted so the schedule stops firing against an unconfigured slot.
         mock_mark_broken.assert_called_once()
         assert mock_mark_broken.call_args.args[0] is source
@@ -802,7 +847,7 @@ class TestErrorClassification:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock(last_commit_end_lsn=None)
+        mock_reader = MagicMock(last_commit_position=None)
         mock_reader.read_changes.side_effect = psycopg.errors.InvalidPassword(
             'password authentication failed for user "test"'
         )
@@ -850,7 +895,7 @@ class TestErrorClassification:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock(last_commit_end_lsn=None)
+        mock_reader = MagicMock(last_commit_position=None)
         mock_reader.read_changes.side_effect = psycopg.OperationalError(
             'connection to server at "db" failed: Connection refused'
         )
@@ -903,7 +948,7 @@ class TestErrorClassification:
         mock_get_schemas.return_value = [schema]
 
         # A non-psycopg error the adapter can't classify falls back to retryable UNKNOWN.
-        mock_reader = MagicMock(last_commit_end_lsn=None)
+        mock_reader = MagicMock(last_commit_position=None)
         mock_reader.read_changes.side_effect = RuntimeError("arrow merge blew up")
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
@@ -964,7 +1009,7 @@ class TestErrorClassification:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock(last_commit_end_lsn=None)
+        mock_reader = MagicMock(last_commit_position=None)
         mock_reader.read_changes.side_effect = psycopg.errors.SyntaxError("invalid syntax")
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
@@ -1002,7 +1047,7 @@ class TestSlotInvalidationRecovery:
                 "DETAIL:  This slot has been invalidated because it exceeded the maximum reserved size."
             )
             capture.adapter.is_slot_invalidation_error.return_value = True
-            capture.adapter.recreate_slot.return_value = {"cdc_consistent_point": "0/AA"}
+            capture.adapter.recreate_stream.return_value = {"cdc_consistent_point": "0/AA"}
             with patch(f"{_ACTIVITIES}.clear_slot_loss_markers") as clear_markers:
                 capture.clear_markers = clear_markers
                 yield capture
@@ -1014,7 +1059,7 @@ class TestSlotInvalidationRecovery:
 
         with self._invalidated_slot(source, schema) as capture:
 
-            def _recreate_slot(source_arg, tables):
+            def _recreate_stream(source_arg, tables):
                 # The reset, its buffer purge included, must be complete before the slot is recreated.
                 # Once the new slot exists, no run hits the invalidation error again, so a reset that
                 # failed after that point would never repeat and the schema would stream across the gap.
@@ -1023,11 +1068,11 @@ class TestSlotInvalidationRecovery:
                 capture.clear_markers.assert_not_called()
                 return {"cdc_consistent_point": "0/AA"}
 
-            capture.adapter.recreate_slot.side_effect = _recreate_slot
+            capture.adapter.recreate_stream.side_effect = _recreate_stream
             # Recovery handles the error — the activity must not raise (no pointless Temporal retries).
             capture.extract()
 
-        capture.adapter.recreate_slot.assert_called_once_with(source, tables=["public.users"])
+        capture.adapter.recreate_stream.assert_called_once_with(source, tables=["public.users"])
         assert source.job_inputs["cdc_consistent_point"] == "0/AA"
         source.save.assert_called()
         capture.clear_markers.assert_called_once_with(source)
@@ -1053,7 +1098,7 @@ class TestSlotInvalidationRecovery:
         with self._invalidated_slot(source, schema) as capture:
             capture.extract()
 
-        capture.adapter.recreate_slot.assert_called_once_with(source, tables=["tll.students"])
+        capture.adapter.recreate_stream.assert_called_once_with(source, tables=["tll.students"])
         assert source.job_inputs["cdc_consistent_point"] == "0/AA"
         source.save.assert_called()
 
@@ -1062,7 +1107,7 @@ class TestSlotInvalidationRecovery:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
 
         with self._invalidated_slot(source, schema) as capture:
-            capture.adapter.recreate_slot.side_effect = RuntimeError("cannot recreate slot")
+            capture.adapter.recreate_stream.side_effect = RuntimeError("cannot recreate slot")
             capture.activity.info.return_value.attempt = CDC_MAX_EXTRACTION_ATTEMPTS
             with pytest.raises(RuntimeError, match="cannot recreate slot"):
                 capture.extract()
@@ -1090,7 +1135,7 @@ class TestSlotInvalidationRecovery:
             patch("products.data_warehouse.backend.facade.api.unpause_external_data_schedule") as unpause,
         ):
             if awaits_slot:
-                capture.adapter.recreate_slot.side_effect = RuntimeError("cannot recreate slot")
+                capture.adapter.recreate_stream.side_effect = RuntimeError("cannot recreate slot")
                 with pytest.raises(RuntimeError, match="cannot recreate slot"):
                     capture.extract()
             else:
@@ -1109,7 +1154,7 @@ class TestSlotInvalidationRecovery:
             with pytest.raises(RuntimeError, match="connection lost"):
                 capture.extract()
 
-        capture.adapter.recreate_slot.assert_not_called()
+        capture.adapter.recreate_stream.assert_not_called()
         assert schema.sync_type_config["cdc_mode"] == "streaming"
 
 
@@ -1123,8 +1168,8 @@ class TestCleanupOrphanSlotsRetentionCap:
 
         cdc_config = MagicMock()
         cdc_config.enabled = True
-        cdc_config.slot_name = "posthog_slot"
-        cdc_config.publication_name = "posthog_pub"
+        cdc_config.stream_name = "posthog_slot"
+        cdc_config.stream_resources_configured = True
         cdc_config.management_mode = "posthog"
         cdc_config.auto_drop_slot = True
         cdc_config.lag_warning_threshold_mb = 1024
@@ -1132,9 +1177,8 @@ class TestCleanupOrphanSlotsRetentionCap:
 
         mock_adapter = MagicMock()
         mock_adapter.parse_cdc_config.return_value = cdc_config
-        mock_adapter.get_lag_bytes.return_value = lag_mb * 1024 * 1024
-        mock_adapter.get_retention_cap_mb.return_value = cap_mb
-        mock_adapter.slot_exists.return_value = False
+        mock_adapter.get_lag.return_value = CDCLag(behind_bytes=lag_mb * 1024 * 1024, retention_cap_mb=cap_mb)
+        mock_adapter.stream_exists.return_value = False
         mock_get_adapter.return_value = mock_adapter
         return source, mock_adapter
 
@@ -1165,7 +1209,7 @@ class TestCleanupOrphanSlotsRetentionCap:
         cleanup_orphan_slots_activity()
 
         # Dropping + marking broken is the "act" — the broken-state details are covered in test_broken.
-        mock_adapter.drop_resources.assert_called_once()
+        mock_adapter.drop_stream.assert_called_once()
         mock_mark_broken.assert_called_once()
 
     @patch(
@@ -1192,7 +1236,7 @@ class TestCleanupOrphanSlotsRetentionCap:
 
         cleanup_orphan_slots_activity()
 
-        mock_adapter.drop_resources.assert_not_called()
+        mock_adapter.drop_stream.assert_not_called()
         mock_mark_broken.assert_not_called()
 
 
@@ -1217,7 +1261,7 @@ class TestFailureVisibilityJobs:
         MockSourceModel.objects.get.return_value = source
         mock_get_schemas.return_value = schemas
 
-        mock_reader = MagicMock(last_commit_end_lsn=None)
+        mock_reader = MagicMock(last_commit_position=None)
         mock_reader.read_changes.side_effect = error
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
@@ -1423,6 +1467,26 @@ class TestPKColumnLoading:
         assert queried_namespaces == {"cdc_test", "public"}
         assert act.pk_columns_by_table == {"cdc_test.orders": ["id"], "public.orders": ["uuid"]}
 
+    def test_a_mask_on_a_discovered_key_fails_capture(self):
+        schema = _make_schema("cdc_test.orders")
+        schema.masked_columns = ["ID"]
+        schema.incremental_field = None
+        act = self._activity([schema], queried_pks={"cdc_test": {"orders": ["id"]}})
+
+        with pytest.raises(CDCMaskedKeyError):
+            act._load_pk_columns()
+
+    def test_a_mask_on_a_stored_cursor_column_still_masks_it(self):
+        # CDC reads no cursor, so a stale incremental_field must not keep its column in plaintext.
+        schema = _make_schema("cdc_test.orders")
+        schema.masked_columns = ["Updated_At"]
+        schema.incremental_field = "updated_at"
+        act = self._activity([schema], queried_pks={"cdc_test": {"orders": ["id"]}})
+
+        act._load_pk_columns()
+
+        assert act.masked_columns_by_table == {"cdc_test.orders": {"updated_at"}}
+
     def test_stored_keys_are_not_requeried(self):
         schema = _make_schema("cdc_test.orders")
         schema.sync_type_config["primary_key_columns"] = ["id"]
@@ -1483,7 +1547,7 @@ class _ScriptedReader:
     """Reader stub that serves preconfigured WAL pages to the bounded read loop.
 
     Each page is (events, rows_consumed, commit_end_lsn). read_changes() exposes that page's
-    rows_consumed / last_commit_end_lsn exactly as the real reader does after a peek, so the
+    rows_consumed / last_commit_position exactly as the real reader does after a peek, so the
     multi-pass loop sees a full page (rows_consumed >= cap) followed by a drained one (< cap).
     """
 
@@ -1491,7 +1555,7 @@ class _ScriptedReader:
         self._pages = list(pages)
         self._idx = 0
         self.last_rows_consumed = 0
-        self.last_commit_end_lsn = None
+        self.last_commit_position = None
         self.truncated_tables: list[str] = []
         self.confirmed_positions: list[str] = []
         self.on_row_calls = 0
@@ -1524,7 +1588,7 @@ class _ScriptedReader:
         events, rows_consumed, commit_end_lsn = self._pages[self._idx]
         self._idx += 1
         self.last_rows_consumed = rows_consumed
-        self.last_commit_end_lsn = commit_end_lsn
+        self.last_commit_position = commit_end_lsn
 
         def gen():
             for ev in events:
@@ -1560,7 +1624,7 @@ class TestQuietRunSlotAdvance:
         source = _make_source()
         act = _make_extract_activity(source)
         act.cdc_schemas = [_make_schema("users", source=source)]
-        act.reader = MagicMock(last_commit_end_lsn=None)
+        act.reader = MagicMock(last_commit_position=None)
         act._pre_read_position = pre_read
         act._backlog_drained = drained
         act.last_confirmed_lsn = already_confirmed
@@ -1573,7 +1637,7 @@ class TestQuietRunSlotAdvance:
         source = _make_source()
         act = _make_extract_activity(source)
         act.cdc_schemas = [_make_schema("users", source=source)]
-        act.reader = MagicMock(last_commit_end_lsn=None)
+        act.reader = MagicMock(last_commit_position=None)
         act.reader.confirm_position.side_effect = RuntimeError("slot is active for PID 42")
         act._pre_read_position = "0/900"
         act._backlog_drained = True
@@ -2000,7 +2064,7 @@ class TestBufferedIngressCapture:
         act.schema_by_name = {"users": schema}
         act._buffered_table_names = {"users"}
         act.batcher = MagicMock(event_count=0)
-        act.reader = MagicMock(truncated_tables=["users"], last_commit_end_lsn="0/300")
+        act.reader = MagicMock(truncated_tables=["users"], last_commit_position="0/300")
         order = MagicMock()
 
         with (
@@ -2031,7 +2095,7 @@ class TestBufferedIngressCapture:
 
         with _capture_harness(source, [schema], events) as capture:
             capture.reader.truncated_tables = [truncated_name]
-            capture.reader.last_commit_end_lsn = "0/500"
+            capture.reader.last_commit_position = "0/500"
             capture.extract()
 
         capture.buffer.write_batch.assert_not_called()
@@ -2210,6 +2274,26 @@ class TestBufferedIngressCapture:
 
         assert schema.sync_type_config["cdc_reset_pending"] == staged
 
+    def test_a_finished_reset_masks_with_the_masks_saved_with_it(self):
+        # The run loads its tables before it finishes resets. A mask change saved after that load
+        # stages a reset this run finishes, so the buffer the run then writes must carry the new mask.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.masked_columns = None
+        schema.incremental_field = None
+        schema.sync_type_config["cdc_reset_pending"] = {"trigger": True}
+        events = [_make_event(op="I", position="0/100", columns={"id": 1, "email": "a@example.com"})]
+
+        with (
+            _capture_harness(source, [schema], events) as capture,
+            patch.object(CDCExtractActivity, "_read_masked_columns", return_value=["email"]),
+            patch("products.data_warehouse.backend.facade.api.trigger_external_data_workflow"),
+        ):
+            capture.extract()
+
+        written = capture.buffer.write_batch.call_args.kwargs["table"]
+        assert written.column("email").to_pylist() == [mask_value(1, "a@example.com")]
+
     def test_a_reset_waiting_on_a_slot_holds_the_table_out_until_the_slot_reads(self):
         # Recovery leaves this marker when it could not recreate the slot. Finishing the reset here
         # would unpause the schedule, and the snapshot would start with no slot to resume from. A
@@ -2316,21 +2400,59 @@ class TestBufferedIngressCapture:
             team_id=schema.team_id, schema_id=str(schema.id), restart_seq=0x100
         )
 
-    def test_a_source_column_named_like_seq_fails_the_buffered_run(self):
-        # The batcher skips its append on the collision, so the file's name, ordering, and retry
-        # cleanup would all derive from customer data — cleanup can then delete unconsumed files.
+    @parameterized.expand([("table_writes_the_buffer", False, True), ("table_awaiting_reset", True, False)])
+    def test_a_capture_column_collision_fails_only_a_table_that_writes_the_buffer(
+        self, _name: str, awaiting_reset: bool, refused: bool
+    ) -> None:
+        # A reset discards the table's queued changes, so its collision must not stop the other tables.
         source = _make_source()
-        schema = _make_schema("users", cdc_mode="streaming", source=source)
-        events = [_make_event(op="I", position="0/100", columns={"id": 1, CDC_SEQ_COLUMN: 42})]
+        act = _make_extract_activity(source)
+        act.schema_by_name = {"users": _make_schema("users", source=source)}
+        act._buffered_table_names = {"users"}
+        if awaiting_reset:
+            act._tables_awaiting_reset.add("users")
+        act.batcher = ChangeEventBatcher(position_to_seq=lambda position: 1)
+        act.batcher.add(_make_event(op="I", columns={"id": 1, "_PH_DELETED": True}))
+        tables = act.batcher.flush()
+
+        if refused:
+            with pytest.raises(CDCReservedColumnError, match="users"):
+                act._process_flush(tables)
+        else:
+            act._process_flush(tables)
+
+    @parameterized.expand(
+        [
+            ("position_column", CDC_SEQ_COLUMN, None, True),
+            ("position_column_the_load_renames", "_PH_CDC_SEQ", None, True),
+            ("validity_column_on_a_legacy_history_table", "validFrom", LEGACY_HISTORY_NAMING, True),
+            ("legacy_validity_column_on_a_new_history_table", "valid_from", HISTORY_NAMING, False),
+            ("validity_column_without_a_history_table", "valid_from", None, False),
+        ]
+    )
+    def test_a_source_column_named_like_a_written_column_fails_the_buffered_run(
+        self, _name: str, column: str, history: HistoryNaming | None, refused: bool
+    ) -> None:
+        # Written anyway, the file's name, ordering, and retry cleanup could derive from customer
+        # data, and cleanup can then delete unconsumed files.
+        source = _make_source()
+        cdc_table_mode = "consolidated" if history is None else "both"
+        schema = _make_schema("users", cdc_mode="streaming", cdc_table_mode=cdc_table_mode, source=source)
+        events = [_make_event(op="I", position="0/100", columns={"id": 1, column: 42})]
 
         with (
+            patch(f"{_ACTIVITIES}.SourceHistoryNamings") as history_namings,
             _capture_harness(source, [schema], events) as capture,
-            pytest.raises(NonRetryableException, match=CDC_SEQ_COLUMN),
         ):
-            capture.extract()
+            history_namings.return_value.naming_unless_taken.return_value = history
+            if refused:
+                with pytest.raises(NonRetryableException, match="change data capture"):
+                    capture.extract()
+            else:
+                capture.extract()
 
-        capture.buffer.write_batch.assert_not_called()
-        capture.reader.confirm_position.assert_not_called()
+        assert capture.buffer.write_batch.called is not refused
+        assert capture.reader.confirm_position.called is not refused
 
     @parameterized.expand(
         [

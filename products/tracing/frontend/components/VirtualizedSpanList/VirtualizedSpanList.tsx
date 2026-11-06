@@ -13,6 +13,7 @@ import { cn } from 'lib/utils/css-classes'
 import { TRACING_DATE_FORMAT, TRACING_DISPLAY_TIMEZONE, TRACING_TIME_FORMAT } from '../../dateFormats'
 import type { ErrorScope } from '../../errorCorrelation'
 import type { SpanErrorBadge } from '../../spanErrorsLogic'
+import { traceRowDuration } from '../../traceRows'
 import { formatDuration } from '../../TraceWaterfallView'
 import type { TracingOrderBy, TracingOrderDirection } from '../../tracingFiltersLogic'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from '../../types'
@@ -65,6 +66,7 @@ interface VirtualizedSpanListProps extends SortProps {
     spanColumns: SpanColumnConfig[]
     // Tag root spans. Only useful when the list mixes roots and children.
     showRootTag?: boolean
+    showTraceDuration?: boolean
 }
 
 interface SpanRowProps {
@@ -74,6 +76,7 @@ interface SpanRowProps {
     onRowClick: (span: Span) => void
     spanErrors: SpanErrors | undefined
     showRootTag: boolean
+    showTraceDuration: boolean
 }
 
 /** Header cell wired to the shared resize handle. `sort` marks the column as server-sortable. */
@@ -162,7 +165,12 @@ function SpanRowHeader({
     )
 }
 
-function spanCellContent(column: SpanColumnConfig, span: Span, showRootTag: boolean): JSX.Element | null {
+function spanCellContent(
+    column: SpanColumnConfig,
+    span: Span,
+    showRootTag: boolean,
+    showTraceDuration: boolean
+): JSX.Element | null {
     switch (column.type) {
         case 'timestamp':
             return (
@@ -199,7 +207,7 @@ function spanCellContent(column: SpanColumnConfig, span: Span, showRootTag: bool
         case 'kind':
             return <>{SPAN_KIND_LABELS[span.kind] ?? span.kind}</>
         case 'duration':
-            return <>{formatDuration(span.duration_nano)}</>
+            return <>{formatDuration(showTraceDuration ? traceRowDuration(span) : span.duration_nano)}</>
         case 'status': {
             const status = STATUS_CODE_LABELS[span.status_code] ?? {
                 label: String(span.status_code),
@@ -227,6 +235,7 @@ function SpanRow({
     widths,
     spanErrors,
     showRootTag,
+    showTraceDuration,
     onClick,
 }: {
     span: Span
@@ -234,6 +243,7 @@ function SpanRow({
     widths: Record<string, number>
     spanErrors: SpanErrors | undefined
     showRootTag: boolean
+    showTraceDuration: boolean
     onClick: () => void
 }): JSX.Element {
     const errorBadge = spanErrors?.badges.get(span.uuid)
@@ -259,7 +269,7 @@ function SpanRow({
                 const key = spanColumnKey(column)
                 return (
                     <TableCell key={key} width={widths[key]}>
-                        {spanCellContent(column, span, showRootTag)}
+                        {spanCellContent(column, span, showRootTag, showTraceDuration)}
                     </TableCell>
                 )
             })}
@@ -291,6 +301,7 @@ function SpanListRow({
     widths,
     spanErrors,
     showRootTag,
+    showTraceDuration,
     onRowClick,
 }: {
     ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' }
@@ -308,6 +319,7 @@ function SpanListRow({
                 widths={widths}
                 spanErrors={spanErrors}
                 showRootTag={showRootTag}
+                showTraceDuration={showTraceDuration}
                 onClick={() => onRowClick(span)}
             />
         </div>
@@ -325,6 +337,7 @@ export function VirtualizedSpanList({
     spanErrors,
     spanColumns,
     showRootTag = false,
+    showTraceDuration = false,
     orderBy,
     orderDirection,
     onSort,
@@ -404,7 +417,15 @@ export function VirtualizedSpanList({
                                     rowCount={dataSource.length}
                                     rowHeight={ROW_HEIGHT}
                                     rowComponent={SpanListRow}
-                                    rowProps={{ dataSource, spanColumns, widths, spanErrors, showRootTag, onRowClick }}
+                                    rowProps={{
+                                        dataSource,
+                                        spanColumns,
+                                        widths,
+                                        spanErrors,
+                                        showRootTag,
+                                        showTraceDuration,
+                                        onRowClick,
+                                    }}
                                     onRowsRendered={handleRowsRendered}
                                     listRef={listRef}
                                 />

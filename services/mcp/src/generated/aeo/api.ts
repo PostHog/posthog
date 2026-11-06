@@ -3,13 +3,13 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 10 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
 /**
- * Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic or by on/off state. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.
+ * Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic, by on/off state, or to the prompts that need improvement. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.
  * @summary List AEO prompts
  */
 export const AeoPromptsListParams = () => zod.object({
@@ -21,6 +21,9 @@ export const AeoPromptsListParams = () => zod.object({
 })
 
 export const aeoPromptsListQueryIncludeArchivedDefault = false
+export const aeoPromptsListQueryLimitMax = 1000
+
+export const aeoPromptsListQueryNeedsImprovementDefault = false
 export const aeoPromptsListQueryTopicMax = 200
 
 export const AeoPromptsListQueryParams = () => zod.object({
@@ -29,7 +32,13 @@ export const AeoPromptsListQueryParams = () => zod.object({
         .boolean()
         .default(aeoPromptsListQueryIncludeArchivedDefault)
         .describe('Also list archived prompts. Archived prompts are left out by default.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(aeoPromptsListQueryLimitMax).optional().describe('Number of results to return per page.'),
+    needs_improvement: zod
+        .boolean()
+        .default(aeoPromptsListQueryNeedsImprovementDefault)
+        .describe(
+            'Only list prompts that the engines answered in the last 30 days without citing a target domain. Prompts with no answered check in that window are left out.'
+        ),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     topic: zod
         .string()
@@ -66,7 +75,7 @@ export const AeoPromptsPartialUpdateParams = () => zod.object({
 
 export const aeoPromptsPartialUpdateBodyTopicMax = 200
 
-export const aeoPromptsPartialUpdateBodyPromptMax = 10000
+export const aeoPromptsPartialUpdateBodyPromptMax = 2000
 
 export const aeoPromptsPartialUpdateBodyVersionDescriptionMax = 400
 
@@ -120,7 +129,7 @@ export const AeoPromptsDestroyParams = () => zod.object({
 })
 
 /**
- * Lists every check of one prompt, newest first, one page at a time. Filter by engine or by prompt version. Each check has the engine's answer, the URLs it cited, the searches it ran and the prompt version it ran.
+ * Lists every check of one prompt, newest first, one page at a time. Filter by engine, by prompt version, or with since to see only checks from a point in time on. Each check has the engine's answer, the URLs it cited, the searches it ran and the prompt version it ran. Set include_answer_text=false to leave the answers out and page through history with smaller responses.
  * @summary List an AEO prompt's checks
  */
 export const AeoPromptsChecksParams = () => zod.object({
@@ -134,6 +143,9 @@ export const AeoPromptsChecksParams = () => zod.object({
 
 export const aeoPromptsChecksQueryEngineMax = 64
 
+export const aeoPromptsChecksQueryIncludeAnswerTextDefault = true
+export const aeoPromptsChecksQueryLimitMax = 100
+
 export const AeoPromptsChecksQueryParams = () => zod.object({
     engine: zod
         .string()
@@ -141,8 +153,18 @@ export const AeoPromptsChecksQueryParams = () => zod.object({
         .max(aeoPromptsChecksQueryEngineMax)
         .optional()
         .describe("Only list checks from this answer engine, for example 'claude-web-search'."),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    include_answer_text: zod
+        .boolean()
+        .default(aeoPromptsChecksQueryIncludeAnswerTextDefault)
+        .describe(
+            "Set to false to return answer_text as null on every check. Use it to page through history without the engines' answers."
+        ),
+    limit: zod.number().max(aeoPromptsChecksQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    since: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Only list checks that ran at or after this time, in ISO 8601 (for example 2026-10-01T00:00:00Z).'),
     version: zod.number().min(1).optional().describe('Only list checks that ran this version of the prompt.'),
 })
 
@@ -216,11 +238,42 @@ export const AeoPromptsBulkImportBody = () => zod.object({
                     .describe(
                         'Share of answers (0-100) that mention the brand for this prompt, as reported by the tool the prompt set came from. Kept to benchmark against our own citation rate.'
                     ),
+                origin: zod
+                    .enum(['api', 'suggestion'])
+                    .describe('\* `api` - Api\n\* `suggestion` - Suggestion')
+                    .optional()
+                    .describe(
+                        "Where the prompt text came from: api (written by a person) or suggestion (picked from aeo_prompts\/suggest). Stored in the prompt's evidence so suggested prompts can be audited later.\n\n\* `api` - Api\n\* `suggestion` - Suggestion"
+                    ),
             })
         )
         .min(1)
         .max(aeoPromptsBulkImportBodyPromptsMax)
         .describe('Prompts to add or update, at most 2000 per request.'),
+})
+
+/**
+ * Gets an overview of the project's whole AEO prompt set for the last 'days' days (default 30) in the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the brand-mention rate, the same counts for the window before it, the current window split per answer engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most.
+ * @summary Get the AEO prompt set overview
+ */
+export const AeoPromptsOverviewParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aeoPromptsOverviewQueryDaysDefault = 30
+export const aeoPromptsOverviewQueryDaysMax = 90
+
+export const AeoPromptsOverviewQueryParams = () => zod.object({
+    days: zod
+        .number()
+        .min(1)
+        .max(aeoPromptsOverviewQueryDaysMax)
+        .default(aeoPromptsOverviewQueryDaysDefault)
+        .describe("Length of the window in days, ending today in the project's timezone. Default 30, at most 90."),
 })
 
 /**

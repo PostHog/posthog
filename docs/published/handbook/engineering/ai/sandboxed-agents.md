@@ -35,6 +35,7 @@ The full task composer remains available during startup.
 Follow-up messages collect in "Up next" and send after the first response finishes.
 Once the agent starts, Steer can send them before the current turn ends.
 The thread hides empty and whitespace-only assistant messages during streaming and history replay.
+The PostHog AI thread and embedded run views render Pi session logs independently of the `pi-acp` rollout flag.
 
 An idle sandbox resume does not run an agent turn, so it does not send a finished notification or mark the run's activity completed.
 
@@ -226,7 +227,7 @@ Available read scopes: `action:read`, `cohort:read`, `dashboard:read`, `error_tr
 Available write scopes: `action:write`, `cohort:write`, `dashboard:write`,
 `experiment:write`, `feature_flag:write`, `insight:write`, `survey:write`, and others.
 
-Internal scopes (`task:write`, `llm_gateway:read`) are always added automatically.
+Internal scopes (`task:write`, `inbox:write`, `llm_gateway:read`) are always added automatically.
 
 An empty list (`posthog_mcp_scopes=[]`) omits the built-in PostHog MCP connection.
 Internal credentials for task lifecycle and model calls remain available, including the local `task_summary_update` tool.
@@ -760,7 +761,10 @@ Before a human prompt reaches Claude or Codex, the sandbox calls the task-bound 
 Follow-ups delivered through the user-message command, including automated CI and peer messages, can trigger selection.
 Internal retry continuations, steering, and slash commands do not trigger selection.
 Shadow and treatment require the organization's existing AI data processing consent before retrieval or model calls.
-Sandbox OAuth requests share project rate limits of 30 preparations per minute and 300 per hour.
+Shadow and treatment selections share project rate limits of 30 preparations per minute and 300 per hour.
+The limits apply after the eligibility, variant, and consent checks, so ineligible runs, such as scouts, never consume them.
+A selection over the limit returns `rate_limited` and skips retrieval and model calls.
+Each sandbox task can also call the selection endpoint at most 30 times per minute, whatever its eligibility.
 
 System One first checks whether organizational context could help, using the request and bounded conversation history.
 When the gate passes, the selector calls the existing skill search, catalog list/search, and Business Knowledge search APIs with the sandbox bearer credential.
@@ -781,7 +785,7 @@ The agent is instructed to use these references silently, including during progr
 It can cite the underlying sources and explain verification failures, but must not mention selection, suggestions, injection, or the hidden block's metadata.
 
 Control skips retrieval. Shadow computes the selected bundle without injecting it. Treatment injects the bundle.
-Selection has a three-second budget by default, starting before worker submission and run/actor lookups. Expired lookups do not start source or model requests.
+Selection has an eight-second budget by default, starting before worker submission and run/actor lookups. Expired lookups do not start source or model requests.
 Saturation, timeout, and selection failures leave the ordinary prompt flow available.
 Source requests run concurrently and use at most half the remaining budget, leaving time to score ready results.
 A denied, failed, or slow source does not suppress results from other sources.

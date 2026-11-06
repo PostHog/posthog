@@ -4,6 +4,8 @@ import { logger } from '~/common/utils/logger'
 
 import type { CdpConfig } from '../../config'
 
+const OPTIONAL_VALKEY_TIMEOUT_MS = 250
+
 export type RateLimiterValkeyConfig = Pick<
     CdpConfig,
     | 'SES_RATE_LIMITER_VALKEY_HOST'
@@ -26,7 +28,8 @@ export type RateLimiterValkeyConfig = Pick<
  */
 export function createSesRateLimiterValkeyPool(
     config: RateLimiterValkeyConfig,
-    name = 'ses-rate-limiter'
+    name = 'ses-rate-limiter',
+    { optional = false }: { optional?: boolean } = {}
 ): RedisV2 | null {
     if (!config.SES_RATE_LIMITER_VALKEY_HOST) {
         logger.info('🪙', `[${name}] no SES Valkey host configured — feature disabled`)
@@ -40,6 +43,25 @@ export function createSesRateLimiterValkeyPool(
 
     const tls = config.SES_RATE_LIMITER_VALKEY_TLS ? {} : undefined
 
+    if (optional) {
+        // A caller that works without this Valkey must not stop when it is down, or wait on it long.
+        return createRedisV2PoolFromConfig({
+            connection: {
+                url: config.SES_RATE_LIMITER_VALKEY_HOST,
+                options: {
+                    port: config.SES_RATE_LIMITER_VALKEY_PORT,
+                    password: config.SES_RATE_LIMITER_VALKEY_PASSWORD,
+                    tls,
+                    commandTimeout: OPTIONAL_VALKEY_TIMEOUT_MS,
+                },
+                name,
+                exitOnRepeatedErrors: false,
+            },
+            poolMinSize: 0,
+            poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+            acquireTimeoutMillis: OPTIONAL_VALKEY_TIMEOUT_MS,
+        })
+    }
     return createRedisV2PoolFromConfig({
         connection: {
             url: config.SES_RATE_LIMITER_VALKEY_HOST,

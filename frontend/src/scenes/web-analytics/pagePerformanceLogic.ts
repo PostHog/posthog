@@ -17,6 +17,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { escapeHogQLString } from 'lib/utils/hogql'
 import { isAbortedRequest } from 'lib/utils/requests'
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
@@ -39,7 +40,6 @@ import {
     WebStatsBreakdown,
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
-import { escapeHogQLString } from '~/queries/utils'
 import { ActionType, InsightLogicProps, PropertyFilterType, PropertyOperator, TeamType } from '~/types'
 
 import {

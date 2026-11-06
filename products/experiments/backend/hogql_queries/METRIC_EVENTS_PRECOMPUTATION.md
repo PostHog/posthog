@@ -162,7 +162,7 @@ metric_events AS (
 The runner orchestrates both precomputations, then hands the job ids to `build_query()`:
 
 ```python
-if should_precompute and not self.is_data_warehouse_query and self.group_type_index is None:
+if self._exposures_precompute_applicable():
     result = self._ensure_exposures_precomputed(builder)
     if result.ready:
         exposure_job_ids = [str(job_id) for job_id in result.job_ids]

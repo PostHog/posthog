@@ -1,5 +1,7 @@
+import re
 import copy
 import json
+import string
 import hashlib
 import inspect
 import graphlib
@@ -13,7 +15,9 @@ from django.db import IntegrityError
 import structlog
 from jsonpath_ng.exceptions import JSONPathError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
-from requests import PreparedRequest, Response, Timeout
+from requests import PreparedRequest, Request, RequestException, Response, Timeout
+from urllib3.exceptions import LocationParseError
+from urllib3.util import parse_url
 from urllib3.util.retry import Retry
 
 from posthog.cloud_utils import is_cloud
@@ -37,7 +41,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     make_tracked_session,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import _NoRedirectSession
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    TEMPORARY_HOST_RESOLUTION_PREFIX,
+    _is_host_safe,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -271,6 +278,74 @@ def validate_manifest_structure(manifest: Any) -> None:
         raise ManifestValidationError(_format_validation_errors(exc)) from exc
 
 
+_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
+
+
+def _declared_params(manifest: dict[str, Any], endpoint: dict[str, Any]) -> set[str]:
+    defaults = manifest.get("resource_defaults")
+    default_endpoint = defaults.get("endpoint") if isinstance(defaults, dict) else None
+    default_params = default_endpoint.get("params") if isinstance(default_endpoint, dict) else None
+    params = endpoint.get("params")
+    return {
+        *(default_params if isinstance(default_params, dict) else {}),
+        *(params if isinstance(params, dict) else {}),
+    }
+
+
+def _unbound_placeholders(path: str, declared: set[str]) -> list[str] | None:
+    """Placeholders in ``path`` that no param fills, or ``None`` when the engine can't parse the path."""
+    try:
+        return [name for _, name, _, _ in string.Formatter().parse(path) if name and name not in declared]
+    except ValueError:
+        return None
+
+
+def _double_braces(text: str) -> str:
+    return text.replace("{", "{{").replace("}", "}}")
+
+
+def _escape_literal_query_braces(manifest: dict[str, Any]) -> None:
+    """Keep braces in a path's query string literal unless a declared param fills them.
+
+    The REST engine formats every path with ``str.format``, so query syntax that uses braces, such
+    as Graph API field expansion (``?fields=attachments{media_type}``), would otherwise be read as
+    a placeholder and rejected. A path the engine already accepts is left untouched.
+    """
+    for resource in manifest["resources"]:
+        endpoint = resource.get("endpoint") if isinstance(resource, dict) else None
+        if not isinstance(endpoint, dict):
+            continue
+        path = endpoint.get("path")
+        if not isinstance(path, str) or "?" not in path:
+            continue
+        declared = _declared_params(manifest, endpoint)
+        if _unbound_placeholders(path, declared) == []:
+            continue
+        base, query = path.split("?", 1)
+        escaped: list[str] = []
+        position = 0
+        for match in _PLACEHOLDER_RE.finditer(query):
+            escaped.append(_double_braces(query[position : match.start()]))
+            escaped.append(match.group(0) if match.group(1) in declared else _double_braces(match.group(0)))
+            position = match.end()
+        escaped.append(_double_braces(query[position:]))
+        endpoint["path"] = f"{base}?{''.join(escaped)}"
+
+
+def _check_path_placeholders(manifest: dict[str, Any]) -> None:
+    # The engine's own error for this echoes the whole path, which can carry account ids.
+    for resource in manifest["resources"]:
+        endpoint = resource.get("endpoint") if isinstance(resource, dict) else None
+        if not isinstance(endpoint, dict) or not isinstance(endpoint.get("path"), str):
+            continue
+        unbound = _unbound_placeholders(endpoint["path"], _declared_params(manifest, endpoint))
+        if unbound:
+            raise ManifestValidationError(
+                f"Table {resource.get('name')!r} has {{{unbound[0]}}} in its path, but no parent field fills it. "
+                "Link the table to a parent table with that field, or remove the braces."
+            )
+
+
 def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[list[ResolvedParam]]]:
     """Surface parent/child fan-out errors at create-time instead of first sync.
 
@@ -295,6 +370,7 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[lis
     ``None`` for top-level resources) so callers that need it — the probe's
     child filter — don't rebuild the graph.
     """
+    _check_path_placeholders(manifest)
     try:
         graph, resource_map, resolved = _build_resource_graph(manifest)
         list(graph.static_order())
@@ -471,12 +547,17 @@ def _validate_paginator_configs(manifest: dict[str, Any]) -> None:
     if isinstance(client, dict):
         _check_paginator_config(client.get("paginator"), "client.paginator")
 
+    defaults = manifest.get("resource_defaults")
+    default_endpoint = defaults.get("endpoint") if isinstance(defaults, dict) else None
+    default_paginator = default_endpoint.get("paginator") if isinstance(default_endpoint, dict) else None
+
     for resource in manifest.get("resources") or []:
-        if not isinstance(resource, dict):
-            continue
-        endpoint = resource.get("endpoint")
-        paginator = endpoint.get("paginator") if isinstance(endpoint, dict) else None
-        _check_paginator_config(paginator, f"Resource {resource.get('name')!r}: endpoint.paginator")
+        endpoint = resource.get("endpoint") if isinstance(resource, dict) else None
+        # The engine replaces the default paginator wholesale when a resource declares its own.
+        if isinstance(endpoint, dict) and "paginator" in endpoint:
+            _check_paginator_config(endpoint["paginator"], f"Resource {resource.get('name')!r}: endpoint.paginator")
+        else:
+            _check_paginator_config(default_paginator, "resource_defaults.endpoint.paginator")
 
 
 def _check_paginator_config(paginator: Any, location: str) -> None:
@@ -491,16 +572,25 @@ def _check_paginator_config(paginator: Any, location: str) -> None:
     # "auto" (and any type mapped to None) applies no paginator, so extra keys are ignored.
     if paginator_class is None:
         return
-    supported = {
-        name
+    params = {
+        name: param
         for name, param in inspect.signature(paginator_class).parameters.items()
         if param.kind in (param.POSITIONAL_OR_KEYWORD, param.KEYWORD_ONLY)
     }
-    unsupported = sorted(set(paginator) - {"type"} - supported)
+    unsupported = sorted(set(paginator) - {"type"} - set(params))
     if unsupported:
         raise ManifestValidationError(
             f"{location} has unsupported {'keys' if len(unsupported) > 1 else 'key'} "
-            f"{', '.join(unsupported)}. Allowed keys: {', '.join(sorted(supported))}"
+            f"{', '.join(unsupported)}. Allowed keys: {', '.join(sorted(params))}"
+        )
+    # A missing required key fails the constructor with a retryable TypeError, and a null one
+    # (e.g. offset `limit`) only fails once pagination does arithmetic on it.
+    missing = sorted(
+        name for name, param in params.items() if param.default is param.empty and paginator.get(name) is None
+    )
+    if missing:
+        raise ManifestValidationError(
+            f"{location} requires a non-null value for {', '.join(missing)} when type is {paginator.get('type')!r}"
         )
 
 
@@ -619,8 +709,13 @@ def _has_wrapping_quote(url: str) -> bool:
 
 
 def _check_url(url: str, team_id: int) -> tuple[bool, str | None]:
-    # `_url_hostname` mirrors the real connect host (backslash/whitespace-normalized) so the
-    # validator can't be fooled into vetting a different host than the request reaches.
+    # `_url_hostname` returns the host the HTTP client connects to, so the validator can't be
+    # fooled into vetting a different host than the request reaches.
+    if _has_ambiguous_authority(url):
+        return (
+            False,
+            "Remove the backslash (\\ or %5C) from the URL's host and enter just the address (for example, https://api.example.com).",
+        )
     hostname = _url_hostname(url)
     if not hostname:
         if _has_leading_http_method(url):
@@ -745,24 +840,69 @@ def manifest_request_hosts(manifest_json: Any) -> frozenset[str]:
     if token_url is not None:
         urls.append(token_url)
 
-    # `_url_hostname` returns an already-lowercased host.
-    hosts = {host for url in urls if (host := _url_hostname(url))}
+    hosts: set[str] = set()
+    for url in urls:
+        if _has_ambiguous_authority(url):
+            # Fail closed: a URL whose host depends on the parser counts as a new destination.
+            hosts.add(f"{_AMBIGUOUS_HOST_MARKER}{url}")
+        elif host := _url_hostname(url):
+            hosts.add(host)
     return frozenset(hosts)
 
 
-def _url_hostname(url: str) -> str | None:
-    """The host the HTTP client will actually connect to.
+# Prefix for a `manifest_request_hosts` entry that stands in for a URL with no single host.
+# It can't match a real hostname, so the re-entry gate always sees that URL as a new destination.
+_AMBIGUOUS_HOST_MARKER = "ambiguous-url:"
 
-    `urlparse` treats a backslash — and its ``%5c`` encoding — as ordinary
-    userinfo, so ``https://evil.example\\@trusted.example/`` parses as host
-    ``trusted.example`` here, while requests/urllib3 (per the WHATWG URL rules)
-    treat ``\\`` as a path separator and connect to ``evil.example``. Normalizing
-    those to ``/`` before parsing keeps the retarget guard aligned with the real
-    destination, so an ambiguous-authority URL can't smuggle the credential to a
-    new host while appearing unchanged.
+
+def _transport_hostname(url: str) -> str | None:
+    """The host urllib3 reads from ``url``. requests prepares and connects with this parser."""
+    try:
+        # requests strips leading whitespace before it parses the URL.
+        host = parse_url(url.lstrip()).host
+    except LocationParseError:
+        return None
+    return host.lower().strip("[]") if host else None
+
+
+def _has_ambiguous_authority(url: str) -> bool:
+    """True when ``urlparse`` and the HTTP client could read a different host from ``url``.
+
+    ``urlparse`` reads a backslash in the authority as userinfo, but urllib3 ends the authority
+    there: ``https://evil.example\\@trusted.example/`` connects to ``evil.example``. A
+    percent-encoded backslash stays userinfo for both parsers, but a client that decodes first
+    splits on it. No rewrite of these forms matches every parser, so such a URL is rejected.
+    Any other host disagreement between the two parsers is rejected the same way.
     """
-    normalized = url.replace("\\", "/").replace("%5c", "/").replace("%5C", "/")
-    return urlparse(normalized).hostname
+    try:
+        parsed = urlparse(url)
+        netloc = parsed.netloc.lower()
+        hostname = parsed.hostname
+    except ValueError:
+        return True
+    if "\\" in netloc or "%5c" in netloc:
+        return True
+    if hostname is None:
+        # No host for urlparse means no host for the validator either; `_check_url` rejects it.
+        return False
+    if not hostname.isascii():
+        # urllib3 sends the IDNA (punycode) form of an internationalized host.
+        try:
+            hostname = hostname.encode("idna").decode("ascii")
+        except UnicodeError:
+            return True
+    return hostname != _transport_hostname(url)
+
+
+def _url_hostname(url: str) -> str | None:
+    """The lowercased host the HTTP client will actually connect to.
+
+    ``None`` when the URL has no host, or when its host depends on which parser reads it
+    (see :func:`_has_ambiguous_authority`).
+    """
+    if _has_ambiguous_authority(url):
+        return None
+    return _transport_hostname(url) if urlparse(url).hostname else None
 
 
 # Probe values substituted for a fan-out child's resolve placeholder to test
@@ -824,6 +964,16 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CUSTOM
+
+    @property
+    def credential_kind(self) -> str | None:
+        # Custom keeps its own `job_inputs`, and its OAuth rows are not `Integration` rows.
+        return None
+
+    @property
+    def integration_id_fields_point_at_integrations(self) -> bool:
+        # The OAuth2 row pointer of Custom is a `CustomOAuth2Integration` id.
+        return False
 
     # Custom REST sources are capped per team to keep abuse of the arbitrary-URL fetcher bounded.
     max_instances_per_team = MAX_CUSTOM_SOURCES_PER_TEAM
@@ -1026,6 +1176,14 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             "Couldn't resolve the host": "A host in the manifest (base_url, token_url, or a resource's URL) could not be resolved via DNS. Check that it's spelled correctly and reachable from the public internet, then try again.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_is_host_safe` raises this when the resolver itself failed to answer (a DNS blip),
+        # as opposed to answering that the host doesn't exist — that permanent case is
+        # "Couldn't resolve the host" above. `validate_manifest_urls` folds it into
+        # ManifestValidationError, which loses the original TemporaryHostResolutionError type,
+        # so this can't be caught by isinstance the way other sources' host checks are.
+        return {TEMPORARY_HOST_RESOLUTION_PREFIX}
+
     def _assemble_manifest(self, config: CustomSourceConfig) -> dict[str, Any]:
         """Parse the stored manifest and rejoin it with the auth credentials.
 
@@ -1054,6 +1212,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # schemas (graph rules are enforced on the API validation paths in
         # `validate_credentials`, and per-schema at sync time in `_fanout_chain`).
         validate_manifest_structure(manifest)
+        _escape_literal_query_braces(manifest)
         _inject_auth_secrets(manifest, config)
         return manifest
 
@@ -1198,6 +1357,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # dependency map (not a local copy of its resolve-param detection) tells
         # us which resources are children.
         probeable = [resource for resource in manifest["resources"] if resolved.get(resource.get("name")) is None]
+        vetted_hosts = manifest_request_hosts(manifest)
         for resource in probeable[:PROBE_MAX_RESOURCES]:
             endpoint = resource.get("endpoint", {})
             method = (endpoint.get("method") or "GET").upper()
@@ -1210,6 +1370,17 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # answer differently at probe vs sync time.
             probe_params = _static_probe_params(endpoint.get("params"))
             probe_json = endpoint.get("json")
+            # Check the host of the URL requests will actually send, before the credential goes out.
+            try:
+                prepared_url = Request(method, url, params=probe_params or None).prepare().url
+            except (RequestException, ValueError):
+                prepared_url = None
+            prepared_host = _url_hostname(prepared_url) if prepared_url else None
+            if prepared_host is None or prepared_host not in vetted_hosts:
+                return False, (
+                    f"Resource {resource['name']!r}: {display_url} does not point to a host in this manifest. "
+                    "Check the URL and try again."
+                )
             try:
                 # stream=True so the body isn't buffered into memory; only a 401/403
                 # snippet is read below, and the response is always closed.
@@ -1329,7 +1500,13 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # endpoint.incremental block missing start_param crashes the engine with a bare,
             # retryable KeyError. Reject it as a ValueError so it fails fast and non-retryably.
             _validate_incremental_configs({"resources": engine_resources})
-            _validate_paginator_configs({"client": manifest.get("client"), "resources": engine_resources})
+            _validate_paginator_configs(
+                {
+                    "client": manifest.get("client"),
+                    "resource_defaults": manifest.get("resource_defaults"),
+                    "resources": engine_resources,
+                }
+            )
 
             # The engine serializes a datetime watermark via str() (space-separated),
             # which strict APIs reject — format it to the declared wire format first.

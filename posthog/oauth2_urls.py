@@ -6,6 +6,7 @@ from posthog.api.oauth import (
     OAuthAuthorizationView,
     OAuthClientManifestView,
     OAuthConnectDiscoveryInfoView,
+    OAuthDeviceAuthorizationView,
     OAuthIntrospectTokenView,
     OAuthJwksInfoView,
     OAuthProtectedResourceMetadataView,
@@ -22,6 +23,7 @@ urlpatterns = [
     opt_slash_path("oauth/token", OAuthTokenView.as_view(), name="token"),
     opt_slash_path("oauth/revoke", OAuthRevokeTokenView.as_view(), name="revoke"),
     opt_slash_path("oauth/introspect", OAuthIntrospectTokenView.as_view(), name="introspect"),
+    opt_slash_path("oauth/device-authorization", OAuthDeviceAuthorizationView.as_view(), name="device-authorization"),
     re_path(
         r"^\.well-known/openid-configuration/?$",
         OAuthConnectDiscoveryInfoView.as_view(),

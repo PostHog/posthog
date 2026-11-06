@@ -1,9 +1,7 @@
 import json
-import threading
 from datetime import UTC
 from typing import TYPE_CHECKING
 
-from django.conf import settings
 from django.utils.dateparse import parse_datetime
 
 import httpx
@@ -19,10 +17,10 @@ from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_TOPIC
 from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.models import Team
+from posthog.temporal.common.errors import NonReportableApplicationError
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
-from posthog.temporal.common.worker import DEFAULT_MAX_CONCURRENT_TASKS
 
 from products.error_tracking.backend.logic.severity_inference import (
     apply_inferred_severity,
@@ -52,6 +50,7 @@ from products.error_tracking.backend.temporal.lifecycle.side_effects import (
     emit_issue_lifecycle_signal,
     produce_issue_lifecycle_internal_event,
 )
+from products.error_tracking.backend.temporal.lifecycle.summary_worker import generate_summary_on_worker
 from products.ml_inference.backend.facade.contracts import (
     DecisionGatewayError,
     DecisionGatewayUnreachableError,
@@ -66,7 +65,6 @@ logger = structlog.get_logger(__name__)
 EMBEDDING_MODEL = "text-embedding-3-large-3072"
 EMBEDDING_RENDERING = "type_message_and_stack"
 EMBEDDING_MAX_TOKENS = 7000
-EMBEDDING_DISABLED_LIBRARIES = {"posthog-elixir"}
 SEVERITY_INFERENCE_MAX_TOKENS = 2000
 
 ERROR_TRACKING_SEVERITY_INFERENCE_OUTCOMES = Counter(
@@ -93,9 +91,6 @@ def _embedding_skip_reason(event_properties: dict[str, object]) -> str | None:
             if record_type == "custom":
                 return "custom_grouping_rule"
 
-    library = event_properties.get("$lib")
-    if isinstance(library, str) and library in EMBEDDING_DISABLED_LIBRARIES:
-        return "disabled_sdk"
     return None
 
 
@@ -286,45 +281,34 @@ def infer_issue_created_severity_activity(inputs: IssueCreatedWorkflowInputs) ->
     return result
 
 
-# A summary holds an activity slot for the whole model call, and alert dispatch shares this worker's slots.
-ISSUE_SUMMARY_WORKER_SLOTS = threading.BoundedSemaphore(
-    max(1, (settings.MAX_CONCURRENT_ACTIVITIES or DEFAULT_MAX_CONCURRENT_TASKS) // 4)
-)
-
-
 def _generate_issue_created_summary(inputs: IssueCreatedWorkflowInputs) -> "IssueSummaryOutcome":
     # issue_summaries imports the lifecycle rendering module, whose package imports this module.
     from products.error_tracking.backend.logic.issue_summaries import (  # noqa: PLC0415
-        ISSUE_SUMMARY_OUTCOMES,
         IssueSummaryOutcome,
         IssueSummaryTrigger,
         generate_issue_summary_from_event,
-        issue_summaries_on_write_enabled,
     )
 
-    # Checked outside the generator, which reports every attempt as an event, so a team without the flag sends none.
-    if not issue_summaries_on_write_enabled(inputs.team_id):
-        return IssueSummaryOutcome.DISABLED
-    # Skip instead of wait, because a waiting activity still holds its slot. The first read generates the summary.
-    if not ISSUE_SUMMARY_WORKER_SLOTS.acquire(blocking=False):
-        logger.warning("error_tracking_issue_summary_worker_busy", team_id=inputs.team_id, issue_id=inputs.issue_id)
-        ISSUE_SUMMARY_OUTCOMES.labels(
-            outcome=IssueSummaryOutcome.RATE_LIMITED.value, trigger=IssueSummaryTrigger.WRITE.value
-        ).inc()
-        return IssueSummaryOutcome.RATE_LIMITED
-    try:
-        return generate_issue_summary_from_event(
+    outcome = generate_summary_on_worker(
+        inputs.team_id,
+        inputs.issue_id,
+        IssueSummaryTrigger.WRITE,
+        lambda: generate_issue_summary_from_event(
             inputs.team_id, inputs.issue_id, lambda team: fetch_event_properties(team, inputs)
-        ).outcome
-    finally:
-        ISSUE_SUMMARY_WORKER_SLOTS.release()
+        ),
+    )
+    # Creation is the only time a summary is written, so a model failure raises to get a Temporal retry.
+    # Generation already reported the model error, so the retry error stays out of error tracking.
+    if outcome == IssueSummaryOutcome.MODEL_ERROR:
+        raise NonReportableApplicationError("Issue summary model call failed", type="IssueSummaryModelError")
+    return outcome
 
 
 @activity.defn
 @posthoganalytics.scoped(capture_exceptions=False)
 @close_db_connections
 def generate_issue_created_summary_activity(inputs: IssueCreatedWorkflowInputs) -> str:
-    # Model and output failures return an outcome, so an exception here is an infrastructure failure worth a retry.
+    # Output failures return an outcome. An exception here is a model or infrastructure failure, and Temporal retries it.
     return _generate_issue_created_summary(inputs).value
 
 

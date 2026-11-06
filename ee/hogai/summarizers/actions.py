@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-from products.actions.backend.models.action import Action, ActionStepJSON, ActionStepMatching
+from products.actions.backend.facade.contracts import Action, ActionStep, ActionStepMatching
 
 from .property_filters import (
     PropertyFilterCollectionDescriber,
@@ -51,7 +51,7 @@ class ActionSummarizer:
         description = "\n\n".join(group_descriptions)
         return description
 
-    def _describe_action_step(self, step: ActionStepJSON, index: int) -> tuple[str, set[PropertyFilterTaxonomyEntry]]:
+    def _describe_action_step(self, step: ActionStep, index: int) -> tuple[str, set[PropertyFilterTaxonomyEntry]]:
         taxonomy: set[PropertyFilterTaxonomyEntry] = set()
         description: list[str] = []
 

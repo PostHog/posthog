@@ -18,6 +18,8 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import email_domain
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
@@ -42,10 +44,10 @@ class EmailDomainStatusReport:
 class EmailIntegration:
     integration: model.Integration
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != "email":
             raise Exception("EmailIntegration init called with Integration with wrong 'kind'")
-        self.integration = integration
+        self.integration = model.integration_model(integration)
 
     @classmethod
     def create_native_integration(
@@ -53,7 +55,9 @@ class EmailIntegration:
     ) -> model.Integration:
         email_address: str = config["email"].lower()
         name: str = config["name"]
-        domain: str = email_address.split("@")[1]
+        domain = email_domain(email_address)
+        if domain is None:
+            raise ValidationError("Enter a valid email address, like hello@example.com.")
         mail_from_subdomain: str = config.get("mail_from_subdomain", "feedback")
         provider: str = config.get("provider", "ses")
 

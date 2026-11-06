@@ -20,6 +20,7 @@ const repoConfig = (index: number, overrides: Partial<StamphogRepoConfigApi>): S
         installation_id: '1',
         review_mode: 'all',
         trigger_label: 'stamphog',
+        routing_mode: 'off',
         user_access_level: 'manager',
         created_at: '2026-07-01T00:00:00Z',
         updated_at: '2026-07-01T00:00:00Z',
@@ -50,6 +51,8 @@ const repoConfigs = page([
     }),
     repoConfig(4, { repository: 'PostHog/hogland', enabled: false, created_at: '2026-08-12T00:00:00Z' }),
 ])
+
+const OWNERS_FILE_URL = '/api/projects/:team_id/stamphog/repo_configs/:id/owners_file/'
 
 const availableRepositories: StamphogAvailableRepositoriesApi = {
     repositories: ['PostHog/charts', 'PostHog/plugin-server', 'PostHog/posthog-python', 'PostHog/wizard'],
@@ -89,6 +92,8 @@ const meta: Meta = {
                     install_url: 'https://github.com/apps/stamphog/installations/new',
                     authorize_url: 'https://github.com/login/oauth/authorize',
                 },
+                // Without owners.yaml the expanded row offers no reviewer requests.
+                [OWNERS_FILE_URL]: { owners_file: 'missing' },
             },
         }),
     ],
@@ -97,22 +102,22 @@ export default meta
 
 export const RepositoriesList: StoryObj = {}
 
-async function expandLabelRow(canvasElement: HTMLElement): Promise<void> {
-    const labelRow = (await within(canvasElement).findByText('posthog-js', {}, { timeout: 15000 })).closest('tr')
-    await userEvent.click(within(labelRow!).getByTitle('Show more'))
-    await within(canvasElement).findByText('Daily digest')
+async function expandRow(canvasElement: HTMLElement, name: string, shownText: string): Promise<void> {
+    const row = (await within(canvasElement).findByText(name, {}, { timeout: 15000 })).closest('tr')
+    await userEvent.click(within(row!).getByTitle('Show more'))
+    await within(canvasElement).findByText(shownText)
 }
 
 // Expands the label-triggered row, the only one that shows the trigger label.
 export const RepositoryExpanded: StoryObj = {
     play: async ({ canvasElement }) => {
-        await expandLabelRow(canvasElement)
+        await expandRow(canvasElement, 'posthog-js', 'Daily digest')
     },
 }
 
 export const TriggerLabelEditing: StoryObj = {
     play: async ({ canvasElement }) => {
-        await expandLabelRow(canvasElement)
+        await expandRow(canvasElement, 'posthog-js', 'Daily digest')
         await userEvent.click(within(canvasElement).getByTitle('Edit'))
         await within(canvasElement).findByText('Save')
     },
@@ -174,4 +179,47 @@ export const ConnectedAfterSync: StoryObj = {
             },
         }),
     ],
+}
+
+// The default branch has owners.yaml, so the row offers reviewer requests, off until a manager turns them on.
+export const ReviewerRequestsOffered: StoryObj = {
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    decorators: [mswDecorator({ get: { [OWNERS_FILE_URL]: { owners_file: 'found' } } })],
+    play: async ({ canvasElement }) => {
+        await expandRow(canvasElement, 'posthog', 'owners.yaml found')
+    },
+}
+
+export const ReviewerRequestsOn: StoryObj = {
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/stamphog/repo_configs/': page([
+                    repoConfig(1, { repository: 'PostHog/posthog', digest_enabled: true, routing_mode: 'fallback' }),
+                ]),
+                [OWNERS_FILE_URL]: { owners_file: 'found' },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await expandRow(canvasElement, 'posthog', 'owners.yaml found')
+    },
+}
+
+// Requests stay in view after owners.yaml goes away, so a manager can see why nobody is asked and turn them off.
+export const ReviewerRequestsWithoutOwnersFile: StoryObj = {
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/stamphog/repo_configs/': page([
+                    repoConfig(1, { repository: 'PostHog/posthog', routing_mode: 'always' }),
+                ]),
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await expandRow(canvasElement, 'posthog', 'Reviewer requests')
+    },
 }
