@@ -360,10 +360,12 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert (tested.status_code, published.status_code) == (expected_status, expected_status), published.json()
         assert mock_invoke.called == (expected_status == status.HTTP_200_OK)
         function = HogFunction.objects.get(id=function_id)
-        expected_hosts = (
-            ["hooks.example.com"] if expected_status == status.HTTP_400_BAD_REQUEST else ["evil.example.com"]
+        expected_origins = (
+            ["https://hooks.example.com"]
+            if expected_status == status.HTTP_400_BAD_REQUEST
+            else ["https://evil.example.com"]
         )
-        assert function.encrypted_inputs["token"]["allowed_hosts"] == expected_hosts
+        assert function.encrypted_inputs["token"]["allowed_origins"] == expected_origins
 
     @parameterized.expand(
         [

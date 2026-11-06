@@ -1,7 +1,7 @@
-"""Which hosts a hog function's code can send each of its secret inputs to.
+"""Which origins a hog function's code can send each of its secret inputs to.
 
 The analysis is flow-insensitive and conservative. Every assignment to a name counts wherever it
-appears, and a secret whose destination cannot be pinned to known hosts is `UNBOUND`.
+appears, and a secret whose destination cannot be pinned to known origins is `UNBOUND`.
 """
 
 import re
@@ -20,7 +20,7 @@ class Unbound(Enum):
 
 
 UNBOUND = Unbound.UNBOUND
-SecretHosts = frozenset[str] | Unbound
+SecretOrigins = frozenset[str] | Unbound
 
 # A possible string value, as the text it is known to start with and whether that text is all of it.
 _Prefix = tuple[str, bool]
@@ -38,28 +38,28 @@ class _CannotAnalyze(Exception):
     pass
 
 
-def secret_hosts(
+def secret_origins(
     hog: str, inputs: dict[str, Any], mapping_inputs: list[dict[str, Any]], secret_keys: set[str]
-) -> dict[str, SecretHosts]:
+) -> dict[str, SecretOrigins]:
     try:
         return _Analysis(hog, [inputs, *mapping_inputs], secret_keys).run()
     except (_CannotAnalyze, BaseHogQLError, RecursionError):
         return dict.fromkeys(secret_keys, UNBOUND)
 
 
-def stored_hosts(hosts: SecretHosts) -> str | list[str]:
-    return UNBOUND.value if hosts is UNBOUND else sorted(hosts)
+def stored_origins(origins: SecretOrigins) -> str | list[str]:
+    return UNBOUND.value if origins is UNBOUND else sorted(origins)
 
 
-def parse_stored_hosts(stored: Any) -> SecretHosts | None:
+def parse_stored_origins(stored: Any) -> SecretOrigins | None:
     if stored == UNBOUND.value:
         return UNBOUND
-    if isinstance(stored, list) and all(isinstance(host, str) for host in stored):
+    if isinstance(stored, list) and all(isinstance(origin, str) for origin in stored):
         return frozenset(stored)
     return None
 
 
-def url_host(prefix: str, complete: bool) -> str | None:
+def url_origin(prefix: str, complete: bool) -> str | None:
     scheme = _SCHEME.match(prefix)
     if not scheme:
         return None
@@ -77,7 +77,9 @@ def url_host(prefix: str, complete: bool) -> str | None:
     host = host.rstrip(".")
     if not host:
         return None
-    return host if not port or port == _DEFAULT_PORTS[scheme.group(1).lower()] else f"{host}:{port}"
+    scheme_name = scheme.group(1).lower()
+    origin = f"{scheme_name}://{host}"
+    return origin if not port or port == _DEFAULT_PORTS[scheme_name] else f"{origin}:{port}"
 
 
 def _normalize(values: _Values) -> _Values:
@@ -223,7 +225,7 @@ class _Analysis:
         for child in _children(node):
             self._collect(child, function)
 
-    def run(self) -> dict[str, SecretHosts]:
+    def run(self) -> dict[str, SecretOrigins]:
         for name, _ in self.assignments:
             self.values[name] = frozenset()
         for params in self.functions.values():
@@ -236,7 +238,7 @@ class _Analysis:
         else:
             raise _CannotAnalyze
 
-        hosts: dict[str, frozenset[str]] = dict.fromkeys(self.secret_keys, frozenset())
+        origins: dict[str, frozenset[str]] = dict.fromkeys(self.secret_keys, frozenset())
         unbound: set[str] = set()
         for call in self.calls:
             if call.name != "fetch":
@@ -246,13 +248,13 @@ class _Analysis:
                 carried = self.secret_keys
             if not carried:
                 continue
-            found = {url_host(text, complete) for text, complete in self._value(call.args[0])}
+            found = {url_origin(text, complete) for text, complete in self._value(call.args[0])}
             for key in carried:
                 if None in found:
                     unbound.add(key)
                 else:
-                    hosts[key] |= {host for host in found if host}
-        return {key: UNBOUND if key in unbound else value for key, value in hosts.items()}
+                    origins[key] |= {origin for origin in found if origin}
+        return {key: UNBOUND if key in unbound else value for key, value in origins.items()}
 
     def _step(self) -> bool:
         changed = False
