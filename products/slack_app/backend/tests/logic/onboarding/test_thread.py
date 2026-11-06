@@ -24,6 +24,7 @@ from products.slack_app.backend.logic.onboarding.interactivity import (
     onboarding_integration_hint,
 )
 from products.slack_app.backend.logic.onboarding.sources_step import NO_PROJECT_ACCESS_TEXT
+from products.slack_app.backend.logic.onboarding.tools_step import ToolsStep
 from products.slack_app.backend.models import ChannelWelcomeMode, UntaggedFollowupMode
 from products.slack_app.backend.services.slack_settings import (
     resolve_auto_model_choice,
@@ -76,6 +77,13 @@ def _click(integration: WorkspaceIntegration, action_id: str, **value: str) -> d
         "response_url": "https://hooks.slack.example/response",
         "actions": [action],
     }
+
+
+@pytest.fixture(autouse=True)
+def without_tools_step() -> Iterator[None]:
+    # These tests count a member's steps, so they keep the member's step list fixed. test_steps.py covers this step.
+    with patch.object(ToolsStep, "applies", return_value=False):
+        yield
 
 
 @pytest.fixture

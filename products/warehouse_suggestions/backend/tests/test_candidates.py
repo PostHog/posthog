@@ -349,11 +349,11 @@ class TestMaterializeRefreshMode(BaseTest):
 class TestDeprecateCandidate(BaseTest):
     @parameterized.expand(
         [
-            ("a_few_missing_days", 29, [VIEW_ID], None),
-            ("too_many_missing_days", 26, [], "needs 27 days of read data, has 26"),
+            ("every_day", 30, [VIEW_ID], None),
+            ("one_missing_day", 29, [], "needs 30 days of read data, has 29"),
         ]
     )
-    def test_waits_for_most_of_a_window_of_read_data(
+    def test_waits_for_every_day_of_read_data(
         self, _name: str, days_with_data: int, expected_subjects: list, expected_skip: str | None
     ) -> None:
         candidate_context = context(

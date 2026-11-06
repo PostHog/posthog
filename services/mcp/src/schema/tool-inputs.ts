@@ -587,12 +587,18 @@ const ExplainChartEvidenceSchema = z.object({
         .describe(
             'The query that found this, as you ran it. The explanation runs it again and draws the result beside the finding. An insight query (`TrendsQuery`, `FunnelsQuery`, `RetentionQuery`, `StickinessQuery`, `PathsQuery` or `LifecycleQuery`) draws with its insight chart. A `HogQLQuery` draws from its rows: select the x-axis column first (a time bucket or a label), then either the numbers to draw, or one text column to break down by followed by one number. Order by the x-axis column. SQL returns 100 rows unless it sets a `LIMIT`.'
         ),
+    insightShortId: z
+        .string()
+        .regex(/^[A-Za-z0-9]{8}$/)
+        .optional()
+        .describe('The `short_id` of a saved insight that shows this. The explanation links to it.'),
     url: z
         .string()
-        .url()
-        .startsWith('https://')
+        .regex(/^https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9._-]+\/(pull\/\d+|commit\/[0-9a-fA-F]{7,40})\/?$/)
         .optional()
-        .describe('A link to the source when it is not a query, for example a commit, a pull request or a deploy.'),
+        .describe(
+            'A link to the GitHub pull request or commit behind this, when it is not a query or a saved insight. No other links are accepted.'
+        ),
 })
 
 const ExplainChartChapterSchema = z.object({
@@ -636,43 +642,63 @@ const ExplainChartChapterSchema = z.object({
     evidence: z.array(ExplainChartEvidenceSchema).max(6).optional().describe('What you checked, at most 6 findings.'),
 })
 
+const explainChartFields = {
+    insightId: z
+        .union([z.string(), z.number()])
+        .optional()
+        .describe('The saved insight to explain: its numeric `id` or 8-character `short_id`.'),
+    query: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe('A TrendsQuery to explain when the chart is not a saved insight. Pass this or `insightId`.'),
+    series: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .default(0)
+        .describe("Index of the series in the chart's results that the story follows. Defaults to the first one."),
+    headline: z
+        .string()
+        .min(1)
+        .max(300)
+        .describe(
+            'One sentence a person could read in place of the whole story. Name what stands out, with no numbers, and wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in **double asterisks**.'
+        ),
+    chapters: z
+        .array(ExplainChartChapterSchema)
+        .min(1)
+        .max(8)
+        .describe('The moments that stand out, in the order to read them. At most 8.'),
+}
+
+const onlyOneChart = {
+    check: (params: { insightId?: unknown; query?: unknown }): boolean =>
+        (params.insightId === undefined) !== (params.query === undefined),
+    message: 'Pass exactly one of `insightId` or `query`.',
+}
+
+const explainChartAliases = normalizeParamAliases({ insightId: ['id', 'insight_id', 'short_id', 'shortId'] })
+
 export const ExplainChartInputSchema = z.preprocess(
-    normalizeParamAliases({ insightId: ['id', 'insight_id', 'short_id', 'shortId'] }),
+    explainChartAliases,
+    z.object(explainChartFields).refine(onlyOneChart.check, { message: onlyOneChart.message })
+)
+
+export const ExplainChartSaveInputSchema = z.preprocess(
+    explainChartAliases,
     z
         .object({
-            insightId: z
-                .union([z.string(), z.number()])
-                .optional()
-                .describe('The saved insight to explain: its numeric `id` or 8-character `short_id`.'),
-            query: z
-                .record(z.string(), z.unknown())
-                .optional()
-                .describe('A TrendsQuery to explain when the chart is not a saved insight. Pass this or `insightId`.'),
-            series: z
-                .number()
-                .int()
-                .min(0)
-                .optional()
-                .default(0)
-                .describe(
-                    "Index of the series in the chart's results that the story follows. Defaults to the first one."
-                ),
-            headline: z
+            ...explainChartFields,
+            explanationId: z
                 .string()
-                .min(1)
-                .max(300)
+                .uuid()
+                .optional()
                 .describe(
-                    'One sentence a person could read in place of the whole story. Name what stands out, with no numbers, and wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in **double asterisks**.'
+                    'The id an earlier `explain-chart-save` call on this chart returned, when you are fixing that explanation. Its link then shows the fix. Omit it for a new explanation.'
                 ),
-            chapters: z
-                .array(ExplainChartChapterSchema)
-                .min(1)
-                .max(8)
-                .describe('The moments that stand out, in the order to read them. At most 8.'),
         })
-        .refine((params) => (params.insightId === undefined) !== (params.query === undefined), {
-            message: 'Pass exactly one of `insightId` or `query`.',
-        })
+        .refine(onlyOneChart.check, { message: onlyOneChart.message })
 )
 
 export const AIObservabilityGetCostsSchema = z.object({

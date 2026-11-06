@@ -240,6 +240,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.ERROR_TRACKING_ISSUE_EVENTS_QUERY
         ):
             return {"product": Product.ERROR_TRACKING}
+        case NodeKind.INBOX_USAGE_QUERY:
+            return {"product": Product.SIGNALS}
         case NodeKind.LOGS_QUERY | NodeKind.LOG_ATTRIBUTES_QUERY | NodeKind.LOG_VALUES_QUERY:
             return {"product": Product.LOGS}
         case NodeKind.METRICS_QUERY | NodeKind.METRICS_HISTOGRAM_QUERY:

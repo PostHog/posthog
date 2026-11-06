@@ -32,6 +32,7 @@ from django.utils.deprecation import MiddlewareMixin
 from django.utils.functional import SimpleLazyObject
 from django.utils.http import http_date, url_has_allowed_host_and_scheme
 
+import requests
 import structlog
 import posthoganalytics
 from django_prometheus.middleware import Metrics
@@ -585,8 +586,6 @@ class CHQueries:
         If monkey-patch has not been run in for this process (assuming multiple preforked processes),
         then do it now.
         """
-        route = resolve(request.path)
-        route_id = f"{route.route} ({route.func.__name__})"
         is_api_request = "api/" in request.path and "capture" not in request.path
 
         user = cast(User, request.user)
@@ -601,7 +600,6 @@ class CHQueries:
             user_id=user.pk,
             kind="request",
             id=request.path,
-            route_id=route.route,
             is_impersonated=is_impersonated_session(request) if user.is_authenticated else None,
             client_query_id=self._get_param(request, "client_query_id"),
             session_id=self._get_param(request, "session_id"),
@@ -621,15 +619,15 @@ class CHQueries:
             if get_query_tag_value("is_scout_experiment") is True:
                 response["X-PostHog-Suppress-Analytics"] = "true"
 
-            if is_api_request:
+            if is_api_request and (route := request.resolver_match) is not None:
                 statsd.incr(
                     "http_api_request_response",
-                    tags={"id": route_id, "status_code": response.status_code},
+                    tags={"id": f"{route.route} ({route.func.__name__})", "status_code": response.status_code},
                 )
 
             return response
         finally:
-            if is_api_request:
+            if is_api_request and (route := request.resolver_match) is not None:
                 API_REQUESTS_LATENCY_SECONDS.labels(
                     # DRF viewset name (api:viewset-action) when set, view function name
                     # otherwise. (Django builds view_name from url_name, so url_name as a
@@ -643,6 +641,16 @@ class CHQueries:
                     status_class=status_class,
                 ).observe(time.perf_counter() - start)
             reset_query_tags()
+
+    def process_view(
+        self,
+        request: HttpRequest,
+        view_func: Callable[..., HttpResponse],
+        view_args: tuple[Any, ...],
+        view_kwargs: dict[str, Any],
+    ) -> None:
+        if request.resolver_match is not None:
+            tag_queries(route_id=request.resolver_match.route)
 
     def _get_param(self, request: HttpRequest, name: str):
         if name in request.GET:
@@ -1618,6 +1626,11 @@ class SocialAuthExceptionMiddleware:
         if isinstance(exception, ValidationError):
             error_code = self._INVITE_ERROR_CODES.get(self._error_code(exception), "social_login_failure")
             return redirect(sso_failure_redirect_url(request, error_code))
+
+        # social-core wraps only ConnectionError from provider calls, so a read timeout or a provider 5xx
+        # arrives here as a plain requests error. The detail holds the provider URL, so it stays out of the redirect.
+        if isinstance(exception, requests.RequestException):
+            return redirect(sso_failure_redirect_url(request, "social_login_failure"))
 
         return None
 

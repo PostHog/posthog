@@ -8,10 +8,11 @@ import type {
 } from '@posthog/mcp/src/cli/library-types'
 
 import type { Context } from '@/core/context'
-import { EXIT_USAGE, HogError } from '@/core/errors'
+import { HogError } from '@/core/errors'
 import { VERSION } from '@/version'
 
 import { ApiError } from './api'
+import type { OrganizationId, ProjectId } from './ids'
 
 export interface ToolGroup {
     slug: string
@@ -95,19 +96,12 @@ export function toolRow(library: ApiToolLibrary, tool: ApiToolSummary, granted: 
     }
 }
 
-export async function apiConnection(
-    ctx: Context,
-    scope: { projectId?: string | undefined; organizationId?: string | undefined } = {}
-): Promise<ApiConnection> {
-    // An empty ID, often an unset shell variable, would fall back to another project silently.
-    for (const [flag, value] of [
-        ['--project-id', scope.projectId],
-        ['--organization-id', scope.organizationId],
-    ] as const) {
-        if (value !== undefined && value.trim() === '') {
-            throw new HogError('invalid_input', `${flag} is empty.`, `Pass an ID, or leave out ${flag}.`, EXIT_USAGE)
-        }
-    }
+interface ConnectionScope {
+    projectId?: ProjectId | undefined
+    organizationId?: OrganizationId | undefined
+}
+
+export async function apiConnection(ctx: Context, scope: ConnectionScope = {}): Promise<ApiConnection> {
     const session = await ctx.session()
     const apiKey = await session.token()
     const key = session.current
@@ -126,7 +120,7 @@ export async function apiConnection(
 // A tool can send several requests, so only a tool that is safe to run twice runs again after a 401.
 export async function withApiConnection<T>(
     ctx: Context,
-    scope: { projectId?: string | undefined; organizationId?: string | undefined },
+    scope: ConnectionScope,
     canRunTwice: boolean,
     call: (connection: ApiConnection) => Promise<ApiToolResult<T>>
 ): Promise<ApiToolResult<T>> {

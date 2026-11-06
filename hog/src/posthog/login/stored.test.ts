@@ -1,16 +1,20 @@
 import { describe, expect, test } from 'bun:test'
+import { z } from 'zod'
 
 import { PersonalAPIKey } from '@/posthog/access-key'
 import { FileStore } from '@/posthog/credential-store/file'
-import { fakeRuntime } from '@/testing'
+import { parseHost, type Host } from '@/posthog/host'
+import { parseProjectId } from '@/posthog/ids'
+import { parsePersonalApiKey } from '@/posthog/tokens'
+import { fakeRuntime, readJson } from '@/testing'
 
 import { writeLogin } from './stored'
 
-const EU = 'https://eu.posthog.com'
-const US = 'https://us.posthog.com'
+const EU = parseHost('https://eu.posthog.com')
+const US = parseHost('https://us.posthog.com')
 
-function login(host: string, apiKey: string): PersonalAPIKey {
-    return new PersonalAPIKey({ host, projectId: '42', apiKey })
+function login(host: Host, apiKey: string): PersonalAPIKey {
+    return new PersonalAPIKey({ host, projectId: parseProjectId('42'), apiKey: parsePersonalApiKey(apiKey) })
 }
 
 describe('writeLogin', () => {
@@ -23,8 +27,12 @@ describe('writeLogin', () => {
             writeLogin(runtime, store, login(US, 'phx_us')),
         ])
 
-        expect(Object.keys(JSON.parse(runtime.files[store.path] ?? '{}')).sort()).toEqual([EU, US])
-        const settings = JSON.parse(runtime.files['/home/test/.config/hog/settings.json'] ?? '{}')
+        const credentials = readJson(runtime.files[store.path] ?? '{}', z.record(z.string(), z.unknown()))
+        expect(Object.keys(credentials).sort()).toEqual([EU, US])
+        const settings = readJson(
+            runtime.files['/home/test/.config/hog/settings.json'] ?? '{}',
+            z.object({ logins: z.record(z.string(), z.unknown()) })
+        )
         expect(Object.keys(settings.logins).sort()).toEqual([EU, US])
     })
 })

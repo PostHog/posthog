@@ -30,7 +30,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog error-tracking release`              | Finds or creates the release for this build. `-o text` prints just its ID.                                              |
 | `hog error-tracking download <id/ref>`    | Downloads a symbol set from PostHog and unpacks it.                                                                     |
 | `hog error-tracking extract <file>`       | Unpacks a symbol set file.                                                                                              |
-| `hog endpoints list`, `get`, `open`       | List your endpoints, show one, or open it in PostHog.                                                                   |
+| `hog endpoints list`, `get`, `open`       | List your endpoints a page at a time, show one, or open it in PostHog.                                                  |
 | `hog endpoints run [name]`                | Runs an endpoint, or the query in a local file with `--file`. `--var name=value` sets variables.                        |
 | `hog endpoints pull`, `diff`, `push`      | Keep endpoints as YAML files: pull them, see how they differ, and push changes. `diff` exits with code 1 on drift.      |
 | `hog schema pull`                         | Generates a typed SDK (TypeScript, Go or Python) from your event definitions, and records it in `posthog.json`.         |

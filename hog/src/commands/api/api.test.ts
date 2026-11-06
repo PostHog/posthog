@@ -101,6 +101,12 @@ describe('hog api', () => {
         ['a destructive tool without --confirm', ['api', 'call', 'flag-delete', '{"id":1}'], 'needs_confirmation', 1],
         ['an empty --project-id', ['api', 'call', 'flag-list', '{}', '--project-id', ''], 'invalid_input', 2],
         [
+            'a --project-id that is not a number',
+            ['api', 'call', 'flag-list', '{}', '--project-id', 'abc'],
+            'invalid_input',
+            2,
+        ],
+        [
             'an empty --organization-id',
             ['api', 'call', 'flag-list', '{}', '--organization-id', ' '],
             'invalid_input',
@@ -123,7 +129,7 @@ describe('hog api', () => {
         ],
         [
             'an organization override drops the saved project',
-            ['--organization-id', 'org-b'],
+            ['--organization-id', '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b'],
             { ok: 1 },
             [
                 {
@@ -132,7 +138,7 @@ describe('hog api', () => {
                     connection: {
                         apiKey: 'phx_test',
                         host: 'https://ph.example.com',
-                        organizationId: 'org-b',
+                        organizationId: '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
                         clientName: 'hog',
                         clientVersion: expect.any(String),
                     },
@@ -194,7 +200,13 @@ describe('hog api', () => {
     test.each([
         ['an unlimited key reaches the project', [], 200, undefined, true],
         ["a key limited to the project's organization reaches it", ['org-a'], 200, 'org-a', true],
-        ['a key limited to another organization does not', ['org-b'], 200, 'org-a', false],
+        [
+            'a key limited to another organization does not',
+            ['0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b'],
+            200,
+            'org-a',
+            false,
+        ],
         ["a key without project:read can't tell", ['org-a'], 403, undefined, null],
     ])('access: %s', async (_name, scopedOrganizations, status, projectOrganization, projectAllowed) => {
         const result = await runHog(['api', 'access'], {

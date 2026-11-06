@@ -395,6 +395,7 @@ const taskRunStateFields = {
   slack_thread_url: optionalField(z.string()),
   snapshot_kind: optionalField(z.string()),
   store_skills: optionalField(z.array(storeSkillStubSchema)),
+  store_skills_bridge: optionalField(z.boolean()),
   token_usage: optionalField(z.record(z.string(), z.unknown())),
 } satisfies z.ZodRawShape;
 
