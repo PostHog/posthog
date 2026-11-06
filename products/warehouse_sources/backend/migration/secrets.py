@@ -70,7 +70,8 @@ def _has_url_password(value: str) -> bool:
     start = value.find("://")
     while start >= 0:
         authority = _URL_AUTHORITY.match(value, start + 3)
-        userinfo, at, _host = (authority.group() if authority else "").partition("@")
+        # The host follows the last `@`, as `urllib` reads it, so a user such as `reader@corp` keeps its password.
+        userinfo, at, _host = (authority.group() if authority else "").rpartition("@")
         # A colon with a non-empty password after it, also percent-encoded as `%3A`.
         if at and (":" in userinfo[:-1] or ":" in unquote(userinfo)[:-1]):
             return True
