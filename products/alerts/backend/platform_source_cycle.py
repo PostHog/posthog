@@ -225,6 +225,11 @@ SETTINGS_FIELDS: Final = (
 )
 
 
+def interval_of(check_interval_minutes: int) -> str | None:
+    """The insight cadence a platform alert's `check_interval_minutes` stands for, or None for one insight has not."""
+    return next((interval for interval, (minutes, _) in _RECURRENCE.items() if minutes == check_interval_minutes), None)
+
+
 def platform_upsert_of(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
     """The copy of one alert, or None when the platform does not evaluate it in parallel."""
     recurrence = _RECURRENCE.get(alert.calculation_interval or "")

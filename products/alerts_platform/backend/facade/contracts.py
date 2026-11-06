@@ -1151,6 +1151,8 @@ class NativeAlertLifecycle:
     """
 
     check_interval_minutes: int
+    # The most alerts of the kind a team can have, or None for no cap.
+    max_per_team: int | None = None
     # Removes the source's HogFunction destinations of a deleted alert. None for a kind whose
     # destinations are `AlertDestination` rows from the start, which go with the configuration.
     remove_destinations: NativeAlertRemoveDestinations | None = None
