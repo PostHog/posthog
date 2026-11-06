@@ -228,10 +228,11 @@ EMBEDDING_MODELS_2 = [SMALL_256_MODEL_NAME]
 # - Add the new models to a new list like the one above
 # - Create a new list like EMBEDDING_TABLES_1
 # - Add that new list to EMBEDDING_TABLES full-list, so all the HOGQL modelling is automatically updated
-# And then write a migration (similar to 0187_model_specific_embedding_tables) that:
-# - Drop the buffer-table-filling MV
+# And then write a migration (similar to 0358_embedding_model_small_256) that:
+# - Drop the buffer-table-filling MV (in deployed cloud, also the WarpStream MV, to pause the consumer)
 # - Create the new tables and MVs for the new model-specific tables
-# - Re-creates the buffer-table-filling MV
+# - Replaces the union view
+# - Re-creates the buffer-table-filling MV from the Kafka table that is live in that deployment
 
 
 # Helper functions for pausing/resuming the entire embedding system
@@ -240,8 +241,11 @@ def drop_kafka_to_buffer_mv_sql() -> str:
     return f"DROP TABLE IF EXISTS {KAFKA_TO_BUFFER_MV} "
 
 
-def KAFKA_TO_BUFFER_MV_SQL() -> str:
-    """Create the Kafka-to-buffer MV to resume embedding consumption."""
+def KAFKA_TO_BUFFER_MV_SQL(kafka_table: str | None = None) -> str:
+    """Create the Kafka-to-buffer MV to resume embedding consumption.
+
+    Deployed cloud has no MSK Kafka table since migration 0248, so cloud migrations pass the WarpStream one.
+    """
     from products.error_tracking.backend.embedding import KAFKA_DOCUMENT_EMBEDDINGS
 
     return """
@@ -266,7 +270,7 @@ FROM {database}.{kafka_table}
 """.format(
         mv_name=KAFKA_TO_BUFFER_MV,
         target_table=DOCUMENT_EMBEDDINGS_BUFFER_WRITABLE_TABLE,
-        kafka_table=KAFKA_DOCUMENT_EMBEDDINGS,
+        kafka_table=kafka_table or KAFKA_DOCUMENT_EMBEDDINGS,
         database=settings.CLICKHOUSE_DATABASE,
     )
 
@@ -403,19 +407,17 @@ EMBEDDING_TABLES = [
 DOCUMENT_EMBEDDINGS_UNION_VIEW = "posthog_document_embeddings_union_view"
 
 
-def drop_union_view_sql() -> str:
-    """The union view is CREATE IF NOT EXISTS, so adding a model table means dropping it first."""
-    return f"DROP VIEW IF EXISTS {DOCUMENT_EMBEDDINGS_UNION_VIEW}"
-
-
 # Union view that combines all model-specific tables and adds model_name column back
-def DOCUMENT_EMBEDDINGS_UNION_VIEW_SQL(model_tables: list[ModelTableDefinitions] | None = None) -> str:
+def DOCUMENT_EMBEDDINGS_UNION_VIEW_SQL(
+    model_tables: list[ModelTableDefinitions] | None = None, *, replace: bool = False
+) -> str:
     """
     Create a UNION ALL view combining the model-specific distributed tables, all of them by default.
     Adds model_name column back for backward compatibility with queries.
 
     A migration passes the model set that exists when it runs, so replaying it on a fresh database
-    never references a table a later migration creates.
+    never references a table a later migration creates. A migration that adds a model table passes
+    replace=True, so the view changes in one statement and readers never see it missing.
     """
     union_parts = []
     for model_table in model_tables if model_tables is not None else EMBEDDING_TABLES:
@@ -441,7 +443,8 @@ def DOCUMENT_EMBEDDINGS_UNION_VIEW_SQL(model_tables: list[ModelTableDefinitions]
             '{model_name}' AS model_name
         FROM {distributed_table}""")
 
-    view_sql = f"""CREATE VIEW IF NOT EXISTS {DOCUMENT_EMBEDDINGS_UNION_VIEW}
+    create_clause = "CREATE OR REPLACE VIEW" if replace else "CREATE VIEW IF NOT EXISTS"
+    view_sql = f"""{create_clause} {DOCUMENT_EMBEDDINGS_UNION_VIEW}
 AS {" UNION ALL ".join(union_parts)}"""
 
     return view_sql
