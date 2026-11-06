@@ -87,15 +87,30 @@ function pathPatternToRegExp(pattern) {
     return new RegExp(`^${source}${pattern.endsWith('/') ? '' : '$'}`)
 }
 
-function labelsForFiles(files, rules) {
-    const filenames = files.flatMap((file) =>
-        file.status === 'renamed' && file.previous_filename ? [file.filename, file.previous_filename] : [file.filename]
+function changedFilenames(file) {
+    return file.status === 'renamed' && file.previous_filename ? [file.filename, file.previous_filename] : [file.filename]
+}
+
+function pathRuleMatches(rule, files) {
+    const patterns = (rule.paths || []).map(pathPatternToRegExp)
+    const matched = files.filter((file) =>
+        changedFilenames(file).some((filename) => patterns.some((pattern) => pattern.test(filename)))
     )
+    if (matched.length === 0) {
+        return false
+    }
+    if (rule.minLines === undefined && rule.minFiles === undefined) {
+        return true
+    }
+    const lines = matched.reduce((sum, file) => sum + (file.additions ?? 0) + (file.deletions ?? 0), 0)
+    return lines >= (rule.minLines ?? Infinity) || matched.length >= (rule.minFiles ?? Infinity)
+}
+
+function labelsForFiles(files, rules) {
     const labels = new Set()
 
     for (const rule of rules) {
-        const patterns = (rule.paths || []).map(pathPatternToRegExp)
-        if (patterns.some((pattern) => filenames.some((filename) => pattern.test(filename)))) {
+        if (pathRuleMatches(rule, files)) {
             for (const label of rule.labels || []) {
                 labels.add(label)
             }
