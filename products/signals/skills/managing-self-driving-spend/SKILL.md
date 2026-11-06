@@ -7,7 +7,7 @@ description: >
   down by signal source, scout, and day, links it to the reports it produced, recommends changes
   ranked by savings, and applies them only after the user confirms each one. Trigger terms:
   inbox spend, self-driving cost, scout cost, why is my bill high, reduce inbox spend, billing
-  limit, daily report limit, turn off a source, pause a scout.
+  limit, daily report limit, turn off a source, pause a scout, scout pre-check.
 ---
 
 # Managing Self-driving spend
@@ -29,10 +29,10 @@ On a large project these tools can return more than fits in your context. If you
    Sources include downstream research and implementation; scouts contain execution only, including runs with no reports.
 4. **Drill down.** Use `posthog:execute-sql` with [references/queries.md](references/queries.md) for custom dates, individual runs or reports, and finer source breakdowns.
    If the monthly tool is unavailable, use the SQL ledger subject to its access controls; report credits if no verified USD conversion is available.
-5. **By day.** Run "First receipt" and "Spend by day", and investigate spikes by source, scout, or `kind`.
-6. **Yield.** Run "Baselines", "Yield by signal source", and "Yield by scout".
+5. **By day.** Run "First receipt" and "Spend by day" in [references/queries-spend.md](references/queries-spend.md), and investigate spikes by source, scout, or `kind`.
+6. **Yield.** Run "Baselines", "Yield by signal source", and "Yield by scout" in [references/queries-yield.md](references/queries-yield.md).
    Yield is the share of settled reports that were resolved. Compare each item with its baseline on both settled rate and cost per resolved.
-7. **Inside each large source.** Run "Breakdown inside a source" for every source that holds more than 10% of signal spend.
+7. **Inside each large source.** Run "Breakdown inside a source" in [references/queries-source-parts.md](references/queries-source-parts.md) for every source that holds more than 10% of signal spend.
    This finds the specific scanners, signal types, evaluations, alerts, or channels behind the spend, which is where most recommendations come from.
 8. **Recommend.** Go through every control in [references/controls.md](references/controls.md) and decide whether it applies, using [references/recommendations.md](references/recommendations.md).
    Before you judge a scout, find out what kind of scout it is. A quiet run or an unresolved report is not always waste.
@@ -60,6 +60,8 @@ Present the result with [references/report-template.md](references/report-templa
 - Private scout trials are excluded from the SQL tables. Scout report counts can overlap; deduplicate IDs for project totals, and never add shared scout costs across report details.
 - A scout that rarely creates reports can still be useful if it edits existing ones.
   Check `edited_report_ids` before you recommend pausing it.
+- A scout with a pre-check can have few runs on purpose, because a skipped run leaves no run row.
+  Read `last_precheck_at` and `last_precheck_outcome` before you call its runs missing.
 - Turn off a source only after you check its narrowing settings and source steering. [references/controls.md](references/controls.md) lists which sources read `steering`.
 - Never turn off error tracking ingestion or lower its rate limits to save Self-driving spend.
   That drops exception data permanently. Change the Self-driving source instead.

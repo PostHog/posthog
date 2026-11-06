@@ -12,12 +12,13 @@ Knowing where money is spent tells you which control can reduce it.
   So a source that sends many signals costs money even when few of them become reports, and a source whose reports get researched costs more per report.
 - **Scout runs.** Each scheduled run costs money whether it finds something or not.
   Scout spend grows with the number of runs, so a scout's schedule matters more than what it finds.
+  A pre-check can skip a scheduled run before it costs anything.
 - **Automatic pull requests.** An implementation run for an actionable report costs money. Its finalized usage appears in the monthly tool's `implementation_credits` and in `system.signal_spend`.
   A fix that a person starts from a report is metered as PostHog AI, so it is not in these numbers.
 
 There are two kinds of control:
 
-- **Volume controls** cut how much work happens: turning a source or scout off, running a scout less often, narrowing a source to some of its parts, and the limits. Their savings can be estimated from past spend, except for source steering, which you must measure after two weeks.
+- **Volume controls** cut how much work happens: turning a source or scout off, running a scout less often, skipping its empty runs with a pre-check, narrowing a source to some of its parts, and the limits. Their savings can be estimated from past spend, except for source steering, which you must measure after two weeks. For a pre-check, past spend gives only an upper limit.
 - **Focus controls** change what the agents spend effort on: project steering instructions. Their savings cannot be estimated in advance. Check them again after two weeks.
 
 ## Limits
@@ -61,12 +62,27 @@ Search Console has neither, so the choice is to keep it or turn it off.
 
 ## Scouts
 
-| Control                | How it works                                                                                                        | How to change it                                                                       | What the user loses              |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------- |
-| Pause a scout          | Stops its scheduled runs. Its past reports stay.                                                                    | `posthog:scout-config-update` with `enabled: false`                                    | Everything that scout would find |
-| Run a scout less often | Spend falls in proportion to runs. Going from hourly to every 6 hours cuts that scout's spend by about five sixths. | `posthog:scout-config-update` with a larger `run_interval_minutes`, or a cron schedule | Findings arrive later            |
+| Control                | How it works                                                                                                                           | How to change it                                                                                                  | What the user loses                                           |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Pause a scout          | Stops its scheduled runs. Its past reports stay.                                                                                       | `posthog:scout-config-update` with `enabled: false`                                                               | Everything that scout would find                              |
+| Run a scout less often | Spend falls in proportion to runs. Going from hourly to every 6 hours cuts that scout's spend by about five sixths.                    | `posthog:scout-config-update` with a larger `run_interval_minutes`, or a cron schedule                            | Findings arrive later                                         |
+| Add a pre-check        | A HogQL query runs before each scheduled run. When it finds nothing new, the run does not start, so there is no sandbox or model call. | Test with `posthog:scout-config-precheck-test`, then save with `posthog:scout-config-update` and `precheck_query` | A query that is too strict hides real activity from the scout |
 
 When `run_cron_schedule` is set, it decides when the scout runs, not `run_interval_minutes`. Read the schedule from the one that applies, and change that one.
+
+### Pre-checks
+
+A pre-check suits a scout that watches data a query can read, such as new events or tickets.
+Findings do not arrive later, because the next run that starts still sees everything since the last run that started.
+It suits a scout poorly when a query cannot tell whether a run would matter, such as a sweep through a codebase.
+
+- `precheck_query_source` in `posthog:scout-config-list` shows the current state: `config`, `skill_default`, or `off`. Only `off` means no pre-check runs.
+- A pre-check gates scheduled runs only. Manual and workflow runs always start.
+- A query that fails starts the run, so a broken pre-check saves nothing.
+- The dry run reads as you, and a scheduled check reads as the scout's acting user. A query that passes the dry run can still fail on schedule, so read `last_precheck_outcome` after the next scheduled tick. It holds only the latest result.
+- Add a backstop when the scout should still run from time to time.
+
+The `authoring-scouts` skill has the query rules and placeholders in `references/scheduled-precheck.md`. Read it before you write a query.
 
 ## Project steering instructions
 
@@ -91,4 +107,4 @@ Read the current text with `posthog:inbox-steering-instructions-get`, then send 
 | Priority threshold | The lowest report priority that opens a pull request automatically (P0 is highest). Users can set their own. | "Priority threshold" setting, for the project or under "Your overrides". No tool. | Lower-priority fixes need a manual start |
 
 Use implementation receipts for historical cost. Estimate future savings only for the reports the proposed control would exclude, separating exempt credits and acknowledging that future implementation costs vary.
-To judge them, compare pull requests linked and merged with "Pull requests linked and merged" in [queries.md](queries.md).
+To judge them, compare pull requests linked and merged with "Pull requests linked and merged" in [queries-controls.md](queries-controls.md).
