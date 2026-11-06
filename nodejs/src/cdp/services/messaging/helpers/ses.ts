@@ -235,6 +235,14 @@ const sesUnattributedEventsCounter = new Counter({
     labelNames: ['event_type', 'reason'],
 })
 
+// Kept off `email_tracking_errors_total` because the SES webhook errors alert sums that counter, and an
+// SNS message that is not an SES event is acknowledged, not a fault.
+const sesIgnoredNotificationsCounter = new Counter({
+    name: 'ses_webhook_ignored_notifications_total',
+    help: 'SNS notifications on the SES webhook acknowledged without processing',
+    labelNames: ['reason'],
+})
+
 // SES link tag naming an anchor's ordinal position in the email body. Set on each `<a>` at send
 // time and echoed back on the Click event, which is what lets two anchors pointing at the same URL
 // (a header logo and a footer link, say) be counted separately. SES restricts tag names and values
@@ -272,7 +280,8 @@ const toHeaderAddresses = (rec: SesEventRecord): Set<string> =>
     )
 
 /**
- * The status change a Delivery, Bounce, Complaint or Reject record makes to the email it reports on, or null.
+ * The status change a Delivery, Bounce, Complaint or Reject record makes to the email it reports on, or the
+ * open or click an Open or Click record adds to it, or null.
  *
  * The status describes the email to its To recipient. SES reports cc and bcc copies under the same
  * message, so a record counts only when one of its recipients is in the To header.
@@ -304,6 +313,10 @@ const resolveEmailStatusUpdate = (
         case 'Reject':
             // SES refuses the whole message, so the email fails for its To recipient too.
             return { status: 'failed', reason: 'provider_rejected', timestamp: rec.mail.timestamp }
+        case 'Open':
+            return { status: 'opened', timestamp: rec.open.timestamp }
+        case 'Click':
+            return { status: 'clicked', timestamp: rec.click.timestamp }
         default:
             return null
     }
@@ -482,6 +495,11 @@ export const formatSesEventLogs = (rec: SesEventRecord): SesEventLogLine[] => {
     }
 }
 
+// Only text that does not open like JSON is quoted, because a malformed SES event carries recipients.
+// Any AWS account can send it when the topic allowlist is empty, so it is sanitized like other SES fields.
+const plainTextPrefix = (message: string): string | undefined =>
+    /^\s*[{[]/.test(message) ? undefined : sanitizeSesField(message, 200)
+
 export class SesWebhookHandler {
     certCache: Record<string, Promise<string> | undefined> = {}
     private allowedTopicArns: Set<string>
@@ -573,24 +591,32 @@ export class SesWebhookHandler {
      */
     private parseIncomingBody(
         body: unknown
-    ):
-        | { mode: 'raw' | 'sns'; records: SesEventRecord[] }
-        | { mode: 'sns'; envelope: SnsEnvelope; records?: SesEventRecord[] } {
+    ): { mode: 'raw'; records: SesEventRecord[] } | { mode: 'sns'; envelope: SnsEnvelope } {
         // If it's already an object with "Type", it's probably the SNS envelope (raw=false)
         if (body && typeof body === 'object' && 'Type' in (body as any)) {
-            const env = SnsEnvelopeSchema.parse(body)
-            if (env.Type === 'Notification') {
-                const inner = parseJSON(env.Message)
-                const record = SesEventRecordSchema.parse(inner)
-                return { mode: 'sns', envelope: env, records: [record] }
-            }
-            // For non-Notification, return envelope; caller decides how to handle
-            return { mode: 'sns', envelope: env }
+            return { mode: 'sns', envelope: SnsEnvelopeSchema.parse(body) }
         }
 
         // raw_message_delivery=true → body is already the SES array
         const records = SesEventBatchSchema.parse(body)
         return { mode: 'raw', records }
+    }
+
+    private parseNotificationRecords(envelope: SnsEnvelope): SesEventRecord[] {
+        let message: unknown
+        try {
+            message = parseJSON(envelope.Message)
+        } catch {
+            sesIgnoredNotificationsCounter.inc({ reason: 'non_json_message' })
+            logger.warn('[SesWebhookHandler] Ignoring Notification whose Message is not JSON', {
+                topicArn: envelope.TopicArn,
+                messageId: envelope.MessageId,
+                messageLength: envelope.Message.length,
+                messagePrefix: plainTextPrefix(envelope.Message),
+            })
+            return []
+        }
+        return [SesEventRecordSchema.parse(message)]
     }
 
     /**
@@ -746,7 +772,7 @@ export class SesWebhookHandler {
         }
 
         // Handle confirmation flow
-        if (parsed.mode === 'sns' && 'envelope' in parsed && parsed.envelope?.Type === 'SubscriptionConfirmation') {
+        if (parsed.mode === 'sns' && parsed.envelope.Type === 'SubscriptionConfirmation') {
             logger.info('[SesWebhookHandler] confirming subscription', { envelope: parsed.envelope })
             // Confirm by visiting the top-level SubscribeURL field; Message is human-readable text here.
             const subscribeUrl = parsed.envelope.SubscribeURL
@@ -765,13 +791,13 @@ export class SesWebhookHandler {
             return { status: 200, body: { ok: true } }
         }
 
-        if (parsed.mode === 'sns' && 'envelope' in parsed && parsed.envelope?.Type === 'UnsubscribeConfirmation') {
+        if (parsed.mode === 'sns' && parsed.envelope.Type === 'UnsubscribeConfirmation') {
             logger.info('[SesWebhookHandler] confirming unsubscribe', { envelope: parsed.envelope })
             return { status: 200, body: { ok: true } }
         }
 
-        // Process SES events
-        const records = parsed.mode === 'raw' ? parsed.records : parsed.records!
+        const records = parsed.mode === 'raw' ? parsed.records : this.parseNotificationRecords(parsed.envelope)
+
         const metrics: {
             functionId?: string
             invocationId?: string

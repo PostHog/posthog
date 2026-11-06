@@ -31,7 +31,11 @@ import { SURVEY_CREATED_SOURCE } from '../constants'
 import { QuickSurveyType } from '../quick-create/types'
 import { QuickSurveyModal } from '../QuickSurveyModal'
 import { captureMaxAISurveyCreationException } from '../utils'
-import { SurveyableFunnelInsight, extractFunnelContext } from '../utils/opportunityDetection'
+import {
+    SurveyableFunnelInsight,
+    extractFunnelContext,
+    surveyOpportunityContextItems,
+} from '../utils/opportunityDetection'
 
 export interface SurveyOpportunityButtonProps {
     insight: SurveyableFunnelInsight
@@ -106,21 +110,7 @@ export function SurveyOpportunityButton({
         },
     })
 
-    useAttachedContext(
-        funnelContext
-            ? [
-                  { type: 'insight', key: insight.id, label: funnelContext.insightName },
-                  {
-                      type: 'survey_opportunity_funnel_context',
-                      value: JSON.stringify({
-                          conversionRate: funnelContext.conversionRate,
-                          steps: funnelContext.steps,
-                      }),
-                      label: 'Funnel conversion context',
-                  },
-              ]
-            : null
-    )
+    useAttachedContext(surveyOpportunityContextItems(insight, funnelContext))
 
     const handleClick = (): void => {
         posthog.capture('survey opportunity clicked', {
