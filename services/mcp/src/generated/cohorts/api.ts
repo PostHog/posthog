@@ -171,7 +171,12 @@ export const CohortsCreateBody = () => zod.object({
             zod.null(),
         ])
         .optional(),
-    query: zod.unknown().optional(),
+    query: zod
+        .unknown()
+        .optional()
+        .describe(
+            "Query that populates a static cohort, as a HogQLQuery or ActorsQuery. Setting it runs the query and adds every newly matched person to the cohort. Existing members are kept, including people the query no longer matches, so membership only grows. Can't be combined with filters."
+        ),
     is_static: zod.boolean().optional(),
     cohort_type: zod
         .union([
@@ -338,7 +343,12 @@ export const CohortsPartialUpdateBody = () => zod.object({
             zod.null(),
         ])
         .optional(),
-    query: zod.unknown().optional(),
+    query: zod
+        .unknown()
+        .optional()
+        .describe(
+            "Query that populates a static cohort, as a HogQLQuery or ActorsQuery. Setting it runs the query and adds every newly matched person to the cohort. Existing members are kept, including people the query no longer matches, so membership only grows. Can't be combined with filters."
+        ),
     is_static: zod.boolean().optional(),
     cohort_type: zod
         .union([

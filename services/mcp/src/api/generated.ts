@@ -29187,6 +29187,7 @@ export namespace Schemas {
       groups?: unknown;
       deleted?: boolean;
       filters?: CohortFilters | null;
+      /** Query that populates a static cohort, as a HogQLQuery or ActorsQuery. Setting it runs the query and adds every newly matched person to the cohort. Existing members are kept, including people the query no longer matches, so membership only grows. Can't be combined with filters. */
       query?: unknown;
       /** @nullable */
       readonly version: number | null;
@@ -87713,6 +87714,7 @@ export namespace Schemas {
       groups?: unknown;
       deleted?: boolean;
       filters?: CohortFilters | null;
+      /** Query that populates a static cohort, as a HogQLQuery or ActorsQuery. Setting it runs the query and adds every newly matched person to the cohort. Existing members are kept, including people the query no longer matches, so membership only grows. Can't be combined with filters. */
       query?: unknown;
       /** @nullable */
       readonly version?: number | null;
