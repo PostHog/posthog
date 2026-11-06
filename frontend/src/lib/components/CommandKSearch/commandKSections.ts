@@ -342,9 +342,6 @@ const plainName = (item: SearchItem): string =>
         .replace(/\s*\([^)]*\)\s*$/, '')
         .trim()
 
-// The unified scorer splits words on underscores, so the settings it ranks are matched the same way.
-const settingsQuery = (localQuery: string): string => localQuery.replace(/_/g, ' ')
-
 export function rankableSettings(local: LocalLists, localQuery: string): SearchItem[] {
     const productDestinations = new Set(
         local.products.filter((item) => !item.parentName).map((item) => `${plainName(item)}|${item.href ?? ''}`)
@@ -366,9 +363,10 @@ function rankedResultsSections(
     expandedGroups: string[]
 ): CommandKSection[] {
     const words = freeWords(query)
-    const rankedSettingsQuery = settingsQuery(localQuery)
+    // The scorer splits words on underscores, so the settings it ranks are matched the same way.
+    const rankedSettingsQuery = localQuery.replace(/_/g, ' ')
     const rankable = rankableSettings(local, rankedSettingsQuery)
-    // The unified scorer reads punctuation, so a domain or an email address keeps it.
+    // The scorer reads punctuation, so a domain or an email address keeps it.
     const freeText = query.replace(FILTER_TOKEN, ' ').replace(/\s+/g, ' ').trim()
     return buildRankedResults({
         persons,
