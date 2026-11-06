@@ -63,12 +63,8 @@ class EmailIntegration:
             raise Exception("EmailIntegration init called with Integration with wrong 'kind'")
         self.integration = model.integration_model(integration)
 
-    @property
-    def is_sandbox_sender(self) -> bool:
-        return is_sandbox_email_sender(self.integration.config)
-
     def ensure_user_managed(self) -> None:
-        if self.is_sandbox_sender:
+        if is_sandbox_email_sender(self.integration.config):
             raise ValidationError(SANDBOX_SENDER_MANAGED_MESSAGE)
 
     @classmethod
