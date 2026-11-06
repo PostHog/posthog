@@ -9,11 +9,17 @@ from posthog.dataclasses import frozen
 
 from products.tasks.backend.facade.profiles import Repository, TaskRunOptions
 
+PUBLIC_CREATE_FIELDS = ("options", "source", "idempotency_key")
+
 
 @frozen
 class IdempotentRequest:
     key: str
     fingerprint: str
+
+
+def uses_public_create(validated_data: Mapping[str, Any]) -> bool:
+    return any(validated_data.get(field) for field in PUBLIC_CREATE_FIELDS)
 
 
 def options_from_request(data: Mapping[str, Any]) -> TaskRunOptions:
