@@ -3,7 +3,7 @@ import { LazyLoader } from '~/common/utils/lazy-loader'
 
 import { BoundedPrimaryLookup } from '../../utils/bounded-primary-lookup'
 
-type StoredCasingsByNormalizedEmail = ReadonlyMap<string, readonly string[]>
+type StoredCasingsByNormalizedEmail = ReadonlyMap<string, ReadonlySet<string>>
 
 type OrganizationMemberSnapshot = {
     verifiedEmails: StoredCasingsByNormalizedEmail
@@ -28,8 +28,12 @@ type MemberRow = { team_id: number; email: string; is_email_verified: boolean | 
 
 const normalizeEmail = (email: string): string => email.trim().toLowerCase()
 
-const pickStoredMailbox = (storedCasings: readonly string[] | undefined, address: string): string | undefined =>
-    storedCasings?.length === 1 ? storedCasings[0] : storedCasings?.find((casing) => casing === address.trim())
+const pickStoredMailbox = (storedCasings: ReadonlySet<string> | undefined, address: string): string | undefined => {
+    if (storedCasings?.size === 1) {
+        return [...storedCasings][0]
+    }
+    return storedCasings?.has(address.trim()) ? address.trim() : undefined
+}
 
 const checkAgainst = (snapshot: OrganizationMemberSnapshot, recipients: string[]): RecipientCheck => {
     const blocked: BlockedRecipient[] = []
@@ -95,7 +99,7 @@ export class OrganizationMembersService {
         const members = new Map(
             teamIds.map((id) => [
                 id,
-                { verifiedEmails: new Map<string, string[]>(), unverifiedEmails: new Set<string>() },
+                { verifiedEmails: new Map<string, Set<string>>(), unverifiedEmails: new Set<string>() },
             ])
         )
         for (const row of rows) {
@@ -104,7 +108,7 @@ export class OrganizationMembersService {
             // Null marks an account from before email verification existed. Like the web app's login and
             // email-change flows, only an explicit false counts as unverified.
             if (row.is_email_verified !== false) {
-                verifiedEmails.set(key, [...(verifiedEmails.get(key) ?? []), row.email.trim()])
+                verifiedEmails.set(key, (verifiedEmails.get(key) ?? new Set()).add(row.email.trim()))
             } else {
                 unverifiedEmails.add(key)
             }

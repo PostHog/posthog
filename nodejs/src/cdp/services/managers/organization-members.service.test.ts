@@ -124,17 +124,25 @@ describe('OrganizationMembersService', () => {
     })
 
     it.each([
-        ['delivers to the address that matches one exactly', 'Member', true],
-        ['blocks an address that matches neither', 'MEMBER', false],
-    ])('%s of two members whose addresses differ only in case', async (_case, written, delivered) => {
-        await createMember(`Member-${team.id}@example.com`, organizationId, true)
-        await createMember(`member-${team.id}@example.com`, organizationId, true)
+        ['delivers to the address that matches one exactly', ['Member', 'member'], 'Member', 'Member'],
+        ['blocks an address that matches neither', ['Member', 'member'], 'MEMBER', undefined],
+        [
+            'delivers to the one stored address when padding is all they differ by',
+            ['member', ' member'],
+            'MEMBER',
+            'member',
+        ],
+    ])('%s of two members whose stored addresses differ', async (_case, stored, written, delivered) => {
+        for (const name of stored) {
+            await createMember(`${name}-${team.id}@example.com`, organizationId, true)
+        }
         const address = `${written}-${team.id}@example.com`
+        const deliveredAddress = delivered && `${delivered}-${team.id}@example.com`
 
         const check = await service.checkRecipients(team.id, [address], { fresh: false })
 
-        expect(check.deliverTo.get(address)).toBe(delivered ? address : undefined)
-        expect(check.blocked).toEqual(delivered ? [] : [{ address, unverifiedMember: false }])
+        expect(check.deliverTo.get(address)).toBe(deliveredAddress)
+        expect(check.blocked).toEqual(deliveredAddress ? [] : [{ address, unverifiedMember: false }])
     })
 
     type FakeClient = EventEmitter & { query: jest.Mock; release: jest.Mock }
