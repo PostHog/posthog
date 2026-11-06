@@ -11142,13 +11142,14 @@ Note: Filing document downloads return HTML or PDF, so they are excluded. The ve
 
 ## Similarweb — **thin**
 
-Today (8): `average_visit_duration`, `bounce_rate`, `global_rank`, `page_views`, `pages_per_visit`, `traffic_by_country`, `traffic_sources`, `visits`
+Today (12): `average_visit_duration`, `bounce_rate`, `conversion_analysis`, `deduplicated_audience`, `global_rank`, `page_views`, `pages_per_visit`, `traffic_by_country`, `traffic_sources`, `visits`, `visits_split`, `website_keywords`
 
 Diffed against: <https://developers.similarweb.com/llms.txt>
 
-- [ ] `Website Keywords (GET /v4/website-analysis/keywords)` — identify search terms that drive traffic and compare organic and paid acquisition (high)
-- [ ] `Deduplicated Audience (GET /v1/website/{domain_name}/dedup/deduplicated-audiences)` — measure unique visitors across devices without counting the same person twice (high)
-- [ ] `Conversion Analysis - Desktop (GET /v1/segment/{conversion_segment_id}/conversion-analysis/query)` — compare conversion rates and converted visits for configured website segments (high)
+- [x] `Website Keywords (GET /v4/website-analysis/keywords)` - `website_keywords` requests one month at a time and resumes offset pagination.
+- [x] `Deduplicated Audience (GET /v1/website/{domain_name}/dedup/deduplicated-audiences)` - `deduplicated_audience` provides monthly audience size and device overlap.
+- [x] `Conversion Analysis - Desktop (GET /v1/segment/{conversion_segment_id}/conversion-analysis/query)` - `conversion_analysis` discovers account segments for configured domains. Requires a two-letter country code.
+- [x] `Desktop vs. Mobile Split (GET /v1/website/{domain_name}/total-traffic-and-engagement/visits-split)` - `visits_split` provides aggregate device shares with full refresh.
 - [ ] `Popular Pages (GET /v5/website-content/pages/popular-pages/aggregated)` — identify pages that attract the most traffic and track their traffic share (medium)
 - [ ] `Demographics 2.0: Groups (GET /v4/website/{domain_name}/demographics_v2/groups)` — compare audience composition and engagement by age and gender (medium)
 - [ ] `Referrals - Desktop (GET /v4/website/{domain_name}/traffic-sources/referrals)` — identify referring websites behind the aggregate referral channel (medium)
