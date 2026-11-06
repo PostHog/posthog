@@ -7,11 +7,12 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { TipCard } from '../components/TipCard'
-import { SetupCallsPanel } from './SetupCallsPanel'
 import { SetupInstallOptions } from './SetupInstallOptions'
-import type { MCPConnectState } from './setupMode'
+import type { MCPConnectState, MCPServerTools } from './setupMode'
 import { SetupStepHero } from './SetupStepHero'
 import { SetupStepLayout } from './SetupStepLayout'
+import { SetupToolsPanel } from './SetupToolsPanel'
+import { SetupTroubleshootingCard } from './SetupTroubleshootingCard'
 
 const HedgehogSearching = pngHoggie(magnifyingGlassPng)
 const HedgehogHandClasp = pngHoggie(handClaspPng)
@@ -39,7 +40,6 @@ const COPY = {
         body: 'We group tasks in stateless and serverless servers in the same session for simpler debugging.',
         link: 'Learn how we identify users',
     },
-    listening: 'Listening for your first tool call',
 }
 
 function ConnectWaiting(): JSX.Element {
@@ -83,13 +83,25 @@ function ConnectConnected(): JSX.Element {
     )
 }
 
-export function SetupConnectStep({ connectState }: { connectState: MCPConnectState }): JSX.Element {
+export function SetupConnectStep({
+    connectState,
+    serverTools,
+    serverToolsFailed,
+}: {
+    connectState: MCPConnectState
+    serverTools: MCPServerTools | null
+    serverToolsFailed: boolean
+}): JSX.Element {
     const connected = connectState.kind === 'connected'
     return (
         <SetupStepLayout
             aside={
                 <>
-                    <SetupCallsPanel calls="example" status={{ kind: 'listening', text: COPY.listening }} />
+                    {connected ? (
+                        <SetupToolsPanel tools={serverTools} failed={serverToolsFailed} />
+                    ) : (
+                        <SetupTroubleshootingCard />
+                    )}
                     {connected ? (
                         <TipCard
                             title={COPY.funFact.title}

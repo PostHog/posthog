@@ -10,7 +10,6 @@ import { mcpEarlyDataLogic } from '../earlyData/mcpEarlyDataLogic'
 import { weeklyReportStep } from '../earlyData/nextSteps'
 import { WeeklyReportActions } from '../earlyData/WeeklyReportActions'
 import type { MCPActivityRecentCallApi } from '../generated/api.schemas'
-import { SetupCallsPanel } from './SetupCallsPanel'
 import { SetupStepHero } from './SetupStepHero'
 import { SetupStepLayout } from './SetupStepLayout'
 
@@ -164,7 +163,7 @@ export function SetupUsefulStep({
     onAskPostHogAI: (prompt: string) => void
 }): JSX.Element {
     return (
-        <SetupStepLayout aside={<SetupCallsPanel calls={calls} />}>
+        <SetupStepLayout>
             <SetupStepHero title={COPY.title} lead={COPY.lead} />
             <div className="@container">
                 <div className="grid gap-4 @min-[34rem]:grid-cols-2">
