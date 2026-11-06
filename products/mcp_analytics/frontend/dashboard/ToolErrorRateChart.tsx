@@ -20,50 +20,7 @@ import { ChartTooltip } from './ChartTooltip'
 
 const MAX_TOOLS = 8
 const ROW_HEIGHT_PX = 40
-const MAX_LABEL_WIDTH_PX = 180
-// The gap that quill-charts keeps between a row label and the plot.
-const LABEL_GAP_PX = 18
-// The font that quill-charts draws row labels in. Measuring in the same font makes the gutter fit the labels.
-const LABEL_FONT = '12px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
-const ELLIPSIS = '…'
 const CHART_MARGINS = { top: 4, right: 20, bottom: 22 }
-
-let labelMeasureContext: CanvasRenderingContext2D | null | undefined
-
-function labelWidthPx(text: string): number {
-    if (labelMeasureContext === undefined) {
-        labelMeasureContext = document.createElement('canvas').getContext('2d')
-    }
-    if (!labelMeasureContext) {
-        return text.length * 7
-    }
-    labelMeasureContext.font = LABEL_FONT
-    return labelMeasureContext.measureText(text).width
-}
-
-// The chart truncates labels itself instead of through quill's `maxCategoryLabelWidth`. Quill raises that cap
-// to 30% of the chart width, so on a wide card a label could draw past the fixed gutter and clip.
-function truncateLabel(text: string): string {
-    if (labelWidthPx(text) <= MAX_LABEL_WIDTH_PX) {
-        return text
-    }
-    let end = text.length - 1
-    while (end > 0 && labelWidthPx(text.slice(0, end) + ELLIPSIS) > MAX_LABEL_WIDTH_PX) {
-        end--
-    }
-    return text.slice(0, end) + ELLIPSIS
-}
-
-function topByErrorRate(rows: ToolRow[]): ToolRow[] {
-    return [...rows].sort((a, b) => b.error_rate_pct - a.error_rate_pct).slice(0, MAX_TOOLS)
-}
-
-// The left gutter fits the widest label that any of the given charts shows, so charts that pass each
-// other's rows start their bars at the same x.
-function labelGutterPx(rowSets: ToolRow[][]): number {
-    const widths = rowSets.flatMap((rows) => topByErrorRate(rows).map((row) => labelWidthPx(truncateLabel(row.tool))))
-    return Math.ceil(Math.max(0, ...widths)) + LABEL_GAP_PX
-}
 
 // Upper bound for the error-rate track: a bit above the worst tool's rate, rounded up to a clean 10 —
 // so the track ends just past the data (a 30% max gives a 50% track) rather than an empty-looking 100%.
@@ -73,7 +30,6 @@ function niceErrorAxisMax(maxRate: number): number {
 
 export function ToolErrorRateChart({
     rows,
-    alignWithRows,
     loading,
     theme,
     onToolClick,
@@ -81,18 +37,17 @@ export function ToolErrorRateChart({
     emptyMessage = 'No tool calls yet.',
 }: {
     rows: ToolRow[]
-    /** Rows of a sibling error rate chart. Both charts then reserve the same label gutter, so their bars line up. */
-    alignWithRows?: ToolRow[]
     loading: boolean
     theme: ChartTheme
     onToolClick?: (tool: string) => void
     title?: string
     emptyMessage?: string
 }): JSX.Element {
-    const sorted = useMemo(() => topByErrorRate(rows), [rows])
-    const labelGutter = useMemo(() => labelGutterPx([rows, alignWithRows ?? []]), [rows, alignWithRows])
+    const sorted = useMemo(
+        () => [...rows].sort((a, b) => b.error_rate_pct - a.error_rate_pct).slice(0, MAX_TOOLS),
+        [rows]
+    )
     const labels = useMemo(() => sorted.map((r) => r.tool), [sorted])
-    const displayLabels = useMemo(() => new Map(labels.map((label) => [label, truncateLabel(label)])), [labels])
     const series = useMemo<Series[]>(
         () => [
             {
@@ -113,16 +68,15 @@ export function ToolErrorRateChart({
             showTickMarks: true,
             showCrosshair: true,
             showGrid: true,
-            xTickFormatter: (value: string) => displayLabels.get(value) ?? value,
             yTickFormatter: (value: number) => formatPercentage(value, { compact: true }),
             tooltip: { placement: 'cursor' },
-            margins: { ...CHART_MARGINS, left: labelGutter },
+            margins: CHART_MARGINS,
             barCornerRadius: 4,
             // The wrapper height already gives each row ROW_HEIGHT_PX, and the chart's own row minimum
             // would make a chart with few rows taller than that wrapper.
             bars: { minBandSize: 0, valueDomain: { min: 0, max: axisMax } },
         }
-    }, [sorted, labelGutter, displayLabels])
+    }, [sorted])
     const byTool = useMemo(() => new Map(sorted.map((r) => [r.tool, r])), [sorted])
     const renderTooltip = useCallback(
         (ctx: TooltipContext): JSX.Element | null => {
