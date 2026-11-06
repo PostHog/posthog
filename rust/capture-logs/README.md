@@ -200,13 +200,14 @@ A customer creates a log drain with this URL and the project API key, in either 
 - Rollout: the route is closed until the project's token is in `VERCEL_DRAIN_ENABLED_TOKENS` (or the list is `*`); other tokens get 404. The local dev stack sets `*`.
 - Body: a JSON array, one object, or NDJSON, gzip or plain. The drain sends at most 1 MB per request, inside the shared `MAX_REQUEST_BODY_SIZE_BYTES` cap.
   Every valid line becomes a log row.
-  A line that is not a JSON object is skipped and counted, so one bad line does not make the drain retry the batch.
+  A line that is not a JSON object, or an object with no `id`, `message` or `proxy`, is skipped and counted, so one bad line does not make the drain retry the batch.
+  A delivery with more than 10,000 lines gets 413.
   A delivery with lines but no valid line gets 400, so the drain does not treat a malformed batch as stored.
   A field with an unexpected type is left out of the row instead of failing the line.
   An empty body is acknowledged with 200, which covers the test request the drain sends when it is created.
 - Row mapping: `body` = `message`, or `<method> <path> <status>` for a request line that has no message; `timestamp` = the line's `timestamp` in milliseconds; `service.name` = the project name, else the project ID.
   Severity comes from `level` (`fatal`, `error`, `warning`, else `info`).
-  Request fields use OpenTelemetry semantic conventions (`http.request.method`, `server.address`, `url.path`, `url.query`, `http.response.status_code`, `client.address`, `user_agent.original`, `tls.client.ja3`); other drain fields keep a `vercel.*` name (`vercel.source`, `vercel.cache`, `vercel.path_type`, `vercel.waf.action`, and so on).
+  Request fields use OpenTelemetry semantic conventions (`http.request.method`, `server.address`, `url.path`, `url.query`, `http.response.status_code` (only real HTTP statuses; Vercel's `-1` sentinels stay in `vercel.proxy.status_code` and `vercel.status_code`), `client.address`, `user_agent.original`, `tls.client.ja3`); other drain fields keep a `vercel.*` name (`vercel.source`, `vercel.cache`, `vercel.path_type`, `vercel.waf.action`, and so on).
   Resource attributes are `service.name`, `vercel.project.id`, `vercel.project.name`, `vercel.deployment.id`, `deployment.environment.name` and `vcs.ref.head.name`.
   `traceId`/`spanId` (hex) become the row's trace and span IDs.
 - Delivery is at-least-once: a Kafka failure returns 500 and the drain sends the request again.

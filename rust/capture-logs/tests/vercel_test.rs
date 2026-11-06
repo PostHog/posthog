@@ -40,6 +40,7 @@ fn parse_delivery_keeps_every_valid_line_in_both_formats() {
         request_line("a"),
         json!(42),
         json!(["x"]),
+        json!({"unrelated": true}),
         drifted,
         request_line("c"),
     ];
@@ -55,7 +56,7 @@ fn parse_delivery_keeps_every_valid_line_in_both_formats() {
         let parsed = parse_delivery(body.as_bytes()).unwrap();
         let ids: Vec<_> = parsed.logs.iter().map(|l| l.id.clone().unwrap()).collect();
         assert_eq!(ids, ["a", "b", "c"]);
-        assert_eq!(parsed.invalid, 2);
+        assert_eq!(parsed.invalid, 3);
         assert_eq!(
             parsed.first_error.as_deref(),
             Some("expected a JSON object, got a number")
@@ -76,6 +77,14 @@ fn parse_delivery_keeps_every_valid_line_in_both_formats() {
     let broken = "[\n  {\n    \"id\": \"a\",\n  },\n]";
     let parsed = parse_delivery(broken.as_bytes()).unwrap();
     assert!(parsed.logs.is_empty() && parsed.invalid > 0);
+
+    let too_many = vec![r#"{"id":"x"}"#; MAX_LINES_PER_DELIVERY + 1];
+    for body in [format!("[{}]", too_many.join(",")), too_many.join("\n")] {
+        assert!(matches!(
+            parse_delivery(body.as_bytes()),
+            Err(DeliveryError::TooManyLines)
+        ));
+    }
 
     let empty = parse_delivery(b"  \n").unwrap();
     assert!(empty.logs.is_empty());
@@ -195,5 +204,34 @@ fn drain_gate_is_closed_unless_a_token_is_listed() {
             allowed,
             "{enabled:?} / {token}"
         );
+    }
+}
+
+#[test]
+fn only_real_http_statuses_become_the_response_status() {
+    for (proxy_status, line_status, expected) in [
+        (json!(200), json!(null), Some(200)),
+        // Background revalidation reports -1 on the proxy; the function's 503 must survive.
+        (json!(-1), json!(503), Some(503)),
+        (json!(-1), json!(null), None),
+        (json!(null), json!(-1), None),
+    ] {
+        let mut line = request_line("a");
+        line["proxy"]["statusCode"] = proxy_status.clone();
+        line["statusCode"] = line_status.clone();
+        let log: VercelLog = serde_json::from_value(line).unwrap();
+        let (row, _) = vercel_log_to_kafka_row(log, "phc_test");
+
+        assert_eq!(
+            row.attributes.get("http.response.status_code"),
+            expected.map(|code| json!(code).to_string()).as_ref(),
+            "{proxy_status} / {line_status}"
+        );
+        if proxy_status == json!(-1) {
+            assert_eq!(
+                row.attributes.get("vercel.proxy.status_code"),
+                Some(&"-1".to_string())
+            );
+        }
     }
 }

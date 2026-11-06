@@ -21,6 +21,9 @@ use uuid::Uuid;
 
 const RECORDS_COUNTER: &str = "capture_logs_vercel_records_total";
 const REJECTED_COUNTER: &str = "capture_logs_vercel_requests_rejected_total";
+/// A drain delivery is at most 1 MB, which is a few thousand real lines. The cap bounds the work a
+/// body of tiny entries can cause before any line is converted.
+pub const MAX_LINES_PER_DELIVERY: usize = 10_000;
 
 fn lenient<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
@@ -171,9 +174,37 @@ fn json_type(value: &Value) -> &'static str {
     }
 }
 
-// Every field is optional, so without this check serde would also turn arrays and scalars into rows.
+#[derive(Debug)]
+pub enum DeliveryError {
+    Json(serde_json::Error),
+    TooManyLines,
+}
+
+impl std::fmt::Display for DeliveryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DeliveryError::Json(e) => write!(f, "{e}"),
+            DeliveryError::TooManyLines => {
+                write!(
+                    f,
+                    "more than {MAX_LINES_PER_DELIVERY} lines in one delivery"
+                )
+            }
+        }
+    }
+}
+
+// Every field is optional, so without these checks serde would also turn arrays, scalars and
+// unrelated objects into empty rows.
 fn log_from_value(value: Value) -> Result<VercelLog, String> {
     match value {
+        Value::Object(ref map)
+            if !["id", "message", "proxy"]
+                .iter()
+                .any(|key| map.contains_key(*key)) =>
+        {
+            Err("expected a log line with an id, message or proxy".to_string())
+        }
         Value::Object(_) => serde_json::from_value(value).map_err(|e| e.to_string()),
         // Name the type only: the value itself is customer log content of any size.
         other => Err(format!("expected a JSON object, got {}", json_type(&other))),
@@ -183,7 +214,7 @@ fn log_from_value(value: Value) -> Result<VercelLog, String> {
 /// Reads a delivery in either drain format: a JSON array (or one object) or NDJSON. Entries that
 /// do not parse are skipped and counted, so one bad line does not make the drain retry the whole
 /// batch.
-pub fn parse_delivery(body: &[u8]) -> Result<ParsedDelivery, serde_json::Error> {
+pub fn parse_delivery(body: &[u8]) -> Result<ParsedDelivery, DeliveryError> {
     let text = String::from_utf8_lossy(body);
     let trimmed = text.trim();
     let mut parsed = ParsedDelivery::default();
@@ -192,14 +223,21 @@ pub fn parse_delivery(body: &[u8]) -> Result<ParsedDelivery, serde_json::Error> 
     }
     match serde_json::from_str::<Value>(trimmed) {
         Ok(Value::Array(items)) => {
+            if items.len() > MAX_LINES_PER_DELIVERY {
+                return Err(DeliveryError::TooManyLines);
+            }
             for item in items {
                 parsed.push(log_from_value(item));
             }
         }
         Ok(item) => parsed.push(log_from_value(item)),
-        Err(e) if !trimmed.contains('\n') => return Err(e),
+        Err(e) if !trimmed.contains('\n') => return Err(DeliveryError::Json(e)),
         Err(_) => {
-            for line in trimmed.lines().map(str::trim).filter(|l| !l.is_empty()) {
+            let lines = trimmed.lines().map(str::trim).filter(|l| !l.is_empty());
+            if lines.clone().count() > MAX_LINES_PER_DELIVERY {
+                return Err(DeliveryError::TooManyLines);
+            }
+            for line in lines {
                 parsed.push(
                     serde_json::from_str(line)
                         .map_err(|e| e.to_string())
@@ -295,7 +333,13 @@ pub fn vercel_log_to_kafka_row(log: VercelLog, token: &str) -> (KafkaLogRow, boo
         },
         None => (None, None),
     };
-    let status_code = proxy.status_code.or(log.status_code);
+    // Vercel uses sentinels such as -1 (background revalidation, crashed function), so only a real
+    // HTTP status becomes `http.response.status_code`; the raw values stay under `vercel.*`.
+    let is_http_status = |code: &i64| (100..=599).contains(code);
+    let status_code = proxy
+        .status_code
+        .filter(is_http_status)
+        .or(log.status_code.filter(is_http_status));
     let user_agent = first_user_agent(&proxy.user_agent);
 
     // A request line from the edge carries no message, so the record gets an access-log style
@@ -332,6 +376,16 @@ pub fn vercel_log_to_kafka_row(log: VercelLog, token: &str) -> (KafkaLogRow, boo
     put(&mut attributes, "url.path", url_path);
     put(&mut attributes, "url.query", url_query);
     put(&mut attributes, "http.response.status_code", status_code);
+    put(
+        &mut attributes,
+        "vercel.proxy.status_code",
+        proxy.status_code.filter(|code| !is_http_status(code)),
+    );
+    put(
+        &mut attributes,
+        "vercel.status_code",
+        log.status_code.filter(|code| !is_http_status(code)),
+    );
     put(
         &mut attributes,
         "http.response.body.size",
@@ -444,8 +498,6 @@ pub async fn export_vercel_logs_http(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    // The drain config takes custom headers, so `Authorization: Bearer <token>` is the usual
-    // shape; the path and query forms cover setups that only edit the URL.
     let token = token_from_path_header_or_query(
         path_token.as_ref().map(|Path(token)| token.as_str()),
         &headers,
@@ -455,7 +507,6 @@ pub async fn export_vercel_logs_http(
     service.authorizer.authorize_token(&token, Signal::Logs)?;
     tracing::Span::current().record("token", &token);
 
-    // Unlisted projects see the route as missing until it is open to them.
     if !gate.allows(&token) {
         debug!("Vercel drain route is not enabled for this token");
         counter!(REJECTED_COUNTER, "reason" => "gate_closed").increment(1);
@@ -466,6 +517,14 @@ pub async fn export_vercel_logs_http(
 
     let parsed = match parse_delivery(&body) {
         Ok(parsed) => parsed,
+        Err(e @ DeliveryError::TooManyLines) => {
+            counter!(REJECTED_COUNTER, "reason" => "too_many_lines").increment(1);
+            warn!("Rejected Vercel delivery: {}", e);
+            return Err((
+                StatusCode::PAYLOAD_TOO_LARGE,
+                Json(json!({"error": format!("Failed to parse Vercel logs: {}", e)})),
+            ));
+        }
         Err(e) => {
             error!("Failed to parse Vercel logs: {}", e);
             return Err((
