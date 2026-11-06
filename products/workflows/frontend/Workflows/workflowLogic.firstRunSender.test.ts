@@ -621,4 +621,72 @@ describe('workflow first-run sender', () => {
         }
         workflow.unmount()
     })
+
+    it('gives an inserted email step the sandbox sender of its own environment, not one in the loaded project list', async () => {
+        const environmentId = ApiConfig.getCurrentTeamId()
+        const projectSandbox = { ...SANDBOX, id: 70 }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': ({ params }) => [
+                    200,
+                    { results: String(params.team_id) === String(environmentId) ? integrations : [projectSandbox] },
+                ],
+            },
+        })
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, project_id: environmentId + 1 })
+        const workflow = workflowLogic({ id: 'new' })
+        workflow.mount()
+        await expectLogic(workflow).toDispatchActions(['loadWorkflowSuccess'])
+        const editor = hogFlowEditorLogic({ id: 'new' })
+        editor.mount()
+        await expectLogic(editor).toFinishAllListeners()
+        expect(integrationsLogic.values.integrations?.map((integration) => integration.id)).toEqual([projectSandbox.id])
+
+        editor.actions.setNodeToBeAdded({ ...emailAction('function_email'), id: undefined } as any)
+        editor.actions.onDrop(undefined, NEW_WORKFLOW.edges[0])
+        await expectLogic(editor).toFinishAllListeners()
+
+        expect(emailValueOf(workflow, editor.values.selectedNodeId ?? undefined)?.from).toEqual({
+            integrationId: SANDBOX.id,
+        })
+        expect(ensureCalls).toBe(1)
+        editor.unmount()
+        workflow.unmount()
+    })
+
+    it.each<[string, HogFlowAction, Partial<IntegrationType>[]]>([
+        [
+            'an email step in a project with two own senders and no default',
+            emailAction('function_email'),
+            [OWN_VERIFIED, { ...OWN_VERIFIED, id: 6 }],
+        ],
+        ['a generic email function', emailAction('function'), []],
+    ])('looks up no sender when the lookup cannot change the sender of %s', async (_, step, senders) => {
+        integrations = senders
+        let listCalls = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': () => {
+                    listCalls++
+                    return [200, { results: integrations }]
+                },
+            },
+        })
+        const workflow = workflowLogic({ id: 'new' })
+        workflow.mount()
+        await expectLogic(workflow).toDispatchActions(['loadWorkflowSuccess'])
+        const editor = hogFlowEditorLogic({ id: 'new' })
+        editor.mount()
+        await expectLogic(editor).toFinishAllListeners()
+        const listCallsBeforeDrop = listCalls
+
+        editor.actions.setNodeToBeAdded({ ...step, id: undefined } as any)
+        editor.actions.onDrop(undefined, NEW_WORKFLOW.edges[0])
+        await expectLogic(editor).toFinishAllListeners()
+
+        expect(listCalls).toBe(listCallsBeforeDrop)
+        expect(emailValueOf(workflow, editor.values.selectedNodeId ?? undefined)?.from).toEqual({})
+        editor.unmount()
+        workflow.unmount()
+    })
 })

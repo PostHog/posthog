@@ -23,15 +23,11 @@ import type {
     TeamType,
     UserBasicType,
 } from '../../../../../frontend/src/types'
+import { DefaultEmailSender, resolveDefaultEmailSender } from '../../Channels/defaultEmailSender'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../../OptOuts/optOutCategoriesLogic'
-import {
-    resolveInsertedStepSender,
-    sandboxSenderEnabled,
-    stepTakesSender,
-    withInsertedStepSender,
-} from '../firstRunSender'
-import { withStepSender } from '../workflowEmailPrefill'
+import { insertedStepNeedsSenderLookup, resolveInsertedStepSender, stepTakesSender } from '../firstRunSender'
+import { takesOwnSender, withStepSender } from '../workflowEmailPrefill'
 import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import { getEdgeId } from './edgeId'
 import { getTeamUtmDefaults, newEmailUtmConfig, utmKeysFollowingSavedDefault } from './steps/components/utmDefaults'
@@ -2185,6 +2181,11 @@ export type hogFlowEditorLogicType = MakeLogicType<
     hogFlowEditorLogicMeta
 >
 
+function captureSenderPreselected(sender: DefaultEmailSender): void {
+    // pinned: analytics event name
+    posthog.capture('email sender preselected', { surface: 'workflow', reason: sender.reason })
+}
+
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as WorkflowLogicProps),
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
@@ -2448,8 +2449,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     return
                 }
                 actions.setWorkflowAction(actionId, withStepSender(step, sender.integrationId))
-                // pinned: analytics event name
-                posthog.capture('email sender preselected', { surface: 'workflow', reason: sender.reason })
+                captureSenderPreselected(sender)
             },
             onNodesDelete: ({ deleted }) => {
                 if (deleted.some((node) => node.id === values.selectedNodeId)) {
@@ -2642,12 +2642,19 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             : {}),
                     } as HogFlowAction
 
-                    const { action: newAction, sender } = isHogFlowActionNode
-                        ? { action: builtAction, sender: null }
-                        : withInsertedStepSender(builtAction, values.workflow, values.integrations)
+                    const team = values.currentTeam
+                    const sender =
+                        !isHogFlowActionNode && takesOwnSender(builtAction)
+                            ? resolveDefaultEmailSender(
+                                  values.integrations,
+                                  team && 'workflows_config' in team
+                                      ? team.workflows_config?.default_email_integration_id
+                                      : null
+                              )
+                            : null
+                    const newAction = sender ? withStepSender(builtAction, sender.integrationId) : builtAction
                     if (sender) {
-                        // pinned: analytics event name
-                        posthog.capture('email sender preselected', { surface: 'workflow', reason: sender.reason })
+                        captureSenderPreselected(sender)
                     }
 
                     const step = getHogFlowStep(newAction, values.hogFunctionTemplatesById)
@@ -2749,7 +2756,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     actions.setWorkflowInfo({ actions: newActions, edges: newEdges, variables: updatedVariables })
                     actions.setNodeToBeAdded(null)
                     actions.setSelectedNodeId(newAction.id)
-                    if (!sender && !isHogFlowActionNode && sandboxSenderEnabled()) {
+                    if (
+                        !sender &&
+                        !isHogFlowActionNode &&
+                        insertedStepNeedsSenderLookup(newAction, values.workflow, values.integrations)
+                    ) {
                         actions.assignInsertedStepSender(newAction.id)
                     }
                 }

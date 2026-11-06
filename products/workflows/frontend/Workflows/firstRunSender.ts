@@ -18,7 +18,7 @@ import {
     verifiedOwnEmailSenders,
 } from '../Channels/defaultEmailSender'
 import type { HogFlow, HogFlowAction } from './hogflows/types'
-import { emailStepValue, takesOwnSender, withEmailSender, withStepSender } from './workflowEmailPrefill'
+import { emailStepValue, takesOwnSender, withEmailSender } from './workflowEmailPrefill'
 
 function takesSandboxSender(action: HogFlowAction, workflow: HogFlow): boolean {
     const value = emailStepValue(action)
@@ -73,13 +73,6 @@ function sandboxApplies(integrations: IntegrationType[], sandboxAllowed: boolean
     return sandboxAllowed && sandboxSenderEnabled() && verifiedOwnEmailSenders(integrations).length === 0
 }
 
-function chooseSender(integrations: IntegrationType[], sandboxAllowed: boolean): DefaultEmailSender | null {
-    const sandbox = integrations.find(isSandboxEmailSender)
-    return sandbox && sandboxApplies(integrations, sandboxAllowed)
-        ? { integrationId: sandbox.id, reason: 'sandbox_sender' }
-        : resolveDefaultEmailSender(integrations, teamDefaultSenderId())
-}
-
 async function resolveFirstRunSender(allowSandbox: boolean): Promise<DefaultEmailSender | null> {
     try {
         const integrations = await loadEveryIntegrationPage()
@@ -105,15 +98,16 @@ export async function resolveInsertedStepSender(
     return takesOwnSender(action) ? resolveFirstRunSender(takesSandboxSender(action, workflow)) : null
 }
 
-export function withInsertedStepSender(
+export function insertedStepNeedsSenderLookup(
     action: HogFlowAction,
     workflow: HogFlow,
     integrations: IntegrationType[] | null
-): { action: HogFlowAction; sender: DefaultEmailSender | null } {
-    const sender = takesOwnSender(action)
-        ? chooseSender(integrations ?? [], takesSandboxSender(action, workflow))
-        : null
-    return { action: sender ? withStepSender(action, sender.integrationId) : action, sender }
+): boolean {
+    return (
+        sandboxSenderEnabled() &&
+        takesOwnSender(action) &&
+        (integrations === null || sandboxApplies(integrations, takesSandboxSender(action, workflow)))
+    )
 }
 
 export async function withFirstRunSender(
