@@ -28,6 +28,15 @@ interface TileSpec {
     subtitle?: string
 }
 
+// A tile that reads two queries reruns only the one that failed, so the other's pending request isn't duplicated.
+export function retryFailedSources(sources: { failed?: boolean; retry?: () => void }[]): void {
+    for (const { failed, retry } of sources) {
+        if (failed) {
+            retry?.()
+        }
+    }
+}
+
 export function kpiTileUrls(searchParams: Record<string, any>): {
     sessions: string
     erroredSessions: string
@@ -182,10 +191,11 @@ export function KpiTiles({
             color: theme.colors[0],
             loading: kpisLoading || usersLoading,
             failed: kpisFailed || usersFailed,
-            onRetry: () => {
-                onRetryKpis?.()
-                onRetryUsers?.()
-            },
+            onRetry: () =>
+                retryFailedSources([
+                    { failed: kpisFailed, retry: onRetryKpis },
+                    { failed: usersFailed, retry: onRetryUsers },
+                ]),
             summaryLabel: 'Overall',
         },
         ...(showIntentClusters
