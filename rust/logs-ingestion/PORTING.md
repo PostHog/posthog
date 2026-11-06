@@ -237,7 +237,7 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
   - It checks the wall-clock deadline every 32 ops and on every native call, as the Node VM does, with Node's timeout text.
   - After each native call it checks `memory_bytes` against the 8 MiB limit. The heap limit is the same 8 MiB.
   - It answers `print` itself, so a transformation captures at most 5 lines and an input template prints nothing.
-- Only `body`, `severity_text`, `attributes` and `resource_attributes` of a result are converted, as only they are read. A cycle in another key is harmless, as in Node; a cycle inside an attribute value fails the result, as `JSON.stringify` throws.
+- Only `body`, `severity_text`, `attributes` and `resource_attributes` of a result are converted, as only they are read. Top-level keys are redacted first, as `redactSensitiveStrings` does, so a key that holds a secret is not applied. A cycle in another key is harmless, as in Node; a cycle inside an attribute value fails the result, as `JSON.stringify` throws.
 - `transformer::transform_message` is the synchronous part of `transformRecords`. `LogsTransformerService` runs it on a blocking thread and queues the aggregates to `monitoring::HogFunctionMonitoring`.
 - Thrown Hog errors print as `Type('message')` and other VM errors as `HogVMException: …`, as `String(error)` prints them in Node, because function logs carry the text.
 
@@ -282,11 +282,15 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 - **`hash01FromTraceId` with no trace id.** Node uses `Math.random()`; the port uses `rand`. No vector can pin it.
 - **RE2 program size limits.** RE2 rejects a program over `max_mem` (8 MiB) and the `regex` crate has its own size and nesting limits (nesting set to 1000; RE2 has none), so a very large pattern can compile in one engine only. The parser stops at the same nesting of 1000 groups or nested counted repetitions, so a deep pattern fails before it can overflow the stack. The Unicode table versions of the vendored RE2 and the `regex` crate can also differ.
 - **Hog VM differences that transformations can reach.** Both VMs run the same bytecode, but:
-  - The Rust VM holds integral numbers as `i64`. A global or input number that is integral becomes an integer, as a compiled literal does, and arithmetic on it matches JavaScript doubles except that integer division or modulo by zero is an error in Rust and `Infinity` or `NaN` in Node. Overflow past `i64` continues as a float in both.
+  - The Rust VM holds integral numbers as `i64`. A global or input number that is integral becomes an integer, as a compiled literal does, and arithmetic on it matches JavaScript doubles except that integer division or modulo by zero is an error in Rust and `Infinity` or `NaN` in Node. Overflow past `i64`, and `i64::MIN % -1`, continue as a float in both.
   - `toString` and string interpolation of a float use Rust's formatting, so `1e21` prints `1000000000000000000000` (Node: `1e+21`). JSON output of a result uses `js::json_stringify` and matches.
-  - Memory is counted differently: Node charges each stack push by `calculateCost`, Rust counts the heap (which never frees) plus the stack after each native call. Both stop at 8 MiB, but at different points, and a program that re-reads a large global in a loop can fail in Rust only.
+  - Memory is counted differently: Node charges each stack push by `calculateCost`, Rust counts the heap (which never frees) plus the stack after each native call, and a string shared with a global counts as a pointer. Both stop at 8 MiB, but at different points. `replaceAll`, `replaceOne`, `arrayStringConcat` and `splitByString` refuse a result past the heap limit before they build it, where Node builds it and fails later or not at all.
+  - String indexes (`length`, `substring`, `position`) count UTF-16 units as in Node. A Rust string cannot hold half of a surrogate pair, so a slice that splits one gives U+FFFD where Node keeps the lone surrogate, and `splitByString('', s)` keeps an astral character whole.
+  - `replaceAll` and `replaceOne` do not expand `$&` and the other `String.prototype.replace` patterns in the replacement.
   - VM error texts other than a thrown Hog error differ.
-  - A closure or callable in a result converts to `null`; Node keeps the closure object and `JSON.stringify` writes it.
+  - Converting a value for `print` or a result stops past 100,000 nodes or 8 MiB, which shared references reach quickly, and fails the invocation. Node expands such a value in full.
+  - A closure in a result converts to the Node closure object. Its upvalue ids count from 1 per conversion, and a native function reference carries Rust's `ip` and `chunk`, so those two can differ from Node's.
+  - A panic in one function run fails that invocation (`logs_ingestion_transformations_unexpected_errors_total`) and keeps the record, as Node's catch does for a transformer bug.
 - **`encrypted_inputs` that do not decrypt.** Node keeps the token string, and spreading it adds one `undefined` input per character. The port treats the function as having no encrypted inputs.
 - **The transformer's internal-logs producer.** The logs server builds `HogFunctionMonitoringService` without one, and so does the port.
 - **The `logs.transformations.*` span attributes** are not ported.

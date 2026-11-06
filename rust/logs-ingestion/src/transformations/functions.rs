@@ -67,6 +67,22 @@ pub fn load_program(bytecode: &JsValue) -> Result<Program, String> {
     }
 }
 
+/// `Number(string)` for the decimal forms an input `order` can hold. Other text is NaN.
+fn js_number_from_string(text: &str) -> f64 {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return 0.0;
+    }
+    let valid = trimmed
+        .bytes()
+        .all(|b| b.is_ascii_digit() || matches!(b, b'.' | b'-' | b'+' | b'e' | b'E'));
+    if valid {
+        trimmed.parse().unwrap_or(f64::NAN)
+    } else {
+        f64::NAN
+    }
+}
+
 fn truthy(value: &JsValue) -> bool {
     match value {
         JsValue::Null => false,
@@ -127,9 +143,13 @@ impl HogFunction {
         }
         let inputs_reference_record =
             json_stringify(&JsValue::Object(merged.clone())).contains("record");
+        // `(a?.order ?? -1) - (b?.order ?? -1)`: the subtraction converts with `Number()`.
         let order = |input: &JsValue| match field(input, "order") {
+            None | Some(JsValue::Null) => -1.0,
             Some(JsValue::Number(n)) => *n,
-            _ => -1.0,
+            Some(JsValue::Bool(b)) => f64::from(u8::from(*b)),
+            Some(JsValue::String(s)) => js_number_from_string(&s.to_utf8_lossy()),
+            Some(_) => f64::NAN,
         };
         let mut entries: Vec<(String, JsValue)> = merged
             .iter()

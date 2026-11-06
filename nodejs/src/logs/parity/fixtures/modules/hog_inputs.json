@@ -112,6 +112,67 @@
   },
   {
    "input": {
+    "name": "numeric string order",
+    "inputs": {
+     "b": {
+      "value": "",
+      "bytecode": [
+       "_H",
+       1,
+       32,
+       "a",
+       32,
+       "inputs",
+       1,
+       2,
+       38
+      ],
+      "order": "10"
+     },
+     "a": {
+      "value": "first",
+      "order": "2"
+     }
+    },
+    "record": {
+     "uuid": "0197a3f2-1111-7000-8000-000000000001",
+     "trace_id": {
+      "$bytes": "0123456789abcdef0123456789abcdef"
+     },
+     "span_id": {
+      "$bytes": "41534e465a346d727a65383d"
+     },
+     "trace_flags": 0,
+     "timestamp": 1736944633250123,
+     "observed_timestamp": 1736944633250000,
+     "body": "user jane@example.com logged in",
+     "severity_text": "info",
+     "severity_number": 9,
+     "service_name": "auth-api",
+     "resource_attributes": {
+      "k8s.namespace.name": "\"auth\""
+     },
+     "instrumentation_scope": "auth.sessions",
+     "event_name": null,
+     "attributes": {
+      "2": "2",
+      "10": "\"ten\"",
+      "http.method": "\"POST\"",
+      "user_email": "\"jane@example.com\"",
+      "b": "raw"
+     },
+     "bytes_uncompressed": 120
+    }
+   },
+   "output": {
+    "inputs": {
+     "a": "first",
+     "b": "first"
+    }
+   }
+  },
+  {
+   "input": {
     "name": "object result",
     "inputs": {
      "obj": {

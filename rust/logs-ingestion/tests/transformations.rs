@@ -284,3 +284,81 @@ async fn function_fetch_failures_fail_open() {
         .unwrap();
     assert_eq!(records, before);
 }
+
+// let rec := record; rec.body := replaceAll(inputs.s, '', inputs.t); return rec
+const REPLACE_EMPTY: &str = r#"["_H", 1, 32, "record", 1, 1, 36, 0, 32, "body", 32, "s", 32, "inputs", 1, 2, 32, "", 32, "t", 32, "inputs", 1, 2, 2, "replaceAll", 3, 46, 36, 0, 38, 35]"#;
+// let rec := record; rec.body := inputs.stars; return rec
+const STARS: &str = r#"["_H", 1, 32, "record", 1, 1, 36, 0, 32, "body", 32, "stars", 32, "inputs", 1, 2, 46, 36, 0, 38, 35]"#;
+// let rec := record; rec.attributes.m := (-4611686018427387904 * 2) % -1; return rec
+const MIN_MOD: &str = r#"["_H", 1, 32, "record", 1, 1, 36, 0, 32, "attributes", 45, 32, "m", 33, -1, 33, 2, 33, -4611686018427387904, 8, 10, 46, 36, 0, 38, 35]"#;
+// let n := 0; for (let i := 0; i < 300; i := i + 1) { n := n + length(keys(record.attributes)) }
+// let rec := record; rec.attributes.n := n; return rec
+const REREAD: &str = r#"["_H", 1, 33, 0, 33, 0, 33, 300, 36, 1, 15, 40, 26, 32, "attributes", 32, "record", 1, 2, 2, "keys", 1, 2, "length", 1, 36, 0, 6, 37, 0, 33, 1, 36, 1, 6, 37, 1, 39, -33, 35, 32, "record", 1, 1, 36, 1, 32, "attributes", 45, 32, "n", 36, 0, 46, 36, 1, 38, 35, 35]"#;
+// let a := {'x': 1}; for (let i := 0; i < 22; i := i + 1) { a := {'l': a, 'r': a} }
+// print(a); return record
+const DAG: &str = r#"["_H", 1, 32, "x", 33, 1, 42, 1, 33, 0, 33, 22, 36, 1, 15, 40, 21, 32, "l", 36, 0, 32, "r", 36, 0, 42, 2, 37, 0, 33, 1, 36, 1, 6, 37, 1, 39, -28, 35, 36, 0, 2, "print", 1, 35, 32, "record", 1, 1, 38, 35]"#;
+
+async fn run_one(function: Arc<HogFunction>, mut records: Vec<StagedRecord>) -> Vec<StagedRecord> {
+    let (service, _) = service(Arc::new(StaticHogFunctions(vec![function])), 60_000.0);
+    service
+        .transform_records(TEAM_ID, &mut records, None)
+        .await
+        .unwrap();
+    records
+}
+
+fn failed(staged: &StagedRecord) -> bool {
+    attribute(staged, "$transformations_failed").is_some()
+}
+
+// Each case grows past the memory limit inside one call or one conversion, so the bound must hold
+// there and end as a failed invocation that keeps the record.
+#[tokio::test]
+async fn oversized_results_fail_the_invocation_instead_of_allocating() {
+    let replace = format!(
+        r#"{{"s": {{"value": "{}"}}, "t": {{"value": "{}"}}}}"#,
+        "y".repeat(1000),
+        "x".repeat(1024 * 1024)
+    );
+    let stars = format!(r#"{{"stars": {{"value": "{}"}}}}"#, "*".repeat(700 * 1024));
+    let cases = [
+        function(REPLACE_EMPTY, &replace, None),
+        // A one-character secret that occurs in the redaction marker grows the body fourteenfold.
+        function(STARS, &stars, Some(r#"{"secret": {"value": "*"}}"#)),
+        // Shared references expand on every visit: printing 22 nested objects writes 2^22 leaves.
+        function(DAG, "{}", None),
+    ];
+    for f in cases {
+        let records = run_one(f, vec![record("api")]).await;
+        assert!(failed(&records[0]));
+        assert_eq!(
+            records[0].record.body(),
+            Some("user jane@example.com logged in")
+        );
+    }
+}
+
+#[tokio::test]
+async fn integer_edge_cases_run_without_a_panic() {
+    let records = run_one(function(MIN_MOD, "{}", None), vec![record("api")]).await;
+    assert_eq!(attribute(&records[0], "m").as_deref(), Some("0"));
+}
+
+// Each read of `record` copies it onto a heap that never frees. Shared strings keep that copy small.
+#[tokio::test]
+async fn rereading_a_large_record_stays_inside_the_memory_limit() {
+    let attributes: Vec<String> = (0..200)
+        .map(|i| format!(r#""attr_{i}": "\"{}\"""#, "v".repeat(200)))
+        .collect();
+    let staged = StagedRecord::fresh(record_from_js(&js(&format!(
+        r#"{{"uuid": "u", "body": "b", "attributes": {{{}}}}}"#,
+        attributes.join(",")
+    ))));
+    let records = run_one(function(REREAD, "{}", None), vec![staged]).await;
+    assert!(
+        !failed(&records[0]),
+        "{:?}",
+        attribute(&records[0], "$transformations_failed")
+    );
+    assert_eq!(attribute(&records[0], "n").as_deref(), Some("60000"));
+}

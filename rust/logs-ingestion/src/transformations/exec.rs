@@ -1,5 +1,6 @@
 //! `hog-log-exec.ts`: per-record execution with no I/O. The transformer owns fetching, budgets and monitoring.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use hogvm::{
@@ -80,7 +81,7 @@ pub fn js_to_ordered(value: &JsValue) -> OrderedJson {
         JsValue::Null => OrderedJson::Null,
         JsValue::Bool(b) => OrderedJson::Bool(*b),
         JsValue::Number(n) => OrderedJson::Number(js_number(*n)),
-        JsValue::String(s) => OrderedJson::String(s.to_utf8_lossy().into_owned()),
+        JsValue::String(s) => OrderedJson::String(Arc::from(s.to_utf8_lossy().as_ref())),
         JsValue::Array(items) => OrderedJson::Array(items.iter().map(js_to_ordered).collect()),
         JsValue::Object(o) => OrderedJson::Object(
             o.iter()
@@ -91,7 +92,7 @@ pub fn js_to_ordered(value: &JsValue) -> OrderedJson {
 }
 
 fn ostr(value: Option<&str>) -> OrderedJson {
-    value.map_or(OrderedJson::Null, |s| OrderedJson::String(s.to_string()))
+    value.map_or(OrderedJson::Null, |s| OrderedJson::String(Arc::from(s)))
 }
 
 fn oint(value: Option<i64>) -> OrderedJson {
@@ -105,7 +106,9 @@ fn decode_attribute_map(map: Option<&AvroMap>) -> OrderedJson {
             .map(|(k, v)| {
                 (
                     k.to_string(),
-                    OrderedJson::String(decode_log_attribute_value(v).into_string_lossy()),
+                    OrderedJson::String(Arc::from(
+                        decode_log_attribute_value(v).to_utf8_lossy().as_ref(),
+                    )),
                 )
             })
             .collect(),
@@ -151,10 +154,10 @@ pub fn build_record_globals(record: &LogRecord) -> OrderedJson {
 pub fn project_globals(team_id: i64, site_url: &str) -> OrderedJson {
     OrderedJson::Object(vec![
         ("id".into(), OrderedJson::Number(Num::Integer(team_id))),
-        ("name".into(), OrderedJson::String(String::new())),
+        ("name".into(), OrderedJson::String(Arc::from(""))),
         (
             "url".into(),
-            OrderedJson::String(format!("{site_url}/project/{team_id}")),
+            OrderedJson::String(Arc::from(format!("{site_url}/project/{team_id}"))),
         ),
     ])
 }
@@ -168,14 +171,23 @@ pub fn globals(project: &OrderedJson, record: &OrderedJson, inputs: OrderedJson)
 }
 
 /// `redactString` in `hog-log-exec.ts`: one `replaceAll` per value, in list order.
-pub fn redact_string(value: &str, sensitive: &[String]) -> String {
+/// A short secret that occurs in the marker, such as `*`, multiplies the length on every later pass,
+/// so `None` stops a result past the memory limit. Such a value is far over the record cap anyway.
+pub fn redact_string(value: &str, sensitive: &[String]) -> Option<String> {
     let mut out = value.to_string();
-    for s in sensitive {
-        if out.contains(s.as_str()) {
-            out = out.replace(s.as_str(), REDACTED);
+    for s in sensitive.iter().filter(|s| !s.is_empty()) {
+        let count = out.matches(s.as_str()).count();
+        if count == 0 {
+            continue;
         }
+        let grown =
+            (out.len() - count * s.len()).saturating_add(count.saturating_mul(REDACTED.len()));
+        if grown > MAX_CONVERTED_BYTES {
+            return None;
+        }
+        out = out.replace(s.as_str(), REDACTED);
     }
-    out
+    Some(out)
 }
 
 /// `redactSensitiveValues` in `cdp/utils.ts`: each value and its JSON-escaped form, longest first, in one pass.
@@ -240,80 +252,165 @@ pub fn sanitize_log_message(args: &[JsValue], sensitive: &[String]) -> String {
     message
 }
 
-#[derive(Debug)]
-pub struct CyclicValue;
+/// Why a hog value cannot become a JavaScript value that `JSON.stringify` can write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConvertError {
+    /// `JSON.stringify` throws on a cycle.
+    Cyclic,
+    /// Shared references expand on every visit, so a small heap can describe an exponential tree.
+    /// Node would spend unbounded time in `JSON.stringify` there; the port stops and fails the invocation.
+    TooLarge,
+}
+
+/// Past these a converted value is far over the 1 MiB record cap, so it can only fail.
+const MAX_CONVERTED_NODES: usize = 100_000;
+const MAX_CONVERTED_BYTES: usize = LOG_TRANSFORMATION_MEMORY_LIMIT_BYTES;
+
+struct Converter<'a> {
+    vm: &'a HogVM<'a>,
+    sensitive: &'a [String],
+    path: Vec<HeapReference>,
+    nodes: usize,
+    bytes: usize,
+}
+
+impl Converter<'_> {
+    fn charge(&mut self, bytes: usize) -> Result<(), ConvertError> {
+        self.nodes += 1;
+        self.bytes = self.bytes.saturating_add(bytes);
+        if self.nodes > MAX_CONVERTED_NODES || self.bytes > MAX_CONVERTED_BYTES {
+            return Err(ConvertError::TooLarge);
+        }
+        Ok(())
+    }
+
+    fn text(&mut self, s: &str) -> Result<JsString, ConvertError> {
+        let out = if self.sensitive.is_empty() {
+            s.to_string()
+        } else {
+            redact_string(s, self.sensitive).ok_or(ConvertError::TooLarge)?
+        };
+        self.charge(out.len())?;
+        Ok(JsString::from(out))
+    }
+
+    fn convert(&mut self, value: &HogValue) -> Result<JsValue, ConvertError> {
+        let pointer = match value {
+            HogValue::Ref(ptr) => {
+                if self.path.contains(ptr) {
+                    return Err(ConvertError::Cyclic);
+                }
+                Some(*ptr)
+            }
+            HogValue::Lit(_) => None,
+        };
+        let Ok(literal) = value.deref(&self.vm.heap) else {
+            return Ok(JsValue::Null);
+        };
+        if let Some(ptr) = pointer {
+            self.path.push(ptr);
+        }
+        let out = self.convert_literal(literal);
+        if pointer.is_some() {
+            self.path.pop();
+        }
+        out
+    }
+
+    fn convert_literal(&mut self, literal: &HogLiteral) -> Result<JsValue, ConvertError> {
+        self.charge(0)?;
+        match literal {
+            HogLiteral::Null => Ok(JsValue::Null),
+            HogLiteral::Boolean(b) => Ok(JsValue::Bool(*b)),
+            HogLiteral::Number(n) => Ok(JsValue::Number(n.to_float())),
+            HogLiteral::String(s) => Ok(JsValue::String(self.text(s)?)),
+            HogLiteral::Callable(_) | HogLiteral::Closure(_) => Ok(self
+                .vm
+                .closure_json(literal)
+                .map_or(JsValue::Null, |json| closure_object(&json))),
+            HogLiteral::Array(items) | HogLiteral::Tuple(items) => items
+                .iter()
+                .map(|item| self.convert(item))
+                .collect::<Result<Vec<_>, _>>()
+                .map(JsValue::Array),
+            HogLiteral::Object(map) => {
+                let mut object = JsObject::new();
+                for (key, item) in map.iter() {
+                    // `obj['__proto__'] = v` sets the prototype, so the key never becomes an own property.
+                    if key == "__proto__" {
+                        continue;
+                    }
+                    let value = self.convert(item)?;
+                    let key = self.text(key)?;
+                    object.insert(key, value);
+                }
+                Ok(JsValue::Object(object))
+            }
+        }
+    }
+}
+
+/// The closure object of the Node VM, in its key order, from the `serde_json` form that sorts keys.
+fn closure_object(json: &serde_json::Value) -> JsValue {
+    fn ordered(json: &serde_json::Value, order: &[&str]) -> JsValue {
+        let mut object = JsObject::new();
+        if let serde_json::Value::Object(map) = json {
+            for key in order {
+                if let Some(value) = map.get(*key) {
+                    let value = match (*key, value) {
+                        ("callable", v) => ordered(
+                            v,
+                            &[
+                                "__hogCallable__",
+                                "name",
+                                "chunk",
+                                "argCount",
+                                "upvalueCount",
+                                "ip",
+                            ],
+                        ),
+                        (_, v) => serde_to_js(v),
+                    };
+                    object.insert_str(key, value);
+                }
+            }
+        }
+        JsValue::Object(object)
+    }
+    ordered(json, &["__hogClosure__", "callable", "upvalues"])
+}
+
+fn serde_to_js(value: &serde_json::Value) -> JsValue {
+    match value {
+        serde_json::Value::Null => JsValue::Null,
+        serde_json::Value::Bool(b) => JsValue::Bool(*b),
+        serde_json::Value::Number(n) => JsValue::Number(n.as_f64().unwrap_or(0.0)),
+        serde_json::Value::String(s) => JsValue::string(s),
+        serde_json::Value::Array(items) => JsValue::Array(items.iter().map(serde_to_js).collect()),
+        serde_json::Value::Object(map) => {
+            let mut object = JsObject::new();
+            for (k, v) in map {
+                object.insert_str(k, serde_to_js(v));
+            }
+            JsValue::Object(object)
+        }
+    }
+}
 
 /// `convertHogToJS`, optionally redacting every string and key as `redactSensitiveStrings` does.
-/// A cycle is an error, because every caller ends in `JSON.stringify`.
 pub fn hog_to_js(
     vm: &HogVM,
     value: &HogValue,
     sensitive: &[String],
-) -> Result<JsValue, CyclicValue> {
-    hog_to_js_inner(vm, value, sensitive, &mut Vec::new())
-}
-
-fn hog_to_js_inner(
-    vm: &HogVM,
-    value: &HogValue,
-    sensitive: &[String],
-    path: &mut Vec<HeapReference>,
-) -> Result<JsValue, CyclicValue> {
-    let pointer = match value {
-        HogValue::Ref(ptr) => {
-            if path.contains(ptr) {
-                return Err(CyclicValue);
-            }
-            Some(*ptr)
-        }
-        HogValue::Lit(_) => None,
-    };
-    let Ok(literal) = value.deref(&vm.heap) else {
-        return Ok(JsValue::Null);
-    };
-    if let Some(ptr) = pointer {
-        path.push(ptr);
+) -> Result<JsValue, ConvertError> {
+    Converter {
+        vm,
+        sensitive,
+        path: Vec::new(),
+        nodes: 0,
+        bytes: 0,
     }
-    let text = |s: &str| {
-        if sensitive.is_empty() {
-            JsString::from(s)
-        } else {
-            JsString::from(redact_string(s, sensitive))
-        }
-    };
-    let out = match literal {
-        HogLiteral::Null | HogLiteral::Callable(_) | HogLiteral::Closure(_) => Ok(JsValue::Null),
-        HogLiteral::Boolean(b) => Ok(JsValue::Bool(*b)),
-        HogLiteral::Number(n) => Ok(JsValue::Number(n.to_float())),
-        HogLiteral::String(s) => Ok(JsValue::String(text(s))),
-        HogLiteral::Array(items) | HogLiteral::Tuple(items) => items
-            .iter()
-            .map(|item| hog_to_js_inner(vm, item, sensitive, path))
-            .collect::<Result<Vec<_>, _>>()
-            .map(JsValue::Array),
-        HogLiteral::Object(map) => {
-            let mut object = JsObject::new();
-            let mut result = Ok(());
-            for (key, item) in map.iter() {
-                // `obj['__proto__'] = v` sets the prototype, so the key never becomes an own property.
-                if key == "__proto__" {
-                    continue;
-                }
-                match hog_to_js_inner(vm, item, sensitive, path) {
-                    Ok(v) => object.insert(text(key), v),
-                    Err(e) => {
-                        result = Err(e);
-                        break;
-                    }
-                }
-            }
-            result.map(|()| JsValue::Object(object))
-        }
-    };
-    if pointer.is_some() {
-        path.pop();
-    }
-    out
+    .convert(value)
 }
 
 /// Answers `print`. `Err` fails the run, as a throw from Node's `print` function does.
@@ -522,29 +619,43 @@ pub fn apply_transform_result(record: &mut LogRecord, result: &JsValue) -> Appli
     Applied::Mutated
 }
 
-/// The writable fields of a hog result, converted and redacted. Other keys are never read, so a cycle there is harmless.
+/// What `applyTransformResult` reads of a hog result: the four writable fields, converted and redacted.
+/// Other keys are never read, so a cycle there is harmless. Top-level keys are redacted too, as
+/// `redactSensitiveStrings` rewrites every key.
 fn result_fields(vm: &HogVM, value: &HogValue, sensitive: &[String]) -> JsValue {
+    // Not record-shaped, so `applyTransformResult` rejects it.
+    let invalid = JsValue::Number(0.0);
     let Ok(literal) = value.deref(&vm.heap) else {
         return JsValue::Null;
     };
     match literal {
         HogLiteral::Object(map) => {
             let mut out = JsObject::new();
-            for key in ["body", "severity_text", "attributes", "resource_attributes"] {
-                if let Some(item) = map.get(key) {
-                    match hog_to_js(vm, item, sensitive) {
-                        Ok(v) => out.insert_str(key, v),
-                        // A cyclic attribute map cannot be encoded, and a cyclic body is not a string.
-                        Err(CyclicValue) => return JsValue::Number(0.0),
-                    }
+            for (key, item) in map.iter() {
+                let key = if sensitive.is_empty() {
+                    Some(key.clone())
+                } else {
+                    redact_string(key, sensitive)
+                };
+                let Some(key) = key.filter(|k| {
+                    ["body", "severity_text", "attributes", "resource_attributes"]
+                        .contains(&k.as_str())
+                }) else {
+                    continue;
+                };
+                match hog_to_js(vm, item, sensitive) {
+                    Ok(v) => out.insert_str(&key, v),
+                    // A cyclic or oversized attribute map cannot be encoded, and such a body is not a string.
+                    Err(_) => return invalid,
                 }
             }
             JsValue::Object(out)
         }
         HogLiteral::Null => JsValue::Null,
         HogLiteral::Boolean(b) => JsValue::Bool(*b),
-        // Anything else is not record-shaped.
-        _ => JsValue::Number(0.0),
+        // The Node VM returns a closure as an object with none of the record keys, which changes nothing.
+        HogLiteral::Callable(_) | HogLiteral::Closure(_) => JsValue::Object(JsObject::new()),
+        _ => invalid,
     }
 }
 
@@ -573,7 +684,12 @@ pub fn execute_log_transformation(
                 .iter()
                 .map(|a| hog_to_js(vm, a, &[]))
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|_| "TypeError: Converting circular structure to JSON".to_string())?;
+                .map_err(|e| match e {
+                    ConvertError::Cyclic => {
+                        "TypeError: Converting circular structure to JSON".to_string()
+                    }
+                    ConvertError::TooLarge => "RangeError: Invalid string length".to_string(),
+                })?;
             logs.push(sanitize_log_message(&args, sensitive));
         }
         Ok(())
@@ -620,10 +736,7 @@ pub fn resolve_inputs(
                     globals(project, record, order_like_js(inputs.clone())),
                     timeout_ms,
                     None,
-                    |vm, value| {
-                        hog_to_js(vm, &value, &[])
-                            .map_err(|_| "Converting circular structure".to_string())
-                    },
+                    |vm, value| hog_to_js(vm, &value, &[]).map_err(|e| format!("{e:?}")),
                 );
                 duration_ms += run.duration_ms;
                 let value = run

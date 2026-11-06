@@ -4305,6 +4305,548 @@
      "bytes_uncompressed": 120
     }
    }
+  },
+  {
+   "input": {
+    "hog": "let rec := record\nrec.attributes.len := length(rec.body)\nrec.attributes.sub := substring(rec.body, 2, 3)\nrec.attributes.emoji := substring(rec.body, 13, 2)\nrec.attributes.pos := position(rec.body, '✓')\nrec.attributes.split := splitByString('', 'é✓')\nreturn rec",
+    "bytecode": [
+     "_H",
+     1,
+     32,
+     "record",
+     1,
+     1,
+     36,
+     0,
+     32,
+     "attributes",
+     45,
+     32,
+     "len",
+     36,
+     0,
+     32,
+     "body",
+     45,
+     2,
+     "length",
+     1,
+     46,
+     36,
+     0,
+     32,
+     "attributes",
+     45,
+     32,
+     "sub",
+     36,
+     0,
+     32,
+     "body",
+     45,
+     33,
+     2,
+     33,
+     3,
+     2,
+     "substring",
+     3,
+     46,
+     36,
+     0,
+     32,
+     "attributes",
+     45,
+     32,
+     "emoji",
+     36,
+     0,
+     32,
+     "body",
+     45,
+     33,
+     13,
+     33,
+     2,
+     2,
+     "substring",
+     3,
+     46,
+     36,
+     0,
+     32,
+     "attributes",
+     45,
+     32,
+     "pos",
+     36,
+     0,
+     32,
+     "body",
+     45,
+     32,
+     "✓",
+     2,
+     "position",
+     2,
+     46,
+     36,
+     0,
+     32,
+     "attributes",
+     45,
+     32,
+     "split",
+     32,
+     "",
+     32,
+     "é✓",
+     2,
+     "splitByString",
+     2,
+     46,
+     36,
+     0,
+     38,
+     35
+    ],
+    "record": {
+     "uuid": "0197a3f2-1111-7000-8000-000000000001",
+     "trace_id": {
+      "$bytes": "0123456789abcdef0123456789abcdef"
+     },
+     "span_id": {
+      "$bytes": "41534e465a346d727a65383d"
+     },
+     "trace_flags": 0,
+     "timestamp": 1736944633250123,
+     "observed_timestamp": 1736944633250000,
+     "body": "héllo wörld 🚀 ✓",
+     "severity_text": "info",
+     "severity_number": 9,
+     "service_name": "auth-api",
+     "resource_attributes": {
+      "k8s.namespace.name": "\"auth\""
+     },
+     "instrumentation_scope": "auth.sessions",
+     "event_name": null,
+     "attributes": {
+      "2": "2",
+      "10": "\"ten\"",
+      "http.method": "\"POST\"",
+      "user_email": "\"jane@example.com\"",
+      "b": "raw"
+     },
+     "bytes_uncompressed": 120
+    },
+    "inputs": {},
+    "sensitive": []
+   },
+   "output": {
+    "status": "mutated",
+    "error": null,
+    "logs": [],
+    "record": {
+     "uuid": "0197a3f2-1111-7000-8000-000000000001",
+     "trace_id": {
+      "$bytes": "0123456789abcdef0123456789abcdef"
+     },
+     "span_id": {
+      "$bytes": "41534e465a346d727a65383d"
+     },
+     "trace_flags": 0,
+     "timestamp": 1736944633250123,
+     "observed_timestamp": 1736944633250000,
+     "body": "héllo wörld 🚀 ✓",
+     "severity_text": "info",
+     "severity_number": 9,
+     "service_name": "auth-api",
+     "resource_attributes": {
+      "k8s.namespace.name": "\"auth\""
+     },
+     "instrumentation_scope": "auth.sessions",
+     "event_name": null,
+     "attributes": {
+      "2": "2",
+      "10": "\"ten\"",
+      "http.method": "\"POST\"",
+      "user_email": "\"jane@example.com\"",
+      "b": "raw",
+      "len": "16",
+      "sub": "\"éll\"",
+      "emoji": "\"🚀\"",
+      "pos": "16",
+      "split": "[\"é\",\"✓\"]"
+     },
+     "bytes_uncompressed": 120
+    }
+   }
+  },
+  {
+   "input": {
+    "hog": "let rec := record\nrec.body := (x) -> x\nreturn rec",
+    "bytecode": [
+     "_H",
+     1,
+     32,
+     "record",
+     1,
+     1,
+     36,
+     0,
+     32,
+     "body",
+     52,
+     "lambda",
+     1,
+     0,
+     3,
+     36,
+     0,
+     38,
+     53,
+     0,
+     46,
+     36,
+     0,
+     38,
+     35
+    ],
+    "record": {
+     "uuid": "0197a3f2-1111-7000-8000-000000000001",
+     "trace_id": {
+      "$bytes": "0123456789abcdef0123456789abcdef"
+     },
+     "span_id": {
+      "$bytes": "41534e465a346d727a65383d"
+     },
+     "trace_flags": 0,
+     "timestamp": 1736944633250123,
+     "observed_timestamp": 1736944633250000,
+     "body": "user jane@example.com logged in",
+     "severity_text": "info",
+     "severity_number": 9,
+     "service_name": "auth-api",
+     "resource_attributes": {
+      "k8s.namespace.name": "\"auth\""
+     },
+     "instrumentation_scope": "auth.sessions",
+     "event_name": null,
+     "attributes": {
+      "2": "2",
+      "10": "\"ten\"",
+      "http.method": "\"POST\"",
+      "user_email": "\"jane@example.com\"",
+      "b": "raw"
+     },
+     "bytes_uncompressed": 120
+    },
+    "inputs": {},
+    "sensitive": []
+   },
+   "output": {
+    "status": "failed",
+    "error": "Transformation must return the record (optionally mutated) or null to drop it",
+    "logs": [],
+    "record": {
+     "uuid": "0197a3f2-1111-7000-8000-000000000001",
+     "trace_id": {
+      "$bytes": "0123456789abcdef0123456789abcdef"
+     },
+     "span_id": {
+      "$bytes": "41534e465a346d727a65383d"
+     },
+     "trace_flags": 0,
+     "timestamp": 1736944633250123,
+     "observed_timestamp": 1736944633250000,
+     "body": "user jane@example.com logged in",
+     "severity_text": "info",
+     "severity_number": 9,
+     "service_name": "auth-api",
+     "resource_attributes": {
+      "k8s.namespace.name": "\"auth\""
+     },
+     "instrumentation_scope": "auth.sessions",
+     "event_name": null,
+     "attributes": {
+      "2": "2",
+      "10": "\"ten\"",
+      "http.method": "\"POST\"",
+      "user_email": "\"jane@example.com\"",
+      "b": "raw"
+     },
+     "bytes_uncompressed": 120
+    }
+   }
+  },
+  {
+   "input": {
+    "hog": "return (x) -> x",
+    "bytecode": [
+     "_H",
+     1,
+     52,
+     "lambda",
+     1,
+     0,
+     3,
+     36,
+     0,
+     38,
+     53,
+     0,
+     38
+    ],
+    "record": {
+     "uuid": "0197a3f2-1111-7000-8000-000000000001",
+     "trace_id": {
+      "$bytes": "0123456789abcdef0123456789abcdef"
+     },
+     "span_id": {
+      "$bytes": "41534e465a346d727a65383d"
+     },
+     "trace_flags": 0,
+     "timestamp": 1736944633250123,
+     "observed_timestamp": 1736944633250000,
+     "body": "user jane@example.com logged in",
+     "severity_text": "info",
+     "severity_number": 9,
+     "service_name": "auth-api",
+     "resource_attributes": {
+      "k8s.namespace.name": "\"auth\""
+     },
+     "instrumentation_scope": "auth.sessions",
+     "event_name": null,
+     "attributes": {
+      "2": "2",
+      "10": "\"ten\"",
+      "http.method": "\"POST\"",
+      "user_email": "\"jane@example.com\"",
+      "b": "raw"
+     },
+     "bytes_uncompressed": 120
+    },
+    "inputs": {},
+    "sensitive": []
+   },
+   "output": {
+    "status": "mutated",
+    "error": null,
+    "logs": [],
+    "record": {
+     "uuid": "0197a3f2-1111-7000-8000-000000000001",
+     "trace_id": {
+      "$bytes": "0123456789abcdef0123456789abcdef"
+     },
+     "span_id": {
+      "$bytes": "41534e465a346d727a65383d"
+     },
+     "trace_flags": 0,
+     "timestamp": 1736944633250123,
+     "observed_timestamp": 1736944633250000,
+     "body": "user jane@example.com logged in",
+     "severity_text": "info",
+     "severity_number": 9,
+     "service_name": "auth-api",
+     "resource_attributes": {
+      "k8s.namespace.name": "\"auth\""
+     },
+     "instrumentation_scope": "auth.sessions",
+     "event_name": null,
+     "attributes": {
+      "2": "2",
+      "10": "\"ten\"",
+      "http.method": "\"POST\"",
+      "user_email": "\"jane@example.com\"",
+      "b": "raw"
+     },
+     "bytes_uncompressed": 120
+    }
+   }
+  },
+  {
+   "input": {
+    "hog": "let rec := record\nrec.attributes.f := (x) -> x\nreturn rec",
+    "bytecode": [
+     "_H",
+     1,
+     32,
+     "record",
+     1,
+     1,
+     36,
+     0,
+     32,
+     "attributes",
+     45,
+     32,
+     "f",
+     52,
+     "lambda",
+     1,
+     0,
+     3,
+     36,
+     0,
+     38,
+     53,
+     0,
+     46,
+     36,
+     0,
+     38,
+     35
+    ],
+    "record": {
+     "uuid": "0197a3f2-1111-7000-8000-000000000001",
+     "trace_id": {
+      "$bytes": "0123456789abcdef0123456789abcdef"
+     },
+     "span_id": {
+      "$bytes": "41534e465a346d727a65383d"
+     },
+     "trace_flags": 0,
+     "timestamp": 1736944633250123,
+     "observed_timestamp": 1736944633250000,
+     "body": "user jane@example.com logged in",
+     "severity_text": "info",
+     "severity_number": 9,
+     "service_name": "auth-api",
+     "resource_attributes": {
+      "k8s.namespace.name": "\"auth\""
+     },
+     "instrumentation_scope": "auth.sessions",
+     "event_name": null,
+     "attributes": {
+      "2": "2",
+      "10": "\"ten\"",
+      "http.method": "\"POST\"",
+      "user_email": "\"jane@example.com\"",
+      "b": "raw"
+     },
+     "bytes_uncompressed": 120
+    },
+    "inputs": {},
+    "sensitive": []
+   },
+   "output": {
+    "status": "mutated",
+    "error": null,
+    "logs": [],
+    "record": {
+     "uuid": "0197a3f2-1111-7000-8000-000000000001",
+     "trace_id": {
+      "$bytes": "0123456789abcdef0123456789abcdef"
+     },
+     "span_id": {
+      "$bytes": "41534e465a346d727a65383d"
+     },
+     "trace_flags": 0,
+     "timestamp": 1736944633250123,
+     "observed_timestamp": 1736944633250000,
+     "body": "user jane@example.com logged in",
+     "severity_text": "info",
+     "severity_number": 9,
+     "service_name": "auth-api",
+     "resource_attributes": {
+      "k8s.namespace.name": "\"auth\""
+     },
+     "instrumentation_scope": "auth.sessions",
+     "event_name": null,
+     "attributes": {
+      "2": "2",
+      "10": "\"ten\"",
+      "http.method": "\"POST\"",
+      "user_email": "\"jane@example.com\"",
+      "b": "raw",
+      "f": "{\"__hogClosure__\":true,\"callable\":{\"__hogCallable__\":\"local\",\"name\":\"lambda\",\"chunk\":\"root\",\"argCount\":1,\"upvalueCount\":0,\"ip\":18},\"upvalues\":[]}"
+     },
+     "bytes_uncompressed": 120
+    }
+   }
+  },
+  {
+   "input": {
+    "hog": "return {'body': 'not applied'}",
+    "bytecode": [
+     "_H",
+     1,
+     32,
+     "body",
+     32,
+     "not applied",
+     42,
+     1,
+     38
+    ],
+    "record": {
+     "uuid": "0197a3f2-1111-7000-8000-000000000001",
+     "trace_id": {
+      "$bytes": "0123456789abcdef0123456789abcdef"
+     },
+     "span_id": {
+      "$bytes": "41534e465a346d727a65383d"
+     },
+     "trace_flags": 0,
+     "timestamp": 1736944633250123,
+     "observed_timestamp": 1736944633250000,
+     "body": "user jane@example.com logged in",
+     "severity_text": "info",
+     "severity_number": 9,
+     "service_name": "auth-api",
+     "resource_attributes": {
+      "k8s.namespace.name": "\"auth\""
+     },
+     "instrumentation_scope": "auth.sessions",
+     "event_name": null,
+     "attributes": {
+      "2": "2",
+      "10": "\"ten\"",
+      "http.method": "\"POST\"",
+      "user_email": "\"jane@example.com\"",
+      "b": "raw"
+     },
+     "bytes_uncompressed": 120
+    },
+    "inputs": {},
+    "sensitive": [
+     "body"
+    ]
+   },
+   "output": {
+    "status": "mutated",
+    "error": null,
+    "logs": [],
+    "record": {
+     "uuid": "0197a3f2-1111-7000-8000-000000000001",
+     "trace_id": {
+      "$bytes": "0123456789abcdef0123456789abcdef"
+     },
+     "span_id": {
+      "$bytes": "41534e465a346d727a65383d"
+     },
+     "trace_flags": 0,
+     "timestamp": 1736944633250123,
+     "observed_timestamp": 1736944633250000,
+     "body": "user jane@example.com logged in",
+     "severity_text": "info",
+     "severity_number": 9,
+     "service_name": "auth-api",
+     "resource_attributes": {
+      "k8s.namespace.name": "\"auth\""
+     },
+     "instrumentation_scope": "auth.sessions",
+     "event_name": null,
+     "attributes": {
+      "2": "2",
+      "10": "\"ten\"",
+      "http.method": "\"POST\"",
+      "user_email": "\"jane@example.com\"",
+      "b": "raw"
+     },
+     "bytes_uncompressed": 120
+    }
+   }
   }
  ]
 }
