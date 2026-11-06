@@ -34,6 +34,7 @@ from django.conf import settings
 import structlog
 from pydantic import ValidationError
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
@@ -306,6 +307,7 @@ def _query(team: Team, expr: str, *, at: datetime, timeout_seconds: float) -> li
         "/api/v1/query",
         data={"query": expr, "time": str(at.timestamp()), "timeout": f"{int(timeout_seconds)}s"},
         timeout=timeout_seconds,
+        ch_user=ClickHouseUser.ALERTS_PLATFORM_METRICS,
     )
 
     data = payload.get("data") or {}

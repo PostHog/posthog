@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models import Team
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
@@ -269,6 +270,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
 
         assert self._kinds(first) == {"a": AlertEventKind.FIRING, "b": AlertEventKind.FIRING}
         assert self.snuffle.call_args.kwargs["data"]["time"] == str((self.due_at - timedelta(seconds=30)).timestamp())
+        assert self.snuffle.call_args.kwargs["ch_user"] == ClickHouseUser.ALERTS_PLATFORM_METRICS
 
         self._next_check(first)
         self.snuffle.return_value = _response(

@@ -2519,6 +2519,7 @@ class NodeKind(StrEnum):
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
     SUGGESTED_QUESTIONS_QUERY = "SuggestedQuestionsQuery"
     TEAM_TAXONOMY_QUERY = "TeamTaxonomyQuery"
+    INBOX_USAGE_QUERY = "InboxUsageQuery"
     EVENT_TAXONOMY_QUERY = "EventTaxonomyQuery"
     ACTORS_PROPERTY_TAXONOMY_QUERY = "ActorsPropertyTaxonomyQuery"
     TRACES_QUERY = "TracesQuery"

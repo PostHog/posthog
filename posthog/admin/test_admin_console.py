@@ -7,7 +7,9 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
-from django.test import Client, SimpleTestCase
+from django.http import HttpRequest, HttpResponse
+from django.template.loader import render_to_string
+from django.test import Client, RequestFactory, SimpleTestCase, override_settings
 from django.utils.html import format_html
 
 from parameterized import parameterized
@@ -15,8 +17,10 @@ from parameterized import parameterized
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Owner, Panel, ReasonForm
 from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.tools import Cell, ConsoleTool, Page, Row, Table
+from posthog.csp_middleware import CSPMiddleware
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, CreditResult
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
+from posthog.models.user import User
 
 from products.workflows.backend.facade.api import get_email_sending_state
 
@@ -77,6 +81,19 @@ class TestAdminConsoleAssets(SimpleTestCase):
             + "; ".join(f"{name}: {sorted(classes)}" for name, classes in sorted(missing.items()))
         )
 
+    def test_every_asset_the_templates_link_to_ships(self) -> None:
+        linked = {
+            name
+            for template in TEMPLATE_DIR.glob("*.html")
+            for name in re.findall(r"/static/admin-console/([^\"?{]+)[\"?]", template.read_text())
+        }
+        assert linked, "No linked assets found, so this test checks nothing."
+
+        missing = sorted(name for name in linked if not (CONSOLE_ASSETS / name).is_file())
+        assert not missing, (
+            f"These assets are linked from the console templates but missing. Rebuild with `{REBUILD}`: {missing}"
+        )
+
     def test_every_owner_crest_ships(self) -> None:
         owners = [panel.owner for panel in console.panels_for("team")] + [tool.owner for tool in console.tools()]
         missing = sorted(
@@ -135,6 +152,43 @@ class TestAdminConsoleAssets(SimpleTestCase):
     ) -> None:
         with self.assertRaisesRegex(ValueError, message):
             contribute()
+
+
+class TestAdminConsoleTheme(SimpleTestCase):
+    def _request(self, theme_mode: str | None) -> HttpRequest:
+        request = RequestFactory().get("/admin/console/")
+        request.user = User(email="staff@posthog.com", theme_mode=theme_mode)
+        return request
+
+    @parameterized.expand(
+        [
+            ("no_saved_preference", None, "light"),
+            ("dark", "dark", "dark"),
+            ("system", "system", "system"),
+        ]
+    )
+    def test_the_console_uses_the_theme_saved_in_the_app(
+        self, _name: str, theme_mode: str | None, expected: str
+    ) -> None:
+        html_tag = re.search(
+            r"<html[^>]*>", render_to_string("admin_console/base.html", request=self._request(theme_mode))
+        )
+
+        assert html_tag is not None
+        assert re.search(rf'\stheme="{expected}"', html_tag.group(0))
+
+    @override_settings(ADMIN_PORTAL_ENABLED=True)
+    def test_the_admin_csp_allows_the_inline_theme_script(self) -> None:
+        response = CSPMiddleware(
+            lambda request: HttpResponse(render_to_string("admin_console/base.html", request=request))
+        )(self._request("system"))
+
+        script_src = next(d for d in response["Content-Security-Policy"].split("; ") if d.startswith("script-src "))
+        allowed = re.search(r"'nonce-([^']+)'", script_src)
+        assert allowed is not None
+        inline_scripts = re.findall(r"<script(?![^>]*\ssrc=)[^>]*>", response.content.decode())
+        assert inline_scripts
+        assert all(f'nonce="{allowed.group(1)}"' in tag for tag in inline_scripts), inline_scripts
 
 
 class TestAdminConsoleViews(BaseTest):
@@ -201,7 +255,7 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == 200
         content = response.content.decode()
-        assert "team actions moved to PostHog Admin" in content
+        assert "This is the Django admin" in content
         for panel_key in ("remote-config", "email-sending", "ai-gateway", "api-token"):
             assert f"/admin/console/teams/{self.team.pk}/#panel-{panel_key}" in content
 
