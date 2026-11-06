@@ -44,7 +44,7 @@
         "@swc/core": "^1.16.20",
         "@swc/jest": "^0.2.39",
         "@types/jest": "catalog:",
-        "@types/luxon": "^3.6.0",
+        "@types/luxon": "^3.4.2",
         "@types/node": "catalog:",
         "crypto-browserify": "^3.12.1",
         "jest": "catalog:",

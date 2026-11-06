@@ -368,8 +368,8 @@ importers:
         specifier: 'catalog:'
         version: 29.5.14
       '@types/luxon':
-        specifier: ^3.6.0
-        version: 3.6.0
+        specifier: ^3.4.2
+        version: 3.4.2
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.6
@@ -1926,8 +1926,8 @@ importers:
         specifier: 4.x.x
         version: 4.0.2
       '@types/luxon':
-        specifier: ^3.6.0
-        version: 3.6.0
+        specifier: ^3.4.2
+        version: 3.4.2
       '@types/node-fetch':
         specifier: ^2.6.13
         version: 2.6.13
@@ -1989,8 +1989,8 @@ importers:
         specifier: ~3.6.2
         version: 3.6.2
       supertest:
-        specifier: ^7.3.1
-        version: 7.3.1(supports-color@10.2.2)
+        specifier: ^7.2.2
+        version: 7.2.2(supports-color@10.2.2)
       ts-jest:
         specifier: ^29.4.15
         version: 29.4.15(@babel/core@7.29.7(supports-color@10.2.2))(@jest/transform@30.0.5(supports-color@10.2.2))(@jest/types@30.4.1)(babel-jest@30.0.5(@babel/core@7.29.7(supports-color@10.2.2))(supports-color@10.2.2))(esbuild@0.28.2)(jest-util@30.0.5)(jest@30.0.5(@types/node@26.6.6)(esbuild-register@3.6.0(esbuild@0.28.2)(supports-color@10.2.2))(supports-color@10.2.2)(ts-node@10.9.2(@swc/core@1.15.18)(@types/node@26.6.6)(typescript@6.0.3)))(typescript@6.0.3)
@@ -14520,8 +14520,8 @@ packages:
   '@types/long@4.0.2':
     resolution: {integrity: sha512-MqTGEo5bj5t157U6fA/BiDynNkn0YknVdh48CMPkTSpFTVmvao5UQmm7uEF6xBEo7qIMAlY/JSleYaE6VOdpaA==}
 
-  '@types/luxon@3.6.0':
-    resolution: {integrity: sha512-RtEj20xRyG7cRp142MkQpV3GRF8Wo2MtDkKLz65MQs7rM1Lh8bz+HtfPXCCJEYpnDFu6VwAq/Iv2Ikyp9Jw/hw==}
+  '@types/luxon@3.4.2':
+    resolution: {integrity: sha512-TifLZlFudklWlMBfhubvgqTXRzLDI5pCbGa4P8a3wPyUQSW+1xQ5eDsreP9DWHX3tjq1ke96uYG/nwundroWcA==}
 
   '@types/mapbox__point-geometry@0.1.3':
     resolution: {integrity: sha512-2W46IOXlu7vC8m3+M5rDqSnuY22GFxxx3xhkoyqyPWrD+eP2iAwNst0A1+umLYjCTJMJTSpiofphn9h9k+Kw+w==}
@@ -23499,8 +23499,8 @@ packages:
   supercluster@8.0.1:
     resolution: {integrity: sha512-IiOea5kJ9iqzD2t7QJq/cREyLHTtSmUT6gQsweojg9WH2sYJqZK9SswTu6jrscO6D1G5v5vYZ9ru/eq85lXeZQ==}
 
-  supertest@7.3.1:
-    resolution: {integrity: sha512-vNaNCFoCR/edDbErQZp5KLNT8R4dSPHX7rlDLoE8hWLAm/878j6ShMbe8HK/E6RwwuhlSXVelXAIg9AxR5WWPw==}
+  supertest@7.2.2:
+    resolution: {integrity: sha512-oK8WG9diS3DlhdUkcFn4tkNIiIbBx9lI2ClF8K+b2/m8Eyv47LSawxUzZQSNKUrVb2KsqeTDCcjAAVPYaSLVTA==}
     engines: {node: '>=14.18.0'}
 
   supports-color@10.2.2:
@@ -35061,7 +35061,7 @@ snapshots:
 
   '@types/long@4.0.2': {}
 
-  '@types/luxon@3.6.0': {}
+  '@types/luxon@3.4.2': {}
 
   '@types/mapbox__point-geometry@0.1.3': {}
 
@@ -47041,7 +47041,7 @@ snapshots:
     dependencies:
       kdbush: 4.0.2
 
-  supertest@7.3.1(supports-color@10.2.2):
+  supertest@7.2.2(supports-color@10.2.2):
     dependencies:
       cookie-signature: 1.2.2
       methods: 1.1.2
