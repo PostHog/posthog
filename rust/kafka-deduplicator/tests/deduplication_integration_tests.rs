@@ -100,6 +100,7 @@ fn create_test_captured_event(
         timestamp: chrono::Utc::now(),
         is_cookieless_mode: false,
         historical_migration: false,
+        options: None,
     };
 
     Ok(captured_event)

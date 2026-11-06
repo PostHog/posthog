@@ -101,6 +101,7 @@ fn create_captured_event() -> CapturedEvent {
         timestamp: chrono::Utc::now(),
         is_cookieless_mode: false,
         historical_migration: false,
+        options: None,
     }
 }
 

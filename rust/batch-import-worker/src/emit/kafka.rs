@@ -205,6 +205,7 @@ mod tests {
                 .with_timezone(&chrono::Utc),
             is_cookieless_mode: false,
             historical_migration: true,
+            options: None,
         };
 
         let headers: CapturedEventHeaders = event.to_headers();
@@ -239,6 +240,7 @@ mod tests {
                 .with_timezone(&chrono::Utc),
             is_cookieless_mode: false,
             historical_migration: false,
+            options: None,
         };
 
         let headers: CapturedEventHeaders = event.to_headers();

@@ -293,6 +293,9 @@ pub struct CapturedEvent {
     pub is_cookieless_mode: bool,
     #[serde(skip_serializing_if = "<&bool>::not", default)]
     pub historical_migration: bool,
+    /// Only capture v1 sets it. Omitted when `None`, so other producers keep their payload unchanged.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub options: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 // Used when we want to bypass token checks when emitting events from rust
@@ -655,6 +658,7 @@ mod tests {
                 .with_timezone(&Utc),
             is_cookieless_mode: false,
             historical_migration: true,
+            options: None,
         };
 
         let serialized = serde_json::to_string(&event).expect("Failed to serialize");
@@ -683,11 +687,13 @@ mod tests {
                 .with_timezone(&Utc),
             is_cookieless_mode: false,
             historical_migration: false,
+            options: None,
         };
 
         let serialized = serde_json::to_string(&event).expect("Failed to serialize");
         // Should not be in JSON when false (skip_serializing_if)
         assert!(!serialized.contains("historical_migration"));
+        assert!(!serialized.contains("\"options\""));
 
         // Deserialize and verify - should default to false
         let deserialized: CapturedEvent =
@@ -713,6 +719,7 @@ mod tests {
             serde_json::from_str(json).expect("Failed to deserialize");
         // Should default to false when not present
         assert!(!deserialized.historical_migration);
+        assert!(deserialized.options.is_none());
     }
 
     #[test]
@@ -732,6 +739,7 @@ mod tests {
                 .with_timezone(&Utc),
             is_cookieless_mode: false,
             historical_migration: false,
+            options: None,
         };
 
         let headers = event_with_session.to_headers();
@@ -752,6 +760,7 @@ mod tests {
                 .with_timezone(&Utc),
             is_cookieless_mode: false,
             historical_migration: false,
+            options: None,
         };
 
         let headers = event_without_session.to_headers();
@@ -775,6 +784,7 @@ mod tests {
                 .with_timezone(&Utc),
             is_cookieless_mode: false,
             historical_migration: false,
+            options: None,
         };
 
         let headers = event.to_headers();
@@ -800,6 +810,7 @@ mod tests {
                 .with_timezone(&Utc),
             is_cookieless_mode: false,
             historical_migration: false,
+            options: None,
         };
 
         let mut headers = event.to_headers();
@@ -832,6 +843,7 @@ mod tests {
                 .with_timezone(&Utc),
             is_cookieless_mode: false,
             historical_migration: false,
+            options: None,
         };
 
         let mut headers = event.to_headers();
@@ -876,6 +888,7 @@ mod tests {
                 .with_timezone(&Utc),
             is_cookieless_mode: false,
             historical_migration: false,
+            options: None,
         };
 
         // DLQ fields are None by default from to_headers()

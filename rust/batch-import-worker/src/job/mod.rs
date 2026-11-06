@@ -1690,6 +1690,7 @@ mod tests {
                     timestamp: chrono::Utc::now(),
                     is_cookieless_mode: false,
                     historical_migration: true,
+                    options: None,
                 };
                 Ok(Parsed {
                     consumed: bytes.len(),

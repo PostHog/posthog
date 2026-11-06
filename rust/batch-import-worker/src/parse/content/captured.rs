@@ -99,6 +99,7 @@ pub fn captured_parse_fn(
                 timestamp, // Event timestamp (when the event actually occurred)
                 is_cookieless_mode: false,
                 historical_migration: true,
+                options: None,
             };
 
             Ok(Some(InternallyCapturedEvent {

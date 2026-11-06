@@ -330,6 +330,14 @@ async fn v1_all_options_property_injection() -> Result<()> {
     assert_eq!(data.properties["$product_tour_id"], "tour_abc123");
     assert_eq!(data.properties["$process_person_profile"], false);
 
+    let options = captured.options.expect("v1 publishes options");
+    assert_eq!(options["session_id"], "sess-opt-test");
+    assert_eq!(options["window_id"], "win-opt-test");
+    assert_eq!(options["cookieless_mode"], true);
+    assert_eq!(options["disable_skew_correction"], true);
+    assert_eq!(options["product_tour_id"], "tour_abc123");
+    assert_eq!(options["process_person_profile"], false);
+
     topic.assert_empty();
     Ok(())
 }
