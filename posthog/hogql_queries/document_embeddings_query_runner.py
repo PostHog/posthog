@@ -1,4 +1,3 @@
-import re
 import datetime
 from collections.abc import Callable
 from typing import Literal
@@ -54,10 +53,7 @@ class DocumentEmbeddingsQueryRunner(AnalyticsQueryRunner[DocumentSimilarityQuery
         if date == "all":
             raise ValueError("Invalid date range")
 
-        parsed = relative_date_parse(date, ZoneInfo("UTC"), increase=True)
-        if re.fullmatch(r"\d{4}-\d{1,2}-\d{1,2}", date):
-            return parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
-        return parsed
+        return relative_date_parse(date, ZoneInfo("UTC"), increase=True)
 
     def _calculate(self) -> DocumentSimilarityQueryResponse:
         with self.timings.measure("document_embeddings_query_hogql_execute"):
