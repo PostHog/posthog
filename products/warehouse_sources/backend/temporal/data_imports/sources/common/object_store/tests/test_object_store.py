@@ -7,10 +7,10 @@ import tempfile
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import IO, Any, Literal, cast
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call, patch
 
 from django.test import override_settings
 
@@ -21,6 +21,7 @@ import pyarrow.parquet as pq
 from botocore.exceptions import ClientError
 from botocore.stub import Stubber
 from deltalake import DeltaTable, WriterProperties, write_deltalake
+from deltalake.exceptions import DeltaError, TableNotFoundError
 from fsspec.implementations.local import LocalFileSystem
 from parameterized import parameterized
 
@@ -75,6 +76,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     listing_digest,
     plan_mirror,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
+    parse_self_managed_url,
+    table_definition_for,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
     JSONL_CHUNK_ROWS,
     MAX_TABLES,
@@ -84,6 +89,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     iter_table,
     validate_store_location,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.tests.fake_source import (
+    FakeObjectStorageConfig,
+    FakeObjectStorageSource,
+    PrefixScopedS3Client,
+    bucket_root_store,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import ReplaceScope
 
 MODIFIED_AT = datetime(2024, 5, 1, 12, 0, tzinfo=UTC)
@@ -92,6 +103,22 @@ LOGGER = structlog.get_logger()
 
 def stored(path: str) -> StoredObject:
     return StoredObject(path=path, size=10, modified_at=MODIFIED_AT)
+
+
+class _FsspecLikeFile:
+    """Like an fsspec file, `readline` takes no size."""
+
+    def __init__(self, content: bytes) -> None:
+        self._buffer = io.BytesIO(content)
+
+    def readable(self) -> bool:
+        return True
+
+    def read(self, size: int = -1) -> bytes:
+        return self._buffer.read(size)
+
+    def readline(self) -> bytes:
+        return self._buffer.readline()
 
 
 def local_store(root: Path) -> ObjectStore:
@@ -705,6 +732,29 @@ class TestReadTable:
         with pytest.raises(ObjectStorageError, match=f"{FILE_PARSE_ERROR} '{path}' as Parquet: Brotli"):
             list(iter_file_tables(io.BytesIO(content), stored(path), "parquet", CsvOptions()))
 
+    def test_a_corrupt_parquet_block_is_a_parse_error(self) -> None:
+        buffer = io.BytesIO()
+        pq.write_table(pa.table({"id": ["1", "2"]}), buffer)
+        buffer.seek(0)
+        # pyarrow's own decoder raises a bare OSError (not a subclass) for a page that fails its
+        # internal validation, e.g. a corrupt block. Real file content can't be made to fail that
+        # validation deterministically, so the decoder itself is the mocked boundary.
+        with (
+            patch.object(pq.ParquetFile, "iter_batches", side_effect=OSError("cannot have zero value per block")),
+            pytest.raises(ObjectStorageError, match=f"{FILE_PARSE_ERROR} 'orders.parquet' as Parquet"),
+        ):
+            list(iter_file_tables(buffer, stored("orders.parquet"), "parquet", CsvOptions()))
+
+    def test_a_transient_read_error_while_streaming_parquet_batches_is_not_a_parse_error(self) -> None:
+        buffer = io.BytesIO()
+        pq.write_table(pa.table({"id": ["1", "2"]}), buffer)
+        buffer.seek(0)
+        with (
+            patch.object(pq.ParquetFile, "iter_batches", side_effect=ConnectionError("connection reset")),
+            pytest.raises(ConnectionError),
+        ):
+            list(iter_file_tables(buffer, stored("orders.parquet"), "parquet", CsvOptions()))
+
     def test_a_parquet_file_with_no_rows_still_yields_its_schema(self, tmp_path: Path) -> None:
         pq.write_table(pa.table({"id": pa.array([], pa.string())}), tmp_path / "empty.parquet")
         store = local_store(tmp_path)
@@ -800,6 +850,59 @@ def _files_and_ids(path: str, version: int | None = None) -> list[tuple[str, int
 
 
 class TestDeltaCursor:
+    @parameterized.expand(
+        [
+            ("recovers", TableNotFoundError, 2, (5.0, 10.0), None, None),
+            (
+                "stays_missing",
+                TableNotFoundError,
+                4,
+                (5.0, 10.0, 20.0),
+                ObjectStorageError,
+                "no longer at its folder",
+            ),
+            ("other_delta_error", DeltaError, 1, (), DeltaError, "other failure"),
+        ]
+    )
+    def test_open_retries_only_when_the_delta_table_is_missing(
+        self,
+        _name: str,
+        error_type: type[Exception],
+        failed_opens: int,
+        expected_delays: tuple[float, ...],
+        expected_error: type[Exception] | None,
+        expected_message: str | None,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = str(Path(folder) / "sales")
+            write_deltalake(path, pa.table({"id": [1]}))
+            real_table = DeltaTable(path)
+            errors = [
+                error_type("other failure" if error_type is DeltaError else "missing") for _ in range(failed_opens)
+            ]
+            logger = MagicMock()
+
+            with (
+                patch.object(delta, "DeltaTable", side_effect=[*errors, real_table]) as open_table,
+                patch.object(delta.time, "sleep") as sleep,
+            ):
+                if expected_error is None:
+                    read = plan_delta_read(path, {}, "sales", logger=logger)
+                    assert [row for batch in read.iter_tables() for row in batch.to_pylist()] == [{"id": 1}]
+                else:
+                    with pytest.raises(expected_error, match=expected_message):
+                        plan_delta_read(path, {}, "sales", logger=logger)
+
+            assert open_table.call_count == failed_opens + (expected_error is None)
+            assert sleep.call_args_list == [call(delay) for delay in expected_delays]
+            retry_logs = [
+                entry for entry in logger.info.call_args_list if entry.args[0] == "Delta table not found, retrying"
+            ]
+            assert retry_logs == [
+                call("Delta table not found, retrying", table="sales", attempt=attempt)
+                for attempt in range(1, len(expected_delays) + 1)
+            ]
+
     @parameterized.expand(
         [
             ("no_cursor_reads_the_snapshot", None, [_append], False, False, [1, 2, 3], 1),
@@ -1035,6 +1138,21 @@ class TestFileSelection:
 
         assert len(tables) == 2
         assert [number for table in tables for number in table["_file_row_number"].to_pylist()] == list(range(rows))
+
+    @parameterized.expand(
+        [
+            ("csv", "orders.csv", b"id,name\n1,a\n2,b\n", "csv"),
+            ("jsonl", "orders.jsonl", b'{"id":1,"name":"a"}\n{"id":2,"name":"b"}\n', "jsonl"),
+        ]
+    )
+    def test_reads_a_stream_whose_readline_takes_no_size(
+        self, _name: str, path: str, content: bytes, file_format: Literal["csv", "jsonl"]
+    ) -> None:
+        stream = cast(IO[bytes], _FsspecLikeFile(content))
+
+        tables = list(iter_file_tables(stream, stored(path), file_format, CsvOptions()))
+
+        assert [str(value) for table in tables for value in table["id"].to_pylist()] == ["1", "2"]
 
     def test_row_numbers_continue_across_the_batches_of_a_gzipped_parquet_file(self) -> None:
         rows = PARQUET_BATCH_ROWS + 3
@@ -1320,3 +1438,111 @@ class TestS3BucketRegion:
 
         with pytest.raises(ObjectStorageError, match=INVALID_CONFIG_ERROR):
             lookup_s3_bucket_region("Not_A_Bucket")
+
+
+def _source_with_store(store: ObjectStore) -> FakeObjectStorageSource:
+    source = FakeObjectStorageSource()
+    source.open_store = MagicMock(return_value=store)  # type: ignore[method-assign]
+    return source
+
+
+BUCKET_ROOT_CONFIG = FakeObjectStorageConfig(
+    values={
+        "url_pattern": "https://s3.us-east-1.amazonaws.com/example-bucket/",
+        "access_key_id": "AKIAEXAMPLE",
+        "secret_access_key": "c2VjcmV0",
+    }
+)
+ORDERS_KEYS = ["tables/orders/2024-01.csv", "tables/orders/2024-02.csv", "tables/other/x.csv"]
+MIGRATED_ORDERS = table_definition_for(
+    "orders",
+    parse_self_managed_url("https://example-bucket.s3.us-east-1.amazonaws.com/tables/orders/*.csv"),
+    "CSVWithNames",
+    {},
+    None,
+)
+DISCOVERED_ORDERS = TableDefinition(
+    name="orders",
+    kind="files",
+    path="tables/orders",
+    scope="folder",
+    file_format="csv",
+    csv=CsvOptions(),
+    pattern=None,
+    source_format="infer",
+)
+
+
+class TestDescribePinnedSchema:
+    @parameterized.expand([("migrated_glob", MIGRATED_ORDERS), ("folder", DISCOVERED_ORDERS)])
+    def test_a_key_scoped_to_the_table_prefix_reads_the_table_without_listing_the_bucket_root(
+        self, _name: str, table: TableDefinition
+    ) -> None:
+        client = PrefixScopedS3Client(ORDERS_KEYS, allowed_prefix="tables/orders/")
+        source = _source_with_store(bucket_root_store(client))
+
+        schema = source.describe_pinned_schema(BUCKET_ROOT_CONFIG, 1, "orders", table.schema_metadata())
+
+        assert schema is not None
+        assert (schema.name, schema.schema_metadata) == ("orders", table.schema_metadata())
+        assert client.listed_prefixes == ["tables/orders/"]
+        # Discovery lists the bucket root, which the same key can't do.
+        valid, message = source.validate_credentials(BUCKET_ROOT_CONFIG, 1)
+        assert not valid and message is not None and message.startswith(ACCESS_DENIED_ERROR)
+
+    @parameterized.expand(
+        [
+            ("denied", ORDERS_KEYS, "tables/other/", f"{ACCESS_DENIED_ERROR} 'example-bucket/tables/orders'"),
+            ("no_files", ["tables/other/x.csv"], "tables/", f"{NO_TABLE_FILES_ERROR} 'orders'"),
+        ]
+    )
+    def test_a_table_the_key_can_not_read_fails_with_the_sync_error(
+        self, _name: str, keys: list[str], allowed_prefix: str, expected_start: str
+    ) -> None:
+        source = _source_with_store(bucket_root_store(PrefixScopedS3Client(keys, allowed_prefix)))
+
+        with pytest.raises(ObjectStorageError) as error:
+            source.describe_pinned_schema(BUCKET_ROOT_CONFIG, 1, "orders", MIGRATED_ORDERS.schema_metadata())
+
+        assert str(error.value).startswith(expected_start)
+
+    @parameterized.expand([("empty", {}), ("unknown_kind", {"kind": "iceberg", "path": "x"})])
+    def test_metadata_without_a_table_definition_is_not_described(self, _name: str, metadata: dict) -> None:
+        source = _source_with_store(MagicMock())
+
+        assert source.describe_pinned_schema(BUCKET_ROOT_CONFIG, 1, "orders", metadata) is None
+        source.open_store.assert_not_called()  # type: ignore[attr-defined]
+
+    def test_a_delta_table_is_described_from_its_log(self, tmp_path: Path) -> None:
+        write_deltalake(str(tmp_path / "tables" / "events"), pa.table({"id": [1]}))
+        metadata: dict[str, Any] = {
+            "kind": "delta",
+            "path": "tables/events",
+            "format": "delta",
+            "pattern": None,
+            "csv": {},
+        }
+        source = _source_with_store(local_store(tmp_path))
+
+        schema = source.describe_pinned_schema(BUCKET_ROOT_CONFIG, 1, "events", metadata)
+
+        assert schema is not None
+        assert [field["field"] for field in schema.incremental_fields] == ["_delta_version"]
+
+    @pytest.mark.parametrize(
+        "raised, error_prefix",
+        [
+            pytest.param(None, NO_TABLE_FILES_ERROR, id="missing"),
+            pytest.param(OSError("Generic S3 error: 403 Forbidden"), ACCESS_DENIED_ERROR, id="denied"),
+        ],
+    )
+    def test_an_unreadable_delta_log_fails_with_the_sync_error(
+        self, raised: Exception | None, error_prefix: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        if raised is not None:
+            monkeypatch.setattr(delta, "DeltaTable", MagicMock(side_effect=raised))
+        metadata: dict[str, Any] = {"kind": "delta", "path": "events", "format": "delta", "pattern": None, "csv": {}}
+        source = _source_with_store(local_store(tmp_path))
+
+        with pytest.raises(ObjectStorageError, match=f"^{error_prefix}"):
+            source.describe_pinned_schema(BUCKET_ROOT_CONFIG, 1, "events", metadata)

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import builtins
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import asdict
 from functools import cached_property
 from typing import Any, Protocol, cast
@@ -29,8 +29,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, ValidationError
-from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -38,15 +37,17 @@ from rest_framework.serializers import BaseSerializer
 from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.auth import SessionAuthentication, is_mcp_request
 from posthog.event_usage import report_user_action
-from posthog.exceptions import Conflict
+from posthog.exceptions import Conflict, InsufficientScope
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.paging import Page, PageRequest
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
@@ -195,43 +196,15 @@ def _warehouse_scoped_uac(view: Any) -> UserAccessControl:
     return cast(UserAccessControl, _ScopeGatedAccessControl(view.user_access_control, scopes))
 
 
-# drf-spectacular auto-describes the pk path param for a model-backed viewset as
-# "A UUID string identifying this <model>.". These viewsets reach the model through the
-# facade (no ``queryset``), so the description is declared explicitly to keep the generated
-# OpenAPI (and MCP) path params byte-identical.
-_ACCOUNT_ID_PARAM = OpenApiParameter(
-    "id",
-    OpenApiTypes.STR,
-    OpenApiParameter.PATH,
-    description="A UUID string identifying this account.",
-)
+_PARENT_ACCOUNT_ID = PathParameter(type=UUID, description="UUID of the parent account.")
 
 
 # NOTE: deliberately no class docstring — a docstring here is inherited as the ViewSets'
 # ``__doc__`` and drf-spectacular would surface it as every operation's description (the
 # model-backed viewsets had none), drifting the generated clients.
-class AccountEmailThreadMessagePagination(LimitOffsetPagination):
+class AccountEmailThreadMessagePagination(FacadeLimitOffsetPagination):
     default_limit = 50
     max_limit = 200
-
-
-class _FacadePaginationMixin:
-    # Drives the standard ``LimitOffsetPagination`` envelope from a facade ``(page, count)``
-    # result. The facade does the slicing (offset/limit), so we set the paginator's state
-    # directly rather than handing it a queryset — keeping the param names (``limit`` /
-    # ``offset``), default page size, and ``count`` / ``next`` / ``previous`` shape identical
-    # to the model-backed viewsets.
-    def _paginate_via_facade(self, request: Request, fetch, serializer_class) -> Response:
-        paginator = self.paginator  # type: ignore[attr-defined]
-        limit = paginator.get_limit(request)
-        offset = paginator.get_offset(request)
-        page, count = fetch(offset=offset, limit=limit)
-        paginator.request = request
-        paginator.limit = limit
-        paginator.offset = offset
-        paginator.count = count
-        serializer = serializer_class(instance=page, many=True)
-        return paginator.get_paginated_response(serializer.data)
 
 
 def _object_required_level(request: Request, write: bool) -> str | None:
@@ -264,7 +237,8 @@ def _has_group_scope(request: Request, *, write: bool) -> bool:
 
 def _assert_group_scope(request: Request, *, write: bool) -> None:
     if not _has_group_scope(request, write=write):
-        raise PermissionDenied(f"This action requires the `group:{'write' if write else 'read'}` API scope.")
+        scope = f"group:{'write' if write else 'read'}"
+        raise InsufficientScope([scope], detail=f"This action requires the `{scope}` API scope.")
 
 
 class AccountTrackRuleThrottle(UserRateThrottle):
@@ -275,7 +249,6 @@ class AccountTrackRuleThrottle(UserRateThrottle):
 class AccountTrackRuleViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
-    _FacadePaginationMixin,
     viewsets.GenericViewSet,
 ):
     scope_object = "customer_analytics"
@@ -415,18 +388,14 @@ class AccountTrackRuleViewSet(
         detail=False,
         methods=["get"],
         url_path="runs",
-        pagination_class=LimitOffsetPagination,
+        pagination_class=FacadeLimitOffsetPagination,
         required_scopes=["customer_analytics:read"],
     )
     def runs(self, request: Request, *args, **kwargs) -> Response:
-        return self._paginate_via_facade(
-            request,
-            lambda offset, limit: api.list_account_track_rule_runs(
-                self.team_id,
-                offset=offset,
-                limit=limit,
-            ),
-            AccountTrackRuleRunSerializer,
+        return facade_page_response(
+            self,
+            lambda page: api.list_account_track_rule_runs(self.team_id, page=page),
+            serializer_class=AccountTrackRuleRunSerializer,
         )
 
 
@@ -523,7 +492,6 @@ def _feature_request_evidence_input(data: dict[str, Any] | None) -> contracts.Fe
 class FeatureRequestViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
-    _FacadePaginationMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,
@@ -535,6 +503,7 @@ class FeatureRequestViewSet(
     queryset = None
     permission_classes = [PostHogFeatureFlagPermission]
     posthog_feature_flag = CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG
+    pagination_class = FacadeLimitOffsetPagination
 
     @validated_request(
         query_serializer=FeatureRequestListQuerySerializer,
@@ -542,9 +511,9 @@ class FeatureRequestViewSet(
     )
     def list(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         data = request.validated_query_data
-        return self._paginate_via_facade(
-            request,
-            lambda offset, limit: api.list_feature_requests(
+        return facade_page_response(
+            self,
+            lambda page: api.list_feature_requests(
                 team_id=self.team_id,
                 user_access_control=self.user_access_control,
                 filters=contracts.FeatureRequestListFilters(
@@ -557,10 +526,9 @@ class FeatureRequestViewSet(
                     archive_state=data["archive_state"],
                     ordering=data["request_ordering"],
                 ),
-                offset=offset,
-                limit=limit,
+                page=page,
             ),
-            FeatureRequestSerializer,
+            serializer_class=FeatureRequestSerializer,
         )
 
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
@@ -1182,7 +1150,6 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
 
 class CustomerProfileConfigViewSet(
     TeamAndOrgViewSetMixin,
-    _FacadePaginationMixin,
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -1193,12 +1160,13 @@ class CustomerProfileConfigViewSet(
     scope_object = "customer_profile_config"
     serializer_class = CustomerProfileConfigSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
+    pagination_class = FacadeLimitOffsetPagination
 
     def list(self, request: Request, *args, **kwargs) -> Response:
-        return self._paginate_via_facade(
-            request,
-            lambda offset, limit: api.list_customer_profile_configs(self.team_id, offset=offset, limit=limit),
-            CustomerProfileConfigSerializer,
+        return facade_page_response(
+            self,
+            lambda page: api.list_customer_profile_configs(self.team_id, page=page),
+            serializer_class=CustomerProfileConfigSerializer,
         )
 
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
@@ -1269,30 +1237,25 @@ def _profile_config_write_fields(validated, raw_data: dict) -> dict:
     return fields
 
 
-class _DefinitionPaginationMixin(_FacadePaginationMixin):
-    def _paginate_via_facade(
-        self,
-        request: Request,
-        fetch: Callable[..., tuple[Sequence[object], int]],
-        serializer_class: type[BaseSerializer],
-    ) -> Response:
-        if request.query_params.get("pagination") == "none":
-            page, count = fetch(offset=0, limit=None)
-            return Response(
-                {
-                    "count": count,
-                    "next": None,
-                    "previous": None,
-                    "results": serializer_class(instance=page, many=True).data,
-                }
-            )
-        return super()._paginate_via_facade(request, fetch, serializer_class)
+def _wants_unpaged_list(request: Request) -> bool:
+    return request.query_params.get("pagination") == "none"
+
+
+def _unpaged_response(rows: Sequence[object], serializer_class: type[BaseSerializer]) -> Response:
+    """The paged response shape with every row on one page, for `?pagination=none`."""
+    return Response(
+        {
+            "count": len(rows),
+            "next": None,
+            "previous": None,
+            "results": serializer_class(instance=rows, many=True).data,
+        }
+    )
 
 
 class CustomPropertyDefinitionViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
-    _DefinitionPaginationMixin,
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -1307,6 +1270,7 @@ class CustomPropertyDefinitionViewSet(
     scope_object_read_actions = ["list", "retrieve", "values"]
     serializer_class = CustomPropertyDefinitionSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
+    pagination_class = FacadeLimitOffsetPagination
 
     @extend_schema(
         parameters=[
@@ -1321,16 +1285,22 @@ class CustomPropertyDefinitionViewSet(
     def list(self, request: Request, *args, **kwargs) -> Response:
         # Callers without group read authorization don't see group-target definitions.
         exclude_group_targets = not _has_group_scope(request, write=False)
-        return self._paginate_via_facade(
-            request,
-            lambda offset, limit: api.list_custom_property_definitions(
+        if _wants_unpaged_list(request):
+            definitions = api.list_all_custom_property_definitions(
                 self.team_id,
-                offset=offset,
-                limit=limit,
+                user_access_control=_warehouse_scoped_uac(self),
+                exclude_group_targets=exclude_group_targets,
+            )
+            return _unpaged_response(definitions, CustomPropertyDefinitionSerializer)
+        return facade_page_response(
+            self,
+            lambda page: api.list_custom_property_definitions(
+                self.team_id,
+                page=page,
                 user_access_control=_warehouse_scoped_uac(self),
                 exclude_group_targets=exclude_group_targets,
             ),
-            CustomPropertyDefinitionSerializer,
+            serializer_class=CustomPropertyDefinitionSerializer,
         )
 
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
@@ -1488,12 +1458,12 @@ def _custom_property_option_dicts(options) -> list[dict] | None:
 class AccountRelationshipDefinitionViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
-    _DefinitionPaginationMixin,
     viewsets.ModelViewSet,
 ):
     scope_object = "account"
     serializer_class = AccountRelationshipDefinitionSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
+    pagination_class = FacadeLimitOffsetPagination
 
     @extend_schema(
         parameters=[
@@ -1506,10 +1476,13 @@ class AccountRelationshipDefinitionViewSet(
         ]
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
-        return self._paginate_via_facade(
-            request,
-            lambda offset, limit: api.list_account_relationship_definitions(self.team_id, offset=offset, limit=limit),
-            AccountRelationshipDefinitionSerializer,
+        if _wants_unpaged_list(request):
+            definitions = api.list_all_account_relationship_definitions(self.team_id)
+            return _unpaged_response(definitions, AccountRelationshipDefinitionSerializer)
+        return facade_page_response(
+            self,
+            lambda page: api.list_account_relationship_definitions(self.team_id, page=page),
+            serializer_class=AccountRelationshipDefinitionSerializer,
         )
 
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
@@ -1598,26 +1571,25 @@ class CustomPropertySourceSyncThrottle(RunSavedQueryRateThrottle):
 class CustomPropertySourceViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
-    _FacadePaginationMixin,
     viewsets.ModelViewSet,
 ):
     scope_object = "account"
     serializer_class = CustomPropertySourceSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
+    pagination_class = FacadeLimitOffsetPagination
 
     def list(self, request: Request, *args, **kwargs) -> Response:
         # Callers without group read authorization don't see sources feeding group-target definitions.
         exclude_group_targets = not _has_group_scope(request, write=False)
-        return self._paginate_via_facade(
-            request,
-            lambda offset, limit: api.list_custom_property_sources(
+        return facade_page_response(
+            self,
+            lambda page: api.list_custom_property_sources(
                 self.team_id,
-                offset=offset,
-                limit=limit,
+                page=page,
                 user_access_control=_warehouse_scoped_uac(self),
                 exclude_group_targets=exclude_group_targets,
             ),
-            CustomPropertySourceSerializer,
+            serializer_class=CustomPropertySourceSerializer,
         )
 
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
@@ -1810,18 +1782,17 @@ class CustomPropertySourceViewSet(
         query.is_valid(raise_exception=True)
         search = query.validated_data.get("search", "").strip() or None
         try:
-            return self._paginate_via_facade(
-                request,
-                lambda offset, limit: api.list_custom_property_sync_runs(
+            return facade_page_response(
+                self,
+                lambda page: api.list_custom_property_sync_runs(
                     self.team_id,
                     self.kwargs["pk"],
-                    offset=offset,
-                    limit=limit,
+                    page=page,
                     user_access_control=_warehouse_scoped_uac(self),
                     include_temporal_urls=bool(request.user.is_staff or is_impersonated(request)),
                     search=search,
                 ),
-                CustomPropertySyncRunSerializer,
+                serializer_class=CustomPropertySyncRunSerializer,
             )
         except api.ResourceForbiddenError:
             raise PermissionDenied()
@@ -1830,7 +1801,6 @@ class CustomPropertySourceViewSet(
 class CustomerJourneyViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
-    _FacadePaginationMixin,
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -1841,14 +1811,15 @@ class CustomerJourneyViewSet(
     scope_object = "customer_journey"
     serializer_class = CustomerJourneySerializer
     queryset = None
+    pagination_class = FacadeLimitOffsetPagination
 
     def list(self, request: Request, *args, **kwargs) -> Response:
-        return self._paginate_via_facade(
-            request,
-            lambda offset, limit: api.list_customer_journeys(
-                self.team_id, offset=offset, limit=limit, user_access_control=self.user_access_control
+        return facade_page_response(
+            self,
+            lambda page: api.list_customer_journeys(
+                self.team_id, page=page, user_access_control=self.user_access_control
             ),
-            CustomerJourneySerializer,
+            serializer_class=CustomerJourneySerializer,
         )
 
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
@@ -1959,7 +1930,6 @@ class AccountViewSet(
     TaggedItemViewSetMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
-    _FacadePaginationMixin,
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -1970,6 +1940,15 @@ class AccountViewSet(
     scope_object = "account"
     serializer_class = AccountSerializer
     queryset = None
+    # drf-spectacular describes a model-backed pk as "A UUID string identifying this <model>.", and this
+    # viewset has no queryset, so the description is spelled out. The facade takes the id as a string and
+    # answers not found for a malformed one, so it stays `str` here.
+    path_parameters = {
+        "pk": PathParameter(type=str, description="A UUID string identifying this account."),
+        "ticket_id": UUID,
+        "thread_id": UUID,
+    }
+    pagination_class = FacadeLimitOffsetPagination
     bulk_update_tags = None  # Mixin action assumes integer PKs; Account uses UUIDs.
 
     ALLOWED_ORDERING = frozenset({"name", "-name", "created_at", "-created_at", "updated_at", "-updated_at"})
@@ -2046,13 +2025,12 @@ class AccountViewSet(
         tags = _parse_tags_param(self.request)
         ordering = request.query_params.get("ordering")
         ordering = ordering if ordering in self.ALLOWED_ORDERING else None
-        return self._paginate_via_facade(
-            request,
-            lambda offset, limit: api.list_accounts_for_view(
+        return facade_page_response(
+            self,
+            lambda page: api.list_accounts_for_view(
                 team_id=self.team_id,
                 user_access_control=self.user_access_control,
-                offset=offset,
-                limit=limit,
+                page=page,
                 search=request.query_params.get("search", "").strip() or None,
                 tags=tags,
                 all_roles_unassigned=request.query_params.get("all_roles_unassigned", "").lower() == "true",
@@ -2061,10 +2039,9 @@ class AccountViewSet(
                 ordering=ordering,
                 inactive_last=request.query_params.get("inactive_last", "").lower() == "true",
             ),
-            AccountSerializer,
+            serializer_class=AccountSerializer,
         )
 
-    @extend_schema(parameters=[_ACCOUNT_ID_PARAM])
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
         try:
             account = api.get_account_for_view(
@@ -2105,7 +2082,6 @@ class AccountViewSet(
         return Response(AccountSerializer(instance=account).data)
 
     @extend_schema(
-        parameters=[_ACCOUNT_ID_PARAM],
         request=None,
         responses={200: AccountPresenceViewerSerializer(many=True)},
     )
@@ -2147,7 +2123,7 @@ class AccountViewSet(
         )
         return Response(AccountPresenceSerializer(instance=presence, many=True).data)
 
-    @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: SupportTicketSerializer(many=True)})
+    @extend_schema(responses={200: SupportTicketSerializer(many=True)})
     @action(methods=["GET"], detail=True, pagination_class=None)
     def support_tickets(self, request: Request, *args, **kwargs) -> Response:
         try:
@@ -2164,7 +2140,6 @@ class AccountViewSet(
 
     @extend_schema(
         operation_id="accounts_support_ticket_messages_list",
-        parameters=[_ACCOUNT_ID_PARAM],
         responses={200: SupportTicketMessageSerializer(many=True)},
     )
     @action(
@@ -2174,62 +2149,41 @@ class AccountViewSet(
         url_name="support-ticket-detail",
         pagination_class=AccountEmailThreadMessagePagination,
     )
-    def support_ticket(self, request: Request, ticket_id: str, *args, **kwargs) -> Response:
-        try:
-            parsed_ticket_id = str(UUID(ticket_id))
-        except ValueError:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+    def support_ticket(self, request: Request, ticket_id: UUID, *args, **kwargs) -> Response:
+        def fetch(page: PageRequest) -> Page[api.SupportTicketMessage]:
+            try:
+                result = api.get_account_support_ticket_messages(
+                    self.team_id, self.kwargs["pk"], str(ticket_id), self.user_access_control, page=page
+                )
+            except api.ResourceForbiddenError:
+                raise PermissionDenied()
+            if result is None:
+                raise NotFound()
+            return result
 
-        paginator = cast(LimitOffsetPagination, self.paginator)
-        limit = paginator.get_limit(request)
-        assert limit is not None
-        offset = paginator.get_offset(request)
-        try:
-            result = api.get_account_support_ticket_messages(
-                self.team_id,
-                self.kwargs["pk"],
-                parsed_ticket_id,
-                self.user_access_control,
-                offset=offset,
-                limit=limit,
-            )
-        except api.ResourceForbiddenError:
-            raise PermissionDenied()
-        if result is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return facade_page_response(self, fetch, serializer_class=SupportTicketMessageSerializer)
 
-        messages, count = result
-        paginator.request = request
-        paginator.limit = limit
-        paginator.offset = offset
-        paginator.count = count
-        serializer = SupportTicketMessageSerializer(instance=messages, many=True)
-        return paginator.get_paginated_response(serializer.data)
-
-    @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: AccountEmailThreadSerializer(many=True)})
+    @extend_schema(responses={200: AccountEmailThreadSerializer(many=True)})
     @action(methods=["GET"], detail=True, url_path="email_threads")
     def email_threads(self, request: Request, *args, **kwargs) -> Response:
         if api.get_accessible_account_id(self.team_id, self.kwargs["pk"], self.user_access_control) is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        def fetch(offset: int, limit: int) -> tuple[list[api.AccountEmailThreadSummary], int]:
+        def fetch(page: PageRequest) -> Page[api.AccountEmailThreadSummary]:
             try:
                 result = api.get_account_email_threads(
-                    self.team_id,
-                    self.kwargs["pk"],
-                    self.user_access_control,
-                    offset=offset,
-                    limit=limit,
+                    self.team_id, self.kwargs["pk"], self.user_access_control, page=page
                 )
             except api.ResourceForbiddenError:
                 raise PermissionDenied()
-            return result if result is not None else ([], 0)
+            if result is None:
+                raise NotFound()
+            return result
 
-        return self._paginate_via_facade(request, fetch, AccountEmailThreadSerializer)
+        return facade_page_response(self, fetch, serializer_class=AccountEmailThreadSerializer)
 
     @extend_schema(
         operation_id="accounts_email_thread_messages_list",
-        parameters=[_ACCOUNT_ID_PARAM],
         responses={200: AccountEmailThreadMessageSerializer(many=True)},
     )
     @action(
@@ -2239,41 +2193,22 @@ class AccountViewSet(
         url_name="email-thread-detail",
         pagination_class=AccountEmailThreadMessagePagination,
     )
-    def email_thread(self, request: Request, thread_id: str, *args, **kwargs) -> Response:
-        try:
-            parsed_thread_id = str(UUID(thread_id))
-        except ValueError:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+    def email_thread(self, request: Request, thread_id: UUID, *args, **kwargs) -> Response:
+        def fetch(page: PageRequest) -> Page[api.AccountEmailThreadMessage]:
+            try:
+                result = api.get_account_email_thread_messages(
+                    self.team_id, self.kwargs["pk"], str(thread_id), self.user_access_control, page=page
+                )
+            except api.ResourceForbiddenError:
+                raise PermissionDenied()
+            if result is None:
+                raise NotFound()
+            return result
 
-        paginator = cast(LimitOffsetPagination, self.paginator)
-        limit = paginator.get_limit(request)
-        assert limit is not None
-        offset = paginator.get_offset(request)
-        try:
-            result = api.get_account_email_thread_messages(
-                self.team_id,
-                self.kwargs["pk"],
-                parsed_thread_id,
-                self.user_access_control,
-                offset=offset,
-                limit=limit,
-            )
-        except api.ResourceForbiddenError:
-            raise PermissionDenied()
-        if result is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        messages, count = result
-        paginator.request = request
-        paginator.limit = limit
-        paginator.offset = offset
-        paginator.count = count
-        serializer = AccountEmailThreadMessageSerializer(instance=messages, many=True)
-        return paginator.get_paginated_response(serializer.data)
+        return facade_page_response(self, fetch, serializer_class=AccountEmailThreadMessageSerializer)
 
     @extend_schema(
         parameters=[
-            _ACCOUNT_ID_PARAM,
             OpenApiParameter(
                 name="search",
                 type=OpenApiTypes.STR,
@@ -2290,18 +2225,15 @@ class AccountViewSet(
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         search = request.query_params.get("search", "").strip() or None
 
-        def fetch(offset: int, limit: int) -> tuple[list[contracts.MeetingView], int]:
+        def fetch(page: PageRequest) -> Page[contracts.MeetingView]:
             result = api.list_account_meetings(
-                self.team_id,
-                self.kwargs["pk"],
-                self.user_access_control,
-                offset=offset,
-                limit=limit,
-                search=search,
+                self.team_id, self.kwargs["pk"], self.user_access_control, page=page, search=search
             )
-            return result if result is not None else ([], 0)
+            if result is None:
+                raise NotFound()
+            return result
 
-        return self._paginate_via_facade(request, fetch, MeetingSerializer)
+        return facade_page_response(self, fetch, serializer_class=MeetingSerializer)
 
     def dangerously_get_required_scopes(self, request: Request, view) -> builtins.list[str] | None:
         super_method = getattr(super(), "dangerously_get_required_scopes", None)
@@ -2359,7 +2291,6 @@ class AccountViewSet(
             raise Conflict(str(e))
         return Response(AccountSerializer(instance=account).data, status=status.HTTP_201_CREATED)
 
-    @extend_schema(parameters=[_ACCOUNT_ID_PARAM])
     def update(self, request: Request, *args, **kwargs) -> Response:
         partial = kwargs.pop("partial", False)
         serializer = AccountSerializer(data=request.data, partial=partial)
@@ -2404,26 +2335,26 @@ class AccountViewSet(
             raise Conflict(str(e))
         return Response(AccountSerializer(instance=account).data)
 
-    @extend_schema(parameters=[_ACCOUNT_ID_PARAM])
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         kwargs["partial"] = True
         return self.update(request, *args, **kwargs)
 
-    @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: AccountChannelSummarySerializer(many=True)})
+    @extend_schema(responses={200: AccountChannelSummarySerializer(many=True)})
     @action(methods=["GET"], detail=True)
     def summaries(self, request: Request, *args, **kwargs) -> Response:
         if api.get_accessible_account_id(self.team_id, self.kwargs["pk"], self.user_access_control) is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        def fetch(offset: int, limit: int) -> tuple[list[contracts.AccountChannelSummaryView], int]:
+        def fetch(page: PageRequest) -> Page[contracts.AccountChannelSummaryView]:
             result = api.list_account_channel_summaries(
-                self.team_id, self.kwargs["pk"], self.user_access_control, offset=offset, limit=limit
+                self.team_id, self.kwargs["pk"], self.user_access_control, page=page
             )
-            return result if result is not None else ([], 0)
+            if result is None:
+                raise NotFound()
+            return result
 
-        return self._paginate_via_facade(request, fetch, AccountChannelSummarySerializer)
+        return facade_page_response(self, fetch, serializer_class=AccountChannelSummarySerializer)
 
-    @extend_schema(parameters=[_ACCOUNT_ID_PARAM])
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         try:
             api.delete_account_for_view(
@@ -2453,17 +2384,7 @@ def _account_tags_input(serializer) -> list[str] | None:
     return serializer.initial_data.get("tags")
 
 
-@extend_schema(
-    tags=["customer_analytics"],
-    parameters=[
-        OpenApiParameter(
-            name="account_id",
-            type=OpenApiTypes.UUID,
-            location=OpenApiParameter.PATH,
-            description="UUID of the parent account.",
-        ),
-    ],
-)
+@extend_schema(tags=["customer_analytics"])
 class AccountNotebookViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -2475,6 +2396,7 @@ class AccountNotebookViewSet(
 ):
     scope_object = "account"
     serializer_class = AccountNotebookSerializer
+    path_parameters = {"account_id": _PARENT_ACCOUNT_ID}
     queryset = None
     lookup_field = "short_id"
 
@@ -2612,13 +2534,13 @@ def _parse_uuid_param(request: Request, name: str) -> UUID | None:
 class AccountNotesViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
-    _FacadePaginationMixin,
     mixins.ListModelMixin,
     viewsets.GenericViewSet,
 ):
     scope_object = "account"
     serializer_class = AccountNoteSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
+    pagination_class = FacadeLimitOffsetPagination
 
     @extend_schema(
         parameters=[
@@ -2656,36 +2578,26 @@ class AccountNotesViewSet(
         ],
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
-        return self._paginate_via_facade(
-            request,
-            lambda offset, limit: api.list_account_notes_for_view(
+        return facade_page_response(
+            self,
+            lambda page: api.list_account_notes_for_view(
                 team_id=self.team_id,
                 user_access_control=self.user_access_control,
-                offset=offset,
-                limit=limit,
+                page=page,
                 search=request.query_params.get("search", "").strip() or None,
                 account_id=_parse_uuid_param(request, "account_id"),
                 created_by_ids=_parse_int_ids_param(request, "created_by") or None,
                 assigned_to_ids=_parse_int_ids_param(request, "assigned_to") or None,
             ),
-            AccountNoteSerializer,
+            serializer_class=AccountNoteSerializer,
         )
 
 
-@extend_schema(
-    tags=["customer_analytics"],
-    parameters=[
-        OpenApiParameter(
-            name="account_id",
-            type=OpenApiTypes.UUID,
-            location=OpenApiParameter.PATH,
-            description="UUID of the parent account.",
-        ),
-    ],
-)
+@extend_schema(tags=["customer_analytics"])
 class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
     scope_object = "account"
     serializer_class = CustomPropertyValueSerializer
+    path_parameters = {"account_id": _PARENT_ACCOUNT_ID}
     pagination_class = None
 
     def _accessible_account_id(self) -> str | None:
@@ -2756,20 +2668,11 @@ _AGENT_ROLE_MANAGED = (
 )
 
 
-@extend_schema(
-    tags=["customer_analytics"],
-    parameters=[
-        OpenApiParameter(
-            name="account_id",
-            type=OpenApiTypes.UUID,
-            location=OpenApiParameter.PATH,
-            description="UUID of the parent account.",
-        ),
-    ],
-)
+@extend_schema(tags=["customer_analytics"])
 class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
     scope_object = "account"
     serializer_class = AccountRelationshipSerializer
+    path_parameters = {"account_id": _PARENT_ACCOUNT_ID}
     permission_classes = [AccountRelationshipDeletePermission]
     pagination_class = None
 
@@ -2869,14 +2772,6 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-_EVENT_STREAM_ID_PARAM = OpenApiParameter(
-    "id",
-    OpenApiTypes.STR,
-    OpenApiParameter.PATH,
-    description="A UUID string identifying this event stream.",
-)
-
-
 class EventStreamTestMessageThrottle(UserRateThrottle):
     """Each test message posts to Slack, so cap the rate per user regardless of auth method."""
 
@@ -2902,6 +2797,7 @@ class EventStreamViewSet(
 
     scope_object = "account"
     serializer_class = EventStreamSerializer
+    path_parameters = {"pk": PathParameter(type=str, description="A UUID string identifying this event stream.")}
     pagination_class = None  # at most one stream exists per team (one-to-one) — nothing to paginate
     queryset = None  # data is reached through the facade; declared for router/schema only
 
@@ -2932,7 +2828,6 @@ class EventStreamViewSet(
             raise Conflict(str(e))
         return Response(EventStreamSerializer(instance=stream).data, status=status.HTTP_201_CREATED)
 
-    @extend_schema(parameters=[_EVENT_STREAM_ID_PARAM])
     def update(self, request: Request, *args, **kwargs) -> Response:
         partial = kwargs.pop("partial", False)
         serializer = EventStreamSerializer(data=request.data, partial=partial)
@@ -2953,12 +2848,10 @@ class EventStreamViewSet(
             raise ValidationError(str(e))
         return Response(EventStreamSerializer(instance=stream).data)
 
-    @extend_schema(parameters=[_EVENT_STREAM_ID_PARAM])
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         kwargs["partial"] = True
         return self.update(request, *args, **kwargs)
 
-    @extend_schema(parameters=[_EVENT_STREAM_ID_PARAM])
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         deleted = api.delete_event_stream(
             team_id=self.team_id, stream_id=self.kwargs["pk"], user=cast(User, request.user)
@@ -2968,7 +2861,6 @@ class EventStreamViewSet(
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
-        parameters=[_EVENT_STREAM_ID_PARAM],
         request=EventStreamMemberWriteSerializer,
         responses={200: EventStreamSerializer},
     )
@@ -2977,7 +2869,6 @@ class EventStreamViewSet(
         return self._set_member(request, included=True)
 
     @extend_schema(
-        parameters=[_EVENT_STREAM_ID_PARAM],
         request=EventStreamMemberWriteSerializer,
         responses={200: EventStreamSerializer},
     )
@@ -2986,7 +2877,6 @@ class EventStreamViewSet(
         return self._set_member(request, included=False)
 
     @extend_schema(
-        parameters=[_EVENT_STREAM_ID_PARAM],
         request=None,
         responses={200: EventStreamTestMessageSerializer},
     )

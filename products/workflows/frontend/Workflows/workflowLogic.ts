@@ -11,6 +11,7 @@ import api, { ApiConfig, ApiError } from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -55,7 +56,7 @@ import {
 import type { AiEmailDraftStatusProps } from '../MessageAudience/AiEmailDraftStatus'
 import { loadEmailBrand } from '../MessageAudience/emailBrand'
 import { parseMessageDraftPrefill } from '../MessageAudience/messageDrafts'
-import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
+import { getRegisteredTriggerTypes, getTriggerDisplayType } from './hogflows/registry/triggers/triggerTypeRegistry'
 import {
     DEFAULT_STATE,
     isOneTimeSchedule,
@@ -65,12 +66,7 @@ import {
 } from './hogflows/steps/components/rrule-helpers'
 import type { ScheduleState } from './hogflows/steps/components/rrule-helpers'
 import { getTemplatingError } from './hogflows/steps/templatingError'
-import {
-    HogFlowActionSchema,
-    SCHEDULED_TRIGGER_TYPES,
-    isFunctionAction,
-    isTriggerFunction,
-} from './hogflows/steps/types'
+import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import {
     type HogFlow,
     type HogFlowAction,
@@ -111,6 +107,37 @@ export const TRIGGER_NODE_ID = 'trigger_node'
 export const EXIT_NODE_ID = 'exit_node'
 
 export type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
+
+// A tile matches on the first event only, so each event of a linked trigger gets its own tile.
+function getEventTriggerTiles(config: TriggerAction['config']): string[] {
+    if (config.type !== 'event' && config.type !== 'internal-event') {
+        return [getTriggerDisplayType(config)]
+    }
+    const { filters } = config
+    const events: unknown[] = Array.isArray(filters?.events) ? filters.events : []
+    if (events.length < 2) {
+        return [getTriggerDisplayType(config)]
+    }
+    return events.map((event) => {
+        const singleEventConfig = { ...config, filters: { ...filters, events: [event] } }
+        return getTriggerDisplayType(singleEventConfig)
+    })
+}
+
+function withTriggerConfig(workflow: HogFlow, config: TriggerAction['config']): HogFlow {
+    const templateTriggerConfig = workflow.actions.find((action) => action.type === 'trigger')?.config
+    const templateTile = templateTriggerConfig ? getTriggerDisplayType(templateTriggerConfig) : null
+    const keepsTriggerType = getEventTriggerTiles(config).every((tile) => tile === templateTile)
+    return {
+        ...workflow,
+        // A frequency hash such as {person.id} fits only some trigger types. After a type change it can resolve
+        // empty, and an empty hash skips masking, so the workflow would run without its entry limit. Compare the
+        // trigger tiles, as the editor does, because tiles such as "Account property changed" store an `event` config.
+        trigger_masking: keepsTriggerType ? workflow.trigger_masking : null,
+        trigger: config,
+        actions: workflow.actions.map((action) => (action.type === 'trigger' ? { ...action, config } : action)),
+    }
+}
 
 export const NEW_WORKFLOW: HogFlow = {
     id: 'new',
@@ -247,6 +274,91 @@ function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
     return result as Partial<HogFlow>
 }
 
+function aiEmailDraftToRequest(
+    props: WorkflowLogicProps,
+    alreadyRequested: boolean,
+    workflow: HogFlow
+): EmailDraftRequestApi | null {
+    const draftSource = parseEmailDraftSource(props.draftSource)
+    const isNewWorkflow = !props.id || props.id === 'new'
+    return draftSource && !alreadyRequested && isNewWorkflow && prefilledEmailContent(workflow) ? draftSource : null
+}
+
+function editsKeptOverReload(
+    baseBeforeExternalEdit: HogFlow | null,
+    local: HogFlow,
+    loaded: HogFlow
+): Partial<HogFlow> {
+    return baseBeforeExternalEdit ? rebaseWorkflowEdits(withStagedDraft(baseBeforeExternalEdit), local, loaded) : {}
+}
+
+function rebaseWorkflowEdits(base: HogFlow, local: HogFlow, remote: HogFlow): Partial<HogFlow> {
+    const result: Record<string, unknown> = rebaseStepsWithEdges(base, local, remote)
+    for (const field of WORKFLOW_EDITABLE_FIELDS) {
+        if (field === 'actions' || field === 'edges' || objectsEqual(local[field], base[field])) {
+            continue
+        }
+        result[field] = local[field]
+    }
+    return result as Partial<HogFlow>
+}
+
+function rebaseStepsWithEdges(
+    base: HogFlow,
+    local: HogFlow,
+    remote: HogFlow
+): Pick<Partial<HogFlow>, 'actions' | 'edges'> {
+    const editedById = editedStepsById(base, local)
+    const reshapedLocally = !hasSameShape(base, local)
+    if (!reshapedLocally && editedById.size === 0) {
+        return {}
+    }
+    const editsFitServerGraph = [...editedById.keys()].every((id) => stepFitsBothGraphs(id, local, remote))
+    if (!reshapedLocally && editsFitServerGraph) {
+        return { actions: remote.actions.map((action) => editedById.get(action.id) ?? action) }
+    }
+    const remoteById = new Map(remote.actions.map((action) => [action.id, action]))
+    return {
+        actions: local.actions.map((action) =>
+            !editedById.has(action.id) && stepFitsBothGraphs(action.id, local, remote)
+                ? (remoteById.get(action.id) ?? action)
+                : action
+        ),
+        edges: local.edges,
+    }
+}
+
+function stepFitsBothGraphs(actionId: string, local: HogFlow, remote: HogFlow): boolean {
+    if (!remote.actions.some((action) => action.id === actionId)) {
+        return false
+    }
+    const localEdges = outgoingEdges(local, actionId)
+    const remoteEdges = outgoingEdges(remote, actionId)
+    const branchConfigIndexesEdges = [...localEdges, ...remoteEdges].some((edge) => edge.type === 'branch')
+    return !branchConfigIndexesEdges || objectsEqual(localEdges, remoteEdges)
+}
+
+function outgoingEdges(workflow: HogFlow, actionId: string): HogFlow['edges'] {
+    return workflow.edges.filter((edge) => edge.from === actionId)
+}
+
+function editedStepsById(base: HogFlow, local: HogFlow): Map<string, HogFlowAction> {
+    const baseById = new Map(base.actions.map((action) => [action.id, action]))
+    return new Map(
+        local.actions
+            .filter((action) => !objectsEqual(action, baseById.get(action.id)))
+            .map((action) => [action.id, action])
+    )
+}
+
+function hasSameShape(base: HogFlow, local: HogFlow): boolean {
+    return objectsEqual(base.actions.map(stepId), local.actions.map(stepId)) && objectsEqual(base.edges, local.edges)
+}
+
+function stepId(action: HogFlowAction): string {
+    return action.id
+}
+
 /** What a save was dispatched with, kept per save because a later save moves the shared state. */
 interface SaveContext {
     initiatedByAutoSave: boolean
@@ -326,6 +438,7 @@ export interface workflowLogicValues {
     isSyncingExternalEdit: boolean
     isWorkflowSubmitting: boolean
     isWorkflowValid: boolean
+    keepsLocalEditsOnExternalEdit: boolean
     lastSavedAt: string | null
     logicProps: WorkflowLogicProps
     manualTriggerDisabledReason: string | undefined
@@ -656,6 +769,7 @@ export interface workflowLogicActions {
                                                         | 'number'
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
+                                                        | 'posthog_survey'
                                                         | 'posthog_ticket_tags'
                                                         | 'replay_vision_scan'
                                                         | 'signals_scout'
@@ -1333,6 +1447,7 @@ export interface workflowLogicActions {
                                 | 'number'
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
+                                | 'posthog_survey'
                                 | 'posthog_ticket_tags'
                                 | 'replay_vision_scan'
                                 | 'signals_scout'
@@ -1543,6 +1658,7 @@ export interface workflowLogicActions {
                                                         | 'number'
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
+                                                        | 'posthog_survey'
                                                         | 'posthog_ticket_tags'
                                                         | 'replay_vision_scan'
                                                         | 'signals_scout'
@@ -2220,6 +2336,7 @@ export interface workflowLogicActions {
                                 | 'number'
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
+                                | 'posthog_survey'
                                 | 'posthog_ticket_tags'
                                 | 'replay_vision_scan'
                                 | 'signals_scout'
@@ -2415,6 +2532,7 @@ export interface workflowLogicActions {
                                           | 'number'
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
+                                          | 'posthog_survey'
                                           | 'posthog_ticket_tags'
                                           | 'replay_vision_scan'
                                           | 'signals_scout'
@@ -2826,6 +2944,7 @@ export interface workflowLogicActions {
                                           | 'number'
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
+                                          | 'posthog_survey'
                                           | 'posthog_ticket_tags'
                                           | 'replay_vision_scan'
                                           | 'signals_scout'
@@ -3101,6 +3220,7 @@ export interface workflowLogicMeta {
             actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
         ) => boolean
         autoSaveBlockedByValidation: (workflow: HogFlow) => boolean
+        keepsLocalEditsOnExternalEdit: (featureFlags: FeatureFlagsSet) => boolean
         triggerAction: (workflow: HogFlow) => TriggerAction | null
         isRowScopedTrigger: (
             triggerAction:
@@ -3413,7 +3533,11 @@ export const workflowLogic = kea<workflowLogicType>([
                             delete (newWorkflow as any).updated_at
                             delete (newWorkflow as any).created_by
 
-                            return (await withDefaultEmailSender(newWorkflow as HogFlow)) as typeof newWorkflow
+                            const templateTriggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
+                            const templated = templateTriggerConfig
+                                ? withTriggerConfig(newWorkflow as HogFlow, templateTriggerConfig)
+                                : (newWorkflow as HogFlow)
+                            return (await withDefaultEmailSender(templated)) as typeof newWorkflow
                         }
                         const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
                         if (triggerConfig) {
@@ -4205,6 +4329,10 @@ export const workflowLogic = kea<workflowLogicType>([
         // anything deploys, and agents stage incomplete drafts through the same API). Pausing on
         // them would strand a user's edits unsaved exactly while they iterate.
         autoSaveBlockedByValidation: [(s) => [s.workflow], (workflow: HogFlow): boolean => !workflow.name],
+        keepsLocalEditsOnExternalEdit: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS],
+        ],
 
         triggerAction: [
             (s) => [s.workflow],
@@ -4337,7 +4465,7 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props, cache }) => ({
+    listeners(({ actions, values, props, cache, selectors }) => ({
         setScheduleStartsAtFromPicker: ({ pickerDate }) => {
             if (!pickerDate) {
                 actions.setScheduleStartsAt(null)
@@ -4367,11 +4495,10 @@ export const workflowLogic = kea<workflowLogicType>([
             if (getSaveQueue(cache, values, props).classify(event) !== 'external') {
                 return
             }
-            // Server wins while auto-save can flush the local buffer: unsaved edits are then at most
-            // a few seconds old, so reconcile silently instead of interrupting with a conflict
-            // banner. When auto-save can't flush (toggled off, no name to save under, or a pending
-            // schedule change, which only a manual save persists), the buffer can hold real work,
-            // so the banner lets the user choose.
+            // While auto-save can flush the local buffer, reconcile silently instead of interrupting
+            // with a conflict banner. When auto-save can't flush (toggled off, no name to save under,
+            // or a pending schedule change, which only a manual save persists), the buffer can hold
+            // real work, so the banner lets the user choose.
             const autoSaveCanFlush =
                 values.autoSaveEnabled && !values.autoSaveBlockedByValidation && values.pendingSchedule === false
             if (values.hasUnsavedChanges && !autoSaveCanFlush) {
@@ -4531,25 +4658,31 @@ export const workflowLogic = kea<workflowLogicType>([
             cache.nextSaveKeepsFormEdits = keepsFormEdits
             actions.saveWorkflow(merged)
         },
-        loadWorkflowSuccess: async ({ originalWorkflow }) => {
+        loadWorkflowSuccess: async ({ originalWorkflow }, _, __, previousState) => {
             // This response is now the save baseline. Discarding a draft moves its stamp backwards,
             // so a copy kept from an earlier save would fence later saves too loosely.
             cache.lastSavedWorkflow = undefined
-            const draftSource = parseEmailDraftSource(props.draftSource)
-            if (
-                draftSource &&
-                !cache.aiEmailDraftRequested &&
-                (!props.id || props.id === 'new') &&
-                prefilledEmailContent(originalWorkflow)
-            ) {
+            const draftSource = aiEmailDraftToRequest(props, !!cache.aiEmailDraftRequested, originalWorkflow)
+            if (draftSource) {
                 cache.aiEmailDraftRequested = true
                 actions.loadAiEmailDraft(draftSource)
             }
             // The form edits the staged draft when one exists; the live config keeps running underneath.
-            actions.resetWorkflow(withStagedDraft(originalWorkflow))
+            const loaded = withStagedDraft(originalWorkflow)
+            const baseBeforeExternalEdit =
+                values.keepsLocalEditsOnExternalEdit && selectors.isSyncingExternalEdit(previousState)
+                    ? selectors.originalWorkflow(previousState)
+                    : null
+            const unsavedEdits = editsKeptOverReload(baseBeforeExternalEdit, values.workflow, loaded)
+            actions.resetWorkflow(loaded)
+            if (Object.keys(unsavedEdits).length > 0) {
+                actions.setWorkflowValues(unsavedEdits)
+                actions.autoSaveWorkflow()
+            }
             actions.replayDeferredResourceEdited()
-            const triggerType = originalWorkflow.trigger?.type
-            if (originalWorkflow.id && SCHEDULED_TRIGGER_TYPES.includes(triggerType ?? '')) {
+            // Load schedules whatever the trigger is. A schedule outlives a switch to another trigger,
+            // and a save that cannot see it creates a second one that fires next to it.
+            if (originalWorkflow.id) {
                 try {
                     const schedules = await api.hogFlows.getHogFlowSchedules(originalWorkflow.id)
                     actions.setSchedules(schedules)
@@ -4558,7 +4691,14 @@ export const workflowLogic = kea<workflowLogicType>([
                 }
             }
         },
-        loadWorkflowFailure: () => {
+        loadWorkflowFailure: (_, __, ___, previousState) => {
+            if (
+                values.keepsLocalEditsOnExternalEdit &&
+                selectors.isSyncingExternalEdit(previousState) &&
+                values.workflowChanged
+            ) {
+                actions.setExternallyEdited(true)
+            }
             actions.replayDeferredResourceEdited()
         },
         saveWorkflowFailure: () => {
@@ -4930,7 +5070,8 @@ export const workflowLogic = kea<workflowLogicType>([
                 props.id === 'new' ||
                 !!props.editTemplateId ||
                 !values.workflowChanged ||
-                values.autoSaveBlockedByValidation
+                values.autoSaveBlockedByValidation ||
+                (values.keepsLocalEditsOnExternalEdit && values.isSyncingExternalEdit)
 
             if (shouldSkip) {
                 actions.clearAutoSavePending()

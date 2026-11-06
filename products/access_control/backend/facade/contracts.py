@@ -64,6 +64,15 @@ class PropertyAccessControlState:
     default_access_level: PropertyAccessLevel = PropertyAccessLevel.READ_WRITE
 
 
+@frozen
+class PropertyDefinitionLabel:
+    """How a property access control rule names its property definition."""
+
+    id: UUID
+    name: str
+    is_person: bool
+
+
 # --- Input DTOs ---
 
 
@@ -79,7 +88,7 @@ class FallbackParent:
 class ObjectAccessRef:
     """The fields object-level access control reads from one object, without the model.
 
-    A view that serves a facade contract passes this to `check_object_permissions` in place of a
+    A view that serves a facade contract returns this from `object_access_ref()` in place of a
     model instance. Resolution needs the resource, the object id, and the creator. A resource that
     inherits access from a parent object through a foreign key (`RESOURCE_FALLBACK_MAP`) also needs
     `fallback_parent`, read off that foreign key. Without it the check raises, because resolution
@@ -147,6 +156,35 @@ class ObjectAccessControlRule:
     access_level: str
     organization_member_id: UUID | None
     role_id: UUID | None
+
+
+@frozen
+class AccessRule:
+    """One stored rule, object-level or resource-level, as resolution reads it.
+
+    `applies` is False for a rule that resolution never uses: it names a member or a role of
+    another organization, or it names both a member and a role.
+    """
+
+    resource: str
+    resource_id: str | None
+    access_level: str
+    organization_member_id: UUID | None
+    role_id: UUID | None
+    applies: bool
+
+
+@frozen
+class ObjectAccessRuleInput:
+    """One rule to keep on an object. With no member and no role, it is the object's default rule."""
+
+    access_level: str
+    organization_member_id: UUID | None = None
+    role_id: UUID | None = None
+
+    def __post_init__(self) -> None:
+        if self.organization_member_id is not None and self.role_id is not None:
+            raise ValueError("Set at most one of organization_member_id or role_id.")
 
 
 @frozen

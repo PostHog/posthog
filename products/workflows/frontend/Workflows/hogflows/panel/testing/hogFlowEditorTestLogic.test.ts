@@ -811,4 +811,39 @@ describe('hogFlowEditorTestLogic', () => {
             })
         })
     })
+
+    describe('next step after a test run', () => {
+        it.each([
+            ['an unmet wait returns the selected step', 'wait_step', null],
+            ['a skipped run returns no step', null, null],
+            ['the response leaves out the next step', undefined, null],
+            ['the run moves on', 'step_c', 'step_c'],
+        ])('when %s', async (_, returnedStepId, expectedNextActionId) => {
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
+                        const { current_action_id } = (await request.json()) as { current_action_id: string }
+                        const nextActionId = current_action_id === 'step_a' ? 'wait_step' : returnedStepId
+                        return [200, { status: 'success', logs: [], nextActionId }]
+                    },
+                },
+            })
+            logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
+            logic.mount()
+            await expectLogic(workflowLogic({ id: 'test-workflow' })).toDispatchActions(['loadWorkflowSuccess'])
+            logic.actions.setTestInvocationValue('globals', '{}')
+
+            const runTestOn = async (stepId: string): Promise<void> => {
+                logic.actions.setSelectedNodeId(stepId)
+                await expectLogic(logic, () => logic.actions.submitTestInvocation()).toDispatchActions([
+                    'submitTestInvocationSuccess',
+                ])
+            }
+
+            await runTestOn('step_a')
+            expect(logic.values.nextActionId).toBe('wait_step')
+            await runTestOn('wait_step')
+            expect(logic.values.nextActionId).toBe(expectedNextActionId)
+        })
+    })
 })
