@@ -21,7 +21,7 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from django.conf import settings
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import Group as AuthGroup
 from django.core.checks import CheckMessage, Error, Tags, Warning, register
 from django.db import DEFAULT_DB_ALIAS, DatabaseError
 
@@ -277,7 +277,7 @@ def check_admin_console_staff_groups(
 
     staff_groups = console.staff_groups()
     try:
-        existing = set(Group.objects.filter(name__in=staff_groups).values_list("name", flat=True))
+        existing = set(AuthGroup.objects.filter(name__in=staff_groups).values_list("name", flat=True))
     except DatabaseError:
         # `migrate` runs the checks before it creates the tables, so the groups table can be missing.
         return []
