@@ -12,7 +12,7 @@ import {
     MinimalAppMetric,
 } from '~/cdp/types'
 import { ModifiedRequest } from '~/common/api/router'
-import { RedisV2 } from '~/common/redis/redis-v2'
+import { RedisClient, RedisV2 } from '~/common/redis/redis-v2'
 import { isDevEnv, isTestEnv } from '~/common/utils/env-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger, serializeError } from '~/common/utils/logger'
@@ -89,6 +89,17 @@ const emailTrackingLogSkipsCounter = new Counter({
     help: 'Total number of email tracking log entries skipped (expected, non-error)',
     labelNames: ['reason', 'source'],
 })
+
+const sesRedeliveriesSkippedCounter = new Counter({
+    name: 'email_tracking_ses_redeliveries_skipped_total',
+    help: 'SES notifications SNS delivered again after they were recorded, and so skipped',
+})
+
+const sesNotificationRecordedKey = (snsMessageId: string): string =>
+    `@posthog/ses-notification-recorded/${snsMessageId}`
+
+// Covers SNS's own redeliveries, and a replay of its dead-letter queue run within days of an outage.
+const SES_NOTIFICATION_RECORDED_TTL_SECONDS = 3 * 24 * 60 * 60
 
 const ENGAGEMENT_PERSON_METRICS: Partial<Record<MinimalAppMetric['metric_name'], MinimalAppMetric['metric_name'][]>> = {
     email_opened: ['email_opened_by_person'],
@@ -407,6 +418,17 @@ export class EmailTrackingService {
             }
         }
 
+        // Reads go before the first queued metric. A read that throws answers SNS with a 5xx and SNS
+        // redelivers the notification, so a metric queued ahead of the read would count once per attempt.
+        const eventName = METRIC_NAME_TO_EVENT_NAME[metricName]
+        const captureEngagementEvent =
+            eventName && distinctId
+                ? await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(teamId)
+                : false
+        const engagedPeople = parentRunId
+            ? await this.newEngagedPeople(parentRunId, invocationId, metricName, source)
+            : []
+
         this.hogFunctionMonitoringService.queueAppMetric(
             {
                 team_id: teamId,
@@ -426,29 +448,21 @@ export class EmailTrackingService {
             hogFlow ? 'hog_flow' : 'hog_function'
         )
 
-        if (parentRunId) {
-            for (const { metric, count } of await this.newEngagedPeople(
-                parentRunId,
-                invocationId,
-                metricName,
-                source
-            )) {
-                this.hogFunctionMonitoringService.queueAppMetric(
-                    {
-                        team_id: teamId,
-                        app_source_id: parentRunId,
-                        instance_id: instanceIdOverride || actionId || invocationId,
-                        metric_name: metric,
-                        metric_kind: 'email',
-                        count,
-                    },
-                    hogFlow ? 'hog_flow' : 'hog_function'
-                )
-            }
+        for (const { metric, count } of engagedPeople) {
+            this.hogFunctionMonitoringService.queueAppMetric(
+                {
+                    team_id: teamId,
+                    app_source_id: parentRunId ?? appSourceId,
+                    instance_id: instanceIdOverride || actionId || invocationId,
+                    metric_name: metric,
+                    metric_kind: 'email',
+                    count,
+                },
+                hogFlow ? 'hog_flow' : 'hog_function'
+            )
         }
 
-        const eventName = METRIC_NAME_TO_EVENT_NAME[metricName]
-        if (eventName && distinctId && (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(teamId))) {
+        if (eventName && distinctId && captureEngagementEvent) {
             await this.capturedEventsService.queueEvent({
                 team_id: teamId,
                 event: eventName,
@@ -556,11 +570,17 @@ export class EmailTrackingService {
                 complainedRecipients,
                 deliveredRecipients,
                 emailStatusUpdates,
+                snsMessageId,
             } = await this.sesWebhookHandler.handleWebhook({
                 body: parseJSON(req.body),
                 headers: req.headers,
                 verifySignature: true,
             })
+
+            if (snsMessageId && (await this.wasSesNotificationRecorded(snsMessageId))) {
+                sesRedeliveriesSkippedCounter.inc()
+                return { status: 200, message: 'already recorded' }
+            }
 
             // A single SNS notification can yield several metrics (a Click emits its rollup plus a
             // per-link row, a Bounce its rollup plus a per-type row). Flushing inside each call would
@@ -673,11 +693,48 @@ export class EmailTrackingService {
                 emailTrackingErrorsCounter.inc({ error_type: 'suppression_update_failed', source: 'ses' })
             }
 
+            if (snsMessageId) {
+                await this.markSesNotificationRecorded(snsMessageId)
+            }
             return { status, message: body as string }
         } catch (error) {
             emailTrackingErrorsCounter.inc({ error_type: error.name || 'unknown' })
             logger.error('[EmailService] handleWebhook: SES webhook error', { error: serializeError(error) })
             throw error
+        }
+    }
+
+    // Fails open: when Redis cannot answer, recording a notification twice beats not recording it.
+    private async wasSesNotificationRecorded(snsMessageId: string): Promise<boolean> {
+        const exists = await this.sesNotificationRedisCall('ses-notification-recorded-check', (client) =>
+            client.exists(sesNotificationRecordedKey(snsMessageId))
+        )
+        return exists === 1
+    }
+
+    private async markSesNotificationRecorded(snsMessageId: string): Promise<void> {
+        await this.sesNotificationRedisCall('ses-notification-recorded-mark', (client) =>
+            client.set(sesNotificationRecordedKey(snsMessageId), '1', 'EX', SES_NOTIFICATION_RECORDED_TTL_SECONDS)
+        )
+    }
+
+    private async sesNotificationRedisCall<T>(
+        name: string,
+        call: (client: RedisClient) => Promise<T>
+    ): Promise<T | null> {
+        if (!this.engagementRedis) {
+            return null
+        }
+        let timer: NodeJS.Timeout | undefined
+        try {
+            return await Promise.race([
+                this.engagementRedis.useClient({ name, failOpen: true }, call),
+                new Promise<null>((resolve) => {
+                    timer = setTimeout(() => resolve(null), ENGAGEMENT_REDIS_TIMEOUT_MS)
+                }),
+            ])
+        } finally {
+            clearTimeout(timer)
         }
     }
 

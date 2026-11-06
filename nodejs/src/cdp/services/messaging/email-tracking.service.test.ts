@@ -550,6 +550,8 @@ describe('EmailTrackingService', () => {
                 workflowVersion,
                 transactionalMessageId,
                 headerCode,
+                distinctId,
+                snsMessageId = new UUIDT().toString(),
             }: {
                 functionId: string
                 parentRunId?: string
@@ -557,6 +559,8 @@ describe('EmailTrackingService', () => {
                 // Sends the bounce as SES reports it for a transactional email with this message id.
                 transactionalMessageId?: string
                 headerCode?: string
+                distinctId?: string
+                snsMessageId?: string
             }): Promise<supertest.Response> => {
                 const trackingCode = signer.generate(
                     {
@@ -565,6 +569,7 @@ describe('EmailTrackingService', () => {
                         teamId: team.id,
                         parentRunId,
                         workflowVersion,
+                        distinctId,
                     },
                     false,
                     workflowVersion !== undefined
@@ -592,7 +597,7 @@ describe('EmailTrackingService', () => {
                 }
                 const envelope = {
                     Type: 'Notification',
-                    MessageId: 'sns-message-id',
+                    MessageId: snsMessageId,
                     TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
                     Message: JSON.stringify(sesRecord),
                     Timestamp: '2024-01-01T00:00:00.000Z',
@@ -697,6 +702,32 @@ describe('EmailTrackingService', () => {
                             reason: 'hard',
                         }),
                     }),
+                ])
+            })
+
+            it.each([
+                ['the first attempt fails reading the team config', true, 500],
+                ['the first attempt succeeds', false, 200],
+            ])('records a notification SNS delivers twice once, when %s', async (_, failFirstAttempt, firstStatus) => {
+                if (failFirstAttempt) {
+                    jest.spyOn(
+                        api['emailTrackingService']['teamWorkflowsConfigService'],
+                        'shouldCaptureEngagementEvents'
+                    ).mockRejectedValueOnce(new Error('column does not exist'))
+                }
+                const bounce = {
+                    functionId: hogFunction.id,
+                    distinctId: 'distinct-id',
+                    snsMessageId: new UUIDT().toString(),
+                }
+
+                expect((await postBounce(bounce)).status).toBe(firstStatus)
+                expect((await postBounce(bounce)).status).toBe(200)
+
+                const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                expect(metrics.map((m) => [m.value.metric_name, m.value.count])).toEqual([
+                    ['email_bounced', 1],
+                    ['email_bounced_hard', 1],
                 ])
             })
 
@@ -896,7 +927,7 @@ describe('EmailTrackingService', () => {
             }
             const envelope = {
                 Type: 'Notification',
-                MessageId: 'sns-message-id',
+                MessageId: new UUIDT().toString(),
                 TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
                 Message: JSON.stringify(sesRecord),
                 Timestamp: '2024-01-01T00:00:00.000Z',
@@ -929,7 +960,7 @@ describe('EmailTrackingService', () => {
             }
             const envelope = {
                 Type: 'Notification',
-                MessageId: 'sns-message-id',
+                MessageId: new UUIDT().toString(),
                 TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
                 Message: JSON.stringify(sesRecord),
                 Timestamp: '2024-01-01T00:00:00.000Z',
@@ -962,7 +993,7 @@ describe('EmailTrackingService', () => {
             }
             const envelope = {
                 Type: 'Notification',
-                MessageId: 'sns-message-id',
+                MessageId: new UUIDT().toString(),
                 TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
                 Message: JSON.stringify(sesRecord),
                 Timestamp: '2024-01-01T00:00:00.000Z',
