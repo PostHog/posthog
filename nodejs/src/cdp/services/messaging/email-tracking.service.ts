@@ -680,7 +680,6 @@ export class EmailTrackingService {
                 emailTrackingErrorsCounter.inc({ error_type: 'suppression_update_failed', source: 'ses' })
             }
 
-            // Cannot fail the webhook: the sender bounds each capture and logs its own errors.
             await this.captureSandboxDeliveries(sandboxDeliveries || [])
 
             return { status, message: body as string }
