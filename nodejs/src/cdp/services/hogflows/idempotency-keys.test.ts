@@ -48,6 +48,23 @@ describe('IdempotencyKeys', () => {
         expect(await operations('test', 'reserve', 'replayed')).toEqual(replayedBefore + 1)
     })
 
+    // A retry while a scheduled send still waits would otherwise queue a second copy for the same time.
+    it.each([
+        { send: 'now', scheduledInMs: null, windowMs: 24 * HOUR_MS },
+        { send: 'scheduled 3 days ahead', scheduledInMs: 72 * HOUR_MS, windowMs: 96 * HOUR_MS },
+    ])('keeps the key of a send $send until 24 hours after it is due', async ({ scheduledInMs, windowMs }) => {
+        await keys.reserve(1, key, 'request-a', 'run-1')
+        const scheduledAt = scheduledInMs === null ? undefined : new Date(Date.now() + scheduledInMs).toISOString()
+
+        await keys.markQueued(1, key, 'request-a', 'run-1', scheduledAt)
+
+        const ttlSeconds = await valkey.useClient({ name: 'test-ttl' }, (client) =>
+            client.ttl(keys['redisKey'](1, key))
+        )
+        expect(ttlSeconds).toBeGreaterThan(windowMs / 1000 - 60)
+        expect(ttlSeconds).toBeLessThanOrEqual(windowMs / 1000)
+    })
+
     it('frees a key only for the request that holds it', async () => {
         await keys.reserve(1, key, 'request-a', 'run-1')
 
