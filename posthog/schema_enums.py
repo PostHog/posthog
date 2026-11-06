@@ -1604,6 +1604,7 @@ class FileSystemIconType(StrEnum):
     SQL_EDITOR = "sql_editor"
     BUSINESS_INTELLIGENCE = "business_intelligence"
     WEB_ANALYTICS = "web_analytics"
+    AI_VISIBILITY = "ai_visibility"
     ERROR_TRACKING = "error_tracking"
     HEATMAP = "heatmap"
     SESSION_REPLAY = "session_replay"
