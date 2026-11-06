@@ -1,12 +1,12 @@
 import { Message } from 'node-rdkafka'
 
+import { drop, ok } from '@posthog/ingestion/framework/results'
+import { ProcessingStep } from '@posthog/ingestion/framework/steps'
 import { parseKafkaHeaders } from '@posthog/node-common/kafka/consumer/index'
 import { INTERNAL_LOGS_HEADER } from '@posthog/node-common/logs/internal-logs'
 import { isDevEnv } from '@posthog/node-common/utils/env-utils'
 import { logger } from '@posthog/node-common/utils/logger'
 
-import { drop, ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 import type { Team } from '~/types'
 
 import { recordLogMessageDropped } from '../ingestion-otel-metrics'

@@ -1,0 +1,298 @@
+/**
+ * Every resize the scrub performs, decided in one place, before any pixel is touched.
+ *
+ * The sizing used to be spread across five modules: the decode capped area, the text detector picked
+ * a budget and quantised it, the face detector letterboxed into a fixed square, and the storage step
+ * divided by a ratio. Each was locally sensible and every serious defect found in review lived in
+ * the seams between them, because no single place knew all of it. This is that place. It is pure
+ * arithmetic on dimensions, so the whole geometry can be asserted for any shape class without a
+ * model, an image, or a millisecond of inference.
+ *
+ * The rules it encodes, in full:
+ *
+ *  1. Never upscale. Enlarging pixels adds nothing and softens the edges detection depends on.
+ *  2. Bound the work by the tensor, not by the frame. A budget on frame area does not bound the
+ *     tensor once a collapsed axis is padded up to the encoder's stride.
+ *  3. Store the size the operator chose. SCRUB_STORED_MAX_SIDE sets it; unset, the default detector
+ *     sizes allow about 161 px on the long side. Rule 4, not a small size, keeps what was not
+ *     redacted unreadable.
+ *  4. Keep the ratio. Every detector must see a subject at least `ratio` times larger than the
+ *     stored image keeps it, so anything still readable was large enough to have been found.
+ */
+import { LIMIT_INPUT_PIXELS } from './blur'
+import { numFromEnv } from './env'
+import { bindingRatio } from './floors'
+
+export interface Dims {
+    width: number
+    height: number
+}
+
+export interface ScalePlan {
+    /** The frame every stage shares, decoded once. */
+    frame: Dims
+    /** What DBNet sees: content, and the stride-padded canvas that is actually allocated. */
+    text: { content: Dims; canvas: Dims }
+    /** What YuNet sees, as a fraction of the frame. */
+    face: { scale: number }
+    /** What zxing sees, as a fraction of the frame. */
+    code: { scale: number }
+    /** What gets written, and is the only copy that exists. */
+    stored: Dims
+}
+
+export interface PlanLimits {
+    /** Aspect past which the face detector tiles rather than reading the whole frame in one pass, and the
+     *  aspect of each tile. The planner has to know these: modelling the detector as a single
+     *  pass understates how much of a long frame it really sees. */
+    faceTileAbove: number
+    faceTileAspect: number
+    /** Area budget for the decoded frame. */
+    framePixels: number
+    /** Area budget for the text detector's padded canvas. */
+    textCanvasPixels: number
+    /** Upper bound on the stored image; the ratio may make it smaller still. */
+    storedPixels: number
+    /** The longest side YuNet reads a frame or tile at. */
+    faceInputSide: number
+    /** Longest side the stored image may have, or 0 for no bound beyond the area budget. */
+    storedMaxSide: number
+    /** Stride the text encoder needs its input to be a multiple of. */
+    stride: number
+    /** Margin over the measured floors. 1 means exactly what the measurement supports. */
+    safetyFactor: number
+}
+
+const atLeastOne = (n: number): number => Math.max(1, Math.floor(n))
+
+/** Floor for the decoded frame, named once so the derived default and its own validation cannot
+ *  disagree, which is how a legal stored size produced an illegal frame size. */
+const MIN_FRAME_PIXELS = 96 * 96
+
+/** The face detector's tiling rule and smallest input size, owned here because the plan has to model them. yunet.ts
+ *  reads its input size from `limitsFromEnv()` rather than declaring its own, so the model and the plan cannot disagree. */
+export const DEFAULT_FACE_INPUT_SIDE = 640
+export const FACE_TILE_ABOVE = 3
+export const FACE_TILE_ASPECT = 6
+
+/**
+ * Most windows one image may spend on faces, per pass: an input side above 640 also runs a 640 pass,
+ * so the inference count is up to twice this.
+ *
+ * Tiling covers a long frame with overlapping windows, and the count grows with the aspect ratio,
+ * which the frame's AREA budget does not bound: a 400000x4 source plans a 280149x2 frame and asks for
+ * 28,015 inferences from about 100 KB of PNG. Past the cap the windows widen instead of multiplying,
+ * so coverage is kept and the subject shrinks at the model, which is the same trade the area budget
+ * makes everywhere else.
+ */
+export const FACE_MAX_WINDOWS = 12
+
+/** Window length along the long axis, given the tiling rule and the inference cap. Shared by the
+ *  planner and the detector so one rule produces both the plan and the work. */
+export function faceWindowLong(long: number, short: number, tileAbove: number, tileAspect: number): number {
+    if (long / short <= tileAbove) {
+        return long
+    }
+    // Each window past the first advances by (windowLong - short), so covering `long` within the cap
+    // needs at least this much window. Ceiled to an integer: this length becomes a crop rectangle,
+    // and sharp rejects a fractional one, so a fraction here is a 500 on every extreme-aspect image
+    // rather than a rounding difference. Up rather than down, so the cap still holds.
+    const toFitCap = Math.ceil((long - short) / FACE_MAX_WINDOWS + short)
+    return Math.min(long, Math.max(tileAspect * short, toFitCap))
+}
+
+/** Scale that fits `dims` inside an area budget, never above 1 because rule 1 forbids upscaling. */
+export function scaleToArea(dims: Dims, budgetPixels: number): number {
+    return Math.min(1, Math.sqrt(budgetPixels / (dims.width * dims.height)))
+}
+
+export function applyScale(dims: Dims, scale: number): Dims {
+    return { width: atLeastOne(dims.width * scale), height: atLeastOne(dims.height * scale) }
+}
+
+/**
+ * Scale into an area budget and stay there.
+ *
+ * `applyScale` alone does not: an axis that scales below one pixel is floored to one, which leaves
+ * the other axis at its full scaled length and the product above the budget by any factor. A
+ * 1x50,000,000 source, a few hundred KB of PNG, plans a 1x4,796,123 frame at ten times the budget,
+ * and the per-worker memory model is derived from that budget. Clamp the long axis against the
+ * floored short one.
+ */
+export function fitToArea(dims: Dims, budgetPixels: number): Dims {
+    const scaled = applyScale(dims, scaleToArea(dims, budgetPixels))
+    if (scaled.width * scaled.height <= budgetPixels) {
+        return scaled
+    }
+    return scaled.width >= scaled.height
+        ? { ...scaled, width: atLeastOne(budgetPixels / scaled.height) }
+        : { ...scaled, height: atLeastOne(budgetPixels / scaled.width) }
+}
+
+const upToStride = (n: number, stride: number): number => Math.max(stride, Math.ceil(n / stride) * stride)
+
+/**
+ * Content dimensions and the stride-padded canvas around them, with the CANVAS bounded rather than
+ * the content.
+ *
+ * Padding rather than resizing to reach the stride, because resizing up enlarges real pixels and
+ * resizing down discards rows, which on a short banner is a large fraction of it. But padding a
+ * collapsed axis multiplies the area back: a 212132x2 frame pads to 212160x32, so an area budget on
+ * the content alone lets a 100 KB source allocate a multi-megapixel tensor. Shrink the long axis
+ * against the short one's padded size until the canvas itself fits.
+ */
+export function fitToCanvas(dims: Dims, budgetPixels: number, stride: number): { content: Dims; canvas: Dims } {
+    let content = fitToArea(dims, budgetPixels)
+    let canvas = { width: upToStride(content.width, stride), height: upToStride(content.height, stride) }
+    for (let guard = 0; guard < 4 && canvas.width * canvas.height > budgetPixels; guard++) {
+        if (canvas.width >= canvas.height) {
+            const width = Math.max(stride, Math.floor(budgetPixels / canvas.height / stride) * stride)
+            content = { ...content, width: Math.min(content.width, width) }
+            canvas = { ...canvas, width: upToStride(content.width, stride) }
+        } else {
+            const height = Math.max(stride, Math.floor(budgetPixels / canvas.width / stride) * stride)
+            content = { ...content, height: Math.min(content.height, height) }
+            canvas = { ...canvas, height: upToStride(content.height, stride) }
+        }
+    }
+    return { content, canvas }
+}
+
+/**
+ * How much of the frame the face detector sees.
+ *
+ * It tiles once a frame is longer than `tileAbove`, so the scale is set by
+ * the TILE and not by the whole frame. Modelling it as a single pass understated the scale on
+ * every long frame, and because the stored size is derived from the weakest detector that understating
+ * crushed the artifact: an 8000x60 banner planned a 1px-tall image where the real geometry supports
+ * nineteen, for a guarantee that never asked for it.
+ */
+export function faceInputScale(dims: Dims, side: number, tileAbove: number, tileAspect: number): number {
+    const long = Math.max(dims.width, dims.height)
+    const short = Math.min(dims.width, dims.height)
+    return Math.min(1, side / faceWindowLong(long, short, tileAbove, tileAspect))
+}
+
+/**
+ * The text detector's input, cut down to the ratio over the stored image.
+ *
+ * The canvas budget sizes text for the frame alone. Once faces or the stored-size cap make the stored image
+ * smaller than that budget allows, text reads more pixels than any readable word needs. The rule is per axis:
+ * text h px tall in the frame is h * content / frame at the model and h * stored / frame in the artifact.
+ */
+export function fitTextToStored(
+    text: { content: Dims; canvas: Dims },
+    stored: Dims,
+    ratio: number,
+    stride: number
+): { content: Dims; canvas: Dims } {
+    const content = {
+        width: Math.min(text.content.width, Math.ceil(ratio * stored.width)),
+        height: Math.min(text.content.height, Math.ceil(ratio * stored.height)),
+    }
+    const canvas = { width: upToStride(content.width, stride), height: upToStride(content.height, stride) }
+    // A cut that leaves the padded canvas as large as before saves no inference and only adds a resample.
+    return canvas.width * canvas.height < text.canvas.width * text.canvas.height ? { content, canvas } : text
+}
+
+// A resize has a fixed cost that a small reduction does not win back in zxing time, so zxing reads the frame as it
+// is unless the plan takes it below this. Reading more than the ratio asks for cannot break rule 4.
+const CODE_RESIZE_BELOW = 0.85
+
+/**
+ * The plan for one source image.
+ *
+ * The stored size is derived from the WEAKEST detector rather than any single one: a guarantee that
+ * holds for the text detector and not the face detector is not a guarantee. Every reduction between
+ * the source and each detector is already folded into its scale, so the ratio is enforced against
+ * what each model really saw rather than against the budgets that were asked for. The text detector is
+ * then cut down to the ratio over the stored size, because its budget alone can ask for more.
+ */
+export function planScales(source: Dims, limits: PlanLimits): ScalePlan {
+    const frame = fitToArea(source, limits.framePixels)
+    const textBudget = fitToCanvas(frame, limits.textCanvasPixels, limits.stride)
+    const faceScale = faceInputScale(frame, limits.faceInputSide, limits.faceTileAbove, limits.faceTileAspect)
+
+    // Each detector's scale relative to the frame, so they are comparable.
+    const textScale = Math.min(textBudget.content.width / frame.width, textBudget.content.height / frame.height)
+    const weakest = Math.min(textScale, faceScale, 1)
+
+    const ratio = bindingRatio() * limits.safetyFactor
+    // A frame past the tiling aspect is a banner or a strip: capping its long side would crush the short one to a
+    // pixel or two, so it keeps the stored size the defaults give it.
+    const long = Math.max(frame.width, frame.height)
+    const capsSide = limits.storedMaxSide > 0 && long / Math.min(frame.width, frame.height) <= limits.faceTileAbove
+    const sideScale = capsSide ? limits.storedMaxSide / long : 1
+    const stored = applyScale(frame, Math.min(1, weakest / ratio, scaleToArea(frame, limits.storedPixels), sideScale))
+    // zxing's cost grows with the pixels it reads and no model fixes its input, so it gets exactly the ratio. That is
+    // measured against the stored axes as kept, because flooring an axis to a whole pixel keeps more than was asked.
+    const keptScale = Math.max(stored.width / frame.width, stored.height / frame.height)
+    const codeScale = Math.min(1, ratio * keptScale)
+    return {
+        frame,
+        text: fitTextToStored(textBudget, stored, ratio, limits.stride),
+        face: { scale: faceScale },
+        code: { scale: codeScale < CODE_RESIZE_BELOW ? codeScale : 1 },
+        stored,
+    }
+}
+
+/**
+ * The limits this deployment runs with.
+ *
+ * Only the stored size is an operator's choice. Everything else follows from it: the detectors have
+ * to see enough to keep the ratio, and the frame has to carry enough for the detectors. Exposing the
+ * others as independent knobs is what let a pair of individually-reasonable settings combine into a
+ * pipeline that under-redacted.
+ *
+ * `SCRUB_STORED_MAX_SIDE` sets the stored size by its long side. The face detector's input and the
+ * text canvas then grow to `side x ratio`, because at their defaults the face input caps every
+ * stored image at about 161 px whatever the area budget allows.
+ */
+export function limitsFromEnv(): PlanLimits {
+    const storedMaxSide = numFromEnv('SCRUB_STORED_MAX_SIDE', 0, 0, 1024)
+    if (storedMaxSide > 0 && storedMaxSide < 16) {
+        throw new Error(`SCRUB_STORED_MAX_SIDE must be 0 or in [16, 1024], got ${storedMaxSide}`)
+    }
+    const safetyFactor = numFromEnv('SCRUB_SAFETY_FACTOR', 1.3, 1, 4)
+    const ratio = bindingRatio() * safetyFactor
+    const stride = 32
+    const faceInputSide =
+        storedMaxSide > 0
+            ? Math.max(DEFAULT_FACE_INPUT_SIDE, upToStride(Math.ceil(storedMaxSide * ratio), stride))
+            : DEFAULT_FACE_INPUT_SIDE
+    const storedPixels = numFromEnv(
+        'SCRUB_OUT_MAX_PIXELS',
+        storedMaxSide > 0 ? storedMaxSide * storedMaxSide : 50_000,
+        16 * 16,
+        LIMIT_INPUT_PIXELS
+    )
+    // The frame has to carry the ratio for the tightest subject, with the margin, or no detector can
+    // satisfy it however the later stages are sized.
+    const needed = storedPixels * ratio ** 2
+    return {
+        // Clamped at BOTH ends: numFromEnv validates a default as strictly as an override, so a
+        // legal storedPixels must never derive an illegal framePixels and hand the operator a refusal
+        // naming a variable they never set. Only the upper end was clamped, so every stored size
+        // under about 1000 px crash-looped the sidecar before it bound a listener.
+        framePixels: numFromEnv(
+            'SCRUB_MAX_PIXELS',
+            Math.max(MIN_FRAME_PIXELS, Math.min(LIMIT_INPUT_PIXELS, Math.ceil(needed))),
+            MIN_FRAME_PIXELS,
+            LIMIT_INPUT_PIXELS
+        ),
+        textCanvasPixels: numFromEnv(
+            'DET_CANVAS_PIXELS',
+            Math.min(4096 * 4096, Math.max(736 * 736, faceInputSide * faceInputSide)),
+            256 * 256,
+            4096 * 4096
+        ),
+        storedPixels,
+        faceInputSide,
+        storedMaxSide,
+        faceTileAbove: FACE_TILE_ABOVE,
+        faceTileAspect: FACE_TILE_ASPECT,
+        stride,
+        safetyFactor,
+    }
+}

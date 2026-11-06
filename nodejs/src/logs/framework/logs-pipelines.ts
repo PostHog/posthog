@@ -1,11 +1,10 @@
+import { ChunkProcessingStep } from '@posthog/ingestion/framework/base-chunk-pipeline'
+import { newChunkPipelineBuilder, perElement } from '@posthog/ingestion/framework/builders/index'
+import { ChunkPipeline, OkResultWithContext } from '@posthog/ingestion/framework/chunk-pipeline.interface'
+import { createOkContext } from '@posthog/ingestion/framework/helpers'
+import { isOkResult, ok } from '@posthog/ingestion/framework/results'
+import { ProcessingStep } from '@posthog/ingestion/framework/steps'
 import { logger } from '@posthog/node-common/utils/logger'
-
-import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
-import { newChunkPipelineBuilder, perElement } from '~/ingestion/framework/builders'
-import { ChunkPipeline, OkResultWithContext } from '~/ingestion/framework/chunk-pipeline.interface'
-import { createOkContext } from '~/ingestion/framework/helpers'
-import { isOkResult, ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 
 import { MAX_CONCURRENT_MESSAGE_PROCESSES } from '../logs-ingestion-consumer'
 import type { LogsIngestionMessage } from '../types'

@@ -2,13 +2,12 @@ import { DateTime } from 'luxon'
 import { Counter, Gauge } from 'prom-client'
 
 import { buildIntegerMatcher } from '~/config/matchers'
+import type { ValueMatcher } from '~/types'
 import { logger } from '~/utils/logger'
 import { internalFetch } from '~/utils/request'
 import { sanitizeForUTF8 } from '~/utils/strings'
 import type { TeamManager } from '~/utils/team-manager'
 import { delay } from '~/utils/utils'
-
-import type { ValueMatcher } from '~/types'
 
 import { INTERNAL_LOGS_HTTP_HEADER, INTERNAL_SOURCE_POLICIES, signInternalLogs } from './internal-logs'
 

@@ -23,6 +23,7 @@ overrides:
     '@smithy/core': 3.24.6
 
 allowBuilds:
+    '@datadog/pprof': false
     '@parcel/watcher': true
     '@swc/core': true
     esbuild: true

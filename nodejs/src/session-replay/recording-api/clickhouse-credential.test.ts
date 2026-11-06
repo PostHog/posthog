@@ -3,10 +3,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { register } from 'prom-client'
 
+import { getDefaultSessionRecordingApiConfig } from '@posthog/ingestion/pipelines/sessionreplay/config'
 import { logger } from '@posthog/node-common/utils/logger'
 
 import { overrideConfigWithEnv } from '~/common/config/config'
-import { getDefaultSessionRecordingApiConfig } from '~/ingestion/pipelines/sessionreplay/config'
 
 import { ClickHouseCredential } from './clickhouse-credential'
 

@@ -1,12 +1,11 @@
+import { ok } from '@posthog/ingestion/framework/results'
+import { ProcessingStep } from '@posthog/ingestion/framework/steps'
 import { parseKafkaHeaders } from '@posthog/node-common/kafka/consumer/index'
 import { INTERNAL_SOURCE_HEADER, withoutInternalLogsHeaders } from '@posthog/node-common/logs/internal-logs'
 import { recordPiiReplacements } from '@posthog/node-common/metrics/otel-metrics'
 import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
 import { DependencyUnavailableError } from '@posthog/node-common/utils/db/error'
 import { logger } from '@posthog/node-common/utils/logger'
-
-import { ok } from '~/ingestion/framework/results'
-import { ProcessingStep } from '~/ingestion/framework/steps'
 
 import { recordLogMessageDropped } from '../ingestion-otel-metrics'
 import { type PiiScrubStats } from '../log-pii-scrub'

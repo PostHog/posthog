@@ -16,6 +16,7 @@ import { template as geoipTemplate } from '@posthog/hog-engine/cdp/templates/_tr
 import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
 import { HogFunctionTemplate, HogFunctionType } from '@posthog/hog-engine/cdp/types'
 import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { createTestMonitoringOutputs } from '@posthog/node-common/testing/monitoring-outputs'
 import { forSnapshot } from '@posthog/node-common/testing/snapshots'
 import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
@@ -23,7 +24,6 @@ import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
-import { createTestMonitoringOutputs } from '../../../tests/helpers/ingestion-outputs'
 import { Hub } from '../../types'
 import { createHogFunction, insertHogFunction } from '../_tests/fixtures'
 

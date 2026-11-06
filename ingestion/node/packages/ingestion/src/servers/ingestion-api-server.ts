@@ -1,0 +1,606 @@
+import {
+    HogTransformerService,
+    HogTransformerServiceConfig,
+    HogTransformerServiceDeps,
+    createHogTransformerService,
+} from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
+import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
+import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
+import { initializePrometheusLabels } from '@posthog/node-common/api/router'
+import { CommonConfig } from '@posthog/node-common/config'
+import {
+    createCookielessRedisConnectionConfig,
+    createFeatureFlagCalledDedupRedisConnectionConfig,
+    createIngestionRedisConnectionConfig,
+} from '@posthog/node-common/config/redis-pools'
+import { GroupTypeManager } from '@posthog/node-common/groups/group-type-manager'
+import { ClickhouseGroupRepository } from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
+import { PostgresGroupRepository } from '@posthog/node-common/groups/repositories/postgres-group-repository'
+import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
+import { PersonHogClient } from '@posthog/node-common/personhog/client'
+import { createIdentityClients } from '@posthog/node-common/personhog/identity-clients'
+import {
+    PersonHogConfig,
+    buildGroupRepository,
+    buildPersonRepository,
+    createPersonHogClient,
+} from '@posthog/node-common/personhog/index'
+import { PersonHogPersonWriteRepository } from '@posthog/node-common/personhog/personhog-person-write-repository'
+import { PostgresPersonRepository } from '@posthog/node-common/persons/repositories/postgres-person-repository'
+import {
+    BaseServerConfig,
+    CleanupResources,
+    NodeServer,
+    ServerLifecycle,
+} from '@posthog/node-common/servers/base-server'
+import { UsageIngestionConfig, createEventUsageBatchFactory } from '@posthog/node-common/usage-ingestion/index'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
+import { createRedisPoolFromConfig } from '@posthog/node-common/utils/db/redis'
+import { EventIngestionRestrictionManagerComponent } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
+import { EventSchemaEnforcementManager } from '@posthog/node-common/utils/event-schema-enforcement-manager'
+import { GeoIPService } from '@posthog/node-common/utils/geoip'
+import { DEFAULT_LOADER_RETRY } from '@posthog/node-common/utils/lazy-loader'
+import { logger } from '@posthog/node-common/utils/logger'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { PubSub } from '@posthog/node-common/utils/pubsub'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+
+import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
+import { buildIngestionProducerRegistry } from '~/ingestion/common/outputs/producer-registry'
+import {
+    KafkaDownstreamProducerEnvConfig,
+    KafkaUpstreamProducerEnvConfig,
+    ProducerName,
+    getDefaultKafkaDownstreamProducerEnvConfig,
+    getDefaultKafkaUpstreamProducerEnvConfig,
+} from '~/ingestion/common/outputs/producers'
+import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
+import { effectivePersonMergeEventsEnabled } from '~/ingestion/common/persons/person-merge-event'
+import { PersonhogPersonsStore } from '~/ingestion/common/persons/personhog-persons-store'
+import { PersonsStore } from '~/ingestion/common/persons/persons-store'
+import {
+    RoutingPersonsStore,
+    assertPersonsStoreModeConfig,
+    parsePersonsStoreMode,
+} from '~/ingestion/common/persons/routing-persons-store'
+import {
+    FlushBatchStoresOutputs,
+    createGroupProducePromises,
+    createPersonProducePromises,
+} from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
+import { TopHog } from '~/ingestion/framework/tophog'
+import {
+    JoinedIngestionPipelineConfig,
+    JoinedIngestionPipelineContext,
+    JoinedIngestionPipelineDeps,
+    JoinedIngestionPipelineInput,
+    createJoinedIngestionPipeline,
+} from '~/ingestion/pipelines/analytics/joined-ingestion-pipeline'
+import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
+
+import { FeedOrderSentinel } from '../ingestion/api/feed-order-sentinel'
+import { WorkerIngestServer } from '../ingestion/api/grpc-server'
+import { EventFilterManagerComponent } from '../ingestion/common/event-filters'
+import { createFeatureFlagCalledDedupService } from '../ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import { createFlagEvaluationsService } from '../ingestion/common/flag-evaluations/flag-evaluations-service'
+import { MainLaneOverflowRedirect } from '../ingestion/common/overflow-redirect/main-lane-overflow-redirect'
+import { OverflowLaneOverflowRedirect } from '../ingestion/common/overflow-redirect/overflow-lane-overflow-redirect'
+import { OverflowRedirectService } from '../ingestion/common/overflow-redirect/overflow-redirect-service'
+import { RedisOverflowRepository } from '../ingestion/common/overflow-redirect/overflow-redis-repository'
+import { createAnalyticsOverflowStrategies } from '../ingestion/common/overflow-redirect/overflow-strategy'
+import {
+    DatabaseConnectionConfig,
+    IngestionConsumerConfig,
+    IngestionOutputsConfig,
+    KafkaBrokerConfig,
+    KafkaConsumerBaseConfig,
+    RedisConnectionsConfig,
+    getDefaultIngestionConsumerConfig,
+    getDefaultIngestionOutputsConfig,
+} from '../ingestion/config'
+import {
+    HealthCheckResult,
+    HealthCheckResultError,
+    HealthCheckResultOk,
+    PluginServerService,
+    RedisPool,
+} from '../types'
+import { GrpcBatchContext, GrpcStreamIngestDriver } from './grpc-stream-ingest-driver'
+
+export type IngestionApiServerConfig = BaseServerConfig &
+    IngestionConsumerConfig &
+    IngestionOutputsConfig &
+    HogTransformerServiceConfig &
+    KafkaUpstreamProducerEnvConfig &
+    KafkaDownstreamProducerEnvConfig &
+    KafkaBrokerConfig &
+    DatabaseConnectionConfig &
+    RedisConnectionsConfig &
+    KafkaConsumerBaseConfig &
+    PersonHogConfig &
+    UsageIngestionConfig &
+    Pick<
+        CommonConfig,
+        | 'LOG_LEVEL'
+        | 'PLUGIN_SERVER_MODE'
+        | 'CLOUD_DEPLOYMENT'
+        | 'ENCRYPTION_SALT_KEYS'
+        | 'MMDB_FILE_LOCATION'
+        | 'CAPTURE_INTERNAL_URL'
+        | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
+        | 'LAZY_LOADER_MAX_SIZE'
+        | 'TASK_TIMEOUT'
+        | 'POSTHOG_API_KEY'
+        | 'POSTHOG_HOST_URL'
+        | 'HEALTHCHECK_MAX_STALE_SECONDS'
+        | 'KAFKA_HEALTHCHECK_SECONDS'
+    >
+
+/**
+ * Ingestion API server that exposes the ingestion pipeline over the
+ * `WorkerIngest` gRPC stream.
+ *
+ * Paired with the Rust Kafka consumer: the consumer reads from Kafka, routes
+ * messages by key, and sends each worker's sub-batches on one ordered stream.
+ * The HTTP server only serves health and metrics.
+ *
+ * Infrastructure setup mirrors IngestionGeneralServer. The difference is that
+ * instead of subscribing to Kafka, this server accepts batches over the stream.
+ */
+export class IngestionApiServer implements NodeServer {
+    readonly lifecycle: ServerLifecycle
+    private config: IngestionApiServerConfig
+
+    private postgres?: PostgresRouter
+    private ingestionProducerRegistry?: KafkaProducerRegistry<ProducerName>
+    private redisPool?: RedisPool
+    private cookielessRedisPool?: RedisPool
+    private featureFlagCalledDedupRedisPool?: RedisPool
+    private cookielessManager?: CookielessManager
+    private pubsub?: PubSub
+    private personsStore?: BatchWritingPersonsStore
+    /**
+     * The store the pipeline was handed. Shutdown goes through this so the
+     * routing store's own lifecycle rules run: in shadow, a personhog
+     * fault must not fail process cleanup.
+     */
+    private pipelinePersonsStore?: PersonsStore
+    private personhogClientClosers: Array<() => void> = []
+    private groupStore?: BatchWritingGroupStore
+    // Held so shutdown cleanup can produce ClickHouse messages returned by a
+    // bare groupStore.flush() — the store itself no longer holds outputs
+    // (moved to caller-side production so create and flush share one path).
+    private ingestionOutputs?: FlushBatchStoresOutputs
+
+    private grpcServer?: WorkerIngestServer
+    private promiseScheduler = new PromiseScheduler()
+    private hogTransformer!: HogTransformerService
+    private topHog!: TopHog
+    // Set in startServices when INGESTION_API_FEED_ORDER_SENTINEL_ENABLED.
+    private feedOrderSentinel?: FeedOrderSentinel
+
+    // Latched on the first unexpected pipeline error. The pipeline is a single
+    // long-lived instance shared across all streams; a throw can leave it
+    // permanently poisoned (e.g. a group exhausted retries), so we mirror the
+    // Kafka consumer's contract of crashing and rebuilding rather than serving
+    // a wedged pipeline forever.
+    private fatalError?: Error
+
+    constructor(config: Partial<IngestionApiServerConfig> = {}) {
+        this.config = {
+            ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultIngestionConsumerConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaUpstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultIngestionOutputsConfig()),
+            ...config,
+        }
+        this.lifecycle = new ServerLifecycle(this.config)
+    }
+
+    async start(): Promise<void> {
+        return this.lifecycle.start(
+            () => this.startServices(),
+            () => this.getCleanupResources()
+        )
+    }
+
+    async stop(error?: Error): Promise<void> {
+        return this.lifecycle.stop(() => this.getCleanupResources(), error)
+    }
+
+    private async startServices(): Promise<void> {
+        initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
+
+        // 1. Shared infrastructure
+        logger.info('ℹ️', 'Connecting to shared infrastructure...')
+
+        this.postgres = new PostgresRouter(this.config, this.config.PLUGIN_SERVER_MODE!)
+        logger.info('👍', 'Postgres Router ready')
+
+        logger.info('🤔', 'Connecting to ingestion Redis...')
+        this.redisPool = createRedisPoolFromConfig({
+            connection: createIngestionRedisConnectionConfig(this.config),
+            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+        })
+        logger.info('👍', 'Ingestion Redis ready')
+
+        this.pubsub = new PubSub(this.redisPool)
+        await this.pubsub.start()
+
+        const teamManager = new TeamManager(this.postgres, { loaderRetry: DEFAULT_LOADER_RETRY })
+
+        // 2. Ingestion + CDP shared services (geoip, repos, encryption)
+        const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
+        await geoipService.get()
+
+        const personhogClient = createPersonHogClient(this.config)
+        const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
+
+        const postgresPersonRepository = new PostgresPersonRepository(this.postgres, {
+            calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+            personBatchWritePerKeyTeamAllowlist: this.config.PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST,
+        })
+        const personRepository = buildPersonRepository(
+            personhogClient,
+            postgresPersonRepository,
+            this.config.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
+            this.config.PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS,
+            clientLabel
+        )
+        const postgresGroupRepository = new PostgresGroupRepository(this.postgres)
+
+        const groupRepository = buildGroupRepository(
+            personhogClient,
+            postgresGroupRepository,
+            this.config.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
+            this.config.PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS,
+            clientLabel
+        )
+
+        const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
+        const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
+
+        // 3. Ingestion-specific services
+        logger.info('🤔', 'Connecting to cookieless Redis...')
+        this.cookielessRedisPool = createRedisPoolFromConfig({
+            connection: createCookielessRedisConnectionConfig(this.config),
+            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+        })
+        logger.info('👍', 'Cookieless Redis ready')
+
+        this.cookielessManager = new CookielessManager(this.config, this.cookielessRedisPool)
+
+        // Dedicated $feature_flag_called dedup Redis; falls back to ingestion until the host is set.
+        this.featureFlagCalledDedupRedisPool = createRedisPoolFromConfig({
+            connection: createFeatureFlagCalledDedupRedisConnectionConfig(this.config),
+            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+        })
+
+        const groupTypeManager = new GroupTypeManager(groupRepository, teamManager, {
+            loaderRetry: DEFAULT_LOADER_RETRY,
+        })
+
+        // 4. Kafka producers for pipeline outputs (not consuming from Kafka)
+        this.ingestionProducerRegistry = await buildIngestionProducerRegistry(
+            this.config.KAFKA_CLIENT_RACK,
+            this.config
+        )
+        const ingestionOutputs = createOutputsRegistry().build(this.ingestionProducerRegistry, this.config)
+        this.ingestionOutputs = ingestionOutputs
+        const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
+
+        const topicFailures = await ingestionOutputs.checkTopics()
+        if (topicFailures.length > 0) {
+            throw new Error(`Output topic verification failed for: ${topicFailures.join(', ')}`)
+        }
+
+        // 5. HogTransformer
+        const hogTransformerDeps: HogTransformerServiceDeps = {
+            geoipService,
+            postgres: this.postgres,
+            pubSub: this.pubsub,
+            encryptedFields,
+            integrationManager,
+            monitoringOutputs: ingestionOutputs,
+            teamManager,
+        }
+        this.hogTransformer = createHogTransformerService(this.config, hogTransformerDeps)
+        await this.hogTransformer.start()
+
+        // 6. Pipeline dependencies
+        const overflowRedisRepository = new RedisOverflowRepository({
+            redisPool: this.redisPool,
+            redisTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
+        })
+
+        let overflowRedirectService: OverflowRedirectService | undefined
+        if (this.config.INGESTION_OVERFLOW_MODE === 'redirect') {
+            overflowRedirectService = new MainLaneOverflowRedirect({
+                redisRepository: overflowRedisRepository,
+                localCacheTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
+                strategies: createAnalyticsOverflowStrategies({
+                    eventBucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
+                    eventReplenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
+                    mergeEventBucketCapacity: this.config.MERGE_EVENT_OVERFLOW_BUCKET_CAPACITY,
+                    mergeEventReplenishRate: this.config.MERGE_EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
+                }),
+                overflowType: 'events',
+            })
+        }
+
+        let overflowLaneTTLRefreshService: OverflowRedirectService | undefined
+        if (this.config.INGESTION_OVERFLOW_MODE === 'consume') {
+            overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
+                redisRepository: overflowRedisRepository,
+                overflowType: 'events',
+            })
+        }
+
+        const { value: eventIngestionRestrictionManager, stop: stopEventIngestionRestrictionManager } =
+            await new EventIngestionRestrictionManagerComponent(this.redisPool, {
+                pipeline: 'analytics',
+                staticDropEventTokens: this.config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter(Boolean),
+                staticSkipPersonTokens:
+                    this.config.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID.split(',').filter(Boolean),
+                staticForceOverflowTokens:
+                    this.config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(Boolean),
+            }).start()
+
+        this.personsStore = new BatchWritingPersonsStore(personRepository, ingestionOutputs, {
+            dbWriteMode: this.config.PERSON_BATCH_WRITING_DB_WRITE_MODE,
+            useBatchUpdates: this.config.PERSON_BATCH_WRITING_USE_BATCH_UPDATES,
+            maxConcurrentUpdates: this.config.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
+            maxOptimisticUpdateRetries: this.config.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
+            optimisticUpdateRetryInterval: this.config.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
+            updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
+            mergeLockedOutcomeTeamAllowlist: this.config.PERSON_MERGE_LOCKED_OUTCOME_TEAM_ALLOWLIST,
+            mergeEventsEnabled: effectivePersonMergeEventsEnabled(this.config),
+            mergeEventsPartitionCount: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
+            mergeEventsTeamAllowlist: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
+            mergeNoopMappingEmissionEnabled: this.config.PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED,
+            mergeNoopMappingEmissionCacheSize: this.config.PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE,
+            mergeNoopMappingEmissionTtlMs: this.config.PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS,
+        })
+        // Which backend person writes land in, deployment-wide: pg (the
+        // default) builds nothing new; the other modes construct the
+        // personhog store, shadow keeping pg authoritative.
+        const personsStoreMode = parsePersonsStoreMode(this.config.PERSONS_STORE_MODE)
+        assertPersonsStoreModeConfig(personsStoreMode, {
+            routerAddr: this.config.PERSONHOG_ADDR,
+            identityAddr: this.config.PERSONHOG_IDENTITY_ADDR,
+        })
+        let personsStore: PersonsStore = this.personsStore
+        if (personsStoreMode !== 'pg') {
+            const routerClient = PersonHogClient.fromConfig({
+                addr: this.config.PERSONHOG_ADDR,
+                useTls: this.config.PERSONHOG_TLS,
+                timeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
+                readMaxBytes: this.config.PERSONHOG_READ_MAX_BYTES,
+                writeMaxBytes: this.config.PERSONHOG_WRITE_MAX_BYTES,
+                clientName: 'ingestion-persons-store',
+                initialStreamWindowBytes: this.config.PERSONHOG_INITIAL_STREAM_WINDOW_BYTES,
+                initialConnectionWindowBytes: this.config.PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES,
+            })
+            const identityClients = createIdentityClients(
+                {
+                    addr: this.config.PERSONHOG_IDENTITY_ADDR,
+                    useTls: this.config.PERSONHOG_TLS,
+                    timeoutMs: this.config.PERSONHOG_IDENTITY_TIMEOUT_MS,
+                    clientName: 'ingestion-persons-store',
+                    initialStreamWindowBytes: this.config.PERSONHOG_INITIAL_STREAM_WINDOW_BYTES,
+                    initialConnectionWindowBytes: this.config.PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES,
+                },
+                { mergeTimeoutMs: this.config.PERSONHOG_MERGE_TIMEOUT_MS }
+            )
+            this.personhogClientClosers = [() => routerClient.close(), identityClients.close]
+            const writeRepository = new PersonHogPersonWriteRepository(
+                routerClient,
+                identityClients.identity,
+                'ingestion-persons-store'
+            )
+            const personhogStore = new PersonhogPersonsStore(writeRepository, {
+                maxConcurrentUpdates: this.config.PERSONHOG_STORE_MAX_CONCURRENT_UPDATES,
+                updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
+                syncMergeMoveLimit: this.config.PERSONHOG_SYNC_MERGE_MOVE_LIMIT,
+                requestTimeoutMs: this.config.PERSONHOG_TIMEOUT_MS,
+                mergeTimeoutMs: this.config.PERSONHOG_MERGE_TIMEOUT_MS,
+            })
+            personsStore = new RoutingPersonsStore(this.personsStore, personhogStore, personsStoreMode)
+        }
+        this.pipelinePersonsStore = personsStore
+
+        this.groupStore = new BatchWritingGroupStore(groupRepository, clickhouseGroupRepository, {
+            useBatchUpdates: this.config.GROUP_BATCH_WRITING_USE_BATCH_UPDATES,
+            useBatchCreates: this.config.GROUP_BATCH_WRITING_USE_BATCH_CREATES,
+            maxConcurrentUpdates: this.config.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
+            maxOptimisticUpdateRetries: this.config.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
+            optimisticUpdateRetryInterval: this.config.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
+        })
+        const groupStore = this.groupStore
+
+        this.topHog = new TopHog({
+            outputs: ingestionOutputs,
+            pipeline: this.config.INGESTION_PIPELINE ?? 'unknown',
+            lane: this.config.INGESTION_LANE ?? 'unknown',
+        })
+        this.topHog.start()
+
+        // 7. Create the ingestion pipeline
+        const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
+            eventSchemaEnforcementEnabled: this.config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
+            overflowMode: this.config.INGESTION_OVERFLOW_MODE,
+            preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+            personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
+            groupsPrefetchEnabled: this.config.GROUPS_PREFETCH_ENABLED,
+            teamsPrefetchEnabled: this.config.TEAMS_PREFETCH_ENABLED,
+            eventSchemasPrefetchEnabled: this.config.EVENT_SCHEMAS_PREFETCH_ENABLED,
+            hogFunctionsPrefetchEnabled: this.config.HOG_FUNCTIONS_PREFETCH_ENABLED,
+            outputs: ingestionOutputs,
+            perDistinctIdOptions: {
+                SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
+                PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
+                PERSON_MERGE_ASYNC_ENABLED: this.config.PERSON_MERGE_ASYNC_ENABLED,
+                PERSON_MERGE_SYNC_BATCH_SIZE: this.config.PERSON_MERGE_SYNC_BATCH_SIZE,
+                PERSON_MERGE_FOLD_ENABLED: this.config.PERSON_MERGE_FOLD_ENABLED,
+                PERSON_MERGE_FOLD_TEAM_ALLOWLIST: this.config.PERSON_MERGE_FOLD_TEAM_ALLOWLIST,
+                PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS: this.config.PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS,
+                PERSON_MERGE_NOT_APPLIED_WAIT_MS: this.config.PERSON_MERGE_NOT_APPLIED_WAIT_MS,
+                PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
+                PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
+                FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+                FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS: this.config.FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS,
+                EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: this.config.EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS,
+            },
+            concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
+            createEventUsageBatch: createEventUsageBatchFactory(this.config, 'events'),
+        }
+        const eventFilterManagerStarted = await new EventFilterManagerComponent(this.postgres, {
+            pipeline: 'analytics',
+        }).start()
+        const featureFlagCalledDedupService = createFeatureFlagCalledDedupService(
+            this.featureFlagCalledDedupRedisPool,
+            this.config
+        )
+        const flagEvaluationsService = createFlagEvaluationsService(this.config)
+
+        const joinedPipelineDeps: JoinedIngestionPipelineDeps = {
+            personsStore,
+            groupStore,
+            hogTransformer: this.hogTransformer,
+            eventFilterManager: eventFilterManagerStarted.value,
+            eventIngestionRestrictionManager,
+            // Schema loads run detached in the LazyLoader buffer, so an un-retried transient
+            // failure can surface as an unhandled rejection and restart the worker.
+            eventSchemaEnforcementManager: new EventSchemaEnforcementManager(this.postgres, {
+                loaderRetry: DEFAULT_LOADER_RETRY,
+            }),
+            promiseScheduler: this.promiseScheduler,
+            overflowRedirectService,
+            overflowLaneTTLRefreshService,
+            featureFlagCalledDedupService,
+            flagEvaluationsService,
+            teamManager,
+            cookielessManager: this.cookielessManager,
+            groupTypeManager,
+            topHog: this.topHog,
+        }
+        // 8. Serve the WorkerIngest stream.
+        if (this.config.INGESTION_API_FEED_ORDER_SENTINEL_ENABLED) {
+            this.feedOrderSentinel = new FeedOrderSentinel(this.config.INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS)
+        }
+        const grpcPipeline = createJoinedIngestionPipeline<
+            JoinedIngestionPipelineInput,
+            JoinedIngestionPipelineContext,
+            GrpcBatchContext
+        >(joinedPipelineConfig, joinedPipelineDeps)
+        this.grpcServer = new WorkerIngestServer(
+            {
+                port: this.config.INGESTION_API_GRPC_PORT,
+                maxConcurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
+                maxStreams: this.config.INGESTION_API_GRPC_MAX_STREAMS,
+                maxSessions: this.config.INGESTION_API_GRPC_MAX_SESSIONS,
+                maxStreamsPerSession: this.config.INGESTION_API_GRPC_MAX_STREAMS_PER_SESSION,
+                sessionMemoryMb: this.config.INGESTION_API_GRPC_SESSION_MEMORY_MB,
+                sessionIdleTimeoutMs: this.config.INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS,
+                readMaxBytes: this.config.INGESTION_API_GRPC_READ_MAX_BYTES,
+                drainTimeoutMs: this.config.INGESTION_API_GRPC_DRAIN_TIMEOUT_MS,
+            },
+            {
+                driver: new GrpcStreamIngestDriver(grpcPipeline, this.promiseScheduler),
+                feedOrderSentinel: this.feedOrderSentinel,
+                onFatal: (error) => {
+                    // A poisoned pipeline is rebuilt by the supervisor, not
+                    // served: latch unhealthy and shut down once.
+                    if (!this.fatalError) {
+                        this.fatalError = error
+                        void this.stop(error)
+                    }
+                },
+            }
+        )
+        await this.grpcServer.start()
+
+        const service: PluginServerService = {
+            id: 'ingestion-api',
+            // Runs before the lifecycle ends Postgres and Redis, so in-flight batches and the store drain finish here.
+            onShutdown: async () => {
+                try {
+                    await this.grpcServer?.stop()
+                    await this.drainStores()
+                } finally {
+                    await this.topHog.stop()
+                    await this.hogTransformer.stop()
+                    await eventFilterManagerStarted.stop()
+                    await stopEventIngestionRestrictionManager()
+                }
+            },
+            healthcheck: () => this.isHealthy(),
+        }
+        this.lifecycle.services.push(service)
+    }
+
+    private isHealthy(): HealthCheckResult {
+        // TODO: add output producer health checks
+        if (this.fatalError) {
+            return new HealthCheckResultError('Ingestion pipeline crashed', { error: this.fatalError.message })
+        }
+        return new HealthCheckResultOk()
+    }
+
+    /** Drains both stores even when one fails, then rethrows the first failure. */
+    private async drainStores(): Promise<void> {
+        const results = await Promise.allSettled([this.drainPersonsStore(), this.drainGroupStore()])
+        this.personhogClientClosers.forEach((close) => close())
+        const failed = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+        if (failed) {
+            throw failed.reason
+        }
+    }
+
+    private async drainPersonsStore(): Promise<void> {
+        // In shadow mode the pipeline's store is the routing store, so both backends write the pending updates.
+        const personsStore = this.pipelinePersonsStore ?? this.personsStore
+        if (!personsStore) {
+            return
+        }
+        const flushResults = await personsStore.flush()
+        if (this.ingestionOutputs) {
+            await Promise.all(createPersonProducePromises(flushResults, this.ingestionOutputs))
+        }
+        await personsStore.shutdown()
+    }
+
+    private async drainGroupStore(): Promise<void> {
+        if (!this.groupStore) {
+            return
+        }
+        const flushResults = await this.groupStore.flush()
+        // flush() leaves the ClickHouse messages to the caller; skipping them would write Postgres only.
+        if (flushResults.length > 0 && this.ingestionOutputs) {
+            await Promise.all(createGroupProducePromises(flushResults, this.ingestionOutputs))
+        }
+        await this.groupStore.shutdown()
+    }
+
+    private getCleanupResources(): CleanupResources {
+        return {
+            kafkaProducers: [],
+            redisPools: [this.redisPool, this.cookielessRedisPool, this.featureFlagCalledDedupRedisPool].filter(
+                Boolean
+            ) as RedisPool[],
+            postgres: this.postgres,
+            pubsub: this.pubsub,
+            additionalCleanup: async () => {
+                this.cookielessManager?.shutdown()
+                // Disconnected last: the store drain in the ingestion-api service's onShutdown produces through them.
+                await this.ingestionProducerRegistry?.disconnectAll()
+            },
+        }
+    }
+}

@@ -12,6 +12,7 @@ import { createPersonHogClient } from '@posthog/node-common/personhog/index'
 import { PersonHogGroupReadRepository } from '@posthog/node-common/personhog/personhog-group-read-repository'
 import { PersonHogPersonReadRepository } from '@posthog/node-common/personhog/personhog-person-read-repository'
 import { PersonReadRepository } from '@posthog/node-common/persons/repositories/person-repository'
+import { CleanupResources, NodeServer, ServerLifecycle } from '@posthog/node-common/servers/base-server'
 import { InternalCaptureService } from '@posthog/node-common/services/internal-capture'
 import { InternalFetchService } from '@posthog/node-common/services/internal-fetch'
 import { QuotaLimiting } from '@posthog/node-common/services/quota-limiting.service'
@@ -59,7 +60,6 @@ import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-co
 import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
 import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
 import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.service'
-import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 
 /**

@@ -4,9 +4,16 @@ import {
     createTransformationsMonitoringService,
 } from '@posthog/hog-engine/cdp/services/monitoring/hog-function-monitoring.service'
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
+import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '@posthog/ingestion/config'
 import { CommonConfig } from '@posthog/node-common/config'
 import { createPosthogRedisConnectionConfig } from '@posthog/node-common/config/redis-pools'
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
+import {
+    BaseServerConfig,
+    CleanupResources,
+    NodeServer,
+    ServerLifecycle,
+} from '@posthog/node-common/servers/base-server'
 import { QuotaLimiting } from '@posthog/node-common/services/quota-limiting.service'
 import {
     UsageIngestionConfig,
@@ -43,9 +50,7 @@ import { RetentionRulesCache } from '~/logs/retention/retention-rules-cache'
 import { SamplingRulesCache } from '~/logs/sampling/sampling-rules-cache'
 import { LogsTransformerService } from '~/logs/transformations/logs-transformer.service'
 
-import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
 import { PluginServerService, RedisPool } from '../types'
-import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
 /**
  * Config type for a standalone logs ingestion deployment.

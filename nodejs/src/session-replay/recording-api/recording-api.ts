@@ -3,6 +3,15 @@ import { ClickHouseClient, createClient as createClickHouseClient } from '@click
 import https from 'https'
 import express from 'ultimate-express'
 
+import { getBlockDecryptor, getBlockEncryptor } from '@posthog/ingestion/pipelines/sessionreplay/shared/crypto/index'
+import { SessionFeatureStore } from '@posthog/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
+import { RedisCachedKeyStore } from '@posthog/ingestion/pipelines/sessionreplay/shared/keystore/cache/index'
+import { getKeyStore } from '@posthog/ingestion/pipelines/sessionreplay/shared/keystore/index'
+import { SessionMetadataStore } from '@posthog/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
+import {
+    ReplayEventsOutput,
+    SessionFeaturesOutput,
+} from '@posthog/ingestion/pipelines/sessionreplay/shared/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
 import { KeyedRateLimiterService } from '@posthog/node-common/services/keyed-rate-limiter.service'
@@ -11,12 +20,6 @@ import { createRedisPoolFromConfig } from '@posthog/node-common/utils/db/redis'
 import { logger, serializeError } from '@posthog/node-common/utils/logger'
 import { captureException } from '@posthog/node-common/utils/posthog'
 
-import { getBlockDecryptor, getBlockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
-import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
-import { getKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
-import { RedisCachedKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore/cache'
-import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService, RedisPool } from '~/types'
 
 import { RecordingApiOp, createRecordingApiAuthMiddleware, createReplayBlocksAuthMiddleware } from './auth'

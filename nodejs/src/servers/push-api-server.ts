@@ -2,6 +2,12 @@ import { Server, createServer } from 'http'
 
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
 import { CommonConfig } from '@posthog/node-common/config'
+import {
+    BaseServerConfig,
+    CleanupResources,
+    NodeServer,
+    ServerLifecycle,
+} from '@posthog/node-common/servers/base-server'
 import { PostgresRouter, PostgresRouterConfig } from '@posthog/node-common/utils/db/postgres'
 import { isProdEnv, isTestEnv } from '@posthog/node-common/utils/env-utils'
 import { GeoIPService } from '@posthog/node-common/utils/geoip'
@@ -16,7 +22,6 @@ import { PushSubscriptionsService } from '~/messaging/push-subscriptions/push-su
 import { RegionBlockCheck, createRegionBlockCheck } from '~/messaging/push-subscriptions/region-block'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService } from '../types'
-import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
 const MAX_IDLE_CONNECTIONS = 1_000
 

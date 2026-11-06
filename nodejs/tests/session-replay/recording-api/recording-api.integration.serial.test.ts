@@ -32,15 +32,21 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { JWT, PosthogJwtAudience } from '@posthog/hog-engine/cdp/utils/jwt-utils'
+import {
+    SodiumRecordingDecryptor,
+    SodiumRecordingEncryptor,
+} from '@posthog/ingestion/pipelines/sessionreplay/shared/crypto/index'
+import { MemoryCachedKeyStore } from '@posthog/ingestion/pipelines/sessionreplay/shared/keystore/cache/index'
+import { DynamoDBKeyStore, MemoryKeyStore } from '@posthog/ingestion/pipelines/sessionreplay/shared/keystore/index'
+import {
+    ReplayEventsOutput,
+    SessionFeaturesOutput,
+} from '@posthog/ingestion/pipelines/sessionreplay/shared/outputs/index'
 import { setupExpressApp } from '@posthog/node-common/api/router'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
-import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
-import { DynamoDBKeyStore, MemoryKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
-import { MemoryCachedKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore/cache'
-import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { RecordingApi } from '~/session-replay/recording-api/recording-api'
 import { RecordingService } from '~/session-replay/recording-api/recording-service'
 import { KeyStore, RecordingApiConfig, SessionKey, SessionKeyDeletedError } from '~/session-replay/recording-api/types'

@@ -1,0 +1,8 @@
+{
+    "src/ingestion/ingestion-consumer.serial.test.ts": 16,
+    "tests/ingestion-general-server.serial.test.ts": 5,
+    "tests/ingestion-logs-server.serial.test.ts": 2,
+    "tests/ingestion-session-replay-server.serial.test.ts": 2,
+    "tests/ingestion-traces-server.serial.test.ts": 2,
+    "tests/ingestion/person-state-batch.serial.test.ts": 15
+}

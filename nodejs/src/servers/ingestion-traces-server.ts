@@ -1,6 +1,13 @@
+import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '@posthog/ingestion/config'
 import { CommonConfig } from '@posthog/node-common/config'
 import { createPosthogRedisConnectionConfig } from '@posthog/node-common/config/redis-pools'
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
+import {
+    BaseServerConfig,
+    CleanupResources,
+    NodeServer,
+    ServerLifecycle,
+} from '@posthog/node-common/servers/base-server'
 import { QuotaLimiting } from '@posthog/node-common/services/quota-limiting.service'
 import {
     UsageIngestionConfig,
@@ -35,9 +42,7 @@ import { createTracesOutputsRegistry } from '~/logs/outputs/registry'
 import { RetentionRulesCache } from '~/logs/retention/retention-rules-cache'
 import { TracingConfigCache } from '~/logs/retention/tracing-config-cache'
 
-import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
 import { PluginServerService, RedisPool } from '../types'
-import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
 /**
  * Config type for a standalone traces ingestion deployment.
