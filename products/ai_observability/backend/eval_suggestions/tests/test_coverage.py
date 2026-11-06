@@ -8,6 +8,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.ai_observability.backend.eval_suggestions.coverage import (
+    MAX_SILENT_EVALUATIONS,
     ExistingEval,
     best_replacement,
     covers,
@@ -66,6 +67,7 @@ def _existing(**overrides: Any) -> ExistingEval:
             False,
         ),
         ("no_condition_sets_match_nothing", _existing(conditions=[]), [], False),
+        ("zero_rollout_never_runs", _existing(conditions=[{**ALL_TRAFFIC[0], "rollout_percentage": 0}]), [], False),
     ]
 )
 def test_covers(_name: str, existing: ExistingEval, filters: list[dict[str, Any]], expected: bool) -> None:
@@ -251,3 +253,12 @@ class TestFetchCoverage(ClickhouseTestMixin, APIBaseTest):
         assert (fix.filter_change.old_value, fix.filter_change.new_value) == ("billng", "billing")
         assert fix.patch is not None
         assert fix.patch["conditions"][0]["properties"][0]["value"] == ["signals"]
+
+    def test_only_the_most_recently_edited_silent_evaluations_are_probed(self) -> None:
+        end = timezone.now() - timedelta(minutes=30)
+        for index in range(MAX_SILENT_EVALUATIONS + 2):
+            self._evaluation(f"Silent {index}", f"gone-{index}")
+
+        coverage = fetch_coverage(self.team, end - timedelta(days=7), end)
+
+        assert len(coverage.fixes) == MAX_SILENT_EVALUATIONS

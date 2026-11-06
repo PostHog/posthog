@@ -6,6 +6,7 @@ weekly failures by severity, uncovered scope and running cost.
 """
 
 import math
+import hashlib
 from collections import Counter
 from collections.abc import Sequence
 from typing import Any
@@ -311,6 +312,34 @@ def code_check_proposal(
     )
 
 
+# What a gap judge checks depends on what the field means: a severity can be overstated, a status or a label wrong.
+GAP_PROMPTS: dict[str, str] = {
+    "urgency": """The output lists {items}, and each has a `{field}` field. Decide whether every item marked {values} deserves that level.
+
+- Return false if any item marked {values} describes a problem that is minor, speculative, or needs unusual conditions to happen
+- Return false if any item marked {values} does not match how that level is defined in the instructions
+- Return true if every item marked {values} is justified, or if no item has that level""",
+    "status": """The output lists {items}, and each has a `{field}` field. Decide whether every item marked {values} really is in that state.
+
+- Return false if the rest of the output or the conversation shows that an item marked {values} is in a different state
+- Return false if any item marked {values} does not match how that state is defined in the instructions
+- Return true if every item marked {values} is in that state, or if no item has it""",
+    "label": """The output lists {items}, and each has a `{field}` field. Decide whether every item labelled {values} fits that label.
+
+- Return false if any item labelled {values} fits another label better, given the rest of the output and the instructions
+- Return true if every item labelled {values} fits it, or if no item has that label""",
+}
+# EvalSuggestion.dedupe_key holds 255 characters, and gap keys carry customer property names.
+MAX_DEDUPE_KEY = 255
+
+
+def bounded_key(key: str) -> str:
+    """The key itself when it fits, else its start plus a hash of the whole, so it stays stable across runs."""
+    if len(key) <= MAX_DEDUPE_KEY:
+        return key
+    return f"{key[:200]}#{hashlib.sha256(key.encode()).hexdigest()[:32]}"
+
+
 def gap_proposal(
     gap: StructuredGap,
     sample: TraceSample,
@@ -322,11 +351,7 @@ def gap_proposal(
     items, field = gap.items, gap.field_name
     values_text = " or ".join(gap.values)
     name = f"{gap.segment_value.capitalize()} {items} marked {values_text}"
-    prompt = f"""The output lists {items}, and each has a `{field}` field. Decide whether every item marked {values_text} deserves that level.
-
-- Return false if any item marked {values_text} describes a problem that is minor, speculative, or needs unusual conditions to happen
-- Return false if any item marked {values_text} does not match how that level is defined in the instructions
-- Return true if every item marked {values_text} is justified, or if no item has that level"""
+    prompt = GAP_PROMPTS[gap.meaning].format(items=items, field=field, values=values_text)
     filters = [segment_filter(gap.segment_key, gap.segment_value, sample.traces)]
     weekly_units = profile.traces * _scope_share(filters, sample.traces)
     unit_tokens = mean_unit_tokens("trace", profile, sample)
@@ -337,7 +362,7 @@ def gap_proposal(
     return Proposal(
         kind=EvalSuggestionKind.NEW_LLM_JUDGE,
         template_key="structured_output_gap",
-        dedupe_key=f"gap:{gap.segment_key}={gap.segment_value}:{gap.field}",
+        dedupe_key=bounded_key(f"gap:{gap.segment_key}={gap.segment_value}:{gap.field}"),
         headline=text.headline,
         outcome=text.outcome,
         reason=text.reason,
