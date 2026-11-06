@@ -7,6 +7,7 @@ The goal is the same result as the in-app setup wizard, with as few messages as 
 
 Call `workflows-setup-status`.
 It returns every setup step with `done`, a `next_step` and an `app_url`, plus `ready_to_send_email` and `email_sending_paused`.
+When `sandbox_sender_only` is true, the project sends only through the PostHog sandbox sender, which delivers only to verified members of the organization. Its row in `integrations-list` has `config.provider` `sandbox`; set its id as the email step's `from.integrationId` and leave `from.email`, `from.name` and `replyTo` empty.
 
 The email steps only matter for workflows that send email.
 An SMS or push workflow sends through its own channel, so do not ask for the email channel or domain when the workflow has no email step.

@@ -1,16 +1,33 @@
-from django.conf import settings
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Literal
 
+from django.conf import settings
+from django.contrib.auth.models import AnonymousUser
+
+import structlog
+
+from posthog.exceptions_capture import capture_exception
 from posthog.integrations import IntegrationManager
 from posthog.models.integration import SANDBOX_EMAIL_INTEGRATION_ID, SANDBOX_EMAIL_PROVIDER
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
 from products.workflows.backend.facade.contracts import SandboxEmailSender, SandboxSenderUnavailable
 
+if TYPE_CHECKING:
+    from posthog.event_usage import AnalyticsProps
+
 SANDBOX_SENDER_FLAG = "workflows-sandbox-sender"
+# pinned: analytics event name - renaming breaks the impact insight
+SANDBOX_SENDER_PROVISIONED_EVENT = "workflows sandbox sender provisioned"
 SANDBOX_SENDER_FALLBACK_NAME = "PostHog sandbox"
 SANDBOX_SENDER_NAME_MAX_LENGTH = 40
 _SANDBOX_SENDER_NAME_PUNCTUATION = frozenset(" .,&'-")
+
+logger = structlog.get_logger(__name__)
+
+SandboxSenderRead = Literal["integrations_list", "setup_status", "data_suggestions"]
 
 
 def _sandbox_sender_display_name(organization_name: str) -> str:
@@ -37,7 +54,7 @@ def _sandbox_sender_configured() -> bool:
     )
 
 
-def _sandbox_sender_enabled(team: Team) -> bool:
+def _sandbox_sender_enabled(team: Team, *, only_evaluate_locally: bool = False) -> bool:
     # Deferred: posthog.permissions pulls DRF and posthog.auth onto the django.setup() path,
     # and the workflows facade imports this module at startup.
     from posthog.permissions import posthog_feature_flag_enabled  # noqa: PLC0415
@@ -47,6 +64,7 @@ def _sandbox_sender_enabled(team: Team) -> bool:
         str(team.uuid),
         organization_id=team.organization_id,
         team_id=team.id,
+        only_evaluate_locally=only_evaluate_locally,
     )
 
 
@@ -54,13 +72,70 @@ def ensure_sandbox_email_sender(team_id: int) -> SandboxEmailSender:
     team = Team.objects.select_related("organization").get(id=team_id)
     if not _sandbox_sender_configured() or not _sandbox_sender_enabled(team):
         raise SandboxSenderUnavailable()
+    return _upsert_sandbox_email_sender(team)
 
+
+def sandbox_email_sender_for_reads(
+    team: Team,
+    *,
+    user: User | AnonymousUser,
+    analytics_props: Callable[[], "AnalyticsProps"],
+    provisioned_by: SandboxSenderRead,
+) -> SandboxEmailSender | None:
+    if not _sandbox_sender_configured():
+        return None
+    try:
+        if not _sandbox_sender_enabled(team, only_evaluate_locally=True):
+            return None
+        sender = _upsert_sandbox_email_sender(team)
+    except Exception as error:
+        logger.exception("workflows.sandbox_sender.ensure_on_read_failed", team_id=team.id)
+        capture_exception(error, {"team_id": team.id})
+        return None
+    if sender.created:
+        try:
+            _report_provisioned_on_read(user, analytics_props, team, provisioned_by)
+        except Exception as error:
+            capture_exception(error, {"team_id": team.id})
+    return sender
+
+
+def has_sandbox_email_sender(team: Team) -> bool:
+    try:
+        return (
+            _sandbox_sender_configured()
+            and _sandbox_sender_enabled(team, only_evaluate_locally=True)
+            and IntegrationManager.email.credentials.find(team.id, external_id=SANDBOX_EMAIL_INTEGRATION_ID) is not None
+        )
+    except Exception as error:
+        capture_exception(error, {"team_id": team.id})
+        return False
+
+
+def _report_provisioned_on_read(
+    user: User | AnonymousUser,
+    analytics_props: Callable[[], "AnalyticsProps"],
+    team: Team,
+    provisioned_by: SandboxSenderRead,
+) -> None:
+    from posthog.event_usage import report_user_action  # noqa: PLC0415
+
+    report_user_action(
+        user,
+        SANDBOX_SENDER_PROVISIONED_EVENT,
+        {"provisioned_by": provisioned_by},
+        team=team,
+        analytics_props=analytics_props(),
+    )
+
+
+def _upsert_sandbox_email_sender(team: Team) -> SandboxEmailSender:
     config = _sandbox_sender_config(team.organization.name)
     senders = IntegrationManager.email.credentials
-    current = senders.find(team_id, external_id=SANDBOX_EMAIL_INTEGRATION_ID)
+    current = senders.find(team.id, external_id=SANDBOX_EMAIL_INTEGRATION_ID)
     if current is not None and current.config == config:
         return SandboxEmailSender(integration_id=current.id, created=False)
-    integration, created = senders.upsert(team_id, SANDBOX_EMAIL_INTEGRATION_ID, config=config)
+    integration, created = senders.upsert(team.id, SANDBOX_EMAIL_INTEGRATION_ID, config=config)
     if not created:
-        reload_integrations_on_workers(team_id, [integration.id])
+        reload_integrations_on_workers(team.id, [integration.id])
     return SandboxEmailSender(integration_id=integration.id, created=created)

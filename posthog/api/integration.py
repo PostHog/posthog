@@ -76,7 +76,7 @@ from posthog.dns_hosts import lookup_dns_host
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.event_usage import report_user_action
+from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord, IntegrationUsage
@@ -163,9 +163,11 @@ from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CO
 from products.tasks.backend.facade.api import get_in_progress_runs_for_github_integration
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
 from products.workflows.backend.facade.api import (
+    SANDBOX_SENDER_PROVISIONED_EVENT,
     SandboxSenderUnavailable,
     ensure_sandbox_email_sender,
     lookup_existing_email_tools,
+    sandbox_email_sender_for_reads,
 )
 from products.workflows.backend.facade.contracts import EmailProviderUnavailableError
 from products.workflows.backend.facade.enums import EmailDomainSetupMethod
@@ -2955,7 +2957,11 @@ class IntegrationViewSet(
             raise NotFound("The sandbox sender is not available for this project.")
         if sandbox_sender.created:
             report_user_action(
-                cast(User, request.user), "workflows sandbox sender provisioned", team=self.team, request=request
+                cast(User, request.user),
+                SANDBOX_SENDER_PROVISIONED_EVENT,
+                {"provisioned_by": "endpoint"},
+                team=self.team,
+                request=request,
             )
         integration = self.get_queryset().get(id=sandbox_sender.integration_id)
         return Response(IntegrationSerializer(integration, context=self.get_serializer_context()).data)
@@ -3174,6 +3180,13 @@ class IntegrationViewSet(
     # Defined last: a method named `list` shadows the builtin for the annotations of every method
     # declared after it in this class body.
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if request.query_params.get("kind") in (None, "", "email"):
+            sandbox_email_sender_for_reads(
+                self.team,
+                user=request.user,
+                analytics_props=lambda: get_request_analytics_properties(request),
+                provisioned_by="integrations_list",
+            )
         # A GitHub row connected while GitHub was flaky may still carry the numeric installation id
         # as its account name. Healing here (throttled inside ensure_account_name) fixes the display
         # everywhere the row is listed, including surfaces that never open the repository picker.

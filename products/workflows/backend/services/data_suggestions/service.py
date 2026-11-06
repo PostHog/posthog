@@ -77,6 +77,7 @@ from products.workflows.backend.services.data_suggestions.stages import (
     classify_event_stages,
 )
 from products.workflows.backend.services.hog_flow_templates import get_function_template_schema, list_step_templates
+from products.workflows.backend.services.sandbox_sender import has_sandbox_email_sender
 
 from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 
@@ -115,6 +116,7 @@ _ONCE_PER_PERSON_STAGES = frozenset({"signup", "onboarding"})
 _MOBILE_FIRST_SHARE = 0.5
 # A project without a verified sender cannot pick one yet, so the field says what to do first.
 NO_SENDER_FIELD = "Email sender (no verified sender yet: add a sending domain under Workflows > Channels)"
+SANDBOX_SENDER_FIELD = "Email sender (the sandbox sender sends only to verified members of your organization)"
 
 
 def get_data_suggestions(*, team: Team) -> DataSuggestionsResult:
@@ -676,8 +678,16 @@ def _missing_inputs(team: Team, workflow: dict[str, Any]) -> tuple[MissingInput,
     return missing_inputs(
         workflow,
         _input_schemas(workflow),
-        sender_field="Email sender" if team_context.has_verified_email_sender(team) else NO_SENDER_FIELD,
+        sender_field=_sender_field(team),
     )
+
+
+def _sender_field(team: Team) -> str:
+    if team_context.has_verified_email_sender(team):
+        return "Email sender"
+    if has_sandbox_email_sender(team):
+        return SANDBOX_SENDER_FIELD
+    return NO_SENDER_FIELD
 
 
 def _input_schemas(workflow: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:

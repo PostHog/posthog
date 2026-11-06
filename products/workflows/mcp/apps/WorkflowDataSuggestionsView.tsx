@@ -17,6 +17,7 @@ export interface WorkflowDataSuggestionsData {
     status: 'ready' | 'generating' | 'ai_not_approved' | 'unavailable'
     suggestions: WorkflowDataSuggestion[]
     email_sender_ready?: boolean
+    sandbox_sender_only?: boolean
 }
 
 export interface WorkflowDataSuggestionMissingInput {
@@ -61,6 +62,11 @@ export function WorkflowDataSuggestionsView({
                 <p className="m-0 text-sm text-muted-foreground">
                     This project can't send email yet. You can create these as drafts now, then add and verify a sending
                     domain under Workflows &gt; Channels before you turn them on.
+                </p>
+            ) : data.sandbox_sender_only ? (
+                <p className="m-0 text-sm text-muted-foreground">
+                    Emails from these workflows send from the sandbox sender, only to verified members of your
+                    organization. Verify a sending domain under Workflows &gt; Channels to email anyone else.
                 </p>
             ) : null}
             {data.suggestions.map((suggestion, index) => (
