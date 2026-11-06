@@ -92,6 +92,8 @@ function ExceptionCardContent({
     const { setCurrentTab } = useActions(exceptionCardLogic)
     const logsEnabled = useFeatureFlag('LOGS_IN_ERROR_TRACKING')
     const openTraceDialog = useOpenTraceDialog()
+    const usableTraceId = usableId(traceId)
+    const usableSpanId = usableId(spanId)
     const headerRef = useRef<HTMLDivElement>(null)
 
     // Base UI scrolls the active tab into view on mount and on keyboard navigation, but not when the
@@ -197,23 +199,22 @@ function ExceptionCardContent({
                             )}
                         </TabsList>
                         <div className="flex justify-end gap-1">
-                            <ViewTraceButton
-                                traceId={usableId(traceId)}
-                                spanId={usableId(spanId)}
-                                timestamp={timestamp}
-                                size="xsmall"
-                                data-attr="error-tracking-view-trace"
-                                onClick={(event) => {
-                                    const usableTraceId = usableId(traceId)
-                                    if (usableTraceId) {
+                            {usableTraceId && (
+                                <ViewTraceButton
+                                    traceId={usableTraceId}
+                                    spanId={usableSpanId}
+                                    timestamp={timestamp}
+                                    size="xsmall"
+                                    data-attr="error-tracking-view-trace"
+                                    onClick={(event) =>
                                         openTraceDialog(
                                             event,
-                                            { traceId: usableTraceId, spanId: usableId(spanId), ts: timestamp },
-                                            { entryPoint: 'exception' }
+                                            { traceId: usableTraceId, spanId: usableSpanId, ts: timestamp },
+                                            { entryPoint: 'exception_card' }
                                         )
                                     }
-                                }}
-                            />
+                                />
+                            )}
                             {sessionId && (currentTab === 'timeline' || currentTab === 'recording') ? (
                                 <ViewLogsButton
                                     sessionId={sessionId}
