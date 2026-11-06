@@ -10,6 +10,8 @@ from django.http import HttpRequest, HttpResponse, QueryDict
 from django.shortcuts import redirect
 from django.urls import reverse
 
+import structlog
+
 from posthog.admin.console.panels import Owner, Tone
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import (
@@ -44,6 +46,8 @@ from products.cdp.backend.services.invocation_replay import (
     release_replay_claim,
 )
 from products.cdp.backend.tasks.invocation_replay import dispatch_invocation_replay
+
+logger = structlog.get_logger(__name__)
 
 WORKFLOWS = Owner(name="Workflows", crest="workflows")
 TOOL_KEY = "replay-failed-runs"
@@ -428,7 +432,10 @@ class ReplayFailedRunsTool(ConsoleTool):
             messages.error(request, "The filters are not valid, so nothing was sent. Review them again.")
             return HttpResponse(status=400)
         plan = plan_replay(filters.to_criteria())
+        # The console's audit line ends in a redirect for a send, a refusal and an "already sent" alike.
+        audit = logger.bind(fingerprint=plan.fingerprint, actor=f"admin:{request.user.pk}")
         if form.cleaned_data["fingerprint"] != plan.fingerprint:
+            audit.info("cdp_replay_send_refused", reason="plan_changed")
             messages.error(request, "The runs changed since you reviewed them, so nothing was sent. Review them again.")
             return redirect(_tool_url(_filters_query(request, step="details")))
         typed = form.cleaned_data["confirm_count"].replace(",", "").strip()
@@ -438,10 +445,14 @@ class ReplayFailedRunsTool(ConsoleTool):
         try:
             sent = dispatch_invocation_replay(plan, actor=f"admin:{request.user.pk}")
         except ReplayOverlapError as error:
+            audit.info("cdp_replay_send_refused", reason="overlap")
             messages.error(request, f"{error} Nothing was sent.")
             return HttpResponse(status=409)
         if not sent:
+            audit.info("cdp_replay_send_refused", reason="already_sent")
             messages.warning(request, "This plan was already sent, so it was not sent again.")
+            return redirect(_tool_url({"plan": plan.fingerprint}))
+        audit.info("cdp_replay_send_dispatched", runs=plan.invocation_count)
         return redirect(_tool_url({"plan": plan.fingerprint}))
 
     def _allow_resend(self, request: HttpRequest, form: forms.Form | None) -> HttpResponse | None:
@@ -469,7 +480,11 @@ class ReplayFailedRunsTool(ConsoleTool):
                 )
             ]
         # The details page links here with the plan staff reviewed, so the send compares against that plan.
+        # Only the operation page offers it: links back to the tool keep the query, and a details page planned
+        # again must not show a send for the plan reviewed before.
         if "window_start" not in request.GET or "reviewed" not in request.GET:
+            return []
+        if request.resolver_match is None or request.resolver_match.url_name != "admin_console_tool_operation":
             return []
         runs = request.GET.get("runs", "")
         description = ""

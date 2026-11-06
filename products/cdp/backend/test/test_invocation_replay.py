@@ -517,10 +517,12 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
         with patch("products.cdp.backend.tasks.invocation_replay.run_invocation_replay") as task:
             preview = Client(enforce_csrf_checks=True)
             preview.force_login(self.user)
-            response = preview.get(f"{self.url}{self.query}")
+            # Cancel on the send page comes back with the reviewed plan still in the query.
+            response = preview.get(f"{self.url}{self.query}&reviewed=0000000000000000&runs=2")
 
         assert response.status_code == 200
         assert "Nothing has been sent yet" in response.content.decode()
+        assert response.context["operations"] == []
         task.delay.assert_not_called()
 
     @patch("products.cdp.backend.tasks.invocation_replay.run_invocation_replay")
