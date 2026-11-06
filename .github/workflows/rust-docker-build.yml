@@ -88,7 +88,7 @@ jobs:
             timeout-minutes: 30
             require-ecr: ${{ vars.CD_DEPLOY_ENABLED == 'true' }}
         secrets:
-            AWS_ECR_SHARED_SERVICES_PUBLISH_IAM_ROLE: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+            AWS_ECR_SHARED_SERVICES_PUBLISH_IAM_ROLE: ${{ vars.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
             POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
             POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
             # Deliberately reuses the frontend sourcemap upload key: sourcemaps and
@@ -367,7 +367,7 @@ jobs:
               if: ${{ steps.ordered-release.outputs.tag != '' && matrix.registry == 'ecr' }}
               uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
               with:
-                  role-to-assume: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  role-to-assume: ${{ vars.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
                   aws-region: us-east-1
 
             - name: Login to the shared-services ECR
