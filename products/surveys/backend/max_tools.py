@@ -305,6 +305,7 @@ def _build_schedule_fields(
     iteration_frequency_days: int | None,
     current_iteration_count: int | None = None,
     current_iteration_frequency_days: int | None = None,
+    current_repeat_until_stopped: bool | None = False,
 ) -> dict[str, Any]:
     # Iteration values alone configure repeats, the same as in the survey API serializer
     if schedule is None and (iteration_count is not None or iteration_frequency_days is not None):
@@ -312,17 +313,30 @@ def _build_schedule_fields(
     if schedule is None:
         return {}
     if schedule == Survey.Schedule.RECURRING:
-        iteration_count = iteration_count or current_iteration_count or DEFAULT_ITERATION_COUNT
         iteration_frequency_days = (
             iteration_frequency_days or current_iteration_frequency_days or DEFAULT_ITERATION_FREQUENCY_DAYS
         )
+        if iteration_count is None and current_repeat_until_stopped:
+            return {
+                "schedule": schedule,
+                "iteration_count": None,
+                "iteration_frequency_days": iteration_frequency_days,
+                "repeat_until_stopped": True,
+            }
+        iteration_count = iteration_count or current_iteration_count or DEFAULT_ITERATION_COUNT
         return {
             "schedule": schedule,
             "iteration_count": min(iteration_count, MAX_ITERATION_COUNT),
             "iteration_frequency_days": iteration_frequency_days,
+            "repeat_until_stopped": False,
         }
     # The iteration columns drive repeats on their own, so clear them for non-recurring schedules
-    return {"schedule": schedule, "iteration_count": None, "iteration_frequency_days": None}
+    return {
+        "schedule": schedule,
+        "iteration_count": None,
+        "iteration_frequency_days": None,
+        "repeat_until_stopped": False,
+    }
 
 
 def _always_schedule_warning(survey_type: str, schedule: str | None, conditions: dict[str, Any] | None) -> str:
@@ -795,6 +809,7 @@ class EditSurveyTool(MaxTool):
                     iteration_frequency_days,
                     current_iteration_count=survey.iteration_count,
                     current_iteration_frequency_days=survey.iteration_frequency_days,
+                    current_repeat_until_stopped=survey.repeat_until_stopped,
                 )
             )
 

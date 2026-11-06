@@ -77105,6 +77105,11 @@ export namespace Schemas {
          * @nullable
          */
       iteration_frequency_days?: number | null;
+      /**
+         * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+         * @nullable
+         */
+      repeat_until_stopped?: boolean | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
@@ -89503,7 +89508,7 @@ export namespace Schemas {
        * * `external_survey` - external survey
        * * `api` - api */
       type?: SurveyTypeEnum;
-      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
+      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat every iteration_frequency_days, either iteration_count times or until stopped (repeat_until_stopped), 'always' = show every time conditions are met (mainly for widget surveys)
        *
        * * `once` - once
        * * `recurring` - recurring
@@ -89668,7 +89673,7 @@ export namespace Schemas {
          */
       responses_limit?: number | null;
       /**
-         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it.
          * @minimum 1
          * @maximum 500
          * @nullable
@@ -89681,6 +89686,11 @@ export namespace Schemas {
          * @nullable
          */
       iteration_frequency_days?: number | null;
+      /**
+         * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+         * @nullable
+         */
+      repeat_until_stopped?: boolean | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
@@ -111199,6 +111209,11 @@ export namespace Schemas {
          * @nullable
          */
       iteration_frequency_days?: number | null;
+      /**
+         * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+         * @nullable
+         */
+      repeat_until_stopped?: boolean | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
@@ -111256,7 +111271,7 @@ export namespace Schemas {
        * * `external_survey` - external survey
        * * `api` - api */
       type: SurveyTypeEnum;
-      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
+      /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat every iteration_frequency_days, either iteration_count times or until stopped (repeat_until_stopped), 'always' = show every time conditions are met (mainly for widget surveys)
        *
        * * `once` - once
        * * `recurring` - recurring
@@ -111421,7 +111436,7 @@ export namespace Schemas {
          */
       responses_limit?: number | null;
       /**
-         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+         * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it.
          * @minimum 1
          * @maximum 500
          * @nullable
@@ -111434,6 +111449,11 @@ export namespace Schemas {
          * @nullable
          */
       iteration_frequency_days?: number | null;
+      /**
+         * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+         * @nullable
+         */
+      repeat_until_stopped?: boolean | null;
       /** @nullable */
       iteration_start_dates?: (string | null)[] | null;
       /**
@@ -123304,6 +123324,7 @@ export namespace Schemas {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `OrganizationIPRestrictions` - OrganizationIPRestrictions
      * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
@@ -123426,6 +123447,7 @@ export namespace Schemas {
       LegalDocument: 'LegalDocument',
       Organization: 'Organization',
       OrganizationDomain: 'OrganizationDomain',
+      OrganizationIPRestrictions: 'OrganizationIPRestrictions',
       IdentityProviderConfig: 'IdentityProviderConfig',
       OrganizationMembership: 'OrganizationMembership',
       Role: 'Role',
@@ -123534,6 +123556,7 @@ export namespace Schemas {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `OrganizationIPRestrictions` - OrganizationIPRestrictions
      * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
@@ -123644,6 +123667,7 @@ export namespace Schemas {
       LegalDocument: 'LegalDocument',
       Organization: 'Organization',
       OrganizationDomain: 'OrganizationDomain',
+      OrganizationIPRestrictions: 'OrganizationIPRestrictions',
       IdentityProviderConfig: 'IdentityProviderConfig',
       OrganizationMembership: 'OrganizationMembership',
       Role: 'Role',
