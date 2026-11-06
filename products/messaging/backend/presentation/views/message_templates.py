@@ -1342,7 +1342,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     def smtp_check(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         _require_flag(self.team, SMTP_RELAY_FLAG)
         require_email_from_code(self.team)
-        return Response({"team_id": self.team_id})
+        return Response(SmtpCheckResponseSerializer({"team_id": self.team_id}).data)
 
     def _send_code_email(self, request: Any) -> Response:
         with transactional_email_stage("feature_flag"):

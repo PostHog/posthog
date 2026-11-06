@@ -1,5 +1,4 @@
-import { execFileSync } from 'child_process'
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import net from 'net'
 import nodemailer from 'nodemailer'
 import { tmpdir } from 'os'
@@ -7,6 +6,7 @@ import { join } from 'path'
 import { TLSSocket, connect as tlsConnect } from 'tls'
 
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { createTestTlsIdentity } from '~/tests/helpers/tls'
 
 import { CdpConfig } from '../config'
 import { SmtpRelayService } from './smtp-relay.service'
@@ -34,19 +34,12 @@ describe('SmtpRelayService', () => {
     const firstLine = (socket: net.Socket): Promise<string> =>
         new Promise((resolve) => socket.once('data', (data) => resolve(data.toString().split('\r\n')[0])))
 
-    beforeAll(() => {
+    beforeAll(async () => {
         directory = mkdtempSync(join(tmpdir(), 'smtp-relay-test-'))
-        // nosemgrep: trailofbits.generic.openssl-insecure-flags.openssl-insecure-flags
-        execFileSync(
-            'openssl',
-            ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=localhost'].concat([
-                '-keyout',
-                join(directory, 'tls.key'),
-                '-out',
-                join(directory, 'tls.crt'),
-            ]),
-            { stdio: 'ignore' }
-        )
+        const identity = await createTestTlsIdentity('localhost')
+        writeFileSync(join(directory, 'tls.key'), identity.privateKey)
+        writeFileSync(join(directory, 'tls.crt'), identity.certificate)
+        await identity.cleanup()
     })
 
     afterAll(() => {
