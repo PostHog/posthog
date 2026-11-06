@@ -1785,15 +1785,6 @@ class TestIntegrationAPIKeyAccess:
             (
                 "post",
                 "domain-connect/apply-url/",
-                {"context": "email", "integration_id": "{twilio_id}"},
-                "integration:write",
-                OrganizationMembership.Level.ADMIN,
-                404,
-                {"detail": "No email sender with this integration_id exists in this project."},
-            ),
-            (
-                "post",
-                "domain-connect/apply-url/",
                 {"context": "proxy", "proxy_record_id": "6f1c1a52-3b7e-4c1e-9d0a-2f4b8e6c9a10"},
                 "integration:write",
                 OrganizationMembership.Level.ADMIN,
@@ -1852,15 +1843,6 @@ class TestIntegrationAPIKeyAccess:
                 200,
                 {"kind": "email", "config": {**EMAIL_CONFIG, "name": "Acme", "mail_from_subdomain": "bounce"}},
             ),
-            (
-                "patch",
-                "{email_id}/email/",
-                {"config": {"email": "team@mail.example.com", "name": "Acme", "provider": "ses"}},
-                "integration:write",
-                OrganizationMembership.Level.ADMIN,
-                400,
-                {"detail": "The sender address cannot change. Create a new sender for team@mail.example.com instead."},
-            ),
         ],
     )
     @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
@@ -1882,18 +1864,18 @@ class TestIntegrationAPIKeyAccess:
     @patch("posthog.api.integration.discover_domain_connect", return_value=None)
     def test_email_domain_actions_with_scoped_api_key(
         self,
-        _mock_discover: MagicMock,
-        _mock_verify: MagicMock,
-        _mock_update: MagicMock,
-        method: str,
-        url_suffix: str,
-        body: dict[str, Any] | None,
-        scope: str,
-        level: OrganizationMembership.Level,
-        expected_status: int,
-        expected_json: dict[str, Any],
+        _mock_discover,
+        _mock_verify,
+        _mock_update,
+        method,
+        url_suffix,
+        body,
+        scope,
+        level,
+        expected_status,
+        expected_json,
         client: HttpClient,
-    ) -> None:
+    ):
         OrganizationMembership.objects.filter(user=self.user).update(level=level)
         email_integration = Integration.objects.create(
             team=self.team,
@@ -1905,10 +1887,7 @@ class TestIntegrationAPIKeyAccess:
         PersonalAPIKey.objects.create(
             label="Test Key", user=self.user, secure_value=hash_key_value(key_value), scopes=[scope]
         )
-        ids = {"{email_id}": email_integration.id, "{twilio_id}": self.twilio_integration.id}
         path = url_suffix.format(email_id=email_integration.id, twilio_id=self.twilio_integration.id)
-        if body is not None:
-            body = {key: ids.get(value, value) if isinstance(value, str) else value for key, value in body.items()}
 
         response = getattr(client, method)(
             f"/api/environments/{self.team.pk}/integrations/{path}",

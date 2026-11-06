@@ -318,16 +318,12 @@ def simulated_email_domains(domains: SimulatedEmailDomains = SIMULATED_EMAIL_DOM
     original_signing_key = domain_connect.get_signing_key
     eval_signing_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
-    def resolver_method(
-        resolver: dns.resolver.Resolver, qname: Any, rdtype: Any = "A", *args: Any, **kwargs: Any
-    ) -> list[dns.rdata.Rdata] | dns.resolver.Answer:
+    def resolver_method(resolver: dns.resolver.Resolver, qname: Any, rdtype: Any = "A", *args: Any, **kwargs: Any):
         if domains.covers(str(qname)):
             return _simulated_answers(domains, qname, rdtype)
         return original_resolver_method(resolver, qname, rdtype, *args, **kwargs)
 
-    def resolve(
-        qname: Any, rdtype: Any = "A", *args: Any, **kwargs: Any
-    ) -> list[dns.rdata.Rdata] | dns.resolver.Answer:
+    def resolve(qname: Any, rdtype: Any = "A", *args: Any, **kwargs: Any):
         if domains.covers(str(qname)):
             return _simulated_answers(domains, qname, rdtype)
         return original_resolve(qname, rdtype, *args, **kwargs)

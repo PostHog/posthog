@@ -242,7 +242,9 @@ def resolve_email_context(integration_id: int, team_id: int) -> DomainConnectCon
     """
     from posthog.models.integration import EmailIntegration, Integration
 
-    instance = Integration.objects.get(id=integration_id, team_id=team_id, kind="email")
+    instance = Integration.objects.get(id=integration_id, team_id=team_id)
+    if instance.kind != "email":
+        raise ValueError("Integration must be of kind 'email'")
 
     email_integration = EmailIntegration(instance)
     verification_result = email_integration.verify()

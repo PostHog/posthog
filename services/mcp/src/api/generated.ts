@@ -37342,7 +37342,7 @@ export namespace Schemas {
     }
 
     /**
-     * * `verification` - Domain ownership or SPF
+     * * `verification` - Domain ownership
      * * `dkim` - DKIM signing
      * * `mail_from` - Custom MAIL FROM
      * * `dmarc` - DMARC policy
@@ -37384,9 +37384,9 @@ export namespace Schemas {
     } as const;
 
     export interface EmailDomainDnsRecord {
-      /** What the record is for: domain ownership or the sending domain's SPF, DKIM signing, the custom MAIL FROM domain, or DMARC.
+      /** What the record proves: domain ownership, DKIM signing, the custom MAIL FROM domain, or DMARC.
        *
-       * * `verification` - Domain ownership or SPF
+       * * `verification` - Domain ownership
        * * `dkim` - DKIM signing
        * * `mail_from` - Custom MAIL FROM
        * * `dmarc` - DMARC policy */

@@ -82,9 +82,7 @@ const integrationsChannelsRetrieve = (): ToolBase<
 
 const IntegrationsDomainConnectApplyUrlCreateSchema = () => {
     const IntegrationsDomainConnectApplyUrlCreateBody = orvalSchemas.IntegrationsDomainConnectApplyUrlCreateBody()
-    return IntegrationsDomainConnectApplyUrlCreateBody.extend({
-        integration_id: IntegrationsDomainConnectApplyUrlCreateBody.shape['integration_id'].nonoptional(),
-    })
+    return IntegrationsDomainConnectApplyUrlCreateBody
 }
 
 const integrationsDomainConnectApplyUrlCreate = (): ToolBase<
@@ -99,8 +97,14 @@ const integrationsDomainConnectApplyUrlCreate = (): ToolBase<
     ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.context !== undefined) {
+            body['context'] = params.context
+        }
         if (params.integration_id !== undefined) {
             body['integration_id'] = params.integration_id
+        }
+        if (params.proxy_record_id !== undefined) {
+            body['proxy_record_id'] = params.proxy_record_id
         }
         if (params.redirect_uri !== undefined) {
             body['redirect_uri'] = params.redirect_uri
@@ -108,7 +112,6 @@ const integrationsDomainConnectApplyUrlCreate = (): ToolBase<
         if (params.provider_endpoint !== undefined) {
             body['provider_endpoint'] = params.provider_endpoint
         }
-        body['context'] = 'email'
         const result = await context.api.request<Schemas.DomainConnectApplyUrlResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/domain-connect/apply-url/`,
