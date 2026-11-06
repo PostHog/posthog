@@ -678,7 +678,7 @@ class TestBillingManager(BaseTest):
         )
         no_package: dict[str, Any] = {"billing_plan": "paid", "products": _NO_PACKAGE_PRODUCTS}
 
-        def sync(computed_at: str, customer: dict[str, Any]) -> list[Any]:
+        def sync(computed_at: str | None, customer: dict[str, Any]) -> list[Any]:
             with (
                 patch(
                     "products.data_modeling.backend.tasks.reconcile_organization_schedules"
@@ -694,6 +694,7 @@ class TestBillingManager(BaseTest):
         sync("2026-11-01T00:00:00+00:00", no_package)
         assert sync("2026-11-03T00:00:00+00:00", {"billing_plan": "scale"}) == [call(str(organization.id))]
         assert sync("2026-11-02T00:00:00+00:00", no_package) == []
+        assert sync(None, no_package) == []
         assert sync("2026-11-04T00:00:00+00:00", no_package) == [call(str(organization.id))]
 
     def test_update_org_details_keeps_logs_retention_while_entitled(self):
