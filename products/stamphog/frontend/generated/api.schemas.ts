@@ -258,6 +258,11 @@ export const ReviewModeEnumApi = {
     Label: 'label',
 } as const
 
+/**
+ * On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual.
+ */
+export type StamphogRepoConfigApiRoutingForkLabels = { [key: string]: string }
+
 export interface StamphogRepoConfigApi {
     readonly id: string
     /** SCM provider this config talks to. Defaults to 'github'. */
@@ -283,8 +288,10 @@ export interface StamphogRepoConfigApi {
      * * `always` - Always
      * * `fallback` - When stamphog does not approve */
     readonly routing_mode: RoutingModeEnumApi
+    /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. */
+    readonly routing_fork_labels: StamphogRepoConfigApiRoutingForkLabels
     /**
-     * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label or routing_mode.
+     * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode or routing_fork_labels.
      * @nullable
      */
     readonly user_access_level: string | null
@@ -300,6 +307,11 @@ export interface PaginatedStamphogRepoConfigListApi {
     previous?: string | null
     results: StamphogRepoConfigApi[]
 }
+
+/**
+ * On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label.
+ */
+export type StamphogRepoConfigWriteApiRoutingForkLabels = { [key: string]: string }
 
 /**
  * Input shape for creating/updating a repo config.
@@ -335,7 +347,14 @@ export interface StamphogRepoConfigWriteApi {
      * * `always` - Always
      * * `fallback` - When stamphog does not approve */
     routing_mode?: RoutingModeEnumApi
+    /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label. */
+    routing_fork_labels?: StamphogRepoConfigWriteApiRoutingForkLabels
 }
+
+/**
+ * On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label.
+ */
+export type PatchedStamphogRepoConfigWriteApiRoutingForkLabels = { [key: string]: string }
 
 /**
  * Input shape for creating/updating a repo config.
@@ -371,6 +390,8 @@ export interface PatchedStamphogRepoConfigWriteApi {
      * * `always` - Always
      * * `fallback` - When stamphog does not approve */
     routing_mode?: RoutingModeEnumApi
+    /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label. */
+    routing_fork_labels?: PatchedStamphogRepoConfigWriteApiRoutingForkLabels
 }
 
 /**

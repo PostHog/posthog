@@ -75931,6 +75931,11 @@ export namespace Schemas {
       Label: 'label',
     } as const;
 
+    /**
+     * On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual.
+     */
+    export type StamphogRepoConfigRoutingForkLabels = {[key: string]: string};
+
     export interface StamphogRepoConfig {
       readonly id: string;
       /** SCM provider this config talks to. Defaults to 'github'. */
@@ -75956,8 +75961,10 @@ export namespace Schemas {
        * * `always` - Always
        * * `fallback` - When stamphog does not approve */
       readonly routing_mode: RoutingModeEnum;
+      /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. */
+      readonly routing_fork_labels: StamphogRepoConfigRoutingForkLabels;
       /**
-         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label or routing_mode.
+         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode or routing_fork_labels.
          * @nullable
          */
       readonly user_access_level: string | null;
@@ -88049,6 +88056,11 @@ export namespace Schemas {
     }
 
     /**
+     * On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label.
+     */
+    export type PatchedStamphogRepoConfigWriteRoutingForkLabels = {[key: string]: string};
+
+    /**
      * Input shape for creating/updating a repo config.
      *
      * Separate from the read serializer because the contract is an output shape: it carries a
@@ -88082,6 +88094,8 @@ export namespace Schemas {
        * * `always` - Always
        * * `fallback` - When stamphog does not approve */
       routing_mode?: RoutingModeEnum;
+      /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label. */
+      routing_fork_labels?: PatchedStamphogRepoConfigWriteRoutingForkLabels;
     }
 
     export type PatchedSubscriptionWriteContextsItem = {
@@ -109561,6 +109575,11 @@ export namespace Schemas {
     }
 
     /**
+     * On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label.
+     */
+    export type StamphogRepoConfigWriteRoutingForkLabels = {[key: string]: string};
+
+    /**
      * Input shape for creating/updating a repo config.
      *
      * Separate from the read serializer because the contract is an output shape: it carries a
@@ -109594,6 +109613,8 @@ export namespace Schemas {
        * * `always` - Always
        * * `fallback` - When stamphog does not approve */
       routing_mode?: RoutingModeEnum;
+      /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label. */
+      routing_fork_labels?: StamphogRepoConfigWriteRoutingForkLabels;
     }
 
     export interface StamphogRoutingFile {

@@ -96,6 +96,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("review_mode", {"review_mode": ReviewMode.ALL}),
             ("trigger_label", {"trigger_label": "review-me"}),
             ("routing_mode", {"routing_mode": RoutingMode.FALLBACK}),
+            ("routing_fork_labels", {"routing_fork_labels": {"team-alpha": "area: alpha"}}),
         ]
     )
     def test_member_cannot_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
@@ -173,6 +174,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         [
             ("turns_reviews_off", {"enabled": False}),
             ("turns_reviewer_requests_on", {"routing_mode": RoutingMode.FALLBACK}),
+            ("sets_fork_labels", {"routing_fork_labels": {"team-alpha": "area: alpha"}}),
         ]
     )
     def test_member_granted_manager_can_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
@@ -656,6 +658,27 @@ class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["digest_enabled"] is False
 
+    @parameterized.expand(
+        [
+            ("person_key", {"@alice": "area: alice"}, False),
+            ("blank_label", {"team-alpha": "  "}, False),
+            ("label_too_long_for_github", {"team-alpha": "x" * 51}, False),
+            ("too_many_teams", {f"team-{index}": "area" for index in range(101)}, False),
+            ("clears_every_label", {}, True),
+        ]
+    )
+    def test_fork_labels_take_only_team_slugs_and_github_label_names(
+        self, _name: str, labels: dict[str, str], valid: bool
+    ) -> None:
+        serializer = StamphogRepoConfigWriteSerializer(
+            data={"routing_fork_labels": labels},
+            partial=True,
+            partial_update=True,
+            current=_repo_config_dto(enabled=True, digest_enabled=False),
+        )
+
+        assert serializer.is_valid() is valid, serializer.errors
+
 
 class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
@@ -1059,6 +1082,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             review_mode=ReviewMode.ALL,
             trigger_label="nobody-uses-this",
             routing_mode=RoutingMode.ALWAYS,
+            routing_fork_labels={"team-alpha": "area: alpha"},
         )
         response = self.client.post(
             self.url, {"installation_id": "42", "code": "oauth-code", "state": self.state}, format="json"
@@ -1075,6 +1099,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert manual.review_mode == ReviewMode.LABEL
         assert manual.trigger_label == StamphogRepoConfig._meta.get_field("trigger_label").get_default()
         assert manual.routing_mode == RoutingMode.OFF
+        assert manual.routing_fork_labels == {}
 
     @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
