@@ -140,7 +140,12 @@ export function computeFlameColors(
             slots.set(key, slot)
         }
         fills[i] = slotFills[slot]
-        selfByKey.set(key, (selfByKey.get(key) ?? 0) + tree.self[i])
+        // Laid-out widths, because concurrent children are scaled down to fit their parent.
+        let selfWidth = tree.x1[i] - tree.x0[i]
+        for (let c = tree.childStart[i], end = c + tree.childCount[i]; c < end; c++) {
+            selfWidth -= tree.x1[c] - tree.x0[c]
+        }
+        selfByKey.set(key, (selfByKey.get(key) ?? 0) + Math.max(0, selfWidth))
     }
 
     const legend: LegendItem[] =
@@ -149,8 +154,7 @@ export function computeFlameColors(
                   key,
                   label: key,
                   color: slotFills[slot],
-                  secondaryLabel:
-                      tree.totalValue > 0 ? formatShare((selfByKey.get(key) ?? 0) / tree.totalValue) : undefined,
+                  secondaryLabel: tree.totalValue > 0 ? formatShare(selfByKey.get(key) ?? 0) : undefined,
               })).sort((a, b) => (selfByKey.get(b.key) ?? 0) - (selfByKey.get(a.key) ?? 0))
             : []
     return { fills, marks, legend }

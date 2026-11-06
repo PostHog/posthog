@@ -23,6 +23,7 @@ export interface LabelFitter {
 export function createLabelFitter(): LabelFitter {
     let charWidth = 0
     const widths = new Map<string, number>()
+    const fitted = new Map<string, { available: number; label: string }>()
 
     const measure = (ctx: CanvasRenderingContext2D, text: string): number => {
         let width = widths.get(text)
@@ -53,8 +54,17 @@ export function createLabelFitter(): LabelFitter {
         if (measure(ctx, text) <= available) {
             return text
         }
-        const label = truncateToWidth(text, available, LABEL_FONT)
-        return label === ELLIPSIS ? '' : label
+        const hit = fitted.get(text)
+        if (hit?.available === available) {
+            return hit.label
+        }
+        const truncated = truncateToWidth(text, available, LABEL_FONT)
+        const label = truncated === ELLIPSIS ? '' : truncated
+        if (fitted.size >= MAX_CACHED_WIDTHS) {
+            fitted.clear()
+        }
+        fitted.set(text, { available, label })
+        return label
     }
 
     return { font: LABEL_FONT, fit }

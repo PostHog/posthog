@@ -232,7 +232,7 @@ export function buildFlameTree<Meta>(data: FlameNode<Meta> | FlameNode<Meta>[]):
 }
 
 function idSegment(tree: FlameTree<unknown>, index: number): string {
-    const name = String(tree.nodes[index].name ?? '')
+    const name = String(tree.nodes[index].name ?? '').replace(/[\\/#]/g, '\\$&')
     const suffix = tree.nameSuffix[index]
     return suffix > 0 ? `${name}#${suffix}` : name
 }

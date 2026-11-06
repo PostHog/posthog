@@ -86,12 +86,16 @@ describe('flame layout', () => {
 
     it('gives repeated sibling names distinct ids and skips a node object reached twice', () => {
         const shared: FlameNode = { name: 'dup', value: 1 }
-        const cyclic: FlameNode = { name: 'loop', value: 4, children: [shared, { name: 'dup', value: 1 }] }
+        const cyclic: FlameNode = {
+            name: 'loop',
+            value: 4,
+            children: [shared, { name: 'dup', value: 1 }, { name: 'dup#2', value: 1 }],
+        }
         cyclic.children!.push(cyclic, shared)
         const tree = buildFlameTree(cyclic)
         const ids = Array.from({ length: tree.size }, (_, i) => nodeId(tree, i))
-        expect(ids).toEqual(['loop', 'loop/dup', 'loop/dup#2'])
-        expect(ids.map((id) => indexOfId(tree, id))).toEqual([0, 1, 2])
+        expect(ids).toEqual(['loop', 'loop/dup', 'loop/dup#2', 'loop/dup\\#2'])
+        expect(ids.map((id) => indexOfId(tree, id))).toEqual([0, 1, 2, 3])
     })
 
     it('resolves ids through names that contain a slash and below nodes that bring their own id', () => {
@@ -99,7 +103,14 @@ describe('flame layout', () => {
             name: 'root',
             value: 10,
             children: [
-                { name: 'a', value: 2, children: [{ name: 'c', value: 1 }] },
+                {
+                    name: 'a',
+                    value: 2,
+                    children: [
+                        { name: 'c', value: 1 },
+                        { name: 'b', value: 1 },
+                    ],
+                },
                 { name: 'a/b', value: 3 },
                 { name: 'span', id: 'trace:42', value: 4, children: [{ name: 'db', value: 2 }] },
                 { name: 'span', id: 'trace:42', value: 1 },
@@ -108,7 +119,8 @@ describe('flame layout', () => {
         const repeated = indexOfId(tree, 'root/span')!
         expect(tree.nodes[repeated].value).toBe(1)
         expect(nodeId(tree, repeated)).toBe('root/span')
-        expect(tree.nodes[indexOfId(tree, 'root/a/b')!].name).toBe('a/b')
+        expect(tree.nodes[indexOfId(tree, 'root/a\\/b')!].name).toBe('a/b')
+        expect(tree.nodes[indexOfId(tree, 'root/a/b')!].name).toBe('b')
         expect(tree.nodes[indexOfId(tree, 'root/a/c')!].name).toBe('c')
         expect(indexOfId(tree, 'trace:42/db')).toBe(tree.size - 1)
         expect(nodeId(tree, tree.size - 1)).toBe('trace:42/db')

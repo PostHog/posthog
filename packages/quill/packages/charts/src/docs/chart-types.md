@@ -198,6 +198,7 @@ There is no `series` or `labels`.
   Children that add up to more than their parent (concurrent spans in a trace) scale down to fit inside it, and the parent's self value is then 0.
   Widths use the larger of `value` and `baselineValue`, so a node present in only one window still gets room.
 - Ids default to the path of names from the root (`main/parse/lex`), with `#2`, `#3` appended to repeated sibling names.
+  A `/`, `#` or `\` inside a name is escaped with `\`, so `src/app.ts` under `main` has the id `main/src\/app.ts`.
   Set `id` when names repeat and the host needs a stable key, for `defaultFocusedId` or its own state.
   Only the first node with a given `id` keeps it, and later ones fall back to their path, so a key that repeats under several callers still zooms to the node clicked.
   The focus is kept by id, so it survives a data update that still has the node.

@@ -152,6 +152,23 @@ describe('FlameGraph', () => {
         ])
     })
 
+    it('measures legend shares on the laid-out widths, so concurrent children cannot pass 100%', () => {
+        const data: FlameNode = {
+            name: 'main',
+            value: 100,
+            group: 'app',
+            children: [
+                { name: 'query', value: 100, group: 'db' },
+                { name: 'render', value: 100, group: 'app' },
+            ],
+        }
+        const { chart } = renderFlame({ data })
+        expect(chart.legendItems()).toEqual([
+            { label: 'app', secondaryLabel: '50%' },
+            { label: 'db', secondaryLabel: '50%' },
+        ])
+    })
+
     it('opens on defaultFocusedId only on mount and summarizes search matches', () => {
         const { chart, rerender } = renderFlame({ defaultFocusedId: 'root/a', search: 'A' })
         expect(chart.flame.breadcrumb()).toEqual(['All', 'root', 'a'])
