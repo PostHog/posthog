@@ -96,6 +96,10 @@ _EVENTS_FIELDS = frozenset(EventsTable().fields)
 # then costs a second table read. On mode 2, a scan that the union refuses then fails the query.
 _MAY_NAME_FLAG_CALLS = ast.Constant(value=FLAG_CALLED_EVENT)
 
+# The value the flag-call finder gives a read of a lambda argument. It is not a field, so the finder never reads the
+# argument as a column of the scan, even when the argument is named `event`.
+_LAMBDA_ARGUMENT = ast.Constant(value=None)
+
 _UNION_JOIN_RESOLVERS = frozenset(
     {
         EVENTS_TO_SESSIONS_V1,
@@ -518,6 +522,8 @@ class _FlagCallScan:
     position: int
     scan: EventsScan
     literals: list[ast.Constant]
+    # The CTE values whose `$feature_flag_called` constants also name the scan's flag calls.
+    with_values: list["_WithValue"]
     # True when the finder stopped at the budget before it found a `$feature_flag_called` literal.
     unchecked: bool
 
@@ -561,7 +567,8 @@ def _flag_call_scans(
                         position=position,
                         scan=scan,
                         literals=finder.literals,
-                        unchecked=not finder.literals,
+                        with_values=finder.with_values_read,
+                        unchecked=not finder.found_literal,
                     )
                 )
         join = join.next_join
@@ -874,13 +881,19 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         self.lambda_names: ChainMap[str, ast.Expr | None] | None = None
         self.values_left = _COMPARED_VALUES_BUDGET
         self.literals: list[ast.Constant] = []
+        # A CTE's list can be read by many scans, so each finder keeps the cached value, not a copy of its literals.
+        self.with_values_read: list[_WithValue] = []
+
+    @property
+    def found_literal(self) -> bool:
+        return bool(self.literals) or any(with_value.literals for with_value in self.with_values_read)
 
     @property
     def names_flag_calls(self) -> bool:
         # Past the budget the finder cannot tell which values it compares with `event`. A query without any
         # `$feature_flag_called` constant cannot compare `event` with one, so only a query with one counts. A column CTE
         # in scope can hold that constant outside the query.
-        return bool(self.literals) or (
+        return self.found_literal or (
             self.values_left < 0 and (names_flag_called_event(self.root) or self.with_values.in_scope_name_flag_calls)
         )
 
@@ -918,7 +931,7 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         names = self.lambda_names
         if names is not None and isinstance(read, ast.Field) and len(read.chain) == 1 and str(read.chain[0]) in names:
             named = names[str(read.chain[0])]
-            return read if named is None else named
+            return _LAMBDA_ARGUMENT if named is None else named
         return self._with_value(self.aliases.target(read))
 
     def _with_value(self, expr: ast.Expr) -> ast.Expr:
@@ -947,7 +960,7 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
                 self.values_left -= with_value.count
                 if self.values_left < 0:
                     return
-                self.literals.extend(with_value.literals)
+                self.with_values_read.append(with_value)
                 continue
             if isinstance(value, (ast.Tuple, ast.Array)):
                 if id(value) in read_lists:
@@ -978,6 +991,8 @@ class _UnionRenamer(ScanVisitor):
         self.refusals: list[UnionRefusal] = []
         self.with_values = _WithValues()
         self.literal_spans: set[tuple[int, int]] = set()
+        # The CTE values whose literal spans `literal_spans` already holds.
+        self.spanned_with_values: set[int] = set()
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
         initial = node.initial_select_query
@@ -1017,9 +1032,15 @@ class _UnionRenamer(ScanVisitor):
                 if scan.join.sample is not None and scan.join.sample.samples_all_rows():
                     scan.join.sample = None
                 self.renamed = True
+                groups = [literals]
+                for with_value in found.with_values:
+                    if id(with_value) not in self.spanned_with_values:
+                        self.spanned_with_values.add(id(with_value))
+                        groups.append(with_value.literals)
                 self.literal_spans.update(
                     (literal.start, literal.end)
-                    for literal in literals
+                    for group in groups
+                    for literal in group
                     if literal.start is not None and literal.end is not None
                 )
 

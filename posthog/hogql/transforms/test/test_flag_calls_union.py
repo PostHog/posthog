@@ -187,7 +187,10 @@ def _list_alias_in_many_comparisons() -> ast.SelectQuery:
 
 def _with_list_read_by_many_subqueries() -> ast.SelectQuery:
     names = ast.Tuple(
-        exprs=[*(ast.Constant(value=f"e{n}") for n in range(30_000)), ast.Constant(value="$feature_flag_called")]
+        exprs=[
+            *(ast.Constant(value="$feature_flag_called", start=n, end=n + 1) for n in range(30_000)),
+            ast.Constant(value="$pageview"),
+        ]
     )
     branches = [_select("SELECT 1 FROM events WHERE event IN names") for _ in range(300)]
     select = _select("SELECT 1 FROM (SELECT 1)")
@@ -541,6 +544,13 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
                 "WITH '$feature_flag_called' AS a, ('$pageview', a) AS names "
                 "SELECT count() FROM events WHERE event IN names",
                 [UNION],
+                [],
+            ),
+            (
+                "with_name_compared_with_a_lambda_argument_named_event",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM events SAMPLE 0.1 "
+                "WHERE event = '$pageview' AND arrayExists(event -> event = fc, ['$pageview'])",
+                ["events"],
                 [],
             ),
             (
