@@ -55,7 +55,10 @@ class TestMessageTemplatesAPI(APIBaseTest):
                 "design": MINIMAL_DESIGN,
             }
         }
-        self.message_template.save(update_fields=["content"])
+        self.message_template.draft_content = {
+            "email": {"subject": "Draft Subject", "html": "<p>Draft preview</p>", "design": MINIMAL_DESIGN}
+        }
+        self.message_template.save(update_fields=["content", "draft_content"])
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/?include_design=false")
         assert response.status_code == status.HTTP_200_OK
 
@@ -71,15 +74,21 @@ class TestMessageTemplatesAPI(APIBaseTest):
             "templating": "liquid",
             "email": {"subject": "Test Subject", "text": "Test Body", "html": "<p>Preview</p>"},
         }
+        assert template["draft_content"] == {
+            "templating": "liquid",
+            "email": {"subject": "Draft Subject", "html": "<p>Draft preview</p>"},
+        }
         assert template["type"] == "email"
 
     def test_list_message_templates_includes_design_by_default(self):
         self.message_template.content = {"email": {"subject": "Test Subject", "design": MINIMAL_DESIGN}}
-        self.message_template.save(update_fields=["content"])
+        self.message_template.draft_content = {"email": {"subject": "Draft Subject", "design": MINIMAL_DESIGN}}
+        self.message_template.save(update_fields=["content", "draft_content"])
 
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"][0]["content"]["email"]["design"] == MINIMAL_DESIGN
+        assert response.json()["results"][0]["draft_content"]["email"]["design"] == MINIMAL_DESIGN
 
     def test_list_message_templates_pages_stably_with_and_without_design(self):
         self.message_template.content = {"email": {"subject": "Hello", "design": MINIMAL_DESIGN}}

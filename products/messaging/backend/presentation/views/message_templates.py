@@ -416,6 +416,11 @@ class MessageTemplateListSerializer(MessageTemplateSerializer):
         required=False,
         help_text="Template content for previews. The editable design is available on the detail endpoint.",
     )
+    draft_content = MessageTemplateListContentSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Unpublished content for previews. The editable design is available on the detail endpoint.",
+    )
 
 
 class DesignPatchSerializer(serializers.Serializer):
