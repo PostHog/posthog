@@ -64,6 +64,7 @@ class TestDashboardQuerySharingExecution(ClickhouseTestMixin, NonAtomicAPIBaseTe
         flush_persons_and_events()
         params = {
             "tile_ids": ",".join(str(tile.id) for tile in tiles),
+            "debug": "true",
             "client_query_id": str(uuid4()),
             "refresh": "blocking",
         }
@@ -88,6 +89,14 @@ class TestDashboardQuerySharingExecution(ClickhouseTestMixin, NonAtomicAPIBaseTe
             results = {event["tile"]["id"]: event["tile"] for event in events if event["type"] == "tile"}
             self.assertEqual(results[tiles[0].id]["insight"]["result"], expected[0], results)
             self.assertEqual(results[tiles[1].id]["insight"]["result"], expected[1], results)
+            diagnostics = [event["debug"] for event in events if event["type"] == "tile"]
+            shared = [entry for debug in diagnostics for entry in debug["executions"] if entry["outcome"] == "shared"]
+            self.assertEqual(len(shared), 1)
+            self.assertEqual(set(shared[0]["tile_ids"]), {tile.id for tile in tiles})
+            self.assertEqual(shared[0]["rule"], "count_fusion" if counts else "same_aggregation_top_n")
+            self.assertEqual(sum(debug["query_count"] for debug in diagnostics), 1)
+            self.assertGreater(sum(debug["rows_read"] for debug in diagnostics), 0)
+            self.assertGreater(sum(debug["duration_ms"] for debug in diagnostics), 0)
             prefix = "__batch_" if counts else "__sharing_"
             self.assertEqual(
                 sum(prefix in str(call.args[0]) for call in execute.call_args_list),
@@ -101,6 +110,7 @@ class TestDashboardQuerySharingExecution(ClickhouseTestMixin, NonAtomicAPIBaseTe
                 ).json()
                 self.assertEqual(cached["result"], results[tile.id]["insight"]["result"])
                 self.assertTrue(cached["is_cached"])
+                self.assertNotIn("debug", cached)
             execute.reset_mock()
             response = self.client.get(
                 f"/api/projects/{self.team.pk}/dashboards/{dashboard.pk}/stream_query_results/", params
@@ -116,3 +126,8 @@ class TestDashboardQuerySharingExecution(ClickhouseTestMixin, NonAtomicAPIBaseTe
                 all(event["tile"]["insight"]["is_cached"] for event in cached_events if event["type"] == "tile")
             )
             execute.assert_not_called()
+            for event in cached_events:
+                if event["type"] == "tile":
+                    self.assertEqual(event["debug"]["query_count"], 0)
+                    self.assertEqual(event["debug"]["rows_read"], 0)
+                    self.assertEqual(event["debug"]["executions"], [])

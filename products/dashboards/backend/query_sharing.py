@@ -1,5 +1,5 @@
 from concurrent.futures import CancelledError, Future
-from dataclasses import replace
+from dataclasses import field, replace
 from threading import Event, Lock
 from uuid import uuid4
 
@@ -16,6 +16,8 @@ from posthog.hogql.visitor import clone_expr
 
 from posthog.dataclasses import frozen
 
+from products.dashboards.backend.query_sharing_debug import DashboardSharingOutcome, sharing_debug
+
 SHARING_EXECUTIONS = Counter(
     "posthog_dashboard_sharing_executions_total",
     "Dashboard query executions by sharing outcome",
@@ -28,6 +30,8 @@ MATCH_WINDOW_SECONDS = 0.05
 class _WaitingQuery:
     query: SharingQuery
     result: Future[HogQLQueryResponse | None]
+    tile_id: int | None = None
+    shared_failed: Event = field(default_factory=Event)
 
 
 class DashboardQuerySharing:
@@ -46,10 +50,12 @@ class DashboardQuerySharing:
                 waiting.result.set_result(None)
             self._pending.clear()
 
-    def _execute_separately(self, executor: HogQLQueryExecutor) -> HogQLQueryResponse:
+    def _execute_separately(self, executor: HogQLQueryExecutor, reason: str) -> HogQLQueryResponse:
         if self.cancelled.is_set():
             raise CancelledError()
         SHARING_EXECUTIONS.labels(outcome="separate").inc()
+        if debug := sharing_debug.get():
+            debug.record(outcome=DashboardSharingOutcome.SEPARATE, tile_ids=[debug.tile_id], reason=reason)
         return executor.execute()
 
     @staticmethod
@@ -118,7 +124,7 @@ class DashboardQuerySharing:
         if self.cancelled.is_set():
             raise CancelledError()
         if executor.query_type != "HogQLQuery" or executor.connection_id or executor.send_raw_query:
-            return self._execute_separately(executor)
+            return self._execute_separately(executor, "This query type or connection does not support sharing.")
         query_id = str(uuid4())
         original_query = clone_expr(executor.query) if isinstance(executor.query, ast.AST) else executor.query
         eligible = False
@@ -133,9 +139,10 @@ class DashboardQuerySharing:
         finally:
             executor.query = original_query
         if not eligible:
-            return self._execute_separately(executor)
+            return self._execute_separately(executor, "No sharing rule supports this query shape or context.")
 
-        waiting = _WaitingQuery(query=query, result=Future())
+        debug = sharing_debug.get()
+        waiting = _WaitingQuery(query=query, result=Future(), tile_id=debug.tile_id if debug else None)
         group: ExecutionGroup | None = None
         members: dict[str, _WaitingQuery] = {}
         with self._lock:
@@ -155,11 +162,25 @@ class DashboardQuerySharing:
                 if results.keys() != members.keys():
                     raise ValueError("Missing shared query consumer result")
                 SHARING_EXECUTIONS.labels(outcome="shared").inc()
+                if debug:
+                    debug.record(
+                        outcome=DashboardSharingOutcome.SHARED,
+                        tile_ids=[entry.tile_id for entry in members.values() if entry.tile_id is not None],
+                        rule=group.rule,
+                    )
                 for member, entry in members.items():
                     entry.result.set_result(results[member])
             except Exception:
                 SHARING_EXECUTIONS.labels(outcome="fallback").inc()
+                if debug:
+                    debug.record(
+                        outcome=DashboardSharingOutcome.FALLBACK,
+                        tile_ids=[entry.tile_id for entry in members.values() if entry.tile_id is not None],
+                        rule=group.rule,
+                        reason="Shared execution failed; each tile retries independently.",
+                    )
                 for entry in members.values():
+                    entry.shared_failed.set()
                     entry.result.set_result(None)
         else:
             try:
@@ -171,7 +192,12 @@ class DashboardQuerySharing:
 
         result = waiting.result.result()
         if result is None:
-            return self._execute_separately(executor)
+            return self._execute_separately(
+                executor,
+                "Retry after a failed shared execution."
+                if waiting.shared_failed.is_set()
+                else "No compatible query arrived within the matching window.",
+            )
         return result.model_copy(
             update={
                 "query": executor.query if isinstance(executor.query, str) else None,
