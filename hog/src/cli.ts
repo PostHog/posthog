@@ -26,6 +26,7 @@ import { Telemetry } from '@/core/telemetry'
 import { kebabCase } from '@/core/text'
 import { ApiError } from '@/posthog/api'
 import { resolveCredentials } from '@/posthog/credentials'
+import { canStepUp, stepUpCommand } from '@/posthog/scope-challenge'
 import { VERSION } from '@/version'
 
 const ROOT_HELP = `
@@ -53,7 +54,7 @@ function helpText(command: Command): string {
     const sections = [
         command.notes,
         command.examples?.length ? `Examples:\n${command.examples.map((example) => `  ${example}`).join('\n')}` : '',
-        command.scopes?.length ? `Needs a personal API key with: ${command.scopes.join(', ')}` : '',
+        command.scopes?.length ? `Needs the scopes: ${command.scopes.join(', ')}` : '',
     ]
     return sections
         .filter(Boolean)
@@ -100,14 +101,24 @@ function notPorted(argv: readonly string[], route: LegacyRoute): HogError {
     return new HogError('not_ported', `\`hog ${route.path}\` isn't available yet. Run this instead:\n  ${invocation}`)
 }
 
-// A 403 names the scopes the command declares, which the API client doesn't know about.
-function withScopeHint(error: unknown, scopes: readonly string[] | undefined): unknown {
-    if (error instanceof ApiError && error.status === 403 && scopes?.length) {
+// A 403 without a step-up challenge names the scopes the command declares, which the API client doesn't know about.
+async function withScopeHint(error: unknown, scopes: readonly string[] | undefined, ctx: Context): Promise<unknown> {
+    if (!(error instanceof ApiError) || error.status !== 403 || error.code === 'step_up_required' || !scopes?.length) {
+        return error
+    }
+    const credentials = await ctx.requestedCredentials?.catch(() => undefined)
+    if (!canStepUp(credentials)) {
         return error.withHint(
             `Check that the personal API key has the ${scopes.join(', ')} scope and access to this project.`
         )
     }
-    return error
+    const { scopesNotCovered } = await import('@/posthog/scopes')
+    const missing = scopesNotCovered(credentials?.key.status().scopes ?? [], scopes)
+    return error.withHint(
+        missing.length > 0
+            ? `Run \`${stepUpCommand(missing, credentials?.key.host)}\` to add the scopes to your login, and check that you can access this project.`
+            : 'Check that you can access this project.'
+    )
 }
 
 async function readArgument(runtime: Runtime, name: string, value: string): Promise<string> {
@@ -217,7 +228,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
             try {
                 result = await node.run({ args, options, ctx })
             } catch (error) {
-                throw withScopeHint(error, node.scopes)
+                throw await withScopeHint(error, node.scopes, ctx)
             }
 
             const render = mode.format === 'json' ? node.agent : node.human

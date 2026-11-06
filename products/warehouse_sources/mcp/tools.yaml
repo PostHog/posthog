@@ -201,6 +201,8 @@ tools:
             refused once data has synced, because rows already merged under the old key would repeat; delete the synced
             data first with 'external-data-schemas-delete-data', or fix the duplicates at the source and retry. That
             field reports the last run's failure, so it clears once a run succeeds rather than when the update lands."
+        exclude_params:
+            - drop_history_table
     external-data-schemas-reload:
         operation: external_data_schemas_reload_create
         enabled: true

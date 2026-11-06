@@ -36,6 +36,8 @@ interface RawCredentials {
 export const PERSONAL_API_KEY_ENV_VAR = 'HOG_PERSONAL_API_KEY'
 
 export const PROJECT_SETTINGS_HINT = 'Put the project ID in posthog.json as "projectId", or set HOG_PROJECT_ID'
+export const CI_CREDENTIALS_HINT =
+    'Set HOG_PERSONAL_API_KEY in the job, and put the project ID and the host in posthog.json as "projectId" and "host". The key never goes in posthog.json.'
 
 // The host only counts when it comes from the same source as the key, so a stray host cannot
 // redirect a key from somewhere else. The project ID only picks a project the key can already reach,

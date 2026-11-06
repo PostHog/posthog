@@ -17,11 +17,13 @@ import {
     type BucketRow,
     buildDailyActivity,
     buildKPIs,
+    rankToolsByErrorRate,
     buildToolDailySeries,
     deltaPct,
     mcpDashboardOverviewLogic,
     pickNotableSessions,
     type SessionRow,
+    type ToolRow,
     type ToolDailyRow,
 } from './mcpDashboardOverviewLogic'
 
@@ -259,16 +261,10 @@ describe('mcpDashboardOverviewLogic', () => {
                 deltaPct: 500,
                 sparkline: [100, 200],
             })
-            expect(kpis.p95LatencyMs).toMatchObject({
-                value: 300,
-                previousValue: 150,
-                deltaPct: 100,
-                goodDirection: 'down',
-            })
+            expect(kpis.p95LatencyMs).toMatchObject({ sparkline: [200, 300], goodDirection: 'down' })
             expect(kpis.errorRatePct).toMatchObject({
-                value: 7.5,
+                value: (20 / 300) * 100,
                 previousValue: 10,
-                deltaPct: -25,
                 goodDirection: 'down',
             })
         })
@@ -276,6 +272,24 @@ describe('mcpDashboardOverviewLogic', () => {
         it('returns null deltas when there is no prior-period data', () => {
             const rows: BucketRow[] = [{ bucket: '2024-01-08', sessions: 10, tool_calls: 100, errors: 0, p95: 200 }]
             expect(buildKPIs(rows, '2024-01-08').sessions.deltaPct).toBeNull()
+        })
+    })
+
+    describe('rankToolsByErrorRate', () => {
+        const tool = (name: string, total_calls: number, error_rate_pct: number): ToolRow => ({
+            tool: name,
+            total_calls,
+            errors: Math.round((total_calls * error_rate_pct) / 100),
+            error_rate_pct,
+            p95_duration_ms: 0,
+        })
+
+        it.each([
+            ['skips a tool with too few calls to rank', [tool('one-call', 1, 100), tool('busy', 500, 4)], ['busy']],
+            ['ranks qualifying tools by error rate', [tool('a', 20, 5), tool('b', 40, 10)], ['b', 'a']],
+            ['returns nothing when no tool qualifies', [tool('a', 19, 50)], []],
+        ])('%s', (_name, rows, expected) => {
+            expect(rankToolsByErrorRate(rows).map((r) => r.tool)).toEqual(expected)
         })
     })
 
@@ -463,27 +477,27 @@ describe('mcpDashboardOverviewLogic', () => {
         // top level. This reads whichever shape a reload used.
         const filtersOf = (call: any): Record<string, any> => call.filters ?? call
 
-        // The users query returns a single [current_users, prior_users] row; loadUsers maps
-        // column 0 → value, column 1 → previousValue, and derives the delta. Pins that column
-        // mapping and the deltaPct wiring — a swap or a dropped delta would slip past the other
-        // tests, which only ever see empty results.
-        it('maps the users query columns to the current/prior metric', async () => {
+        it('maps the period totals columns to the users and p95 metrics', async () => {
             mockApi.query.mockImplementation(async (node: any) =>
                 typeof node?.query === 'string' && node.query.includes('current_users')
-                    ? ({ results: [[42, 30]] } as any)
+                    ? ({ results: [[42, 30, 900, 600]] } as any)
                     : ({ results: [] } as any)
             )
             const logic = mcpDashboardOverviewLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.users).toEqual({
+            expect(logic.values.periodTotals.users).toMatchObject({
                 value: 42,
                 previousValue: 30,
                 deltaPct: 40,
-                sparkline: [],
-                sparklineLabels: [],
                 goodDirection: 'up',
+            })
+            expect(logic.values.headlineKpis.p95LatencyMs).toMatchObject({
+                value: 900,
+                previousValue: 600,
+                deltaPct: 50,
+                goodDirection: 'down',
             })
         })
 
@@ -501,6 +515,57 @@ describe('mcpDashboardOverviewLogic', () => {
                 .filter((query: string | undefined): query is string => !!query?.includes('dateTrunc('))
             expect(bucketed).toHaveLength(1)
             expect(bucketed.filter((query) => !query.includes('toString(dateTrunc('))).toEqual([])
+        })
+
+        // Each card reads its own flag, so a reducer that marks the wrong loader puts the error on
+        // the wrong card, and one that never clears leaves a card stuck after a successful retry.
+        it.each([
+            ['periodTotals', 'loadPeriodTotals', (node: any) => node.query?.includes('current_users')],
+            ['harnessRows', 'loadHarnessRows', (node: any) => node.kind === 'MCPHarnessBreakdownQuery'],
+            ['activityRows', 'loadActivityRows', (node: any) => node.kind === 'MCPToolCallsAndErrorsQuery'],
+            ['toolDailyRows', 'loadToolDailyRows', (node: any) => node.kind === 'MCPToolCallBreakdownQuery'],
+        ] as const)('flags only %s when its query fails, and clears it on retry', async (loader, retry, isFailing) => {
+            mockApi.query.mockImplementation(async (node: any) => {
+                if (isFailing(node)) {
+                    throw { status: 504, detail: 'Query timed out' }
+                }
+                return { results: [] } as any
+            })
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(Object.entries(logic.values.failedLoads).filter(([, failed]) => failed)).toEqual([[loader, true]])
+            expect(logic.values.feedbackLoadFailed).toBe(true)
+
+            mockApi.query.mockResolvedValue({ results: [] } as any)
+            await expectLogic(logic, () => {
+                logic.actions[retry]()
+            }).toFinishAllListeners()
+
+            expect(logic.values.failedLoads[loader]).toBe(false)
+            expect(logic.values.feedbackLoadFailed).toBe(false)
+        })
+
+        it('ignores a failure from a request that a newer load already replaced', async () => {
+            let rejectFirst: (error: unknown) => void = () => {}
+            let periodTotalsCalls = 0
+            mockApi.query.mockImplementation((node: any) => {
+                if (node.query?.includes('current_users') && ++periodTotalsCalls === 1) {
+                    return new Promise((_, reject) => (rejectFirst = reject)) as any
+                }
+                return Promise.resolve({ results: [] }) as any
+            })
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic, () => {
+                logic.actions.setDateFilter('-30d', null)
+            }).toDispatchActions(['loadPeriodTotalsSuccess'])
+
+            rejectFirst({ status: 504, detail: 'Query timed out' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.failedLoads.periodTotals).toBeFalsy()
         })
 
         it('reloads every tile when the date filter changes', async () => {
