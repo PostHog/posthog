@@ -15143,7 +15143,7 @@ snapshots:
     scenes-app-replay-vision--observation-detail--light:
         hash: v1.k794b7964.00f35aceb5cdba733291648283aa55c2873814e1511e4394b1f563205e068e44.9QOwHay0_E6FTvDZyQ20RfIQkYA99RDf1vhpKelCORA
     scenes-app-replay-vision--observation-detail-classifier--dark:
-        hash: v1.k794b7964.e6f8885684dc72d6907a9a6d7d536295a28121bb9e2426756caa8d425c55570b.9fXVhl7PgIzxyVb6KXvatI8GYGvOcOZlWQ30TgOM6AA
+        hash: v1.k794b7964.d45277dfba336cd30f04cc29606acc8fb2c28684aadfcf6797eafbeafa8b6ae7.oShDx2RG6jQw8Gm1A7a_20iiTf2do35wZNle04yTdG4
     scenes-app-replay-vision--observation-detail-classifier--light:
         hash: v1.k794b7964.812c52630f07aad627bbef36145b4499599d5df16411d81dfe884abac4e5b48c.YNeITkL81fdUmXdlHQSOaVOxIi1otp_nLJPYEjWSWkc
     scenes-app-replay-vision--observation-detail-failed--dark:
