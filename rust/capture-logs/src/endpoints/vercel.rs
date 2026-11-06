@@ -149,14 +149,22 @@ pub struct ParsedDelivery {
 }
 
 impl ParsedDelivery {
-    fn push(&mut self, result: Result<VercelLog, serde_json::Error>) {
+    fn push(&mut self, result: Result<VercelLog, String>) {
         match result {
             Ok(log) => self.logs.push(log),
             Err(e) => {
                 self.invalid += 1;
-                self.first_error.get_or_insert_with(|| e.to_string());
+                self.first_error.get_or_insert(e);
             }
         }
+    }
+}
+
+// Every field is optional, so without this check serde would also turn arrays and scalars into rows.
+fn log_from_value(value: Value) -> Result<VercelLog, String> {
+    match value {
+        Value::Object(_) => serde_json::from_value(value).map_err(|e| e.to_string()),
+        other => Err(format!("expected a JSON object, got {other}")),
     }
 }
 
@@ -173,14 +181,18 @@ pub fn parse_delivery(body: &[u8]) -> Result<ParsedDelivery, serde_json::Error> 
     match serde_json::from_str::<Value>(trimmed) {
         Ok(Value::Array(items)) => {
             for item in items {
-                parsed.push(serde_json::from_value(item));
+                parsed.push(log_from_value(item));
             }
         }
-        Ok(item) => parsed.push(serde_json::from_value(item)),
+        Ok(item) => parsed.push(log_from_value(item)),
         Err(e) if !trimmed.contains('\n') => return Err(e),
         Err(_) => {
             for line in trimmed.lines().map(str::trim).filter(|l| !l.is_empty()) {
-                parsed.push(serde_json::from_str(line));
+                parsed.push(
+                    serde_json::from_str(line)
+                        .map_err(|e| e.to_string())
+                        .and_then(log_from_value),
+                );
             }
         }
     }
@@ -212,7 +224,7 @@ fn first_user_agent(user_agent: &Option<Value>) -> Option<String> {
 
 pub fn vercel_log_to_kafka_row(log: VercelLog, token: &str) -> (KafkaLogRow, bool) {
     // A redelivered batch gets the same row ids, so its duplicates can be told apart.
-    let uuid = match log.id.as_deref() {
+    let uuid = match log.id.as_deref().filter(|id| !id.is_empty()) {
         Some(id) => Uuid::new_v5(
             &Uuid::NAMESPACE_URL,
             format!("vercel-log:{token}:{id}").as_bytes(),
@@ -459,8 +471,18 @@ pub async fn export_vercel_logs_http(
         );
     }
 
-    // The drain sends a test request when it is created; an empty delivery acknowledges it.
+    // The drain sends a test request when it is created; an empty delivery acknowledges it. A
+    // delivery with no usable line gets a 400, so a malformed batch is not acknowledged as stored.
     if parsed.logs.is_empty() {
+        if parsed.invalid > 0 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!(
+                    "No valid Vercel log lines: {}",
+                    parsed.first_error.as_deref().unwrap_or("")
+                )})),
+            ));
+        }
         return Ok(Json(json!({})));
     }
 

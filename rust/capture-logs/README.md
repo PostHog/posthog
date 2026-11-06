@@ -201,6 +201,7 @@ A customer creates a log drain with this URL and the project API key, in either 
 - Body: a JSON array, one object, or NDJSON, gzip or plain. The drain sends at most 1 MB per request, inside the shared `MAX_REQUEST_BODY_SIZE_BYTES` cap.
   Every valid line becomes a log row.
   A line that is not a JSON object is skipped and counted, so one bad line does not make the drain retry the batch.
+  A delivery with lines but no valid line gets 400, so the drain does not treat a malformed batch as stored.
   A field with an unexpected type is left out of the row instead of failing the line.
   An empty body is acknowledged with 200, which covers the test request the drain sends when it is created.
 - Row mapping: `body` = `message`, or `<method> <path> <status>` for a request line that has no message; `timestamp` = the line's `timestamp` in milliseconds; `service.name` = the project name, else the project ID.
@@ -209,7 +210,7 @@ A customer creates a log drain with this URL and the project API key, in either 
   Resource attributes are `service.name`, `vercel.project.id`, `vercel.project.name`, `vercel.deployment.id`, `deployment.environment.name` and `vcs.ref.head.name`.
   `traceId`/`spanId` (hex) become the row's trace and span IDs.
 - Delivery is at-least-once: a Kafka failure returns 500 and the drain sends the request again.
-  A line's row `uuid` derives from the project key and the drain's log `id`, so a redelivered line has the same `uuid` as the first copy.
+  The logs table keeps every copy of a redelivered line. A line's row `uuid` derives from the project key and the drain's log `id`, so queries can find the copies by `uuid`.
 
 Metrics: `capture_logs_vercel_records_total{kind}` (`valid` after the Kafka write, `invalid`) and `capture_logs_vercel_requests_rejected_total{reason}` (`gate_closed`).
 Request outcomes are on the shared `http_requests_total{path,status}`.

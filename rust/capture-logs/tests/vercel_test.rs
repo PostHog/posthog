@@ -36,7 +36,13 @@ fn request_line(id: &str) -> serde_json::Value {
 fn parse_delivery_keeps_every_valid_line_in_both_formats() {
     // `b` has drifted field types; it keeps its row and loses only those fields.
     let drifted = json!({"id": "b", "timestamp": "soon", "proxy": {"statusCode": "200"}});
-    let lines = [request_line("a"), json!(42), drifted, request_line("c")];
+    let lines = [
+        request_line("a"),
+        json!(42),
+        json!(["x"]),
+        drifted,
+        request_line("c"),
+    ];
 
     let ndjson = lines
         .iter()
@@ -49,7 +55,7 @@ fn parse_delivery_keeps_every_valid_line_in_both_formats() {
         let parsed = parse_delivery(body.as_bytes()).unwrap();
         let ids: Vec<_> = parsed.logs.iter().map(|l| l.id.clone().unwrap()).collect();
         assert_eq!(ids, ["a", "b", "c"]);
-        assert_eq!(parsed.invalid, 1);
+        assert_eq!(parsed.invalid, 2);
         assert!(parsed.first_error.is_some());
         assert_eq!(parsed.logs[1].timestamp, None);
     }
@@ -62,6 +68,11 @@ fn parse_delivery_keeps_every_valid_line_in_both_formats() {
         let parsed = parse_delivery(body.as_bytes()).unwrap();
         assert_eq!((parsed.logs.len(), parsed.invalid), (1, 0), "{body}");
     }
+
+    // A pretty-printed array with a syntax error falls back to lines, and no line is valid.
+    let broken = "[\n  {\n    \"id\": \"a\",\n  },\n]";
+    let parsed = parse_delivery(broken.as_bytes()).unwrap();
+    assert!(parsed.logs.is_empty() && parsed.invalid > 0);
 
     let empty = parse_delivery(b"  \n").unwrap();
     assert!(empty.logs.is_empty());
@@ -85,6 +96,11 @@ fn request_line_maps_to_semantic_attributes_and_an_access_log_body() {
     assert_ne!(
         row.uuid,
         vercel_log_to_kafka_row(log("a"), "phc_other").0.uuid
+    );
+    // An empty id is not an id: two such lines must not share a row id.
+    assert_ne!(
+        vercel_log_to_kafka_row(log(""), "phc_test").0.uuid,
+        vercel_log_to_kafka_row(log(""), "phc_test").0.uuid
     );
 
     assert!(!overridden);
