@@ -56,7 +56,10 @@ fn parse_delivery_keeps_every_valid_line_in_both_formats() {
         let ids: Vec<_> = parsed.logs.iter().map(|l| l.id.clone().unwrap()).collect();
         assert_eq!(ids, ["a", "b", "c"]);
         assert_eq!(parsed.invalid, 2);
-        assert!(parsed.first_error.is_some());
+        assert_eq!(
+            parsed.first_error.as_deref(),
+            Some("expected a JSON object, got a number")
+        );
         assert_eq!(parsed.logs[1].timestamp, None);
     }
 

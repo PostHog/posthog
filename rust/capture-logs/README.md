@@ -212,7 +212,7 @@ A customer creates a log drain with this URL and the project API key, in either 
 - Delivery is at-least-once: a Kafka failure returns 500 and the drain sends the request again.
   The logs table keeps every copy of a redelivered line. A line's row `uuid` derives from the project key and the drain's log `id`, so queries can find the copies by `uuid`.
 
-Metrics: `capture_logs_vercel_records_total{kind}` (`valid` after the Kafka write, `invalid`) and `capture_logs_vercel_requests_rejected_total{reason}` (`gate_closed`).
+Metrics: `capture_logs_vercel_records_total{kind}` (`valid` after the Kafka write; `invalid` per attempt, so a retried bad batch counts again; `no_timestamp` for lines stored at ingest time) and `capture_logs_vercel_requests_rejected_total{reason}` (`gate_closed`).
 Request outcomes are on the shared `http_requests_total{path,status}`.
 
 ## Endpoints

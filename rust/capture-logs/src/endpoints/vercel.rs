@@ -160,11 +160,23 @@ impl ParsedDelivery {
     }
 }
 
+fn json_type(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "a boolean",
+        Value::Number(_) => "a number",
+        Value::String(_) => "a string",
+        Value::Array(_) => "an array",
+        Value::Object(_) => "an object",
+    }
+}
+
 // Every field is optional, so without this check serde would also turn arrays and scalars into rows.
 fn log_from_value(value: Value) -> Result<VercelLog, String> {
     match value {
         Value::Object(_) => serde_json::from_value(value).map_err(|e| e.to_string()),
-        other => Err(format!("expected a JSON object, got {other}")),
+        // Name the type only: the value itself is customer log content of any size.
+        other => Err(format!("expected a JSON object, got {}", json_type(&other))),
     }
 }
 
@@ -484,6 +496,18 @@ pub async fn export_vercel_logs_http(
             ));
         }
         return Ok(Json(json!({})));
+    }
+
+    // A missing or mistyped timestamp falls back to the ingest time; count it so drift is visible.
+    let without_timestamp = parsed
+        .logs
+        .iter()
+        .filter(|log| {
+            log.timestamp.is_none() && log.proxy.as_ref().and_then(|p| p.timestamp).is_none()
+        })
+        .count() as u64;
+    if without_timestamp > 0 {
+        counter!(RECORDS_COUNTER, "kind" => "no_timestamp").increment(without_timestamp);
     }
 
     let results: Vec<(KafkaLogRow, bool)> = parsed
