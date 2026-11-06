@@ -16,6 +16,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.events import EVENTS_AVOID_ASTERISK_FIELDS, EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable, flag_evaluations_coverage_start
+from posthog.hogql.database.schema.util.null_sentinels import null_if_sentinels
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
@@ -275,13 +276,10 @@ def serialized_like_events(table: Table, chain: list[str | int], read: ast.Field
     if overlaps_restriction and not (on_event_properties and is_temporary_event_property(key)):
         return serialized
     # Events reads a missing key and an empty object as NULL. An integer key names a key, not a position.
-    raw = parse_expr(
-        "nullIf(nullIf(JSONExtractRaw({document}, {key}), ''), '{}')",
-        {"document": ast.Field(chain=read.chain[:-1]), "key": ast.Constant(value=key)},
-    )
+    raw = ast.Call(name="JSONExtractRaw", args=[ast.Field(chain=read.chain[:-1]), ast.Constant(value=key)])
     # Events reads a JSON null as NULL from a JSON subcolumn. A restriction makes events read the key from the
     # `temporary_properties` text instead, and that text keeps the JSON null as `null`.
-    return raw if overlaps_restriction else ast.Call(name="nullIf", args=[raw, ast.Constant(value="null")])
+    return null_if_sentinels(raw, ("", "{}") if overlaps_restriction else ("", "{}", "null"))
 
 
 def union_table_of(table_type: ast.Type | None) -> "EventsWithFlagCallsTable | None":

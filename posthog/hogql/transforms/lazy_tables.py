@@ -474,6 +474,9 @@ class LazyTableResolver(TraversingVisitor):
         each such read gets its own export, which each branch serializes as a direct read on events does.
         """
         reads: set[int] = set()
+        if not self.context.uses_new_events_schema():
+            # The legacy events table serializes the text, which the outer `toJSONString` already does.
+            return reads
         for table_type in select_type.tables.values():
             if not isinstance(_lazy_table_of(table_type), EventsWithFlagCallsTable):
                 continue
@@ -580,6 +583,13 @@ class LazyTableResolver(TraversingVisitor):
         sorted_properties: list[ast.PropertyType | ast.FieldType] = matched_properties + matched_fields
         json_text_reads = self._union_json_text_reads(node, select_type)
         pending_json_text: list[tuple[LazyTableToAdd, ast.PropertyType, list[str | int]]] = []
+
+        def add_table_property(table: LazyTableToAdd, property: ast.PropertyType, chain: list[str | int]) -> None:
+            if id(property) in json_text_reads:
+                pending_json_text.append((table, property, chain))
+            else:
+                property.joined_subquery_field_name = "___".join(str(x) for x in chain)
+                table.fields_accessed[property.joined_subquery_field_name] = chain
 
         # Look for tables without requested fields to support cases like `select count() from table`
         join = node.select_from
@@ -704,11 +714,7 @@ class LazyTableResolver(TraversingVisitor):
                         lazy_chain.append(field.name)
                         if property is not None:
                             lazy_chain.extend(property.chain)
-                            if id(property) in json_text_reads:
-                                pending_json_text.append((new_table, property, lazy_chain))
-                            else:
-                                property.joined_subquery_field_name = "___".join(str(x) for x in lazy_chain)
-                                new_table.fields_accessed[property.joined_subquery_field_name] = lazy_chain
+                            add_table_property(new_table, property, lazy_chain)
                         else:
                             new_table.fields_accessed[field.name] = lazy_chain
                 elif isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
@@ -763,11 +769,7 @@ class LazyTableResolver(TraversingVisitor):
                             chain.append(field.name)
                             if property is not None:
                                 chain.extend(property.chain)
-                                if id(property) in json_text_reads:
-                                    pending_json_text.append((new_table, property, chain))
-                                else:
-                                    property.joined_subquery_field_name = "___".join(str(x) for x in chain)
-                                    new_table.fields_accessed[property.joined_subquery_field_name] = chain
+                                add_table_property(new_table, property, chain)
                             else:
                                 new_table.fields_accessed[field.name] = chain
 

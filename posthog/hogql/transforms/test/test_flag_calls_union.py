@@ -1460,7 +1460,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
     ):
         if restriction is not None:
             _restrict(self.organization, self.team, restriction)
-        self._create_json_rows([{"probe": stored, "$feature/probe": stored, "$sdk_debug_probe": stored}])
+        self._create_json_rows([{"probe": stored, "$feature/probe": stored}])
 
         query = f"SELECT event, toJSONString({read}) FROM events WHERE {MIXED} AND distinct_id = 'json'"
         rows = self._run(query, ONLY, new_events_schema=new_events_schema).results
