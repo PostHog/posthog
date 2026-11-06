@@ -1,6 +1,7 @@
 import { parseArgs } from 'util'
 
-import { getDefaultCommonConfig } from '~/common/config'
+import type { CdpConfig } from '~/cdp/config'
+import { CommonConfig, getDefaultCommonConfig } from '~/common/config'
 import { buildBehavioralCohortsDatabaseUrl, buildPosthogDatabaseUrl } from '~/common/config/database-url'
 
 import {
@@ -40,8 +41,9 @@ Options:
 
 Reads DATABASE_URL, or POSTHOG_DB_NAME, POSTHOG_DB_USER, POSTHOG_DB_PASSWORD,
 POSTHOG_POSTGRES_HOST and POSTHOG_POSTGRES_PORT, the same as the Node services.
-sqlx databases use PERSONS_DATABASE_URL, CYCLOTRON_NODE_DATABASE_URL and
-BEHAVIORAL_COHORTS_DATABASE_URL (or POSTGRES_BEHAVIORAL_COHORTS_HOST, _USER and _PASSWORD).`
+sqlx databases use PERSONS_DATABASE_URL (or PERSONS_READONLY_DATABASE_URL),
+CYCLOTRON_NODE_DATABASE_URL and BEHAVIORAL_COHORTS_DATABASE_URL (or
+POSTGRES_BEHAVIORAL_COHORTS_HOST, _USER and _PASSWORD).`
 
 export interface CliDependencies {
     createStore: (databaseUrl: string, connectTimeoutMs: number, statementTimeoutMs: number) => MigrationStore
@@ -75,13 +77,22 @@ export function resolveDatabaseUrl(env: Record<string, string | undefined>): str
     })
 }
 
+// The keys must stay names of the Node config, so a rename there fails to compile here instead of turning into a skip.
+const PERSONS_URL_KEYS = [
+    'PERSONS_DATABASE_URL',
+    'PERSONS_READONLY_DATABASE_URL',
+] as const satisfies readonly (keyof CommonConfig)[]
+const CYCLOTRON_NODE_URL_KEY = 'CYCLOTRON_NODE_DATABASE_URL' satisfies keyof CdpConfig
+
 // Reads the same variables as the Node services, without the dev defaults, so an empty result means the app does not use the database.
 export function resolveSqlxDatabaseUrl(database: SqlxDatabase, env: Record<string, string | undefined>): string {
     if (database === 'persons') {
-        return env.PERSONS_DATABASE_URL ?? ''
+        // Most ingestion apps get only the read-only persons URL. Replica lag can only make the check wait longer.
+        const key = PERSONS_URL_KEYS.find((name) => env[name])
+        return key ? env[key]! : ''
     }
     if (database === 'cyclotron-node') {
-        return env.CYCLOTRON_NODE_DATABASE_URL ?? ''
+        return env[CYCLOTRON_NODE_URL_KEY] || ''
     }
     return buildBehavioralCohortsDatabaseUrl({
         BEHAVIORAL_COHORTS_DATABASE_URL: env.BEHAVIORAL_COHORTS_DATABASE_URL ?? '',

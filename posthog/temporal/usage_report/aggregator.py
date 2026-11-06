@@ -48,7 +48,7 @@ from posthog.temporal.usage_report.types import (
     RunQueryToS3Result,
     WorkflowContext,
 )
-from posthog.usage_counters import UsageCounterReport
+from posthog.usage_counters import UsageCounter, UsageCounterReport
 
 from products.ai_observability.backend.offline_evaluation_billing import get_offline_evaluation_usage
 
@@ -138,6 +138,17 @@ def add_pre_replay_vision_spend_projection_patch_defaults(
     if not any(result.query_name == _REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME for result in query_results):
         for key in _REPLAY_VISION_SPEND_PROJECTION_DESTINATION_KEYS:
             all_data[key] = {}
+
+
+def add_pre_signals_spend_patch_defaults(all_data: dict[str, dict[int, int]], inputs: AggregateInputs) -> None:
+    counter = UsageCounter.SIGNALS_SPEND_CREDITS
+    plan = inputs.ctx.usage_counter_plan
+    if plan is not None and counter in plan.modes:
+        return
+    if any(result.query_name == counter.value for result in inputs.query_results):
+        return
+    # Inputs saved before the counter existed remain valid after a deployment.
+    all_data.setdefault(counter.value, {})
 
 
 def add_pre_business_knowledge_usage_patch_defaults(
