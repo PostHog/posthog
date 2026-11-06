@@ -41,6 +41,7 @@ describe('workflowDataSuggestionsLogic', () => {
             status: 'ready',
             suggestions: [],
             email_sender_ready: true,
+            sandbox_sender_only: false,
         })
         initKeaTests()
     })
@@ -52,10 +53,12 @@ describe('workflowDataSuggestionsLogic', () => {
                 status: 'generating',
                 suggestions: [],
                 email_sender_ready: true,
+                sandbox_sender_only: false,
             })
             jest.mocked(workflowDataSuggestionsCurrent).mockResolvedValue({
                 status: 'ready',
                 email_sender_ready: true,
+                sandbox_sender_only: false,
                 suggestions: [
                     {
                         id: 'suggestion-1',

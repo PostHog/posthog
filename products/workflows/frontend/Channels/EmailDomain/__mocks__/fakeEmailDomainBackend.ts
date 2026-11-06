@@ -176,7 +176,10 @@ export class FakeEmailDomainBackend {
     readonly requests: FakeRequest[] = []
     eventHosts: [host: string, count: number][] = []
     /** What the AI workflow suggestions answer. The real backend answers unavailable when it can make none. */
-    dataSuggestions: Omit<DataSuggestionsResponseApi, 'email_sender_ready'> = { status: 'unavailable', suggestions: [] }
+    dataSuggestions: Omit<DataSuggestionsResponseApi, 'email_sender_ready' | 'sandbox_sender_only'> = {
+        status: 'unavailable',
+        suggestions: [],
+    }
 
     private senders = new Map<number, IntegrationConfigApi>()
     private domains = new Map<string, FakeDomain>()
@@ -435,7 +438,7 @@ export class FakeEmailDomainBackend {
 
     private dataSuggestionsResponse(): DataSuggestionsResponseApi {
         const anyVerified = [...this.domains.values()].some((state) => state.ses === 'verified')
-        return { ...this.dataSuggestions, email_sender_ready: anyVerified }
+        return { ...this.dataSuggestions, email_sender_ready: anyVerified, sandbox_sender_only: false }
     }
 
     private failureFor(endpoint: FakeEndpoint): FakeFailure | undefined {
