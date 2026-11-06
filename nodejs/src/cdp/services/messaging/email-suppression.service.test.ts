@@ -11,6 +11,7 @@ interface SuppressionRow {
     source: string
     suppressed: boolean
     transient_bounce_count: number
+    last_bounce_diagnostic: string | null
     deleted: boolean
 }
 
@@ -37,7 +38,7 @@ describe('EmailSuppressionService', () => {
     const readRow = async (email: string): Promise<SuppressionRow | undefined> => {
         const res = await hub.postgres.query<SuppressionRow>(
             PostgresUse.COMMON_READ,
-            `SELECT identifier, source, suppressed, transient_bounce_count, deleted
+            `SELECT identifier, source, suppressed, transient_bounce_count, last_bounce_diagnostic, deleted
              FROM posthog_messagesuppression
              WHERE team_id = $1 AND identifier = $2`,
             [team.id, email],
@@ -144,6 +145,7 @@ describe('EmailSuppressionService', () => {
                     ['delivery', 1],
                 ],
                 0,
+                'temp 2',
             ],
             [
                 'a late bounce does not move the last bounce back, so an older delivery cannot reset',
@@ -153,6 +155,7 @@ describe('EmailSuppressionService', () => {
                     ['delivery', 2],
                 ],
                 2,
+                'temp 1',
             ],
             [
                 'a bounce without a parseable time falls back to now',
@@ -161,8 +164,9 @@ describe('EmailSuppressionService', () => {
                     ['delivery', 1],
                 ],
                 1,
+                'temp not-a-timestamp',
             ],
-        ] as const)('%s', async (_label, events, expectedCount) => {
+        ] as const)('%s', async (_label, events, expectedCount, expectedDiagnostic) => {
             const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
             const email = 'replayed@example.com'
             const hoursAgo = (offset: number | string): string =>
@@ -170,13 +174,16 @@ describe('EmailSuppressionService', () => {
 
             for (const [kind, offset] of events) {
                 if (kind === 'bounce') {
-                    await svc.recordTransientBounces(team.id, [email], 'temp', hoursAgo(offset))
+                    await svc.recordTransientBounces(team.id, [email], `temp ${offset}`, hoursAgo(offset))
                 } else {
                     await svc.recordDeliveries(team.id, [email], hoursAgo(offset))
                 }
             }
 
-            expect((await readRow(email))?.transient_bounce_count).toBe(expectedCount)
+            expect(await readRow(email)).toMatchObject({
+                transient_bounce_count: expectedCount,
+                last_bounce_diagnostic: expectedDiagnostic,
+            })
         })
     })
 
