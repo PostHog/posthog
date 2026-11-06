@@ -337,7 +337,7 @@ export function useWebAnalyticsActions(toasts: Toasts): WebAnalyticsActions {
             if (tileBreakdown(webTileDef(tile), current()) === breakdown) {
                 return
             }
-            trackWebBreakdownChanged({ tile, breakdown, from })
+            trackWebBreakdownChanged({ tile, breakdown, from, source: 'user' })
             update(dataScope, (choices) => ({ tabs: { ...choices.tabs, [tile]: breakdown } }))
         },
         [current, update, dataScope]
@@ -361,6 +361,9 @@ export function useWebAnalyticsActions(toasts: Toasts): WebAnalyticsActions {
                 return
             }
             trackWebFilterAdded({ property: filter.id, source: from })
+            if (next) {
+                trackWebBreakdownChanged({ tile, breakdown: next, from, source: 'drill_down' })
+            }
             show(`Filtered by ${filter.value}`, () => {
                 trackWebFilterRemoved({ property: filter.id, source: 'undo' })
                 restore(before)

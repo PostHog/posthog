@@ -11,12 +11,21 @@ export function trackWebMetricSelected(props: { metric: WebTrendMetric }): void 
     track('mobile_web_analytics_metric_selected', { metric: props.metric })
 }
 
+/** `user` for a tab the person picked, `drill_down` for the tab a new row filter moved the tile to. */
+export type WebBreakdownChangeSource = 'user' | 'drill_down'
+
 export function trackWebBreakdownChanged(props: {
     tile: WebTileId
     breakdown: WebBreakdown
     from: WebAnalyticsSurface
+    source: WebBreakdownChangeSource
 }): void {
-    track('mobile_web_analytics_breakdown_changed', { tile: props.tile, breakdown: props.breakdown, from: props.from })
+    track('mobile_web_analytics_breakdown_changed', {
+        tile: props.tile,
+        breakdown: props.breakdown,
+        from: props.from,
+        source: props.source,
+    })
 }
 
 export function trackWebFilterAdded(props: { property: string; source: WebAnalyticsSurface | 'undo' }): void {
