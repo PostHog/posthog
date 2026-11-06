@@ -248,7 +248,7 @@ dev = [
     # Releases after 3.16.7 report hundreds of new errors in our serializers and viewsets.
     "djangorestframework-stubs==3.16.7",
     "faker==17.6.0",
-    "fakeredis[lua]==2.38.0",
+    "fakeredis[lua]==2.34.1",
     "flameprof~=0.4",
     "hypothesis~=6.151.14",
     "pyinstrument~=5.1",
