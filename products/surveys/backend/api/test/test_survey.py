@@ -41,6 +41,7 @@ from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.api.survey import (
     SURVEY_APPEARANCE_HTML_FIELDS,
+    SURVEYS_OFF_DISPLAY_WARNING,
     SurveyAppearanceSchemaSerializer,
     SurveyOpenQuestionSchemaSerializer,
     SurveySerializerCreateUpdateOnly,
@@ -3015,6 +3016,7 @@ class TestSurvey(APIBaseTest):
                     "linked_insight_id": None,
                     "conditions": None,
                     "archived": False,
+                    "display_warning": SURVEYS_OFF_DISPLAY_WARNING,
                     "start_date": None,
                     "end_date": None,
                     "responses_limit": None,
