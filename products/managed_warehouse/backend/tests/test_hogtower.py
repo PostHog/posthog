@@ -753,6 +753,31 @@ class TestHoglakeCredentialRotateByAdmin:
         assert resp.status_code == 403
         assert [c["method"] for c in fake.calls] == ["GET"]
 
+    @_routes(
+        {
+            ("GET", f"{W}/hoglake-credentials"): (503, {"error": "unavailable"}),
+            ("POST", f"{W}/hoglake-credentials/{_TEAM_HLC}/rotate"): (200, _HLC_ISSUED),
+        }
+    )
+    def test_does_not_rotate_when_it_cannot_tell_the_kind(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
+        resp = managed_warehouse.rotate_hoglake_credential(ORG, _TEAM_HLC, triggered_by=PRINCIPAL)
+
+        assert resp.status_code >= 500
+        assert "client_secret" not in (resp.data or {})
+        assert [c["method"] for c in fake.calls] == ["GET"]
+
+    @_routes(
+        {
+            ("GET", f"{W}/hoglake-credentials"): (200, {"hoglake_credentials": [{**_HLC_ROW, "kind": "org"}]}),
+            ("POST", f"{W}/hoglake-credentials/{_TEAM_HLC}/rotate"): (200, _HLC_ISSUED),
+        }
+    )
+    def test_does_not_rotate_a_credential_it_does_not_list(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
+        resp = managed_warehouse.rotate_hoglake_credential(ORG, _TEAM_HLC, triggered_by=PRINCIPAL)
+
+        assert resp.status_code == 404
+        assert [c["method"] for c in fake.calls] == ["GET"]
+
 
 @pytest.mark.django_db
 def test_list_names_owners_only_from_the_organizations_members() -> None:

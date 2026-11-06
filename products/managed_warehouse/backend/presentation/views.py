@@ -1447,15 +1447,24 @@ def list_hoglake_credentials(organization_id: UUID | str) -> Response:
     return resp
 
 
-def _hoglake_credential_kind(organization_id: UUID | str, credential_id: str) -> str | None:
-    """The kind ("org" or "team") of one of the organization's hoglake credentials, or None
-    when hogtower cannot list them or does not have it."""
+def _refuse_rotating_a_personal_credential(organization_id: UUID | str, credential_id: str) -> Response | None:
+    """Fails closed: the list's error when hogtower cannot list the organization's
+    credentials, 404 when it does not have this one, 403 when it is a member's personal
+    credential, and None only for an org credential."""
     resp = _request("GET", organization_id, "/hoglake-credentials")
-    if not status.is_success(resp.status_code) or not isinstance(resp.data, dict):
-        return None
-    for c in resp.data.get("hoglake_credentials") or []:
-        if c.get("client_id") == credential_id:
-            return c.get("kind") or "org"
+    if not status.is_success(resp.status_code):
+        return resp
+    listed = resp.data.get("hoglake_credentials") if isinstance(resp.data, dict) else None
+    if not isinstance(listed, list):
+        return Response({"error": "Unexpected response from the control plane"}, status=status.HTTP_502_BAD_GATEWAY)
+    kind = next((c.get("kind") or "org" for c in listed if c.get("client_id") == credential_id), None)
+    if kind is None:
+        return Response({"error": "credential not found"}, status=status.HTTP_404_NOT_FOUND)
+    if kind != "org":
+        return Response(
+            {"error": "This is a member's personal credential: only its owner can rotate it. Revoke it instead."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
     return None
 
 
@@ -1477,11 +1486,8 @@ def rotate_hoglake_credential(organization_id: UUID | str, credential_id: str, *
         return refused
     # A personal credential's tokens name its owner, so its secret is for its owner alone.
     # An admin may revoke one, never take a working secret for it.
-    if _hoglake_credential_kind(organization_id, credential_id) == "team":
-        return Response(
-            {"error": "This is a member's personal credential: only its owner can rotate it. Revoke it instead."},
-            status=status.HTTP_403_FORBIDDEN,
-        )
+    if (refused := _refuse_rotating_a_personal_credential(organization_id, credential_id)) is not None:
+        return refused
     resp = _request("POST", organization_id, f"/hoglake-credentials/{credential_id}/rotate")
     _log_hoglake_action(resp, "rotate_hoglake_credential", organization_id, triggered_by, credential_id=credential_id)
     return resp
