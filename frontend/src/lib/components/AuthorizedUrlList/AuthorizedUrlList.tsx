@@ -3,13 +3,23 @@ import { useActions, useValues } from 'kea'
 
 import { IconCopy, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 
+import { TeamMembershipLevel } from 'lib/constants'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { ExperimentIdType, ToolbarUserIntent } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    AvailableFeature,
+    ExperimentIdType,
+    ToolbarUserIntent,
+} from '~/types'
 
 import { AuthorizedUrlForm } from './AuthorizedUrlForm'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from './authorizedUrlListLogic'
@@ -61,6 +71,26 @@ export function AuthorizedUrlList({
     const { urlsKeyed, launchUrl, editUrlIndex, isAddUrlFormVisible, onlyAllowDomains } = useValues(logic)
     const { addUrl, removeUrl, newUrl, setEditUrlIndex, copyLaunchCode } = useActions(logic)
 
+    const { currentTeam } = useValues(teamLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
+
+    // Mirrors `validate_team_attrs`: `app_urls` needs project admin, or web analytics editor when access
+    // controls are on. Recording domains are not admin-gated.
+    let writeDisabledReason: string | null = null
+    if (type !== AuthorizedUrlListType.RECORDING_DOMAINS) {
+        if (hasAvailableFeature(AvailableFeature.ACCESS_CONTROL)) {
+            writeDisabledReason = getAccessControlDisabledReason(
+                AccessControlResourceType.WebAnalytics,
+                AccessControlLevel.Editor
+            )
+        } else if (
+            currentTeam?.effective_membership_level != null &&
+            currentTeam.effective_membership_level < TeamMembershipLevel.Admin
+        ) {
+            writeDisabledReason = 'Only project admins can change authorized URLs. Ask a project admin to do it.'
+        }
+    }
+
     const noAuthorizedUrls = !urlsKeyed.some((url) => url.type === 'authorized')
 
     // toolbar and web analytics urls are sent through the backend to be validated and have toolbar auth
@@ -96,6 +126,7 @@ export function AuthorizedUrlList({
                     type="secondary"
                     icon={<IconPlus />}
                     data-attr="toolbar-add-url"
+                    disabledReason={writeDisabledReason}
                 >
                     {addText}
                 </LemonButton>
@@ -173,6 +204,7 @@ export function AuthorizedUrlList({
                                     onClick={() => addUrl(keyedURL.url)}
                                     icon={<IconPlus />}
                                     data-attr="toolbar-apply-suggestion"
+                                    disabledReason={writeDisabledReason}
                                     type={isHighlighted ? 'primary' : undefined}
                                     active={isHighlighted}
                                 >
@@ -237,6 +269,7 @@ export function AuthorizedUrlList({
                                             onClick={() => setEditUrlIndex(keyedURL.originalIndex)}
                                             tooltip="Edit"
                                             center
+                                            disabledReason={writeDisabledReason}
                                         />
                                     )}
 
@@ -245,6 +278,7 @@ export function AuthorizedUrlList({
                                             icon={<IconTrash />}
                                             tooltip={`Remove ${onlyAllowDomains ? 'domain' : 'URL'}`}
                                             center
+                                            disabledReason={writeDisabledReason}
                                             onClick={() => {
                                                 LemonDialog.open({
                                                     title: <>Remove {keyedURL.url} ?</>,
