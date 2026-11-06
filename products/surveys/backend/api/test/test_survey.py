@@ -5524,6 +5524,13 @@ class TestSurveysRecurringIterations(APIBaseTest):
             ("count_ends_open_ended", True, {"iteration_count": 5}, 200, ("recurring", 5, 30, False)),
             ("flag_off_without_a_count", True, {"repeat_until_stopped": False}, 400, None),
             ("flag_null_without_a_count", True, {"repeat_until_stopped": None}, 400, None),
+            (
+                "flag_with_zero_frequency",
+                False,
+                {"repeat_until_stopped": True, "iteration_frequency_days": 0},
+                400,
+                None,
+            ),
             ("flag_on_a_once_survey", False, {"repeat_until_stopped": True}, 200, ("recurring", None, 30, True)),
         ]
     )

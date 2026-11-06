@@ -149,7 +149,7 @@ def _get_targeting_flag(survey: Survey) -> FeatureFlag:
 
 
 def _get_current_iteration(survey: Survey) -> int:
-    if survey.iteration_start_dates is None or survey.iteration_frequency_days is None or survey.end_date is not None:
+    if survey.iteration_start_dates is None or not survey.iteration_frequency_days or survey.end_date is not None:
         return 0
 
     if survey.repeat_until_stopped and survey.start_date is not None:

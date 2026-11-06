@@ -1934,6 +1934,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             return
 
         if validated_data.get("repeat_until_stopped"):
+            frequency_days = validated_data.get(
+                "iteration_frequency_days", getattr(self.instance, "iteration_frequency_days", None)
+            )
+            if not frequency_days:
+                raise serializers.ValidationError(
+                    {"iteration_frequency_days": "Set a number of days between repeats to repeat until stopped."}
+                )
             validated_data["iteration_count"] = None
             validated_data["schedule"] = Survey.Schedule.RECURRING
         elif validated_data.get("iteration_count"):
