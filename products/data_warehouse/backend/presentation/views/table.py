@@ -562,7 +562,7 @@ class TableHistoryTableSerializer(serializers.Serializer):
     history_table = HistoryTableRefSerializer(
         allow_null=True,
         help_text="The table's history table, which keeps every past version of its rows. `null` when the table "
-        "has none.",
+        "has none or you can't view it.",
     )
 
 

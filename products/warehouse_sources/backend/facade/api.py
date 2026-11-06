@@ -877,9 +877,13 @@ def _table_and_history_table(
 def registered_history_table_for(
     *, team_id: int, table_id: UUID, user_access_control: "UserAccessControl"
 ) -> contracts.HistoryTableRef | None:
-    """The table's registered history table, or None when it has none."""
+    """The table's registered history table, or None when it has none or the caller can't view it."""
     _, history_table = _table_and_history_table(team_id, table_id)
-    return _history_table_ref(history_table, user_access_control) if history_table is not None else None
+    if history_table is None or not user_access_control.check_access_level_for_object(
+        history_table, required_level="viewer"
+    ):
+        return None
+    return _history_table_ref(history_table, user_access_control)
 
 
 def copy_access_rules_to_history_table(

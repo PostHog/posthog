@@ -490,29 +490,6 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
             }
         }
 
-        // Switching to or from xmin changes the table's physical schema (the `_ph_xmin` control
-        // column), so the backend rebuilds the table from scratch. Warn before discarding the data.
-        const crossesXminBoundary = syncType === 'xmin' || schema.sync_type === 'xmin'
-        if (crossesXminBoundary && syncType !== schema.sync_type && schema.last_synced_at) {
-            LemonDialog.open({
-                title: 'Switching sync method requires a full resync',
-                content: (
-                    <div className="text-sm text-secondary deprecated-space-y-2">
-                        <p>
-                            Switching <strong>{schema.table?.name ?? schema.name}</strong> from{' '}
-                            <strong>{SyncTypeLabelMap[schema.sync_type ?? 'full_refresh']}</strong> to{' '}
-                            <strong>{SyncTypeLabelMap[syncType ?? 'full_refresh']}</strong> changes the table's
-                            structure, so it will be deleted and resynced from scratch.
-                        </p>
-                        <p>The existing synced data is replaced. This can take a while for large tables.</p>
-                    </div>
-                ),
-                primaryButton: { children: 'Resync now', onClick: () => void applyUpdate() },
-                secondaryButton: { children: 'Cancel', type: 'tertiary' },
-            })
-            return
-        }
-
         const table = schema.table
         const confirmThenApply = async (): Promise<void> => {
             if (
@@ -532,6 +509,29 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                 return
             }
             await applyUpdate()
+        }
+
+        // Switching to or from xmin changes the table's physical schema (the `_ph_xmin` control
+        // column), so the backend rebuilds the table from scratch. Warn before discarding the data.
+        const crossesXminBoundary = syncType === 'xmin' || schema.sync_type === 'xmin'
+        if (crossesXminBoundary && syncType !== schema.sync_type && schema.last_synced_at) {
+            LemonDialog.open({
+                title: 'Switching sync method requires a full resync',
+                content: (
+                    <div className="text-sm text-secondary deprecated-space-y-2">
+                        <p>
+                            Switching <strong>{schema.table?.name ?? schema.name}</strong> from{' '}
+                            <strong>{SyncTypeLabelMap[schema.sync_type ?? 'full_refresh']}</strong> to{' '}
+                            <strong>{SyncTypeLabelMap[syncType ?? 'full_refresh']}</strong> changes the table's
+                            structure, so it will be deleted and resynced from scratch.
+                        </p>
+                        <p>The existing synced data is replaced. This can take a while for large tables.</p>
+                    </div>
+                ),
+                primaryButton: { children: 'Resync now', onClick: () => void confirmThenApply() },
+                secondaryButton: { children: 'Cancel', type: 'tertiary' },
+            })
+            return
         }
 
         if (!schema.should_sync && schema.pending_self_managed_table) {

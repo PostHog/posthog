@@ -110,7 +110,9 @@ class TestHistoryAccessRules(WarehouseAccessControlTestMixin):
         assert logged.count() == (2 if asked else 0)
 
     @parameterized.expand([("demoted_from_admin",), ("removed_from_the_project",)])
-    def test_a_copy_that_waits_is_skipped_once_the_user_can_no_longer_set_the_rules(self, case: str) -> None:
+    def test_a_copy_that_waits_denies_the_history_table_once_the_user_can_no_longer_set_the_rules(
+        self, case: str
+    ) -> None:
         requester = self.user
         if case == "removed_from_the_project":
             # Grants on the tables survive losing the project, so only the project check refuses the copy.
@@ -130,7 +132,7 @@ class TestHistoryAccessRules(WarehouseAccessControlTestMixin):
 
         run_pending_access_rules_copy(self.schema.id, self.team.id, history)
 
-        assert self._rules(history) == set()
+        assert self._rules(history) == {("none", None)}
         assert self._pending() is None
 
     def test_a_copy_that_fails_denies_the_history_table_and_stays_pending(self) -> None:
@@ -140,7 +142,9 @@ class TestHistoryAccessRules(WarehouseAccessControlTestMixin):
         with patch(f"{FACADE}.ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE", 1):
             run_pending_access_rules_copy(self.schema.id, self.team.id, history)
 
-        assert self._rules(history) == {("none", None)}
+        requester = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        # The requester keeps managing the history table, so the retry can still run.
+        assert self._rules(history) == {("none", None), ("manager", requester.id)}
         assert self._pending() is not None
 
     def test_replaces_the_rules_of_an_existing_history_table(self) -> None:
@@ -196,21 +200,22 @@ class TestHistoryAccessRules(WarehouseAccessControlTestMixin):
         assert self.schema.should_sync is True
         assert self._pending() is None
 
-    @parameterized.expand([("can_manage_access", True), ("cannot_manage_access", False)])
-    def test_table_endpoint_says_whether_you_can_manage_the_history_table(self, _name: str, can_manage: bool) -> None:
+    @parameterized.expand(
+        [("can_manage_access", True, True), ("cannot_manage_access", False, True), ("cannot_view", False, False)]
+    )
+    def test_table_endpoint_says_whether_you_can_manage_the_history_table(
+        self, case: str, can_manage: bool, can_view: bool
+    ) -> None:
         history = self._table("orders_history", STAMPED)
+        if not can_view:
+            self._create_access_control(self.editor_user, resource_id=str(history.id), access_level="none")
         self.client.force_login(self.user if can_manage else self.editor_user)
 
         response = self.client.get(f"/api/projects/{self.team.pk}/warehouse_tables/{self.table.id}/history_table/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {
-            "history_table": {
-                "id": str(history.id),
-                "name": "postgres.orders_history",
-                "user_can_manage_access": can_manage,
-            }
-        }
+        expected = {"id": str(history.id), "name": "postgres.orders_history", "user_can_manage_access": can_manage}
+        assert response.json() == {"history_table": expected if can_view else None}
 
     @parameterized.expand([("history_table_registered", True), ("history_table_not_registered_yet", False)])
     def test_schema_update_copies_now_or_once_the_history_table_registers(self, _name: str, registered: bool) -> None:
@@ -230,18 +235,25 @@ class TestHistoryAccessRules(WarehouseAccessControlTestMixin):
         else:
             assert self._pending() == {"table_id": str(self.table.id), "user_id": self.user.id}
 
-    def test_choosing_a_mode_again_without_the_copy_withdraws_a_waiting_copy(self) -> None:
+    @parameterized.expand(
+        [
+            ("turning_history_off", "consolidated", False),
+            ("an_editor_choosing_the_same_mode", "both", True),
+        ]
+    )
+    def test_only_turning_history_off_withdraws_a_waiting_copy(self, case: str, mode: str, kept: bool) -> None:
         request_access_rules_copy(self.schema, self.user)
-        self.client.force_login(self.user)
+        self._create_access_control(self.editor_user, resource_id=str(self.table.id), access_level="editor")
+        self.client.force_login(self.user if case == "turning_history_off" else self.editor_user)
 
         response = self.client.patch(
             f"/api/projects/{self.team.pk}/external_data_schemas/{self.schema.id}/",
-            {"cdc_table_mode": "both"},
+            {"cdc_table_mode": mode},
             format="json",
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert self._pending() is None
+        assert (self._pending() is not None) == kept
 
     @parameterized.expand(
         [

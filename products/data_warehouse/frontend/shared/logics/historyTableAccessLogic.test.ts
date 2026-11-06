@@ -1,10 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { accessControlLogic } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlLogic'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { historyTableAccessLogic } from './historyTableAccessLogic'
 
@@ -21,7 +24,17 @@ describe('historyTableAccessLogic', () => {
     let logic: ReturnType<typeof historyTableAccessLogic.build>
     let dialog: jest.SpyInstance
 
-    const mount = async (flagOn: boolean, historyTable: typeof HISTORY_TABLE | null): Promise<void> => {
+    const mount = async (
+        flagOn: boolean,
+        historyTable: typeof HISTORY_TABLE | null,
+        canManageTable = true
+    ): Promise<void> => {
+        const get = api.get
+        jest.spyOn(api, 'get').mockImplementation((url: string, ...rest: any[]) =>
+            url.endsWith('/access_controls')
+                ? Promise.resolve({ access_controls: [], user_can_edit_access_levels: canManageTable })
+                : get(url, ...rest)
+        )
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_HISTORY_ACCESS_RULES]: flagOn })
         dwApi.warehouseTablesHistoryTableRetrieve.mockResolvedValue({ history_table: historyTable })
@@ -47,8 +60,9 @@ describe('historyTableAccessLogic', () => {
         ['the flag is off', false, HISTORY_TABLE, false],
         ['the user cannot manage the history table', true, { ...HISTORY_TABLE, user_can_manage_access: false }, false],
         ['the table has no history table', true, null, false],
-    ])('offers the copy only when %s', async (_name, flagOn, historyTable, expected) => {
-        await mount(flagOn, historyTable)
+        ['the user cannot manage the table', true, HISTORY_TABLE, false, false],
+    ])('offers the copy only when %s', async (_name, flagOn, historyTable, expected, canManageTable = true) => {
+        await mount(flagOn, historyTable, canManageTable)
 
         expect(logic.values.canCopyToHistoryTable).toBe(expected)
     })
@@ -64,5 +78,24 @@ describe('historyTableAccessLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(dwApi.warehouseTablesCopyAccessRulesToHistoryTableCreate).toHaveBeenCalledTimes(copies)
+    })
+
+    it('holds the copy while a rule change saves', async () => {
+        await mount(true, HISTORY_TABLE)
+        let finishSave: (value: unknown) => void = () => {}
+        jest.spyOn(api, 'put').mockReturnValue(new Promise((resolve) => (finishSave = resolve)))
+        const tableLogic = accessControlLogic({
+            resource: AccessControlResourceType.WarehouseTable,
+            resource_id: 'table-1',
+            title: '',
+            description: '',
+        })
+
+        tableLogic.actions.updateAccessControlDefault(AccessControlLevel.None)
+        expect(logic.values.copyDisabledReason).not.toBeNull()
+
+        finishSave({})
+        await expectLogic(tableLogic).toFinishAllListeners()
+        expect(logic.values.copyDisabledReason).toBeNull()
     })
 })

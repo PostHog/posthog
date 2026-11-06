@@ -2163,8 +2163,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 request_access_rules_copy(updated_instance, cast(User, request.user))
             except InvalidObjectAccessControlError as e:
                 raise ValidationError({"copy_access_rules_to_history": str(e)})
-        elif not updated_instance.keeps_history or "cdc_table_mode" in data:
-            # Turning history off, or choosing a mode again without the copy, withdraws an earlier request.
+        elif not updated_instance.keeps_history:
+            # No history table gets registered, and turning history on again asks again. Any other edit keeps
+            # the request, so an editor who can't manage access can't cancel it.
             drop_pending_access_rules_copy(updated_instance)
 
         return updated_instance

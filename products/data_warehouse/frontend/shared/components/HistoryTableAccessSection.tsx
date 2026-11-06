@@ -6,7 +6,9 @@ import { historyTableAccessLogic } from 'products/data_warehouse/frontend/shared
 
 /** Offers to copy a table's access rules to its history table, from the table's access dialog. */
 export function HistoryTableAccessSection({ tableId }: { tableId: string }): JSX.Element | null {
-    const { historyTable, canCopyToHistoryTable, copying } = useValues(historyTableAccessLogic({ tableId }))
+    const { historyTable, canCopyToHistoryTable, copyDisabledReason, copying } = useValues(
+        historyTableAccessLogic({ tableId })
+    )
     const { confirmCopyToHistoryTable } = useActions(historyTableAccessLogic({ tableId }))
 
     if (!historyTable || !canCopyToHistoryTable) {
@@ -23,6 +25,7 @@ export function HistoryTableAccessSection({ tableId }: { tableId: string }): JSX
                 type="secondary"
                 size="small"
                 loading={copying}
+                disabledReason={copyDisabledReason}
                 onClick={confirmCopyToHistoryTable}
                 data-attr="history-access-rules-copy"
             >

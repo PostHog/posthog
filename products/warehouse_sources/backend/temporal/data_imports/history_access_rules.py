@@ -15,7 +15,7 @@ from django.db import transaction
 
 import structlog
 
-from posthog.models import User
+from posthog.models import OrganizationMembership, User
 from posthog.models.activity_logging.model_activity import ActingUserContext
 
 from products.access_control.backend.facade.api import (
@@ -152,17 +152,36 @@ def request_access_rules_copy(schema: ExternalDataSchema, user: User) -> None:
 
 
 def drop_pending_access_rules_copy(schema: ExternalDataSchema) -> None:
-    """Forget a copy that waits, so a request the user moved away from can't run later."""
+    """Forget a copy that waits, for a schema that stopped keeping history."""
     if PENDING_COPY_KEY in (schema.sync_type_config or {}):
         schema.sync_type_config = update_sync_type_config_keys(schema.id, schema.team_id, removes=[PENDING_COPY_KEY])
+
+
+def _deny_history_table(team_id: int, history_table: DataWarehouseTable, keep_manager: User | None) -> None:
+    """Deny the history table to everyone its rules don't name, instead of leaving it on its source's rules.
+
+    `keep_manager` keeps a manager rule for the requester, whose access may come from rules the denial
+    overrides, so the copy can still run when it is tried again.
+    """
+    rules = [ObjectAccessRuleInput(access_level="none")]
+    if keep_manager is not None:
+        membership = OrganizationMembership.objects.filter(
+            user=keep_manager, organization_id=history_table.team.organization_id
+        ).first()
+        if membership is not None:
+            rules.append(ObjectAccessRuleInput(access_level="manager", organization_member_id=membership.id))
+    replace_object_access_rules(
+        team_id=team_id, resource=TABLE_RESOURCE, resource_id=str(history_table.id), rules=rules
+    )
 
 
 def run_pending_access_rules_copy(schema_id: UUID, team_id: int, history_table: DataWarehouseTable) -> None:
     """Run a copy that waited for the schema's history table.
 
-    A copy that fails denies the history table to everyone the rules don't name, rather than leave it on its
-    source's rules, and stays pending: the next registration of the history table tries it again. Raises only
-    when even that denial can't be written.
+    The history table never falls back to its source's rules for want of the copy. When the requester can no
+    longer set the rules, it is denied to everyone its rules don't name and the request ends. When the copy
+    fails, it is denied the same way and the request stays pending: the next registration tries it again.
+    Raises only when even that denial can't be written.
     """
     config: dict[str, Any] = (
         ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id)
@@ -175,26 +194,23 @@ def run_pending_access_rules_copy(schema_id: UUID, team_id: int, history_table: 
         return
     log = logger.bind(team_id=team_id, schema_id=str(schema_id), history_table_id=str(history_table.id))
     user = User.objects.filter(id=pending.get("user_id"), is_active=True).first()
+    table = DataWarehouseTable.objects.filter(team_id=team_id, id=pending.get("table_id"), deleted=False).first()
+    if table is None or table.id == history_table.id:
+        log.info("history_access_rules_copy_skipped", reason="table gone")
+        update_sync_type_config_keys(schema_id, team_id, removes=[PENDING_COPY_KEY])
+        return
+    allowed = False
     try:
         with transaction.atomic():
-            table = DataWarehouseTable.objects.filter(
-                team_id=team_id, id=pending.get("table_id"), deleted=False
-            ).first()
-            if user is None or table is None or table.id == history_table.id:
-                log.info("history_access_rules_copy_skipped", reason="user or table gone")
+            allowed = user is not None and can_copy_access_rules(user, table, history_table)
+            if allowed and user is not None:
+                copy_access_rules(user, table, history_table)
+                log.info("history_access_rules_copied", table_id=str(table.id))
             else:
-                try:
-                    copy_access_rules(user, table, history_table)
-                    log.info("history_access_rules_copied", table_id=str(table.id))
-                except HistoryAccessRulesNotAllowedError:
-                    log.info("history_access_rules_copy_skipped", reason="user can no longer set the rules")
+                log.info("history_access_rules_copy_denied", reason="user can no longer set the rules")
+                _deny_history_table(team_id, history_table, keep_manager=None)
             update_sync_type_config_keys(schema_id, team_id, removes=[PENDING_COPY_KEY])
     except Exception:
         log.exception("history_access_rules_copy_failed")
         with ActingUserContext(user):
-            replace_object_access_rules(
-                team_id=team_id,
-                resource=TABLE_RESOURCE,
-                resource_id=str(history_table.id),
-                rules=[ObjectAccessRuleInput(access_level="none")],
-            )
+            _deny_history_table(team_id, history_table, keep_manager=user if allowed else None)
