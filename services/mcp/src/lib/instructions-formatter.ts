@@ -665,7 +665,7 @@ export class InstructionsFormatter {
             endpoints_routing: endpointsAvailable(ctx) ? ENDPOINTS_ROUTING : '',
             query_tool_routing: ctx.cliLearnLayout ? '' : QUERY_TOOL_ROUTING.trim(),
             sql_trust_pointer: ctx.cliLearnLayout
-                ? 'Run `info execute-sql` before writing SQL or joins — it says when a typed runner fits instead, and `learn sql` covers certified tables/views and verified joins'
+                ? '`info execute-sql` and `learn sql` cover certified tables/views and verified joins'
                 : 'Run `learn analytics` before writing SQL or joins — it covers certified tables/views and verified joins',
             extra_commands: opts.extraCommands ?? '',
             whats_new_check: docsSearchAvailable(ctx) ? WHATS_NEW_WITH_DOCS_SEARCH : WHATS_NEW_CHANGELOG_ONLY,
