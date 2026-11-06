@@ -512,7 +512,6 @@ class TestLLMJudgeShadow:
         labels = {"alert_id": "alert-1", "alert_evaluation_id": _SLOT}
         assert build_primary.call_args.kwargs["properties"] == {**labels, "llm_detector_role": "primary"}
         assert build_primary.call_args.kwargs["team_id"] == 1
-        # The OpenAI builder has no team argument, so the team rides in the labels.
         assert build_shadow.call_args.kwargs["properties"] == {**labels, "llm_detector_role": "shadow", "team_id": "1"}
         assert build_shadow.call_args.kwargs["trace_id"] == build_primary.call_args.kwargs["trace_id"]
 

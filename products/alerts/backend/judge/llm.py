@@ -83,8 +83,7 @@ MAX_RATIONALE_CHARS = 600
 # the wait covers the API's simulate path, whose request threads are its own pool. The wait
 # is short so a full pool fails a request fast instead of holding its thread.
 MODEL_CALL_SLOT_WAIT_SECONDS = 5.0
-# A shadow never waits for a slot, because waiting would delay the check and could take a slot
-# that a primary call needs.
+# A shadow never waits for a slot, so it cannot delay the check or take a primary call's slot.
 SHADOW_SLOT_WAIT_SECONDS = 0.0
 _model_call_slots = threading.BoundedSemaphore(MAX_CONCURRENT_MODEL_CALLS)
 
@@ -191,7 +190,7 @@ def _in_shadow_sample(evaluation_id: str, rate: float) -> bool:
 
 def _shadow_model(attribution: JudgeAttribution, primary: JudgeModel) -> JudgeModel | None:
     """The model to shadow this check with, or None when the check is not shadowed."""
-    # A simulation has no evaluation id. It is a person waiting on a preview, so it is never shadowed.
+    # A simulation has no evaluation id, and a person waiting on a preview is never shadowed.
     if not attribution.evaluation_id:
         return None
     config = llm_detector_shadow_config(organization_id=attribution.team.organization.id)
@@ -320,7 +319,6 @@ class LLMSeriesJudge:
 
         is_shadow = role == "shadow"
         extra_headers: dict[str, str] = {}
-        # The shadow exists for our own comparison, so the customer is never charged for it.
         if is_shadow or not attribution.is_agent_billable:
             extra_headers["X-PostHog-Billable"] = "false"
         if is_privacy_mode_enabled(attribution.team):
@@ -359,8 +357,7 @@ class LLMSeriesJudge:
             # alerts. Disabling an individual alert cannot fix a provider failure.
             raise LLMDetectorUnavailableError(f"The AI detector could not reach the model: {error}") from error
         except Exception as error:
-            # Covers an unconfigured gateway, which the client builders report as a ValueError,
-            # and a reply that does not parse into a verdict.
+            # Includes the ValueError the client builders raise when the gateway is not configured.
             raise LLMDetectorUnavailableError(
                 f"The AI detector could not get a verdict from the model: {error}"
             ) from error

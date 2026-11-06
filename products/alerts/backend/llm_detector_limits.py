@@ -38,7 +38,6 @@ PAYLOAD_MAX_ALERTS_KEY = "max_llm_alerts_per_team"
 # a team that wants more asks, and the flag grants it with no deploy.
 DEFAULT_MAX_LLM_ALERTS_PER_TEAM = 5
 
-# Keys inside the flag payload that turn on a shadow model call. All three must be set.
 PAYLOAD_SHADOW_MODEL_KEY = "shadow_model"
 PAYLOAD_SHADOW_RATE_KEY = "shadow_rate"
 PAYLOAD_SHADOW_TEAM_IDS_KEY = "shadow_team_ids"

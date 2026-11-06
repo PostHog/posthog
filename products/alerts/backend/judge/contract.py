@@ -114,7 +114,6 @@ class JudgeAttribution:
     # reuse a verdict it already paid for. None for a simulation.
     evaluation_id: str | None = None
     is_agent_billable: bool = True
-    # Labels the model calls in LLM analytics. None for a simulation of an unsaved alert.
     alert_id: str | None = None
 
 
@@ -127,7 +126,6 @@ class ShadowJudgment:
 
     model: str
     latency_ms: int
-    # The verdict fields are None when the shadow call did not reach a verdict.
     is_anomaly: bool | None = None
     kind: AnomalyKind | None = None
     rationale: str | None = None

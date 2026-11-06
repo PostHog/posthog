@@ -17,7 +17,7 @@ from products.alerts.backend.judge.prompt import SYSTEM_PROMPT, JudgePrompt, ant
 from products.alerts.backend.judge.verdict import LLMDetectionVerdict
 
 # Own product key in LLM analytics, so this judge's spend is separable from the
-# investigation agent's. Shared by every model, so a shadow call's spend stays with the judge's.
+# investigation agent's.
 LLM_DETECTOR_AI_PRODUCT = "alert_llm_detector"
 
 # The verdict schema is a handful of fields; this only needs to cover that.
@@ -46,7 +46,6 @@ class JudgeModel:
     provider: Literal["anthropic", "openai"]
     model_id: str
     # Raises the provider SDK's own errors, or a ValueError when the gateway is not configured.
-    # Returns whatever the SDK parsed, which the caller checks is a verdict.
     ask: Callable[["JudgeModel", ModelCall], Any]
 
 
