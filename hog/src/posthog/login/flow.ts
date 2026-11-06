@@ -12,9 +12,11 @@ import type { ProjectId } from '@/posthog/ids'
 import { withLoginLock, type OAuthLogin } from '@/posthog/oauth'
 import { loginFor, readSettings } from '@/posthog/settings'
 
-import { writeLogin } from './stored'
+import { readLogin, writeLogin } from './stored'
 
 export const LOGIN_COMMAND = 'hog auth login'
+// Step-up: a new login with the scopes the current one has plus new ones.
+export const ADD_COMMAND = 'hog auth add'
 
 export interface LoggedIn {
     host: Host
@@ -25,44 +27,64 @@ export interface LoggedIn {
     // Why hog couldn't use the keychain, when it stored the credentials in a file.
     keychainError: string | null
     status: AccessKeyStatus
+    // The project of the login this one replaced, when the person picked another one. Null otherwise.
+    previousProjectId: ProjectId | null
 }
 
-// What `hog auth login --wait` needs to finish the login a previous run started.
-export function loginWait(runtime: Runtime): ApprovalWait<PendingLogin, OAuthLogin> {
+// What `<command> --wait` needs to finish the login a previous run of `command` started.
+export function loginWait(runtime: Runtime, command = LOGIN_COMMAND): ApprovalWait<PendingLogin, OAuthLogin> {
     return {
-        command: LOGIN_COMMAND,
+        command,
         noun: 'login',
         pending: PendingLoginSchema,
-        poll: (pending, timeoutMs) => pollDeviceLogin(runtime, pending, timeoutMs),
+        poll: (pending, timeoutMs) => pollDeviceLogin(runtime, pending, timeoutMs, command),
     }
 }
 
-// An agent that retries `hog auth login` for the same host gets the same code back, so the link it
-// already shared keeps working.
+// An agent that retries the command for the same host and scopes gets the same code back, so the
+// link it already shared keeps working.
 export function loginFlow(
     runtime: Runtime,
     host: Host,
-    scopes: readonly string[]
+    scopes: readonly string[],
+    { command = LOGIN_COMMAND, requiredScopes = [] }: { command?: string; requiredScopes?: readonly string[] } = {}
 ): ApprovalFlow<PendingLogin, OAuthLogin> {
     return {
-        ...loginWait(runtime),
-        start: () => startDeviceLogin(runtime, host, scopes),
-        reuse: (existing) => existing.host === host && existing.scopes.join(' ') === scopes.join(' '),
+        ...loginWait(runtime, command),
+        start: () => startDeviceLogin(runtime, host, { scopes, requiredScopes, command }),
+        reuse: (existing) =>
+            existing.host === host &&
+            existing.scopes.join(' ') === scopes.join(' ') &&
+            existing.requiredScopes.join(' ') === requiredScopes.join(' '),
     }
 }
 
 // Each login probes the keychain again, so a login at the desk moves credentials out of the file a
-// login over SSH had to use. Clears any pending login too, so a later `--wait` can't replace these
-// credentials with an older approval.
-export async function saveLogin(runtime: Runtime, unverified: AccessKey): Promise<LoggedIn> {
-    const key = await unverified.verify(runtime)
+// login over SSH had to use. Clears the command's pending login too, so a later `--wait` can't
+// replace these credentials with an older approval.
+// `replace` is for a step-up. It gets the stored login and returns the key to save in its place.
+// The stored login is revoked once the new one is saved, so it doesn't linger in PostHog.
+export async function saveLogin(
+    runtime: Runtime,
+    unverified: AccessKey,
+    { command = LOGIN_COMMAND, replace }: { command?: string; replace?: (stored: AccessKey) => AccessKey } = {}
+): Promise<LoggedIn> {
+    let key = await unverified.verify(runtime)
     const [probe, previous] = await Promise.all([probeKeychain(runtime), readSettings(runtime)])
     let store = openStore(runtime, probe.usable ? 'keychain' : 'file')
     let keychainError = probe.usable ? null : probe.reason
-    const { host, projectId } = key
+    let previousProjectId: ProjectId | null = null
+    const { host } = key
     // Under the renewal lock, so a renewal of the previous login that is still in flight can't
     // store that login over this one.
     await withLoginLock(runtime, host, async () => {
+        // Read inside the lock, so the login revoked below is the one this replaces, not one a
+        // renewal already rotated.
+        const replaced = replace ? (await readLogin(runtime, await readSettings(runtime), host))?.key : undefined
+        if (replace && replaced) {
+            key = replace(replaced)
+            previousProjectId = replaced.projectId === key.projectId ? null : replaced.projectId
+        }
         try {
             // A keychain that times out sends the login to the file below.
             await writeLogin(runtime, store, key, { lastLogin: true, removeIfLate: true })
@@ -81,14 +103,18 @@ export async function saveLogin(runtime: Runtime, unverified: AccessKey): Promis
         if (loginFor(previous, host)?.store === 'file' && store.kind === 'keychain') {
             await new FileStore(runtime).remove(host)
         }
+        // A failed revoke leaves the old login working until it expires, which is no reason to fail
+        // a step-up that already saved its tokens.
+        await replaced?.logout(runtime)
     })
-    await clearPending(runtime, LOGIN_COMMAND)
+    await clearPending(runtime, command)
     return {
         host,
-        projectId,
+        projectId: key.projectId,
         store: store.kind,
         credentialsPath: store.path,
         keychainError,
         status: key.status(),
+        previousProjectId,
     }
 }

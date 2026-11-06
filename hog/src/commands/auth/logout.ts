@@ -1,10 +1,16 @@
 import { clearPending } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import { escapeControls } from '@/core/output'
+import type { Runtime } from '@/core/runtime'
 import { PERSONAL_API_KEY_ENV_VAR } from '@/posthog/credentials'
-import { LOGIN_COMMAND } from '@/posthog/login/flow'
+import { ADD_COMMAND, LOGIN_COMMAND } from '@/posthog/login/flow'
 import { logout, logoutAll, type LoggedOutHost } from '@/posthog/login/stored'
 import { readSettings } from '@/posthog/settings'
+
+// A login or step-up approved after logout must not log hog back in with `--wait`.
+async function clearPendingLogins(runtime: Runtime): Promise<void> {
+    await Promise.all([clearPending(runtime, LOGIN_COMMAND), clearPending(runtime, ADD_COMMAND)])
+}
 
 interface LogoutResult {
     status: 'logged_out' | 'not_logged_in'
@@ -38,7 +44,7 @@ export default defineCommand({
         const stillSet = runtime.env[PERSONAL_API_KEY_ENV_VAR] ? [PERSONAL_API_KEY_ENV_VAR] : []
         if (options.all) {
             const hosts = await logoutAll(runtime)
-            await clearPending(runtime, LOGIN_COMMAND)
+            await clearPendingLogins(runtime)
             const status = hosts.length > 0 ? 'logged_out' : 'not_logged_in'
             return { status, host: null, revoked: null, revokeUrl: null, keychainLeftover: null, hosts, stillSet }
         }
@@ -48,7 +54,7 @@ export default defineCommand({
         const configHost = (await ctx.config().catch(() => undefined))?.config.host
         const host = ctx.globals.host ?? configHost ?? settings.host
         const outcome = host ? await logout(runtime, host) : undefined
-        await clearPending(runtime, LOGIN_COMMAND)
+        await clearPendingLogins(runtime)
         return {
             status: outcome ? 'logged_out' : 'not_logged_in',
             host: host ?? null,

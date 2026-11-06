@@ -95,6 +95,8 @@ export const PendingLoginSchema = PendingApprovalSchema.extend({
     deviceCode: z.string(),
     userCode: z.string(),
     scopes: z.array(z.string()),
+    // The scopes the person can't untick on the approval page, such as the ones `hog auth add` adds.
+    requiredScopes: z.array(z.string()).default([]),
 })
 
 export type PendingLogin = z.output<typeof PendingLoginSchema>
@@ -139,21 +141,43 @@ function approvalUrl(host: Host, userCode: string, named: string): string {
     return url.toString()
 }
 
-export async function startDeviceLogin(runtime: Runtime, host: Host, scopes: readonly string[]): Promise<PendingLogin> {
+export interface DeviceLoginRequest {
+    scopes: readonly string[]
+    requiredScopes: readonly string[]
+    // The command that starts the login, for the hints, like `hog auth login`.
+    command: string
+}
+
+export async function startDeviceLogin(
+    runtime: Runtime,
+    host: Host,
+    request: DeviceLoginRequest
+): Promise<PendingLogin> {
+    const { scopes, requiredScopes, command } = request
     const response = await oauthPost(runtime, host, 'oauth/device-authorization/', {
         client_id: HOG_CLIENT_ID,
         scope: scopes.join(' '),
+        ...(requiredScopes.length > 0 ? { required_scopes: requiredScopes.join(' ') } : {}),
     })
     if (response.status === 429) {
         throw new HogError(
             'login_rate_limited',
             `${host} refused to start another login for now.`,
-            'Wait a minute, then run `hog auth login` again.'
+            `Wait a minute, then run \`${command}\` again.`
         )
     }
-    const refused = unauthorizedClient(host, OAuthErrorBody.safeParse(response.json).data)
+    const error = OAuthErrorBody.safeParse(response.json).data
+    const refused = unauthorizedClient(host, error)
     if (refused) {
         throw refused
+    }
+    // PostHog names the required scopes hog's client can't get.
+    if (error?.error === 'invalid_scope') {
+        throw new HogError(
+            'invalid_scope',
+            `${host} won't give hog these scopes: ${escapeControls(error.error_description ?? 'no reason given')}`,
+            'Check the scope names. Self-hosted PostHog can lack newer scopes.'
+        )
     }
     const body = response.ok ? DeviceAuthorizationResponse.safeParse(response.json).data : undefined
     if (body === undefined) {
@@ -171,6 +195,7 @@ export async function startDeviceLogin(runtime: Runtime, host: Host, scopes: rea
         expiresAt: runtime.now() + body.expires_in * 1000,
         intervalSeconds: body.interval ?? 5,
         scopes: [...scopes],
+        requiredScopes: [...requiredScopes],
     }
 }
 
@@ -178,7 +203,8 @@ export async function startDeviceLogin(runtime: Runtime, host: Host, scopes: rea
 export async function pollDeviceLogin(
     runtime: Runtime,
     pending: PendingLogin,
-    timeoutMs: number
+    timeoutMs: number,
+    command: string
 ): Promise<PollOutcome<OAuthLogin>> {
     const response = await oauthPost(
         runtime,
@@ -198,7 +224,7 @@ export async function pollDeviceLogin(
         const body = parseOrThrow(DeviceTokenResponse, response.json, {
             code: 'unexpected_response',
             context: "PostHog approved the login, but its answer isn't what hog expects.",
-            hint: 'Run `hog auth login` to start again.',
+            hint: `Run \`${command}\` to start again.`,
         })
         const [projectId] = body.scoped_teams
         return {
@@ -224,6 +250,6 @@ export async function pollDeviceLogin(
     throw new HogError(
         'login_failed',
         `PostHog rejected the login with HTTP ${response.status}.`,
-        'Run `hog auth login` to start again.'
+        `Run \`${command}\` to start again.`
     )
 }

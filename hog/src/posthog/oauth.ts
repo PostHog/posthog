@@ -127,6 +127,12 @@ export class OAuthLogin implements AccessKey {
         })
     }
 
+    // The same login under the id of the one it replaces, so commands still running on that login
+    // pick up these tokens instead of failing with `login_changed`.
+    continuing(loginId: string): OAuthLogin {
+        return new OAuthLogin({ ...this, loginId })
+    }
+
     get token(): OAuthAccessToken {
         return this.accessToken
     }
