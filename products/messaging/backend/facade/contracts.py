@@ -350,6 +350,11 @@ class SmtpActivityKind(LabeledStrEnum):
     DROPPED_HEADERS = "dropped_headers", "Dropped headers"
 
 
+class SmtpPortSecurity(LabeledStrEnum):
+    TLS = "tls", "TLS"
+    STARTTLS = "starttls", "STARTTLS"
+
+
 @frozen
 class SmtpTestResult:
     ok: bool

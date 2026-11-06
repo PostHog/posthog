@@ -186,9 +186,9 @@ export interface SmtpCheckResponseApi {
  * * `tls` - TLS
  * * `starttls` - STARTTLS
  */
-export type SecurityEnumApi = (typeof SecurityEnumApi)[keyof typeof SecurityEnumApi]
+export type SmtpPortSecurityEnumApi = (typeof SmtpPortSecurityEnumApi)[keyof typeof SmtpPortSecurityEnumApi]
 
-export const SecurityEnumApi = {
+export const SmtpPortSecurityEnumApi = {
     Tls: 'tls',
     Starttls: 'starttls',
 } as const
@@ -200,7 +200,7 @@ export interface SmtpPortApi {
      *
      * * `tls` - TLS
      * * `starttls` - STARTTLS */
-    security: SecurityEnumApi
+    security: SmtpPortSecurityEnumApi
     /** True for a port meant for hosts that block the usual ones. */
     alternate: boolean
 }

@@ -106124,18 +106124,6 @@ export namespace Schemas {
       queries: string[];
     }
 
-    /**
-     * * `tls` - TLS
-     * * `starttls` - STARTTLS
-     */
-    export type SecurityEnum = typeof SecurityEnum[keyof typeof SecurityEnum];
-
-
-    export const SecurityEnum = {
-      Tls: 'tls',
-      Starttls: 'starttls',
-    } as const;
-
     export interface SendCalendarBatchJob {
       /** ID of the batch run. */
       readonly id: string;
@@ -108816,6 +108804,18 @@ export namespace Schemas {
       team_id: number;
     }
 
+    /**
+     * * `tls` - TLS
+     * * `starttls` - STARTTLS
+     */
+    export type SmtpPortSecurityEnum = typeof SmtpPortSecurityEnum[keyof typeof SmtpPortSecurityEnum];
+
+
+    export const SmtpPortSecurityEnum = {
+      Tls: 'tls',
+      Starttls: 'starttls',
+    } as const;
+
     export interface SmtpPort {
       /** Port number. */
       port: number;
@@ -108823,7 +108823,7 @@ export namespace Schemas {
        *
        * * `tls` - TLS
        * * `starttls` - STARTTLS */
-      security: SecurityEnum;
+      security: SmtpPortSecurityEnum;
       /** True for a port meant for hosts that block the usual ones. */
       alternate: boolean;
     }

@@ -52,7 +52,12 @@ from products.messaging.backend.facade.api import (
     render_design_html,
     validate_design,
 )
-from products.messaging.backend.facade.smtp import recent_smtp_activity, send_smtp_test, smtp_relay_host
+from products.messaging.backend.facade.smtp import (
+    SmtpPortSecurity,
+    recent_smtp_activity,
+    send_smtp_test,
+    smtp_relay_host,
+)
 from products.messaging.backend.facade.templates import (
     MessageCategoryNotInTeam,
     MessageTemplateMissing,
@@ -1287,7 +1292,7 @@ class SmtpActivityEntrySerializer(SmtpActivitySerializer):
 class SmtpPortSerializer(serializers.Serializer):
     port = serializers.IntegerField(help_text="Port number.")
     security = serializers.ChoiceField(
-        choices=[("tls", "TLS"), ("starttls", "STARTTLS")], help_text="The setting most tools expect on this port."
+        choices=SmtpPortSecurity.choices, help_text="The setting most tools expect on this port."
     )
     alternate = serializers.BooleanField(help_text="True for a port meant for hosts that block the usual ones.")
 
@@ -1361,17 +1366,19 @@ class MessagingSmtpViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def setup_details(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         _require_flag(self.team, SMTP_RELAY_FLAG)
         return Response(
-            {
-                "host": smtp_relay_host(),
-                "ports": [
-                    {"port": 465, "security": "tls", "alternate": False},
-                    {"port": 587, "security": "starttls", "alternate": False},
-                    {"port": 2465, "security": "tls", "alternate": True},
-                    {"port": 2587, "security": "starttls", "alternate": True},
-                ],
-                "username": "posthog",
-                "activity": recent_smtp_activity(self.team_id),
-            }
+            SmtpSetupSerializer(
+                {
+                    "host": smtp_relay_host(),
+                    "ports": [
+                        {"port": 465, "security": SmtpPortSecurity.TLS, "alternate": False},
+                        {"port": 587, "security": SmtpPortSecurity.STARTTLS, "alternate": False},
+                        {"port": 2465, "security": SmtpPortSecurity.TLS, "alternate": True},
+                        {"port": 2587, "security": SmtpPortSecurity.STARTTLS, "alternate": True},
+                    ],
+                    "username": "posthog",
+                    "activity": recent_smtp_activity(self.team_id),
+                }
+            ).data
         )
 
     @validated_request(
