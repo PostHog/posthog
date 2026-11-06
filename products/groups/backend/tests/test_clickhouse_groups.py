@@ -47,6 +47,8 @@ from posthog.test.persons import create_group_type_mapping, create_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.event_definitions.backend.models import PropertyDefinition
 from products.groups.backend.presentation.views import _decode_groups_cursor, _encode_groups_cursor
 from products.notebooks.backend.facade.content import convert_notebook_content_to_markdown, is_markdown_notebook_content
@@ -2503,3 +2505,82 @@ class TestGroupsListAPIContract(ClickhouseTestMixin, APIBaseTest):
         assert "cursor=" in response_data["next"]
         assert "group_type_index=0" in response_data["next"]
         assert len(response_data["results"]) == 100
+
+
+class TestGroupsRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
+    # Regression: GroupSerializer returned group_properties without applying property access
+    # control, so a user denied a group property still received it from list and find.
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.restricted_def = PropertyDefinition.objects.create(
+            team=self.team,
+            name="arr",
+            property_type="Numeric",
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
+        )
+        # A default rule (no member/role) restricts the property for the default test user.
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.restricted_def,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:1",
+            properties={"name": "Acme", "arr": 1000},
+        )
+        # Same property name on a different group type is not covered by the index-0 rule.
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="company:1",
+            properties={"name": "Other", "arr": 5},
+        )
+
+    def _list_properties(self, group_type_index: int) -> dict[str, Any]:
+        response = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index={group_type_index}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        return results[0]["group_properties"]
+
+    def _find_properties(self, group_type_index: int, group_key: str) -> dict[str, Any]:
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/groups/find?group_type_index={group_type_index}"
+            f"&group_key={group_key}&skip_create_notebook=true"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.json()["group_properties"]
+
+    def test_list_hides_restricted_group_property(self) -> None:
+        self.assertEqual(self._list_properties(0), {"name": "Acme"})
+
+    def test_find_hides_restricted_group_property(self) -> None:
+        self.assertEqual(self._find_properties(0, "org:1"), {"name": "Acme"})
+
+    def test_restriction_is_scoped_to_its_group_type(self) -> None:
+        self.assertEqual(self._list_properties(1), {"name": "Other", "arr": 5})
+        self.assertEqual(self._find_properties(1, "company:1"), {"name": "Other", "arr": 5})
+
+    def test_allowed_user_still_sees_restricted_group_property(self) -> None:
+        # A member-specific READ rule overrides the default NONE rule.
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.restricted_def,
+            access_level=PropertyAccessLevel.READ.value,
+            organization_member=self.organization_membership,
+        )
+        self.assertEqual(self._list_properties(0), {"name": "Acme", "arr": 1000})
+        self.assertEqual(self._find_properties(0, "org:1"), {"name": "Acme", "arr": 1000})
+
+    def test_properties_visible_without_property_access_control_feature(self) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+        self.assertEqual(self._list_properties(0), {"name": "Acme", "arr": 1000})
+        self.assertEqual(self._find_properties(0, "org:1"), {"name": "Acme", "arr": 1000})

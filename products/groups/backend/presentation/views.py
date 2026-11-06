@@ -55,7 +55,10 @@ from posthog.personhog_client.converters import GroupTypeMappingResult
 from posthog.ph_client import feature_enabled_or_false
 from posthog.utils import str_to_bool
 
+from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
+from products.access_control.backend.property_access_control import strip_restricted_properties
+from products.event_definitions.backend.models import PropertyDefinition
 from products.groups.backend.facade import api as groups
 from products.groups.backend.facade.contracts import GroupPropertyDefinitionInput
 from products.groups.backend.presentation.exceptions import TriggerGroupIdentifyException
@@ -266,6 +269,16 @@ class GroupSerializer(serializers.HyperlinkedModelSerializer):
         model = Group
         fields = ["group_type_index", "group_key", "group_properties", "created_at"]
 
+    def to_representation(self, instance: Group) -> dict[str, Any]:
+        representation = super().to_representation(instance)
+        # Property access control: drop group properties the requesting user may not read.
+        # Restrictions are scoped per group type, so only strip names restricted for this group's index.
+        restricted: dict[int | None, set[str]] | None = self.context.get("restricted_group_properties")
+        if restricted and representation.get("group_properties"):
+            names = restricted.get(instance.group_type_index, set()) | restricted.get(None, set())
+            representation["group_properties"] = strip_restricted_properties(representation["group_properties"], names)
+        return representation
+
 
 class FindGroupSerializer(GroupSerializer):
     notebook = serializers.SerializerMethodField()
@@ -340,6 +353,18 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         return self.serializer_classes.get(self.action, self.serializer_classes["default"])
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        user = self.request.user if self.request.user.is_authenticated else None
+        restricted_by_index: dict[int | None, set[str]] = {}
+        for restriction in access_control_api.get_restricted_properties_with_group_type_index_for_team(
+            user=cast(Optional[User], user), team_id=self.team_id
+        ):
+            if restriction.property_type == PropertyDefinition.Type.GROUP:
+                restricted_by_index.setdefault(restriction.group_type_index, set()).add(restriction.name)
+        context["restricted_group_properties"] = restricted_by_index
+        return context
 
     @overload
     def _safely_get_query_params(self, require_group_key: Literal[True]) -> tuple[str, str]: ...
