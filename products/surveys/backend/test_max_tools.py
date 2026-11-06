@@ -11,17 +11,28 @@ from unittest.mock import patch
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
+from pydantic import ValidationError as ArgsValidationError
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, Project, Team
+from posthog.models import Organization, OrganizationMembership, Project, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 
-from .max_tools import CreateSurveyTool, EditSurveyTool, SimpleSurveyQuestion, SurveyAnalysisTool
+from ee.hogai.tool_errors import MaxToolAccessDeniedError
+
+from .max_tools import (
+    CreateSurveyTool,
+    CreateSurveyToolArgs,
+    EditSurveyTool,
+    EditSurveyToolArgs,
+    SimpleSurveyQuestion,
+    SurveyAnalysisTool,
+)
 
 
 async def create_test_team(organization: Organization, name: str) -> Team:
@@ -1555,3 +1566,41 @@ class TestSurveyToolsSaveThroughSurveyAPI(BaseTest):
 
         assert artifact["error"] == "validation_failed", content
         assert "linked_flag_id" in artifact["error_message"]
+
+    @parameterized.expand(
+        [
+            (CreateSurveyToolArgs, {"name": "S", "questions": [{"type": "open", "question": "Why?"}]}),
+            (EditSurveyToolArgs, {"survey_id": "any"}),
+        ]
+    )
+    def test_args_reject_a_non_positive_linked_flag_id(self, args_model, required_args):
+        with pytest.raises(ArgsValidationError, match="linked_flag_id"):
+            args_model(**required_args, linked_flag_id=0)
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_refuses_a_survey_the_user_is_denied_access_to(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        await self.organization.asave()
+        membership = await OrganizationMembership.objects.aget(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        await membership.asave()
+        survey = await Survey.objects.acreate(team=self.team, name="Restricted", type="popover", questions=[])
+        await AccessControl.objects.acreate(
+            team=self.team,
+            resource="survey",
+            resource_id=str(survey.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        edit_tool = EditSurveyTool(
+            team=self.team, user=self.user, config={"configurable": {"team": self.team, "user": self.user}}
+        )
+
+        with pytest.raises(MaxToolAccessDeniedError):
+            await edit_tool._arun_impl(survey_id=str(survey.id), name="Renamed")
+
+        await survey.arefresh_from_db()
+        assert survey.name == "Restricted"

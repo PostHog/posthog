@@ -27,6 +27,7 @@ from products.surveys.backend.models import MAX_ITERATION_COUNT, MAX_ITERATION_F
 from products.surveys.backend.summarization.fetch import fetch_responses
 
 from ee.hogai.tool import MaxTool
+from ee.hogai.tool_errors import MaxToolAccessDeniedError
 
 SEMANTIC_QUESTION_TYPE = Literal[
     "open",
@@ -403,7 +404,7 @@ class CreateSurveyToolArgs(BaseModel):
     target_url_match: Literal["exact", "contains", "regex"] | None = Field(
         default=None, description="How to match the target URL"
     )
-    linked_flag_id: int | None = Field(default=None, description="Feature flag ID for targeting")
+    linked_flag_id: int | None = Field(default=None, ge=1, description="Feature flag ID for targeting")
     linked_flag_variant: str | None = Field(default=None, description="Feature flag variant to target")
     wait_period_days: int | None = Field(
         default=None, description="Days to wait after user has seen any survey before showing this one"
@@ -615,7 +616,7 @@ class EditSurveyToolArgs(BaseModel):
     target_url_match: Literal["exact", "contains", "regex"] | None = Field(
         default=None, description="How to match the target URL"
     )
-    linked_flag_id: int | None = Field(default=None, description="Feature flag ID for targeting")
+    linked_flag_id: int | None = Field(default=None, ge=1, description="Feature flag ID for targeting")
     linked_flag_variant: str | None = Field(default=None, description="Feature flag variant to target")
     wait_period_days: int | None = Field(
         default=None, description="Minimum days before showing this survey again to a user who has seen any survey"
@@ -747,6 +748,7 @@ class EditSurveyTool(MaxTool):
                     "error": "not_found",
                     "error_message": f"No survey found with ID '{survey_id}' in your team.",
                 }
+            await self.check_object_access(survey, "editor", resource="survey", action="edit")
 
             if linked_flag_variant is not None and linked_flag_id is None and survey.linked_flag_id is None:
                 raise serializers.ValidationError(
@@ -835,6 +837,8 @@ class EditSurveyTool(MaxTool):
             return _validation_error_result(e)
         except ApprovalRequired as e:
             return _approval_required_result(e)
+        except MaxToolAccessDeniedError:
+            raise
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to edit survey: {str(e)}", {"error": "edit_failed", "details": str(e)}
