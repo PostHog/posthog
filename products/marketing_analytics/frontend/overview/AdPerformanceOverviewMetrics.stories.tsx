@@ -101,48 +101,42 @@ export const WithoutGoals: Story = {
     args: { viewKey: 'overview-metrics-no-goals-story', items: items.slice(0, 9) },
 }
 
-export const ConfigureMetrics: Story = {
-    args: { viewKey: 'overview-metrics-configure-story' },
-    play: async ({ canvasElement, args }) => {
-        // The modal reads the logic the component mounts, so opening it before the mount is lost.
-        const logic = await waitFor(
-            () => {
-                const mounted = overviewMetricsLogic.findMounted({ viewKey: args.viewKey! })
-                expect(mounted).toBeTruthy()
-                return mounted!
-            },
-            { timeout: 5000 }
-        )
-        logic.actions.openEditor()
-        await waitFor(() => expect(within(canvasElement.ownerDocument.body).getByRole('dialog')).toBeVisible(), {
-            timeout: 5000,
-        })
-    },
-    parameters: {
-        testOptions: {
-            waitForSelector: '.LemonModal.ReactModal__Content--after-open',
-            snapshotTargetSelector: '.LemonModal',
+export const Empty: Story = {
+    args: { viewKey: 'overview-metrics-empty-story', items: [] },
+}
+
+const openEditor: NonNullable<Story['play']> = async ({ canvasElement, args }) => {
+    // The modal reads the logic the component mounts, so opening it before the mount is lost.
+    const logic = await waitFor(
+        () => {
+            const mounted = overviewMetricsLogic.findMounted({ viewKey: args.viewKey! })
+            expect(mounted).toBeTruthy()
+            return mounted!
         },
-    },
+        { timeout: 5000 }
+    )
+    logic.actions.openEditor()
+    await waitFor(() => expect(within(canvasElement.ownerDocument.body).getByRole('dialog')).toBeVisible(), {
+        timeout: 5000,
+    })
+}
+
+const modalTestOptions = {
+    waitForSelector: '.LemonModal.ReactModal__Content--after-open',
+    snapshotTargetSelector: '.LemonModal',
 }
 
 export const ConfigureMetricsNarrow: Story = {
-    ...ConfigureMetrics,
     args: { viewKey: 'overview-metrics-configure-narrow-story' },
-    parameters: {
-        testOptions: {
-            viewport: { width: 520, height: 1024 },
-            waitForSelector: '.LemonModal.ReactModal__Content--after-open',
-            snapshotTargetSelector: '.LemonModal',
-        },
-    },
+    play: openEditor,
+    parameters: { testOptions: { ...modalTestOptions, viewport: { width: 520, height: 1024 } } },
 }
 
 export const ConfigureMetricsWithChanges: Story = {
-    ...ConfigureMetrics,
     args: { viewKey: 'overview-metrics-configure-changes-story' },
+    parameters: { testOptions: modalTestOptions },
     play: async (context) => {
-        await ConfigureMetrics.play!(context)
+        await openEditor(context)
         const dialog = within(context.canvasElement.ownerDocument.body).getByRole('dialog')
         await userEvent.click(within(dialog).getByRole('button', { name: 'Move Clicks up' }))
         const platforms = within(within(dialog).getByRole('region', { name: 'Ad platforms' }))

@@ -90,6 +90,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
     // visual-review, etc.) stay off to keep the surface stable.
     // agent-feedback is always_available and no longer flag-gated, so it appears regardless.
     const featureFlags = {
+        'self-driving-usage-display': true,
         tracing: true,
         'logs-agent-tools': true,
         tasks: true,
@@ -98,7 +99,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'agent-platform': true,
         'experiment-setup-context': true,
         'scout-trials': true,
-        'signals-report-checks-replace': true,
+        'signals-report-monitoring': true,
         'inbox-report-actions-mcp': true,
         'inbox-reports-create-mcp': true,
         'signals-reviewer-exclusions-mcp': true,

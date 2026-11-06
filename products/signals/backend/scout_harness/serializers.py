@@ -38,6 +38,7 @@ from products.signals.backend.activity_summary.search import MAX_MEMBER_ACTIVITY
 from products.signals.backend.artefact_schemas import (
     MAX_REPORT_LINK_REASON_LENGTH,
     MAX_REPORT_LINKS_PER_WRITE,
+    MAX_SOURCE_ISSUES_PER_WRITE,
     ActionabilityChoice,
     Priority,
 )
@@ -124,6 +125,7 @@ from products.signals.backend.serializers import (
     ReviewerProposalSerializer,
     SignalReportCheckWriteSerializer,
 )
+from products.signals.backend.source_issues import parse_source_issue_url
 from products.skills.backend.api.skill_serializers import (
     MAX_SKILL_FILE_COUNT,
     SPEC_DESCRIPTION_MAX_LENGTH,
@@ -546,7 +548,8 @@ class LighthouseAuditRequestSerializer(serializers.Serializer):
         help_text=(
             "The page to audit. Must be an https url on an allowed host — public PostHog pages only. "
             "Pages behind a login cannot be audited: the browser signs in to nothing, so it would "
-            "measure the login screen and report its numbers as the page's."
+            "measure the login screen and report its numbers as the page's. A url that redirects off the "
+            "allowed hosts is rejected for the same reason."
         ),
     )
     form_factor = serializers.ChoiceField(
@@ -698,7 +701,7 @@ class RecordCheckResultRequestSerializer(serializers.Serializer):
             "`passed` when the evidence meets the check's stated bar and the expectation holds, `failed` when "
             "the evidence meets the bar and the expectation does not hold. `inconclusive` when your tools "
             "worked but the evidence cannot settle the question; give a `reason`. `errored` only when a tool, "
-            "query, or model call failed. `failed` retires the check, so use it for a conclusion, not a suspicion."
+            "query, or model call failed. Reserve `failed` for a conclusion, not a suspicion."
         ),
     )
     reason = serializers.ChoiceField(
@@ -707,11 +710,10 @@ class RecordCheckResultRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Required with `inconclusive`, and refused with any other outcome. `awaiting_data`: the data can "
-            "still arrive (a rollout lag, a soak not complete, too few samples so far), so the check looks again "
-            "later. `unmeasurable`: the data the check needs is not captured. `needs_manual_verification`: only "
-            "a person or another environment can verify it. `no_fix_to_measure`: nothing was changed to fix the "
-            "claim, so no window after a fix exists. A report resolved without a pull request still has a window "
-            "that starts when it resolved. Every reason except `awaiting_data` ends the check."
+            "still arrive (a rollout lag, a soak not complete, too few samples so far). `unmeasurable`: the data "
+            "the check needs is not captured. `needs_manual_verification`: only a person or another environment "
+            "can verify it. `no_fix_to_measure`: nothing was changed to fix the claim, so no window after a fix "
+            "exists. A report resolved without a pull request still has a window that starts when it resolved."
         ),
     )
     explanation = serializers.CharField(
@@ -1026,7 +1028,7 @@ class ScratchpadEntrySerializer(serializers.Serializer):
 
 
 # pg_trgm pads a word where a literal separator bounds it, so `ai_` still yields the trigram "AI ".
-_TRIGRAM_INDEXABLE_TEXT = re.compile(r"[^\W_]{3}|(?<=[\W_])[^\W_]{2}|[^\W_]{2}(?=[\W_])")
+TRIGRAM_INDEXABLE_TEXT = re.compile(r"[^\W_]{3}|(?<=[\W_])[^\W_]{2}|[^\W_]{2}(?=[\W_])")
 
 
 class SearchMemoryQuerySerializer(serializers.Serializer):
@@ -1102,7 +1104,7 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
     def validate_text(self, value: str) -> str:
         # The trigram indexes extract nothing from a term without an indexable word, so Postgres
         # reads and upper-cases every body the team holds to answer it.
-        if value and not _TRIGRAM_INDEXABLE_TEXT.search(value):
+        if value and not TRIGRAM_INDEXABLE_TEXT.search(value):
             raise serializers.ValidationError(
                 "Use 3 letters or digits in a row, or 2 next to a symbol such as `ai_`, for example a whole word or identifier. "
                 "To read one known entry, pass `key` instead."
@@ -1164,7 +1166,10 @@ class RememberRequestSerializer(serializers.Serializer):
     )
     content = serializers.CharField(
         max_length=MAX_SCRATCHPAD_CONTENT_LENGTH,
-        help_text="Prose to write. Read verbatim into future prompts.",
+        help_text=(
+            "Markdown to write. Future prompts read it verbatim and people read it directly, so structured "
+            "Markdown (headings, bullets, inline code for ids) is easier to skim than a wall of prose."
+        ),
     )
     run_id = _BestEffortUUIDField(
         required=False,
@@ -1174,7 +1179,7 @@ class RememberRequestSerializer(serializers.Serializer):
             "Best-effort — a `run_id` that is unparseable, or that isn't a run on this project, is "
             "dropped rather than rejected, so the memory write is never lost. Omit it and the "
             "lineage still lands: a write from a scout sandbox is attributed to that sandbox's own "
-            "run."
+            "run. A report-pipeline caller is attributed by its stage and does not pass one."
         ),
     )
     expires_at = _BestEffortDateTimeField(
@@ -1343,9 +1348,10 @@ class ScoutNoteCreateRequestSerializer(serializers.Serializer):
             "Address the note to one scout by its skill name (exact match against a configured "
             "scout on the project — check `scout-config-list` for the roster), or to "
             "one stage of the report pipeline by its reserved audience "
-            f"({_PIPELINE_AUDIENCE_LIST}). Use a pipeline audience for guidance about how "
-            "reports get researched rather than about what the scouts watch, so it reaches that stage "
-            "and no scout. Omit or leave blank for a general note every scout sees."
+            f"({_PIPELINE_AUDIENCE_LIST}); any other `pipeline:*` value is rejected. Use a pipeline "
+            "audience for guidance about how reports get researched, judged, and routed rather than "
+            "about what the scouts watch, so it reaches that stage and no scout. Omit or leave blank "
+            "for a general note every scout sees."
         ),
     )
     report_id = serializers.UUIDField(
@@ -1584,6 +1590,35 @@ _REPORT_METRICS_WRITE_HELP = (
 )
 
 
+class SourceIssueWriteSerializer(serializers.Serializer):
+    """One external issue the report is about."""
+
+    url = serializers.CharField(
+        max_length=500,
+        help_text=(
+            "The issue's URL, `https://github.com/<owner>/<repo>/issues/<number>`. Only GitHub issues are "
+            "accepted today. Pull request URLs are rejected."
+        ),
+    )
+
+    def validate_url(self, value: str) -> str:
+        if parse_source_issue_url(value) is None:
+            raise serializers.ValidationError(
+                "Not a GitHub issue URL. Use https://github.com/<owner>/<repo>/issues/<number>."
+            )
+        return value
+
+
+_SOURCE_ISSUES_HELP = (
+    "The GitHub issues this report is about, when the finding came from an issue tracker. Pass the "
+    "issue whenever the report is about one, so the report links back to it: a GitHub issue signal "
+    "for the same issue then joins this report instead of opening a second one. When the project "
+    "turned on GitHub issue comments, the issue gets one comment that links the report once its "
+    "GitHub source ingests the issue. At most "
+    f"{MAX_SOURCE_ISSUES_PER_WRITE} per call."
+)
+
+
 class EmitReportRequestSerializer(serializers.Serializer):
     """Request body for the scout `emit-report` action and the inbox report `create` action. A scout run is
     taken from the URL path; a person is the authenticated caller."""
@@ -1708,6 +1743,12 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "so link from the side the sentence starts at. Links of the same kind must stay acyclic and "
             "every report must be in this project."
         ),
+    )
+    source_issues = serializers.ListField(
+        required=False,
+        child=SourceIssueWriteSerializer(),
+        max_length=MAX_SOURCE_ISSUES_PER_WRITE,
+        help_text=_SOURCE_ISSUES_HELP,
     )
     tags = serializers.ListField(
         required=False,
@@ -1924,6 +1965,15 @@ class EditReportRequestSerializer(ReviewerProposalSerializer):
             "Links of the same kind must stay acyclic and every report must be in this project."
         ),
     )
+    source_issues = serializers.ListField(
+        required=False,
+        child=SourceIssueWriteSerializer(),
+        max_length=MAX_SOURCE_ISSUES_PER_WRITE,
+        help_text=(
+            f"{_SOURCE_ISSUES_HELP} Additive: issues join the ones the report already names, and an issue "
+            "it already names is skipped. Only a newly added issue gets a comment."
+        ),
+    )
     tags = serializers.ListField(
         required=False,
         allow_null=True,
@@ -2030,6 +2080,9 @@ class EditReportResponseSerializer(serializers.Serializer):
     )
     links_appended = serializers.IntegerField(
         help_text="How many typed report-to-report links this edit wrote; 0 if none."
+    )
+    source_issues_appended = serializers.IntegerField(
+        help_text="How many source issues this edit added that the report did not name yet; 0 if none."
     )
     reviewers_set = serializers.BooleanField(help_text="Whether the report's suggested reviewers were replaced.")
     repository_set = serializers.BooleanField(
@@ -4776,7 +4829,9 @@ class ScoutMembersQuerySerializer(serializers.Serializer):
             "Team slug (case-insensitive, no `@org/` prefix), for example `team-desktop`. Narrows the roster "
             "to the members on that team, maintainers first, so a slug from a scout note, CODEOWNERS, or an "
             "owners file resolves to people you can route to. Returns an error, not an empty list, when "
-            "the project has no synced team roster or the roster holds no rows for the slug."
+            "the project has no synced team roster or the roster holds no rows for the slug. Rosters sync "
+            "team by team, so a slug with no rows usually means that team is not synced here, not that it "
+            "does not exist."
         ),
     )
 

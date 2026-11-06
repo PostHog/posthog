@@ -60,7 +60,11 @@ from products.warehouse_sources.backend.facade.models import (
     get_or_create_warehouse_destination,
     sync_old_schemas_with_new_schemas,
 )
-from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
+from products.warehouse_sources.backend.facade.source_inputs import (
+    SourceCredentialsMissingError,
+    SourceInputsStore,
+    UnreadableSourceInputsError,
+)
 from products.warehouse_sources.backend.facade.source_management import (
     PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
@@ -329,6 +333,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             return self.preloaded_source_inputs[instance.id]
         return SourceInputsStore.load(instance)
 
+    def validate_job_inputs(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise ValidationError("Must be an object.")
+        return value
+
     def to_representation(self, instance):
         representation = super().to_representation(instance)
 
@@ -513,7 +522,12 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         else:
             validated_data["prefix"] = instance.prefix
 
-        existing_job_inputs = SourceInputsStore.load(instance)
+        try:
+            existing_job_inputs = SourceInputsStore.load(instance)
+        except SourceCredentialsMissingError:
+            # The credentials row of a stripped source is lost. The update must still accept new credentials, so it
+            # starts from the settings that `job_inputs` still holds.
+            existing_job_inputs = SourceInputsStore.load_settings(instance)
         job_inputs_were_submitted = "job_inputs" in validated_data
         incoming_job_inputs = validated_data.get("job_inputs", {})
 
@@ -1360,11 +1374,6 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     {"message": f"A {source_type_model.label} source can't be created here. Use its own setup flow."}
                 ).data,
                 status=status.HTTP_400_BAD_REQUEST,
-            )
-        if helpers.source_feature_flag_missing(source, self.team):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": helpers._source_unavailable_message(source_type)},
             )
         max_instances = source.max_instances_per_team
         if max_instances is not None and helpers.count_active_sources(self.team_id, source_type_model) >= max_instances:
@@ -2289,11 +2298,6 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
         source_type_model = known_source_key(source_type)
         source = base.SourceRegistry.get_source(source_type_model)
-        if helpers.source_feature_flag_missing(source, self.team):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": helpers._source_unavailable_message(source_type)},
-            )
 
         error_response, source_config = self._validate_source_config_and_credentials(source, source_type_model, payload)
         if error_response is not None or source_config is None:
