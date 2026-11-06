@@ -20,7 +20,10 @@ import { ChartTooltip } from './ChartTooltip'
 
 const MAX_TOOLS = 8
 const ROW_HEIGHT_PX = 40
-const CHART_MARGINS = { top: 4, right: 20, bottom: 22 }
+const LABEL_WIDTH_PX = 180
+// A fixed left gutter, instead of one sized to the widest label, so the bars of every instance start
+// at the same x. The extra 18px is the gap that quill-charts keeps between a row label and the plot.
+const CHART_MARGINS = { top: 4, right: 20, bottom: 22, left: LABEL_WIDTH_PX + 18 }
 
 // Upper bound for the error-rate track: a bit above the worst tool's rate, rounded up to a clean 10 —
 // so the track ends just past the data (a 30% max gives a 50% track) rather than an empty-looking 100%.
@@ -71,6 +74,7 @@ export function ToolErrorRateChart({
             yTickFormatter: (value: number) => formatPercentage(value, { compact: true }),
             tooltip: { placement: 'cursor' },
             margins: CHART_MARGINS,
+            maxCategoryLabelWidth: LABEL_WIDTH_PX,
             barCornerRadius: 4,
             bars: { minBandSize: 30, valueDomain: { min: 0, max: axisMax } },
         }
