@@ -104,6 +104,7 @@ export interface loginLogicValues {
     autoRedirectAttemptedForEmail: string | null
     autoRedirectingToProvider: SSOProvider | null
     availableLoginMethods: LoginMethod[]
+    codeResendAttempted: boolean
     codeVerification: CodeVerificationForm
     codeVerificationAllErrors: Record<string, any>
     codeVerificationChanged: boolean
@@ -382,6 +383,23 @@ export const loginLogic = kea<loginLogicType>([
             null as string | null,
             {
                 setCodeVerificationRequired: (_, { email }) => email,
+                exitCodeVerification: () => null,
+            },
+        ],
+        // Separate from `resendResponse`, which the loader nulls on a throttled resend
+        codeResendAttempted: [
+            false,
+            {
+                resendCodeBasedVerification: () => true,
+                setCodeVerificationRequired: () => false,
+                exitCodeVerification: () => false,
+            },
+        ],
+        // Extends the loader's reducer below, so one login's "Code sent" cannot show on the next
+        resendResponse: [
+            null as { success: boolean; message: string } | null,
+            {
+                setCodeVerificationRequired: () => null,
                 exitCodeVerification: () => null,
             },
         ],
