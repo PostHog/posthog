@@ -649,7 +649,15 @@ jobs:
         # and the hourly scheduled run tests every vendor. The scheduled run also catches a
         # posthog/ change that breaks a vendor through the SDK, which no filter above sees.
         if: needs.changes.outputs.warehouse_sources == 'true' && github.event_name != 'push'
-        name: Warehouse sources checks and tests
+        name: Warehouse sources checks and tests (${{ matrix.scheduler }}, ${{ matrix.trial }})
+        strategy:
+            fail-fast: false
+            matrix:
+                scheduler: [load, loadfile]
+                trial: [1, 2, 3]
+                include:
+                    - scheduler: loadfile
+                      trial: failure
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 20
         steps:
@@ -719,6 +727,8 @@ jobs:
               env:
                   MODE: ${{ steps.select.outputs.mode }}
                   SCAN_SCOPE: ${{ steps.select.outputs.scan_scope }}
+                  SCHEDULER: ${{ matrix.scheduler }}
+                  TRIAL: ${{ matrix.trial }}
               run: |
                   vendor_invariants=(
                       test_warehouse_source_static_contract.py
@@ -741,7 +751,13 @@ jobs:
                       test_local_kafka_consumers.py
                       test_rbac_shadow_resolver_callers.py
                   )
-                  pytest -p no:cacheprovider -n auto "${full_invariants[@]/#/posthog/test/repo_invariants/}"
+                  if [ "$TRIAL" = "failure" ]; then
+                      printf '\ndef test_injected_invariant_failure():\n    assert False\n' >> posthog/test/repo_invariants/test_authentication_credential_types.py
+                  fi
+                  for cache_state in cold warm; do
+                      echo "Invariant benchmark: $SCHEDULER $cache_state"
+                      time pytest -p no:cacheprovider -n auto --dist="$SCHEDULER" -vv --durations=20 "${full_invariants[@]/#/posthog/test/repo_invariants/}"
+                  done
 
             # These tests load the full vendor catalog, so a change to one vendor can fail them.
             # A vendors run keeps the tests of the whole catalog and runs the tests that check one
