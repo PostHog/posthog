@@ -215,6 +215,33 @@ describe('loginLogic', () => {
             expect(logic.values.codeVerificationRequired).toBe(false)
             expect(logic.values.codeVerificationEmail).toBe(null)
         })
+
+        it('shows an undeliverable address on resend as a login error, and clears it once a resend goes out', async () => {
+            const detail = "We can't send email to this address."
+            useMocks({
+                post: {
+                    '/api/login/code-based-verification/resend': () => [
+                        400,
+                        { type: 'server_error', code: 'login_code_email_undeliverable', detail },
+                    ],
+                },
+            })
+
+            logic.actions.resendCodeBasedVerification(null)
+            await expectLogic(logic).toDispatchActions(['resendCodeBasedVerificationSuccess'])
+
+            expect(logic.values.resendResponse).toBe(null)
+            expect(logic.values.generalError).toEqual({ code: 'login_code_email_undeliverable', detail })
+
+            const sent = { success: true, message: 'sent' }
+            useMocks({ post: { '/api/login/code-based-verification/resend': () => [200, sent] } })
+
+            logic.actions.resendCodeBasedVerification(null)
+            await expectLogic(logic).toDispatchActions(['resendCodeBasedVerificationSuccess'])
+
+            expect(logic.values.resendResponse).toEqual(sent)
+            expect(logic.values.generalError).toBe(null)
+        })
     })
 
     describe('opaque login failure', () => {
