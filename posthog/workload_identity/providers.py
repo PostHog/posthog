@@ -296,8 +296,8 @@ GITLAB = WorkloadProvider(
         ConditionPreset(
             key="branch",
             label="A protected branch",
-            # A merge request pipeline from a fork carries the fork's project_id, so the branch alone can't
-            # trust code from a fork. Protection keeps working if someone later reuses the branch name.
+            # A fork's merge request pipeline that a maintainer runs in this project reports its source
+            # branch as ref, with ref_protected false, so only the protection check keeps fork code out.
             help_text="Pipelines that run on this branch while it is protected.",
             conditions=(("ref", PRESET_VALUE), ("ref_type", "branch"), ("ref_protected", "true")),
             placeholder="main",
