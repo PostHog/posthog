@@ -41,9 +41,8 @@ _UNSAFE_AUTHORITY = re.compile(r"[@\\%\s\x00-\x1f\x7f]")
 _NUMERIC_LABEL = re.compile(r"^(\d+|0x[0-9a-f]*)$")
 _BY_NAME_OPTIONS = frozenset({"secret_headers_input", "standard_webhooks", "aws_sigv4"})
 _VALUE_CALLS = frozenset({"concat", "coalesce", "ifNull", "if"})
-# Standard library calls that build their result from their arguments and never log, send or quote
-# them, not even in an error. Any other call can carry its arguments out of the function: into logs,
-# errors, events or other PostHog records, including a worker function added after this list.
+# Standard library calls that never log, send or quote their arguments, not even in an error. Any other
+# call, including a worker function added later, can carry its arguments out of the function.
 _PURE_CALLS = frozenset(
     {
         "arrayPushBack",
@@ -51,12 +50,15 @@ _PURE_CALLS = frozenset(
         "empty",
         "encodeURLComponent",
         "equals",
+        "jsonStringify",
         "length",
         "lower",
         "notEmpty",
         "notEquals",
         "replaceAll",
         "substring",
+        "toFloat",
+        "toInt",
         "toString",
         "trim",
         "upper",
@@ -67,11 +69,9 @@ _PURE_CALLS = frozenset(
 _DIGEST_CALLS = frozenset(
     {"md5Hex", "sha1Hex", "sha256", "sha256Hex", "sha1HmacChainHex", "sha256HmacChain", "sha256HmacChainHex"}
 )
-# Standard library calls that call their lambda argument with elements of their other arguments. Other
-# callees, such as `arrayReduce` with its accumulator or code the template defines, can call a lambda with
-# any value.
+# Calls that feed their lambda only elements of their other arguments, unlike `arrayReduce` or template code.
 _ELEMENT_CALLBACK_CALLS = frozenset({"arrayMap", "arrayFilter", "arrayExists", "arrayCount"})
-# Names the analysis gives a meaning to. Code that declares one of them replaces that meaning at runtime.
+# Code that declares one of these names replaces the meaning the analysis gives it.
 _INTERPRETED_NAMES = (
     frozenset({"inputs", "fetch"}) | _VALUE_CALLS | _PURE_CALLS | _DIGEST_CALLS | _ELEMENT_CALLBACK_CALLS
 )
@@ -87,7 +87,7 @@ _REGEX_OPS = frozenset(
     }
 )
 
-_Reason = Literal["unsupported_code", "input_cycle", "iterations", "budget", "unparseable", "too_deep"]
+UnanalyzableReason = Literal["unsupported_code", "input_cycle", "iterations", "budget", "unparseable", "too_deep"]
 SECRET_ORIGINS_UNANALYZABLE_COUNTER = Counter(
     "posthog_cdp_secret_origins_unanalyzable_total",
     "Secret origin analyses that left every secret unbound, by why the code could not be analyzed.",
@@ -119,17 +119,23 @@ def _reached(taint: _Taint) -> frozenset[str]:
 
 
 class _CannotAnalyze(Exception):
-    def __init__(self, reason: _Reason) -> None:
+    def __init__(self, reason: UnanalyzableReason) -> None:
         super().__init__(reason)
         self.reason = reason
 
 
-def secret_origins(
+@frozen
+class SecretOriginsAnalysis:
+    origins: dict[str, SecretOrigins]
+    unanalyzable: UnanalyzableReason | None = None
+
+
+def analyze_secret_origins(
     hog: str, inputs: dict[str, Any], mapping_input_sets: list[dict[str, Any]], secret_keys: set[str]
-) -> dict[str, SecretOrigins]:
-    reason: _Reason
+) -> SecretOriginsAnalysis:
+    reason: UnanalyzableReason
     try:
-        return _Analysis(hog, [inputs, *mapping_input_sets], secret_keys).run()
+        return SecretOriginsAnalysis(origins=_Analysis(hog, [inputs, *mapping_input_sets], secret_keys).run())
     except _CannotAnalyze as error:
         reason = error.reason
     except BaseHogQLError:
@@ -137,7 +143,13 @@ def secret_origins(
     except RecursionError:
         reason = "too_deep"
     SECRET_ORIGINS_UNANALYZABLE_COUNTER.labels(reason=reason).inc()
-    return dict.fromkeys(secret_keys, UNBOUND)
+    return SecretOriginsAnalysis(origins=dict.fromkeys(secret_keys, UNBOUND), unanalyzable=reason)
+
+
+def secret_origins(
+    hog: str, inputs: dict[str, Any], mapping_input_sets: list[dict[str, Any]], secret_keys: set[str]
+) -> dict[str, SecretOrigins]:
+    return analyze_secret_origins(hog, inputs, mapping_input_sets, secret_keys).origins
 
 
 def mapping_inputs(mappings: Any) -> list[dict[str, Any]]:
@@ -266,8 +278,8 @@ class _Analysis:
         # Lambdas a declaration binds to a name, and the parameters of each with that name.
         self.lambda_names: dict[int, str] = {}
         self.named_lambda_args: list[tuple[str, str]] = []
-        # Expressions whose value leaves the function other than through `fetch`: what it throws or
-        # returns, what it writes into globals, and the arguments of calls that can log or quote them.
+        self.lambdas_only: set[str] = set()
+        # Expressions whose value can leave the function other than through `fetch`.
         self.exits: list[ast.Expr] = []
 
         self.definitions: dict[str, list[dict]] = {}
@@ -292,14 +304,12 @@ class _Analysis:
             raise _CannotAnalyze("unsupported_code")
 
         local = self.declarations | bound_elsewhere | set(self.functions)
-        lambdas_only = self._lambda_only_names() - bound_elsewhere - set(self.functions)
+        self.lambdas_only = self._lambda_only_names() - bound_elsewhere - set(self.functions)
         self.exits += [expr for base, _, expr in self.member_assignments if base not in local]
         self.exits += [expr for name, expr in self.assignments if name not in local]
+        quiet = {"fetch", *_SAFE_CALLS, *self.functions, *self.lambdas_only}
         self.exits += [
-            arg
-            for call in self.calls
-            if call.name not in {"fetch", *_SAFE_CALLS, *self.functions, *lambdas_only}
-            for arg in call.args
+            arg for call in self.calls if call.name not in quiet and not _calls_back_inline(call) for arg in call.args
         ]
 
     def _rebinds_an_interpreted_name(self, variables: set[str]) -> bool:
@@ -380,8 +390,7 @@ class _Analysis:
         return self._value(expr), self._taint(expr)
 
     def _collect(self, node: ast.AST, function: str | None) -> None:
-        """Record what the analysis needs from `node`. `function` names the `fun` whose body holds it,
-        or is empty inside a lambda and None at the top level."""
+        """`function` is the enclosing `fun`, or empty inside a lambda and None at the top level."""
         if isinstance(node, ast.VariableDeclaration):
             self.declarations.add(node.name)
             if node.expr is not None:
@@ -548,6 +557,9 @@ class _Analysis:
             )
         if isinstance(node, ast.Call) and node.name in self.functions:
             return self.return_taints.get(node.name, frozenset())
+        if isinstance(node, ast.Call) and node.name in self.lambdas_only:
+            # The arguments reach the result only through the lambda's parameters.
+            return self.taints.get(node.name, frozenset())
         taint = self._union_taint(_children(node))
         if isinstance(node, ast.Call) and node.name == "fetch":
             # A response can echo what its request sent, so passing it on moves those secrets too.
@@ -565,6 +577,11 @@ def _names_no_input(options: ast.Expr) -> bool:
         isinstance(key, ast.Constant) and isinstance(key.value, str) and key.value not in _BY_NAME_OPTIONS
         for key, _ in options.items
     )
+
+
+def _calls_back_inline(call: ast.Call) -> bool:
+    """The library code quotes neither argument, so only what the inline lambda does can carry a value out."""
+    return call.name in _ELEMENT_CALLBACK_CALLS and bool(call.args) and isinstance(call.args[0], ast.Lambda)
 
 
 def _input_key(node: ast.AST) -> str | None:
