@@ -72,6 +72,7 @@ class FakeSqs:
         advance: Callable[[float], None] = lambda seconds: None,
         call_seconds: float = 0.0,
         refuse_renewal: bool = False,
+        false_empty_receives: int = 0,
     ):
         self.messages = {m["MessageId"]: m for m in messages}
         self.handles: dict[str, str] = {}
@@ -84,6 +85,7 @@ class FakeSqs:
         self.advance = advance
         self.call_seconds = call_seconds
         self.refuse_renewal = refuse_renewal
+        self.false_empty_receives = false_empty_receives
 
     def _hide(self, message_id: str, timeout: int) -> None:
         self.visible_after[message_id] = min(
@@ -97,6 +99,9 @@ class FakeSqs:
         visible = [mid for mid in self.messages if self._is_visible(mid)][:MaxNumberOfMessages]
         if VisibilityTimeout == 0:
             return {"Messages": [self.messages[mid] for mid in visible]}
+        if self.false_empty_receives:
+            self.false_empty_receives -= 1
+            return {"Messages": []}
         received = []
         for mid in visible:
             self.handles[mid] = f"receipt-{mid}-{self.clock()}"
@@ -161,8 +166,12 @@ def run(sqs: FakeSqs, webhook: StubWebhook, *, dry_run: bool = False, limit: int
 
 @override_settings(SES_EVENTS_REPLAY_WEBHOOK_URL="http://cdp-api-webhooks.test/public/m/ses_webhook")
 class TestReplaySesEventsDlq(SimpleTestCase):
-    def test_accepted_messages_leave_the_queue(self) -> None:
-        sqs = FakeSqs([sns_message("a", "Bounce", team_id=7), sns_message("b", "Delivery", team_id=8)])
+    @parameterized.expand([("every_receive_answers", 0), ("sqs_answers_empty_while_messages_wait", 2)])
+    def test_accepted_messages_leave_the_queue(self, _name: str, false_empty_receives: int) -> None:
+        sqs = FakeSqs(
+            [sns_message("a", "Bounce", team_id=7), sns_message("b", "Delivery", team_id=8)],
+            false_empty_receives=false_empty_receives,
+        )
         webhook = StubWebhook()
 
         report = run(sqs, webhook)
