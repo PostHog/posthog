@@ -259,6 +259,8 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
                 ],
                 3,
             ),
+            # The cut lands inside a two-byte character; a byte cut would leave invalid UTF-8 and fail the query.
+            ("multibyte_cut_stays_valid", ["a" * 299 + "é and more", "a" * 299 + "é and others"], 1),
         ]
     )
     def test_groups_failures_by_cause(self, _name: str, messages: list[str], expected_groups: int) -> None:

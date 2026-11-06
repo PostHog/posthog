@@ -101,11 +101,11 @@ _RAW_ERROR_STATUS = "substring(coalesce(toString(properties.$mcp_error_status), 
 _COMPOSED_FAILURE_LABEL = "concat(error_type, if(empty(error_status), '', concat(' (HTTP ', error_status, ')')))"
 # Mirrors the capture-side MAX_ERROR_MESSAGE_LENGTH (services/mcp); event-supplied, so
 # re-capped here in case a non-PostHog server emits an unbounded value.
-_ERROR_MESSAGE = "substring(coalesce(toString(properties.$mcp_error_message), ''), 1, 2048)"
+_ERROR_MESSAGE = "substringUTF8(coalesce(toString(properties.$mcp_error_message), ''), 1, 2048)"
 # Ids and numbers vary per call (`questions.0.link`, `/projects/97205/`), so masking them lets
 # one cause collect all its calls instead of scattering across rows.
 _FAILURE_CAUSE = (
-    "substring(replaceRegexpAll(replaceRegexpAll("
+    "substringUTF8(replaceRegexpAll(replaceRegexpAll("
     f"{_ERROR_MESSAGE}, "
     "'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\\\\b(?:[0-9]+[a-fA-F]|[a-fA-F]+[0-9])[0-9a-fA-F]*\\\\b', '<id>'), "
     "'[0-9]+', 'N'), 1, 300)"
