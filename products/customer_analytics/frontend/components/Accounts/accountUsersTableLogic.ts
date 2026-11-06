@@ -87,12 +87,12 @@ export interface accountUsersTableLogicActions {
 export interface accountUsersTableLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        exportQuery: (query: DataTableNode) => DataTableNode
         query: (
             savedQuery: DataTableNode | null,
             currentTeam: TeamPublicType | TeamType | null,
             user: UserType | null
         ) => DataTableNode
+        exportQuery: (query: DataTableNode) => DataTableNode
     }
 }
 
