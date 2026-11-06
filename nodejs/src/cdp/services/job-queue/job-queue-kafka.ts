@@ -3,6 +3,7 @@
  * To make this easier this class is designed to abstract the queue as much as possible from
  * the underlying implementation.
  */
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { compress, uncompress } from 'snappy'
 
@@ -184,9 +185,7 @@ export class CyclotronJobQueueKafka implements JobQueue {
 
             // Try to decompress, otherwise just use the value as is
             const decompressedValue = await uncompress(rawValue).catch(() => rawValue)
-            const invocation: CyclotronJobInvocation = migrateKafkaCyclotronInvocation(
-                parseJSON(decompressedValue.toString())
-            )
+            const invocation = deserializeInvocation(decompressedValue.toString())
 
             invocation.queueSource = 'kafka' // NOTE: We always set this here, as we know it came from kafka
             invocations.push(invocation)
@@ -247,4 +246,14 @@ export function serializeInvocation(invocation: CyclotronJobInvocation): Cyclotr
         queueMetadata: invocation.queueMetadata,
         queueSource: invocation.queueSource,
     }
+}
+
+export function deserializeInvocation(json: string): CyclotronJobInvocation {
+    const invocation = migrateKafkaCyclotronInvocation(parseJSON(json))
+    // JSON.stringify writes the DateTime as an ISO string, and readers call DateTime methods on it.
+    const scheduledAt: unknown = invocation.queueScheduledAt
+    if (typeof scheduledAt === 'string') {
+        invocation.queueScheduledAt = DateTime.fromISO(scheduledAt, { zone: 'utc' })
+    }
+    return invocation
 }
