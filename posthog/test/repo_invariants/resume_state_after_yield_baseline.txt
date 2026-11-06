@@ -209,7 +209,7 @@ impact/impact.py::_get_rows_fanout
 impact/impact.py::_get_rows_nested
 impact/impact.py::_get_rows_simple
 impact_partner/impact_partner.py::_get_rows_simple
-impact_partner/impact_partner.py::_get_rows_windowed
+impact_partner/impact_partner.py::_get_rows_windowed._run
 infisical/infisical.py::_get_audit_log_rows
 infisical/infisical.py::_get_offset_paginated_rows
 inngest/inngest.py::_get_event_rows
