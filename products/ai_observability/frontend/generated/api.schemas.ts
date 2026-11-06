@@ -2834,7 +2834,7 @@ export interface EvalSuggestionEstimateApi {
      */
     judge_model: string | null
     /**
-     * units x mean input tokens per generation x the judge model's input price, in USD. 0 for Hog checks, null when the price or token count is unknown.
+     * units x input tokens one judge run reads x the input price of the model accept uses, in USD. 0 for Hog checks, null when the price or token count is unknown.
      * @nullable
      */
     estimated_cost_usd: number | null
@@ -3273,6 +3273,11 @@ export interface EvaluationBackfillApi {
     readonly conditions: readonly EvaluationBackfillConditionApi[]
     /** Whether units with an existing result are evaluated again. */
     readonly rerun_existing: boolean
+    /**
+     * Most units this backfill evaluates, for a capped preview such as an accepted eval suggestion. Null means no cap.
+     * @nullable
+     */
+    readonly max_units: number | null
     /** Units matched at creation. Units that land in the window later can take dispatched_count and skipped_count past it. */
     readonly total_count: number
     /** Units the backfill has started an evaluation for so far. */

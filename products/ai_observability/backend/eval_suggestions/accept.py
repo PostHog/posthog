@@ -28,6 +28,7 @@ from products.ai_observability.backend.api.evaluation_backfills import (
 )
 from products.ai_observability.backend.api.evaluations import EvaluationSerializer, create_evaluation, update_evaluation
 from products.ai_observability.backend.backfill_candidates import count_backfill_candidates
+from products.ai_observability.backend.eval_suggestions.ranking import judge_input_price
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestion,
@@ -159,13 +160,9 @@ def estimate(suggestion: EvalSuggestion, team: Team) -> AcceptEstimate:
             model = judge_model_configuration(team)["model"]
         except ValidationError:
             model = None
-        # Priced per unit as the card was, so a trace judge counts every generation it reads.
-        per_unit = (
-            suggestion.estimated_weekly_cost_usd / suggestion.estimated_weekly_runs
-            if suggestion.estimated_weekly_cost_usd is not None and suggestion.estimated_weekly_runs
-            else None
-        )
-        cost = units * per_unit if model and per_unit is not None else None
+        # The suggestion stores the tokens one run reads, a whole transcript for trace and session judges.
+        price = judge_input_price(model) if model else None
+        cost = units * suggestion.mean_input_tokens * price if price and suggestion.mean_input_tokens else None
     return AcceptEstimate(
         target=target,
         units=units,
