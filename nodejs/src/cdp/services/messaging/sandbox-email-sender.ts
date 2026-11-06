@@ -8,6 +8,7 @@ import {
     serialize,
     serializeOuter,
 } from 'parse5'
+import { Counter } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { RedisV2 } from '~/common/redis/redis-v2'
@@ -42,7 +43,19 @@ function emptyRouteSettings(config: SandboxEmailSenderConfig): string[] {
         .map((setting) => ROUTE_SETTING_NAMES[setting])
 }
 
-export type SandboxEmailBlockReason = 'switch_off' | 'recipient_not_member' | 'recipient_unverified' | 'check_failed'
+export type SandboxEmailBlockReason =
+    | 'switch_off'
+    | 'not_workflow_step'
+    | 'recipient_not_member'
+    | 'recipient_unverified'
+    | 'check_failed'
+
+// The blocked event is captured once per team, reason and hour, so only this counter shows how many sends block.
+const sandboxEmailBlockedTotal = new Counter({
+    name: 'cdp_sandbox_email_blocked_total',
+    help: 'Sandbox sender sends skipped before delivery, by block reason and by whether the send was a test send.',
+    labelNames: ['reason', 'is_test'],
+})
 
 const BLOCKED_EVENT_WINDOW_SECONDS = 3600
 const EVENT_CAPTURE_TIMEOUT_MS = 1000
@@ -612,6 +625,7 @@ export class SandboxEmailSender {
         reason: SandboxEmailBlockReason,
         blockedRecipientCount: number
     ): Promise<void> {
+        sandboxEmailBlockedTotal.inc({ reason, is_test: String(isTest) })
         await this.captureEvent(
             teamId,
             'workflows sandbox email blocked',
@@ -667,16 +681,14 @@ export class SandboxEmailSender {
         isTest: boolean,
         reason: SandboxEmailBlockReason
     ): Promise<boolean> {
-        const firstBlock = await this.blockedEventRedis.useClient(
-            { name: 'sandbox-blocked-event', timeout: 1000 },
-            (client) =>
-                client.set(
-                    `@posthog/workflows-sandbox-blocked/${teamId}/${reason}/${isTest ? 'test' : 'live'}`,
-                    '1',
-                    'EX',
-                    BLOCKED_EVENT_WINDOW_SECONDS,
-                    'NX'
-                )
+        const firstBlock = await this.blockedEventRedis.useClient({ name: 'sandbox-blocked-event' }, (client) =>
+            client.set(
+                `@posthog/workflows-sandbox-blocked/${teamId}/${reason}/${isTest ? 'test' : 'live'}`,
+                '1',
+                'EX',
+                BLOCKED_EVENT_WINDOW_SECONDS,
+                'NX'
+            )
         )
         return firstBlock === 'OK'
     }

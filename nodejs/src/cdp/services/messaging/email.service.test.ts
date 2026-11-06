@@ -530,6 +530,7 @@ describe('EmailService', () => {
                                 'Skipping send: the sandbox sender only sends workflow email steps and test sends. Verify your own domain to send broadcasts and transactional email.',
                         })
                     )
+                    expectBlockedEvent('not_workflow_step', false, 0)
                 }
             })
 
@@ -644,11 +645,12 @@ describe('EmailService', () => {
             })
 
             it.each([
-                ['a display name', 'Example colleague', false],
-                ['a quoted comma', '"Example, colleague"', false],
-                ['an escaped quote', '"Example \\"colleague, teammate\\""', false],
-                ['mixed-case stored addresses', 'Example colleague', true],
-            ])('delivers to members whatever the case and %s', async (_case, name, storedMixedCase) => {
+                ['a display name', (address: string) => `Example colleague <${address}>`, false],
+                ['a quoted comma', (address: string) => `"Example, colleague" <${address}>`, false],
+                ['an escaped quote', (address: string) => `"Example \\"colleague, teammate\\"" <${address}>`, false],
+                ['a trailing comment', (address: string) => `${address} (Example colleague)`, false],
+                ['mixed-case stored addresses', (address: string) => `Example colleague <${address}>`, true],
+            ])('delivers to members whatever the case and %s', async (_case, mailbox, storedMixedCase) => {
                 if (storedMixedCase) {
                     await hub.postgres.query(
                         PostgresUse.COMMON_WRITE,
@@ -660,8 +662,8 @@ describe('EmailService', () => {
                 service = createSandboxService(true)
                 invocation.queueParameters = createSandboxParams({
                     to: { email: memberEmail().toUpperCase() },
-                    cc: `${name} <${memberEmail('cc').toUpperCase()}>`,
-                    bcc: ` ${name} <${memberEmail('bcc').toUpperCase()}> `,
+                    cc: mailbox(memberEmail('cc').toUpperCase()),
+                    bcc: ` ${mailbox(memberEmail('bcc').toUpperCase())} `,
                 })
 
                 const result = await service.executeSendEmail(invocation)
@@ -716,7 +718,6 @@ describe('EmailService', () => {
                 'bcc',
                 'cc list',
                 'multiple',
-                'ambiguous cc mailbox',
                 'unverified',
                 'legacy',
                 'inactive',
@@ -733,9 +734,6 @@ describe('EmailService', () => {
                 } else if (recipient === 'multiple') {
                     params = { ...params, cc: 'outside@example.com', bcc: 'another@example.com' }
                     blocked = ['outside@example.com', 'another@example.com']
-                } else if (recipient === 'ambiguous cc mailbox') {
-                    params = { ...params, cc: `Example <${memberEmail('cc')}> <outside@example.com>` }
-                    blocked = [`Example <${memberEmail('cc')}> <outside@example.com>`]
                 } else if (recipient === 'other organization') {
                     const organizationId = await createOrganization(hub.postgres)
                     extraOrganizationIds.push(organizationId)
@@ -782,7 +780,7 @@ describe('EmailService', () => {
                 )
             })
 
-            it('blocks a cc mailbox the member check and the delivery parser could read differently', async () => {
+            it('blocks the mailbox SES would receive from an ambiguous cc entry', async () => {
                 service = createSandboxService(true)
                 invocation.queueParameters = createSandboxParams({
                     cc: `( ") <outside@example.com> ( ") <${memberEmail('cc')}>`,
@@ -840,30 +838,27 @@ describe('EmailService', () => {
             })
 
             it('checks members again right before delivery', async () => {
-                const preparation = jest.spyOn(EmailSuppressionService.prototype, 'isSuppressed')
-                const isSuppressed = preparation.getMockImplementation()!
+                const getBlockedRecipients = OrganizationMembersService.prototype.getBlockedRecipients
+                const lookup = jest.spyOn(OrganizationMembersService.prototype, 'getBlockedRecipients')
+                lookup.mockImplementationOnce(async function (this: OrganizationMembersService, ...args) {
+                    const blocked = await getBlockedRecipients.apply(this, args)
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        'DELETE FROM posthog_organizationmembership WHERE user_id = $1',
+                        [memberId],
+                        'test:revoke-sandbox-member-after-first-check'
+                    )
+                    return blocked
+                })
                 try {
                     service = createSandboxService(true)
-                    await service.executeSendEmail(invocation)
-                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
-                    preparation.mockImplementation(async function (this: EmailSuppressionService, ...args) {
-                        await hub.postgres.query(
-                            PostgresUse.COMMON_WRITE,
-                            'DELETE FROM posthog_organizationmembership WHERE user_id = $1',
-                            [memberId],
-                            'test:revoke-sandbox-member-during-preparation'
-                        )
-                        return isSuppressed.apply(this, args)
-                    })
-                    invocation.state.vmState = { stack: [] } as any
 
                     const result = await service.executeSendEmail(invocation)
 
-                    expect(result).toMatchObject({ finished: true, skipped: true, metrics: [] })
-                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                    expectSkipped(result)
                     expectBlockedEvent('recipient_not_member', false, 1)
                 } finally {
-                    preparation.mockRestore()
+                    lookup.mockRestore()
                 }
             })
 
@@ -890,7 +885,7 @@ describe('EmailService', () => {
 
             it.each([
                 ['the sandbox sender is switched off', false],
-                ['the recipient is a verified member', true],
+                ['the sandbox sender refuses transactional email', true],
             ])('records a skipped transactional email when %s', async (_case, enabled) => {
                 const produce = jest.fn().mockResolvedValue(undefined)
                 const emailStatusService = new EmailStatusService(

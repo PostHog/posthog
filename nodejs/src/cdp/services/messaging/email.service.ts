@@ -48,7 +48,12 @@ import {
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
-import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
+import {
+    parseDeliveryMailboxes,
+    quoteMailbox,
+    removeSuppressedRecipients,
+    unquoteMailbox,
+} from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
@@ -143,23 +148,19 @@ type EmailQueueWait = { source: 'transactional_api' | 'workflow'; startedAt: Dat
 
 // A transactional API job is created on the email queue, so its creation time is when the caller got its 202. A
 // workflow job can join the email queue long after it was created, so its wait starts at the time it became due.
-// Broadcasts (batch-triggered flows) and transactional API email also run as hog flows, so a hog flow alone
-// does not make a send a workflow email step.
-function isWorkflowEmailStep(invocation: CyclotronJobInvocationHogFunction): boolean {
-    const hogFlow = (invocation as { hogFlow?: Partial<HogFlow> }).hogFlow
-    return (
-        !!hogFlow &&
-        hogFlow.trigger?.type !== 'batch' &&
-        invocation.state.globals.event?.event !== TRANSACTIONAL_EMAIL_EVENT
-    )
-}
-
 // Both come from fields a clone keeps: running the email step clones the invocation and resets queueScheduledAt.
 function emailQueueWait(invocation: CyclotronJobInvocationHogFunction): EmailQueueWait | undefined {
     const source =
         invocation.state.globals.event?.event === TRANSACTIONAL_EMAIL_EVENT ? 'transactional_api' : 'workflow'
     const startedAt = source === 'transactional_api' ? invocation.queueCreatedAt : invocation.queueDueAt
     return startedAt ? { source, startedAt, teamCapped: invocation.queueMetadata?.teamCapped === true } : undefined
+}
+
+// Broadcasts (batch-triggered flows) and transactional API email also run as hog flows, so a hog flow alone
+// does not make a send a workflow email step.
+function isWorkflowEmailStep(invocation: CyclotronJobInvocationHogFunction): boolean {
+    const hogFlow = (invocation as { hogFlow?: Partial<HogFlow> }).hogFlow
+    return !!hogFlow && hogFlow.trigger?.type !== 'batch' && !isTransactionalEmailSend(invocation)
 }
 
 /**
@@ -450,63 +451,11 @@ export function parseAddressList(value?: string): string[] | undefined {
     return result.length > 0 ? result : undefined
 }
 
-type QuoteScan = { unquotedIndexes: number[]; balanced: boolean }
-
-function scanQuotes(text: string): QuoteScan {
-    const unquotedIndexes: number[] = []
-    let quoted = false
-    let escaped = false
-    for (let index = 0; index < text.length; index++) {
-        const character = text[index]
-        if (escaped) {
-            escaped = false
-        } else if (quoted && character === '\\') {
-            escaped = true
-        } else if (character === '"') {
-            quoted = !quoted
-        } else if (!quoted) {
-            unquotedIndexes.push(index)
-        }
-    }
-    return { unquotedIndexes, balanced: !quoted }
-}
-
-function splitOutsideQuotes(text: string): string[] {
-    const commas = scanQuotes(text).unquotedIndexes.filter((index) => text[index] === ',')
-    return [-1, ...commas].map((comma, position) => text.slice(comma + 1, commas[position] ?? text.length))
-}
-
-function angleAddress(entry: string): string | undefined {
-    const { unquotedIndexes, balanced } = scanQuotes(entry)
-    const opening = unquotedIndexes.find((index) => entry[index] === '<')
-    const closing = entry.length - 1
-    if (!balanced || opening === undefined || entry[closing] !== '>' || /[\r\n]/.test(entry)) {
-        return undefined
-    }
-    const unquotedBetween = (start: number, end: number): string =>
-        unquotedIndexes
-            .filter((index) => index >= start && index < end)
-            .map((index) => entry[index])
-            .join('')
-    const mailbox = entry.slice(opening + 1, closing).trim()
-    const isFramed = !/[>@;]/.test(unquotedBetween(0, opening)) && !/[<>]/.test(unquotedBetween(opening + 1, closing))
-    return isFramed && mailbox ? mailbox : undefined
-}
-
-// Unlike `extractEmailsFromAddressList`, this keeps quoted commas inside one entry and leaves an
-// ambiguous mailbox whole, so the member check sees exactly the addresses SES would deliver to.
-function sandboxAddressList(value?: string): string[] {
-    return splitOutsideQuotes(value ?? '')
-        .map((entry) => entry.trim())
-        .filter(Boolean)
-        .map((entry) => angleAddress(entry) ?? entry)
-}
-
 function sandboxRecipientsOf(params: CyclotronInvocationQueueParametersEmailType): string[] {
-    return [params.to.email.trim(), ...sandboxAddressList(params.cc), ...sandboxAddressList(params.bcc)]
+    return [params.to.email.trim(), ...parseDeliveryMailboxes(params.cc), ...parseDeliveryMailboxes(params.bcc)]
 }
 
-type SandboxRecipientBlockReason = Exclude<SandboxEmailBlockReason, 'switch_off'>
+type SandboxRecipientBlockReason = Exclude<SandboxEmailBlockReason, 'switch_off' | 'not_workflow_step'>
 
 type SesRoute = {
     tenantName: string
@@ -703,6 +652,7 @@ export class EmailService {
                     'Skipping send: the sandbox sender only sends workflow email steps and test sends. Verify your own domain to send broadcasts and transactional email.',
                     'sending_suspended'
                 )
+                await this.sandboxSender?.captureBlocked(invocation.teamId, isTest, 'not_workflow_step', 0)
                 return result
             }
             if (isSandbox && !this.sandboxSender?.canSend) {
@@ -1320,8 +1270,8 @@ export class EmailService {
             tenantName: this.sandboxSender!.config.tenantName,
             configurationSetName: this.sandboxSender!.config.configurationSetName,
             unsubscribeHeaders: false,
-            ccAddresses: sandboxAddressList(params.cc),
-            bccAddresses: sandboxAddressList(params.bcc),
+            ccAddresses: parseDeliveryMailboxes(params.cc),
+            bccAddresses: parseDeliveryMailboxes(params.bcc),
         }
     }
 
