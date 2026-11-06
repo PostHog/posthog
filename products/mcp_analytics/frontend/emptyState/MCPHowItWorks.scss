@@ -1,0 +1,240 @@
+.MCPHowItWorks {
+    --mcp-how-surface: var(--color-bg-surface-primary);
+    --mcp-how-card: var(--color-bg-surface-secondary);
+    --mcp-how-border: var(--color-border-primary);
+    --mcp-how-line: var(--color-border-secondary);
+    --mcp-how-text: var(--color-text-primary);
+    --mcp-how-text-secondary: var(--color-text-secondary);
+    --mcp-how-muted: var(--color-text-tertiary);
+    --mcp-how-blue: var(--color-blue-500);
+    --mcp-how-yellow: var(--brand-yellow);
+    --mcp-how-purple: var(--color-purple-500);
+    --mcp-how-green: var(--color-green-500);
+    --mcp-how-orange: var(--color-accent);
+
+    // Text on the colored step badges and chips stays dark in both themes, because the fills stay bright.
+    --mcp-how-ink: var(--color-neutral-950);
+    --mcp-how-halo: none;
+    --mcp-how-mono: ui-monospace, sfmono-regular, menlo, consolas, monospace;
+
+    display: block;
+    font-weight: 500;
+    color: var(--mcp-how-text);
+    container: mcp-how-it-works / inline-size;
+
+    // The dark hedgehog outline would vanish into a dark background, so it gets a light halo.
+    [theme='dark'] & {
+        --mcp-how-halo: drop-shadow(0 0 1.5px var(--color-text-primary)) drop-shadow(0 0 1px var(--color-text-primary));
+    }
+
+    svg {
+        flex: none;
+    }
+
+    &__diagram {
+        display: flex;
+        flex-direction: column;
+        padding: 4px 0 10px;
+    }
+
+    &__tabs {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+        order: 2;
+        width: 100%;
+        max-width: 520px;
+        margin: 0 auto 10px;
+    }
+
+    &__tab {
+        --c: var(--mcp-how-blue);
+
+        position: relative;
+        display: flex;
+        gap: 7px;
+        align-items: center;
+        min-width: 0;
+        padding: 7px 9px;
+        overflow: hidden;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.15;
+        color: var(--mcp-how-text-secondary);
+        text-align: left;
+        appearance: none;
+        cursor: pointer;
+        background: transparent;
+        border: 1.5px solid var(--mcp-how-border);
+        border-radius: 9px;
+        transition:
+            border-color 0.3s ease,
+            background 0.3s ease,
+            color 0.3s ease;
+
+        &:hover {
+            color: var(--mcp-how-text);
+            border-color: var(--mcp-how-line);
+        }
+
+        &[data-p='2'] {
+            --c: var(--mcp-how-yellow);
+        }
+
+        &[data-p='3'] {
+            --c: var(--mcp-how-green);
+        }
+
+        &::after {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 0;
+            height: 2px;
+            content: '';
+            background: var(--c);
+        }
+
+        &[aria-selected='true'] {
+            color: var(--mcp-how-text);
+            background: var(--mcp-how-card);
+            border-color: var(--c);
+        }
+    }
+
+    &__diagram--auto &__tab[aria-selected='true']::after {
+        animation: MCPHowItWorks__progress var(--mcp-how-step-duration) linear forwards;
+    }
+
+    &__diagram--done &__tab[aria-selected='true']::after {
+        width: 100%;
+    }
+
+    &__tab-num {
+        display: grid;
+        flex: none;
+        place-items: center;
+        width: 22px;
+        height: 22px;
+        font-size: 12px;
+        color: var(--mcp-how-text-secondary);
+        background: var(--mcp-how-card);
+        border-radius: 50%;
+        transition:
+            background 0.3s ease,
+            color 0.3s ease;
+    }
+
+    &__tab[aria-selected='true'] &__tab-num {
+        color: var(--mcp-how-ink);
+        background: var(--c);
+    }
+
+    &__tab-title {
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+
+    &__flow {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        order: 3;
+        width: 100%;
+        max-width: 520px;
+        margin: 0 auto;
+    }
+
+    &__step {
+        --c: var(--mcp-how-blue);
+
+        grid-area: 1 / 1;
+        visibility: hidden;
+        opacity: 0;
+        transition: opacity 0.35s ease;
+
+        &--2 {
+            --c: var(--mcp-how-yellow);
+        }
+
+        &--3 {
+            --c: var(--mcp-how-green);
+        }
+    }
+
+    &__diagram:is([data-phase='0'], [data-phase='1']) &__step--1,
+    &__diagram[data-phase='2'] &__step--2,
+    &__diagram[data-phase='3'] &__step--3 {
+        visibility: visible;
+        opacity: 1;
+    }
+
+    &__stage {
+        position: relative;
+        width: 100%;
+        height: 252px;
+        overflow: hidden;
+        background: var(--mcp-how-card);
+        border: 1.5px solid var(--c);
+        border-radius: 12px;
+        box-shadow: 0 3px 0 var(--mcp-how-line);
+    }
+
+    // Reveal: each `__rv` element fades up once its step is reached, after its own `--d` delay.
+
+    &__rv {
+        opacity: 0;
+        transition:
+            opacity 0.5s ease var(--d, 0s),
+            transform 0.5s ease var(--d, 0s);
+        transform: translateY(8px);
+    }
+
+    &__diagram:is([data-phase='1'], [data-phase='2'], [data-phase='3']) &__step--1 &__rv,
+    &__diagram:is([data-phase='2'], [data-phase='3']) &__step--2 &__rv,
+    &__diagram[data-phase='3'] &__step--3 &__rv {
+        opacity: 1;
+        transform: none;
+    }
+
+    // Phase 0 resets every reveal at once, so a replay starts from a hidden stage.
+    &__diagram[data-phase='0'] * {
+        transition-delay: 0s !important;
+        transition-duration: 0s !important;
+        animation: none !important;
+    }
+
+    // Under reduced motion and in Storybook the sidebar opens on the last step and stays still.
+    &--static *,
+    &--static *::before,
+    &--static *::after {
+        transition: none !important;
+        animation: none !important;
+    }
+
+    @container mcp-how-it-works (max-width: 420px) {
+        &__tab {
+            flex-direction: column;
+            gap: 4px;
+            align-items: flex-start;
+            padding: 7px 8px;
+            font-size: 12px;
+        }
+
+        &__stage {
+            height: 272px;
+        }
+    }
+
+    @container mcp-how-it-works (max-width: 340px) {
+        &__tab-title {
+            font-size: 11px;
+        }
+    }
+}
+
+@keyframes MCPHowItWorks__progress {
+    to {
+        width: 100%;
+    }
+}
