@@ -187,7 +187,6 @@ class TestSelectors(SimpleTestCase):
     def test_max_length_selector_parses(self, _name, selector):
         started = time.perf_counter()
         build_selector_regex(Selector(selector, escape_slashes=False))
-        # Linear parsing takes milliseconds; generous bound to avoid flakiness on slow CI.
         self.assertLess(time.perf_counter() - started, 1.0)
 
     def test_attribute_parser_matches_reference_regex(self):

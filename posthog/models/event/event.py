@@ -12,12 +12,9 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.models.team import Team
 
-# Selectors come from users (action steps, element property filters), so parsing has to stay
-# linear in their length. The cap bounds the work done on, and the regex generated from, a
-# single selector; real CSS selectors are a small fraction of it.
+# Selectors are user input, so parsing stays linear and their length is capped.
 MAX_SELECTOR_LENGTH = 4096
-# Kept for reference: _find_attribute_selectors parses exactly what this regex matches with
-# re.finditer, in a single linear pass.
+# Reference for _find_attribute_selectors, which returns the same matches.
 SELECTOR_ATTRIBUTE_REGEX = r"\[\s*([^\]\s=]+)\s*=\s*(['\"])(.*?)\2\s*\]"
 # The chain records an element's position as nth-child and nth-of-type, and a selector
 # can carry either or both. Matching each one lets a selector keep the rest of itself.
@@ -87,13 +84,10 @@ def _find_attribute_selectors(tag: str) -> list[_AttributeMatch]:
     candidate "[" is resolved in constant time.
     """
     n = len(tag)
-    # next_non_space[i]: first index >= i that is not whitespace (n when there is none).
     next_non_space = [n] * (n + 1)
     for i in range(n - 1, -1, -1):
         next_non_space[i] = next_non_space[i + 1] if tag[i].isspace() else i
     # key_end[i]: first index >= i holding "]", whitespace or "=" (n when there is none).
-    # The key ([^\]\s=]+) is always maximal, because a shorter key would be followed by a key
-    # character, which is neither whitespace nor "=".
     key_end = [n] * (n + 1)
     for i in range(n - 1, -1, -1):
         char = tag[i]
@@ -169,7 +163,6 @@ def _split_classes(tag: str) -> list[str]:
 
 
 def _excise_spans(text: str, spans: list[tuple[int, int]]) -> str:
-    # One pass instead of re-slicing the whole string once per span.
     pieces: list[str] = []
     previous_end = 0
     for start, end in spans:
@@ -282,7 +275,6 @@ class Selector:
                 continue
             direct_descendant = index > 0 and tags[index - 1] == ">"
             part = SelectorPart(tag, direct_descendant, escape_slashes)
-            # How many earlier parts carry the same data, counted without rescanning them all.
             data_key = tuple(
                 sorted((key, tuple(value) if isinstance(value, list) else value) for key, value in part.data.items())
             )
