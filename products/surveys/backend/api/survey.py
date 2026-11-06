@@ -1907,8 +1907,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         # updates where only base_language is sent (otherwise get_survey_api_translations would silently
         # drop the matching translation from the SDK payload, making it unreachable with no warning).
         incoming_base_language = data.get("base_language")
-        if incoming_base_language and self.instance is not None:
-            normalized_base = _normalize_language_code(incoming_base_language)
+        normalized_base = _normalize_language_code(incoming_base_language) if incoming_base_language else None
+        if (
+            normalized_base
+            and self.instance is not None
+            and normalized_base != _normalize_language_code(self.instance.base_language or DEFAULT_BASE_LANGUAGE)
+        ):
             existing_keys = list(self.instance.translations or {}) if "translations" not in data else []
             if "questions" not in data:
                 for question in self.instance.questions or []:

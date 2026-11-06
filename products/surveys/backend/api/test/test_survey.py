@@ -547,6 +547,49 @@ class TestSurvey(APIBaseTest):
 
     @parameterized.expand(
         [
+            (
+                "survey_level",
+                {
+                    "questions": [{"type": "open", "id": "q1", "question": "Question?"}],
+                    "translations": {"en": {"name": "Legacy"}},
+                },
+            ),
+            (
+                "question_level",
+                {
+                    "questions": [
+                        {
+                            "type": "open",
+                            "id": "q1",
+                            "question": "Question?",
+                            "translations": {"en": {"question": "Q?"}},
+                        }
+                    ]
+                },
+            ),
+        ]
+    )
+    def test_unchanged_base_language_keeps_legacy_translations_editable(
+        self, _name: str, translated_fields: dict
+    ) -> None:
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Legacy survey",
+            type="popover",
+            base_language="en",
+            **translated_fields,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"base_language": "EN", "name": "Renamed"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    @parameterized.expand(
+        [
             ("running", {"start_date": datetime(2026, 1, 1, tzinfo=UTC)}, True),
             ("draft", {}, False),
             (
