@@ -89,7 +89,6 @@ export interface workloadTrustPoliciesLogicValues {
     providers: WorkloadProvidersResponseApi | null
     providersLoadFailed: boolean
     providersLoading: boolean
-    showingSetup: boolean
     scopeLevels: Record<string, ScopeAccessLevel>
     scopeRows: WorkloadTrustPolicyScopeRow[]
     scopeSearchTerm: string
@@ -99,6 +98,7 @@ export interface workloadTrustPoliciesLogicValues {
         snippet: string
     } | null
     showEditingPolicyErrors: boolean
+    showingSetup: boolean
     subjectLookup: ResolvedWorkloadSubjectApi | null
     subjectLookupError: string | null
     subjectLookupLoading: boolean
@@ -209,9 +209,6 @@ export interface workloadTrustPoliciesLogicActions {
             enabled: boolean
         }
     }
-    showSetup: () => {
-        value: true
-    }
     setScopeLevel: (
         key: string,
         level: ScopeAccessLevel
@@ -221,6 +218,9 @@ export interface workloadTrustPoliciesLogicActions {
     }
     setScopeSearchTerm: (searchTerm: string) => {
         searchTerm: string
+    }
+    showSetup: () => {
+        value: true
     }
     submitEditingPolicy: () => {
         value: boolean
