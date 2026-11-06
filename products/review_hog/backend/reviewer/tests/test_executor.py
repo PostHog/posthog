@@ -151,6 +151,33 @@ class TestRunSandboxReview:
 
     @parameterized.expand(
         [
+            ("single_turn", run_sandbox_review, {}, "read"),
+            ("warm_session", start_sandbox_session, {}, "read"),
+            ("warm_session_that_pushes", start_sandbox_session, {"can_push": True}, "push"),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_github_access_is_read_only_unless_the_session_pushes(
+        self, _name, entrypoint, extra_kwargs, expected_scope
+    ) -> None:
+        mock_start = AsyncMock(return_value=(AsyncMock(), DummyModel(result="ok")))
+
+        with patch(f"{_EXECUTOR_PREFIX}.MultiTurnSession.start", mock_start):
+            await entrypoint(
+                team_id=1,
+                user_id=2,
+                repository="o/r",
+                branch="b",
+                prompt="p",
+                system_prompt="s",
+                model_to_validate=DummyModel,
+                **extra_kwargs,
+            )
+
+        assert mock_start.call_args.kwargs["context"].github_token_scope == expected_scope
+
+    @parameterized.expand(
+        [
             ("single_turn_with_prefix", run_sandbox_review, "review-pr:1:o/r:7:chunking", True),
             ("warm_session_with_prefix", start_sandbox_session, "review-pr:1:o/r:7:validation-c1", True),
             ("single_turn_without_prefix", run_sandbox_review, None, False),
