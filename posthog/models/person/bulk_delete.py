@@ -948,6 +948,9 @@ def _start_recording_workflow_batches(
     The Temporal connection is established here (rather than in the caller) so
     that tests patching this seam don't need to mock ``sync_connect`` separately.
     """
+    # Checked here and not on DeletionConfig, because workflows already started hold an empty value in their input.
+    if not deleted_by:
+        raise ValueError("deleted_by is empty, and the recording API rejects that after the workflow starts")
     temporal = sync_connect()
     config = DeletionConfig(deleted_by=deleted_by, reason=reason)
 

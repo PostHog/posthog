@@ -192,9 +192,11 @@ class OrphanDataErasure:
     recording_distinct_ids: list[str]
     # Distinct ids that a live persons-DB person owns, so deleting by them would reach that person's recordings.
     excluded_distinct_ids: list[str]
-    # Distinct ids of these persons whose mapping is already deleted or gone. A person delete and a detach leave
-    # identical rows, and a detached id can be a shared sentinel, so deleting by them could reach other people.
+    # Distinct ids of these persons whose mapping is deleted or gone in either store. A person delete and a detach
+    # leave identical rows, and a detached id can be a shared sentinel, so deleting by them could reach other people.
     unconfirmed_distinct_ids: list[str]
+    # Persons with no distinct id left in either store, so nothing shows whether they still have recordings.
+    persons_without_distinct_ids: list[str]
 
 
 def plan_orphan_data_erasure(
@@ -205,8 +207,10 @@ def plan_orphan_data_erasure(
     A live person has no tombstone, so a person the repair skipped as live never qualifies. A tombstoned person
     is no longer an orphan, so a rerun after a crash still finds every person the first run tombstoned.
 
-    Only a live ClickHouse mapping makes a distinct id safe to delete by. A tombstone that stores distinct ids
-    publishes deleted mappings, and the deletion sweep removes mappings, so those ids come back as unconfirmed.
+    A distinct id is safe to delete by only when ClickHouse maps it to an erasable person and the persons DB holds
+    no deleted row for it. A tombstone that stores distinct ids publishes deleted mappings, and the deletion sweep
+    removes mappings, so those ids come back as unconfirmed. A person the sweep reached with no stored distinct ids
+    has nothing left to look up, and comes back in ``persons_without_distinct_ids``.
 
     ``pending_uuids`` are orphans a dry run has not tombstoned, counted as if it had.
     """
@@ -214,7 +218,11 @@ def plan_orphan_data_erasure(
     erasable = {str(t.uuid) for t in tombstones} | set(pending_uuids or [])
     if not erasable:
         return OrphanDataErasure(
-            person_uuids=[], recording_distinct_ids=[], excluded_distinct_ids=[], unconfirmed_distinct_ids=[]
+            person_uuids=[],
+            recording_distinct_ids=[],
+            excluded_distinct_ids=[],
+            unconfirmed_distinct_ids=[],
+            persons_without_distinct_ids=[],
         )
 
     mappings = _ch_mappings_for_persons(team_id, erasable)
@@ -229,16 +237,17 @@ def plan_orphan_data_erasure(
         - held_by_someone_else
     )
     # A strong read, because a lagging replica could hide a live owner and cost that owner their recordings.
-    owned_by_live_person = {
-        row.distinct_id
-        for row in get_distinct_id_rows(team_id, sorted(candidates | unconfirmed), strong=True)
-        if not row.is_deleted and not row.person_is_deleted
-    }
+    rows = get_distinct_id_rows(team_id, sorted(candidates | unconfirmed), strong=True)
+    owned_by_live_person = {row.distinct_id for row in rows if not row.is_deleted and not row.person_is_deleted}
+    # The persons DB records a detach before ClickHouse consumes it, so a live ClickHouse mapping does not clear these.
+    deleted_in_persons_db = {row.distinct_id for row in rows if row.is_deleted}
+    with_distinct_ids = {m.winner_person_id for m in mappings} | {str(t.uuid) for t in tombstones if t.distinct_ids}
     return OrphanDataErasure(
         person_uuids=sorted(erasable),
-        recording_distinct_ids=sorted(candidates - owned_by_live_person),
+        recording_distinct_ids=sorted(candidates - owned_by_live_person - deleted_in_persons_db),
         excluded_distinct_ids=sorted(owned_by_live_person),
-        unconfirmed_distinct_ids=sorted(unconfirmed - owned_by_live_person),
+        unconfirmed_distinct_ids=sorted((unconfirmed | deleted_in_persons_db) - owned_by_live_person),
+        persons_without_distinct_ids=sorted(erasable - with_distinct_ids),
     )
 
 

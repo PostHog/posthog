@@ -1,3 +1,4 @@
+import sys
 import logging
 import argparse
 
@@ -146,12 +147,13 @@ def run(options) -> None:
         )
     if delete_events:
         queue_event_deletion_by_uuid(team_id, erasure.person_uuids, actor=None)
-    if delete_recordings and erasure.unconfirmed_distinct_ids:
+    if delete_recordings and (erasure.unconfirmed_distinct_ids or erasure.persons_without_distinct_ids):
         logger.error(
-            "Recordings for these distinct ids were not deleted, because a deleted mapping does not show who owns "
-            "the id. Check each id, then delete its recordings from the team admin.",
+            "Some recordings may remain. Check each unconfirmed distinct id printed above, then delete its recordings "
+            "from the team admin. For a person with no distinct ids, use the ids from the erasure request.",
             team_id=team_id,
-            unconfirmed_distinct_ids=erasure.unconfirmed_distinct_ids,
+            unconfirmed_distinct_ids=len(erasure.unconfirmed_distinct_ids),
+            persons_without_distinct_ids=erasure.persons_without_distinct_ids,
         )
         exit(1)
 
@@ -163,8 +165,13 @@ def _log_erasure(team_id: int, erasure: OrphanDataErasure) -> None:
         persons=len(erasure.person_uuids),
         recording_distinct_ids=len(erasure.recording_distinct_ids),
         excluded_distinct_ids=len(erasure.excluded_distinct_ids),
-        unconfirmed_distinct_ids=erasure.unconfirmed_distinct_ids,
+        unconfirmed_distinct_ids=len(erasure.unconfirmed_distinct_ids),
+        persons_without_distinct_ids=erasure.persons_without_distinct_ids,
     )
+    if erasure.unconfirmed_distinct_ids:
+        # Written to the operator's terminal and not logged, because a distinct id can be an email address and this
+        # command runs to erase that data.
+        sys.stdout.write("Unconfirmed distinct ids:\n" + "\n".join(erasure.unconfirmed_distinct_ids) + "\n")
 
 
 def _log_result(team_id: int, result: OrphanRepairResult) -> None:

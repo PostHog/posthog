@@ -17,8 +17,7 @@ class DeletionProgress(BaseModel):
 
 
 class DeletionConfig(BaseModel):
-    # The recording API rejects an empty value, and it does so after the workflow has started.
-    deleted_by: Annotated[str, Field(min_length=1)]
+    deleted_by: str
     dry_run: bool = False
     batch_size: Annotated[int, Field(ge=1, le=MAX_DELETE_BATCH_SIZE)] = MAX_DELETE_BATCH_SIZE
     max_deletions_per_second: float = 30

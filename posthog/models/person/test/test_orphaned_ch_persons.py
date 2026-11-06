@@ -1,3 +1,5 @@
+from contextlib import redirect_stdout
+from io import StringIO
 from uuid import uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -256,8 +258,14 @@ class TestOrphanedCHPersonRepair(ClickhouseTestMixin, BaseTest):
         for _ in range(20):
             self._seed_ch_only_person(str(uuid4()), [], version=1)
 
-    def _erase(
-        self, uuids: list[str], *, expect_exit: bool = False, **overrides: object
+    def _erase(self, uuids: list[str], **overrides: object) -> tuple[list[str], MagicMock]:
+        return self._run_erasure(uuids, overrides, expect_exit=False)
+
+    def _erase_expecting_exit(self, uuids: list[str], **overrides: object) -> tuple[list[str], MagicMock]:
+        return self._run_erasure(uuids, overrides, expect_exit=True)
+
+    def _run_erasure(
+        self, uuids: list[str], overrides: dict[str, object], *, expect_exit: bool
     ) -> tuple[list[str], MagicMock]:
         options = {
             "team_id": self.team.pk,
@@ -330,7 +338,7 @@ class TestOrphanedCHPersonRepair(ClickhouseTestMixin, BaseTest):
         uuid = self._tombstoned_person_with_stored_distinct_id("did-t")
         assert self._ch_mapping_state("did-t")[1] == 1
 
-        recording_ids, training = self._erase([uuid], expect_exit=True)
+        recording_ids, training = self._erase_expecting_exit([uuid])
 
         assert recording_ids == []
         training.assert_not_called()
@@ -342,7 +350,7 @@ class TestOrphanedCHPersonRepair(ClickhouseTestMixin, BaseTest):
             team_id=self.team.pk, distinct_id="did-mapped", person_id=uuid, version=0, is_deleted=False
         )
 
-        recording_ids, training = self._erase([uuid], expect_exit=True)
+        recording_ids, training = self._erase_expecting_exit([uuid])
 
         assert recording_ids == ["did-mapped"]
         training.assert_called_once_with(self.team.pk, ["did-mapped"])
@@ -357,11 +365,45 @@ class TestOrphanedCHPersonRepair(ClickhouseTestMixin, BaseTest):
     def test_erasure_dry_run_shows_the_distinct_ids_a_real_run_cannot_confirm(self):
         uuid = self._tombstoned_person_with_stored_distinct_id("did-t")
 
-        with patch("posthog.management.commands.fix_orphaned_ch_persons.logger") as logger:
+        terminal = StringIO()
+        with (
+            patch("posthog.management.commands.fix_orphaned_ch_persons.logger") as logger,
+            redirect_stdout(terminal),
+        ):
             self._erase([uuid], dry_run=True)
 
-        [erasure_log] = [c for c in logger.info.call_args_list if c.args == ("Orphan data erasure",)]
-        assert erasure_log.kwargs["unconfirmed_distinct_ids"] == ["did-t"]
+        assert "did-t" in terminal.getvalue()
+        assert "did-t" not in str(logger.mock_calls)
+
+    def test_erasure_keeps_unconfirmed_distinct_ids_out_of_the_logs_when_it_fails(self):
+        uuid = self._tombstoned_person_with_stored_distinct_id("did-t")
+
+        with patch("posthog.management.commands.fix_orphaned_ch_persons.logger") as logger:
+            self._erase_expecting_exit([uuid])
+
+        logger.error.assert_called_once()
+        assert "did-t" not in str(logger.mock_calls)
+
+    def test_erasure_treats_a_mapping_deleted_in_the_persons_db_as_unconfirmed_while_clickhouse_shows_it_live(self):
+        person = create_person(team=self.team, distinct_ids=["did-t"], properties={})
+        tombstone_persons_in_postgres(self.team.pk, [person.uuid])
+        assert self._ch_mapping_state("did-t")[1] == 0
+
+        plan = plan_orphan_data_erasure(self.team.pk, [str(person.uuid)])
+
+        assert (plan.recording_distinct_ids, plan.unconfirmed_distinct_ids) == ([], ["did-t"])
+
+    def test_erasure_fails_loudly_for_a_person_the_sweep_left_with_no_distinct_ids(self):
+        orphan = str(uuid4())
+        self._seed_ch_only_person(orphan, ["did-a"], version=5)
+        self._seed_rest_of_team()
+        self._erase([orphan], delete_events=False, delete_recordings=False)
+        sync_execute("TRUNCATE TABLE person_distinct_id2")
+
+        recording_ids, _training = self._erase_expecting_exit([orphan])
+
+        assert recording_ids == []
+        assert plan_orphan_data_erasure(self.team.pk, [orphan]).persons_without_distinct_ids == [orphan]
 
     def test_erasure_still_reports_stored_distinct_ids_after_the_sweep_removes_mappings(self):
         uuid = self._tombstoned_person_with_stored_distinct_id("did-t")

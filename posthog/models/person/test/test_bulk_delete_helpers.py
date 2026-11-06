@@ -20,6 +20,7 @@ from posthog.models.person.bulk_delete import (
     DeletionRun,
     PersonDeletionStep,
     PersonTombstoneFailed,
+    _start_recording_workflow_batches,
     _start_recording_workflows,
     delete_persons_profile,
     process_queued_person_deletion,
@@ -865,6 +866,11 @@ class QueueRecordingDeletionTests(BaseTest):
         ):
             _start_recording_workflows(self.team.pk, persons, self.user, "test reason")
         assert client.start_workflow.call_count == expected_workflows
+
+    def test_refuses_to_start_a_workflow_with_an_empty_deleted_by(self):
+        with patch("posthog.models.person.bulk_delete.sync_connect") as connect, self.assertRaises(ValueError):
+            _start_recording_workflow_batches(self.team.pk, [["a"]], "", "test reason")
+        connect.assert_not_called()
 
     def test_records_the_system_as_deleter_when_actor_missing(self):
         client = MagicMock()
