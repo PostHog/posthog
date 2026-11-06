@@ -61,8 +61,7 @@ SEGMENT_LABEL_MAX_LENGTH = 60
 NAMED_SEGMENTS = 2
 # A one-variant segment must also fail the test on its own, so that a skewed split doesn't produce one by chance.
 ONE_VARIANT_SHARE = 0.95
-# Below this share of its expected count, a variant's exposure is missing everywhere, and the segments that the other
-# variants fill are a symptom of that.
+# Below this share of its expected count a variant is barely exposed, and the segments the others fill are a symptom.
 BARELY_EXPOSED_SHARE = 0.1
 
 # pinned: the subcode is sent as `finding_subcode` on the health finding events, so insights group on it.
