@@ -10954,19 +10954,21 @@ Note: Diffed Microsoft's v1.0 references for drive items, list items, sites, and
 
 ## Shipmail — **thin**
 
-Today (4): `domains`, `mailboxes`, `messages`, `suppressions`
+Today (8): `audience_subscribers`, `domains`, `mailboxes`, `members`, `messages`, `newsletters`, `suppressions`, `threads`
 
 Diffed against: <https://shipmail.to/openapi.json>
 
-- [ ] `Threads (GET /api/v1/threads)` — resolve message thread_id values and compare conversation volumes, message counts, and recent activity (high)
-- [ ] `Newsletters (GET /api/v1/newsletters)` — measure newsletter deliveries, opens, clicks, bounces, and complaints, which the current message projection does not expose (high)
+- [x] `Threads (GET /api/v1/threads)` — resolve message thread_id values and compare conversation volumes, message counts, and recent activity (high)
+- [x] `Newsletters (GET /api/v1/newsletters)` — measure newsletter deliveries, opens, clicks, bounces, and complaints, which the current message projection does not expose (high)
 - [ ] `Audiences (GET /api/v1/audiences)` — analyze audience growth, subscription counts, and consent sources (medium)
-- [ ] `Audience subscribers (GET /api/v1/audiences/{id}/subscribers)` — analyze audience membership and subscriber status alongside newsletter results (medium)
+- [x] `Audience subscribers (GET /api/v1/audiences/{id}/subscribers)` — analyze audience membership and subscriber status alongside newsletter results (medium)
 - [ ] `Mailbox inbox thread attention states (GET /api/v1/mailboxes/{id}/inbox/threads)` — measure unanswered conversations, follow-up dates, assignments, and completed threads (medium)
-- [ ] `Members (GET /api/v1/members)` — analyze person roles and mailbox access alongside team email activity (medium)
+- [x] `Members (GET /api/v1/members)` — analyze person roles and mailbox access alongside team email activity (medium)
 - [ ] `Calendar events (GET /api/v1/calendar/events)` — connect meeting activity and recurring appointments to mailbox communication (medium)
 
 Note: Parsed all GET paths and relevant response schemas in the official OpenAPI JSON. The messages table uses /messages/analytics, whose projection omits newsletter engagement counters and thread attention states. Threads, subscriber lists, inbox states, and calendars need mailbox or audience inputs; attention states can change during pagination. Excluded credentials, DNS configuration, routing rules, webhooks, uploads, and message-body field differences.
+
+Threads and audience subscribers use paginated mailbox and audience listings as parents. Audiences remain an internal lookup, without a separate table. All four additions use full refresh because their list endpoints have no time filter. Threads require both `threads:read` and `mailboxes:read`; subscribers require `audiences:read`. Member mailbox access lists can omit mailboxes outside the API key's access.
 
 ## Shippo — gaps
 
