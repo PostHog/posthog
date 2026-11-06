@@ -30,8 +30,7 @@ export class KeySession {
         return this.key.token
     }
 
-    // After a step-up saved a new login: the rest of the command uses it. A step-up in the same project
-    // keeps the login's id. Another id means another project, where the rest of the command must not go.
+    // A step-up in the same project keeps the login id. Another id means another project, so hog stops.
     async reload(): Promise<void> {
         const latest = await this.storage?.reread()
         if (!latest) {

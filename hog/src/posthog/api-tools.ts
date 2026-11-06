@@ -136,7 +136,6 @@ export async function withApiConnection<T>(
     )
 }
 
-// The scope can come from a refusal's text, so only a scope name leads to a step-up command.
 export function missingScopesError(tool: string, scopes: readonly string[], loginCanAdd: boolean): HogError {
     const message = `Your credentials need ${scopes.join(', ')} to call ${tool}.`
     if (loginCanAdd && scopes.every(isScopeName)) {

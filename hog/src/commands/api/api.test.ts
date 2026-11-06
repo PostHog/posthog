@@ -260,7 +260,6 @@ describe('hog api', () => {
                 command: 'hog auth add insight:write query:read',
             },
         ],
-        // The refusal's text comes from the server, and agents run the step-up command.
         [
             'never puts a scope from the refusal text into a command',
             ['insight:write', 'query:read'],

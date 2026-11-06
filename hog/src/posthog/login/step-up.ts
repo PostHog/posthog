@@ -38,9 +38,7 @@ function keyCantStepUp(scopes: readonly string[]): HogError {
     )
 }
 
-// At a terminal, asks to add the scopes, waits for the approval in the browser, and moves the session
-// to the new login. Resolves to false when nobody can answer, the credentials can't add scopes, or the
-// person says no, so the caller reports the missing scopes instead.
+// Resolves to false when nobody can answer, the credentials can't add scopes, or the person says no.
 export async function promptStepUp(ctx: Context, scopes: readonly string[]): Promise<boolean> {
     const prompts = ctx.prompts
     if (!prompts || !canStepUp(await ctx.credentials())) {
@@ -54,8 +52,7 @@ export async function promptStepUp(ctx: Context, scopes: readonly string[]): Pro
     return true
 }
 
-// `hog auth add`: a device login for the scopes the login holds plus the ones it lacks, with those
-// marked required. At a terminal it waits for the approval and saves the login. Agents get the link.
+// At a terminal this waits for the approval and saves the login. Agents get the link.
 export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<StepUpResult> {
     const credentials = await ctx.credentials()
     // The session, not the credentials, holds the login an earlier step-up in this command saved.

@@ -89,8 +89,7 @@ export class ApiError extends HogError {
 
 export type StepUp = (scopes: readonly string[]) => Promise<boolean>
 
-// A 403, so callers that treat a missing scope as a missing detail keep working. Agents get the
-// scopes and the command as data. Only scope names reach the command, because agents run it.
+// A 403, so callers that treat a missing scope as a missing detail keep working.
 export function stepUpRequired(
     scopes: readonly string[],
     message = `Your login needs ${scopes.join(', ')} for this.`
@@ -165,8 +164,7 @@ export class PostHogApi {
             )
         let response = await send()
         let missing = await this.missingScopes(response)
-        // PostHog checks scopes before it does any work, so sending the request again is safe for a
-        // POST too. It is sent again once, so a step-up that still falls short ends in the error.
+        // PostHog checks scopes before any work, so one retry is safe for a POST too.
         if (missing && (await this.stepUp?.(missing))) {
             response = await send()
             missing = await this.missingScopes(response)
@@ -191,8 +189,7 @@ export class PostHogApi {
         })
     }
 
-    // The challenge names every scope the request needs, so the ones the login holds stay out of the step-up.
-    // A login that already holds every challenged scope gets the plain 403: adding them again changes nothing.
+    // A login that holds every challenged scope gets the plain 403, since adding them changes nothing.
     private async missingScopes(response: HttpResponse): Promise<string[] | undefined> {
         const challenged =
             response.status === 403 ? challengedScopes(response.headers.get('www-authenticate')) : undefined
@@ -204,8 +201,7 @@ export class PostHogApi {
         return missing.length > 0 ? missing : undefined
     }
 
-    // For lookups that only add detail, like the user's email: a missing scope fails the lookup
-    // without asking the person to add it.
+    // For lookups that only add detail: a missing scope fails them without a prompt.
     withoutStepUp(): PostHogApi {
         return new PostHogApi(this.session, this.fetchFn)
     }

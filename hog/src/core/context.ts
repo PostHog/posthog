@@ -47,7 +47,6 @@ export class Context {
         return this.api
     }
 
-    // Resolves to whether the person added the scopes, after which the session uses the new login.
     // Requests sent at once can all hit a missing scope, and they share one prompt.
     stepUp(scopes: readonly string[]): Promise<boolean> {
         this.stepUpRunning ??= import('@/posthog/login/step-up')

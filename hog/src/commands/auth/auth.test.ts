@@ -913,7 +913,7 @@ describe('hog auth login', () => {
         expect(result.requests).toEqual([])
     })
 
-    // PostHog names every scope the request needs, held or not. The login holds insight:read.
+    // The login holds insight:read.
     const CHALLENGE = 'Bearer error="insufficient_scope", scope="insight:read query:read dashboard:write"'
     const ROWS = { columns: ['total'], results: [[1]], hasMore: false }
 
@@ -926,7 +926,6 @@ describe('hog auth login', () => {
             scope: 'openid insight:read query:read dashboard:write',
         },
     })
-    // The query succeeds only with the stepped-up token.
     const challengedQuery = (
         url: string,
         _body: unknown,
