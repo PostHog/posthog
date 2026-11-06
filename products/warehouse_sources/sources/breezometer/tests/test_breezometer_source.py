@@ -1,0 +1,13 @@
+from products.warehouse_sources.sources.breezometer._config import BreezometerSourceConfig
+from products.warehouse_sources.sources.breezometer.source import BreezometerSource
+
+
+class TestBreezometerSource:
+    def setup_method(self):
+        self.source = BreezometerSource()
+        self.team_id = 123
+        self.config = BreezometerSourceConfig(api_key="test-key", locations="51.5,-0.12,London")
+
+    def test_lists_tables_without_credentials(self):
+        # Static endpoint catalog with no I/O — must opt in so public docs render the table list.
+        assert self.source.lists_tables_without_credentials is True

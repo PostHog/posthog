@@ -78,7 +78,7 @@ from posthog.utils import get_crontab, get_instance_region
 
 from products.account_audits.backend.facade.tasks import reconcile_account_audits
 from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task
-from products.ai_observability.backend.facade.tasks import expire_offline_evaluation_payloads
+from products.ai_observability.backend.facade.tasks import expire_datasets, expire_offline_evaluation_payloads
 from products.ai_training.backend.facade.api import privacy_enabled
 from products.ai_training.backend.facade.tasks import process_ai_training_privacy_requests
 from products.approvals.backend.tasks import (
@@ -115,11 +115,13 @@ from products.feature_flags.backend.tasks import (
 )
 from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
+from products.managed_warehouse.backend.facade.tasks import push_all_warehouse_member_teams
 from products.mcp_registry.backend.facade.tasks import MCP_REGISTRY_SYNC_CRONTAB, run_mcp_registry_sync
 from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
-from products.signals.backend.tasks import (
+from products.signals.backend.facade.tasks import (
+    enqueue_signals_rated_usage,
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     reconcile_report_inbox_state_cache,
@@ -127,6 +129,7 @@ from products.signals.backend.tasks import (
     refresh_signal_scout_background_bands,
     sweep_first_report_notifications,
     sweep_implementation_dispatches,
+    sweep_monitoring_research_requests,
     sweep_monitoring_tracker_issues,
     sync_pending_signals_refund_credits,
 )
@@ -144,7 +147,9 @@ from products.tasks.backend.facade.tasks import (
     bake_dev_stack_image_task,
     refresh_dev_stack_image_task,
     refresh_stale_sandbox_custom_images_task,
+    settle_overdue_sandbox_compute_task,
     sweep_inactive_tasks_task,
+    sweep_queued_gateway_usage,
 )
 from products.visual_review.backend.facade.tasks import (
     send_visual_review_debt_digests,
@@ -274,6 +279,7 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    add_periodic_task_with_expiry(sender, crontab(minute="37"), expire_datasets.s(), name="expire unused datasets")
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="23"),
@@ -294,6 +300,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         60,
         capture_task_run_state_metrics.s(),
         name="tasks run state metrics",
+    )
+
+    # Backstop for a gateway callback whose Celery kick was lost: the run's usage workflow only
+    # starts from that kick, so nothing would drain the intake table otherwise.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/4"),
+        sweep_queued_gateway_usage.s(),
+        name="tasks queued gateway usage sweep",
     )
 
     add_periodic_task_with_expiry(
@@ -442,6 +457,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=2 * 60,
     )
 
+    if settings.CLOUD_DEPLOYMENT:
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(hour="3", minute="17"),
+            enqueue_signals_rated_usage.s(),
+            name="report self-driving rated usage",
+        )
+
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="*/5"),
@@ -463,6 +486,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         sweep_monitoring_tracker_issues.s(),
         name="complete verified signals tracker issues",
+        expires_seconds=60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        sweep_monitoring_research_requests.s(),
+        name="emit signals monitoring research requests",
         expires_seconds=60,
     )
 
@@ -516,6 +547,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="15"),
         sweep_inactive_tasks_task.s(),
         name="archive inactive tasks",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="47"),
+        settle_overdue_sandbox_compute_task.s(),
+        name="settle overdue sandbox compute",
     )
 
     # AWS SES account reputation → gauges for team-facing alerting (charts alerts/specs/ses.yaml)
@@ -809,6 +847,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         reconcile_all_managed_warehouse_tables_task.s(),
         name="reconcile managed warehouse SQL editor tables",
         expires=1800,
+    )
+
+    # The full push of member teams to hogtower: the net under the change signals, for team-scoped
+    # hoglake tokens. A no-op unless HOGTOWER_MEMBER_TEAMS_PUSH_ENABLED.
+    sender.add_periodic_task(
+        crontab(minute="23"),
+        push_all_warehouse_member_teams.s(),
+        name="push managed warehouse member teams to hogtower",
+        expires=3000,
     )
 
     # Every 30 minutes, send decide request counts to the main posthog instance

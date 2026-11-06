@@ -70,7 +70,7 @@ from products.review_hog.backend.reviewer.tools.issues_review import REVIEW_SYST
 from products.review_hog.backend.reviewer.tools.select_perspectives import SELECTION_SYSTEM_PROMPT
 from products.review_hog.backend.reviewer.tools.single_agent_review import SINGLE_AGENT_PROMPT_PATH
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import CHUNKING_SYSTEM_PROMPT
-from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 
 # The prompt directories a review turn renders. `thread_resolution` is left out: the resolution

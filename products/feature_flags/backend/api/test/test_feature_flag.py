@@ -41,7 +41,7 @@ from posthog.api.cohort import (
 from posthog.api.services.flags_service import FlagVersionConflictError, PropertyMatchingVersionConflictError
 from posthog.api.utils import ServiceRequest
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition, TaggedItem, User
+from posthog.models import TaggedItem, User
 from posthog.models.group.util import create_group, raw_create_group_ch
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -64,6 +64,7 @@ from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import CohortErrorCode, get_friendly_error_message
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.event_definitions.backend.models import PropertyDefinition
 from products.experiments.backend.facade.api import experiment_flag_ids
 from products.experiments.backend.facade.testing import create_experiment, update_experiment
 from products.feature_flags.backend.api.feature_flag import (
@@ -4522,6 +4523,35 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         keys = {flag["key"] for flag in response.json()["results"]}
         assert ("visible-flag" in keys) is expect_visible
         assert ("archived-flag" in keys) is expect_archived
+
+    @parameterized.expand(
+        [
+            ("default", "", {"visible-flag"}),
+            ("deleted_false", "?deleted=false", {"visible-flag"}),
+            # A flag archived before its delete is listed too, without asking for archived flags.
+            ("deleted_true", "?deleted=true", {"deleted-flag", "archived-deleted-flag"}),
+            ("deleted_and_search", "?deleted=true&search=archived", {"archived-deleted-flag"}),
+            # An explicit archived value still narrows the deleted list.
+            ("deleted_and_archived_false", "?deleted=true&archived=false", {"deleted-flag"}),
+            ("deleted_and_archived_true", "?deleted=true&archived=true", {"archived-deleted-flag"}),
+            ("archived_true_hides_deleted", "?archived=true", set()),
+        ]
+    )
+    def test_list_deleted_filtering(self, _name, query, expected_keys):
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="visible-flag")
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="deleted-flag", deleted=True)
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="archived-deleted-flag",
+            active=False,
+            archived=True,
+            deleted=True,
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{query}")
+        assert response.status_code == 200
+        assert {flag["key"] for flag in response.json()["results"]} == expected_keys
+        assert response.json()["count"] == len(expected_keys)
 
     def test_list_excluded_tags_filtering(self):
         for key, tags in [
@@ -13599,31 +13629,45 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         assert len(data["deleted"]) == 150
         assert len(data["errors"]) == 0
 
-    def _bulk_delete_query_count(self, flag_count: int) -> int:
+    def _query_count(self, endpoint: str, flag_count: int) -> int:
+        key_prefix = f"query_count_flag_{flag_count}_"
         flags = [
             FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
-                key=f"query_count_flag_{flag_count}_{i}",
+                key=f"{key_prefix}{i}",
                 filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
             )
             for i in range(flag_count)
         ]
+        flag_ids = [f.id for f in flags]
         with CaptureQueriesContext(connection) as ctx:
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
-                {"ids": [f.id for f in flags]},
-            )
+            if endpoint == "bulk_delete":
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+                    {"ids": flag_ids},
+                )
+            else:
+                response = self.client.get(
+                    f"/api/projects/{self.team.id}/feature_flags/matching_ids/?search={key_prefix}"
+                )
         assert response.status_code == 200
-        assert len(response.json()["deleted"]) == flag_count
+        if endpoint == "bulk_delete":
+            assert len(response.json()["deleted"]) == flag_count
+        else:
+            assert sorted(response.json()["ids"]) == sorted(flag_ids)
         return len(ctx.captured_queries)
 
-    def test_bulk_delete_query_count_does_not_grow_with_flag_count(self):
-        self._bulk_delete_query_count(1)
-        few = self._bulk_delete_query_count(2)
-        many = self._bulk_delete_query_count(6)
+    def _warm_session_caches(self, endpoint: str) -> None:
+        self._query_count(endpoint, 1)
 
-        assert few == many, f"deleting 6 flags cost {many} queries vs {few} for 2, so something N+1s"
+    @parameterized.expand([("bulk_delete",), ("matching_ids",)])
+    def test_query_count_does_not_grow_with_flag_count(self, endpoint: str) -> None:
+        self._warm_session_caches(endpoint)
+        few = self._query_count(endpoint, 2)
+        many = self._query_count(endpoint, 6)
+
+        assert few == many, f"{endpoint} over 6 flags cost {many} queries vs {few} for 2, so something N+1s"
 
     def test_bulk_delete_validates_running_experiments(self):
         """Test that flags linked to running experiments are rejected."""

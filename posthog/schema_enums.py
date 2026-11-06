@@ -358,6 +358,7 @@ class FunnelAggregateByHogQL(Enum):
 
 
 class AssistantFunnelsMath(StrEnum):
+    TOTAL = "total"
     FIRST_TIME_FOR_USER = "first_time_for_user"
     FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
 
@@ -1472,6 +1473,7 @@ class ExperimentExposureHealthCheckKey(StrEnum):
     SRM = "srm"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
+    TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
 
 
 class ExperimentExposureHealthCheckStatus(StrEnum):
@@ -1493,12 +1495,30 @@ class ExperimentExposureHealthFindingCode(StrEnum):
     SRM = "srm"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
+    TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
 
 
 class ExperimentExposureHealthFindingSeverity(StrEnum):
     CRITICAL = "critical"
     WARNING = "warning"
     INFO = "info"
+
+
+class ExperimentExposureHealthRuleSide(StrEnum):
+    ABOVE = "above"
+    BELOW = "below"
+
+
+class ExperimentExposureHealthValueKey(StrEnum):
+    EXPOSED_COUNT = "exposed_count"
+    COMPARED_COUNT = "compared_count"
+    MULTIPLE_VARIANT_COUNT = "multiple_variant_count"
+    MULTIPLE_VARIANT_PERCENTAGE = "multiple_variant_percentage"
+    MULTIPLE_VARIANT_HANDLING = "multiple_variant_handling"
+    P_VALUE = "p_value"
+    SINCE_LAUNCH_HOURS = "since_launch_hours"
+    EXPOSED_WITHOUT_TEST_ACCOUNT_FILTER_COUNT = "exposed_without_test_account_filter_count"
+    KEPT_BY_TEST_ACCOUNT_FILTER_PERCENTAGE = "kept_by_test_account_filter_percentage"
 
 
 class ExperimentMetricGoal(StrEnum):
@@ -2276,6 +2296,7 @@ class MetaAdsDefaultSources(StrEnum):
     AUDIENCE_NETWORK = "audience_network"
     FACEBOOK_MARKETPLACE = "facebook_marketplace"
     THREADS = "threads"
+    TH = "th"
 
 
 class MetricsAggregation(StrEnum):
@@ -2498,6 +2519,7 @@ class NodeKind(StrEnum):
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
     SUGGESTED_QUESTIONS_QUERY = "SuggestedQuestionsQuery"
     TEAM_TAXONOMY_QUERY = "TeamTaxonomyQuery"
+    INBOX_USAGE_QUERY = "InboxUsageQuery"
     EVENT_TAXONOMY_QUERY = "EventTaxonomyQuery"
     ACTORS_PROPERTY_TAXONOMY_QUERY = "ActorsPropertyTaxonomyQuery"
     TRACES_QUERY = "TracesQuery"
@@ -3053,6 +3075,11 @@ class SlackIntegrationScope(StrEnum):
     TEAM_READ = "team:read"
     USERS_READ = "users:read"
     USERS_READ_EMAIL = "users:read.email"
+
+
+class SlackIntegrationScopeInReview(StrEnum):
+    CANVASES_READ = "canvases:read"
+    CHANNELS_JOIN = "channels:join"
 
 
 class SlashCommandName(StrEnum):

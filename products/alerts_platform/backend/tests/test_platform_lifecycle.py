@@ -19,6 +19,8 @@ from products.alerts_platform.backend.facade.api import (
     get_configuration,
     give_back_ownership,
     record_outcomes,
+    reset_broken,
+    runtime_by_public_id,
     slot_of,
     take_ownership,
     upsert_configuration,
@@ -89,6 +91,36 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
                 next_check_at=self.cutoff - timedelta(minutes=1),
             )
         self.slot = (self.cutoff - timedelta(minutes=1)).isoformat()
+
+    def test_an_alert_is_read_by_its_public_id_whether_or_not_it_has_a_source_row(self) -> None:
+        legacy_id = uuid4()
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                legacy_configuration_id=legacy_id,
+                owner=PlatformAlertOwner.PLATFORM,
+                check_status=PlatformAlertConfiguration.CheckStatus.BROKEN,
+                consecutive_failures=3,
+            )
+            native = PlatformAlertConfiguration.objects.create(
+                team=self.team,
+                name="Web errors",
+                source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
+                source_config={},
+                check_interval_minutes=10,
+                owner=PlatformAlertOwner.PLATFORM,
+                check_status=PlatformAlertConfiguration.CheckStatus.BROKEN,
+                consecutive_failures=5,
+            )
+
+        # The copy's own id is not a public id, so it finds nothing.
+        runtime = runtime_by_public_id(team_id=self.team.id, public_ids=[legacy_id, native.id, self.configuration.id])
+        cleared = [
+            reset_broken(team_id=self.team.id, public_id=public_id, at=self.cutoff)
+            for public_id in (legacy_id, native.id)
+        ]
+
+        assert {public_id: r.consecutive_failures for public_id, r in runtime.items()} == {legacy_id: 3, native.id: 5}
+        assert cleared == [3, 5]
 
     def _record(
         self, *, at: datetime | None = None, groups: tuple[GroupOutcome, ...] | None = None, **overrides

@@ -1,8 +1,8 @@
 import { MakeLogicType, actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
 import type { DataColorTheme } from 'lib/colors'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type {

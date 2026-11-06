@@ -3,19 +3,23 @@
 from products.messaging.backend.facade.contracts import (
     CodeEmail,
     DeliveryUnavailable,
+    EmailAttachment,
     EmailDeliveryStatus,
     EmailStatus,
+    FieldNotAccepted,
     QueuedEmail,
     TemplateOutdated,
     TemplateSendOptions,
     TransactionalEmailError,
 )
 from products.messaging.backend.services.transactional_email import (
+    PIPELINE_ADDRESS_PATTERN,
     SENDER_ADDRESS_MAX_LENGTH,
     SENDER_ADDRESS_PATTERN,
     TransactionalEmailStage,
     make_transactional,
     observe_transactional_email_stage,
+    report_first_code_send,
     require_code_email_access,
     send_code_email,
     send_transactional_email,
@@ -26,10 +30,13 @@ from products.messaging.backend.services.transactional_email import (
 from products.messaging.backend.services.transactional_email_status import get_email_status
 
 __all__ = [
+    "PIPELINE_ADDRESS_PATTERN",
     "SENDER_ADDRESS_MAX_LENGTH",
     "SENDER_ADDRESS_PATTERN",
     "CodeEmail",
     "DeliveryUnavailable",
+    "FieldNotAccepted",
+    "EmailAttachment",
     "EmailDeliveryStatus",
     "EmailStatus",
     "QueuedEmail",
@@ -40,6 +47,7 @@ __all__ = [
     "get_email_status",
     "make_transactional",
     "observe_transactional_email_stage",
+    "report_first_code_send",
     "require_code_email_access",
     "send_code_email",
     "send_transactional_email",

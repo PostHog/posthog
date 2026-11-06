@@ -1868,6 +1868,13 @@ export const ExperimentWarehouseNativeMathTypeApi = {
     Sum: 'sum',
 } as const
 
+export interface ExperimentWarehouseNativeUnitBindingApi {
+    /** Which ids represent that unit, such as `billing_customer_id`. */
+    id_namespace: string
+    /** What was randomized, as a stable project-scoped label such as `customer` or `account`. */
+    unit_type: string
+}
+
 export type ExperimentWarehouseNativeNodeApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentWarehouseNativeNodeApi {
@@ -1882,6 +1889,7 @@ export interface ExperimentWarehouseNativeNodeApi {
     /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure. */
     query: string
     response?: ExperimentWarehouseNativeNodeApiResponse
+    unit: ExperimentWarehouseNativeUnitBindingApi
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -2306,11 +2314,12 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `metric_event_not_ingested` - Metric Event Not Ingested
  * * `metric_cannot_compile` - Metric Cannot Compile
  * * `metric_calculation_failed` - Metric Calculation Failed
+ * * `metric_all_zero` - Metric All Zero
  * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
  * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
- * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
  * * `srm` - Sample Ratio Mismatch
  * * `zero_exposures` - Zero Exposures
+ * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
  * * `forced_variant_release_condition` - Forced Variant Release Condition
  * * `flag_variants_mismatch` - Flag Variants Mismatch
  * * `split_changed_mid_run` - Split Changed Mid Run
@@ -2318,6 +2327,8 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
  * * `new_flag_no_traffic` - New Flag No Traffic
  * * `early_significance` - Early Significance
+ * * `metrics_not_matured` - Metrics Not Matured
+ * * `flag_shared` - Flag Shared
  */
 export type ExperimentHealthFindingCodeEnumApi =
     (typeof ExperimentHealthFindingCodeEnumApi)[keyof typeof ExperimentHealthFindingCodeEnumApi]
@@ -2333,11 +2344,12 @@ export const ExperimentHealthFindingCodeEnumApi = {
     MetricEventNotIngested: 'metric_event_not_ingested',
     MetricCannotCompile: 'metric_cannot_compile',
     MetricCalculationFailed: 'metric_calculation_failed',
+    MetricAllZero: 'metric_all_zero',
     ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
     ExposureFilterOnDynamicCohort: 'exposure_filter_on_dynamic_cohort',
-    ExposureFilterExcludesEvents: 'exposure_filter_excludes_events',
     Srm: 'srm',
     ZeroExposures: 'zero_exposures',
+    TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     ForcedVariantReleaseCondition: 'forced_variant_release_condition',
     FlagVariantsMismatch: 'flag_variants_mismatch',
     SplitChangedMidRun: 'split_changed_mid_run',
@@ -2345,6 +2357,8 @@ export const ExperimentHealthFindingCodeEnumApi = {
     ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
     NewFlagNoTraffic: 'new_flag_no_traffic',
     EarlySignificance: 'early_significance',
+    MetricsNotMatured: 'metrics_not_matured',
+    FlagShared: 'flag_shared',
 } as const
 
 /**
@@ -2386,6 +2400,60 @@ export const ExperimentHealthFindingActionKindEnumApi = {
 } as const
 
 /**
+ * * `flag_state` - Flag State
+ * * `flag_shared` - Flag Shared
+ * * `flag_history` - Flag History
+ * * `split_changed_mid_run` - Split Changed Mid Run
+ * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+ * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+ * * `flag_variants_mismatch` - Flag Variants Mismatch
+ * * `forced_variant_release_condition` - Forced Variant Release Condition
+ * * `new_flag_no_traffic` - New Flag No Traffic
+ * * `no_metric` - No Metric
+ * * `metric_event_not_ingested` - Metric Event Not Ingested
+ * * `metric_cannot_compile` - Metric Cannot Compile
+ * * `metric_calculation_failed` - Metric Calculation Failed
+ * * `metric_all_zero` - Metric All Zero
+ * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+ * * `exposure_filters` - Exposure Filters
+ * * `early_significance` - Early Significance
+ * * `metrics_not_matured` - Metrics Not Matured
+ * * `zero_exposures` - Zero Exposures
+ * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+ * * `srm` - Srm
+ * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+ * * `multiple_variants_share` - Multiple Variants Share
+ */
+export type ExperimentHealthCheckKeyEnumApi =
+    (typeof ExperimentHealthCheckKeyEnumApi)[keyof typeof ExperimentHealthCheckKeyEnumApi]
+
+export const ExperimentHealthCheckKeyEnumApi = {
+    FlagState: 'flag_state',
+    FlagShared: 'flag_shared',
+    FlagHistory: 'flag_history',
+    SplitChangedMidRun: 'split_changed_mid_run',
+    BucketingChangedMidRun: 'bucketing_changed_mid_run',
+    ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
+    FlagVariantsMismatch: 'flag_variants_mismatch',
+    ForcedVariantReleaseCondition: 'forced_variant_release_condition',
+    NewFlagNoTraffic: 'new_flag_no_traffic',
+    NoMetric: 'no_metric',
+    MetricEventNotIngested: 'metric_event_not_ingested',
+    MetricCannotCompile: 'metric_cannot_compile',
+    MetricCalculationFailed: 'metric_calculation_failed',
+    MetricAllZero: 'metric_all_zero',
+    ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
+    ExposureFilters: 'exposure_filters',
+    EarlySignificance: 'early_significance',
+    MetricsNotMatured: 'metrics_not_matured',
+    ZeroExposures: 'zero_exposures',
+    TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
+    Srm: 'srm',
+    BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
+    MultipleVariantsShare: 'multiple_variants_share',
+} as const
+
+/**
  * The values behind the finding, such as the key of a shipped variant or the share of users exposed to multiple variants. The keys depend on the code.
  */
 export type ExperimentHealthFindingApiEvidence = { [key: string]: string | number | boolean | null }
@@ -2403,18 +2471,21 @@ export interface ExperimentHealthFindingApi {
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
-     * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `new_flag_no_traffic` - New Flag No Traffic
-     * * `early_significance` - Early Significance */
+     * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
+     * * `flag_shared` - Flag Shared */
     code: ExperimentHealthFindingCodeEnumApi
     /**
      * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -2445,53 +2516,33 @@ export interface ExperimentHealthFindingApi {
      * @nullable
      */
     diagnostic_ref: string | null
+    /** The key of the check in `checks` that reported the finding. A check can report several codes, so the code doesn't name the check.
+     *
+     * * `flag_state` - Flag State
+     * * `flag_shared` - Flag Shared
+     * * `flag_history` - Flag History
+     * * `split_changed_mid_run` - Split Changed Mid Run
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `flag_variants_mismatch` - Flag Variants Mismatch
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filters` - Exposure Filters
+     * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
+     * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+     * * `srm` - Srm
+     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share */
+    check: ExperimentHealthCheckKeyEnumApi
 }
-
-/**
- * * `flag_state` - Flag State
- * * `flag_history` - Flag History
- * * `split_changed_mid_run` - Split Changed Mid Run
- * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
- * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
- * * `flag_variants_mismatch` - Flag Variants Mismatch
- * * `forced_variant_release_condition` - Forced Variant Release Condition
- * * `new_flag_no_traffic` - New Flag No Traffic
- * * `no_metric` - No Metric
- * * `metric_event_not_ingested` - Metric Event Not Ingested
- * * `metric_cannot_compile` - Metric Cannot Compile
- * * `metric_calculation_failed` - Metric Calculation Failed
- * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
- * * `exposure_filters` - Exposure Filters
- * * `early_significance` - Early Significance
- * * `zero_exposures` - Zero Exposures
- * * `srm` - Srm
- * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
- * * `multiple_variants_share` - Multiple Variants Share
- */
-export type ExperimentHealthCheckKeyEnumApi =
-    (typeof ExperimentHealthCheckKeyEnumApi)[keyof typeof ExperimentHealthCheckKeyEnumApi]
-
-export const ExperimentHealthCheckKeyEnumApi = {
-    FlagState: 'flag_state',
-    FlagHistory: 'flag_history',
-    SplitChangedMidRun: 'split_changed_mid_run',
-    BucketingChangedMidRun: 'bucketing_changed_mid_run',
-    ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
-    FlagVariantsMismatch: 'flag_variants_mismatch',
-    ForcedVariantReleaseCondition: 'forced_variant_release_condition',
-    NewFlagNoTraffic: 'new_flag_no_traffic',
-    NoMetric: 'no_metric',
-    MetricEventNotIngested: 'metric_event_not_ingested',
-    MetricCannotCompile: 'metric_cannot_compile',
-    MetricCalculationFailed: 'metric_calculation_failed',
-    ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
-    ExposureFilters: 'exposure_filters',
-    EarlySignificance: 'early_significance',
-    ZeroExposures: 'zero_exposures',
-    Srm: 'srm',
-    BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
-    MultipleVariantsShare: 'multiple_variants_share',
-} as const
 
 /**
  * * `passed` - Passed
@@ -2509,10 +2560,153 @@ export const ExperimentHealthCheckStatusEnumApi = {
     NotChecked: 'not_checked',
 } as const
 
+/**
+ * * `exposed_count` - Users or groups exposed since launch, as the exposure criteria count them, including those exposed to multiple variants
+ * * `compared_count` - Exposed users or groups in the variants that the sample ratio test compares, without those exposed to multiple variants
+ * * `multiple_variant_count` - Users or groups exposed to more than one variant
+ * * `multiple_variant_percentage` - multiple_variant_count as a share of exposed_count
+ * * `multiple_variant_handling` - What the results do with users exposed to more than one variant: exclude or first_seen
+ * * `p_value` - P-value of the sample ratio test
+ * * `since_launch_hours` - Hours since launch
+ * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
+ * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+ * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
+ * * `primary_metric_count` - Primary metrics that the calculation computes
+ * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
+ * * `metric_count` - Metrics that the calculation computes
+ * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
+ * * `failed_metric_count` - Metrics whose latest calculation failed
+ * * `calculated_at` - When the latest calculation of the metrics finished
+ * * `flag_active` - Whether the feature flag is enabled
+ * * `flag_deleted` - Whether the feature flag is deleted
+ * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
+ * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+ */
+export type ExperimentHealthValueKeyEnumApi =
+    (typeof ExperimentHealthValueKeyEnumApi)[keyof typeof ExperimentHealthValueKeyEnumApi]
+
+export const ExperimentHealthValueKeyEnumApi = {
+    ExposedCount: 'exposed_count',
+    ComparedCount: 'compared_count',
+    MultipleVariantCount: 'multiple_variant_count',
+    MultipleVariantPercentage: 'multiple_variant_percentage',
+    MultipleVariantHandling: 'multiple_variant_handling',
+    PValue: 'p_value',
+    SinceLaunchHours: 'since_launch_hours',
+    ExposedWithoutTestAccountFilterCount: 'exposed_without_test_account_filter_count',
+    KeptByTestAccountFilterPercentage: 'kept_by_test_account_filter_percentage',
+    OnlyCountMaturedUsers: 'only_count_matured_users',
+    PrimaryMetricCount: 'primary_metric_count',
+    WaitingMetricCount: 'waiting_metric_count',
+    MetricCount: 'metric_count',
+    CompletedMetricCount: 'completed_metric_count',
+    FailedMetricCount: 'failed_metric_count',
+    CalculatedAt: 'calculated_at',
+    FlagActive: 'flag_active',
+    FlagDeleted: 'flag_deleted',
+    FlagRolledOut: 'flag_rolled_out',
+    ShippedVariant: 'shipped_variant',
+} as const
+
+/**
+ * * `above` - Finding above the threshold
+ * * `below` - Finding below the threshold
+ */
+export type ExperimentHealthRuleSideEnumApi =
+    (typeof ExperimentHealthRuleSideEnumApi)[keyof typeof ExperimentHealthRuleSideEnumApi]
+
+export const ExperimentHealthRuleSideEnumApi = {
+    Above: 'above',
+    Below: 'below',
+} as const
+
+/**
+ * * `chi_squared` - Chi-squared goodness-of-fit test
+ */
+export type ExperimentHealthRuleTestEnumApi =
+    (typeof ExperimentHealthRuleTestEnumApi)[keyof typeof ExperimentHealthRuleTestEnumApi]
+
+export const ExperimentHealthRuleTestEnumApi = {
+    ChiSquared: 'chi_squared',
+} as const
+
+export interface ExperimentHealthRuleMinimumApi {
+    /** The key in `values` that must reach the threshold before the check judges.
+     *
+     * * `exposed_count` - Users or groups exposed since launch, as the exposure criteria count them, including those exposed to multiple variants
+     * * `compared_count` - Exposed users or groups in the variants that the sample ratio test compares, without those exposed to multiple variants
+     * * `multiple_variant_count` - Users or groups exposed to more than one variant
+     * * `multiple_variant_percentage` - multiple_variant_count as a share of exposed_count
+     * * `multiple_variant_handling` - What the results do with users exposed to more than one variant: exclude or first_seen
+     * * `p_value` - P-value of the sample ratio test
+     * * `since_launch_hours` - Hours since launch
+     * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
+     * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+     * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
+     * * `primary_metric_count` - Primary metrics that the calculation computes
+     * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
+     * * `metric_count` - Metrics that the calculation computes
+     * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
+     * * `failed_metric_count` - Metrics whose latest calculation failed
+     * * `calculated_at` - When the latest calculation of the metrics finished
+     * * `flag_active` - Whether the feature flag is enabled
+     * * `flag_deleted` - Whether the feature flag is deleted
+     * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
+     * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one */
+    value: ExperimentHealthValueKeyEnumApi
+    /** The value that the key must reach. Below it, the check reports no finding. */
+    threshold: number
+}
+
+export interface ExperimentHealthCheckRuleApi {
+    /** The key in `values` that the check compares with the threshold.
+     *
+     * * `exposed_count` - Users or groups exposed since launch, as the exposure criteria count them, including those exposed to multiple variants
+     * * `compared_count` - Exposed users or groups in the variants that the sample ratio test compares, without those exposed to multiple variants
+     * * `multiple_variant_count` - Users or groups exposed to more than one variant
+     * * `multiple_variant_percentage` - multiple_variant_count as a share of exposed_count
+     * * `multiple_variant_handling` - What the results do with users exposed to more than one variant: exclude or first_seen
+     * * `p_value` - P-value of the sample ratio test
+     * * `since_launch_hours` - Hours since launch
+     * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
+     * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+     * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
+     * * `primary_metric_count` - Primary metrics that the calculation computes
+     * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
+     * * `metric_count` - Metrics that the calculation computes
+     * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
+     * * `failed_metric_count` - Metrics whose latest calculation failed
+     * * `calculated_at` - When the latest calculation of the metrics finished
+     * * `flag_active` - Whether the feature flag is enabled
+     * * `flag_deleted` - Whether the feature flag is deleted
+     * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
+     * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one */
+    value: ExperimentHealthValueKeyEnumApi
+    /** The threshold, in the unit that the suffix of the key gives. */
+    threshold: number
+    /** above: the check reports a finding when the value is above the threshold. below: when the value is below it. A value at the threshold passes.
+     *
+     * * `above` - Finding above the threshold
+     * * `below` - Finding below the threshold */
+    warns: ExperimentHealthRuleSideEnumApi
+    /** The statistical test that computes the value, for example chi_squared. Null for a count or a share.
+     *
+     * * `chi_squared` - Chi-squared goodness-of-fit test */
+    test: ExperimentHealthRuleTestEnumApi | null
+    /** What the check needs before it judges. Null when the check judges from the first value. */
+    minimum: ExperimentHealthRuleMinimumApi | null
+}
+
+/**
+ * What the check read on the experiment, for every status, as numbers, strings, booleans or null. Empty when the check read nothing or shows nothing. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours and _at is an ISO 8601 time in UTC. A key without a suffix is a setting or a state. A key means the same thing in every check. `rule.value` names the key that decides.
+ */
+export type ExperimentHealthCheckResultApiValues = { [key: string]: string | number | boolean | null }
+
 export interface ExperimentHealthCheckResultApi {
     /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
      *
      * * `flag_state` - Flag State
+     * * `flag_shared` - Flag Shared
      * * `flag_history` - Flag History
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
@@ -2524,16 +2718,21 @@ export interface ExperimentHealthCheckResultApi {
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
      * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share */
     key: ExperimentHealthCheckKeyEnumApi
     /** The problem the check looks for, for example 'Metrics not set up'. */
     name: string
+    /** What the check looks for and why it matters. The same for every experiment and every status. */
+    description: string
     /** passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
      *
      * * `passed` - Passed
@@ -2546,6 +2745,10 @@ export interface ExperimentHealthCheckResultApi {
      * @nullable
      */
     reason: string | null
+    /** What the check read on the experiment, for every status, as numbers, strings, booleans or null. Empty when the check read nothing or shows nothing. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours and _at is an ISO 8601 time in UTC. A key without a suffix is a setting or a state. A key means the same thing in every check. `rule.value` names the key that decides. */
+    values: ExperimentHealthCheckResultApiValues
+    /** How the check decides. The same for every experiment and every status. Null for a check without a numeric rule. */
+    rule: ExperimentHealthCheckRuleApi | null
 }
 
 export interface ExperimentHealthApi {
@@ -3331,6 +3534,22 @@ export interface ExperimentHealthInputsMetricCalculationFailureApi {
     message: string | null
 }
 
+export interface ExperimentHealthInputsZeroMetricApi {
+    /** The name of the metric, as the results page shows it. */
+    name: string
+    /** Whether the metric is a primary or a secondary metric of the experiment. */
+    role: string
+    /** The persons or groups of the result, across the variants. */
+    exposures: number
+    /**
+     * The side of a ratio that reads zero. Each side that reads zero has its own entry. Null for the other metric types.
+     * @nullable
+     */
+    ratio_side: string | null
+    /** The events of the metric that the project last received before launch. */
+    stopped_events: string[]
+}
+
 export interface ExperimentHealthInputsLatestCalculationApi {
     /**
      * When the latest calculation that the results page shows finished. Null when none has finished.
@@ -3339,6 +3558,13 @@ export interface ExperimentHealthInputsLatestCalculationApi {
     finished_at: string | null
     /** The metrics whose latest calculation failed, with the error that the results page shows. */
     failures: ExperimentHealthInputsMetricCalculationFailureApi[]
+    /**
+     * The hours from launch to the end of the data of this calculation. Null when none has finished.
+     * @nullable
+     */
+    hours_of_data: number | null
+    /** The metrics that read zero in every variant in this calculation. */
+    zero_metrics: ExperimentHealthInputsZeroMetricApi[]
 }
 
 /**
@@ -3398,8 +3624,8 @@ export interface ExperimentHealthInputsFlagHistoryApi {
      * @nullable
      */
     not_checked_reason: string | null
-    /** When the experiment launched. */
-    launched_at: string
+    /** The experiment's start date. The flag history counts changes from it, as the results count exposures from it. */
+    start_date: string
     /** The project's time zone, which the findings use for times. */
     team_timezone: string
     /** Every change since launch that can move exposed people, of every kind, in time order. A bucketing change is one per setting and save. A rollout change alone is no release-condition change. Empty for 'no_history_access', which does not read them. */
@@ -3748,7 +3974,7 @@ export interface ExperimentHealthInputsApi {
      */
     flag_called_during_run: boolean | null
     /**
-     * Whether PostHog has recorded a call of the flag after the end. The flag state check reads it on an ended experiment whose flag is still active with multiple variants. False only after 3 days without a recorded call. Null before the end, before those 3 days are over, or when the organization's flag calls can't be read.
+     * Whether PostHog has recorded a call of the flag after the end and within the last 3 days. The flag state check reads it on an ended experiment whose flag is still active with multiple variants. False only once 3 days have passed since the end. Null before the end, before those 3 days are over without a call, or when the organization's flag calls can't be read.
      * @nullable
      */
     flag_called_after_end: boolean | null
@@ -5395,9 +5621,9 @@ export const ExperimentsRunningTimeTargetRetrieveMode = {
 
 export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**
-     * Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array.
+     * Ignored. The server derives the metric's calculation key from the experiment's current settings. Accepted so that existing clients keep working.
      */
-    fingerprint: string
+    fingerprint?: string
     /**
      * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
      */
