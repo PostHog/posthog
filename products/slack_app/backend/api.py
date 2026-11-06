@@ -59,8 +59,12 @@ from products.slack_app.backend.logic.feature_tips import interactivity as featu
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.logic.onboarding import interactivity as onboarding_interactivity
-from products.slack_app.backend.logic.onboarding.actions import is_onboarding_action
+from products.slack_app.backend.logic.onboarding.actions import WORK_FOCUS_TASK_ACTION_ID, is_onboarding_action
 from products.slack_app.backend.logic.onboarding.dispatch import request_onboarding
+from products.slack_app.backend.logic.onboarding.step import read_action_value
+from products.slack_app.backend.logic.onboarding.work_focus import (
+    SUGGESTION_CLICKED_EVENT as WORK_FOCUS_SUGGESTION_CLICKED_EVENT,
+)
 from products.slack_app.backend.logic.untagged_question import is_untagged_question_candidate
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
@@ -4630,6 +4634,62 @@ def _handle_untagged_followup_dismiss(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
+def _handle_work_focus_task_click(payload: dict) -> HttpResponse:
+    """Start the picked suggestion as a task in a new DM thread, as if the person had sent it there."""
+    slack_team_id = payload.get("team", {}).get("id", "")
+    slack_user_id = payload.get("user", {}).get("id", "")
+    action = next(
+        (action for action in payload.get("actions") or [] if action.get("action_id") == WORK_FOCUS_TASK_ACTION_ID),
+        None,
+    )
+    value = read_action_value(action) if action else None
+    integration_id = value.get("integration_id") if value else None
+    label = str(value.get("label") or "") if value else ""
+    prompt = str(value.get("prompt") or "") if value else ""
+    message_ts = (payload.get("container") or {}).get("message_ts")
+    if not (slack_team_id and slack_user_id and isinstance(integration_id, int) and label and prompt):
+        return HttpResponse(status=200)
+    integration = get_workspace_integration(integration_id, slack_team_id)
+    if integration is None:
+        return HttpResponse(status=200)
+    slack = SlackIntegration(integration)
+    client = slack.client
+    client.timeout = SLACK_WEBHOOK_TIMEOUT_SECONDS
+
+    posthog_user = _is_org_member(integration, slack_user_id)
+    if posthog_user is None or not _can_access_team(posthog_user, integration):
+        client.chat_postMessage(
+            channel=slack_user_id,
+            text="You need access to the PostHog project connected to this Slack workspace to start a task. "
+            "Ask an admin of your PostHog organization for access.",
+        )
+        return HttpResponse(status=200)
+
+    # A second click on the same suggestion would start the same task twice.
+    claim_key = f"slack_app_work_focus_claim:{integration.id}:{message_ts}:{label}"
+    if not cache.add(claim_key, slack_user_id, timeout=24 * 60 * 60):
+        return HttpResponse(status=200)
+
+    posted = client.chat_postMessage(channel=slack_user_id, text=f"Starting a task: *{label}*")
+    event = {
+        "type": "message",
+        "user": slack_user_id,
+        "channel": posted["channel"],
+        "ts": posted["ts"],
+        "thread_ts": posted["ts"],
+        "text": prompt,
+    }
+    try:
+        _start_mention_workflow(event, integration, slack_team_id, None, posthog_user=posthog_user)
+    except Exception:
+        cache.delete(claim_key)
+        raise
+    capture_slack_event(
+        integration, WORK_FOCUS_SUGGESTION_CLICKED_EVENT, slack_user_id=slack_user_id, posthog_user=posthog_user
+    )
+    return HttpResponse(status=200)
+
+
 def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.ClickedSuggestion) -> HttpResponse:
     """Post the clicked reply in the thread and send it to the agent as the clicker's reply.
 
@@ -6454,6 +6514,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return feature_tip_interactivity.handle_feature_tip_action(payload)
             if interview_recruitment.is_interview_action(action_id):
                 return interview_recruitment.handle_interview_action(payload)
+            if action_id == WORK_FOCUS_TASK_ACTION_ID:
+                return _handle_work_focus_task_click(payload)
             if is_onboarding_action(action_id):
                 return onboarding_interactivity.handle_onboarding_action(payload)
             if reply_suggestions.is_reply_suggestion_action(action_id) and clicked_reply_suggestion:

@@ -212,6 +212,7 @@ class OnboardingState:
     started_at: str | None
     completed_at: str | None
     reminded_at: str | None
+    work_focus_at: str | None
     completed_reason: OnboardingCompletedReason | None
 
     @property
@@ -239,6 +240,7 @@ def parse_onboarding(stored: object) -> OnboardingState | None:
         started_at=stored.get("started_at") or None,
         completed_at=stored.get("completed_at") or None,
         reminded_at=stored.get("reminded_at") or None,
+        work_focus_at=stored.get("work_focus_at") or None,
         completed_reason=reason if reason in ("finished", "nothing_to_set_up") else None,
     )
 
@@ -272,6 +274,7 @@ def update_onboarding(
     forget_step: str | None = None,
     reset_thread: bool = False,
     reminded: bool = False,
+    work_focus_outcome: str | None = None,
     completed_reason: OnboardingCompletedReason | None = None,
 ) -> None:
     """``root`` is (channel, ts) and ``step_ts`` is (step key, ts). The row lock stops a skip click and a
@@ -307,6 +310,8 @@ def update_onboarding(
                 card.pop(field, None)
         if reminded:
             card.setdefault("reminded_at", now)
+        if work_focus_outcome is not None:
+            card["work_focus_at"], card["work_focus_outcome"] = now, work_focus_outcome
         if completed_reason is not None:
             card["completed_at"], card["completed_reason"] = now, completed_reason
         row.onboarding = card
