@@ -1,7 +1,7 @@
 import { Socket, createServer } from 'net'
 
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import { createRedisFromConfig } from '~/common/utils/db/redis'
+import { RedisConnectionConfig } from '~/common/utils/db/redis'
 import { captureTeamEvent } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
 import { killGracefully } from '~/common/utils/utils'
@@ -70,21 +70,25 @@ function startStore({ answering }: { answering: boolean }): Promise<FakeStore> {
     )
 }
 
-function senderOn(store: FakeStore, getTeam: jest.Mock): SandboxEmailSender {
+function senderOn(
+    port: number,
+    getTeam: jest.Mock,
+    retryStrategy: NonNullable<RedisConnectionConfig['options']>['retryStrategy'] = () => null
+): SandboxEmailSender {
     return new SandboxEmailSender(
         {
             enabled: true,
             tenantName: 'sandbox',
             configurationSetName: 'sandbox',
             fromAddress: 'sender@example.com',
-            dailyTeamCap: '1',
-            dailyRecipientCap: '1',
+            dailyTeamCap: 1,
+            dailyRecipientCap: 1,
         },
         { getTeam } as unknown as TeamManager,
         createRedisV2PoolFromConfig(
             sandboxBlockedEventRedisConfig({
                 url: '127.0.0.1',
-                options: { port: store.port, retryStrategy: () => null },
+                options: { port, retryStrategy },
                 name: 'sandbox-blocked-event-store-test',
             })
         ),
@@ -100,22 +104,21 @@ const blockProjects = (sender: SandboxEmailSender, firstTeamId: number, count: n
     )
 
 describe('sandboxBlockedEventRedisConfig', () => {
-    it('keeps the worker running when Redis refuses its connections', async () => {
-        const { connection } = sandboxBlockedEventRedisConfig({
-            url: '127.0.0.1',
-            options: { port: 1, commandTimeout: 5000, retryStrategy: (attempt) => (attempt < 15 ? 5 : null) },
-            name: 'sandbox-blocked-event-test',
-        })
+    it('keeps the worker running and captures nothing when Redis refuses its connections', async () => {
+        const getTeam = jest.fn((id: number) => Promise.resolve({ id }))
+        const sender = senderOn(1, getTeam, (attempt) => (attempt < 15 ? 5 : null))
 
-        await expect(createRedisFromConfig(connection)).rejects.toThrow()
+        await sender.captureBlocked(1, false, 'recipient_not_member', 1)
+
         expect(killGracefully).not.toHaveBeenCalled()
+        expect(captureTeamEvent).not.toHaveBeenCalled()
     })
 
     it('sends no more store commands than the pool has clients while the store does not answer, and sends again once it answers', async () => {
         const store = await startStore({ answering: false })
         try {
             const sender = senderOn(
-                store,
+                store.port,
                 jest.fn(() => Promise.resolve(null))
             )
 
@@ -135,7 +138,7 @@ describe('sandboxBlockedEventRedisConfig', () => {
         const store = await startStore({ answering: true })
         try {
             const getTeam = jest.fn((id: number) => Promise.resolve({ id }))
-            const sender = senderOn(store, getTeam)
+            const sender = senderOn(store.port, getTeam)
 
             await blockProjects(sender, 1, 2 * MAX_OPEN_STORE_CALLS)
 

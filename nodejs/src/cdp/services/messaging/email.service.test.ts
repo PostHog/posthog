@@ -385,8 +385,8 @@ describe('EmailService', () => {
                             tenantName: 'sandbox-tenant',
                             configurationSetName: 'sandbox-email',
                             fromAddress: 'fixed-sandbox@example.com',
-                            dailyTeamCap: '100',
-                            dailyRecipientCap: '100',
+                            dailyTeamCap: 100,
+                            dailyRecipientCap: 100,
                             ...senderSettings,
                         },
                         hub.teamManager,
@@ -539,6 +539,7 @@ describe('EmailService', () => {
                                 'Skipping send: the sandbox sender only sends workflow email steps and test sends. Verify your own domain to send broadcasts and transactional email.',
                         })
                     )
+                    expectBlockedEvent('not_workflow_step', false, 0)
                 }
             })
 
@@ -652,35 +653,45 @@ describe('EmailService', () => {
             })
 
             it.each([
-                ['a display name', 'Example colleague', false, false],
-                ['a quoted comma', '"Example, colleague"', false, false],
-                ['an escaped quote', '"Example \\"colleague, teammate\\""', false, false],
-                ['mixed-case stored addresses', 'Example colleague', true, false],
-                ['mixed-case stored addresses in a test send', 'Example colleague', true, true],
+                ['a display name', (address: string) => `Example colleague <${address}>`, false, false],
+                ['a quoted comma', (address: string) => `"Example, colleague" <${address}>`, false, false],
+                [
+                    'an escaped quote',
+                    (address: string) => `"Example \\"colleague, teammate\\"" <${address}>`,
+                    false,
+                    false,
+                ],
+                ['a trailing comment', (address: string) => `${address} (Example colleague)`, false, false],
+                ['mixed-case stored addresses', (address: string) => `Example colleague <${address}>`, true, false],
+                [
+                    'mixed-case stored addresses in a test send',
+                    (address: string) => `Example colleague <${address}>`,
+                    true,
+                    true,
+                ],
             ])(
                 'delivers to the stored member addresses whatever the case and %s',
-                async (_case, name, storedMixedCase, isTest) => {
+                async (_case, mailbox, storedMixedCase, isTest) => {
+                    const stored = new Map<string, string>()
                     if (storedMixedCase) {
-                        await hub.postgres.query(
+                        const { rows } = await hub.postgres.query<{ email: string }>(
                             PostgresUse.COMMON_WRITE,
-                            'UPDATE posthog_user SET email = initcap(email) WHERE id = ANY($1::integer[])',
+                            'UPDATE posthog_user SET email = initcap(email) WHERE id = ANY($1::integer[]) RETURNING email',
                             [memberIds],
                             'test:store-mixed-case-sandbox-members'
                         )
+                        rows.forEach(({ email }) => stored.set(email.toLowerCase(), email))
                     }
                     service = createSandboxService(true)
                     invocation.queueParameters = createSandboxParams({
                         to: { email: memberEmail().toUpperCase() },
-                        cc: `${name} <${memberEmail('cc').toUpperCase()}>`,
-                        bcc: ` ${name} <${memberEmail('bcc').toUpperCase()}> `,
+                        cc: mailbox(memberEmail('cc').toUpperCase()),
+                        bcc: ` ${mailbox(memberEmail('bcc').toUpperCase())} `,
                     })
 
                     const result = await service.executeSendEmail(invocation, isTest)
 
-                    const storedEmail = (kind = 'test'): string =>
-                        storedMixedCase
-                            ? `${kind[0].toUpperCase()}${kind.slice(1)}-${team.id}@Example.Com`
-                            : memberEmail(kind)
+                    const storedEmail = (kind?: string): string => stored.get(memberEmail(kind)) ?? memberEmail(kind)
                     expect(result.error).toBeUndefined()
                     expect(result.skipped).not.toBe(true)
                     expect(sendEmailSpy).toHaveBeenCalledTimes(1)
@@ -732,9 +743,7 @@ describe('EmailService', () => {
                 'bcc',
                 'cc list',
                 'multiple',
-                'ambiguous cc mailbox',
                 'unverified',
-                'legacy',
                 'inactive',
                 'other organization',
                 'deactivated organization',
@@ -749,9 +758,6 @@ describe('EmailService', () => {
                 } else if (recipient === 'multiple') {
                     params = { ...params, cc: 'outside@example.com', bcc: 'another@example.com' }
                     blocked = ['outside@example.com', 'another@example.com']
-                } else if (recipient === 'ambiguous cc mailbox') {
-                    params = { ...params, cc: `Example <${memberEmail('cc')}> <outside@example.com>` }
-                    blocked = [`Example <${memberEmail('cc')}> <outside@example.com>`]
                 } else if (recipient === 'other organization') {
                     const organizationId = await createOrganization(hub.postgres)
                     extraOrganizationIds.push(organizationId)
@@ -771,7 +777,7 @@ describe('EmailService', () => {
                     await hub.postgres.query(
                         PostgresUse.COMMON_WRITE,
                         'UPDATE posthog_user SET is_active = $1, is_email_verified = $2 WHERE id = $3',
-                        [recipient !== 'inactive', recipient === 'legacy' ? null : recipient === 'inactive', memberId],
+                        [recipient !== 'inactive', recipient === 'inactive', memberId],
                         'test:change-sandbox-member-status'
                     )
                 }
@@ -781,7 +787,7 @@ describe('EmailService', () => {
                 const result = await service.executeSendEmail(invocation)
 
                 expectSkipped(result)
-                const unverifiedMember = recipient === 'unverified' || recipient === 'legacy'
+                const unverifiedMember = recipient === 'unverified'
                 expect(result.logs).toContainEqual(
                     expect.objectContaining({
                         level: 'info',
@@ -798,7 +804,7 @@ describe('EmailService', () => {
                 )
             })
 
-            it('blocks a cc mailbox the member check and the delivery parser could read differently', async () => {
+            it('blocks the mailbox SES would receive from an ambiguous cc entry', async () => {
                 service = createSandboxService(true)
                 invocation.queueParameters = createSandboxParams({
                     cc: `( ") <outside@example.com> ( ") <${memberEmail('cc')}>`,
@@ -855,20 +861,21 @@ describe('EmailService', () => {
 
             it('blocks a member removed during preparation while the member snapshot is still fresh', async () => {
                 const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now())
-                const preparation = jest.spyOn(EmailSuppressionService.prototype, 'isSuppressed')
-                const isSuppressed = preparation.getMockImplementation()!
+                const checkRecipients = OrganizationMembersService.prototype.checkRecipients
+                const lookup = jest.spyOn(OrganizationMembersService.prototype, 'checkRecipients')
                 try {
                     service = createSandboxService(true)
                     await service.executeSendEmail(invocation)
                     expect(sendEmailSpy).toHaveBeenCalledTimes(1)
-                    preparation.mockImplementation(async function (this: EmailSuppressionService, ...args) {
+                    lookup.mockImplementationOnce(async function (this: OrganizationMembersService, ...args) {
+                        const check = await checkRecipients.apply(this, args)
                         await hub.postgres.query(
                             PostgresUse.COMMON_WRITE,
                             'DELETE FROM posthog_organizationmembership WHERE user_id = $1',
                             [memberId],
-                            'test:revoke-sandbox-member-during-preparation'
+                            'test:revoke-sandbox-member-after-first-check'
                         )
-                        return isSuppressed.apply(this, args)
+                        return check
                     })
                     invocation.state.vmState = { stack: [] } as any
 
@@ -879,7 +886,7 @@ describe('EmailService', () => {
                     expectBlockedEvent('recipient_not_member', false, 1)
                 } finally {
                     clock.mockRestore()
-                    preparation.mockRestore()
+                    lookup.mockRestore()
                 }
             })
 
@@ -947,7 +954,7 @@ describe('EmailService', () => {
                     'holds the project to its daily cap without charging denied or own-sender sends (isTest=%s)',
                     async (isTest) => {
                         service = createSandboxService(true, {
-                            senderSettings: { dailyTeamCap: '3', dailyRecipientCap: '1' },
+                            senderSettings: { dailyTeamCap: 3, dailyRecipientCap: 1 },
                         })
 
                         expectSent(await send(isTest, { from: { integrationId: 1 } }))
@@ -969,7 +976,7 @@ describe('EmailService', () => {
                     'skips a send with recipients at the daily cap and leaves the others their budget (isTest=%s)',
                     async (isTest) => {
                         service = createSandboxService(true, {
-                            senderSettings: { dailyTeamCap: '5', dailyRecipientCap: '1' },
+                            senderSettings: { dailyTeamCap: 5, dailyRecipientCap: 1 },
                         })
 
                         expectSent(await send(isTest, { to: { email: memberEmail('cc') }, cc: memberEmail('bcc') }))
@@ -986,7 +993,7 @@ describe('EmailService', () => {
 
                 it('charges both daily caps once per delivered copy of a repeated address', async () => {
                     service = createSandboxService(true, {
-                        senderSettings: { dailyTeamCap: '4', dailyRecipientCap: '2' },
+                        senderSettings: { dailyTeamCap: 4, dailyRecipientCap: 2 },
                     })
 
                     expectCapSkip(
@@ -1010,7 +1017,7 @@ describe('EmailService', () => {
                     'spends the daily caps once for a send that SES throttles before accepting it (isTest=%s)',
                     async (isTest) => {
                         service = createSandboxService(true, {
-                            senderSettings: { dailyTeamCap: '2', dailyRecipientCap: '1' },
+                            senderSettings: { dailyTeamCap: 2, dailyRecipientCap: 1 },
                         })
                         sendEmailSpy.mockRejectedValueOnce(new ThrottlingException('Rate exceeded'))
 
@@ -1031,8 +1038,8 @@ describe('EmailService', () => {
                     const now = Date.now()
                     const clock = jest.spyOn(Date, 'now').mockReturnValue(now)
                     const dailyCapLimiter = new RateLimiterService(sandboxRedis, { name: 'sandbox-email' })
-                    const claim = dailyCapLimiter.claimAllBuckets.bind(dailyCapLimiter)
-                    jest.spyOn(dailyCapLimiter, 'claimAllBuckets').mockImplementationOnce(async (buckets) => {
+                    const claim = dailyCapLimiter.claimRefundable.bind(dailyCapLimiter)
+                    jest.spyOn(dailyCapLimiter, 'claimRefundable').mockImplementationOnce(async (buckets) => {
                         const grant = await claim(buckets)
                         await hub.postgres.query(
                             PostgresUse.COMMON_WRITE,
@@ -1046,7 +1053,7 @@ describe('EmailService', () => {
                     try {
                         service = createSandboxService(true, {
                             dailyCapLimiter,
-                            senderSettings: { dailyTeamCap: '1', dailyRecipientCap: '1' },
+                            senderSettings: { dailyTeamCap: 1, dailyRecipientCap: 1 },
                         })
 
                         const blocked = await send(false)
@@ -1082,12 +1089,10 @@ describe('EmailService', () => {
                         },
                     ],
                     ['no limiter is configured', true, { dailyCapLimiter: null }],
-                    ['the project cap is empty', false, { senderSettings: { dailyTeamCap: '' } }],
-                    ['the recipient cap is blank', true, { senderSettings: { dailyRecipientCap: ' ' } }],
-                    ['the project cap is zero', true, { senderSettings: { dailyTeamCap: '0' } }],
-                    ['the recipient cap is fractional', false, { senderSettings: { dailyRecipientCap: '1.5' } }],
-                    ['the project cap has trailing text', true, { senderSettings: { dailyTeamCap: '25 per day' } }],
-                    ['the recipient cap is negative', false, { senderSettings: { dailyRecipientCap: '-5' } }],
+                    ['the project cap is not a number', false, { senderSettings: { dailyTeamCap: NaN } }],
+                    ['the project cap is zero', true, { senderSettings: { dailyTeamCap: 0 } }],
+                    ['the recipient cap is fractional', false, { senderSettings: { dailyRecipientCap: 1.5 } }],
+                    ['the recipient cap is negative', false, { senderSettings: { dailyRecipientCap: -5 } }],
                 ] as const)('skips every send when %s (isTest=%s)', async (_name, isTest, options) => {
                     service = createSandboxService(true, options)
 
@@ -1103,7 +1108,7 @@ describe('EmailService', () => {
 
             it.each([
                 ['the sandbox sender is switched off', false],
-                ['the recipient is a verified member', true],
+                ['the sandbox sender refuses transactional email', true],
             ])('records a skipped transactional email when %s', async (_case, enabled) => {
                 const produce = jest.fn().mockResolvedValue(undefined)
                 const emailStatusService = new EmailStatusService(

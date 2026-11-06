@@ -38,7 +38,7 @@ import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.co
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpRerunWorkerConsumer } from './cdp/consumers/cdp-rerun-worker.consumer'
-import { createEmailActionValkeys, createSandboxEmailCapValkey } from './cdp/email-action-valkeys'
+import { createSandboxEmailCapValkey } from './cdp/email-action-valkeys'
 import { createCdpProducerRegistry } from './cdp/outputs/producer-registry'
 import { CdpProducerName } from './cdp/outputs/producers'
 import { createCdpOutputsRegistry } from './cdp/outputs/registry'
@@ -50,6 +50,7 @@ import { createIdempotencyValkeyPool } from './cdp/services/hogflows/idempotency
 import { CyclotronJobQueueKafka } from './cdp/services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from './cdp/services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
+import { createFrequencyCapValkeyPool } from './cdp/services/messaging/frequency-cap-valkey-pool'
 import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-code'
 import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
 import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
@@ -155,6 +156,7 @@ export class PluginServer implements NodeServer {
                   quotaLimiting: cdpQuotaServices!.quotaLimiting,
                   emailValidationValkey: null,
                   frequencyCapValkey: null,
+                  sandboxEmailCapValkey: null,
               }
             : undefined
 
@@ -251,7 +253,7 @@ export class PluginServer implements NodeServer {
                         ...createSandboxEmailCapValkey(this.config),
                         idempotencyValkey: createIdempotencyValkeyPool(this.config),
                         emailValidationValkey: createSesRateLimiterValkeyPool(this.config, 'email-mx-validation', {
-                            optional: true,
+                            mode: 'optional',
                         }),
                     },
                     { hogQueue: kafkaQueue, hogflowQueue: postgresV2Queue },
@@ -476,7 +478,9 @@ export class PluginServer implements NodeServer {
     private withEmailActionValkeys(deps: CdpConsumerBaseDeps): CdpConsumerBaseDeps {
         return {
             ...deps,
-            ...createEmailActionValkeys(this.config),
+            emailValidationValkey: createSesRateLimiterValkeyPool(this.config, 'email-mx-validation'),
+            frequencyCapValkey: createFrequencyCapValkeyPool(this.config),
+            ...createSandboxEmailCapValkey(this.config),
         }
     }
 
