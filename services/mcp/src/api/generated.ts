@@ -135478,6 +135478,19 @@ export namespace Schemas {
       Widget: 'widget',
     } as const;
 
+    export type SurveysActivityRetrieveParams = {
+    /**
+     * Number of items per page
+     * @minimum 1
+     */
+    limit?: number;
+    /**
+     * Page number
+     * @minimum 1
+     */
+    page?: number;
+    };
+
     export type SurveysResponsesListParams = {
     /**
      * When true, exclude responses that have been archived via the archive_response endpoint.
