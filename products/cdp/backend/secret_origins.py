@@ -8,11 +8,15 @@ import re
 import dataclasses
 from collections.abc import Iterable, Iterator
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
+
+from prometheus_client import Counter
 
 from posthog.hogql import ast
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_program, parse_string_template
+
+from posthog.dataclasses import frozen
 
 
 class Unbound(Enum):
@@ -36,30 +40,32 @@ _DEFAULT_PORTS = {"http": "80", "https": "443"}
 _UNSAFE_AUTHORITY = re.compile(r"[@\\%\s\x00-\x1f\x7f]")
 _NUMERIC_LABEL = re.compile(r"^(\d+|0x[0-9a-f]*)$")
 _BY_NAME_OPTIONS = frozenset({"secret_headers_input", "standard_webhooks", "aws_sigv4"})
-# Calls other than `fetch` that carry their arguments out of the function: into logs, events or other
-# PostHog records. The worker registers the async ones in nodejs/src/cdp/async-functions/.
-_EMITTING_CALLS = frozenset(
+_VALUE_CALLS = frozenset({"concat", "coalesce", "ifNull", "if"})
+# Standard library calls that build their result from their arguments and never log, send or quote
+# them, not even in an error. Any other call can carry its arguments out of the function: into logs,
+# errors, events or other PostHog records, including a worker function added after this list.
+_PURE_CALLS = frozenset(
     {
-        "print",
-        "postHogCapture",
-        "postHogAddToStaticCohort",
-        "postHogClassify",
-        "postHogCreateAccount",
-        "postHogCreateCustomerTask",
-        "postHogCreateTask",
-        "postHogGetAccount",
-        "postHogGetTicket",
-        "postHogOptOutOfMessages",
-        "postHogReplayVisionScan",
-        "postHogRunScout",
-        "postHogSendTicketMessage",
-        "postHogSetAccountProperties",
-        "postHogUpdateAccount",
-        "postHogUpdateTicket",
-        "produceToWarehouseWebhooks",
-        "sendEmail",
-        "sendPushNotification",
+        "arrayPushBack",
+        "base64Encode",
+        "empty",
+        "encodeURLComponent",
+        "equals",
+        "length",
+        "lower",
+        "notEmpty",
+        "notEquals",
+        "replaceAll",
+        "substring",
+        "toString",
+        "trim",
+        "upper",
     }
+)
+# One-way digests. Their result cannot reveal the secret, but sending it elsewhere still moves what
+# the secret signs.
+_DIGEST_CALLS = frozenset(
+    {"md5Hex", "sha1Hex", "sha256", "sha256Hex", "sha1HmacChainHex", "sha256HmacChain", "sha256HmacChainHex"}
 )
 # Standard library calls that call their lambda argument with elements of their other arguments. Other
 # callees, such as `arrayReduce` with its accumulator or code the template defines, can call a lambda with
@@ -67,22 +73,71 @@ _EMITTING_CALLS = frozenset(
 _ELEMENT_CALLBACK_CALLS = frozenset({"arrayMap", "arrayFilter", "arrayExists", "arrayCount"})
 # Names the analysis gives a meaning to. Code that declares one of them replaces that meaning at runtime.
 _INTERPRETED_NAMES = (
-    frozenset({"inputs", "fetch", "concat", "coalesce", "ifNull", "if"}) | _EMITTING_CALLS | _ELEMENT_CALLBACK_CALLS
+    frozenset({"inputs", "fetch"}) | _VALUE_CALLS | _PURE_CALLS | _DIGEST_CALLS | _ELEMENT_CALLBACK_CALLS
 )
+_SAFE_CALLS = _VALUE_CALLS | _PURE_CALLS | _DIGEST_CALLS
 _FRESH_CONTAINERS = (ast.Dict, ast.Array, ast.Tuple)
+# A regex the worker cannot compile fails with the pattern in the error.
+_REGEX_OPS = frozenset(
+    {
+        ast.CompareOperationOp.Regex,
+        ast.CompareOperationOp.IRegex,
+        ast.CompareOperationOp.NotRegex,
+        ast.CompareOperationOp.NotIRegex,
+    }
+)
+
+_Reason = Literal["unsupported_code", "input_cycle", "iterations", "budget", "unparseable", "too_deep"]
+SECRET_ORIGINS_UNANALYZABLE_COUNTER = Counter(
+    "posthog_cdp_secret_origins_unanalyzable_total",
+    "Secret origin analyses that left every secret unbound, by why the code could not be analyzed.",
+    labelnames=["reason"],
+)
+
+
+@frozen
+class _Derived:
+    """A value computed from the secret `key` that does not hold it: a digest of it, or the response to
+    a request that carried it."""
+
+    key: str
+
+
+_Taint = frozenset[str | _Derived]
+
+
+def _derived(taint: _Taint) -> _Taint:
+    return frozenset(_Derived(key=item) if isinstance(item, str) else item for item in taint)
+
+
+def _held(taint: _Taint) -> frozenset[str]:
+    return frozenset(item for item in taint if isinstance(item, str))
+
+
+def _reached(taint: _Taint) -> frozenset[str]:
+    return frozenset(item.key if isinstance(item, _Derived) else item for item in taint)
 
 
 class _CannotAnalyze(Exception):
-    pass
+    def __init__(self, reason: _Reason) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 def secret_origins(
     hog: str, inputs: dict[str, Any], mapping_input_sets: list[dict[str, Any]], secret_keys: set[str]
 ) -> dict[str, SecretOrigins]:
+    reason: _Reason
     try:
         return _Analysis(hog, [inputs, *mapping_input_sets], secret_keys).run()
-    except (_CannotAnalyze, BaseHogQLError, RecursionError):
-        return dict.fromkeys(secret_keys, UNBOUND)
+    except _CannotAnalyze as error:
+        reason = error.reason
+    except BaseHogQLError:
+        reason = "unparseable"
+    except RecursionError:
+        reason = "too_deep"
+    SECRET_ORIGINS_UNANALYZABLE_COUNTER.labels(reason=reason).inc()
+    return dict.fromkeys(secret_keys, UNBOUND)
 
 
 def mapping_inputs(mappings: Any) -> list[dict[str, Any]]:
@@ -162,6 +217,12 @@ def _children(node: Any) -> Iterator[ast.AST]:
         yield from _flatten(getattr(node, field.name))
 
 
+def _walk(node: ast.AST) -> Iterator[ast.AST]:
+    yield node
+    for child in _children(node):
+        yield from _walk(child)
+
+
 def _flatten(value: Any) -> Iterator[ast.AST]:
     if isinstance(value, ast.AST):
         yield value
@@ -177,7 +238,7 @@ def _assignment_base(left: ast.Expr) -> tuple[str, int]:
         left = left.array if isinstance(left, ast.ArrayAccess) else left.tuple
         depth += 1
     if not isinstance(left, ast.Field) or not isinstance(left.chain[0], str):
-        raise _CannotAnalyze
+        raise _CannotAnalyze("unsupported_code")
     return left.chain[0], depth + len(left.chain) - 1
 
 
@@ -186,9 +247,10 @@ class _Analysis:
         self.secret_keys = frozenset(secret_keys)
         self.evaluations_left = _MAX_EVALUATIONS
         self.values: dict[str, _Values] = {}
-        self.taints: dict[str, frozenset[str]] = {}
+        self.taints: dict[str, _Taint] = {}
         self.return_values: dict[str, _Values] = {}
-        self.return_taints: dict[str, frozenset[str]] = {}
+        self.return_taints: dict[str, _Taint] = {}
+        self.declarations: set[str] = set()
         self.assignments: list[tuple[str, ast.Expr]] = []
         self.member_assignments: list[tuple[str, int, ast.Expr]] = []
         self.shared_assignments: list[ast.Expr] = []
@@ -199,19 +261,21 @@ class _Analysis:
         self.functions: dict[str, list[str]] = {}
         self.returns: list[tuple[str, ast.Expr]] = []
         self.calls: list[ast.Call] = []
-        self.thrown: list[ast.Expr] = []
         self.field_heads: set[str] = set()
         self.lambda_feeds: dict[int, list[ast.Expr]] = {}
         # Lambdas a declaration binds to a name, and the parameters of each with that name.
         self.lambda_names: dict[int, str] = {}
         self.named_lambda_args: list[tuple[str, str]] = []
+        # Expressions whose value leaves the function other than through `fetch`: what it throws or
+        # returns, what it writes into globals, and the arguments of calls that can log or quote them.
+        self.exits: list[ast.Expr] = []
 
         self.definitions: dict[str, list[dict]] = {}
         for input_set in input_sets:
             for key, item in (input_set or {}).items():
                 if isinstance(item, dict) and "value" in item:
                     self.definitions.setdefault(key, []).append(item)
-        self.inputs: dict[str, tuple[_Values, frozenset[str]]] = {}
+        self.inputs: dict[str, tuple[_Values, _Taint]] = {}
         for key in self.definitions:
             self._input(key, set())
 
@@ -219,20 +283,42 @@ class _Analysis:
         self.fed_names += [(arg, self._call_arguments(name)) for arg, name in self.named_lambda_args]
         bound_elsewhere = {name for name, _ in self.fed_names}
         bound_elsewhere |= {param for params in self.functions.values() for param in params}
-        variables = {name for name, _ in self.assignments} | bound_elsewhere
+        variables = {name for name, _ in self.assignments} | self.declarations | bound_elsewhere
         fresh = self._fresh_container_names() - bound_elsewhere
         self.shared_assignments = [
             expr for base, depth, expr in self.member_assignments if depth > 1 or base not in fresh
         ]
-        if (
-            (variables | set(self.functions)) & _INTERPRETED_NAMES
-            or variables & set(self.functions)
-            or self.field_heads & {"fetch", *_EMITTING_CALLS, *self.functions}
-            # The analysis reads input values as configured, so code must not be able to replace them.
-            or any(base == "inputs" for base, _, _ in self.member_assignments)
-            or (self.reads_all_inputs and self.shared_assignments)
-        ):
-            raise _CannotAnalyze
+        if self._rebinds_an_interpreted_name(variables) or self._hands_on_a_callee() or self._can_replace_inputs():
+            raise _CannotAnalyze("unsupported_code")
+
+        local = self.declarations | bound_elsewhere | set(self.functions)
+        lambdas_only = self._lambda_only_names() - bound_elsewhere - set(self.functions)
+        self.exits += [expr for base, _, expr in self.member_assignments if base not in local]
+        self.exits += [expr for name, expr in self.assignments if name not in local]
+        self.exits += [
+            arg
+            for call in self.calls
+            if call.name not in {"fetch", *_SAFE_CALLS, *self.functions, *lambdas_only}
+            for arg in call.args
+        ]
+
+    def _rebinds_an_interpreted_name(self, variables: set[str]) -> bool:
+        functions = set(self.functions)
+        return bool((variables | functions) & _INTERPRETED_NAMES or variables & functions)
+
+    def _hands_on_a_callee(self) -> bool:
+        """Whether code passes `fetch` or one of its own functions as a value, to be called where the
+        analysis cannot see the arguments."""
+        return bool(self.field_heads & {"fetch", *self.functions})
+
+    def _can_replace_inputs(self) -> bool:
+        """The analysis reads input values as configured, so code must not be able to replace them."""
+        writes_inputs = any(base == "inputs" for base, _, _ in self.member_assignments)
+        return writes_inputs or (self.reads_all_inputs and bool(self.shared_assignments))
+
+    def _lambda_only_names(self) -> set[str]:
+        assigned = {name for name, _ in self.assignments}
+        return assigned - {name for name, expr in self.assignments if not isinstance(expr, ast.Lambda)}
 
     def _call_arguments(self, lambda_name: str) -> list[ast.Expr] | None:
         """Every argument of every call to a name that only declarations of lambdas bind, or None when the
@@ -240,8 +326,9 @@ class _Analysis:
         it with any argument."""
         params = {param for params in self.functions.values() for param in params}
         bound_otherwise = {name for name, _ in self.fed_names} | {arg for arg, _ in self.named_lambda_args} | params
-        lambdas_only = all(isinstance(expr, ast.Lambda) for name, expr in self.assignments if name == lambda_name)
-        if not lambdas_only or lambda_name in self.field_heads | bound_otherwise | set(self.functions):
+        if lambda_name not in self._lambda_only_names() or lambda_name in (
+            self.field_heads | bound_otherwise | set(self.functions)
+        ):
             return None
         return [arg for call in self.calls if call.name == lambda_name for arg in call.args]
 
@@ -251,23 +338,23 @@ class _Analysis:
         stale = {name for name, expr in self.assignments if not isinstance(expr, _FRESH_CONTAINERS)}
         return {name for name, _ in self.assignments} - stale
 
-    def _input(self, key: str, resolving: set[str]) -> tuple[_Values, frozenset[str]]:
+    def _input(self, key: str, resolving: set[str]) -> tuple[_Values, _Taint]:
         if key in self.inputs:
             return self.inputs[key]
         if key in resolving:
-            raise _CannotAnalyze
+            raise _CannotAnalyze("input_cycle")
         resolving.add(key)
         values: _Values = frozenset() if key in self.definitions else _UNKNOWN
-        taint = frozenset({key}) & self.secret_keys
+        taint: _Taint = frozenset({key}) & self.secret_keys
         for item in self.definitions.get(key, []):
             item_values, item_taint = self._template(item["value"], item.get("templating"), resolving)
             values, taint = _normalize(values | item_values), taint | item_taint
         self.inputs[key] = (values, taint)
         return self.inputs[key]
 
-    def _template(self, value: Any, templating: Any, resolving: set[str]) -> tuple[_Values, frozenset[str]]:
+    def _template(self, value: Any, templating: Any, resolving: set[str]) -> tuple[_Values, _Taint]:
         if isinstance(value, dict | list):
-            taint: frozenset[str] = frozenset()
+            taint: _Taint = frozenset()
             for item in value.values() if isinstance(value, dict) else value:
                 taint |= self._template(item, templating, resolving)[1]
             return _UNKNOWN, taint
@@ -284,20 +371,21 @@ class _Analysis:
             expr = parse_string_template(value)
         except BaseHogQLError:
             return _UNKNOWN, mentioned
-        for key in self._input_references(expr):
+        nodes = list(_walk(expr))
+        for key in {key for node in nodes if (key := _input_key(node)) is not None}:
             self._input(key, resolving)
+        self.exits += [
+            arg for node in nodes if isinstance(node, ast.Call) and node.name not in _SAFE_CALLS for arg in node.args
+        ]
         return self._value(expr), self._taint(expr)
 
-    def _input_references(self, node: ast.AST) -> Iterator[str]:
-        input_key = _input_key(node)
-        if input_key is not None:
-            yield input_key
-        for child in _children(node):
-            yield from self._input_references(child)
-
     def _collect(self, node: ast.AST, function: str | None) -> None:
-        if isinstance(node, ast.VariableDeclaration) and node.expr is not None:
-            self.assignments.append((node.name, node.expr))
+        """Record what the analysis needs from `node`. `function` names the `fun` whose body holds it,
+        or is empty inside a lambda and None at the top level."""
+        if isinstance(node, ast.VariableDeclaration):
+            self.declarations.add(node.name)
+            if node.expr is not None:
+                self.assignments.append((node.name, node.expr))
             if isinstance(node.expr, ast.Lambda):
                 self.lambda_names[id(node.expr)] = node.name
         elif isinstance(node, ast.VariableAssignment):
@@ -308,23 +396,32 @@ class _Analysis:
                 self.member_assignments.append((base, depth, node.right))
         elif isinstance(node, ast.Function):
             if node.name in self.functions:
-                raise _CannotAnalyze
+                raise _CannotAnalyze("unsupported_code")
             self.functions[node.name] = node.params
             function = node.name
         elif isinstance(node, ast.Lambda) and id(node) in self.lambda_names:
             self.named_lambda_args += [(name, self.lambda_names[id(node)]) for name in node.args]
-            function = None
+            function = ""
         elif isinstance(node, ast.Lambda):
             self.fed_names += [(name, self.lambda_feeds.get(id(node))) for name in node.args]
-            function = None
-        elif isinstance(node, ast.ReturnStatement) and function and node.expr is not None:
-            self.returns.append((function, node.expr))
+            function = ""
+        elif isinstance(node, ast.ReturnStatement) and node.expr is not None:
+            # A top-level return hands its value to the worker: the event a transformation stores, or
+            # the response a source webhook sends back to its caller.
+            if function is None:
+                self.exits.append(node.expr)
+            elif function:
+                self.returns.append((function, node.expr))
         elif isinstance(node, ast.ForInStatement):
             self.fed_names += [(name, [node.expr]) for name in (node.keyVar, node.valueVar) if name]
         elif isinstance(node, ast.TryCatchStatement):
             self.fed_names += [(name, None) for name, _, _ in node.catches if name]
         elif isinstance(node, ast.ThrowStatement):
-            self.thrown.append(node.expr)
+            self.exits.append(node.expr)
+        elif isinstance(node, ast.CompareOperation) and node.op in _REGEX_OPS:
+            self.exits += [node.left, node.right]
+        elif isinstance(node, ast.ExprCall):
+            self.exits += node.args
         elif isinstance(node, ast.Call):
             self.calls.append(node)
             for arg in node.args if node.name in _ELEMENT_CALLBACK_CALLS else []:
@@ -350,23 +447,21 @@ class _Analysis:
             if not self._step():
                 break
         else:
-            raise _CannotAnalyze
+            raise _CannotAnalyze("iterations")
 
         origins: dict[str, frozenset[str]] = dict.fromkeys(self.secret_keys, frozenset())
         shared = self._union_taint(self.shared_assignments)
-        emits = bool(self.thrown) or any(call.name in _EMITTING_CALLS for call in self.calls)
-        unbound: set[str] = set(self._union_taint(self.thrown)) | (shared if emits else set())
+        # Only a secret itself leaves this way. A digest of it or a response to it is logged, thrown and
+        # stored by templates as a matter of course, and does not reveal it.
+        unbound = set(_held(self._union_taint(self.exits) | (shared if self.exits else frozenset())))
         for call in self.calls:
-            if call.name in _EMITTING_CALLS:
-                unbound |= self._union_taint(call.args)
             if call.name != "fetch":
                 continue
-            carried = self._union_taint(call.args) | shared
-            if len(call.args) > 1 and not _names_no_input(call.args[1]):
-                carried = self.secret_keys
+            carried = self._fetch_carries(call, self._union_taint(call.args) | shared)
             if not carried:
                 continue
-            found = {url_origin(text, complete) for text, complete in self._value(call.args[0])}
+            urls = self._value(call.args[0]) if call.args else _UNKNOWN
+            found = {url_origin(text, complete) for text, complete in urls}
             for key in carried:
                 if None in found:
                     unbound.add(key)
@@ -374,10 +469,17 @@ class _Analysis:
                     origins[key] |= {origin for origin in found if origin}
         return {key: UNBOUND if key in unbound else value for key, value in origins.items()}
 
+    def _fetch_carries(self, call: ast.Call, taint: _Taint) -> frozenset[str]:
+        """The secrets a fetch sends: those its arguments hold or were derived from, and every secret
+        when its options can name one."""
+        if len(call.args) > 1 and not _names_no_input(call.args[1]):
+            return self.secret_keys
+        return _reached(taint)
+
     def _step(self) -> bool:
         changed = False
 
-        def add(name: str, values: _Values, taint: frozenset[str], returns: bool = False) -> None:
+        def add(name: str, values: _Values, taint: _Taint, returns: bool = False) -> None:
             nonlocal changed
             value_map, taint_map = (self.return_values, self.return_taints) if returns else (self.values, self.taints)
             old_values, old_taint = value_map.get(name, frozenset()), taint_map.get(name, frozenset())
@@ -399,13 +501,13 @@ class _Analysis:
             add(function, self._value(expr), self._taint(expr), returns=True)
         return changed
 
-    def _union_taint(self, nodes: Iterable[ast.AST]) -> frozenset[str]:
+    def _union_taint(self, nodes: Iterable[ast.AST]) -> _Taint:
         return frozenset().union(*(self._taint(node) for node in nodes))
 
     def _spend_evaluation(self) -> None:
         self.evaluations_left -= 1
         if self.evaluations_left < 0:
-            raise _CannotAnalyze
+            raise _CannotAnalyze("budget")
 
     def _value(self, node: ast.Expr) -> _Values:
         self._spend_evaluation()
@@ -428,11 +530,8 @@ class _Analysis:
                 return self.return_values.get(node.name, frozenset())
         return _UNKNOWN
 
-    def _taint(self, node: ast.AST) -> frozenset[str]:
+    def _taint(self, node: ast.AST) -> _Taint:
         self._spend_evaluation()
-        if isinstance(node, ast.Call) and node.name == "fetch":
-            # The response holds what the bound origin sends back, not the secrets sent to it.
-            return frozenset()
         if isinstance(node, ast.Constant):
             return frozenset({node.value}) & self.secret_keys if isinstance(node.value, str) else frozenset()
         input_key = _input_key(node)
@@ -447,9 +546,16 @@ class _Analysis:
             return self._union_taint(
                 [value for _, value in node.items] + [key for key, _ in node.items if not isinstance(key, ast.Constant)]
             )
+        if isinstance(node, ast.Call) and node.name in self.functions:
+            return self.return_taints.get(node.name, frozenset())
         taint = self._union_taint(_children(node))
+        if isinstance(node, ast.Call) and node.name == "fetch":
+            # A response can echo what its request sent, so passing it on moves those secrets too.
+            return _derived(self._fetch_carries(node, taint))
+        if isinstance(node, ast.Call) and node.name in _DIGEST_CALLS:
+            return _derived(taint)
         if isinstance(node, ast.Call):
-            taint |= self.taints.get(node.name, frozenset()) | self.return_taints.get(node.name, frozenset())
+            taint |= self.taints.get(node.name, frozenset())
         return taint
 
 
