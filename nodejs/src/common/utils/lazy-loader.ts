@@ -183,6 +183,11 @@ export class LazyLoader<T> {
         return await this.loadViaCache(keys, options)
     }
 
+    /** Loads the key now and replaces its cached value only when that load succeeds. */
+    public async reload(key: string): Promise<void> {
+        await this.load([key])
+    }
+
     public markForRefresh(key: string | string[]): void {
         for (const k of Array.isArray(key) ? key : [key]) {
             const entry = this.cache[k]
