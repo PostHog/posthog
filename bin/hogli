@@ -31,11 +31,8 @@ fi
 # which every other checkout runs that worktree's hogli and fails on imports it does
 # not have. Warn when a .pth names a checkout that is neither this one nor main.
 HOGLI_TOPLEVEL="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-HOGLI_MAIN=""
-if [ -f "$HOGLI_TOPLEVEL/bin/helpers/worktree-borrow.sh" ]; then
-    source "$HOGLI_TOPLEVEL/bin/helpers/worktree-borrow.sh"
-    HOGLI_MAIN="$(posthog_main_repo "$HOGLI_TOPLEVEL")"
-fi
+# Resolved with git only: sourcing a helper from whatever checkout cwd is in would run its code.
+HOGLI_MAIN="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || echo /)")"
 
 # Migration aid: after the common/hogli/ -> tools/hogli/ + tools/hogli-commands/
 # restructure, users with stale venvs see `ModuleNotFoundError: hogli`. Catch it
