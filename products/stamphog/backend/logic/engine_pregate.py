@@ -97,8 +97,7 @@ class GateAttestation:
     # The manifests whose texts the engine needs for the scripts scan, when the reason is
     # ``dependency_manifest``.
     manifests: tuple[str, ...] = ()
-    # True when a CI attestation lifted a deny for this approval. Such an approval rests on a result
-    # for the approved head only, so it never survives a push through approval retention.
+    # Approval retention reads this, because a lifted deny rests on a result for this head only.
     attestation_lifted: bool = False
 
 
