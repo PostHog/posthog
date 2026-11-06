@@ -44,6 +44,7 @@ class Migration(migrations.Migration):
                 ),
                 ("mx_checked_at", models.DateTimeField(blank=True, null=True)),
                 ("activated_at", models.DateTimeField(blank=True, null=True)),
+                ("checks_failing_since", models.DateTimeField(blank=True, null=True)),
                 ("daily_limit_reached_at", models.DateTimeField(blank=True, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
@@ -171,6 +172,7 @@ class Migration(migrations.Migration):
                             ("available", "Available"),
                             ("too_large", "Too large"),
                             ("parse_failed", "Parse failed"),
+                            ("not_stored", "Not stored"),
                         ],
                         max_length=16,
                     ),

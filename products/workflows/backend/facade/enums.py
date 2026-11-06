@@ -254,6 +254,7 @@ class InboundDomainCheckState(LabeledStrEnum):
     MISSING = "missing", "No MX record"
     CONFLICT = "conflict", "Another MX record takes the mail"
     TAKEN = "taken", "Another project holds the domain"
+    NO_SENDING_DOMAIN = "no_sending_domain", "No verified sending domain covers the domain"
     LOOKUP_FAILED = "lookup_failed", "DNS did not answer"
 
 
@@ -261,3 +262,4 @@ class InboundEmailContentStatus(LabeledStrEnum):
     AVAILABLE = "available", "Available"
     TOO_LARGE = "too_large", "Too large"
     PARSE_FAILED = "parse_failed", "Parse failed"
+    NOT_STORED = "not_stored", "Not stored"

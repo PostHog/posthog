@@ -30,6 +30,8 @@ class InboundEmailDomain(TeamScopedRootMixin, UUIDModel):
     status = models.CharField(max_length=16, choices=InboundEmailDomainStatus.choices)
     mx_checked_at = models.DateTimeField(null=True, blank=True)
     activated_at = models.DateTimeField(null=True, blank=True)
+    # An active domain keeps receiving through a brief DNS or SES problem, so it is only demoted once this gets old.
+    checks_failing_since = models.DateTimeField(null=True, blank=True)
     # When the team last went over its daily cap, so the view can say mail was dropped.
     daily_limit_reached_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
