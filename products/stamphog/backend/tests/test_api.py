@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
@@ -95,6 +96,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("review_mode", {"review_mode": ReviewMode.ALL}),
             ("trigger_label", {"trigger_label": "review-me"}),
             ("routing_mode", {"routing_mode": RoutingMode.FALLBACK}),
+            ("routing_fork_labels", {"routing_fork_labels": {"team-alpha": "area: alpha"}}),
         ]
     )
     def test_member_cannot_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
@@ -172,6 +174,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         [
             ("turns_reviews_off", {"enabled": False}),
             ("turns_reviewer_requests_on", {"routing_mode": RoutingMode.FALLBACK}),
+            ("sets_fork_labels", {"routing_fork_labels": {"team-alpha": "area: alpha"}}),
         ]
     )
     def test_member_granted_manager_can_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
@@ -655,6 +658,27 @@ class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["digest_enabled"] is False
 
+    @parameterized.expand(
+        [
+            ("person_key", {"@alice": "area: alice"}, False),
+            ("blank_label", {"team-alpha": "  "}, False),
+            ("label_too_long_for_github", {"team-alpha": "x" * 51}, False),
+            ("too_many_teams", {f"team-{index}": "area" for index in range(101)}, False),
+            ("clears_every_label", {}, True),
+        ]
+    )
+    def test_fork_labels_take_only_team_slugs_and_github_label_names(
+        self, _name: str, labels: dict[str, str], valid: bool
+    ) -> None:
+        serializer = StamphogRepoConfigWriteSerializer(
+            data={"routing_fork_labels": labels},
+            partial=True,
+            partial_update=True,
+            current=_repo_config_dto(enabled=True, digest_enabled=False),
+        )
+
+        assert serializer.is_valid() is valid, serializer.errors
+
 
 class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
@@ -1058,6 +1082,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             review_mode=ReviewMode.ALL,
             trigger_label="nobody-uses-this",
             routing_mode=RoutingMode.ALWAYS,
+            routing_fork_labels={"team-alpha": "area: alpha"},
         )
         response = self.client.post(
             self.url, {"installation_id": "42", "code": "oauth-code", "state": self.state}, format="json"
@@ -1074,6 +1099,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert manual.review_mode == ReviewMode.LABEL
         assert manual.trigger_label == StamphogRepoConfig._meta.get_field("trigger_label").get_default()
         assert manual.routing_mode == RoutingMode.OFF
+        assert manual.routing_fork_labels == {}
 
     @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
@@ -1254,6 +1280,15 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         "status": "added",
         "additions": 20,
         "deletions": 0,
+        "owners_source": "products/alpha/owners.yaml",
+    }
+    # Runs recorded before `owners_source` existed have no such key.
+    _OLD_FILE = {
+        "path": "products/beta/c.py",
+        "previous_path": None,
+        "status": "modified",
+        "additions": 1,
+        "deletions": 1,
     }
 
     def setUp(self) -> None:
@@ -1281,6 +1316,7 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
                     "outcome": "cut",
                     "reason": "model_cut",
                     "model_reason": "Only renames an import.",
+                    "files": [self._OLD_FILE],
                 },
             ],
         )
@@ -1311,7 +1347,7 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         run = RoutingRun.objects.unscoped().create(
             team_id=team_id,
             pull_request=pull_request,
-            head_sha="head-1",
+            head_sha=f"head-{pr_number}",
             mode=RoutingMode.ALWAYS,
             trigger="opened",
             scope="full",
@@ -1327,10 +1363,26 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("everything_in_the_team", {}, [2, 1]),
             ("by_owner", {"owner": "team-beta"}, [1]),
             ("by_pull_request", {"pr_number": 2}, [2]),
+            ("by_head_sha", {"head_sha": "head-2"}, [2]),
+            ("by_outcome", {"outcome": "cut"}, [1]),
+            ("by_reason", {"reason": "model_kept"}, [2]),
+            ("by_owner_and_outcome_on_one_owner", {"owner": "team-alpha", "outcome": "cut"}, []),
         ]
     )
     def test_list_filters_the_teams_runs(self, _name: str, query: dict, expected_pr_numbers: list[int]) -> None:
         response = self.client.get(self.url, query)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [run["pr_number"] for run in response.json()["results"]] == expected_pr_numbers
+
+    @parameterized.expand([("created_after", [2]), ("created_before", [1])])
+    def test_list_keeps_the_runs_inside_the_time_window(self, param: str, expected_pr_numbers: list[int]) -> None:
+        now = timezone.now()
+        runs = RoutingRun.objects.unscoped().filter(team_id=self.team.id)
+        runs.filter(pull_request__pr_number=1).update(created_at=now - timedelta(days=3))
+        runs.filter(pull_request__pr_number=2).update(created_at=now - timedelta(days=1))
+
+        response = self.client.get(self.url, {param: (now - timedelta(days=2)).isoformat()})
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert [run["pr_number"] for run in response.json()["results"]] == expected_pr_numbers
@@ -1365,7 +1417,88 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert run["owners_sha"] == "owners-1"
         assert {owner["owner"]: owner["files"] for owner in run["owners"]} == {
             "team-alpha": [self._FILE],
-            "team-beta": [],
+            "team-beta": [{**self._OLD_FILE, "owners_source": None}],
+        }
+
+    @parameterized.expand(
+        [
+            ("no_record", None, None),
+            (
+                "waiting",
+                {"status": "waiting", "mode": "fallback", "trigger": "opened", "waiting_since": -5},
+                {"status": "waiting", "mode": "fallback", "trigger": "opened", "waiting_since": -5},
+            ),
+            (
+                "fresh_claim",
+                {"status": "routing", "mode": "always", "trigger": "opened", "scope": "full", "claimed_at": -5},
+                {"status": "routing", "mode": "always", "trigger": "opened", "scope": "full", "claimed_at": -5},
+            ),
+            (
+                "expired_requested_claim",
+                {
+                    "status": "requested",
+                    "mode": "fallback",
+                    "trigger": "verdict:approved",
+                    "scope": "pinned",
+                    "claimed_at": -180,
+                    "routed_at": -179,
+                    "pinned_routed_head": "head-1",
+                },
+                {
+                    "status": "requested",
+                    "mode": "fallback",
+                    "trigger": "verdict:approved",
+                    "scope": "pinned",
+                    "claim_expired": True,
+                    "claimed_at": -180,
+                    "routed_at": -179,
+                    "pinned_routed_head": "head-1",
+                },
+            ),
+        ]
+    )
+    def test_a_pull_request_shows_its_latest_routing_record(
+        self, _name: str, record: dict[str, Any] | None, expected: dict[str, Any] | None
+    ) -> None:
+        now = timezone.now().replace(microsecond=0)
+        times = ("waiting_since", "claimed_at", "routed_at")
+
+        def at(values: dict[str, Any]) -> dict[str, Any]:
+            return {key: (now + timedelta(minutes=value) if key in times else value) for key, value in values.items()}
+
+        stored = None
+        if record is not None:
+            # The plan, the comment and the claim's previous record must never leave the API.
+            stored = {
+                **{key: (value.isoformat() if key in times else value) for key, value in at(record).items()},
+                "head_sha": "head-1",
+                "claimed_by": "task-1",
+                "candidates": [{"owner": "team-alpha", "model_reason": "author text"}],
+                "pending_comment": "author text",
+                "previous": {"status": "done"},
+            }
+        PullRequest.objects.unscoped().filter(team_id=self.team.id, pr_number=1).update(routing=stored)
+        StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id).update(routing_mode=RoutingMode.FALLBACK)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/stamphog/pull_requests/", {"pr_number": 1})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        pull_request = response.json()["results"][0]
+        assert pull_request["routing_mode"] == "fallback"
+        routing = pull_request["routing"]
+        if expected is None:
+            assert routing is None
+            return
+        for key in times:
+            routing[key] = datetime.fromisoformat(routing[key]) if routing[key] else None
+        assert routing == {
+            "head_sha": "head-1",
+            "scope": None,
+            "claim_expired": False,
+            **dict.fromkeys(times),
+            "full_routed_head": "",
+            "pinned_routed_head": "",
+            **at(expected),
         }
 
     def test_another_teams_run_is_not_found(self) -> None:

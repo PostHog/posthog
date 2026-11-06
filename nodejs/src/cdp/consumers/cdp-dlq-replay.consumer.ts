@@ -23,6 +23,7 @@ import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogFunctionInvocationGlobals, HogFunctionTypeType, InvocationBuildFailure } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
+import { runsOnEvents, triggersOnEvents } from './event-name-gate'
 
 const counterReplayRecords = new Counter({
     name: 'cdp_dlq_replay_records_total',
@@ -267,12 +268,12 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
         const [hogInvocations, hogflowInvocations] = await Promise.all([
             this.hogFunctionPipeline.buildInvocations(globalsList, {
                 hogTypes: this.hogTypes,
-                filterFn: (fn) => (fn.filters?.source ?? 'events') === 'events',
+                filterFn: runsOnEvents,
                 invocationFilterFn: (fn, globals) => allowsKind('hog_function', globals) && allows(fn.id, globals),
             }),
             this.hogFlowPipeline.buildInvocations(globalsList, {
                 eligibilityFn: (flow, globals) =>
-                    flow.trigger.type === 'event' && allowsKind('hog_flow', globals) && allows(flow.id, globals),
+                    triggersOnEvents(flow) && allowsKind('hog_flow', globals) && allows(flow.id, globals),
             }),
         ])
 

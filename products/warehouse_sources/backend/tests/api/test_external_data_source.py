@@ -37,7 +37,10 @@ from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.facade.api import DIRECT_POSTGRES_URL_PATTERN, DIRECT_TRINO_URL_PATTERN
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
-from products.warehouse_sources.backend.facade.contracts import CREDENTIALS_REFERENCE_INPUT_KEY
+from products.warehouse_sources.backend.facade.contracts import (
+    CONNECTION_FIELDS_STRIPPED_KEY,
+    CREDENTIALS_REFERENCE_INPUT_KEY,
+)
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -92,6 +95,9 @@ from products.warehouse_sources.backend.presentation.views.external_data_source.
     merge_ssh_tunnel,
     restore_declared_field_names,
     strip_sensitive_from_dict,
+)
+from products.warehouse_sources.backend.presentation.views.external_data_source.source_setup import (
+    ExternalDataSourceSerializers,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_source.viewset import ExternalDataSourceViewSet
 from products.warehouse_sources.backend.temporal.data_imports import schema_flags
@@ -184,7 +190,6 @@ def _configure_source_mock_versioning(mock_get_source) -> None:
     mock_get_source.return_value.default_version = "v1"
     mock_get_source.return_value.get_version_deprecation.return_value = None
     mock_get_source.return_value.max_instances_per_team = None
-    mock_get_source.return_value.requires_team_feature_flag = None
     mock_get_source.return_value.connection_host_fields = []
     mock_get_source.return_value.detects_primary_keys = False
     mock_get_source.return_value.server_managed_job_input_fields.return_value = []
@@ -3667,6 +3672,20 @@ class TestExternalDataSource(APIBaseTest):
         )
         assert patch_response.status_code == 400
 
+    def test_update_with_json_encoded_string_job_inputs_returns_400(self):
+        source = self._create_external_data_source()
+
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": json.dumps({"auth_method": {"selection": "api_key"}})},
+            format="json",
+        )
+
+        assert patch_response.status_code == 400, patch_response.json()
+        assert patch_response.json()["attr"] == "job_inputs"
+        source.refresh_from_db()
+        assert source.job_inputs == {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}}
+
     def test_get_external_data_source_with_schema(self):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
@@ -6495,7 +6514,6 @@ class TestExternalDataSource(APIBaseTest):
         ]
         mock_source.get_endpoint_permissions.return_value = {}
         mock_source.detects_primary_keys = False
-        mock_source.requires_team_feature_flag = None
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
@@ -9573,44 +9591,6 @@ class TestExternalDataSource(APIBaseTest):
         else:
             assert response.json()["message"] != limit_message
 
-    @parameterized.expand(
-        [
-            ("create_without_flag", "", False),
-            ("create_with_flag", "", True),
-            ("database_schema_without_flag", "database_schema/", False),
-            ("database_schema_with_flag", "database_schema/", True),
-            ("setup_without_flag", "setup/", False),
-            ("setup_with_flag", "setup/", True),
-            ("store_credentials_without_flag", "store_credentials/", False),
-            ("store_credentials_with_flag", "store_credentials/", True),
-        ]
-    )
-    def test_source_behind_a_team_feature_flag(self, _name: str, path: str, flag_enabled: bool) -> None:
-        payload = {"tenant": "acme", "api_key": "key"}
-        with (
-            patch.object(SourceRegistry, "get_source", return_value=_ConnectionGateSource()),
-            patch.object(_ConnectionGateSource, "requires_team_feature_flag", "connection-gate-test-flag"),
-            patch.object(
-                _ConnectionGateSource,
-                "validate_credentials",
-                return_value=(False, "The test credentials were rejected."),
-            ),
-            patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_source.helpers.feature_enabled_or_false",
-                return_value=flag_enabled,
-            ),
-        ):
-            response = self.client.post(
-                f"/api/environments/{self.team.pk}/external_data_sources/{path}",
-                data={"source_type": ExternalDataSourceType.TRINO, "prefix": "gate_", "payload": payload, **payload},
-            )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        # With the flag the request reaches credential validation.
-        expected = "The test credentials were rejected." if flag_enabled else "isn't available to connect yet"
-        assert expected in response.json()["message"]
-        assert not ExternalDataSource.objects.filter(team_id=self.team.pk).exists()
-
     def test_revenue_analytics_config_created_automatically(self):
         source = self._create_external_data_source()
 
@@ -10368,6 +10348,27 @@ class TestCreateWebhook(APIBaseTest):
         assert len(schema_mapping) == 3
 
         assert hog_function.inputs["source_id"]["value"] == str(source.pk)
+
+
+class TestExternalDataSourceJobInputsValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("json_encoded_string", json.dumps({"auth_method": {"selection": "api_key"}})),
+            ("plain_string", "not-an-object"),
+            ("empty_string", ""),
+            ("list", [{"auth_method": {"selection": "api_key"}}]),
+            ("number", 1),
+            ("boolean", True),
+            ("null", None),
+        ]
+    )
+    def test_rejects_non_object(self, _name: str, job_inputs: Any):
+        with self.assertRaisesMessage(ValidationError, "Must be an object."):
+            ExternalDataSourceSerializers().validate_job_inputs(job_inputs)
+
+    @parameterized.expand([("empty", {}), ("populated", {"auth_method": {"selection": "api_key"}})])
+    def test_accepts_object(self, _name: str, job_inputs: dict[str, Any]):
+        assert ExternalDataSourceSerializers().validate_job_inputs(job_inputs) == job_inputs
 
 
 class TestSensitiveFieldClassification(SimpleTestCase):
@@ -15418,3 +15419,59 @@ class TestCreateSourceCredentialsRow(APIBaseTest):
         source = ExternalDataSource.objects.get(team_id=self.team.pk)
         assert source.credentials_integration_id == str(IntegrationReference.from_legacy_id(rows[0].id))
         assert rows[0].sensitive_config["fields"]["password"] == "fake-password"
+
+
+@patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+    return_value=(True, None),
+)
+class TestStrippedOAuthSourceAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        reset_credentials_rollout_caches()
+        self.addCleanup(reset_credentials_rollout_caches)
+        self.first, self.second = (
+            IntegrationManager.stripe.oauth.create(self.team.pk, external_id=name, config={}).id
+            for name in ("acct_first", "acct_second")
+        )
+        self.source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={
+                "auth_method": {"selection": "oauth"},
+                CONNECTION_FIELDS_STRIPPED_KEY: "2026-01-01T00:00:00+00:00",
+            },
+            credentials_integration_id=str(self.first),
+        )
+
+    def _url(self) -> str:
+        return f"/api/environments/{self.team.pk}/external_data_sources/{self.source.pk}/"
+
+    def test_the_form_shows_the_pointer_of_the_column_at_its_nested_path(self, _validate: MagicMock) -> None:
+        response = self.client.get(self._url())
+
+        assert response.status_code == 200, response.content
+        assert response.json()["job_inputs"]["auth_method"] == {
+            "selection": "oauth",
+            "stripe_integration_id": self.first,
+        }
+
+    def test_an_edit_of_the_form_value_moves_it_to_the_column(self, _validate: MagicMock) -> None:
+        response = self.client.patch(
+            self._url(),
+            data={"job_inputs": {"auth_method": {"selection": "oauth", "stripe_integration_id": self.second}}},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
+        self.source.refresh_from_db()
+        assert self.source.credentials_integration_id == str(self.second)
+        stored = SourceInputsStore.load_stored(self.source)
+        assert stored["auth_method"]["selection"] == "oauth"
+        assert "stripe_integration_id" not in stored["auth_method"]
+        assert CONNECTION_FIELDS_STRIPPED_KEY in stored

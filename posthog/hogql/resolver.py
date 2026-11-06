@@ -73,6 +73,7 @@ from posthog.hogql.resolver_utils import (
     suggested_field_fix,
 )
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import swap_flag_calls, swaps_flag_calls
+from posthog.hogql.transforms.grouped_clauses import raise_on_whole_document_grouping
 from posthog.hogql.transforms.trino.persons import (
     lower_trino_table,
     resolve_internal_trino_logical_table,
@@ -1199,6 +1200,7 @@ class Resolver(CloningVisitor):
         if node.group_by:
             new_node.group_by = [self.visit(expr) for expr in node.group_by]
         new_node.group_by_mode = node.group_by_mode
+        raise_on_whole_document_grouping(new_node, self.context)
         if node.order_by:
             new_node.order_by = [self.visit(expr) for expr in node.order_by]
         if node.interpolate is not None:

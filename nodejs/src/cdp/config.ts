@@ -56,6 +56,9 @@ export type CdpConfig = ClickhouseConfig & {
 
     CDP_EVENTS_CONSUMER_TOPIC: string
     CDP_EVENTS_CONSUMER_GROUP_ID: string
+    // Off until every produced event carries the event name header and
+    // cdp_events_unmatched_event_name_invoked stays at zero.
+    CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES: boolean
     CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: string
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
@@ -187,15 +190,14 @@ export type CdpConfig = ClickhouseConfig & {
     EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE: boolean
 
     // Trust-tiered per-team workflow email caps ("team warming"). A team's tier, stored by the
-    // Django side, picks an hourly and a daily cap from these tables. See
-    // WORKFLOWS_EMAIL_TIER_* in posthog/settings/web.py, which must stay in step with them.
+    // Django side, picks a daily cap from this table. See WORKFLOWS_EMAIL_TIER_* in
+    // posthog/settings/web.py, which must stay in step with it.
     //   "off"     - the caps are not consulted.
     //   "shadow"  - the caps are evaluated and every send they would delay is logged and counted,
     //               but nothing is delayed.
     //   "enforce" - a reached cap reschedules the send.
     EMAIL_TEAM_SENDING_CAP_MODE: string
-    // Comma-separated caps indexed by tier. Both lists must be the same length.
-    EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: string
+    // Comma-separated caps indexed by tier.
     EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: string
     // Comma-separated team ids, or "*", whose UTM link tagging runs the scanner in helpers/utm.ts.
     // Every other team runs the previous scanner in helpers/utm-legacy.ts.
@@ -320,6 +322,7 @@ export function getDefaultCdpConfig(): CdpConfig {
 
         CDP_EVENTS_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
         CDP_EVENTS_CONSUMER_GROUP_ID: 'cdp-processed-events-consumer',
+        CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES: false,
         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: '',
 
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
@@ -437,7 +440,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Ships dark: tiers are computed and stored first, then observed in shadow mode, and only
         // then enforced. Match the defaults in posthog/settings/web.py.
         EMAIL_TEAM_SENDING_CAP_MODE: 'off',
-        EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: '50,200,600,2000,6000,20000,60000,200000',
         EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
         CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: '',
 

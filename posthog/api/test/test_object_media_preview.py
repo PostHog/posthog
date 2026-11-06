@@ -9,11 +9,12 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import EventDefinition, ObjectMediaPreview, Team, UploadedMedia, User
+from posthog.models import ObjectMediaPreview, Team, UploadedMedia, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.session_recordings.models.session_recording import SessionRecording
 
+from products.event_definitions.backend.models import EventDefinition
 from products.exports.backend.models.exported_asset import ExportedAsset
 
 
@@ -50,6 +51,11 @@ class TestObjectMediaPreviewAPI(APIBaseTest):
 
         # Tied rows need a total order, or a page boundary can skip or repeat a preview
         assert seen == sorted((str(preview.id) for preview in previews), reverse=True)
+
+    def test_list_requires_an_event_definition(self):
+        response = self.client.get(f"/api/projects/{self.team.pk}/object_media_previews/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_create_links_only_the_uploaded_media(self):
         event_definition = EventDefinition.objects.create(team=self.team, name="purchase")
@@ -130,7 +136,7 @@ class TestObjectMediaPreviewAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("object_media_previews", "/api/projects/{team}/object_media_previews/"),
+            ("object_media_previews", "/api/projects/{team}/object_media_previews/?event_definition={event}"),
             ("event_definitions", "/api/projects/{team}/event_definitions/"),
         ]
     )
@@ -149,7 +155,7 @@ class TestObjectMediaPreviewAPI(APIBaseTest):
 
         def capture() -> list[str]:
             with CaptureQueriesContext(connection) as queries:
-                response = self.client.get(path.format(team=self.team.pk))
+                response = self.client.get(path.format(team=self.team.pk, event=event_definition.pk))
             assert response.status_code == status.HTTP_200_OK
             return [query["sql"] for query in queries]
 

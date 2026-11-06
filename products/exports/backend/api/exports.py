@@ -42,7 +42,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.exports.backend.facade.auth import can_user_view_exported_asset
+from products.exports.backend.asset_access import can_user_view_exported_asset
 from products.exports.backend.facade.exporters import get_export_content_path, is_product_export
 from products.exports.backend.models.exported_asset import (
     ExportedAsset,

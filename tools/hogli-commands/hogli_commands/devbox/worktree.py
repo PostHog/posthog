@@ -5,8 +5,6 @@ from __future__ import annotations
 import os
 import re
 import sys
-import json
-import shutil
 import hashlib
 import subprocess
 import urllib.parse
@@ -24,7 +22,11 @@ from ..worktrees import (
     teardown_worktree_box,
     worktree_source,
 )
-from . import hogland, mutagen
+from . import (
+    herdr as herdr_app,
+    hogland,
+    mutagen,
+)
 from .cli import _preferred_region, devbox_clone, devbox_start, resolve_workspace_name
 from .coder import (
     REGION_NAME_SUFFIXES,
@@ -69,8 +71,6 @@ _AUTO_OFF = "off"
 _AUTO_LOG_NAME = "hogli-devbox-worktree.log"
 _AUTO_STARTED_NAME = "hogli-devbox-worktree.auto-started"
 _TEARDOWN_LOG_NAME = "hogli-devbox-teardown.log"
-_HERDR_PLUGIN_ID = "posthog.devbox"
-_HERDR_PLUGIN_DIR = Path("tools") / "herdr-devbox-plugin"
 _SUBAGENT_WORKTREE_PREFIX = "agent-"
 _CONDUCTOR_LOCAL_SETTINGS = Path(".conductor") / "settings.local.toml"
 _CONDUCTOR_SETUP_SCRIPT = "bin/devbox-worktree-hook created conductor"
@@ -182,22 +182,6 @@ def _install_conductor_scripts(root: Path) -> None:
     click.echo(f"Added the devbox setup and archive scripts to {settings_path}.")
 
 
-def _find_herdr_plugin(listing: Any) -> dict[str, Any] | None:
-    if isinstance(listing, dict):
-        if listing.get("plugin_id") == _HERDR_PLUGIN_ID:
-            return listing
-        children: list[Any] = list(listing.values())
-    elif isinstance(listing, list):
-        children = listing
-    else:
-        return None
-    for child in children:
-        found = _find_herdr_plugin(child)
-        if found is not None:
-            return found
-    return None
-
-
 def _main_checkout(root: Path) -> Path:
     result = subprocess.run(
         ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
@@ -210,43 +194,11 @@ def _main_checkout(root: Path) -> Path:
 
 
 def _link_herdr_plugin(root: Path) -> None:
-    """Link the plugin from the main checkout, which outlives every worktree, unless herdr already has it."""
-    herdr = shutil.which("herdr")
-    if herdr is None:
-        click.echo(
-            f"herdr isn't on your PATH. Once it is, run `herdr plugin link <main checkout>/{_HERDR_PLUGIN_DIR}`."
-        )
-        return
     try:
-        listing = subprocess.run([herdr, "plugin", "list", "--json"], capture_output=True, text=True, timeout=30)
-        existing = _find_herdr_plugin(json.loads(listing.stdout)) if listing.returncode == 0 else None
-    except (OSError, subprocess.SubprocessError, ValueError):
-        existing = None
-    if existing is not None:
-        state = "enabled" if existing.get("enabled") else "disabled"
-        click.echo(
-            f"The herdr plugin {_HERDR_PLUGIN_ID} is already linked from {existing.get('plugin_root')} ({state})."
-        )
-        return
-    try:
-        plugin_dir = _main_checkout(root) / _HERDR_PLUGIN_DIR
+        main_checkout: Path | None = _main_checkout(root)
     except (OSError, subprocess.SubprocessError):
-        click.echo(f"Couldn't find your main checkout. Run `herdr plugin link <main checkout>/{_HERDR_PLUGIN_DIR}`.")
-        return
-    if not (plugin_dir / "herdr-plugin.toml").is_file():
-        click.echo(f"Your main checkout has no {_HERDR_PLUGIN_DIR} yet. Pull it, then run this command again.")
-        return
-    try:
-        result = subprocess.run([herdr, "plugin", "link", str(plugin_dir)], capture_output=True, text=True, timeout=60)
-    except (OSError, subprocess.SubprocessError) as error:
-        click.echo(f"Couldn't link the herdr plugin: {error}")
-        return
-    if result.returncode != 0:
-        click.echo(f"Couldn't link the herdr plugin: {(result.stderr or result.stdout).strip()}")
-        return
-    click.echo(
-        f"Linked the herdr plugin from {plugin_dir}. Turn it off with `herdr plugin disable {_HERDR_PLUGIN_ID}`."
-    )
+        main_checkout = None
+    herdr_app.link_worktree_plugin(main_checkout)
 
 
 def _git_dir(root: Path) -> Path:

@@ -1,5 +1,8 @@
+import uuid
 from collections.abc import Iterable
 
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -8,14 +11,15 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import EventDefinition, ObjectMediaPreview, UploadedMedia
+from posthog.models import ObjectMediaPreview, UploadedMedia
 from posthog.models.utils import strict_fetch
 from posthog.permissions import is_scout_sandbox_request, scopes_caller_lacks
 from posthog.taxonomy.scout_writes import refuse_scout_taxonomy_write
 
+from products.event_definitions.backend.models import EventDefinition
 from products.exports.backend.facade.auth import viewable_exported_asset_ids
 
-PREVIEW_SELECT_RELATED = ("uploaded_media", "exported_asset__dashboard", "exported_asset__insight")
+PREVIEW_SELECT_RELATED = ("uploaded_media", "exported_asset")
 
 PREFERRED_EXPORTED_SCAN_LIMIT = 50
 
@@ -30,12 +34,15 @@ def visible_exported_asset_ids(previews: Iterable[ObjectMediaPreview], view: obj
     request = getattr(view, "request", None)
     user_access_control = getattr(view, "user_access_control", None)
     user_id = getattr(getattr(request, "user", None), "id", None)
-    assets = [preview.exported_asset for preview in previews if preview.exported_asset is not None]
-    if user_access_control is None or user_id is None or not assets:
+    team_id = getattr(view, "team_id", None)
+    asset_ids = {preview.exported_asset_id for preview in previews if preview.exported_asset_id is not None}
+    if user_access_control is None or user_id is None or team_id is None or not asset_ids:
         return set()
     if scopes_caller_lacks(request, ["export:read"]):
         return set()
-    return viewable_exported_asset_ids(assets, user_id=user_id, user_access_control=user_access_control)
+    return viewable_exported_asset_ids(
+        asset_ids, team_id=team_id, user_id=user_id, user_access_control=user_access_control
+    )
 
 
 def visible_previews(previews: Iterable[ObjectMediaPreview], view: object) -> list[ObjectMediaPreview]:
@@ -47,6 +54,17 @@ def visible_previews(previews: Iterable[ObjectMediaPreview], view: object) -> li
         for preview in previews
         if preview.uploaded_media_id or (preview.exported_asset_id and preview.exported_asset_id in visible_ids)
     ]
+
+
+def _as_uuids(values: Iterable[object]) -> list[uuid.UUID]:
+    """The values that parse as UUIDs. A malformed id in the URL then matches nothing instead of raising."""
+    parsed = []
+    for value in values:
+        try:
+            parsed.append(uuid.UUID(str(value)))
+        except ValueError:
+            pass
+    return parsed
 
 
 class ObjectMediaPreviewSerializer(serializers.ModelSerializer):
@@ -154,6 +172,8 @@ class ObjectMediaPreviewViewSet(
             .order_by("-updated_at", "-id")
         )
         event_definition_id = self.request.query_params.get("event_definition")
+        if self.action == "list" and not event_definition_id:
+            raise ValidationError("event_definition query parameter is required")
         if event_definition_id:
             queryset = queryset.filter(event_definition_id=event_definition_id)
         if self.action == "list":
@@ -163,7 +183,10 @@ class ObjectMediaPreviewViewSet(
     def _without_hidden_exports(self, queryset):
         # Hidden previews are removed from the result, not returned with an empty URL, because their metadata
         # (session id, page URL) is about the recording the viewer may not read.
-        exported = list(queryset.filter(exported_asset__isnull=False))
+        exported_previews = queryset.filter(exported_asset__isnull=False)
+        if self.kwargs.get("pk"):
+            exported_previews = exported_previews.filter(pk__in=_as_uuids([self.kwargs["pk"]]))
+        exported = list(exported_previews)
         self._visible_exported_asset_ids = visible_exported_asset_ids(exported, self)
         hidden_ids = [p.id for p in exported if p.exported_asset_id not in self._visible_exported_asset_ids]
         return queryset.exclude(id__in=hidden_ids) if hidden_ids else queryset
@@ -172,6 +195,19 @@ class ObjectMediaPreviewViewSet(
         context = super().get_serializer_context()
         context["visible_exported_asset_ids"] = getattr(self, "_visible_exported_asset_ids", set())
         return context
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "event_definition",
+                OpenApiTypes.UUID,
+                required=True,
+                description="ID of the event definition whose previews to list.",
+            )
+        ]
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
 
     @action(methods=["GET"], detail=False, url_path="preferred_for_event")
     def preferred_for_event(self, request, *args, **kwargs):

@@ -249,7 +249,7 @@ export function ExperimentView(): JSX.Element {
                     />
 
                     {/* Modern experiment modals */}
-                    <MetricSourceModal />
+                    <MetricSourceModal experiment={experiment} />
                     <ExperimentMetricModal
                         experiment={experiment}
                         exposureCriteria={exposureCriteria}
