@@ -81,6 +81,11 @@ describe('getSurveyProvenance', () => {
             [entry('created', '2026-03-01T09:00:00Z', 'zapier')],
             { ...FROM_SURVEY, channel: 'api' },
         ],
+        ...['constructor', '__proto__'].map((client): [string, ActivityLogEntryApi[], SurveyProvenance] => [
+            `inherited object key "${client}" maps to the API`,
+            [entry('created', '2026-03-01T09:00:00Z', client)],
+            { ...FROM_SURVEY, channel: 'api' },
+        ]),
         [
             'scout client maps to a scout',
             [entry('created', '2026-03-01T09:00:00Z', 'scout:weekly-digest')],

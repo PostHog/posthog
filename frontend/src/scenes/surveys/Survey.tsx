@@ -17,11 +17,15 @@ import { urls } from 'scenes/urls'
 
 import { FeatureFlagFilters, Survey, SurveyMatchType, SurveyType } from '~/types'
 
+import { resolveToolCall, useToolStreamListener } from 'products/posthog_ai/frontend/api/logics'
+
 import { LOADING_SURVEY_RESULTS_TOAST_ID, NewSurvey, SurveyMatchTypeLabels } from './constants'
 import { HostedSurveyEdit } from './HostedSurveyEdit'
 import SurveyEdit from './SurveyEdit'
 import { SurveyLogicProps, surveyLogic } from './surveyLogic'
 import { SurveyView } from './SurveyView'
+
+const SURVEY_EDIT_TOOLS = ['survey-update', 'survey-launch', 'survey-stop']
 
 export const scene: SceneExport<SurveyLogicProps> = {
     component: SurveyComponent,
@@ -48,6 +52,16 @@ export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
         initialMaxPrompt: `Change the survey "${survey.name}": `,
         callback: (toolOutput: { survey_id?: string; error?: string }) => {
             if (!toolOutput?.error && toolOutput?.survey_id === id) {
+                loadSurvey()
+            }
+        },
+    })
+
+    // The callback above fires on the LangGraph runtime only, so the sandbox runtime reloads through its tool stream.
+    useToolStreamListener({
+        tools: SURVEY_EDIT_TOOLS,
+        onEvent: (event) => {
+            if (event.phase === 'completed' && resolveToolCall(event.invocation).innerInput?.id === id) {
                 loadSurvey()
             }
         },

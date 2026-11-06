@@ -27,17 +27,18 @@ export const SURVEY_CHANNEL_LABELS: Record<SurveyChannel, string> = {
 }
 
 // Keys are the stored `client` tag: an exact self-reported header value, or a server-derived prefix ending in ':'.
-const CHANNEL_BY_CLIENT: Record<string, SurveyChannel> = {
-    mcp: 'mcp',
-    'scout:': 'scout',
-}
+// A Map, not an object, because `client` is caller-supplied and `constructor` or `__proto__` must stay unknown.
+const CHANNEL_BY_CLIENT = new Map<string, SurveyChannel>([
+    ['mcp', 'mcp'],
+    ['scout:', 'scout'],
+])
 
 function getChannel(client: string | null): SurveyChannel {
     if (client === null) {
         return 'app'
     }
     const tag = client.toLowerCase()
-    return CHANNEL_BY_CLIENT[tag] ?? CHANNEL_BY_CLIENT[tag.slice(0, tag.indexOf(':') + 1)] ?? 'api'
+    return CHANNEL_BY_CLIENT.get(tag) ?? CHANNEL_BY_CLIENT.get(tag.slice(0, tag.indexOf(':') + 1)) ?? 'api'
 }
 
 function getIntent(entry: ActivityLogEntryApi): string | null {
@@ -46,7 +47,7 @@ function getIntent(entry: ActivityLogEntryApi): string | null {
     return typeof intent === 'string' && intent.trim() ? intent : null
 }
 
-/** `entries` is the newest-first first page of the survey's activity, or null when it couldn't be loaded. */
+/** `entries` is the survey's activity, newest first, or null when it couldn't be loaded. */
 export function getSurveyProvenance(
     survey: Pick<Survey, 'created_by' | 'created_at'>,
     entries: ActivityLogEntryApi[] | null
