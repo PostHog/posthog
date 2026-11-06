@@ -127,6 +127,7 @@ export const sendCommentToSlackLogic = kea<sendCommentToSlackLogicType>([
                 actions.submitFailure()
                 return
             }
+            let error: unknown = null
             try {
                 // The comments API is project-scoped — currentTeamId diverges from the project id
                 // for non-default environments and 404s.
@@ -134,20 +135,19 @@ export const sendCommentToSlackLogic = kea<sendCommentToSlackLogicType>([
                     integration_id: integrationId,
                     channel_id: channelId,
                 })
-                posthog.capture('discussion sent to slack', {
-                    scope: comment.scope,
-                    source: 'comment_menu',
-                    success: true,
-                })
-                actions.submitSuccess(comment)
             } catch (e) {
-                posthog.capture('discussion sent to slack', {
-                    scope: comment.scope,
-                    source: 'comment_menu',
-                    success: false,
-                })
+                error = e
+            }
+            posthog.capture('discussion sent to slack', {
+                scope: comment.scope,
+                source: 'comment_menu',
+                success: error === null,
+            })
+            if (error === null) {
+                actions.submitSuccess(comment)
+            } else {
                 // Surface the backend's actionable detail (bot not in channel, integration missing…)
-                actions.submitFailure(e instanceof ApiError ? e.detail : null)
+                actions.submitFailure(error instanceof ApiError ? error.detail : null)
             }
         },
         openModal: ({ comment }) => {
