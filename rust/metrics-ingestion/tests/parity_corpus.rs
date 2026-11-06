@@ -12,8 +12,8 @@ use metrics_ingestion::pipeline::retry::error_name;
 use metrics_ingestion::pipeline::scenario::build_scenario_consumer;
 use sha2::{Digest, Sha256};
 
-// Database 9 keeps the FLUSHDB away from the dev stack, which uses database 0.
-const REDIS_URL: &str = "redis://127.0.0.1:6379/9";
+// Database 10 keeps the FLUSHDB away from the dev stack (database 0) and the logs corpus (database 9).
+const REDIS_URL: &str = "redis://127.0.0.1:6379/10";
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -337,6 +337,10 @@ async fn rust_consumer_reproduces_the_node_metrics_parity_corpus() {
     let mut conn = match client.get_multiplexed_async_connection().await {
         Ok(c) => c,
         Err(e) => {
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "no Redis at {REDIS_URL}: {e}"
+            );
             eprintln!("skipping: no Redis at {REDIS_URL}: {e}");
             return;
         }

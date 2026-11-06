@@ -24,6 +24,8 @@ HTTP: `/_health`, `/_ready` and `/metrics` on `HTTP_SERVER_PORT`.
 
 Primary mode behaves as the Node consumer: Node's topics and producers, `ingested_event` writes, and usage records to usage-ingestion over gRPC (`x-client-name: metrics`), dated by the Kafka message timestamp. [PORTING.md](PORTING.md) lists what it does not reproduce.
 
+Before primary mode replaces the Node consumer, port the per-team OTLP counters (`metrics_ingestion_bytes_ingested_total`, `metrics_ingestion_records_ingested_total`) or accept losing them. They are the only signal of which teams ingest metrics.
+
 ## Shadow mode
 
 Shadow mode reads the same input topic as Node and cannot affect production.
