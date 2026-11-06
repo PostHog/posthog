@@ -62,7 +62,7 @@ def _bridges_with_pr_run(*, include_manual: bool = False, **run_created_at: date
     return SignalReportTask.objects.filter(
         Q() if include_manual else ~Exists(usage_billed),
         Q(task__runs__state__self_driving_funding__funding__isnull=True)
-        | ~Q(task__runs__state__self_driving_funding__funding="trial"),
+        | ~Q(task__runs__state__self_driving_funding__funding__in=["trial", "operator"]),
         **({} if include_manual else {"task__runs__state__billing_product__isnull": True}),
         relationship=_IMPLEMENTATION,
         task__runs__output__pr_url__startswith=GITHUB_PR_URL_PREFIX,

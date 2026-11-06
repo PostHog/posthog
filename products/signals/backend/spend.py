@@ -320,6 +320,7 @@ def record_task_spend(
                 raise ValueError("Task funding cannot change")
             spend.trial_grant_id = UUID(run.trial_grant_id)
             spend.billing_exempt = True
+        spend.billing_exempt = spend.billing_exempt or run.billing_exempt
         if created:
             spend.created_at = run.created_at
             spend.billing_exempt = spend.billing_exempt or trial_spend_exempt(team_id)

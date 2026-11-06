@@ -1,5 +1,6 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from threading import Event
 from types import SimpleNamespace
 from uuid import UUID, uuid4
@@ -12,6 +13,7 @@ from django.utils import timezone
 
 import httpx
 from anthropic import APIStatusError
+from anthropic.types import Message, Usage
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from requests.exceptions import ReadTimeout
@@ -33,9 +35,12 @@ from products.signals.backend.spend import (
     begin_report_spend,
     begin_signal_spend,
     complete_signal_pipeline,
+    complete_task_spend,
+    finish_report_spend,
     lock_signal_spend,
     record_llm_spend,
 )
+from products.signals.backend.spend_billing import get_signals_spend_billing_credits_by_team
 from products.signals.backend.system_one_decision import run_model_decision
 from products.signals.backend.system_one_prompts import bundled_prompt
 from products.signals.backend.task_run_artefacts import record_report_task
@@ -45,7 +50,6 @@ from products.signals.backend.temporal.summary import (
     check_report_quota_gate_activity,
     mark_report_in_progress_activity,
     publish_report_spend_activity,
-    report_spend_owner_activity,
 )
 from products.signals.backend.temporal.types import SignalReportSummaryWorkflowInputs
 from products.signals.backend.trial.direct_reports import (
@@ -216,11 +220,7 @@ class TestTrialReportExecution(NonAtomicBaseTest):
             assert settling.wait(timeout=10)
             async_to_sync(mark_report_in_progress_activity)(
                 MarkReportInProgressInput(
-                    team_id=self.team.id,
-                    report_id=str(report.id),
-                    signal_id=signal_id,
-                    trial_policy_version=1,
-                    funding_signal_id=signal_id,
+                    team_id=self.team.id, report_id=str(report.id), signal_id=signal_id, trial_policy_version=1
                 )
             )
             pending.result(timeout=10)
@@ -258,6 +258,129 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         funding = TrialFunding.from_dict(report.self_driving_funding)
         assert funding is not None and funding.grant_id == grant.id
         assert report.billing_exempt_reason is None
+
+    @parameterized.expand([("active",), ("exhausted",), ("flag_off",)])
+    def test_operator_pipeline_keeps_customer_spend_and_trial_balance_unchanged(self, state: str) -> None:
+        grant = self.claim()
+        signal_id = str(uuid4())
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, triggering_signal_id=signal_id, signal_count=1
+        )
+        record_llm_spend(
+            "original",
+            team_id=self.team.id,
+            signal_id=signal_id,
+            stage="research",
+            token_cost_microusd=100_000,
+            trial_grant_id=str(grant.id),
+        )
+        finish_report_spend(team_id=self.team.id, report_id=str(report.id), signal_id=signal_id)
+        original = SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id)
+        original_snapshot = (original.spend, original.finalized_at, original.trial_grant_id)
+        if state == "exhausted":
+            self._exhaust_grant(grant)
+        self.flag_mock.return_value = state != "flag_off"
+        grant.refresh_from_db()
+        grant_snapshot = (grant.settled_microusd, grant.incomplete_sources)
+        self.organization.usage = {"signals_spend_credits": {"billing_start_date": "2020-01-01"}}
+        self.organization.save(update_fields=["usage"])
+        SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.CANDIDATE)
+        info = SimpleNamespace(workflow_run_id="operator-workflow", activity_id="mark")
+        with (
+            patch("products.signals.backend.temporal.summary.temporalio.activity.info", return_value=info),
+            patch("products.signals.backend.temporal.summary._capture_report_event", new_callable=AsyncMock),
+        ):
+            async_to_sync(mark_report_in_progress_activity)(
+                MarkReportInProgressInput(
+                    team_id=self.team.id,
+                    report_id=str(report.id),
+                    signal_id=signal_id,
+                    operator_rerun=True,
+                )
+            )
+        token = report_trial_context.set((self.team.id, str(report.id)))
+        runs: list[TaskRun] = []
+        try:
+            assert not requires_trial_accounting(self.team.id, signal_id)
+            response = Message(
+                id="operator-generation",
+                content=[],
+                model="model",
+                role="assistant",
+                type="message",
+                usage=Usage(input_tokens=0, output_tokens=0),
+            )
+            result = async_to_sync(generate_with_spend)(
+                AsyncMock(return_value=response)(),
+                gateway=None,
+                team_id=self.team.id,
+                signal_id=signal_id,
+                stage="safety_judge",
+            )
+            assert result.response is response and result.spend is None
+            for stage in ("research", "implementation"):
+                task = Task.objects.create(
+                    team=self.team,
+                    title="Operator repair",
+                    origin_product="signal_report",
+                    signal_report=report,
+                    internal=True,
+                )
+                run = task.create_run(
+                    environment=TaskRun.Environment.CLOUD,
+                    extra_state={"ai_stage": stage},
+                    spend_signal_id=signal_id,
+                )
+                assert run.state["self_driving_funding"]["funding"] == "operator"
+                runs.append(run)
+        finally:
+            report_trial_context.reset(token)
+
+        SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.READY)
+        prepare_report_pass(
+            team=self.team,
+            report_id=str(report.id),
+            operation_key="automatic-refresh",
+            paid_authorized=True,
+        )
+        report.refresh_from_db()
+        assert report.self_driving_funding is not None
+        assert (
+            report.self_driving_funding["funding"]
+            == {
+                "active": "trial",
+                "exhausted": "paid",
+                "flag_off": "existing",
+            }[state]
+        )
+        assert report.billing_exempt_reason is None
+        for run in runs:
+            TaskRun.update_state_atomic(
+                run.id,
+                updates={
+                    "token_cost": {"model": {"provider": {"cost_microusd": 100_000, "request_ids": ["task-call"]}}},
+                },
+            )
+            TaskRun.objects.filter(id=run.id).update(status=TaskRun.Status.COMPLETED)
+            with patch("products.signals.backend.spend.submit_signal_metadata_updates", new_callable=AsyncMock):
+                complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+            receipt = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
+            assert receipt.spend == 14
+            assert receipt.billing_exempt and receipt.trial_grant_id is None and receipt.usage_billing
+        async_to_sync(publish_report_spend_activity)(
+            SignalReportSummaryWorkflowInputs(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                signal_id=signal_id,
+                operator_rerun=True,
+            )
+        )
+        original.refresh_from_db()
+        assert (original.spend, original.finalized_at, original.trial_grant_id) == original_snapshot
+        grant.refresh_from_db()
+        assert (grant.settled_microusd, grant.incomplete_sources) == grant_snapshot
+        now = timezone.now()
+        assert get_signals_spend_billing_credits_by_team(now - timedelta(days=1), now + timedelta(days=1)) == []
 
     def test_free_signal_cannot_skip_paid_authorization_for_customer_report(self) -> None:
         grant = self.claim()
@@ -352,11 +475,7 @@ class TestTrialReportExecution(NonAtomicBaseTest):
             )
             async_to_sync(mark_report_in_progress_activity)(
                 MarkReportInProgressInput(
-                    team_id=self.team.id,
-                    report_id=str(report.id),
-                    signal_id=signal_id,
-                    trial_policy_version=1,
-                    funding_signal_id=signal_id,
+                    team_id=self.team.id, report_id=str(report.id), signal_id=signal_id, trial_policy_version=1
                 )
             )
         billing_status.assert_not_called()
@@ -367,86 +486,6 @@ class TestTrialReportExecution(NonAtomicBaseTest):
         with patch("products.signals.backend.trial.reports.paid_trial_continuation_authorized", return_value=False):
             with self.assertRaises(TrialRefused):
                 prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="explicit-later-rerun")
-
-    @parameterized.expand([(False,), (True,)])
-    def test_fresh_report_pass_accounts_new_calls_without_reusing_old_receipt(self, exhausted: bool) -> None:
-        grant = self.claim()
-        old_signal_id, new_spend_id = str(uuid4()), str(uuid4())
-        record_llm_spend(
-            team_id=self.team.id,
-            signal_id=old_signal_id,
-            stage="summarization",
-            token_cost_microusd=100,
-            trial_grant_id=str(grant.id),
-        )
-        complete_signal_pipeline(team_id=self.team.id, signal_id=old_signal_id)
-        if exhausted:
-            self._exhaust_grant(grant)
-            self.flag_mock.return_value = True
-        grant.refresh_from_db()
-        before_cost = grant.settled_microusd
-        receipts = SignalSpend.objects.for_team(self.team.id)
-        before = receipts.values().get(signal_id=old_signal_id)
-        report = SignalReport.objects.create(
-            team=self.team,
-            status=SignalReport.Status.CANDIDATE,
-            triggering_signal_id=old_signal_id,
-            self_driving_funding=TrialFunding(funding="trial", grant_id=grant.id, report_pass_key="old").as_dict(),
-        )
-        with (
-            patch("products.signals.backend.trial.reports.paid_trial_continuation_authorized", return_value=True),
-            patch("products.signals.backend.temporal.summary._capture_report_event", new_callable=AsyncMock),
-            patch(
-                "products.signals.backend.temporal.summary.temporalio.activity.info",
-                return_value=SimpleNamespace(workflow_run_id="fresh-manual-rerun", activity_id="start"),
-            ),
-        ):
-            async_to_sync(mark_report_in_progress_activity)(
-                MarkReportInProgressInput(
-                    team_id=self.team.id, report_id=str(report.id), signal_id=new_spend_id, trial_policy_version=1
-                )
-            )
-        report.refresh_from_db()
-        funding = TrialFunding.from_dict(report.self_driving_funding)
-        assert funding is not None and funding.funding == ("paid" if exhausted else "trial")
-        token = report_trial_context.set((self.team.id, str(report.id)))
-        generation = AsyncMock(return_value=SimpleNamespace(_request_id="new-rerun-call"))
-        try:
-            with patch(
-                "products.signals.backend.llm_spend._wait_for_gateway_cost",
-                new=AsyncMock(return_value=GatewayRequestCost(model="model", provider="provider", cost_microusd=123)),
-            ):
-                async_to_sync(generate_with_spend)(
-                    generation(),
-                    gateway=AIGatewayConfig(url="https://gateway.example.com/v1", api_key="test-key"),
-                    team_id=self.team.id,
-                    signal_id=new_spend_id,
-                    stage="summarization",
-                )
-        finally:
-            report_trial_context.reset(token)
-        with patch(
-            "products.signals.backend.temporal.summary.submit_signal_metadata_updates", new_callable=AsyncMock
-        ) as publish_metadata:
-            async_to_sync(publish_report_spend_activity)(
-                SignalReportSummaryWorkflowInputs(
-                    team_id=self.team.id, report_id=str(report.id), spend_signal_id=new_spend_id
-                )
-            )
-        publish_metadata.assert_not_called()
-        fresh = receipts.get(signal_id=new_spend_id)
-        assert fresh.finalized_at is not None and fresh.spend > 0
-        assert fresh.trial_grant_id == (None if exhausted else grant.id)
-        assert fresh.billing_exempt is (not exhausted)
-        assert receipts.values().get(signal_id=old_signal_id) == before
-        grant.refresh_from_db()
-        assert grant.settled_microusd == before_cost + (0 if exhausted else 123)
-        assert (
-            async_to_sync(report_spend_owner_activity)(
-                SignalReportSummaryWorkflowInputs(team_id=self.team.id, report_id=str(report.id))
-            )
-            is None
-        )
 
     def test_nontrial_receipt_does_not_bypass_current_quota(self) -> None:
         from products.signals.backend.quota import self_driving_quota_gate
