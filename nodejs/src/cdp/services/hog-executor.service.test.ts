@@ -1896,22 +1896,8 @@ describe('Hog Executor', () => {
                     hardcoded_value_of_dictionary_entry: {
                         params: { headers: { 'Content-Type': 'application/json' } },
                         inputs: { api_key: { 'Content-Type': 'application/json', Authorization: secret } },
-                        // The bytecode of `{'headers': {'Content-Type': 'application/json'}}`.
                         hogFunction: {
-                            bytecode: [
-                                '_H',
-                                1,
-                                32,
-                                'headers',
-                                32,
-                                'Content-Type',
-                                32,
-                                'application/json',
-                                42,
-                                1,
-                                42,
-                                1,
-                            ],
+                            bytecode: await compileHog(`return {'headers': {'Content-Type': 'application/json'}}`),
                         },
                     },
                     mapping_value_of_dictionary_entry: {
@@ -2003,7 +1989,7 @@ describe('Hog Executor', () => {
                 expect(mockRequest).toHaveBeenCalledTimes(1)
                 expect(result.error).toBeUndefined()
                 expect(await readTotal()).toBe(before)
-                expect(warn.mock.calls.some(([, message]) => String(message).includes('not saved for'))).toBe(warns)
+                expect(warn.mock.calls.some(([, , context]) => context?.inputKey === 'api_key')).toBe(warns)
             })
 
             it('sends and counts under observe for a team outside the enforce list', async () => {
@@ -2029,9 +2015,7 @@ describe('Hog Executor', () => {
                     )
                 }
 
-                expect(warn.mock.calls.filter(([, message]) => String(message).includes('not saved for'))).toHaveLength(
-                    1
-                )
+                expect(warn.mock.calls.filter(([, , context]) => context?.inputKey === 'api_key')).toHaveLength(1)
             })
 
             it.each([
