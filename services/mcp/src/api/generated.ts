@@ -66539,6 +66539,62 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.
+     */
+    export type MetricThresholdReplacementConfigQuery = { [key: string]: unknown } | null;
+
+    /**
+     * How to draw this measurement; copied from a referenced metric.
+     */
+    export type MetricThresholdReplacementConfigMetricKind = typeof MetricThresholdReplacementConfigMetricKind[keyof typeof MetricThresholdReplacementConfigMetricKind] | null;
+
+
+    export const MetricThresholdReplacementConfigMetricKind = {
+      AffectedUsers: 'affected_users',
+      AffectedSessions: 'affected_sessions',
+      Occurrences: 'occurrences',
+      ConversionRate: 'conversion_rate',
+      ErrorRate: 'error_rate',
+      Duration: 'duration',
+      Revenue: 'revenue',
+      Custom: 'custom',
+    } as const;
+
+    /**
+     * How to format measured values; copied from a referenced metric.
+     */
+    export type MetricThresholdReplacementConfigValueFormat = typeof MetricThresholdReplacementConfigValueFormat[keyof typeof MetricThresholdReplacementConfigValueFormat] | null;
+
+
+    export const MetricThresholdReplacementConfigValueFormat = {
+      Number: 'number',
+      Count: 'count',
+      Percentage: 'percentage',
+      PercentageScaled: 'percentage_scaled',
+      Duration: 'duration',
+      Currency: 'currency',
+    } as const;
+
+    export interface MetricThresholdReplacementConfig {
+      /** Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created. */
+      metric_id?: string | null;
+      /** Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already. */
+      query?: MetricThresholdReplacementConfigQuery;
+      /** Monitoring definition for the replacement, including the target reference period and scaling policy. */
+      monitoring: MonitoringMetricConfig;
+      /** What the measured value must satisfy to pass. */
+      comparison: CheckComparison;
+      /** The value observed when the check was written, recorded on each result for context. */
+      baseline_value?: number | null;
+      /** How to draw this measurement; copied from a referenced metric. */
+      metric_kind?: MetricThresholdReplacementConfigMetricKind;
+      /** How to format measured values; copied from a referenced metric. */
+      value_format?: MetricThresholdReplacementConfigValueFormat;
+      /** Optional value suffix. */
+      unit?: string | null;
+    }
+
+    /**
      * * `funnel` - funnel
      * * `mean_count` - mean_count
      * * `mean_sum_or_avg` - mean_sum_or_avg
@@ -106573,8 +106629,26 @@ export namespace Schemas {
          * @maxLength 2000
          */
       rationale?: string;
-      /** Metric threshold configuration, including a bounded query and comparison. */
-      config: MetricThresholdConfig;
+      /** Metric threshold configuration, including a bounded query, comparison, and required Monitoring definition. */
+      config: MetricThresholdReplacementConfig;
+      /**
+         * Observation window in minutes from Monitoring start. Omission preserves the existing window, including zero. Replacing a check during Monitoring restarts the period for all open checks.
+         * @minimum 0
+         * @maximum 43200
+         */
+      soak_minutes?: number;
+      /**
+         * Minutes between interim Monitoring measurements. Must be at least six hours and shorter than the observation window. Omit to use a quarter of the window, bounded to six hours through one day. Windows of six hours or less have no interim samples.
+         * @minimum 360
+         * @maximum 129600
+         */
+      run_interval_minutes?: number;
+      /**
+         * Monitoring performs one terminal evaluation. Omit or set to 1; higher counts are not supported. Interim measurements do not consume this count.
+         * @minimum 1
+         * @maximum 1
+         */
+      runs_remaining?: number;
     }
 
     export interface SignalReportClaim {
