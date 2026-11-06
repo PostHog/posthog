@@ -359,12 +359,14 @@ export interface WebhookUrlApi {
 /**
  * * `customerio` - Customer.io
  * * `resend` - Resend
+ * * `postmark` - Postmark
  */
 export type ImportProviderKeyEnumApi = (typeof ImportProviderKeyEnumApi)[keyof typeof ImportProviderKeyEnumApi]
 
 export const ImportProviderKeyEnumApi = {
     Customerio: 'customerio',
     Resend: 'resend',
+    Postmark: 'postmark',
 } as const
 
 /**
@@ -479,7 +481,8 @@ export interface ProviderImportRunApi {
     /** The provider the run imports from.
      *
      * * `customerio` - Customer.io
-     * * `resend` - Resend */
+     * * `resend` - Resend
+     * * `postmark` - Postmark */
     provider: ImportProviderKeyEnumApi
     /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
      *
@@ -508,7 +511,8 @@ export interface StartProviderImportApi {
     /** The provider to import from.
      *
      * * `customerio` - Customer.io
-     * * `resend` - Resend */
+     * * `resend` - Resend
+     * * `postmark` - Postmark */
     provider: ImportProviderKeyEnumApi
     /**
      * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
@@ -517,7 +521,7 @@ export interface StartProviderImportApi {
      */
     steps: string[]
     /**
-     * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time.
+     * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. PostHog deletes a Resend key or Postmark token when the run ends, so send it every time.
      * @maxLength 512
      */
     api_key?: string
@@ -536,7 +540,8 @@ export interface ImportProviderOptionApi {
     /** Provider key to send when starting an import.
      *
      * * `customerio` - Customer.io
-     * * `resend` - Resend */
+     * * `resend` - Resend
+     * * `postmark` - Postmark */
     key: ImportProviderKeyEnumApi
     /** Display name of the provider. */
     label: string

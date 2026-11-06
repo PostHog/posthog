@@ -531,9 +531,11 @@ export const messagingProviderImportsCreateBodyApiKeyMax = 512
 
 export const MessagingProviderImportsCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['customerio', 'resend'])
-        .describe('\* `customerio` - Customer.io\n\* `resend` - Resend')
-        .describe('The provider to import from.\n\n\* `customerio` - Customer.io\n\* `resend` - Resend'),
+        .enum(['customerio', 'resend', 'postmark'])
+        .describe('\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `postmark` - Postmark')
+        .describe(
+            'The provider to import from.\n\n\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `postmark` - Postmark'
+        ),
     steps: zod
         .array(zod.string().max(messagingProviderImportsCreateBodyStepsItemMax))
         .min(1)
@@ -545,7 +547,7 @@ export const MessagingProviderImportsCreateBody = /* @__PURE__ */ zod.object({
         .max(messagingProviderImportsCreateBodyApiKeyMax)
         .optional()
         .describe(
-            "The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time."
+            "The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. PostHog deletes a Resend key or Postmark token when the run ends, so send it every time."
         ),
 })
 
