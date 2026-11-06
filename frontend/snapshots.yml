@@ -3417,13 +3417,13 @@ snapshots:
     experiments-healthcheckspanel--check-details-with-what-it-read--light:
         hash: v1.k794b7964.b972235ea0cb78fba70fc272ed054ce88a62574b00c9e96a6982cc2ce7a12bb0.BIUsDQpbw4WXHA5kHVv_z3CNtRYDMXDtaf3Qf3ye-fw
     experiments-healthcheckspanel--checks-that-could-not-run--dark:
-        hash: v1.k794b7964.d40e32b4f02cc8c2f28f8bba9259ea6a7b8619e7f017cb46805e2c81620a57e6.XVGhNx-c0kkMWKv2YMy5EodyfCUzr_dLBnQgub9iwTc
+        hash: v1.k794b7964.20713094731dcdd7c95e7a00a60cf720b222634c3f32e37b8b8432a1448bd3ed.nEXk9r8n_sJI72efoe2YhkL-JGFThfgZYBIePr0fU2g
     experiments-healthcheckspanel--checks-that-could-not-run--light:
-        hash: v1.k794b7964.f14b364697e2e9fe04df324b25c81aedf2a72271a50a5a385c0ddbb966e18394.YmcUvdrSNrxrLVnF00NfBKypA3uGWNVBfmWInrTDAZ8
+        hash: v1.k794b7964.2dec54a361638629016e3e93141f83c51e78848c4a0b6baf7aa5e603010f0f97.xsu1SQVsa1RuqbqdtZxcRArJ9oRltShfRapQZpsVr_I
     experiments-healthcheckspanel--draft--dark:
-        hash: v1.k794b7964.12c43a4e3af6f3f141e99358b4f430e5631f228e14da63628f66ba5ca3ede944.YSoOqvyDsvDsbSdiqFOw0WB8KR0nArtowhludsTh2gg
+        hash: v1.k794b7964.e3787ef92b61238f81f1bcc3d0ceee31a77abd8d9ea622142abc0c5ccd1f89b4.IkQMJ1i1fqXl2JrkQlLvnlopb6S5tP0SyJhPMCtX4T4
     experiments-healthcheckspanel--draft--light:
-        hash: v1.k794b7964.9a731c4ad2004e45422138702b183fae8eca71e089f90f7cf2ed9bcc523ed830.jmwofiT4P521SlI3K3aCMAZGIDsDg3xfdQApfLhotFk
+        hash: v1.k794b7964.3e3097010141b3305c99f69d3001723c89aa66833422aa78f5890e12c2fd65fe.OsA3prsY5fKc19wWSg4iz_MPHFvWV8wHnlXvHL3fwfk
     experiments-healthcheckspanel--issue-details--dark:
         hash: v1.k794b7964.20959570e46e358ad5efdbf6ffcb3f2f807356cdcc07780bbd3f48d5553bf75d.7CYm_laYDOXD7hMnqJYVG1ckMWL2kCbRT7umMF_Fn_g
     experiments-healthcheckspanel--issue-details--light:
@@ -3433,9 +3433,9 @@ snapshots:
     experiments-healthcheckspanel--narrow-with-an-issue--light:
         hash: v1.k794b7964.79b21158d70a6475aa255d50d6cd9345bd9b37c6ff1705b7601ffe24597ea2b6.Tz0BCGqeLvaQgEIgzuVKbqG-e9u6_TsLozrf28cicNM
     experiments-healthcheckspanel--running-with-an-issue--dark:
-        hash: v1.k794b7964.4c136751c92c11ae57dffe849c99e33edebba097e9f9db34e24c92912ae3c70e.Kr2h1nmE2OO9EJNr-VL8fHkChi8li0ZeLBpSY8gzb-U
+        hash: v1.k794b7964.0700c5e6744a73615ae4108197b6399709eb1041587c25fa9351f6f3849207c6.l0UGiN040vwuYuzwaZkmnhUFKIK5O35Z1r2tBPl7A6I
     experiments-healthcheckspanel--running-with-an-issue--light:
-        hash: v1.k794b7964.a65e2d0ecaeef87c76951bfa3c27c6db4bcfc8916de08c457dc78e5247f51b7e.7ir3doo4oeNTqJxo8_cWZkBWEb6Y_EGrR7fRQEG4FyM
+        hash: v1.k794b7964.47cf2015bc2b18d9f0ca6a95315267c0419b27877a1879e2900471d6ec11a744.ouf9GoQcvpvOFuTAOynV9j2b5ExijFaQbueCImJt_SI
     experiments-howtoreadtooltip--intervals-bayesian--dark:
         hash: v1.k794b7964.a06d267cee9cb54bafc732335b35d461d3c1a59250c6daa8becace0fcb8492d2.vR5tecOozn6B51xE8LrByAFVsi03J4w-iUu-j2hQUTU
     experiments-howtoreadtooltip--intervals-bayesian--light:
