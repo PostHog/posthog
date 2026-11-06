@@ -11049,14 +11049,14 @@ Note: Coverage of the flat top-level collections is complete — every un-pagina
 
 ## Shortio — **thin**
 
-Today (1): `domains`
+Today (5): `domains`, `links`, `link_clicks`, `last_clicks`, `link_by_interval`
 
 Diffed against: <https://api.short.io/openapi.json>
 
-- [ ] `links (GET /api/links)` — the core entity; syncing domains without links leaves nothing to analyze (high)
-- [ ] `statistics/domain/{domainId}/last_clicks (POST, statistics.short.io)` — raw click event stream — event-level grain everything else aggregates from (high)
-- [ ] `statistics/domain/{domainId}/link_clicks (GET/POST, statistics.short.io)` — clicks per link, the headline metric of the product (high)
-- [ ] `statistics/link/{linkId}/by_interval (POST, statistics.short.io)` — per-link click time series for trend analysis (high)
+- [x] `links (GET /api/links)` — paginated links for every domain (high)
+- [x] `statistics/domain/{domainId}/last_clicks (POST, statistics.short.io)` — paginated raw clicks for every domain (high)
+- [x] `statistics/domain/{domainId}/link_clicks (GET/POST, statistics.short.io)` — click counts by link ID through GET (high)
+- [x] `statistics/link/{linkId}/by_interval (POST, statistics.short.io)` — daily click counts by link (high)
 - [ ] `statistics/domain/{domainId}/by_interval (POST, statistics.short.io)` — domain-level click time series (medium)
 - [ ] `statistics/domain/{domainId}/top (POST, statistics.short.io)` — breakdown dimensions (country, referrer, device, browser) ordered by clicks (medium)
 - [ ] `statistics/link/{linkId}/top (POST, statistics.short.io)` — same breakdown dimensions scoped to a single link (medium)
@@ -11065,7 +11065,14 @@ Diffed against: <https://api.short.io/openapi.json>
 - [ ] `statistics/domain/{domainId}/paths (GET, statistics.short.io)` — most popular link paths in a time window (low)
 - [ ] `links/bundle/{id}/links (GET)` — link-in-bio bundle membership (low)
 
-Note: Only `domains` is synced (settings.py has a single endpoint, no dynamic discovery). Short.io splits its API across two hosts: the management API at api.short.io (spec fetched above) and a separate statistics API at https://statistics.short.io, documented at https://developers.short.io/reference (endpoint titles and URLs verified page by page). The click data — the whole point of a link shortener — lives entirely on the statistics host and is completely unsynced.
+Verified on 2026-11-06 against the management spec and the official statistics reference pages: [link clicks](https://developers.short.io/reference/getdomaindomainidlink_clicks), [raw clicks](https://developers.short.io/reference/postdomaindomainidlast_clicks), and [link intervals](https://developers.short.io/reference/postlinklinkidby_interval).
+Short.io splits its API across api.short.io and statistics.short.io.
+All five tables use full refresh.
+The links endpoint filters by creation date, which cannot capture updates to existing links.
+Raw clicks have no unique event ID, so the source preserves separate clicks rather than merging on visitor fields.
+Statistics request all history available to the account; intervals use daily UTC buckets.
+Links and raw clicks support resume within a domain.
+The shared REST framework restarts the two-level link statistics walk after an interrupted attempt.
 
 ## Shutterstock — gaps
 
