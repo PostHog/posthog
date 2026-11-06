@@ -126,7 +126,9 @@ describe('mcpAnalyticsOnboardingLogic', () => {
             liveIntervals.set(++nextIntervalId, callback)
             return nextIntervalId
         }) as typeof window.setInterval)
-        jest.spyOn(window, 'clearInterval').mockImplementation((id) => liveIntervals.delete(id as number))
+        jest.spyOn(window, 'clearInterval').mockImplementation(((id: number) => {
+            liveIntervals.delete(id)
+        }) as typeof window.clearInterval)
 
         const logic = mountWith([row])
         await expectLogic(logic).toFinishAllListeners()
