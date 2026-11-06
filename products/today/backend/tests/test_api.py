@@ -31,6 +31,7 @@ from products.signals.backend.models import SignalActorKind, SignalReport, Signa
 from products.today.backend.facade.contracts import HighlightFindings, HighlightSource
 from products.today.backend.logic import highlights, pinned
 from products.today.backend.logic.jev import JevPick
+from products.today.backend.models import TodayAnalyticsSidebar
 from products.today.backend.temporal.inputs import (
     ComputeHighlightsInputs,
     FinalizeHighlightsInputs,
@@ -39,6 +40,7 @@ from products.today.backend.temporal.inputs import (
 )
 from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
 from products.today.backend.tests.factories import AGREEING, FakeJev, SameAnswerJev, page_source
+from products.today.backend.tests.test_analytics_sidebar import GROWTH_LAYOUT
 from products.today.backend.tests.test_highlights import candidate, metric
 from products.today.backend.tests.test_key_clauses import CART_TEXT, CAUSE, CAUSE_EXPLAINED, SUMMARY
 
@@ -49,6 +51,7 @@ REPORT_ID = "01a10212-6f09-0000-0ed6-46b2df6f81ca"
 FIGURE_LEAD = "🚨 The export failed for 212 users."
 FIGURE_SOURCE = "On Monday 🚨 the export failed for 212 users."
 WRITTEN_AT = datetime(2026, 10, 1, 9, 0, tzinfo=UTC)
+PUT_BODIES = {"pulse_pins": {"pins": []}, "analytics_sidebar": {"layout": GROWTH_LAYOUT}}
 
 
 class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
@@ -302,6 +305,22 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             ("pins with today read", "get", "pulse_pins", ["today:read"], status.HTTP_200_OK),
             ("saving pins with today read", "put", "pulse_pins", ["today:read"], status.HTTP_403_FORBIDDEN),
             ("saving pins with today write", "put", "pulse_pins", ["today:write"], status.HTTP_200_OK),
+            ("the sidebar with today read", "get", "analytics_sidebar", ["today:read"], status.HTTP_200_OK),
+            (
+                "saving the sidebar with today read",
+                "put",
+                "analytics_sidebar",
+                ["today:read"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "resetting the sidebar with today read",
+                "delete",
+                "analytics_sidebar",
+                ["today:read"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            ("saving the sidebar with today write", "put", "analytics_sidebar", ["today:write"], status.HTTP_200_OK),
         ]
     )
     def test_a_scoped_key_reads_data_only_with_its_underlying_scope(
@@ -318,7 +337,7 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         ):
             response = getattr(self.client, method)(
                 f"/api/projects/{self.team.id}/today/{path}/",
-                {"pins": []} if method == "put" else None,
+                PUT_BODIES[path] if method == "put" else None,
                 format="json",
                 HTTP_AUTHORIZATION=f"Bearer {raw_key}",
             )
@@ -511,3 +530,60 @@ class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
             response = self.client.put(f"/api/projects/{self.team.id}/today/pulse_pins/", {"pins": pins}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestTodayAnalyticsSidebarAPI(TodayTeamScopedTestMixin, APIBaseTest):
+    def _call(self, method: str, body: dict | None = None, flag: bool = True) -> "_MonkeyPatchedResponse":
+        with patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=flag):
+            return getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/today/analytics_sidebar/", body, format="json"
+            )
+
+    def _section_ids(self, response: "_MonkeyPatchedResponse") -> tuple[bool, list[str]]:
+        body = response.json()
+        return body["customized"], [section["id"] for section in body["layout"]["sections"]]
+
+    def test_a_person_saves_and_resets_their_own_layout_without_changing_anyone_elses(self) -> None:
+        default = (False, ["browse", "pinned", "recents", "by-posthog", "monitor"])
+        before = self._section_ids(self._call("get"))
+        saved = self._call("put", {"layout": GROWTH_LAYOUT})
+        read = self._call("get")
+        self.client.force_login(self._create_user("teammate@example.com"))
+        teammate = self._section_ids(self._call("get"))
+        self.client.force_login(self.user)
+        reset = self._section_ids(self._call("delete"))
+        after = self._section_ids(self._call("get"))
+
+        assert (before, saved.json(), read.json(), teammate, reset, after) == (
+            default,
+            {"layout": GROWTH_LAYOUT, "customized": True},
+            {"layout": GROWTH_LAYOUT, "customized": True},
+            default,
+            default,
+            default,
+        )
+
+    def test_a_layout_outside_the_schema_is_rejected_and_names_the_value(self) -> None:
+        layout = {
+            "sections": [{"id": "x", "items": [{"type": "link", "to": {"kind": "url", "url": "https://example.com"}}]}]
+        }
+
+        response = self._call("put", {"layout": layout})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "sections.0.items.0.link.to" in response.json()["detail"]
+
+    def test_a_stored_layout_the_schema_no_longer_accepts_shows_the_default_and_stays_stored(self) -> None:
+        stored = {"sections": [{"id": "x", "items": [{"type": "retired_widget"}]}]}
+        TodayAnalyticsSidebar.objects.create(team_id=self.team.id, user_id=self.user.id, layout=stored)
+
+        response = self._call("get")
+
+        assert (response.json()["customized"], TodayAnalyticsSidebar.objects.get(user_id=self.user.id).layout) == (
+            False,
+            stored,
+        )
+
+    @parameterized.expand([("get", None), ("put", {"layout": GROWTH_LAYOUT}), ("delete", None)])
+    def test_people_without_the_new_navigation_get_404(self, method: str, body: dict | None) -> None:
+        assert self._call(method, body, flag=False).status_code == status.HTTP_404_NOT_FOUND

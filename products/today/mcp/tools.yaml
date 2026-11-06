@@ -6,4 +6,37 @@ category: Today
 feature: today
 url_prefix: /home
 ui_apps: {}
-tools: {}
+tools:
+    today-analytics-sidebar-get:
+        operation: today_analytics_sidebar_retrieve
+        enabled: true
+        feature_flag: today-rail-nav
+        title: Get the analytics sidebar
+        description: >
+            Get the layout of the person's Analytics pane: the sidebar of the Analytics section in the new navigation.
+            It is the person's own layout, or the default when customized is false. Call it before you change the
+            sidebar, then send the whole changed layout to today-analytics-sidebar-update.
+    today-analytics-sidebar-update:
+        operation: today_analytics_sidebar_update
+        enabled: true
+        feature_flag: today-rail-nav
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update the analytics sidebar
+        description: >
+            Replace the layout of the person's Analytics pane. It changes only the person who calls it, in this
+            project. Build the layout from sections of items: links and buttons that open a PostHog page or an
+            insight, dashboard or notebook of this project, metrics that show the latest value of a trends insight,
+            and lists that PostHog fills (pinned, recents, by_posthog). Get the IDs of insights, dashboards and
+            notebooks from their tools first; never invent them. Keep the default sections the person did not ask to
+            remove. A 400 error names each value that does not fit, so fix those values and send it again.
+    today-analytics-sidebar-reset:
+        operation: today_analytics_sidebar_destroy
+        enabled: true
+        feature_flag: today-rail-nav
+        title: Reset the analytics sidebar
+        description: >
+            Remove the person's own layout of the Analytics pane, so it shows the default again. Returns the default
+            layout.

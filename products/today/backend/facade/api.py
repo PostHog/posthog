@@ -9,6 +9,7 @@ from ..feature_flags import (
     may_ask_jev as may_ask_jev,
 )
 from ..logic import (
+    analytics_sidebar,
     code_excerpts,
     figure_sources,
     highlights,
@@ -20,8 +21,9 @@ from . import contracts
 
 
 def delete_highlights_for_teams(team_ids: list[int]) -> None:
-    """Remove every highlights row of the given teams. Called from team deletion, which no foreign key covers."""
+    """Remove every highlights row of the given teams, and the analytics sidebars. Called from team deletion, which no foreign key covers."""
     highlights.delete_for_teams(team_ids)
+    analytics_sidebar.delete_for_teams(team_ids)
 
 
 def _jev(team: Team, user: User, model: str | None = None) -> GatewayJev:
@@ -64,3 +66,17 @@ def get_pulse_pins(*, team: Team, user: User, scopes: frozenset[str] | None) -> 
 
 def set_pulse_pins(*, team: Team, user: User, pins: list[contracts.PulsePin]) -> contracts.PulsePins:
     return contracts.PulsePins(pins=pulse_pins.set_pins(team=team, user_id=user.id, pins=pins))
+
+
+def get_analytics_sidebar(*, team: Team, user: User) -> contracts.AnalyticsSidebar:
+    return analytics_sidebar.get_sidebar(team=team, user_id=user.id)
+
+
+def set_analytics_sidebar(
+    *, team: Team, user: User, layout: contracts.AnalyticsSidebarLayout
+) -> contracts.AnalyticsSidebar:
+    return analytics_sidebar.set_sidebar(team=team, user_id=user.id, layout=layout)
+
+
+def reset_analytics_sidebar(*, team: Team, user: User) -> contracts.AnalyticsSidebar:
+    return analytics_sidebar.reset_sidebar(team=team, user_id=user.id)
