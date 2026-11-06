@@ -2560,7 +2560,7 @@ class AccountNotebookViewSet(
                     content=data.content,
                     text_content=data.text_content,
                     synthesized_content=_synthesize_notebook_content(data.text_content, data.content),
-                    tags=with_scout_tags(is_scout_sandbox_request(request), serializer.initial_data.get("tags") or []),
+                    tags=with_scout_tags(is_scout_sandbox_request(request), data.tags),
                 ),
                 user=cast(User, request.user),
                 user_access_control=self.user_access_control,

@@ -4300,13 +4300,24 @@ class TestAccountNoteScope(APIBaseTest):
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.content)
         self.assertEqual(response.json()["tags"], ["context-core", "risk"])
 
-    def test_scout_note_without_a_known_skill_still_gets_the_scout_tag(self) -> None:
+    @parameterized.expand(
+        [
+            ("no_tags", {}, ["scout"]),
+            # DRF coerces a number to a string; the raw request value is an int that tagging cannot handle.
+            ("numeric_tag", {"tags": [123]}, ["123", "scout"]),
+        ]
+    )
+    def test_scout_note_without_a_known_skill_still_gets_the_scout_tag(
+        self, _name: str, extra: dict, expected_tags: list[str]
+    ) -> None:
         self._authenticate_as_scout()
 
-        response = self.client.post(self.endpoint_base, {"title": "Finding", "text_content": "x"}, format="json")
+        response = self.client.post(
+            self.endpoint_base, {"title": "Finding", "text_content": "x", **extra}, format="json"
+        )
 
         self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.content)
-        self.assertEqual(response.json()["tags"], ["scout"])
+        self.assertEqual(response.json()["tags"], expected_tags)
 
     def test_scout_cannot_strip_its_own_tag(self) -> None:
         notebook = self._link_note(tags=("scout", "scout-billing-watch", "billing-shift"))
