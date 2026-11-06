@@ -269,7 +269,7 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/ci-python.yml', PYTHON],
     ['.github/workflows/ci-clickhouse-multinode-migrations.yml', PYTHON],
     ['.github/workflows/ci-clickhouse-util-udfs.yml', PYTHON],
-    // Blocks ClickHouse or sqlx migrations landing beside nodejs/ or other rust/
+    // Blocks Django or sqlx migrations landing beside nodejs/ or other rust/
     // changes, so all three families interact with an edit to the gate.
     ['.github/workflows/ci-migrations-service-separation-check.yml', [PYTHON, NODE, RUST]],
     // Suites that run the backend and the frontend together, and the builds of
