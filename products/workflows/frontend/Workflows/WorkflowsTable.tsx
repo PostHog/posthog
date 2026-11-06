@@ -286,9 +286,13 @@ export function WorkflowsTable(): JSX.Element {
             title: 'Trigger',
             width: 0,
             render: (_, item) => {
+                const triggerType = item.trigger?.type
                 return (
                     <Link to={urls.workflow(item.id, 'workflow') + '?node=trigger_node'}>
-                        <LemonTag type="default">{capitalizeFirstLetter(item.trigger?.type ?? 'unknown')}</LemonTag>
+                        <LemonTag type="default">
+                            {WORKFLOW_TRIGGER_TYPE_OPTIONS.find((option) => option.value === triggerType)?.label ??
+                                capitalizeFirstLetter(triggerType ?? 'unknown')}
+                        </LemonTag>
                     </Link>
                 )
             },
