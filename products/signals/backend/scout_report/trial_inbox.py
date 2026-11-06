@@ -327,8 +327,7 @@ class TrialInboxReads:
             result.append(document)
         return result
 
-    @staticmethod
-    def _sort_value(document: Mapping[str, object], field: str) -> str | int | float | datetime:
+    def _sort_value(self, document: Mapping[str, object], field: str) -> str | int | float | datetime:
         if field == "pipeline_status_rank":
             status = document.get("status")
             if status == "ready":
@@ -343,7 +342,7 @@ class TrialInboxReads:
                 "suppressed": 8,
                 "deleted": 9,
             }.get(str(status), 50)
-        if field == "priority_sort_rank":
+        if field == self.view._SIGNAL_REPORT_ORDERING_FIELDS["priority"]:
             priority = document.get("priority")
             return (
                 {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "P4": 4}[str(priority)]

@@ -26,6 +26,7 @@ import { ContentAutopilotPromptDetail } from './ContentAutopilotPromptDetail'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { PROMPTS_PAGE_SIZE, contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
+import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSuggestButton'
 import { draftableOpportunity, engineLabel } from './utils'
 
 const checkTag = (prompt: AEOPromptApi, engine: string): JSX.Element => {
@@ -125,16 +126,18 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                     size="small"
                     data-attr="content-autopilot-prompts-show-archived"
                 />
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    icon={<IconPlusSmall />}
-                    className="ml-auto"
-                    onClick={openAddPrompts}
-                    data-attr="content-autopilot-prompts-add"
-                >
-                    Add prompts
-                </LemonButton>
+                <div className="ml-auto flex gap-2">
+                    <ContentAutopilotPromptSuggestButton size="small" />
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        icon={<IconPlusSmall />}
+                        onClick={openAddPrompts}
+                        data-attr="content-autopilot-prompts-add"
+                    >
+                        Add prompts
+                    </LemonButton>
+                </div>
             </div>
 
             {promptsError === 'failed' ? (
@@ -154,9 +157,13 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 <LemonCard hoverEffect={false} className="p-6 text-center">
                     <h3 className="m-0">No prompts yet</h3>
                     <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
-                        Add the questions your customers ask AI assistants. You can also import prompts with the API (
+                        Add the questions your buyers ask AI assistants. Claude can suggest them from your site, or you
+                        can write your own. You can also import prompts with the API (
                         <code>POST /api/projects/:project_id/aeo_prompts/bulk_import/</code>) or the PostHog MCP tools.
                     </p>
+                    <div className="mt-4 flex justify-center">
+                        <ContentAutopilotPromptSuggestButton type="primary" />
+                    </div>
                 </LemonCard>
             ) : (
                 <LemonTable
