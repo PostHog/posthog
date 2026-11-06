@@ -341,6 +341,133 @@ SELECT
   lc.estimated_bytes AS lc_estimated_bytes
 FROM system.query_log AS ql
 WHERE ql.type != 'QueryStart';
+CREATE VIEW posthog.custom_metrics_backups AS WITH
+  ['ClickHouseCustomMetric_BackupFailed', 'ClickHouseCustomMetric_BackupSuccess', 'ClickHouseCustomMetric_BackupCancelled', 'ClickHouseCustomMetric_BackupAttempts'] AS names,
+  [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS `values`,
+  ['Number of failed backups', 'Number of successful backups', 'Number of cancelled backups', 'Number of backup attempts'] AS descriptions,
+  ['gauge', 'gauge', 'gauge', 'gauge'] AS types,
+  arrayJoin(arrayZip(names, `values`, descriptions, types)) AS tpl
+SELECT
+  tpl.1 AS name,
+  map('instance', hostname()) AS labels,
+  tpl.2 AS value,
+  tpl.3 AS help,
+  tpl.4 AS type
+FROM system.backup_log
+WHERE event_date = today()
+GROUP BY
+  event_date;
+CREATE VIEW posthog.custom_metrics_dictionaries AS SELECT
+  'ClickHouseCustomMetric_DictionariesFailed' AS name,
+  map(
+    'instance',
+    hostname(),
+    'database',
+    d.database,
+    'dictionary',
+    d.dict_name,
+    'uuid',
+    toString(d.uuid),
+    'status',
+    toString(d.status)
+  ) AS labels,
+  toUInt64(1) AS value,
+  'Dictionary is in FAILED or FAILED_AND_RELOADING status' AS help,
+  'gauge' AS type
+FROM
+  (
+    SELECT name AS dict_name, database, uuid, status
+    FROM system.dictionaries
+    WHERE status IN ('FAILED', 'FAILED_AND_RELOADING')
+  ) AS d;
+CREATE VIEW posthog.custom_metrics_part_counts AS SELECT
+  'ClickHouseCustomMetric_MaxPartCountPerPartition' AS name,
+  map('instance', hostname(), 'database', database, 'table', `table`, 'partition', partition) AS labels,
+  part_count AS value,
+  'Maximum number of active parts for any partition in a PostHog table' AS help,
+  'gauge' AS type
+FROM
+  (
+    SELECT database, `table`, partition, count() AS part_count
+    FROM system.parts
+    WHERE
+      active
+    AND
+      (database = 'posthog')
+    GROUP BY
+      database, `table`, partition
+    ORDER BY database ASC, `table` ASC, part_count DESC, partition ASC
+    LIMIT 1 BY database, `table`
+  );
+CREATE VIEW posthog.custom_metrics_replication_queue AS WITH
+  ['ClickHouseCustomMetric_ReplicationQueueStuckEntries', 'ClickHouseCustomMetric_ReplicationQueueMaxPostponedEntrySeconds', 'ClickHouseCustomMetric_ReplicationQueueMaxErrorEntrySeconds'] AS names,
+  [toInt64(countIf(create_time < (now() - toIntervalDay(15)))), maxIf(dateDiff('seconds', create_time, last_postpone_time), last_postpone_time != '1970-01-01'), maxIf(dateDiff('seconds', create_time, last_exception_time), (last_exception_time != '1970-01-01') AND (last_exception_time > (now() - toIntervalMinute(5))))] AS `values`,
+  ['Number of entries that have been in the replication queue for more than 15 days', 'Maximum number of seconds that an entry has been postponed', 'Maximum number of seconds that an entry has been in error'] AS descriptions,
+  ['gauge', 'gauge', 'gauge'] AS types,
+  arrayJoin(arrayZip(names, `values`, descriptions, types)) AS tpl
+SELECT
+  tpl.1 AS name,
+  map('table', `table`, 'instance', hostname()) AS labels,
+  tpl.2 AS value,
+  tpl.3 AS help,
+  tpl.4 AS type
+FROM system.replication_queue
+GROUP BY
+  `table`
+HAVING
+  value > 0;
+CREATE VIEW posthog.custom_metrics_server_crash AS SELECT
+  'ClickHouseCustomMetric_ServerCrash' AS name,
+  map('instance', hostname()) AS labels,
+  count() AS value,
+  'Number of server crashes for current date' AS help,
+  'gauge' AS type
+FROM system.crash_log
+WHERE event_date = today()
+GROUP BY
+  hostname();
+CREATE VIEW posthog.custom_metrics_table_sizes AS SELECT
+  'ClickHouseCustomMetric_TableTotalBytes' AS name,
+  map('instance', hostname(), 'database', database, 'table', `table`) AS labels,
+  CAST(total_bytes, 'Float64') AS value,
+  'Size of a database table on a given node (need a sum for sharded)' AS help,
+  'gauge' AS type
+FROM system.tables
+WHERE
+  (database NOT IN ('INFORMATION_SCHEMA', 'information_schema'))
+AND
+  (total_bytes IS NOT NULL);
+CREATE VIEW posthog.custom_metrics_test AS SELECT
+  'ClickHouseCustomMetric_Test' AS name,
+  map('instance', hostname()) AS labels,
+  1 AS value,
+  'Test to check that the metric endpoint is working' AS help,
+  'gauge' AS type;
+CREATE VIEW posthog.metrics4_view AS SELECT
+  team_id,
+  metric_name,
+  time_bucket,
+  series_fingerprint,
+  resource_fingerprint,
+  point_timestamp AS timestamp,
+  toDateTime64(original_expiry_date, 6) AS original_expiry_timestamp,
+  service_name,
+  metric_type,
+  point_value AS value,
+  point_count AS count,
+  histogram_bounds,
+  point_histogram_counts AS histogram_counts,
+  point_trace_id AS trace_id,
+  point_span_id AS span_id,
+  point_trace_flags AS trace_flags,
+  toBool(has_labels) AS has_labels,
+  unit,
+  aggregation_temporality,
+  toBool(is_monotonic) AS is_monotonic,
+  instrumentation_scope
+FROM
+  posthog.metrics4_samples ARRAY JOIN timestamp_arr AS point_timestamp, value_arr AS point_value, count_arr AS point_count, histogram_counts_arr AS point_histogram_counts, trace_id_arr AS point_trace_id, span_id_arr AS point_span_id, trace_flags_arr AS point_trace_flags
+WHERE time_bucket >= toDateTime('2026-09-14 00:00:00');
 CREATE VIEW posthog.custom_metrics AS SELECT * REPLACE(toFloat64(value) AS value)
 FROM posthog.custom_metrics_test
 UNION ALL
@@ -411,28 +538,3 @@ FROM
     GROUP BY
       database, `table`, partition_id
   );
-CREATE VIEW posthog.metrics4_view AS SELECT
-  team_id,
-  metric_name,
-  time_bucket,
-  series_fingerprint,
-  resource_fingerprint,
-  point_timestamp AS timestamp,
-  toDateTime64(original_expiry_date, 6) AS original_expiry_timestamp,
-  service_name,
-  metric_type,
-  point_value AS value,
-  point_count AS count,
-  histogram_bounds,
-  point_histogram_counts AS histogram_counts,
-  point_trace_id AS trace_id,
-  point_span_id AS span_id,
-  point_trace_flags AS trace_flags,
-  toBool(has_labels) AS has_labels,
-  unit,
-  aggregation_temporality,
-  toBool(is_monotonic) AS is_monotonic,
-  instrumentation_scope
-FROM
-  posthog.metrics4_samples ARRAY JOIN timestamp_arr AS point_timestamp, value_arr AS point_value, count_arr AS point_count, histogram_counts_arr AS point_histogram_counts, trace_id_arr AS point_trace_id, span_id_arr AS point_span_id, trace_flags_arr AS point_trace_flags
-WHERE time_bucket >= toDateTime('2026-09-14 00:00:00');
