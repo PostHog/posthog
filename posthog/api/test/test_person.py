@@ -2673,6 +2673,78 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(properties.get("email"), "visible@example.com")
         self.assertNotIn("ssn", properties)
 
+    @parameterized.expand(
+        [
+            ("restricted_user", None, False),
+            ("allowed_user", PropertyAccessLevel.READ, True),
+        ]
+    )
+    def test_properties_at_time_respects_property_access_control(
+        self, _name: str, member_access_level: Optional[PropertyAccessLevel], ssn_visible: bool
+    ) -> None:
+        if member_access_level is not None:
+            # A member-specific rule overrides the default NONE rule for this user only.
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=PropertyDefinition.objects.get(team=self.team, name="ssn"),
+                organization_member=self.organization_membership,
+                access_level=member_access_level.value,
+            )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["pit_user"],
+            properties={"email": "visible@example.com", "ssn": "123-45-6789"},
+            immediate=True,
+        )
+        _create_event(
+            event="$set",
+            team=self.team,
+            distinct_id="pit_user",
+            properties={"$set": {"email": "visible@example.com", "ssn": "123-45-6789"}},
+            timestamp="2024-06-01T10:00:00Z",
+        )
+        _create_event(
+            event="$set_once",
+            team=self.team,
+            distinct_id="pit_user",
+            properties={"$set_once": {"ssn": "999-99-9999", "plan": "free"}},
+            timestamp="2024-06-01T09:00:00Z",
+        )
+        flush_persons_and_events()
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/persons/properties_at_time/",
+            {"distinct_id": "pit_user", "timestamp": "2024-06-01T12:00:00Z", "include_set_once": "true"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        properties = response.json()["properties"]
+        self.assertEqual(properties.get("email"), "visible@example.com")
+        self.assertEqual(properties.get("plan"), "free")
+        if ssn_visible:
+            self.assertEqual(properties.get("ssn"), "123-45-6789")
+        else:
+            self.assertNotIn("ssn", properties)
+            self.assertNotIn("123-45-6789", response.content.decode())
+            self.assertNotIn("999-99-9999", response.content.decode())
+
+    @mock.patch("posthog.models.person.point_in_time_properties.execute_hogql_query")
+    def test_properties_at_time_passes_requesting_user_to_hogql(self, mock_execute_hogql_query) -> None:
+        mock_execute_hogql_query.return_value = mock.Mock(results=[])
+        _create_person(team=self.team, distinct_ids=["pit_user"], properties={}, immediate=True)
+        flush_persons_and_events()
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/persons/properties_at_time/",
+            {"distinct_id": "pit_user", "timestamp": "2024-06-01T12:00:00Z"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        kwargs = mock_execute_hogql_query.call_args.kwargs
+        self.assertEqual(kwargs["user"], self.user)
+        self.assertEqual(kwargs["context"].user, self.user)
+
     def test_search_does_not_tag_a_restricted_property(self) -> None:
         email = PropertyDefinition.objects.create(
             team=self.team, name="email", property_type="String", type=PropertyDefinition.Type.PERSON

@@ -2056,13 +2056,19 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 timestamp=timestamp,
                 distinct_ids=distinct_ids_queried,
                 include_set_once=include_set_once,
+                user=cast(User, request.user),
             )
 
-            # Serialize the person object
-            person_data = PersonSerializer(person, context={"get_team": lambda: self.team}).data
+            # Serialize the person object with the viewset's context so property access control applies
+            serializer_context = {**self.get_serializer_context(), "get_team": lambda: self.team}
+            person_data = PersonSerializer(person, context=serializer_context).data
 
-            # Replace current properties with point-in-time properties
-            person_data["properties"] = point_in_time_properties
+            # Replace current properties with point-in-time properties. The serializer's restriction filter ran on
+            # the current properties only, so apply the same restriction to the reconstructed ones.
+            restricted_person_properties = serializer_context.get("restricted_person_properties") or set()
+            person_data["properties"] = {
+                k: v for k, v in point_in_time_properties.items() if k not in restricted_person_properties
+            }
 
             # Add metadata about the point-in-time query
             person_data["point_in_time_metadata"] = {
