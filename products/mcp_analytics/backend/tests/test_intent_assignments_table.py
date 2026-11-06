@@ -2,11 +2,21 @@ from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
+
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.constants import AvailableFeature
+from posthog.models import PropertyDefinition
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.mcp_analytics.backend.facade.clickhouse_schema import MCP_INTENT_ASSIGNMENTS_WRITABLE_TABLE
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 # ClickHouse applies the table TTL with its own clock, so fixtures stay relative to now.
 OTHER_TEAM_ID = 10**9
@@ -49,7 +59,7 @@ class TestMCPIntentAssignmentsTable(ClickhouseTestMixin, APIBaseTest):
         response = execute_hogql_query(
             query="""
                 SELECT intent_hash, topic_id, is_outlier, round(toFloat(distance), 2), x, y, intent_text, calls_in_run
-                FROM mcp_intent_assignments
+                FROM posthog.mcp_intent_assignments
                 ORDER BY intent_hash
             """,
             team=self.team,
@@ -66,7 +76,7 @@ class TestMCPIntentAssignmentsTable(ClickhouseTestMixin, APIBaseTest):
         _insert_assignment(self.team.pk, "a" * 64, "topic-2", run_id="run-2", timestamp=_now() - timedelta(days=1))
 
         deduped = execute_hogql_query(
-            query="SELECT intent_hash, topic_id, run_id FROM mcp_intent_assignments", team=self.team
+            query="SELECT intent_hash, topic_id, run_id FROM posthog.mcp_intent_assignments", team=self.team
         )
         raw = execute_hogql_query(query="SELECT count() FROM posthog.raw_mcp_intent_assignments", team=self.team)
 
@@ -78,7 +88,7 @@ class TestMCPIntentAssignmentsTable(ClickhouseTestMixin, APIBaseTest):
         _insert_assignment(self.team.pk, "a" * 64, "topic-2", run_id="run-2", timestamp=_now() - timedelta(days=1))
 
         response = execute_hogql_query(
-            query="SELECT intent_hash FROM mcp_intent_assignments WHERE topic_id = 'topic-1'", team=self.team
+            query="SELECT intent_hash FROM posthog.mcp_intent_assignments WHERE topic_id = 'topic-1'", team=self.team
         )
 
         assert response.results == []
@@ -87,8 +97,47 @@ class TestMCPIntentAssignmentsTable(ClickhouseTestMixin, APIBaseTest):
         _insert_assignment(OTHER_TEAM_ID, "c" * 64, "topic-9")
         _insert_assignment(self.team.pk, "a" * 64, "topic-1")
 
-        response = execute_hogql_query(query="SELECT intent_hash FROM mcp_intent_assignments", team=self.team)
+        response = execute_hogql_query(query="SELECT intent_hash FROM posthog.mcp_intent_assignments", team=self.team)
         raw = execute_hogql_query(query="SELECT intent_hash FROM posthog.raw_mcp_intent_assignments", team=self.team)
 
         assert response.results == [("a" * 64,)]
         assert raw.results == [("a" * 64,)]
+
+    def test_a_warehouse_table_with_the_bare_name_still_resolves_to_the_warehouse_table(self) -> None:
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="mcp_intent_assignments",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+        database = Database.create_for(team=self.team)
+
+        assert isinstance(database.get_table("mcp_intent_assignments"), HogQLDataWarehouseTable)
+
+    @parameterized.expand(
+        [("deduped", "posthog.mcp_intent_assignments"), ("raw", "posthog.raw_mcp_intent_assignments")]
+    )
+    def test_restricting_the_intent_property_masks_the_copied_intent_text(self, _name: str, table: str) -> None:
+        # intent_text copies $mcp_intent, so a reader denied the property must not read or filter on the copy.
+        _insert_assignment(self.team.pk, "a" * 64, "topic-1")
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="$mcp_intent", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=definition, access_level=PropertyAccessLevel.NONE.value
+        )
+
+        def run(query: str) -> list:
+            context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
+            return execute_hogql_query(query=query, team=self.team, context=context).results
+
+        assert run(f"SELECT intent_hash, intent_text FROM {table}") == [("a" * 64, None)]
+        assert run(f"SELECT intent_hash FROM {table} WHERE intent_text = 'list feature flags'") == []
