@@ -30,14 +30,15 @@ from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import (
+    OIDC_SIGNING_KEY_MISSING_MESSAGE,
     CIMDVerificationToken,
     OAuthApplication,
     TokenEndpointAuthMethod,
     find_cimd_verification_token,
     normalize_cimd_url,
+    oidc_signing_key_configured,
     revoke_application_sessions,
 )
-from posthog.oauth_signing_key import OIDC_SIGNING_KEY_MISSING_MESSAGE, oidc_signing_key_configured
 from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
 from posthog.scopes import OIDC_SCOPES, filter_self_registered_ceiling, filter_to_unprivileged_scopes
