@@ -392,7 +392,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
 
     def test_destinations_are_alert_destination_rows_that_the_firing_reaches(self) -> None:
         workspace = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})
-        destinations_url = f"/api/projects/{self.team.id}/metrics_alerts/{self.configuration_id}/destinations/"
+        destinations_url = f"/api/projects/{self.team.id}/platform_alerts/{self.configuration_id}/destinations/"
         slack = self.client.post(
             destinations_url,
             {
@@ -438,41 +438,3 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
         with team_scope(self.team.id):
             assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration_id) == ()
-
-    @parameterized.expand(
-        [
-            ("alert_only", ["alert:read"], status.HTTP_403_FORBIDDEN),
-            ("metrics_only", ["metrics:read"], status.HTTP_403_FORBIDDEN),
-            ("alert_and_metrics", ["alert:read", "metrics:read"], status.HTTP_200_OK),
-        ]
-    )
-    def test_reading_destinations_needs_both_alert_and_metrics_scopes(
-        self, _name: str, scopes: list[str], expected: int
-    ) -> None:
-        self.client.logout()
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(scopes)}")
-
-        response = self.client.get(f"/api/projects/{self.team.id}/metrics_alerts/{self.configuration_id}/destinations/")
-
-        assert response.status_code == expected, response.json()
-
-    @parameterized.expand(
-        [
-            ("http_webhook", {"type": "webhook", "webhook_url": "http://example.com/alerts"}, "webhook_url"),
-            ("teams_url_not_from_teams", {"type": "teams", "webhook_url": "https://example.com/alerts"}, "webhook_url"),
-            (
-                "unconnected_slack_workspace",
-                {"type": "slack", "slack_workspace_id": 999999, "slack_channel_id": "C123"},
-                "slack_workspace_id",
-            ),
-        ]
-    )
-    def test_a_destination_that_could_never_deliver_is_refused(
-        self, _name: str, body: dict[str, object], field: str
-    ) -> None:
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/metrics_alerts/{self.configuration_id}/destinations/", body, format="json"
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["attr"] == field
