@@ -2222,30 +2222,37 @@ class HogFlowActionSerializer(serializers.Serializer):
                 get_team = self.context.get("get_team")
                 if get_team is not None and not gated_template_enabled(gating_flag, get_team()):
                     template = None
+            inputs = config.get("inputs", {})
+            existing_emails = (self.context.get("existing_action_emails") or {}).get(data.get("id")) or []
+            input_context = {
+                **self.context,
+                "workflow_action_type": data.get("type"),
+                "existing_email_values": [
+                    email
+                    for action_type, email in existing_emails
+                    if action_type == "function_email" and data.get("type") == "function_email"
+                ],
+                "sandbox_email_integration_cache": self.context.setdefault("_sandbox_email_integration_cache", {}),
+            }
+            if template:
+                email_keys = [
+                    s["key"] for s in template.inputs_schema or [] if s.get("type") in {"email", "native_email"}
+                ]
+            else:
+                # A lenient save still stores an email step whose template does not resolve, and a later save
+                # grandfathers its stored sender, so the sandbox checks cannot wait for the template.
+                email_keys = ["email"] if data.get("type") == "function_email" else []
+            for key in email_keys:
+                email_input = inputs.get(key) if isinstance(inputs, dict) else None
+                if isinstance(email_input, dict):
+                    validate_sandbox_email_sender(email_input.get("value"), input_context)
             if not template:
                 if strict:
                     raise serializers.ValidationError({"template_id": _describe_unknown_template(data, template_id)})
             else:
                 input_schema = template.inputs_schema
-                inputs = data.get("config", {}).get("inputs", {})
                 if template_id == _FIXED_TEMPLATE_IDS["function_push"]:
                     _fill_default_push_title(inputs, input_schema)
-                existing_emails = (self.context.get("existing_action_emails") or {}).get(data.get("id")) or []
-                input_context = {
-                    **self.context,
-                    "workflow_action_type": data.get("type"),
-                    "existing_email_values": [
-                        email
-                        for action_type, email in existing_emails
-                        if action_type == "function_email" and data.get("type") == "function_email"
-                    ],
-                    "sandbox_email_integration_cache": self.context.setdefault("_sandbox_email_integration_cache", {}),
-                }
-                for schema in input_schema or []:
-                    if schema.get("type") in {"email", "native_email"} and isinstance(inputs, dict):
-                        email_input = inputs.get(schema["key"])
-                        if isinstance(email_input, dict):
-                            validate_sandbox_email_sender(email_input.get("value"), input_context)
 
                 function_config_serializer = HogFlowConfigFunctionInputsSerializer(
                     data={

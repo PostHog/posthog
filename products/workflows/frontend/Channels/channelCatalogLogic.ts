@@ -31,6 +31,7 @@ export interface channelCatalogLogicValues {
     sandboxProvisionError: string | null
     sandboxProvisionErrorLoading: boolean
     sandboxRefreshPending: boolean
+    sandboxSetUp: boolean
     sandboxSetupError: string | null
     sandboxSetupRequested: boolean
 }
@@ -66,6 +67,9 @@ export interface channelCatalogLogicActions {
         channelType: 'apns' | 'email' | 'firebase' | 'slack' | 'twilio' | undefined
         integration: IntegrationType | undefined
     } // integrationsLogic
+    refreshAfterSandboxSetup: () => {
+        value: true
+    }
     setUpSandboxSender: (_: void) => void
     setUpSandboxSenderFailure: (
         error: string,
@@ -93,6 +97,7 @@ export interface channelCatalogLogicMeta {
             sandboxEmailSenderEnabled: boolean,
             integrations: IntegrationType[] | null,
             integrationsLoadFailed: boolean,
+            sandboxSetUp: boolean,
             sandboxEmailSender: IntegrationType | null,
             sandboxProvisionError: string | null
         ) => string | null
@@ -128,6 +133,7 @@ export const channelCatalogLogic = kea<channelCatalogLogicType>([
     })),
     actions({
         startChannelSetup: (kind: ChannelType) => ({ kind }),
+        refreshAfterSandboxSetup: true,
     }),
     reducers({
         integrationsLoadFailed: [
@@ -143,10 +149,16 @@ export const channelCatalogLogic = kea<channelCatalogLogicType>([
                 setUpSandboxSender: () => true,
             },
         ],
+        sandboxSetUp: [
+            false,
+            {
+                refreshAfterSandboxSetup: () => true,
+            },
+        ],
         sandboxRefreshPending: [
             false,
             {
-                setUpSandboxSenderSuccess: (_, { sandboxProvisionError }) => sandboxProvisionError === null,
+                refreshAfterSandboxSetup: () => true,
                 loadIntegrationsSuccess: () => false,
                 loadIntegrationsFailure: () => false,
             },
@@ -157,17 +169,20 @@ export const channelCatalogLogic = kea<channelCatalogLogicType>([
             null as string | null,
             {
                 setUpSandboxSender: async (_: void, breakpoint): Promise<string | null> => {
-                    let failure: string | null = null
                     try {
                         await integrationsEmailSandboxSenderCreate(String(values.currentProjectId))
                     } catch (error) {
-                        failure = (error instanceof ApiError && error.detail) || 'Could not set up the sandbox sender.'
+                        breakpoint()
+                        // A 404 means the project isn't offered the sandbox sender, which no retry changes.
+                        if (error instanceof ApiError && error.status === 404) {
+                            return null
+                        }
+                        return (error instanceof ApiError && error.detail) || 'Could not set up the sandbox sender.'
                     }
                     breakpoint()
-                    if (!failure) {
-                        actions.loadIntegrations()
-                    }
-                    return failure
+                    actions.refreshAfterSandboxSetup()
+                    actions.loadIntegrations()
+                    return null
                 },
             },
         ],
@@ -178,6 +193,7 @@ export const channelCatalogLogic = kea<channelCatalogLogicType>([
                 s.sandboxEmailSenderEnabled,
                 s.integrations,
                 s.integrationsLoadFailed,
+                s.sandboxSetUp,
                 s.sandboxEmailSender,
                 s.sandboxProvisionError,
             ],
@@ -185,13 +201,14 @@ export const channelCatalogLogic = kea<channelCatalogLogicType>([
                 enabled: boolean,
                 integrations: IntegrationType[] | null,
                 loadFailed: boolean,
+                setUp: boolean,
                 sandboxEmailSender: IntegrationType | null,
                 setupError: string | null
             ): string | null => {
                 if (!enabled || sandboxEmailSender || integrations === null) {
                     return null
                 }
-                return setupError ?? (loadFailed ? 'Could not load the sandbox sender.' : null)
+                return setupError ?? (loadFailed && setUp ? 'Could not load the sandbox sender.' : null)
             },
         ],
         /** `null` until the integrations load, so the catalog never shows a channel as not set up by mistake. */
