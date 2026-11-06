@@ -1233,61 +1233,68 @@ describe('CDP API', () => {
     })
 
     it.each([
-        ['real', false, ['https://example.com']],
-        ['mocked', true, []],
-    ])('reports the origins a flow step with %s requests sent to', async (_, mockAsyncFunctions, expectedOrigins) => {
-        mockFetch.mockImplementation(() =>
-            Promise.resolve({
-                status: 200,
-                headers: { 'Content-Type': 'application/json' },
-                json: () => Promise.resolve({}),
-                text: () => Promise.resolve('{}'),
-                dump: () => Promise.resolve(),
+        ['real', false, 'https://user:password@example.com/hook?token=abc', ['https://example.com']],
+        ['mocked', true, 'https://user:password@example.com/hook?token=abc', []],
+        ['secret host', false, 'https://acme-secret.example.com/hook', ['https://***REDACTED***.example.com']],
+    ])(
+        'reports the origins a flow step with %s requests sent to',
+        async (_, mockAsyncFunctions, url, expectedOrigins) => {
+            mockFetch.mockImplementation(() =>
+                Promise.resolve({
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                })
+            )
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-cdp-api-flow-origin-fetch',
+                name: 'Flow origin fetch',
+                code: `fetch(inputs.url, { 'method': 'POST' })`,
+                inputs_schema: [
+                    { key: 'url', type: 'string', label: 'URL', secret: false, required: true },
+                    { key: 'tenant', type: 'string', label: 'Tenant', secret: true, required: false },
+                ],
             })
-        )
-        await insertHogFunctionTemplate(hub.postgres, {
-            id: 'template-cdp-api-flow-origin-fetch',
-            name: 'Flow origin fetch',
-            code: `fetch(inputs.url, { 'method': 'POST' })`,
-            inputs_schema: [{ key: 'url', type: 'string', label: 'URL', secret: false, required: true }],
-        })
 
-        const res = await supertest(app)
-            .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
-            .send({
-                globals,
-                mock_async_functions: mockAsyncFunctions,
-                current_action_id: 'fetch_node',
-                configuration: {
-                    name: 'Flow with a fetch',
-                    actions: [
-                        {
-                            id: 'trigger_node',
-                            name: 'Trigger',
-                            type: 'trigger',
-                            config: { type: 'event', filters: {} },
-                        },
-                        {
-                            id: 'fetch_node',
-                            name: 'Fetch',
-                            type: 'function',
-                            config: {
-                                template_id: 'template-cdp-api-flow-origin-fetch',
-                                inputs: { url: { value: 'https://user:password@example.com/hook?token=abc' } },
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
+                .send({
+                    globals,
+                    mock_async_functions: mockAsyncFunctions,
+                    current_action_id: 'fetch_node',
+                    configuration: {
+                        name: 'Flow with a fetch',
+                        actions: [
+                            {
+                                id: 'trigger_node',
+                                name: 'Trigger',
+                                type: 'trigger',
+                                config: { type: 'event', filters: {} },
                             },
-                        },
-                        { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
-                    ],
-                    edges: [
-                        { from: 'trigger_node', to: 'fetch_node', type: 'continue' },
-                        { from: 'fetch_node', to: 'exit_node', type: 'continue' },
-                    ],
-                },
-            })
+                            {
+                                id: 'fetch_node',
+                                name: 'Fetch',
+                                type: 'function',
+                                config: {
+                                    template_id: 'template-cdp-api-flow-origin-fetch',
+                                    inputs: { url: { value: url }, tenant: { value: 'acme-secret' } },
+                                },
+                            },
+                            { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+                        ],
+                        edges: [
+                            { from: 'trigger_node', to: 'fetch_node', type: 'continue' },
+                            { from: 'fetch_node', to: 'exit_node', type: 'continue' },
+                        ],
+                    },
+                })
 
-        expect(res.status).toEqual(200)
-        expect(res.body).toMatchObject({ errors: [], request_origins: expectedOrigins })
-    })
+            expect(res.status).toEqual(200)
+            expect(res.body).toMatchObject({ errors: [], request_origins: expectedOrigins })
+        }
+    )
 
     describe('batch hogflow invocations', () => {
         let batchHogFlow: HogFlow
