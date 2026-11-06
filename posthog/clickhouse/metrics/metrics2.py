@@ -34,6 +34,8 @@ def kafka_metrics_avro_table_sql(
     group: str,
     flush_interval_ms: int | None = None,
     max_block_size: int | None = None,
+    num_consumers: int = 8,
+    poll_max_batch_size: int = 1000,
 ) -> str:
     # The aggregation views group one insert block at a time, so a longer flush interval
     # packs more samples of a series into each row before the merge.
@@ -72,9 +74,9 @@ ENGINE = {kafka_engine(topic=KAFKA_TOPIC, group=group, serialization="Avro", nam
 SETTINGS
     kafka_skip_broken_messages = 100,
     kafka_thread_per_consumer = 1,
-    kafka_num_consumers = {kafka_num_consumers(8)},
+    kafka_num_consumers = {kafka_num_consumers(num_consumers)},
     kafka_poll_timeout_ms = 3000,
-    kafka_poll_max_batch_size = 1000,{block_settings}
+    kafka_poll_max_batch_size = {poll_max_batch_size},{block_settings}
     input_format_avro_allow_missing_fields = 1
 """
 
@@ -83,7 +85,11 @@ def KAFKA_METRICS_AVRO2_TABLE_SQL() -> str:
     return kafka_metrics_avro_table_sql(KAFKA_TABLE_NAME, KAFKA_GROUP)
 
 
-def metrics_input_table_sql(table_name: str) -> str:
+def metrics_input_table_sql(table_name: str, *, source_partition: bool = False) -> str:
+    # Only the metrics4 chain records where the Node consumer read each row.
+    source_partition_columns = (
+        ",\n    `_source_topic` String,\n    `_source_partition` UInt32" if source_partition else ""
+    )
     return f"""
 CREATE TABLE IF NOT EXISTS {_db()}.{table_name}
 (
@@ -113,7 +119,7 @@ CREATE TABLE IF NOT EXISTS {_db()}.{table_name}
     `attributes` Map(LowCardinality(String), String),
     `_partition` UInt32,
     `_topic` String,
-    `_offset` UInt64
+    `_offset` UInt64{source_partition_columns}
 )
 ENGINE = Null
 """
@@ -271,8 +277,14 @@ def METRIC_ATTRIBUTES2_DISTRIBUTED_TABLE_SQL() -> str:
     return _distributed_sql(METRIC_ATTRIBUTES_DISTRIBUTED_TABLE_NAME, METRIC_ATTRIBUTES2_TABLE_NAME)
 
 
-def kafka_metrics_avro_mv_select(table_name: str) -> str:
+def kafka_metrics_avro_mv_select(table_name: str, *, source_partition: bool = False) -> str:
     db = _db()
+    source_partition_columns = (
+        ",\n    _headers.value[indexOf(_headers.name, 'source_topic')] AS _source_topic,"
+        "\n    toUInt32OrZero(_headers.value[indexOf(_headers.name, 'source_partition')]) AS _source_partition"
+        if source_partition
+        else ""
+    )
     sorted_resource_attributes = "mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))"
     sorted_attributes = "mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes))"
     labelled = "toBool(ifNull(has_labels, 1))"
@@ -306,7 +318,7 @@ def kafka_metrics_avro_mv_select(table_name: str) -> str:
     if({labelled}, {sorted_attributes}, CAST(map(), 'Map(String, String)')) AS attributes,
     _partition,
     _topic,
-    _offset
+    _offset{source_partition_columns}
 FROM {db}.{table_name}
 WHERE {table_name}.series_fingerprint IS NOT NULL
 SETTINGS

@@ -41,6 +41,9 @@ from products.warehouse_sources.backend.file_uploads import (
     build_file_upload_url_pattern,
     hosted_upload_s3_path,
 )
+from products.warehouse_sources.backend.models.column_annotation import (
+    WarehouseColumnAnnotation as _WarehouseColumnAnnotation,
+)
 from products.warehouse_sources.backend.models.column_statistics import (
     WarehouseColumnStatistics as _WarehouseColumnStatistics,
 )
@@ -71,7 +74,7 @@ from products.warehouse_sources.backend.models.util import (
     validate_warehouse_table_url_pattern,
 )
 from products.warehouse_sources.backend.source_status import effective_source_status
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType, WarehouseColumnAnnotationDescriptionSource
 from products.warehouse_sources.backend.view_consumers import saved_queries_feeding_consumers
 from products.warehouse_sources.backend.webhook_registration import schema_needs_webhook, sources_missing_webhook
 
@@ -98,6 +101,9 @@ __all__ = [
     "discard_backing_table",
     "record_table_row_count",
     "allowed_table_ids",
+    "live_table_exists",
+    "table_level_descriptions",
+    "write_table_level_description",
     "denied_table_ids",
     "pending_source_ids_for_tables",
     "tables_awaiting_first_sync",
@@ -539,6 +545,57 @@ def _resolve_allowed_table_ids(
     if ids is not None:
         candidates = candidates.filter(id__in=ids)
     return _allowed_tables(_tables_for_access_check(candidates), user_access_control, required_level)
+
+
+def table_level_descriptions(team_id: int, table_ids: Collection[UUID]) -> dict[UUID, contracts.TableLevelDescription]:
+    """The text that `TableDescriptions` resolves for each table: the annotation, then the source schema."""
+    descriptions: dict[UUID, contracts.TableLevelDescription] = {}
+    for table_id, text in (
+        _ExternalDataSchema.objects.filter(team_id=team_id, table_id__in=table_ids, deleted=False)
+        .exclude(description__isnull=True)
+        .exclude(description="")
+        .order_by("updated_at")
+        .values_list("table_id", "description")
+    ):
+        descriptions[table_id] = contracts.TableLevelDescription(text=text or "", source=None)
+    for table_id, text, source in (
+        _WarehouseColumnAnnotation.objects.for_team(team_id)
+        .filter(table_id__in=table_ids, column_name="")
+        .values_list("table_id", "description", "description_source")
+    ):
+        descriptions[table_id] = contracts.TableLevelDescription(
+            text=text, source=WarehouseColumnAnnotationDescriptionSource(source)
+        )
+    return descriptions
+
+
+def live_table_exists(team_id: int, table_id: UUID) -> bool:
+    return _DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id, id=table_id).exists()
+
+
+def write_table_level_description(team_id: int, table_id: UUID, description: str) -> None:
+    """Store a user edit, protected from enrichment. An empty description deletes the row."""
+    annotations = _WarehouseColumnAnnotation.objects.for_team(team_id)
+    if not description:
+        annotations.filter(table_id=table_id, column_name="").delete()
+        return
+    table = _DataWarehouseTable.raw_objects.queryable().get(team_id=team_id, id=table_id)
+    user_edited = _WarehouseColumnAnnotation.DescriptionSource.USER_EDITED
+    annotation, created = annotations.get_or_create(
+        table=table,
+        column_name="",
+        defaults={
+            "team_id": team_id,
+            "description": description,
+            "description_source": user_edited,
+            "is_user_edited": True,
+        },
+    )
+    if not created:
+        annotation.description = description
+        annotation.description_source = user_edited
+        annotation.is_user_edited = True
+        annotation.save(update_fields=["description", "description_source", "is_user_edited", "updated_at"])
 
 
 def pending_source_ids_for_tables(team_id: int, table_ids: Collection[UUID] | None = None) -> dict[UUID, UUID]:

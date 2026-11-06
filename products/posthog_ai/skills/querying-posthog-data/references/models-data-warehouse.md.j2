@@ -2,7 +2,7 @@
 
 ## External Data Source (`system.data_warehouse_sources`)
 
-External data sources represent connections to third-party data providers (Stripe, Hubspot, Postgres, etc.) that sync data into PostHog.
+External data sources connect providers, databases, and files to PostHog's data warehouse.
 
 ### Columns
 
@@ -18,7 +18,11 @@ Common source types include:
 - `MySQL` - MySQL databases
 - `Snowflake` - Snowflake data warehouse
 - `BigQuery` - Google BigQuery
-- `S3` - Amazon S3 files
+- `AmazonS3` - Amazon S3 files
+- `GoogleCloudStorage` - Google Cloud Storage files
+- `AzureBlob` - Azure Blob files
+- `CloudflareR2` - Cloudflare R2 files
+- `FileUpload` - Files uploaded through the PostHog app
 - `Zendesk` - Customer support data
 - `Salesforce` - CRM data
 
@@ -30,7 +34,7 @@ Common source types include:
 
 ## Data Warehouse Table (`system.data_warehouse_tables`)
 
-Individual tables synced from external sources or manually uploaded. Each table contains columns with their types and metadata.
+Individual tables imported from external sources or uploaded files. Each table contains columns with their types and metadata.
 
 ### Columns
 
@@ -70,7 +74,7 @@ The `columns` field contains column definitions with their types:
 - The `columns` field is synced from the actual data schema
 - `valid: false` columns may have type mismatches or other issues
 - Tables with `external_data_source_id` are managed by the sync system
-- Tables without a source are user-uploaded or manually created
+- An uploaded file gets a `FileUpload` source. A missing source can indicate a legacy table awaiting migration or its first sync.
 
 ---
 

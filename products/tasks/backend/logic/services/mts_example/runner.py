@@ -21,6 +21,7 @@ from products.tasks.backend.logic.services.mts_example.prompts import (
     build_research_prompt,
 )
 from products.tasks.backend.logic.services.mts_example.schemas import CursedItemCandidates
+from products.tasks.backend.task_profiles import USER
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ async def run_cursed_identifier_research(
         prompt=build_discovery_prompt(MAX_CURSED_ITEMS),
         context=context,
         model=CursedItemCandidates,
+        profile=USER,
         branch=branch,
         step_name="mts_example_discovery",
         verbose=verbose,

@@ -70,6 +70,8 @@ database "posthog" {
     column "_partition" { type = "UInt32" }
     column "_topic" { type = "String" }
     column "_offset" { type = "UInt64" }
+    column "_source_topic" { type = "String" }
+    column "_source_partition" { type = "UInt32" }
     engine "null" {}
   }
 
@@ -88,6 +90,7 @@ database "posthog" {
     column "has_labels" { type = "SimpleAggregateFunction(max, UInt8)" }
     column "instrumentation_scope" { type = "SimpleAggregateFunction(any, String)" }
     column "histogram_bounds" { type = "SimpleAggregateFunction(anyLast, Array(Float64))" }
+    column "histogram_bounds_hash" { type = "UInt64" }
     column "_topic" { type = "SimpleAggregateFunction(any, LowCardinality(String))" }
     column "timestamp_arr" { type = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))" }
     column "observed_timestamp_arr" { type = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))" }
@@ -168,6 +171,33 @@ database "posthog" {
     }
   }
 
+  table "writable_metrics_kafka_metrics" {
+    column "_partition" { type = "UInt32" }
+    column "_topic" { type = "String" }
+    column "max_offset" { type = "SimpleAggregateFunction(max, UInt64)" }
+    column "max_observed_timestamp" { type = "SimpleAggregateFunction(max, DateTime64(9))" }
+    column "max_timestamp" { type = "SimpleAggregateFunction(max, DateTime64(9))" }
+    column "max_created_at" { type = "SimpleAggregateFunction(max, DateTime64(9))" }
+    column "max_lag" { type = "SimpleAggregateFunction(max, UInt64)" }
+    engine "distributed" {
+      cluster_name    = "logs"
+      remote_database = "posthog"
+      remote_table    = "metrics_kafka_metrics"
+    }
+  }
+
+  # The newest capture time each Kafka partition has delivered. The floor across partitions is
+  # how far every partition has reached, which the metrics alert evaluator reads.
+  materialized_view "metrics4_input_to_metrics_kafka_metrics" {
+    to_table = "posthog.writable_metrics_kafka_metrics"
+    query    = file("sql/metrics4_input_to_metrics_kafka_metrics.sql")
+    column "_partition" { type = "UInt32" }
+    column "_topic" { type = "String" }
+    column "max_offset" { type = "SimpleAggregateFunction(max, UInt64)" }
+    column "max_observed_timestamp" { type = "SimpleAggregateFunction(max, DateTime64(6))" }
+    column "max_created_at" { type = "SimpleAggregateFunction(max, DateTime)" }
+  }
+
   materialized_view "kafka_metrics_avro4_mv" {
     to_table = "posthog.metrics4_input"
     query    = file("sql/kafka_metrics_avro4_mv.sql")
@@ -198,6 +228,8 @@ database "posthog" {
     column "_partition" { type = "UInt64" }
     column "_topic" { type = "LowCardinality(String)" }
     column "_offset" { type = "UInt64" }
+    column "_source_topic" { type = "String" }
+    column "_source_partition" { type = "UInt32" }
   }
 
   materialized_view "metrics4_input_to_metrics4_samples" {
@@ -207,6 +239,7 @@ database "posthog" {
     column "metric_name" { type = "LowCardinality(String)" }
     column "time_bucket" { type = "DateTime" }
     column "series_fingerprint" { type = "UInt64" }
+    column "histogram_bounds_hash" { type = "UInt64" }
     column "original_expiry_date" { type = "Date32" }
     column "resource_fingerprint" { type = "UInt64" }
     column "service_name" { type = "String" }

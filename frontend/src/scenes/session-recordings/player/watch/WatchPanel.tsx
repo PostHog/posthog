@@ -29,7 +29,7 @@ export function WatchPanel(): JSX.Element | null {
         <div
             data-quill
             className={clsx(
-                'flex flex-col gap-4 px-1 pt-3 pb-6 text-foreground isolate min-h-0 overflow-y-auto [&>*]:shrink-0',
+                'flex flex-col gap-3 px-1 pt-2 pb-1.5 text-foreground isolate min-h-0 overflow-y-auto [&>*]:shrink-0',
                 watchPanelCollapsed ? 'shrink-0' : 'flex-1'
             )}
             data-attr="watch-panel"

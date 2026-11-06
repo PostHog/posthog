@@ -18,6 +18,9 @@ if TYPE_CHECKING:
 # A closed list of teams. No team joins it after the platform delivers for its source.
 LEGACY_WEBHOOK_BODY_FLAG: Final = "alert-platform-legacy-webhook-body"
 
+# A team off the list above keeps the legacy body until this turns on for it.
+ALERTMANAGER_WEBHOOK_BODY_FLAG: Final = "alert-platform-alertmanager-webhook-body"
+
 # The header value the HogFunction path sends with its body.
 LEGACY_WEBHOOK_VERSION: Final = "1"
 
@@ -36,15 +39,14 @@ def body_for(source: SourceKind) -> LegacyWebhookBody | None:
 
 
 def keeps_legacy_webhook_body(team: Team) -> bool | None:
-    """Whether native delivery sends this team the body its source's own stack sent. None when unknown."""
-    return team_flag_enabled(LEGACY_WEBHOOK_BODY_FLAG, team)
+    """Whether native delivery sends this team the body its source's own stack sent. None when unknown.
 
-
-def native_sends_legacy_body(source: SourceKind, team: Team) -> bool | None:
-    """Whether native delivery sends this team the webhook body its source's HogFunction sent. None when unknown.
-
-    A source that registered no body gets the platform body natively, whatever the flag says.
+    The gate is read before the list. A flag refresh can land between the two reads, and the list is
+    always topped up before the gate turns on, so a gate read from the older definitions is either
+    off, which keeps the legacy body, or already sees the topped-up list.
     """
-    if body_for(source) is None:
-        return False
-    return keeps_legacy_webhook_body(team)
+    gets_alertmanager_body = team_flag_enabled(ALERTMANAGER_WEBHOOK_BODY_FLAG, team)
+    listed = team_flag_enabled(LEGACY_WEBHOOK_BODY_FLAG, team)
+    if listed is None or listed:
+        return listed
+    return None if gets_alertmanager_body is None else not gets_alertmanager_body
