@@ -80,8 +80,13 @@ impl Fleet {
         let (ring, healthy) = (self.ring(), self.healthy());
         (0..self.peers)
             .map(|index| {
-                ring_slice(&ring, &healthy, Some(index), self.peers, self.min_width)
-                    .expect("every peer gets a slice")
+                let slice = ring_slice(&ring, &healthy, Some(index), self.peers, self.min_width)
+                    .expect("every peer gets a slice");
+                assert!(
+                    !slice.is_empty(),
+                    "{self:?}: peer {index} got an empty slice"
+                );
+                slice
             })
             .collect()
     }
