@@ -8,6 +8,7 @@ import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { cn } from 'lib/utils/css-classes'
 import { CUSTOM_OPTION_KEY, dateMapping } from 'lib/utils/dateFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -78,18 +79,29 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
 
     return (
         <div className="@container/home-overview flex flex-col gap-4 @max-[32rem]/saved-insights:gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-primary pb-2 @min-[32rem]/home-overview:pb-3">
+            {showViews && (
+                <LemonTabs
+                    activeKey={selectedView}
+                    onChange={setSelectedView}
+                    tabs={HOME_VIEW_TABS}
+                    className="[&>ul]:mb-0"
+                    data-attr="home-tab-views"
+                />
+            )}
+
+            <div
+                className={cn(
+                    'flex flex-wrap items-center justify-between gap-2',
+                    !showViews && 'border-b border-primary pb-2 @min-[32rem]/home-overview:pb-3'
+                )}
+            >
                 <div className="flex w-full items-center justify-between gap-2 @min-[48rem]/home-overview:w-auto">
-                    <h2 className="m-0 min-w-0 text-lg font-semibold">
-                        {showViews ? (
-                            'Product analytics'
-                        ) : (
-                            <>
-                                <span className="hidden @min-[32rem]/home-overview:inline">Product Analytics </span>
-                                <span>Overview</span>
-                            </>
-                        )}
-                    </h2>
+                    {!showViews && (
+                        <h2 className="m-0 min-w-0 text-lg font-semibold">
+                            <span className="hidden @min-[32rem]/home-overview:inline">Product Analytics </span>
+                            <span>Overview</span>
+                        </h2>
+                    )}
                     <div className="shrink-0 whitespace-nowrap @min-[48rem]/saved-insights:hidden">
                         {dashboardActions}
                     </div>
@@ -122,16 +134,6 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                     <HomeTabReloadButton />
                 </div>
             </div>
-
-            {showViews && (
-                <LemonTabs
-                    activeKey={selectedView}
-                    onChange={setSelectedView}
-                    tabs={HOME_VIEW_TABS}
-                    size="small"
-                    data-attr="home-tab-views"
-                />
-            )}
 
             {showViews && selectedView !== 'overview' ? (
                 <HomeTabView
