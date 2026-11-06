@@ -1090,15 +1090,15 @@ export class CdpApi {
         }
     }
 
-    // Auth: a per-call JWT that Django mints for this team and workflow after it checks that the
-    // user may edit the workflow. The route is exempt from the internal API secret.
+    // Auth: a per-call JWT that Django mints for this team, workflow and user after it checks that
+    // the user may edit the workflow. The route is exempt from the internal API secret.
     private postHogFlowManualInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         if (!this.manualRunJwt.enabled) {
             return res.status(503).json({
                 error: 'Workflows scoped auth not configured (WORKFLOWS_CANCEL_JWT_SECRET unset)',
             })
         }
-        if (!this.verifyScopedWorkflowJwt(this.manualRunJwt, req, res, 'manual run')) {
+        if (!this.verifyScopedWorkflowJwt(this.manualRunJwt, req, res, 'manual run', { user_id: req.body?.user_id })) {
             return
         }
 
