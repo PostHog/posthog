@@ -54,6 +54,16 @@ export function isConvertibleClickHouseEvent(event: unknown): event is RawClickH
     )
 }
 
+export function getEventUrl(
+    projectUrl: string,
+    event: Pick<HogFunctionInvocationGlobals['event'], 'uuid' | 'event' | 'timestamp'>
+): string {
+    const eventUrl = `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(event.timestamp)}`
+    // The events page reads flag calls from flag_evaluations only when the link names the event.
+    // On flag_evaluations_mode 2 a flag call has no events row, so a link without the name finds nothing.
+    return event.event === '$feature_flag_called' ? `${eventUrl}?event=${encodeURIComponent(event.event)}` : eventUrl
+}
+
 // that we can keep to as a contract
 export function convertToHogFunctionInvocationGlobals(
     event: RawClickHouseEvent,
@@ -79,7 +89,6 @@ export function convertToHogFunctionInvocationGlobals(
 
     const eventTimestamp = parseClickHouseEventTimestamp(event.timestamp)!
     const eventCapturedAt = parseClickHouseEventTimestamp(event.captured_at)
-    const eventUrl = `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`
 
     const context: HogFunctionInvocationGlobals = {
         project: {
@@ -95,12 +104,7 @@ export function convertToHogFunctionInvocationGlobals(
             properties,
             timestamp: eventTimestamp,
             captured_at: eventCapturedAt,
-            // The events page reads flag calls from flag_evaluations only when the link names the event.
-            // On flag_evaluations_mode 2 a flag call has no events row, so a link without the name finds nothing.
-            url:
-                event.event === '$feature_flag_called'
-                    ? `${eventUrl}?event=${encodeURIComponent(event.event)}`
-                    : eventUrl,
+            url: getEventUrl(projectUrl, { uuid: event.uuid, event: event.event!, timestamp: eventTimestamp }),
         },
         person,
     }

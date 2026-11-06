@@ -16,7 +16,7 @@ import {
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionType,
 } from '../../cdp/types'
-import { isLegacyPluginHogFunction } from '../../cdp/utils'
+import { getEventUrl, isLegacyPluginHogFunction } from '../../cdp/utils'
 import type { CommonConfig } from '../../common/config'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogInputsService } from '../services/hog-inputs.service'
@@ -412,7 +412,10 @@ export class HogTransformerService implements HogTransformer {
             }
         }
 
-        return await this.hogExecutor.execute(invocation, { functions: transformationFunctions })
+        return await this.hogExecutor.execute(invocation, {
+            functions: transformationFunctions,
+            eventUrl: getEventUrl(`${this.config.siteUrl}/project/${globals.project.id}`, globals.event),
+        })
     }
 }
 

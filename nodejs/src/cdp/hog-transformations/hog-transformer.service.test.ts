@@ -230,6 +230,34 @@ describe('HogTransformer', () => {
             expect(result.event?.event).toBe('button_click')
         })
 
+        it('links the completion log to the PostHog event while hog code still reads the page url', async () => {
+            const transformer = createHogTransformerService(
+                { ...hub, SITE_URL: 'https://us.posthog.com', TRANSFORMATIONS_HOG_TIMEOUT_MS: 10_000 },
+                { ...hub, monitoringOutputs: createTestMonitoringOutputs(mockProducer) }
+            )
+            const fn = createHogFunction({
+                type: 'transformation',
+                name: 'Url reader',
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(`
+                    let returnEvent := event
+                    returnEvent.properties.seen_url := event.url
+                    return returnEvent
+                `),
+            })
+
+            const result = await transformer.transformEvent(createPluginEvent({}, teamId), [fn])
+            await transformer.stop()
+
+            expect(result.event?.properties?.seen_url).toBe('https://example.com')
+            expect(result.invocationResults[0].logs.map((log) => log.message)).toEqual([
+                expect.stringContaining(
+                    `Event: 'https://us.posthog.com/project/${teamId}/events/event-id/2024-01-01T00%3A00%3A00Z'`
+                ),
+            ])
+        })
+
         it('only allow modifying certain properties', async () => {
             const fn = createHogFunction({
                 type: 'transformation',
