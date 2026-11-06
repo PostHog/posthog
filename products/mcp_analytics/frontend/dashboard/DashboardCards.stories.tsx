@@ -293,6 +293,20 @@ export const DailyCallsAndErrors: Story = {
     )),
 }
 
+export const DailyCallsAndErrorsLoading: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+    render: withTheme((theme) => (
+        <ActivityChart
+            daily={{ labels: [], successes: [], errors: [] }}
+            loading
+            theme={theme}
+            timezone="UTC"
+            interval="day"
+            incompleteTail={false}
+        />
+    )),
+}
+
 export const DailyCallsAndErrorsInProgressBucket: Story = {
     render: withTheme((theme) => (
         <ActivityChart
@@ -480,6 +494,13 @@ export const ErrorRateByToolLoadError: Story = {
 export const DailyToolBreakdown: Story = {
     render: withTheme((theme) => (
         <ToolUsageChart data={TOOL_DAILY} loading={false} theme={theme} timezone="UTC" interval="day" />
+    )),
+}
+
+export const DailyToolBreakdownLoading: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+    render: withTheme((theme) => (
+        <ToolUsageChart data={{ labels: [], tools: [] }} loading theme={theme} timezone="UTC" interval="day" />
     )),
 }
 

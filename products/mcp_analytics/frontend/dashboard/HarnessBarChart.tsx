@@ -4,12 +4,12 @@ import { type ChartTheme, type TooltipContext } from '@posthog/quill-charts'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { type HarnessRow } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'
+import { ChartSkeleton } from './ChartSkeleton'
 import { ChartTooltip } from './ChartTooltip'
 import { formatNumber } from './formatters'
 import { HarnessLogo } from './harness'
@@ -93,13 +93,7 @@ export function HarnessBarChart({
                 failed={failed}
                 onRetry={onRetry}
                 className="min-h-80"
-                skeleton={
-                    <div className="flex-1 space-y-6 py-3">
-                        {Array.from({ length: 6 }).map((_, index) => (
-                            <LemonSkeleton key={index} className="h-4 w-full" />
-                        ))}
-                    </div>
-                }
+                skeleton={<ChartSkeleton kind="shares" />}
                 empty={
                     <div className="flex flex-1 items-center justify-center text-xs text-secondary">
                         No harness data in this date range. Try a wider range.

@@ -7,12 +7,12 @@ import {
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
 } from '@posthog/quill-charts'
-import { Skeleton } from '@posthog/quill-primitives'
 
 import { useChartConfig } from 'lib/charts/hooks'
 
 import { type DailyActivity } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'
+import { ChartSkeleton } from './ChartSkeleton'
 
 export function ActivityChart({
     daily,
@@ -70,7 +70,7 @@ export function ActivityChart({
                 failed={failed}
                 onRetry={onRetry}
                 className="min-h-[300px]"
-                skeleton={<Skeleton className="flex-1" />}
+                skeleton={<ChartSkeleton kind="line" />}
                 empty={
                     <div className="flex flex-1 items-center justify-center py-6 text-center text-[12px] text-secondary">
                         No tool calls in this date range. Try a wider range.

@@ -9,13 +9,13 @@ import {
     type TooltipContext,
     ValueLabels,
 } from '@posthog/quill-charts'
-import { Skeleton } from '@posthog/quill-primitives'
 
 import { useChartConfig } from 'lib/charts/hooks'
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { type ToolRow } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'
+import { ChartSkeleton } from './ChartSkeleton'
 import { ChartTooltip } from './ChartTooltip'
 
 const MAX_TOOLS = 8
@@ -107,13 +107,7 @@ export function ToolErrorRateChart({
                 failed={failed}
                 onRetry={onRetry}
                 className="min-h-80"
-                skeleton={
-                    <div className="flex flex-1 flex-col justify-around py-3">
-                        {Array.from({ length: 5 }).map((_, i) => (
-                            <Skeleton key={i} className="h-7 w-full" />
-                        ))}
-                    </div>
-                }
+                skeleton={<ChartSkeleton kind="bars" />}
                 empty={
                     <div className="flex flex-1 items-center justify-center py-6 text-center text-[12px] text-secondary">
                         {emptyMessage}
