@@ -501,7 +501,8 @@ impl Publishable for WrappedEvent {
     }
 
     fn serialize(&self, ctx: &RequestContext) -> anyhow::Result<bytes::Bytes> {
-        let spliced = self.build_spliced_properties(ctx)?;
+        let sdk_lib = ctx.sdk_lib_and_version();
+        let spliced = self.build_spliced_properties(sdk_lib)?;
         let properties: &RawValue = spliced.as_deref().unwrap_or(&self.event.properties);
         let ingestion_data = IngestionData {
             event: &self.event.event,
@@ -538,6 +539,7 @@ impl Publishable for WrappedEvent {
             timestamp,
             is_cookieless_mode: self.options.cookieless_mode.unwrap_or(false),
             historical_migration: ctx.historical_migration,
+            options: self.outbound_options(sdk_lib),
         };
 
         let mut buf = Vec::with_capacity(data.len() + 512);
@@ -548,9 +550,26 @@ impl Publishable for WrappedEvent {
 }
 
 impl WrappedEvent {
+    fn outbound_options<'a>(
+        &'a self,
+        sdk_lib: Option<(&'a str, &'a str)>,
+    ) -> Option<OutboundOptions<'a>> {
+        let opts = OutboundOptions {
+            session_id: self.event.session_id.as_deref(),
+            window_id: self.event.window_id.as_deref(),
+            cookieless_mode: self.options.cookieless_mode,
+            disable_skew_correction: self.options.disable_skew_correction,
+            product_tour_id: self.options.product_tour_id.as_deref(),
+            process_person_profile: self.options.process_person_profile,
+            req_lib: sdk_lib.map(|(lib, _)| lib),
+            req_lib_version: sdk_lib.map(|(_, version)| version),
+        };
+        (!opts.is_empty()).then_some(opts)
+    }
+
     /// Server-side `$` properties as comma-separated `"key":value` pairs, without braces.
     #[allow(unused_assignments)]
-    fn build_property_injections(&self, ctx: &RequestContext) -> anyhow::Result<String> {
+    fn build_property_injections(&self, sdk_lib: Option<(&str, &str)>) -> anyhow::Result<String> {
         let mut buf = String::with_capacity(256);
         let mut first = true;
 
@@ -592,7 +611,7 @@ impl WrappedEvent {
         // so the header wins under last-key-wins parsing (same duplicate-key
         // semantics as the injections above). Unusable headers inject nothing
         // and are counted per-request in the handler.
-        if let Some((lib, lib_version)) = ctx.sdk_lib_and_version() {
+        if let Some((lib, lib_version)) = sdk_lib {
             inject!(buf, first, "$lib", lib);
             inject!(buf, first, "$lib_version", lib_version);
         }
@@ -604,9 +623,9 @@ impl WrappedEvent {
     /// so capture never parses the properties. Returns None when nothing is injected.
     fn build_spliced_properties(
         &self,
-        ctx: &RequestContext,
+        sdk_lib: Option<(&str, &str)>,
     ) -> anyhow::Result<Option<Box<RawValue>>> {
-        let injection = self.build_property_injections(ctx)?;
+        let injection = self.build_property_injections(sdk_lib)?;
         if injection.is_empty() {
             return Ok(None);
         }
@@ -685,6 +704,37 @@ pub struct IngestionEvent<'a> {
     pub is_cookieless_mode: bool,
     #[serde(skip_serializing_if = "<&bool>::not", default)]
     pub historical_migration: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub options: Option<OutboundOptions<'a>>,
+}
+
+/// Consumers of the capture topics read these keys, so a rename breaks them.
+/// They override the property for each present key, but fill `$lib` /
+/// `$lib_version` from `req_lib` / `req_lib_version` only when `$lib` is absent.
+#[derive(Debug, Default, Serialize, PartialEq)]
+pub struct OutboundOptions<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cookieless_mode: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disable_skew_correction: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub product_tour_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_person_profile: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub req_lib: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub req_lib_version: Option<&'a str>,
+}
+
+impl OutboundOptions<'_> {
+    fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 /// The inner `data` payload: a simplified RawEvent-shaped struct for
@@ -1721,6 +1771,16 @@ mod tests {
         (captured, data)
     }
 
+    fn captured_options(
+        wrapped: &WrappedEvent,
+        ctx: &crate::v1::context::RequestContext,
+    ) -> serde_json::Map<String, Value> {
+        serialize_and_parse(wrapped, ctx)
+            .0
+            .options
+            .expect("expected options on the v1 output")
+    }
+
     #[test]
     fn serialize_fails_without_adjusted_timestamp() {
         let mut ev = pageview_event();
@@ -1817,6 +1877,11 @@ mod tests {
                 !data.properties.contains_key("$lib_version"),
                 "expected no $lib_version for sdk_info {bad:?}"
             );
+            let options = captured_options(&wrapped, &ctx);
+            assert!(
+                !options.contains_key("req_lib") && !options.contains_key("req_lib_version"),
+                "expected no req_lib options for sdk_info {bad:?}: {options:?}"
+            );
         }
     }
 
@@ -1892,7 +1957,7 @@ mod tests {
         };
 
         let ctx = serialize_ctx();
-        let (_, data) = serialize_and_parse(&wrapped, &ctx);
+        let (captured, data) = serialize_and_parse(&wrapped, &ctx);
         let props = &data.properties;
 
         assert_eq!(props["existing"], "value");
@@ -1902,6 +1967,22 @@ mod tests {
         assert_eq!(props["$ignore_sent_at"], true);
         assert_eq!(props["$product_tour_id"], "tour-onboarding-v2");
         assert_eq!(props["$process_person_profile"], false);
+
+        let expected = serde_json::json!({
+            "session_id": "sess-01jq9abc",
+            "window_id": "win-xyz789",
+            "cookieless_mode": true,
+            "disable_skew_correction": true,
+            "product_tour_id": "tour-onboarding-v2",
+            "process_person_profile": false,
+            "req_lib": "posthog-rs",
+            "req_lib_version": "1.0.0",
+        });
+        assert_eq!(
+            captured.options.map(Value::Object),
+            Some(expected),
+            "options must carry the spliced values under the v1 option names"
+        );
     }
 
     #[test]
@@ -1976,13 +2057,21 @@ mod tests {
             is_gateway_verified: false,
         };
 
-        let ctx = serialize_ctx();
+        let mut ctx = serialize_ctx();
         let (_, data) = serialize_and_parse(&wrapped, &ctx);
         // $lib/$lib_version always materialize from the (valid) Sdk-Info header.
         let props = &data.properties;
         assert_eq!(props["$lib"], "posthog-rs");
         assert_eq!(props["$lib_version"], "1.0.0");
         assert_eq!(props.len(), 2);
+
+        ctx.sdk_info = String::new();
+        let buf = wrapped.serialize(&ctx).expect("serialize failed");
+        let raw: Value = serde_json::from_slice(&buf).unwrap();
+        assert!(
+            raw.get("options").is_none(),
+            "options must be omitted when no value is present: {raw}"
+        );
     }
 
     #[test]
@@ -2162,8 +2251,13 @@ mod tests {
     ) {
         let mut wrapped = pageview_event();
         wrapped.options = options_with(key, raw).validate().unwrap();
-        let (_, data) = serialize_and_parse(&wrapped, &serialize_ctx());
+        let ctx = serialize_ctx();
+        let (_, data) = serialize_and_parse(&wrapped, &ctx);
         assert_eq!(data.properties[property], serde_json::Value::Bool(expected));
+        assert_eq!(
+            captured_options(&wrapped, &ctx)[key.as_str()],
+            serde_json::Value::Bool(expected)
+        );
     }
 
     #[test]

@@ -725,6 +725,7 @@ mod tests {
             timestamp,
             is_cookieless_mode: false,
             historical_migration: false,
+            options: None,
         };
 
         let metadata = ProcessedEventMetadata {
@@ -780,6 +781,7 @@ mod tests {
             timestamp,
             is_cookieless_mode: false,
             historical_migration: false,
+            options: None,
         };
 
         let big_event = ProcessedEvent {
@@ -813,6 +815,7 @@ mod tests {
                 timestamp,
                 is_cookieless_mode: false,
                 historical_migration: false,
+                options: None,
             },
             metadata: metadata.clone(),
         };
@@ -1061,6 +1064,7 @@ mod tests {
                 timestamp,
                 is_cookieless_mode: false,
                 historical_migration: false,
+                options: None,
             };
 
             let metadata = ProcessedEventMetadata {
