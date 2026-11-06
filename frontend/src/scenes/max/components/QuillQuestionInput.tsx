@@ -297,7 +297,7 @@ export const QuillQuestionInput = React.forwardRef<HTMLDivElement, QuillQuestion
                                         >
                                             <ReplySuggestionHint
                                                 suggestion={replySuggestion}
-                                                keyHint={<Kbd>Tab</Kbd>}
+                                                acceptHint={<Kbd>Tab to accept</Kbd>}
                                             />
                                         </div>
                                     ) : !inputValue ? (

@@ -250,7 +250,9 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                     >
                                         <ReplySuggestionHint
                                             suggestion={replySuggestion}
-                                            keyHint={<kbd className="KeyboardShortcut text-secondary">Tab</kbd>}
+                                            acceptHint={
+                                                <kbd className="KeyboardShortcut text-secondary">Tab to accept</kbd>
+                                            }
                                         />
                                     </div>
                                 ) : !inputValue ? (
