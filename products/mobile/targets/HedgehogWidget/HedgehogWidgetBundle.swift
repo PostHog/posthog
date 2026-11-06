@@ -5,5 +5,6 @@ import WidgetKit
 struct HedgehogWidgetBundle: WidgetBundle {
     var body: some Widget {
         HedgehogWidget()
+        ChartWidget()
     }
 }

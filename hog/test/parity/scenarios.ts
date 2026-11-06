@@ -1,4 +1,4 @@
-import { readFileSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 
 import type { Scenario, StoredObject } from './fake-server'
@@ -6,7 +6,7 @@ import { GIT_REPO, mappingOfSize, readTree, SMALL_MAPPING, write } from './fixtu
 import { EXPO_BUILD, HERMES_BUILD, HERMES_BUNDLES } from './hermes-fixtures'
 import { bundles, EDGE_CASES, MALFORMED_MAP_DEBUG_ID, PUBLIC_PATH, STYLESHEET_LOOKUP, STYLESHEETS } from './js-fixtures'
 import { INFO_PLIST_BINARY, INFO_PLIST_SETTINGS, INFO_PLIST_XML, XCODE_SETTINGS } from './plist-fixtures'
-import { decodeFile, type ParityResult } from './run'
+import { decodeFile, readGolden } from './run'
 import { SYMBOL_SETS } from './symbol-set-fixtures'
 
 type Files = Record<string, string | Uint8Array>
@@ -39,9 +39,7 @@ export interface ParityScenario {
 function filesFrom(name: string): () => Files {
     return () => {
         const scenario = SCENARIOS.find((candidate) => candidate.name === name)!
-        const golden = JSON.parse(
-            readFileSync(join(import.meta.dir, 'golden', 'e2e', `${name}.json`), 'utf8')
-        ) as ParityResult
+        const golden = readGolden(name)
         const files: Files = { ...scenario.files() }
         for (const [path, text] of Object.entries(golden.files ?? {})) {
             if (text === null) {
