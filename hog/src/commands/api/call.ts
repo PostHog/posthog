@@ -79,14 +79,15 @@ export default defineCommand({
             return result.value
         }
         // PostHog names one missing scope per refusal, so look up the key to name all of them.
+        const kind = (await ctx.credentials()).key.status().kind
         if (result.error.code === 'permission_denied') {
             const granted = await grantedScopes(ctx, library)
             const missing = granted ? library.missingScopes(granted, tool.requiredScopes) : []
             if (missing.length > 0) {
-                throw missingScopesError(tool.name, missing)
+                throw missingScopesError(tool.name, missing, kind)
             }
         }
-        throw toHogError(result.error, tool.name)
+        throw toHogError(result.error, tool.name, kind)
     },
 
     telemetry: ({ args, options }) => ({ tool: args.tool, confirm: options.confirm === true }),

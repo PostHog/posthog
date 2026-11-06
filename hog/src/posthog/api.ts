@@ -8,6 +8,7 @@ import { VERSION } from '@/version'
 
 import { hostUrl } from './host'
 import type { KeySession } from './key-session'
+import { challengedScopes, stepUpRequired } from './step-up'
 
 export const USER_AGENT = `hog/${VERSION}`
 // Generous, because a HogQL query can run for minutes. It only stops a connection that hangs.
@@ -29,6 +30,7 @@ export interface HttpResponse {
     ok: boolean
     json: unknown
     text: string
+    headers: Headers
 }
 
 // Sends one JSON request to PostHog. Any failure before the whole body arrives, including the
@@ -64,7 +66,7 @@ export async function sendRequest(fetchFn: RuntimeFetch, url: URL, request: Http
     }
     // Callers check `json` against a schema of their own. A body that isn't JSON leaves it undefined.
     const json = text ? parseLosslessJson(text) : undefined
-    return { status: response.status, ok: response.ok, json, text }
+    return { status: response.status, ok: response.ok, json, text, headers: response.headers }
 }
 
 // A non-2xx answer from PostHog. `type` is the DRF error type, such as `validation_error`.
@@ -74,15 +76,20 @@ export class ApiError extends HogError {
         readonly type: string | undefined,
         code: string,
         message: string,
-        hint?: string
+        hint?: string,
+        details?: Readonly<Record<string, unknown>>
     ) {
-        super(code, message, hint)
+        super(code, message, hint, undefined, details)
     }
 
     override withHint(hint: string): ApiError {
-        return new ApiError(this.status, this.type, this.code, this.message, hint)
+        return new ApiError(this.status, this.type, this.code, this.message, hint, this.details)
     }
 }
+
+// Asks the person to add the scopes to their login, and resolves to whether they did. hog then
+// sends the request again with the new token.
+export type StepUp = (scopes: readonly string[]) => Promise<boolean>
 
 // A DRF error body. `type` is the DRF error type, such as `validation_error`.
 // A field of another type reads as missing, so the others still reach the error message.
@@ -95,7 +102,8 @@ const DRFErrorBody = z.object({
 export class PostHogApi {
     constructor(
         private readonly session: KeySession,
-        private readonly fetchFn: RuntimeFetch
+        private readonly fetchFn: RuntimeFetch,
+        private readonly stepUp?: StepUp
     ) {}
 
     // Paths are relative to the project, so `query` is /api/environments/<project id>/query. A path
@@ -134,10 +142,22 @@ export class PostHogApi {
 
     private async request<T>(method: Method, path: string, schema: Schema<T>, body?: unknown): Promise<T> {
         const url = this.url(path)
-        const response = await this.session.send(
-            (token) => sendRequest(this.fetchFn, url, { method, body, token }),
-            (answer) => answer.status === 401
-        )
+        const send = (): Promise<HttpResponse> =>
+            this.session.send(
+                (token) => sendRequest(this.fetchFn, url, { method, body, token }),
+                (answer) => answer.status === 401
+            )
+        let response = await send()
+        let missing = await this.missingScopes(response)
+        // PostHog checks scopes before it does any work, so sending the request again is safe for a
+        // POST too. It is sent again once, so a step-up that still falls short ends in the error.
+        if (missing && (await this.stepUp?.(missing))) {
+            response = await send()
+            missing = await this.missingScopes(response)
+        }
+        if (missing) {
+            throw stepUpRequired(missing)
+        }
         if (response.text && response.json === undefined) {
             throw new HogError(
                 'unexpected_response',
@@ -153,6 +173,19 @@ export class PostHogApi {
             context: `PostHog's answer to ${method} ${url.pathname} isn't what hog expects.`,
             hint: 'Check that the host runs a recent version of PostHog.',
         })
+    }
+
+    // The scopes an `insufficient_scope` challenge asks for that the login lacks. The challenge names
+    // every scope the request needs, so the ones the login holds are left out of the step-up.
+    private async missingScopes(response: HttpResponse): Promise<string[] | undefined> {
+        const challenged =
+            response.status === 403 ? challengedScopes(response.headers.get('www-authenticate')) : undefined
+        if (!challenged) {
+            return undefined
+        }
+        const { scopesNotCovered } = await import('./scopes')
+        const missing = scopesNotCovered(this.session.current.status().scopes ?? [], challenged)
+        return missing.length > 0 ? missing : challenged
     }
 
     private failure(status: number, body: unknown): ApiError {

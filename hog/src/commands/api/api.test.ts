@@ -194,6 +194,7 @@ describe('hog api', () => {
         expect(result.error()).toMatchObject({
             code: 'missing_scopes',
             message: `Your credentials need ${scopes} to call insight-create.`,
+            hint: expect.stringContaining('personal API key'),
         })
     })
 
@@ -271,9 +272,12 @@ describe('hog api', () => {
             }),
         })
 
+        // A login can add the scopes itself, so agents get the command to run.
         expect(result.error()).toMatchObject({
             code: 'missing_scopes',
             message: 'Your credentials need insight:write, query:read to call insight-create.',
+            scopes: ['insight:write', 'query:read'],
+            command: 'hog auth add insight:write query:read',
         })
     })
 })

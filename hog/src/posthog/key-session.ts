@@ -1,3 +1,4 @@
+import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
 
 import type { AccessKey, AccessKeyStorage } from './access-key'
@@ -27,6 +28,20 @@ export class KeySession {
             this.key = await this.key.fresh(this.runtime, this.storage)
         }
         return this.key.token
+    }
+
+    // After a step-up saved a new login: the rest of the command uses it. A step-up in the same project
+    // keeps the login's id. Another id means another project, where the rest of the command must not go.
+    async reload(): Promise<void> {
+        const latest = await this.storage?.reread()
+        if (latest?.loginKey !== this.key.loginKey) {
+            throw new HogError(
+                'login_changed',
+                'Your login now works in another project, so hog stopped instead of sending the rest of the command there.',
+                'Run the command again to use the new login.'
+            )
+        }
+        this.key = latest
     }
 
     async send<T>(attempt: (token: string) => Promise<T>, rejected: (result: T) => boolean): Promise<T> {

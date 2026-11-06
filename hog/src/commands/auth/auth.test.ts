@@ -913,4 +913,61 @@ describe('hog auth login', () => {
         expect(result.json()).toMatchObject({ status: 'already_granted' })
         expect(result.requests).toEqual([])
     })
+
+    // PostHog names every scope the request needs, held or not. The login holds insight:read.
+    const CHALLENGE = 'Bearer error="insufficient_scope", scope="insight:read query:read dashboard:write"'
+    const ROWS = { columns: ['total'], results: [[1]], hasMore: false }
+
+    function challengedQuery(final: (authorization: string | null) => { status: number; body: unknown }) {
+        const flow = deviceFlow(0, {
+            status: 200,
+            body: {
+                ...APPROVED,
+                access_token: STEPPED_UP_ACCESS,
+                refresh_token: STEPPED_UP_REFRESH,
+                scope: 'openid insight:read query:read dashboard:write',
+            },
+        })
+        return (url: string, _body: unknown, authorization: string | null) =>
+            url.endsWith('/query')
+                ? authorization === `Bearer ${STEPPED_UP_ACCESS}`
+                    ? final(authorization)
+                    : { status: 403, body: { detail: 'missing scope' }, headers: { 'WWW-Authenticate': CHALLENGE } }
+                : flow(url)
+    }
+
+    test('an agent gets the step-up command for the scopes a request lacks, without a prompt', async () => {
+        const result = await runHog(['query', 'run', 'select 1'], {
+            env: { CLAUDECODE: '1' },
+            ...OAUTH_LOGIN,
+            respond: challengedQuery(() => ({ status: 200, body: ROWS })),
+        })
+
+        expect(result.error()).toMatchObject({
+            code: 'step_up_required',
+            scopes: ['query:read', 'dashboard:write'],
+            command: 'hog auth add query:read dashboard:write',
+        })
+        expect(result.requests.map((request) => request.url)).toEqual([`${EU}/api/environments/42/query`])
+    })
+
+    test('at a terminal, a yes adds the scopes and sends the request again with the new token', async () => {
+        const result = await runHog(['query', 'run', 'select 1'], {
+            stdoutIsTTY: true,
+            answers: ['yes'],
+            ...OAUTH_LOGIN,
+            respond: challengedQuery(() => ({ status: 200, body: ROWS })),
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.requests.find((request) => request.url.endsWith('/device-authorization/'))?.body).toEqual({
+            client_id: HOG_CLIENT_ID,
+            scope: 'openid insight:read query:read dashboard:write',
+            required_scopes: 'query:read dashboard:write',
+        })
+        expect(result.requests.filter((request) => request.url.endsWith('/query'))).toHaveLength(2)
+        expect(readJson(result.files[SETTINGS_FILE] ?? '{}')).toMatchObject({
+            logins: { [EU]: { loginId: 'login-1' } },
+        })
+    })
 })

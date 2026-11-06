@@ -1,44 +1,8 @@
-import { printPending, refuseInCi, resumeApproval, runApproval, type PendingResult } from '@/core/approval'
+import { printPending, resumeApproval } from '@/core/approval'
 import { defineCommand } from '@/core/command'
-import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
-import { ADD_COMMAND, loginFlow, loginWait, saveLogin } from '@/posthog/login/flow'
-import type { OAuthLogin } from '@/posthog/oauth'
-
-type AddResult =
-    | (PendingResult & { host: string })
-    | {
-          status: 'added' | 'already_granted'
-          host: string
-          projectId: string
-          // Set when the person picked another project on the approval page.
-          previousProjectId: string | null
-          // Every scope the login has now.
-          scopes: string[]
-          // False when PostHog didn't revoke the login this one replaced, which then works until it expires.
-          replacedRevoked: boolean | null
-      }
-
-// Saves the approved login in place of the stored one.
-async function finish(ctx: Context, approved: OAuthLogin): Promise<AddResult> {
-    const saved = await saveLogin(ctx.runtime, approved, { replace: (stored) => approved.continuing(stored) })
-    return {
-        status: 'added',
-        host: saved.host,
-        projectId: saved.projectId,
-        previousProjectId: saved.previousProjectId,
-        scopes: saved.status.scopes ?? [],
-        replacedRevoked: saved.replacedRevoked,
-    }
-}
-
-function keyCantStepUp(scopes: readonly string[]): HogError {
-    return new HogError(
-        'step_up_unavailable',
-        'hog can only add scopes to a login. A personal API key keeps the scopes it has in PostHog.',
-        `Add ${scopes.join(', ')} to the key in PostHog under Settings, Personal API keys. Or run \`hog auth login\` to log in with the browser instead.`
-    )
-}
+import { ADD_COMMAND, loginWait } from '@/posthog/login/flow'
+import type { StepUpResult } from '@/posthog/login/step-up'
 
 export default defineCommand({
     description: 'Add scopes to your login, approved in the browser',
@@ -60,7 +24,7 @@ export default defineCommand({
     ].join('\n'),
     examples: ['hog auth add insight:write', 'hog auth add insight:write dashboard:write', 'hog auth add --wait'],
 
-    async run({ args, options, ctx }): Promise<AddResult> {
+    async run({ args, options, ctx }): Promise<StepUpResult> {
         if (options.wait && args.scopes.length > 0) {
             throw new HogError(
                 'scopes_with_wait',
@@ -69,8 +33,10 @@ export default defineCommand({
                 EXIT_USAGE
             )
         }
+        // The scope list is large, so only this command loads it.
+        const { finishStepUp, stepUp } = await import('@/posthog/login/step-up')
         if (options.wait) {
-            return finish(ctx, await resumeApproval(ctx, loginWait(ctx.runtime, ADD_COMMAND)))
+            return finishStepUp(ctx, await resumeApproval(ctx, loginWait(ctx.runtime, ADD_COMMAND)))
         }
         if (args.scopes.length === 0) {
             throw new HogError(
@@ -80,39 +46,8 @@ export default defineCommand({
                 EXIT_USAGE
             )
         }
-        // The scope list is large, so only this command loads it.
-        const { parseScope, scopesNotCovered } = await import('@/posthog/scopes')
-        const wanted = args.scopes.map(parseScope)
-
-        const credentials = await ctx.credentials()
-        const { key } = credentials
-        const { kind, scopes: held } = key.status()
-        if (credentials.source !== 'store' || kind !== 'oauth' || held === null) {
-            throw keyCantStepUp(wanted)
-        }
-        const added = scopesNotCovered(held, wanted)
-        if (added.length === 0) {
-            return {
-                status: 'already_granted',
-                host: key.host,
-                projectId: key.projectId,
-                previousProjectId: null,
-                scopes: held,
-                replacedRevoked: null,
-            }
-        }
-        refuseInCi(
-            ctx,
-            ADD_COMMAND,
-            'Set HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST to a key with the scopes instead.'
-        )
-
-        const flow = loginFlow(ctx.runtime, key.host, [...held, ...added], {
-            command: ADD_COMMAND,
-            requiredScopes: added,
-        })
-        const result = await runApproval(ctx, flow)
-        return result.status === 'pending' ? { ...result, host: key.host } : finish(ctx, result.value)
+        const { parseScope } = await import('@/posthog/scopes')
+        return stepUp(ctx, args.scopes.map(parseScope))
     },
 
     human({ result, out }) {
@@ -136,7 +71,7 @@ export default defineCommand({
                 if (result.replacedRevoked === false) {
                     out.line(
                         out.style(
-                            "PostHog didn't revoke the login this one replaced. It stops working when it expires, or remove it under Settings, Connected apps.",
+                            "PostHog didn't revoke the login this one replaced. It stops working when it expires, or remove it in PostHog under Settings, Connected applications.",
                             'yellow'
                         )
                     )

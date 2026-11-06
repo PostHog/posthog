@@ -11,8 +11,10 @@ import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
 import { VERSION } from '@/version'
 
+import type { AccessKeyKind } from './access-key'
 import { ApiError } from './api'
 import type { OrganizationId, ProjectId } from './ids'
+import { stepUpCommand } from './step-up'
 
 export interface ToolGroup {
     slug: string
@@ -34,7 +36,7 @@ export interface ToolRow {
 }
 
 const SCOPES_HINT =
-    'For a personal API key, add the scopes to it in PostHog under Settings, Personal API keys. For a login, run `hog auth login` again and keep these scopes when you approve it.'
+    'For a login, run `hog auth add` with the scopes PostHog named. For a personal API key, add them to it in PostHog under Settings, Personal API keys.'
 
 // "Events & properties" becomes "events-properties".
 export function groupSlug(name: string): string {
@@ -135,15 +137,32 @@ export async function withApiConnection<T>(
     )
 }
 
-export function missingScopesError(tool: string, scopes: readonly string[]): HogError {
-    return new HogError('missing_scopes', `Your credentials need ${scopes.join(', ')} to call ${tool}.`, SCOPES_HINT)
+// A login can add the scopes itself, so its error names the command and agents get it as data. A
+// personal API key keeps the scopes set in PostHog.
+export function missingScopesError(tool: string, scopes: readonly string[], kind: AccessKeyKind | undefined): HogError {
+    const message = `Your credentials need ${scopes.join(', ')} to call ${tool}.`
+    switch (kind) {
+        case 'oauth': {
+            const command = stepUpCommand(scopes)
+            const hint = `Run \`${command}\` to add them to your login.`
+            return new HogError('missing_scopes', message, hint, undefined, { scopes: [...scopes], command })
+        }
+        case 'personal_api_key':
+            return new HogError(
+                'missing_scopes',
+                message,
+                'Add them to the personal API key in PostHog under Settings, Personal API keys.'
+            )
+        case undefined:
+            return new HogError('missing_scopes', message, SCOPES_HINT)
+    }
 }
 
-export function toHogError(error: ApiToolError, tool?: string): HogError {
+export function toHogError(error: ApiToolError, tool?: string, kind?: AccessKeyKind): HogError {
     switch (error.code) {
         case 'permission_denied':
             return error.missingScope && tool
-                ? missingScopesError(tool, [error.missingScope])
+                ? missingScopesError(tool, [error.missingScope], kind)
                 : new ApiError(403, undefined, 'permission_denied', error.message, SCOPES_HINT)
         case 'validation_error':
         case 'invalid_input':

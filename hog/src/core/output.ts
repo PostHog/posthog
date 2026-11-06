@@ -116,7 +116,7 @@ export class Output {
 
     error(error: HogError): void {
         if (this.mode.format === 'json') {
-            const payload = { error: { code: error.code, message: error.message, hint: error.hint } }
+            const payload = { error: { ...error.details, code: error.code, message: error.message, hint: error.hint } }
             this.runtime.writeStderr(`${JSON.stringify(payload)}\n`)
             return
         }

@@ -42,8 +42,30 @@ export class Context {
     // The PostHog API client. Credentials resolve on first use, so commands that never call
     // the API work without them.
     async posthog(): Promise<PostHogApi> {
-        this.api ??= new PostHogApi(await this.session(), this.runtime.fetch)
+        this.api ??= new PostHogApi(await this.session(), this.runtime.fetch, (scopes) => this.stepUp(scopes))
         return this.api
+    }
+
+    // At a terminal, asks to add the scopes to the login, waits for the approval in the browser, and
+    // switches the session to the new login. Resolves to false when nobody can answer, the
+    // credentials aren't a login, or the person says no, so the caller reports the missing scopes.
+    async stepUp(scopes: readonly string[]): Promise<boolean> {
+        const prompts = this.prompts
+        const credentials = prompts && (await this.credentials())
+        if (!prompts || credentials?.source !== 'store' || credentials.key.status().kind !== 'oauth') {
+            return false
+        }
+        const them = scopes.length === 1 ? 'it' : 'them'
+        const question = `This needs ${scopes.join(', ')}, which your login doesn't have. Add ${them} now?`
+        if (!(await prompts.confirm(question, { initialValue: true }))) {
+            return false
+        }
+        const { stepUp } = await import('@/posthog/login/step-up')
+        if ((await stepUp(this, scopes)).status !== 'added') {
+            return false
+        }
+        await (await this.session()).reload()
+        return true
     }
 
     // The nearest posthog.json, or undefined when there is none. Throws `invalid_config` when it
