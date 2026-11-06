@@ -1,0 +1,820 @@
+[
+  {
+    "name": "replacement",
+    "source": "<p>Hello {{ firstName }}</p>",
+    "data": {
+      "firstName": "Ben"
+    },
+    "liquid": "<p>Hello {{ variables.firstName }}</p>",
+    "expected": "<p>Hello Ben</p>"
+  },
+  {
+    "name": "link value",
+    "source": "<a href=\"{{url}}\">Go</a>",
+    "data": {
+      "url": "https://example.com/a?b=1"
+    },
+    "liquid": "<a href=\"{{ variables.url }}\">Go</a>",
+    "expected": "<a href=\"https://example.com/a?b=1\">Go</a>"
+  },
+  {
+    "name": "deep object",
+    "source": "<p>{{user.profile.firstName}}</p>",
+    "data": {
+      "user": {
+        "profile": {
+          "firstName": "Ben"
+        }
+      }
+    },
+    "liquid": "<p>{{ variables.user.profile.firstName }}</p>",
+    "expected": "<p>Ben</p>"
+  },
+  {
+    "name": "missing path renders empty",
+    "source": "[{{user.profile.firstName}}]",
+    "data": {
+      "user": {}
+    },
+    "liquid": "[{{ variables.user.profile.firstName }}]",
+    "expected": "[]"
+  },
+  {
+    "name": "double braces escape",
+    "source": "{{markup}}",
+    "data": {
+      "markup": "<b>Tom & Ann</b>"
+    },
+    "liquid": "{{ variables.markup }}",
+    "expected": "&lt;b&gt;Tom &amp; Ann&lt;/b&gt;"
+  },
+  {
+    "name": "triple braces do not",
+    "source": "{{{markup}}}",
+    "data": {
+      "markup": "<b>Tom & Ann</b>"
+    },
+    "liquid": "{{ variables.markup | raw }}",
+    "expected": "<b>Tom & Ann</b>"
+  },
+  {
+    "name": "unicode and emoji",
+    "source": "<p>Grüße {{name}} 🦔</p>",
+    "data": {
+      "name": "Björk 日本語 🎉"
+    },
+    "liquid": "<p>Grüße {{ variables.name }} 🦔</p>",
+    "expected": "<p>Grüße Björk 日本語 🎉 🦔</p>"
+  },
+  {
+    "name": "number zero prints",
+    "source": "{{count}}",
+    "data": {
+      "count": 0
+    },
+    "liquid": "{{ variables.count }}",
+    "expected": "0"
+  },
+  {
+    "name": "null prints empty",
+    "source": "[{{a}}]",
+    "data": {
+      "a": null
+    },
+    "liquid": "[{{ variables.a }}]",
+    "expected": "[]"
+  },
+  {
+    "name": "segment literal",
+    "source": "{{a.[b c]}}",
+    "data": {
+      "a": {
+        "b c": "spaced"
+      }
+    },
+    "liquid": "{{ variables.a[\"b c\"] }}",
+    "expected": "spaced"
+  },
+  {
+    "name": "array index",
+    "source": "{{items.0.name}}",
+    "data": {
+      "items": [
+        {
+          "name": "first"
+        }
+      ]
+    },
+    "liquid": "{{ variables.items[0].name }}",
+    "expected": "first"
+  },
+  {
+    "name": "insert missing uses default",
+    "source": "Hello {{insert name \"default=Customer\"}}!",
+    "data": {},
+    "liquid": "Hello {{ variables.name | default: \"Customer\" }}!",
+    "expected": "Hello Customer!"
+  },
+  {
+    "name": "insert present",
+    "source": "Hello {{insert name \"default=Customer\"}}!",
+    "data": {
+      "name": "Ben"
+    },
+    "liquid": "Hello {{ variables.name | default: \"Customer\" }}!",
+    "expected": "Hello Ben!"
+  },
+  {
+    "name": "insert plain default",
+    "source": "{{insert biz \"your business\"}}",
+    "data": {},
+    "liquid": "{{ variables.biz | default: \"your business\" }}",
+    "expected": "your business"
+  },
+  {
+    "name": "insert no default",
+    "source": "[{{insert biz}}]",
+    "data": {},
+    "liquid": "[{{ variables.biz }}]",
+    "expected": "[]"
+  },
+  {
+    "name": "formatDate documented",
+    "source": "{{formatDate t \"MMMM DD, YYYY h:mm:ss A\"}}",
+    "data": {
+      "t": "2020-01-01T23:00:00.000Z"
+    },
+    "liquid": "{{ variables.t | date: \"%B %d, %Y %-I:%M:%S %p\", 0 }}",
+    "expected": "January 01, 2020 11:00:00 PM"
+  },
+  {
+    "name": "formatDate offset documented",
+    "source": "{{formatDate t \"MMMM DD, YYYY h:mm:ss A\" \"-0800\"}}",
+    "data": {
+      "t": "2020-01-01T23:00:00.000Z"
+    },
+    "liquid": "{{ variables.t | date: \"%B %d, %Y %-I:%M:%S %p\", 480 }}",
+    "expected": "January 01, 2020 3:00:00 PM"
+  },
+  {
+    "name": "formatDate positive offset across a day",
+    "source": "{{formatDate t \"ddd, MMM D YY HH:mm\" \"+0530\"}}",
+    "data": {
+      "t": "2020-01-01T23:00:00.000Z"
+    },
+    "liquid": "{{ variables.t | date: \"%a, %b %-d %y %H:%M\", -330 }}",
+    "expected": "Thu, Jan 2 20 04:30"
+  },
+  {
+    "name": "formatDate epoch seconds",
+    "source": "{{formatDate t \"YYYY-MM-DD\"}}",
+    "data": {
+      "t": 1577919600
+    },
+    "liquid": "{{ variables.t | date: \"%Y-%m-%d\", 0 }}",
+    "expected": "2020-01-01"
+  },
+  {
+    "name": "formatDate without format",
+    "source": "{{formatDate t}}",
+    "data": {
+      "t": "2020-01-01T23:00:00.000Z"
+    },
+    "liquid": "{{ variables.t | date: \"%Y-%m-%dT%H:%M:%S.%LZ\", 0 }}",
+    "expected": "2020-01-01T23:00:00.000Z"
+  },
+  {
+    "name": "formatDate DST boundary",
+    "source": "{{formatDate t \"YYYY-MM-DD HH:mm\" \"-0500\"}}",
+    "data": {
+      "t": "2026-03-08T07:30:00.000Z"
+    },
+    "liquid": "{{ variables.t | date: \"%Y-%m-%d %H:%M\", 300 }}",
+    "expected": "2026-03-08 02:30"
+  },
+  {
+    "name": "if true",
+    "source": "{{#if a}}yes{{else}}no{{/if}}",
+    "data": {
+      "a": true
+    },
+    "liquid": "{% if variables.a and variables.a != 0 and variables.a.size != 0 %}yes{% else %}no{% endif %}",
+    "expected": "yes"
+  },
+  {
+    "name": "if empty string is false",
+    "source": "{{#if a}}yes{{else}}no{{/if}}",
+    "data": {
+      "a": ""
+    },
+    "liquid": "{% if variables.a and variables.a != 0 and variables.a.size != 0 %}yes{% else %}no{% endif %}",
+    "expected": "no"
+  },
+  {
+    "name": "if zero is false",
+    "source": "{{#if a}}yes{{else}}no{{/if}}",
+    "data": {
+      "a": 0
+    },
+    "liquid": "{% if variables.a and variables.a != 0 and variables.a.size != 0 %}yes{% else %}no{% endif %}",
+    "expected": "no"
+  },
+  {
+    "name": "if float zero is false",
+    "source": "{{#if a}}yes{{else}}no{{/if}}",
+    "data": {
+      "a": 0
+    },
+    "liquid": "{% if variables.a and variables.a != 0 and variables.a.size != 0 %}yes{% else %}no{% endif %}",
+    "expected": "no"
+  },
+  {
+    "name": "if negative is true",
+    "source": "{{#if a}}yes{{else}}no{{/if}}",
+    "data": {
+      "a": -1
+    },
+    "liquid": "{% if variables.a and variables.a != 0 and variables.a.size != 0 %}yes{% else %}no{% endif %}",
+    "expected": "yes"
+  },
+  {
+    "name": "if empty list is false",
+    "source": "{{#if a}}yes{{else}}no{{/if}}",
+    "data": {
+      "a": []
+    },
+    "liquid": "{% if variables.a and variables.a != 0 and variables.a.size != 0 %}yes{% else %}no{% endif %}",
+    "expected": "no"
+  },
+  {
+    "name": "if missing is false",
+    "source": "{{#if a}}yes{{else}}no{{/if}}",
+    "data": {},
+    "liquid": "{% if variables.a and variables.a != 0 and variables.a.size != 0 %}yes{% else %}no{% endif %}",
+    "expected": "no"
+  },
+  {
+    "name": "if null is false",
+    "source": "{{#if a}}yes{{else}}no{{/if}}",
+    "data": {
+      "a": null
+    },
+    "liquid": "{% if variables.a and variables.a != 0 and variables.a.size != 0 %}yes{% else %}no{% endif %}",
+    "expected": "no"
+  },
+  {
+    "name": "if string zero is true",
+    "source": "{{#if a}}yes{{else}}no{{/if}}",
+    "data": {
+      "a": "0"
+    },
+    "liquid": "{% if variables.a and variables.a != 0 and variables.a.size != 0 %}yes{% else %}no{% endif %}",
+    "expected": "yes"
+  },
+  {
+    "name": "if false string is true",
+    "source": "{{#if a}}yes{{else}}no{{/if}}",
+    "data": {
+      "a": "false"
+    },
+    "liquid": "{% if variables.a and variables.a != 0 and variables.a.size != 0 %}yes{% else %}no{% endif %}",
+    "expected": "yes"
+  },
+  {
+    "name": "else if first",
+    "source": "{{#if u.m}}M{{else if u.f}}F{{else}}?{{/if}}",
+    "data": {
+      "u": {
+        "m": true
+      }
+    },
+    "liquid": "{% if variables.u.m and variables.u.m != 0 and variables.u.m.size != 0 %}M{% elsif variables.u.f and variables.u.f != 0 and variables.u.f.size != 0 %}F{% else %}?{% endif %}",
+    "expected": "M"
+  },
+  {
+    "name": "else if second",
+    "source": "{{#if u.m}}M{{else if u.f}}F{{else}}?{{/if}}",
+    "data": {
+      "u": {
+        "m": 0,
+        "f": 1
+      }
+    },
+    "liquid": "{% if variables.u.m and variables.u.m != 0 and variables.u.m.size != 0 %}M{% elsif variables.u.f and variables.u.f != 0 and variables.u.f.size != 0 %}F{% else %}?{% endif %}",
+    "expected": "F"
+  },
+  {
+    "name": "else if neither",
+    "source": "{{#if u.m}}M{{else if u.f}}F{{else}}?{{/if}}",
+    "data": {
+      "u": {}
+    },
+    "liquid": "{% if variables.u.m and variables.u.m != 0 and variables.u.m.size != 0 %}M{% elsif variables.u.f and variables.u.f != 0 and variables.u.f.size != 0 %}F{% else %}?{% endif %}",
+    "expected": "?"
+  },
+  {
+    "name": "root from inside",
+    "source": "{{#each xs}}{{@root.phone}};{{/each}}",
+    "data": {
+      "xs": [
+        1,
+        2
+      ],
+      "phone": "555"
+    },
+    "liquid": "{% for item in variables.xs %}{{ variables.phone }};{% endfor %}",
+    "expected": "555;555;"
+  },
+  {
+    "name": "unless false",
+    "source": "{{#unless a}}shown{{/unless}}",
+    "data": {
+      "a": false
+    },
+    "liquid": "{% unless variables.a and variables.a != 0 and variables.a.size != 0 %}shown{% endunless %}",
+    "expected": "shown"
+  },
+  {
+    "name": "unless true with else",
+    "source": "{{#unless a}}shown{{else}}other{{/unless}}",
+    "data": {
+      "a": "x"
+    },
+    "liquid": "{% unless variables.a and variables.a != 0 and variables.a.size != 0 %}shown{% else %}other{% endunless %}",
+    "expected": "other"
+  },
+  {
+    "name": "unless zero",
+    "source": "{{#unless a}}shown{{else}}other{{/unless}}",
+    "data": {
+      "a": 0
+    },
+    "liquid": "{% unless variables.a and variables.a != 0 and variables.a.size != 0 %}shown{% else %}other{% endunless %}",
+    "expected": "shown"
+  },
+  {
+    "name": "greaterThan yes",
+    "source": "{{#greaterThan a b}}gt{{else}}le{{/greaterThan}}",
+    "data": {
+      "a": 3,
+      "b": 2
+    },
+    "liquid": "{% assign sg_1 = variables.a | plus: 0 %}{% assign sg_2 = variables.b | plus: 0 %}{% if sg_1 > sg_2 %}gt{% else %}le{% endif %}",
+    "expected": "gt"
+  },
+  {
+    "name": "greaterThan no",
+    "source": "{{#greaterThan a b}}gt{{else}}le{{/greaterThan}}",
+    "data": {
+      "a": 2,
+      "b": 3
+    },
+    "liquid": "{% assign sg_1 = variables.a | plus: 0 %}{% assign sg_2 = variables.b | plus: 0 %}{% if sg_1 > sg_2 %}gt{% else %}le{% endif %}",
+    "expected": "le"
+  },
+  {
+    "name": "greaterThan numeric strings",
+    "source": "{{#greaterThan a 9}}gt{{else}}le{{/greaterThan}}",
+    "data": {
+      "a": "10"
+    },
+    "liquid": "{% assign sg_1 = variables.a | plus: 0 %}{% assign sg_2 = 9 | plus: 0 %}{% if sg_1 > sg_2 %}gt{% else %}le{% endif %}",
+    "expected": "gt"
+  },
+  {
+    "name": "lessThan",
+    "source": "{{#lessThan a 3}}lt{{else}}ge{{/lessThan}}",
+    "data": {
+      "a": 2
+    },
+    "liquid": "{% assign sg_1 = variables.a | plus: 0 %}{% assign sg_2 = 3 | plus: 0 %}{% if sg_1 < sg_2 %}lt{% else %}ge{% endif %}",
+    "expected": "lt"
+  },
+  {
+    "name": "equals coerces number and string",
+    "source": "{{#equals 3 \"3\"}}same{{else}}diff{{/equals}}",
+    "data": {},
+    "liquid": "{% assign sg_1 = 3 | append: \"\" %}{% assign sg_2 = \"3\" | append: \"\" %}{% if sg_1 == sg_2 %}same{% else %}diff{% endif %}",
+    "expected": "same"
+  },
+  {
+    "name": "equals variable and literal",
+    "source": "{{#equals a \"3\"}}same{{else}}diff{{/equals}}",
+    "data": {
+      "a": 3
+    },
+    "liquid": "{% assign sg_1 = variables.a | append: \"\" %}{% assign sg_2 = \"3\" | append: \"\" %}{% if sg_1 == sg_2 %}same{% else %}diff{% endif %}",
+    "expected": "same"
+  },
+  {
+    "name": "equals strings differ",
+    "source": "{{#equals a b}}same{{else}}diff{{/equals}}",
+    "data": {
+      "a": "x",
+      "b": "y"
+    },
+    "liquid": "{% assign sg_1 = variables.a | append: \"\" %}{% assign sg_2 = variables.b | append: \"\" %}{% if sg_1 == sg_2 %}same{% else %}diff{% endif %}",
+    "expected": "diff"
+  },
+  {
+    "name": "equals unicode",
+    "source": "{{#equals a \"日本語\"}}same{{else}}diff{{/equals}}",
+    "data": {
+      "a": "日本語"
+    },
+    "liquid": "{% assign sg_1 = variables.a | append: \"\" %}{% assign sg_2 = \"日本語\" | append: \"\" %}{% if sg_1 == sg_2 %}same{% else %}diff{% endif %}",
+    "expected": "same"
+  },
+  {
+    "name": "notEquals",
+    "source": "{{#notEquals a 1}}diff{{else}}same{{/notEquals}}",
+    "data": {
+      "a": 2
+    },
+    "liquid": "{% assign sg_1 = variables.a | append: \"\" %}{% assign sg_2 = 1 | append: \"\" %}{% if sg_1 != sg_2 %}diff{% else %}same{% endif %}",
+    "expected": "diff"
+  },
+  {
+    "name": "notEquals coerces",
+    "source": "{{#notEquals a \"1\"}}diff{{else}}same{{/notEquals}}",
+    "data": {
+      "a": 1
+    },
+    "liquid": "{% assign sg_1 = variables.a | append: \"\" %}{% assign sg_2 = \"1\" | append: \"\" %}{% if sg_1 != sg_2 %}diff{% else %}same{% endif %}",
+    "expected": "same"
+  },
+  {
+    "name": "and all true",
+    "source": "{{#and a b}}all{{else}}not{{/and}}",
+    "data": {
+      "a": 1,
+      "b": "x"
+    },
+    "liquid": "{% if variables.a and variables.a != 0 and variables.a.size != 0 and variables.b and variables.b != 0 and variables.b.size != 0 %}all{% else %}not{% endif %}",
+    "expected": "all"
+  },
+  {
+    "name": "and one empty",
+    "source": "{{#and a b}}all{{else}}not{{/and}}",
+    "data": {
+      "a": 1,
+      "b": ""
+    },
+    "liquid": "{% if variables.a and variables.a != 0 and variables.a.size != 0 and variables.b and variables.b != 0 and variables.b.size != 0 %}all{% else %}not{% endif %}",
+    "expected": "not"
+  },
+  {
+    "name": "or one true",
+    "source": "{{#or a b}}any{{else}}none{{/or}}",
+    "data": {
+      "a": 0,
+      "b": "x"
+    },
+    "liquid": "{% if variables.a and variables.a != 0 and variables.a.size != 0 %}{% assign sg_1 = true %}{% else %}{% assign sg_1 = false %}{% endif %}{% if variables.b and variables.b != 0 and variables.b.size != 0 %}{% assign sg_2 = true %}{% else %}{% assign sg_2 = false %}{% endif %}{% if sg_1 or sg_2 %}any{% else %}none{% endif %}",
+    "expected": "any"
+  },
+  {
+    "name": "or none",
+    "source": "{{#or a b}}any{{else}}none{{/or}}",
+    "data": {
+      "a": 0,
+      "b": ""
+    },
+    "liquid": "{% if variables.a and variables.a != 0 and variables.a.size != 0 %}{% assign sg_1 = true %}{% else %}{% assign sg_1 = false %}{% endif %}{% if variables.b and variables.b != 0 and variables.b.size != 0 %}{% assign sg_2 = true %}{% else %}{% assign sg_2 = false %}{% endif %}{% if sg_1 or sg_2 %}any{% else %}none{% endif %}",
+    "expected": "none"
+  },
+  {
+    "name": "or first of three",
+    "source": "{{#or a b c}}any{{else}}none{{/or}}",
+    "data": {
+      "a": 1,
+      "b": 0,
+      "c": 0
+    },
+    "liquid": "{% if variables.a and variables.a != 0 and variables.a.size != 0 %}{% assign sg_1 = true %}{% else %}{% assign sg_1 = false %}{% endif %}{% if variables.b and variables.b != 0 and variables.b.size != 0 %}{% assign sg_2 = true %}{% else %}{% assign sg_2 = false %}{% endif %}{% if variables.c and variables.c != 0 and variables.c.size != 0 %}{% assign sg_3 = true %}{% else %}{% assign sg_3 = false %}{% endif %}{% if sg_1 or sg_2 or sg_3 %}any{% else %}none{% endif %}",
+    "expected": "any"
+  },
+  {
+    "name": "length string",
+    "source": "{{length a}}",
+    "data": {
+      "a": "hello"
+    },
+    "liquid": "{{ variables.a.size | plus: 0 }}",
+    "expected": "5"
+  },
+  {
+    "name": "length list",
+    "source": "{{length a}}",
+    "data": {
+      "a": [
+        1,
+        2,
+        3
+      ]
+    },
+    "liquid": "{{ variables.a.size | plus: 0 }}",
+    "expected": "3"
+  },
+  {
+    "name": "length missing",
+    "source": "{{length a}}",
+    "data": {},
+    "liquid": "{{ variables.a.size | plus: 0 }}",
+    "expected": "0"
+  },
+  {
+    "name": "length nested in comparison",
+    "source": "{{#greaterThan (length cart) 0}}has{{else}}empty{{/greaterThan}}",
+    "data": {
+      "cart": [
+        1
+      ]
+    },
+    "liquid": "{% assign sg_1 = variables.cart.size | plus: 0 %}{% assign sg_2 = 0 | plus: 0 %}{% if sg_1 > sg_2 %}has{% else %}empty{% endif %}",
+    "expected": "has"
+  },
+  {
+    "name": "length nested empty",
+    "source": "{{#greaterThan (length cart) 0}}has{{else}}empty{{/greaterThan}}",
+    "data": {
+      "cart": []
+    },
+    "liquid": "{% assign sg_1 = variables.cart.size | plus: 0 %}{% assign sg_2 = 0 | plus: 0 %}{% if sg_1 > sg_2 %}has{% else %}empty{% endif %}",
+    "expected": "empty"
+  },
+  {
+    "name": "each documented",
+    "source": "<ol>{{#each orders}}<li>{{this.item}} on {{this.date}}</li>{{/each}}</ol>",
+    "data": {
+      "orders": [
+        {
+          "item": "Shoes",
+          "date": "1/4/2017"
+        },
+        {
+          "item": "Hat",
+          "date": "2/4/2017"
+        }
+      ]
+    },
+    "liquid": "<ol>{% for item in variables.orders %}<li>{{ item.item }} on {{ item.date }}</li>{% endfor %}</ol>",
+    "expected": "<ol><li>Shoes on 1/4/2017</li><li>Hat on 2/4/2017</li></ol>"
+  },
+  {
+    "name": "each bare property",
+    "source": "{{#each xs}}{{name}},{{/each}}",
+    "data": {
+      "xs": [
+        {
+          "name": "a"
+        },
+        {
+          "name": "b"
+        }
+      ]
+    },
+    "liquid": "{% for item in variables.xs %}{{ item.name }},{% endfor %}",
+    "expected": "a,b,"
+  },
+  {
+    "name": "each this value",
+    "source": "{{#each xs}}{{this}},{{/each}}",
+    "data": {
+      "xs": [
+        "a",
+        "b"
+      ]
+    },
+    "liquid": "{% for item in variables.xs %}{{ item }},{% endfor %}",
+    "expected": "a,b,"
+  },
+  {
+    "name": "each empty else",
+    "source": "{{#each xs}}x{{else}}none{{/each}}",
+    "data": {
+      "xs": []
+    },
+    "liquid": "{% for item in variables.xs %}x{% else %}none{% endfor %}",
+    "expected": "none"
+  },
+  {
+    "name": "each missing else",
+    "source": "{{#each xs}}x{{else}}none{{/each}}",
+    "data": {},
+    "liquid": "{% for item in variables.xs %}x{% else %}none{% endfor %}",
+    "expected": "none"
+  },
+  {
+    "name": "each index first last",
+    "source": "{{#each xs}}{{@index}}{{#if @first}}F{{/if}}{{#if @last}}L{{/if}} {{/each}}",
+    "data": {
+      "xs": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    "liquid": "{% for item in variables.xs %}{{ forloop.index0 }}{% if forloop.first %}F{% endif %}{% if forloop.last %}L{% endif %} {% endfor %}",
+    "expected": "0F 1 2L "
+  },
+  {
+    "name": "each parent path",
+    "source": "{{#each xs}}{{../label}}:{{this}} {{/each}}",
+    "data": {
+      "label": "L",
+      "xs": [
+        "a"
+      ]
+    },
+    "liquid": "{% for item in variables.xs %}{{ variables.label }}:{{ item }} {% endfor %}",
+    "expected": "L:a "
+  },
+  {
+    "name": "nested each",
+    "source": "{{#each os}}{{name}}[{{#each items}}{{sku}}/{{../name}},{{/each}}]{{/each}}",
+    "data": {
+      "os": [
+        {
+          "name": "A",
+          "items": [
+            {
+              "sku": 1
+            },
+            {
+              "sku": 2
+            }
+          ]
+        },
+        {
+          "name": "B",
+          "items": []
+        }
+      ]
+    },
+    "liquid": "{% for item in variables.os %}{{ item.name }}[{% for item2 in item.items %}{{ item2.sku }}/{{ item.name }},{% endfor %}]{% endfor %}",
+    "expected": "A[1/A,2/A,]B[]"
+  },
+  {
+    "name": "if inside each",
+    "source": "{{#each xs}}{{#if this.on}}{{this.n}}{{else}}-{{/if}}{{/each}}",
+    "data": {
+      "xs": [
+        {
+          "on": true,
+          "n": "a"
+        },
+        {
+          "on": 0,
+          "n": "b"
+        }
+      ]
+    },
+    "liquid": "{% for item in variables.xs %}{% if item.on and item.on != 0 and item.on.size != 0 %}{{ item.n }}{% else %}-{% endif %}{% endfor %}",
+    "expected": "a-"
+  },
+  {
+    "name": "each inside if",
+    "source": "{{#if xs}}{{#each xs}}{{this}}{{/each}}{{else}}none{{/if}}",
+    "data": {
+      "xs": [
+        1,
+        2
+      ]
+    },
+    "liquid": "{% if variables.xs and variables.xs != 0 and variables.xs.size != 0 %}{% for item in variables.xs %}{{ item }}{% endfor %}{% else %}none{% endif %}",
+    "expected": "12"
+  },
+  {
+    "name": "comparison inside each",
+    "source": "{{#each xs}}{{#greaterThan this.p 5}}big{{else}}small{{/greaterThan}} {{/each}}",
+    "data": {
+      "xs": [
+        {
+          "p": 10
+        },
+        {
+          "p": 1
+        }
+      ]
+    },
+    "liquid": "{% for item in variables.xs %}{% assign sg_1 = item.p | plus: 0 %}{% assign sg_2 = 5 | plus: 0 %}{% if sg_1 > sg_2 %}big{% else %}small{% endif %} {% endfor %}",
+    "expected": "big small "
+  },
+  {
+    "name": "chained equals",
+    "source": "{{#if a}}A{{else equals b 1}}B{{else}}C{{/if}}",
+    "data": {
+      "b": 1
+    },
+    "liquid": "{% if variables.a and variables.a != 0 and variables.a.size != 0 %}A{% else %}{% assign sg_1 = variables.b | append: \"\" %}{% assign sg_2 = 1 | append: \"\" %}{% if sg_1 == sg_2 %}B{% else %}C{% endif %}{% endif %}",
+    "expected": "B"
+  },
+  {
+    "name": "each over object key",
+    "source": "{{#each o}}{{@key}}={{this}};{{/each}}",
+    "data": {
+      "o": {
+        "k": "v"
+      }
+    },
+    "liquid": "{% for item in variables.o %}{{ item[0] }}={{ item[1] }};{% endfor %}",
+    "expected": "k=v;"
+  },
+  {
+    "name": "comment dropped",
+    "source": "a{{! hidden }}b{{!-- also }} hidden --}}c",
+    "data": {},
+    "liquid": "abc",
+    "expected": "abc"
+  },
+  {
+    "name": "whitespace control",
+    "source": "a  {{~v~}}  b",
+    "data": {
+      "v": "x"
+    },
+    "liquid": "a{{ variables.v }}b",
+    "expected": "axb"
+  },
+  {
+    "name": "standalone lines leave no blanks",
+    "source": "Items:\n{{#each xs}}\n- {{this}}\n{{/each}}\nDone\n",
+    "data": {
+      "xs": [
+        "a",
+        "b"
+      ]
+    },
+    "liquid": "Items:\n{% for item in variables.xs %}- {{ item }}\n{% endfor %}Done\n",
+    "text": true,
+    "expected": "Items:\n- a\n- b\nDone\n"
+  },
+  {
+    "name": "standalone if",
+    "source": "A\n  {{#if v}}\nB\n  {{else}}\nC\n  {{/if}}\nD",
+    "data": {
+      "v": 1
+    },
+    "liquid": "A\n{% if variables.v and variables.v != 0 and variables.v.size != 0 %}B\n{% else %}C\n{% endif %}D",
+    "text": true,
+    "expected": "A\nB\nD"
+  },
+  {
+    "name": "plain text keeps values unescaped by triple",
+    "source": "Hi {{{n}}}",
+    "data": {
+      "n": "Tom & Ann"
+    },
+    "liquid": "Hi {{ variables.n }}",
+    "text": true,
+    "expected": "Hi Tom & Ann"
+  },
+  {
+    "name": "with block",
+    "source": "{{#with u}}{{n}}{{else}}none{{/with}}",
+    "data": {
+      "u": {
+        "n": "x"
+      }
+    },
+    "liquid": "{% if variables.u and variables.u != 0 and variables.u.size != 0 %}{{ variables.u.n }}{% else %}none{% endif %}",
+    "expected": "x"
+  },
+  {
+    "name": "liquid looking text stays literal",
+    "source": "{% if x %} 100% {{n}}",
+    "data": {
+      "n": "y"
+    },
+    "liquid": "{{ \"{%\" }} if x %} 100% {{ variables.n }}",
+    "expected": "{% if x %} 100% y"
+  },
+  {
+    "name": "escaped mustache",
+    "source": "\\{{n}} {{n}}",
+    "data": {
+      "n": "y"
+    },
+    "liquid": "{% raw %}{{n}}{% endraw %} {{ variables.n }}",
+    "expected": "{{n}} y"
+  },
+  {
+    "name": "entities in tag from editor",
+    "source": "{{#equals a &quot;x&quot;}}same{{else}}diff{{/equals}}",
+    "data": {
+      "a": "x"
+    },
+    "liquid": "{% assign sg_1 = variables.a | append: \"\" %}{% assign sg_2 = \"x\" | append: \"\" %}{% if sg_1 == sg_2 %}same{% else %}diff{% endif %}",
+    "expected": "same"
+  },
+  {
+    "name": "preheader block",
+    "source": "<table class=\"module preheader preheader-hide\" data-type=\"preheader\"><tr><td><p>{{pre}}</p></td></tr></table><p>Body</p>",
+    "data": {
+      "pre": "Your order 🎉"
+    },
+    "liquid": "<table class=\"module preheader preheader-hide\" data-type=\"preheader\"><tr><td><p>{{ variables.pre }}</p></td></tr></table><p>Body</p>",
+    "expected": "<table class=\"module preheader preheader-hide\" data-type=\"preheader\"><tr><td><p>Your order 🎉</p></td></tr></table><p>Body</p>"
+  }
+]

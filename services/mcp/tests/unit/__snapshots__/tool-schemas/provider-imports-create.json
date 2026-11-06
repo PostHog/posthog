@@ -2,13 +2,13 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "api_key": {
-            "description": "The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time.",
+            "description": "The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key, and for SendGrid, a key with read access to the selected steps: PostHog deletes either when the run ends, so send it every time.",
             "maxLength": 512,
             "type": "string"
         },
         "provider": {
-            "description": "The provider to import from.\n\n* `customerio` - Customer.io\n* `resend` - Resend",
-            "enum": ["customerio", "resend"],
+            "description": "The provider to import from.\n\n* `customerio` - Customer.io\n* `resend` - Resend\n* `sendgrid` - SendGrid",
+            "enum": ["customerio", "resend", "sendgrid"],
             "type": "string"
         },
         "steps": {
