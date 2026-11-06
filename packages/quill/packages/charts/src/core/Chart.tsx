@@ -23,7 +23,7 @@ import { ChartShell, countVisibleSeries, useCanvasBounds, useColoredSeries } fro
 import { useChartCanvas } from './hooks/useChartCanvas'
 import { useChartDraw } from './hooks/useChartDraw'
 import { useChartInteraction } from './hooks/useChartInteraction'
-import { useChartMargins } from './hooks/useChartMargins'
+import { useChartMargins, Y_LABEL_HORIZONTAL_PADDING } from './hooks/useChartMargins'
 import { useChartScales } from './hooks/useChartScales'
 import { useStableResolveValue } from './hooks/useStableResolveValue'
 import { useYAxisMaps } from './hooks/useYAxisMaps'
@@ -171,10 +171,20 @@ export function Chart<Meta = unknown>({
 
     // Width from the last layout. Margins feed the canvas size, so the cap can only react to it one render later.
     const [chartWidth, setChartWidth] = useState(0)
-    const maxCategoryLabelWidth =
+    const raisedMaxCategoryLabelWidth =
         baseMaxCategoryLabelWidth && axisOrientation === 'horizontal'
             ? Math.max(baseMaxCategoryLabelWidth, Math.floor(chartWidth * HORIZONTAL_CATEGORY_LABEL_WIDTH_RATIO))
             : baseMaxCategoryLabelWidth
+    // A left margin set in `margins` is never widened, so on a horizontal chart it also caps the labels.
+    // Without this cap, a label that the raised cap allows draws past the margin and clips at the wrapper edge.
+    const fixedLeftLabelRoom =
+        axisOrientation === 'horizontal' && marginsOverride?.left !== undefined
+            ? Math.max(1, marginsOverride.left - Y_LABEL_HORIZONTAL_PADDING)
+            : undefined
+    const maxCategoryLabelWidth =
+        raisedMaxCategoryLabelWidth && fixedLeftLabelRoom !== undefined
+            ? Math.min(raisedMaxCategoryLabelWidth, fixedLeftLabelRoom)
+            : raisedMaxCategoryLabelWidth
 
     const {
         formatters: yAxisFormatters,

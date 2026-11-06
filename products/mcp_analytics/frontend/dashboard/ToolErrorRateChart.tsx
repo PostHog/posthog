@@ -89,7 +89,9 @@ export function ToolErrorRateChart({
             margins: { ...CHART_MARGINS, left: labelGutter },
             maxCategoryLabelWidth: MAX_LABEL_WIDTH_PX,
             barCornerRadius: 4,
-            bars: { minBandSize: 30, valueDomain: { min: 0, max: axisMax } },
+            // The wrapper height already gives each row ROW_HEIGHT_PX, and the chart's own row minimum
+            // would make a chart with few rows taller than that wrapper.
+            bars: { minBandSize: 0, valueDomain: { min: 0, max: axisMax } },
         }
     }, [sorted, labelGutter])
     const byTool = useMemo(() => new Map(sorted.map((r) => [r.tool, r])), [sorted])
