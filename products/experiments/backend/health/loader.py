@@ -12,7 +12,7 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.condition_set_traffic import load_condition_set_traffic
-from products.experiments.backend.health.context import HealthContext, load_health_context
+from products.experiments.backend.health.context import FlagState, HealthContext, load_health_context
 from products.experiments.backend.health.exposure_columns import load_filters_without_column
 from products.experiments.backend.health.exposure_gate import load_flag_history
 from products.experiments.backend.health.exposure_inputs import ExposureInputs, load_exposure_inputs
@@ -24,11 +24,7 @@ from products.experiments.backend.health.primary_metric import load_primary_metr
 from products.experiments.backend.health.registry import EXPERIMENT_HEALTH_CHECKS, evaluate
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.setup_context import ProjectSetupFacts, build_project_setup_facts
-from products.feature_flags.backend.facade.filters import (
-    condition_aggregation,
-    condition_rollout_percentage,
-    reachable_conditions,
-)
+from products.feature_flags.backend.facade.filters import condition_aggregation, condition_rollout_percentage
 
 
 @frozen
@@ -51,8 +47,9 @@ def evaluate_experiment_health(
     metrics, the compile of their queries and their latest calculation, the changes of the flag since launch and the
     flag's recent calls, as far as `reader_access` and `user`'s warehouse access allow."""
     experiment = _load_experiment(team_id, experiment_id)
-    health = evaluate(_health_context(experiment, reader_access, user), EXPERIMENT_HEALTH_CHECKS)
-    return replace(health, setup=_health_setup(experiment))
+    context = _health_context(experiment, reader_access, user)
+    health = evaluate(context, EXPERIMENT_HEALTH_CHECKS)
+    return replace(health, setup=_health_setup(experiment, context.flag))
 
 
 def load_experiment_health_inputs(
@@ -77,24 +74,22 @@ def load_experiment_health_inputs(
     )
 
 
-def _health_setup(experiment: Experiment) -> ExperimentHealthSetup | None:
+def _health_setup(experiment: Experiment, flag_state: FlagState | None) -> ExperimentHealthSetup | None:
     # django-stubs types the id as int, but an unsaved instance can carry None.
     feature_flag_id: int | None = experiment.feature_flag_id
     if feature_flag_id is None:
         return None
     flag = experiment.feature_flag
-    conditions = flag.conditions if isinstance(flag.conditions, list) else []
-    early_exit = flag.early_exit
-    # The same reading of the conditions as the flag service's, which the flag checks of the context use too.
-    reachable = reachable_conditions(
-        conditions, flag_aggregation=flag.aggregation_group_type_index, early_exit=early_exit
-    )
+    conditions = flag.conditions
+    # The flag checks read the same reachable conditions, so the setup and the checks agree on which sets serve.
+    reachable = flag_state.reachable_conditions if flag_state else ()
     # A null column means the model default, which the flag service applies too.
     return ExperimentHealthSetup(
         release_conditions=tuple(
-            _release_condition(conditions[index], flag.aggregation_group_type_index) for index in reachable
+            _release_condition(conditions[condition.number - 1], flag.aggregation_group_type_index)
+            for condition in reachable
         ),
-        early_exit=early_exit,
+        early_exit=flag.early_exit,
         bucketing_identifier=flag.bucketing_identifier or "distinct_id",
         aggregation_group_type_index=flag.aggregation_group_type_index,
         evaluation_runtime=flag.evaluation_runtime or "all",
