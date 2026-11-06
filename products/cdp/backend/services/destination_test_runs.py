@@ -47,7 +47,8 @@ _DEFAULT_PORTS = {"http": 80, "https": 443}
 _REDACTED = "***REDACTED***"
 _ORIGIN_PARTS = re.compile(r"^([a-z][a-z0-9+.-]*://)([^/:\[\]]+)(:\d+)?$")
 # The bundled suffix list, so a test run never fetches it over the network.
-_DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
+# Private suffixes keep the tenant on a shared host, such as name.workers.dev, readable.
+_DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
 # A shorter value matches ordinary host fragments, so it is redacted only where it fills a whole label.
 _MIN_SECRET_LENGTH = 8
 

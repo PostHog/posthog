@@ -63,6 +63,12 @@ class TestDestinationTestRunContext(SimpleTestCase):
                 "https://api.fake-host-secret.com:8443",
             ),
             (
+                "secret_that_names_a_tenant_on_a_shared_host",
+                "audit-escape",
+                "https://audit-escape.workers.dev",
+                "https://audit-escape.workers.dev",
+            ),
+            (
                 "secret_in_a_host_without_a_public_suffix",
                 "fake-host-secret",
                 "https://fake-host-secret.svc.internal",
