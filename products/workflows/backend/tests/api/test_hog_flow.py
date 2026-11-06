@@ -32,7 +32,7 @@ from posthog.test.fixtures import create_app_metric2
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.flag_gated_templates import gated_template_enabled
@@ -62,6 +62,8 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.tests.helpers import create_experiment
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
+from products.workflows.backend.facade.enums import HogFlowOriginProduct
+from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
 from products.workflows.backend.facade.writes import update_workflow
 from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
@@ -381,6 +383,9 @@ class TestHogFlowAPI(APIBaseTest):
             ("tier_decision_respects_status_filter", "search=march&status=draft", {"Billing"}),
             ("tier_decision_respects_type_filter", "search=march&type=messaging", {"Billing"}),
             ("no_match", "search=nonexistent", set()),
+            ("name_filter_matches_inside_words", "name=ELCOME", {"Welcome email"}),
+            ("name_filter_skips_description_and_tags", "name=quarterly", set()),
+            ("name_filter_never_reads_step_content", "name=for march", set()),
         ]
     )
     def test_list_search_matches_name_description_and_step_content(self, _name, query, expected_names):
@@ -882,6 +887,12 @@ class TestHogFlowAPI(APIBaseTest):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
         )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "origin_product": "transactional_email_keys"}
+        )
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "origin_product"
+
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "origin_product": "loops"})
         assert response.status_code == 201, response.json()
         flow_id = response.json()["id"]
@@ -2237,7 +2248,7 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_conditional_branch_validates_cohorts_nested_in_action_filters(self, _mock_flag):
         eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         static_cohort = Cohort.objects.create(team=self.team, name="static-cohort", is_static=True)
-        action = Action.objects.create(team=self.team, name="Converted", steps_json=[{"event": "converted"}])
+        action = create_action(team=self.team, name="Converted", steps_json=[{"event": "converted"}])
         filters = {
             "properties": [{"key": "id", "type": "cohort", "value": eligible.id}],
             "actions": [
@@ -2526,7 +2537,7 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_rejects_ineligible_cohorts_inside_referenced_actions(self, _mock_flag):
         eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         static_cohort = Cohort.objects.create(team=self.team, name="static-in-action", is_static=True)
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="action with cohort step",
             steps_json=[
@@ -2549,7 +2560,7 @@ class TestHogFlowAPI(APIBaseTest):
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
     def test_hog_flow_compiles_eligible_cohort_referenced_only_through_an_action(self, _mock_flag):
         eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="action with eligible cohort step",
             steps_json=[{"event": "$pageview", "properties": [{"key": "id", "type": "cohort", "value": eligible.id}]}],
@@ -3001,7 +3012,7 @@ class TestHogFlowAPI(APIBaseTest):
         # An "events to wait for" entry can target a PostHog Action instead of an event: filters.actions
         # is set and filters.events is empty. That is a real wait and must be kept (and its bytecode
         # compiled), while a truly-empty entry alongside it is still dropped.
-        action = Action.objects.create(team=self.team, name="Played with calculator", steps_json=[{"event": "calc"}])
+        action = create_action(team=self.team, name="Played with calculator", steps_json=[{"event": "calc"}])
 
         trigger_action = {
             "id": "trigger_node",
@@ -3097,7 +3108,7 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_conversion_drops_empty_keeps_action_event(self):
         # Same always-true guard as wait_until: a conversion "events" entry targeting nothing is
         # dropped (it would convert on every event), while an action-based entry is kept and compiled.
-        action = Action.objects.create(team=self.team, name="Converted via action", steps_json=[{"event": "converted"}])
+        action = create_action(team=self.team, name="Converted via action", steps_json=[{"event": "converted"}])
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
@@ -8429,6 +8440,43 @@ class TestReplayVisionActionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert "session recordings" in response.json()["detail"], response.json()
         rerun.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (f"{origin}_{'flag_on' if flag_on else 'flag_off'}", origin, flag_on)
+            for origin in ("code_key", "template")
+            for flag_on in (False, True)
+        ]
+    )
+    def test_a_rerun_replays_code_sends_only_while_the_code_send_flag_is_on(self, _name, origin, flag_on) -> None:
+        if origin == "code_key":
+            flow_id = create_code_email_workflow(team_id=self.team.id, key="welcome")
+        else:
+            flow_id = HogFlow.objects.create(
+                team=self.team,
+                name="Welcome template",
+                status="active",
+                trigger={"type": "event", "filters": {}},
+                actions=[_TRIGGER],
+                origin_product=HogFlowOriginProduct.TRANSACTIONAL_EMAILS,
+            ).id
+
+        with (
+            patch(
+                "products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: flag_on and key == "workflows-email-from-code",
+            ),
+            patch("products.workflows.backend.presentation.views.hog_flow.rerun_hog_invocations") as rerun,
+        ):
+            rerun.return_value = MagicMock(status_code=200, json=lambda: {"queued_count": 1, "skipped_count": 0})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/rerun/",
+                {"filter": {"window_start": "2026-10-13T00:00:00Z", "window_end": "2026-10-14T00:00:00Z"}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert rerun.call_args.kwargs["payload"]["replay_code_sends"] is flag_on
 
     def test_a_variables_only_edit_is_checked_against_the_staged_draft_too(self) -> None:
         self._enable_access_control()
