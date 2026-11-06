@@ -12177,7 +12177,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "system_prompt_hint": "One MCP tool's top failure buckets, by harness (error type + HTTP status)"
+        "system_prompt_hint": "One MCP tool's top failure buckets, by harness (error type, HTTP status and cause)"
     },
     "query-mcp-tool-neighbors": {
         "description": "Return the tools most often called immediately before or after a single MCP tool within the same conversation. Pass toolName (effective tool name, resolved server-side), a dateRange, and neighborDirection ('before' or 'after'). Use to answer \"what does an agent call around tool X?\" — revealing common tool sequences and which tools pair up.",
