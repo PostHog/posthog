@@ -61,6 +61,17 @@ export const LOSSLESS_BUILDER_FIXTURES: Record<string, BuilderQuery> = {
             }),
         ],
     },
+    'histogram p50 and p99 of the same buckets': {
+        clauses: [
+            clause({ metricName: 'http.server.duration', aggregation: 'histogram_quantile', quantile: 0.5 }),
+            clause({
+                name: 'b',
+                metricName: 'http.server.duration',
+                aggregation: 'histogram_quantile',
+                quantile: 0.99,
+            }),
+        ],
+    },
     'eq filter': {
         clauses: [clause({ metricName: 'queue_depth', filters: [{ key: 'service_name', op: 'eq', value: 'api' }] })],
     },
@@ -794,11 +805,41 @@ describe('metrics query languages', () => {
             ],
             ['parenthesized formula', '(sum(queue_depth) + sum(retry_queue_depth)) / 2'],
             [
+                'histogram p50 and p99 of the same buckets',
+                'histogram_quantiles("clause", 0.5, 0.99, sum by (le) (rate({"http.server.duration_bucket"})))',
+            ],
+            [
                 'two series without formula',
                 'label_replace(sum(queue_depth), "clause", "a", "", "") or label_replace(avg({"process.cpu.utilization"}), "clause", "b", "", "")',
             ],
         ])('writes %s as %s', (name, expected) => {
             expect(builderToPromql(LOSSLESS_BUILDER_FIXTURES[name])).toEqual({ value: expected, issues: [] })
+        })
+
+        it.each<[string, BuilderClause[]]>([
+            [
+                'different buckets',
+                [
+                    clause({ metricName: 'x', aggregation: 'histogram_quantile', quantile: 0.5 }),
+                    clause({ name: 'b', metricName: 'y', aggregation: 'histogram_quantile', quantile: 0.9 }),
+                ],
+            ],
+            [
+                'aliases that are not the defaults',
+                [
+                    clause({ metricName: 'x', aggregation: 'histogram_quantile', quantile: 0.5 }),
+                    clause({ name: 'c', metricName: 'x', aggregation: 'histogram_quantile', quantile: 0.9 }),
+                ],
+            ],
+            [
+                'the same quantile twice',
+                [
+                    clause({ metricName: 'x', aggregation: 'histogram_quantile', quantile: 0.5 }),
+                    clause({ name: 'b', metricName: 'x', aggregation: 'histogram_quantile', quantile: 0.5 }),
+                ],
+            ],
+        ])('keeps the label_replace union for histogram quantiles with %s', (_name, clauses) => {
+            expect(builderToPromql({ clauses }).value).toMatch(/^label_replace\(histogram_quantile\(/)
         })
 
         it('spreads an ungrouped series over a grouped one with on() group_left', () => {

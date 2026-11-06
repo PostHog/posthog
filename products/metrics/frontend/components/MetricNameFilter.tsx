@@ -5,7 +5,7 @@ import { List } from 'react-window'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput, Spinner } from '@posthog/lemon-ui'
 
-import { metricNamePickerLogic } from './metricNamePickerLogic'
+import { customMetricName, metricNamePickerLogic } from './metricNamePickerLogic'
 
 const ROW_HEIGHT = 32
 const MAX_DROPDOWN_HEIGHT = 320
@@ -53,6 +53,8 @@ export interface MetricNameFilterProps {
     placeholder?: string
     disabled?: boolean
     disabledReason?: string | null
+    /** Offer the typed name when the list does not have it, so a metric older than the list's 24 hours can be set. */
+    allowCustomName?: boolean
 }
 
 export const MetricNameFilter = ({
@@ -61,6 +63,7 @@ export const MetricNameFilter = ({
     placeholder = 'Pick a metric',
     disabled,
     disabledReason,
+    allowCustomName,
 }: MetricNameFilterProps): JSX.Element => {
     return (
         <BindLogic logic={metricNamePickerLogic} props={{}}>
@@ -70,6 +73,7 @@ export const MetricNameFilter = ({
                 placeholder={placeholder}
                 disabled={disabled}
                 disabledReason={disabledReason}
+                allowCustomName={allowCustomName}
             />
         </BindLogic>
     )
@@ -81,12 +85,14 @@ function MetricNameFilterInner({
     placeholder,
     disabled,
     disabledReason,
+    allowCustomName,
 }: {
     value: string
     onChange: (name: string) => void
     placeholder: string
     disabled?: boolean
     disabledReason?: string | null
+    allowCustomName?: boolean
 }): JSX.Element {
     const { items, filteredItems, fullItemsLoading, searchedItemsLoading, scopeLoading, search } =
         useValues(metricNamePickerLogic)
@@ -112,6 +118,7 @@ function MetricNameFilterInner({
     }, [filteredItems.length])
 
     const triggerLabel = value || placeholder
+    const customName = allowCustomName ? customMetricName(items, search) : null
 
     return (
         <LemonDropdown
@@ -153,6 +160,16 @@ function MetricNameFilterInner({
                             rowProps={rowProps}
                         />
                     )}
+                    {customName ? (
+                        <LemonButton
+                            size="small"
+                            fullWidth
+                            onClick={() => onChange(customName)}
+                            data-attr="metrics-name-filter-custom"
+                        >
+                            Use "{customName}"
+                        </LemonButton>
+                    ) : null}
                 </div>
             }
         >

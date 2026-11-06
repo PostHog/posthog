@@ -13,10 +13,17 @@ pub type Partition = u8;
 /// Identity of one handoff attempt — production `HandoffState.handoff_id`.
 /// Acks echo it and quorum checks only count matching acks.
 pub type HandoffId = u8;
+/// A changelog generation's epoch (production `ChangelogConfig::epoch`).
+pub type Epoch = u8;
+/// A person key. The model's hash is the identity: like production's
+/// hash-then-mod, a key's homes under two counts agree modulo their gcd.
+pub type Key = u8;
 
 /// The production phase enum, used directly: a new phase added to the
 /// protocol breaks the model's exhaustive matches at compile time.
 pub use personhog_coordination::types::HandoffPhase as Phase;
+/// The production saga phases, used directly for the same reason.
+pub use personhog_coordination::types::MigrationPhase;
 
 /// Production `HandoffState`, in compact model form (u8 ids; the model
 /// materializes production-typed views when calling shared logic).
@@ -33,11 +40,37 @@ pub struct Handoff {
     /// With `RouterJoin` in the action space this diverges from the live
     /// registry, which is exactly what the checker is here to explore.
     pub quorum: BTreeSet<RouterId>,
+    /// A migration's hold (production `held_by`): never advanced past Draining.
+    pub held: bool,
+    /// Production `config_epoch`: an acquisition parks until the config reaches it.
+    pub config_epoch: Epoch,
+}
+
+/// One changelog generation (production: the live target, or a `draining` entry).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Generation {
+    pub partitions: u8,
+    pub epoch: Epoch,
+}
+
+/// Production `ChangelogConfig`: the live generation and at most one draining.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Config {
+    pub live: Generation,
+    pub draining: Option<Generation>,
+}
+
+/// Production `MigrationState`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Migration {
+    pub from: Generation,
+    pub to: u8,
+    pub phase: MigrationPhase,
 }
 
 /// Per-partition warm state on a pod — everything the invariants need to
 /// know about one warmed partition.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct WarmState {
     /// What this warm was installed for (production:
     /// `WarmProvenance` on the pod handle). `None` is a serving-era warm
@@ -48,17 +81,11 @@ pub struct WarmState {
     /// whose cache may predate writes accepted since, and is released
     /// and rebuilt.
     pub for_handoff: Option<HandoffId>,
-    /// How much of the changelog this pod's cache reflects: the HWM
-    /// captured at warm time, plus every write it has accepted since. A
-    /// strong read served while `changelog.len` exceeds this returns state
-    /// missing at least one acked write.
-    ///
-    /// The two halves are deliberately one number. Nothing reads them
-    /// apart — the cutoff is never consulted on its own, and the accept
-    /// count only ever advances the same total — so keeping them separate
-    /// would only split behaviorally identical states (warmed at 1 and
-    /// accepted nothing, versus warmed at 0 and accepted one).
-    pub visible: u8,
+    /// The epoch captured at acquisition (production `Capture`).
+    pub epoch: Epoch,
+    /// Visible prefix per source log (production: marks keyed by stream);
+    /// the live source advances with each accepted write.
+    pub sources: BTreeMap<(Epoch, Partition), u8>,
 }
 
 /// A warm caught between its two steps, under the rejected read-first
@@ -72,7 +99,7 @@ pub struct WarmState {
 /// warm atomically.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PendingWarm {
-    /// The changelog length captured before the fence existed.
+    /// The live log's length captured before the fence existed.
     pub cutoff: u8,
 }
 
@@ -94,6 +121,10 @@ pub struct Pod {
     /// Write-fenced partitions (production: `InflightTracker` fences +
     /// the pod handle's `fenced_partitions`).
     pub fenced: BTreeSet<Partition>,
+    /// Old-topic partitions this incarnation sealed (the seal duty's memory).
+    pub sealed: BTreeSet<Partition>,
+    /// This incarnation's seal never succeeds.
+    pub seal_broken: bool,
     /// Remaining writes this pod may accept after losing its lease before
     /// its keepalive notices and the process self-fences (production: the
     /// bounded zombie window; fix 1 bounds it to ~one heartbeat tick).
@@ -122,42 +153,42 @@ pub struct Router {
     pub registered: bool,
     /// The process is running and forwards traffic.
     pub running: bool,
+    /// The config this router hashes with (production `LiveChangelog`).
+    pub adopted: Generation,
     /// partition → pod the router forwards to (production: the shared
     /// routing table, edge-updated from handoff Complete events).
     pub table: BTreeMap<Partition, PodId>,
     /// Partitions currently buffering leader-path requests (production:
-    /// the `StashTable`).
+    /// the `StashTable`'s open freezes).
     pub stashing: BTreeSet<Partition>,
-    /// Parked leader-path requests in arrival order (production:
-    /// `StashedRequest` queues, which carry their gRPC method so writes
-    /// and strong reads share one per-partition FIFO).
-    pub stash: BTreeMap<Partition, Vec<StashedRequest>>,
+    /// Parked leader-path requests in arrival order (production: the `StashTable`'s
+    /// per-key queues). A drain for `p` takes those whose key maps to `p` under the router's count.
+    pub stash: Vec<StashedRequest>,
 }
 
 /// One parked leader-path request.
-///
-/// Deliberately identity-free. A parked write is only ever drained or
-/// dropped, never matched against a particular client, so carrying a write
-/// id would add a dimension to the state space that nothing reads — two
-/// otherwise-identical states would differ only in how many writes had ever
-/// been parked. Order and count still matter, and the per-partition `Vec`
-/// keeps both.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum StashedRequest {
-    Write,
-    StrongRead,
+    Write(Key),
+    StrongRead(Key),
 }
 
-/// The Kafka changelog for one partition, reduced to what the safety
-/// invariants need: an append counter (the HWM) and who currently holds
-/// the broker's producer fence.
+impl StashedRequest {
+    pub fn key(self) -> Key {
+        match self {
+            StashedRequest::Write(key) | StashedRequest::StrongRead(key) => key,
+        }
+    }
+}
+
+/// The Kafka changelog for one partition of one generation: the appended
+/// keys (their count is the HWM) and the broker's producer fence.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Changelog {
-    /// Number of records appended (the HWM).
-    pub len: u8,
+    pub records: Vec<Key>,
     /// The pod whose transactional producer the broker currently accepts:
     /// the latest `init_transactions` wins and every earlier producer is
-    /// fenced out.
+    /// fenced out. A seal initializes the id and drops the producer.
     ///
     /// This is an owner rather than an epoch number because nothing
     /// compares epochs for order — the single consumer asks whether *this*
@@ -166,6 +197,16 @@ pub struct Changelog {
     /// and, being a `u8`, would eventually have wrapped a stale epoch onto
     /// a live one and admitted a write it should reject.
     pub epoch_holder: Option<PodId>,
+}
+
+impl Changelog {
+    pub fn len(&self) -> u8 {
+        self.records.len() as u8
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
 }
 
 /// One planned-but-unapplied handoff from a chunked plan: the placement
@@ -181,6 +222,8 @@ pub struct PendingUnit {
     /// Assignment version at plan time (production: the mod_revision
     /// its `AssignmentPrecondition` compares; 0 = Absent).
     pub expected_assignment_version: u8,
+    /// The plan's basis (production `PlanBasis`): a saga in flight, and the live epoch.
+    pub basis: (bool, Epoch),
 }
 
 /// The entire distributed system. One value = one node in the explored
@@ -209,13 +252,20 @@ pub struct SystemState {
     /// mod_revision an `AssignmentPrecondition` compares). Only
     /// maintained under `chunked_plans`.
     pub assignment_versions: BTreeMap<Partition, u8>,
+    /// Production `config/changelog`.
+    pub config: Config,
+    /// Production `migrations/current`.
+    pub migration: Option<Migration>,
+    /// pod → old-topic partitions its seal ack reports sealed.
+    pub seal_acks: BTreeMap<PodId, BTreeSet<Partition>>,
 
     // ── processes ──────────────────────────────────────────────
     pub pods: BTreeMap<PodId, Pod>,
     pub routers: BTreeMap<RouterId, Router>,
 
     // ── kafka ──────────────────────────────────────────────────
-    pub changelogs: BTreeMap<Partition, Changelog>,
+    /// (generation epoch, partition) → its log.
+    pub changelogs: BTreeMap<(Epoch, Partition), Changelog>,
 
     // ── failure/workload budgets (bound the state space) ───────
     pub writes_left: u8,
@@ -227,6 +277,7 @@ pub struct SystemState {
     pub router_joins_left: u8,
     /// Deadline cancellations the checker may still inject.
     pub cancels_left: u8,
+    pub migrations_left: u8,
     /// Whether any strong read was actually served (reachability evidence
     /// for the read properties). A flag rather than a count: nothing reads
     /// how many, and a count would split otherwise-identical states by
@@ -244,10 +295,14 @@ pub struct SystemState {
     /// in-flight handoff, clobbering it — the overlap
     /// `plan_partial_rebalance`'s pinning must make unreachable.
     pub double_planned_handoff: bool,
-    /// Set when a strong read is served by a pod whose `WarmState::visible`
-    /// prefix is behind the changelog — the read returned state missing at
-    /// least one acked write.
+    /// Set when a strong read is served by a pod whose warm prefixes are
+    /// behind some log holding the key.
     pub stale_strong_read: bool,
+    /// Set when a pod acks a write under a captured epoch that is not the live one.
+    pub mixed_modulus_acceptance: bool,
+    /// Set when a router delivers a request while an earlier request for
+    /// the same key is still parked, so the later one lands first.
+    pub overtaken_request: bool,
 
     // ── reachability flags (probe evidence, history encoding) ──
     /// A cancellation resolved as a reaffirm-Complete toward the live
@@ -263,6 +318,17 @@ pub struct SystemState {
     pub pending_unit_applied: bool,
     /// A pending chunk unit dropped by a failed plan-time guard.
     pub pending_unit_dropped: bool,
+    pub migration_completed: bool,
+    pub migration_cancelled: bool,
+    /// A pod sealed an old-topic partition it had not loaded.
+    pub sealed_without_warm: bool,
+    /// A write for a partition born in the flip parked before its handoff existed.
+    pub born_partition_write_parked: bool,
+    /// A migration request is waiting to start.
+    pub requested: bool,
+    /// The Sealing grace has lapsed for the current saga.
+    pub seal_overdue: bool,
+    pub seal_breaks_left: u8,
 }
 
 /// Everything that can happen, from every actor, including failures.
@@ -307,6 +373,26 @@ pub enum Action {
     /// (guarded on the record still being the same attempt).
     CleanupComplete(Partition),
 
+    // ── the migration saga ─────────────────────────────────────
+    /// The control plane writes `migrations/requested`. Budgeted.
+    MigrateRequest,
+    /// The coordinator starts the saga from the request once no handoff is in flight.
+    MigrateStart,
+    /// A request is rejected or expires before it starts.
+    MigrateRequestExpires,
+    /// One pass of the migration driver (`migration::reconcile`).
+    MigrateDrive,
+    /// A cancel before Sealing: the operator's, or the pre-flip deadline's.
+    MigrateCancel,
+    /// One pass of a pod's seal duty while the saga is Sealing.
+    SealTick(PodId),
+    /// The seal grace lapses: every leader now seals what no ack reports sealed.
+    SealGraceElapses,
+    /// A pod's seal keeps failing while its lease stays alive (a hung Kafka client).
+    BreakSeal(PodId),
+    /// A router's config watch delivers the live config.
+    AdoptConfig(RouterId),
+
     // ── pods (the converge model) ──────────────────────────────
     /// One convergence step for (pod, partition): derive the desired
     /// state from durable state and apply the next transition toward it
@@ -321,13 +407,10 @@ pub enum Action {
     Observe(RouterId, Partition),
 
     // ── workload ───────────────────────────────────────────────
-    /// A client write for (router, partition): stashes if the router is
-    /// stashing, otherwise forwards to the router's table entry.
-    ClientWrite(RouterId, Partition),
-    /// A strong read for (router, partition): parks with the writes in
-    /// the per-partition FIFO when the partition is stashing (the shipped
-    /// read-stashing design), otherwise forwards to the table entry.
-    ClientStrongRead(RouterId, Partition),
+    /// A client write for (router, key), hashed with the router's adopted modulus.
+    ClientWrite(RouterId, Key),
+    /// A strong read for (router, key); parks with the writes while stashing.
+    ClientStrongRead(RouterId, Key),
 
     // ── failures ───────────────────────────────────────────────
     /// The pod process dies and instantly restarts under the same name

@@ -18,6 +18,7 @@ from contextlib import contextmanager
 from typing import ClassVar
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 from asgiref.sync import async_to_sync, sync_to_async
 from google.api_core.exceptions import Forbidden, NotFound
@@ -70,6 +71,59 @@ MISSING_PERMISSION_DETAIL = (
     "Your Google Cloud service account is missing a permission this sync needs. Grant it the "
     "BigQuery Data Editor and BigQuery Job User roles on the project, then run the sync again."
 )
+
+
+# The Arrow type that loads into each BigQuery column type. A merge chunk whose column loads as a
+# different type is cast to it first, because a `MERGE` does not convert a STRING into an INT64.
+_ARROW_TYPE_FOR_BIGQUERY_TYPE: dict[str, pa.DataType] = {
+    "INT64": pa.int64(),
+    "FLOAT64": pa.float64(),
+    "BOOL": pa.bool_(),
+    "STRING": pa.string(),
+    "DATE": pa.date32(),
+    "TIME": pa.time64("us"),
+    "DATETIME": pa.timestamp("us"),
+    "TIMESTAMP": pa.timestamp("us", tz="UTC"),
+}
+
+# `SchemaField.field_type` can report the legacy SQL names.
+_STANDARD_BIGQUERY_TYPE = {"INTEGER": "INT64", "FLOAT": "FLOAT64", "BOOLEAN": "BOOL"}
+
+
+def _bigquery_type_of(arrow_type: pa.DataType) -> str | None:
+    """The BigQuery type that schema autodetect gives a parquet column of this Arrow type."""
+    if pa.types.is_integer(arrow_type):
+        return "INT64"
+    if pa.types.is_floating(arrow_type):
+        return "FLOAT64"
+    if pa.types.is_boolean(arrow_type):
+        return "BOOL"
+    if pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type):
+        return "STRING"
+    if pa.types.is_date(arrow_type):
+        return "DATE"
+    if pa.types.is_time(arrow_type):
+        return "TIME"
+    if pa.types.is_timestamp(arrow_type):
+        return "TIMESTAMP" if arrow_type.tz else "DATETIME"
+    return None
+
+
+def _ddl_type(field: bigquery.SchemaField) -> str:
+    """The DDL type declaration an `ALTER TABLE ADD COLUMN` needs for this field.
+
+    `field.field_type` alone is only the element type: a `REPEATED` field needs `ARRAY<...>`
+    around it, and a `RECORD`/`STRUCT` field needs its subfields spelled out, recursively for a
+    nested struct or a struct inside an array.
+    """
+    base = (
+        f"STRUCT<{', '.join(f'{_backtick(sub.name)} {_ddl_type(sub)}' for sub in field.fields)}>"
+        if field.field_type in ("RECORD", "STRUCT")
+        # DDL only accepts the standard SQL type names: FLOAT has no DDL alias, unlike INTEGER
+        # (INT64) and BOOLEAN (BOOL), so an unmapped FLOAT fails the ALTER TABLE outright.
+        else _STANDARD_BIGQUERY_TYPE.get(field.field_type, field.field_type)
+    )
+    return f"ARRAY<{base}>" if field.mode == "REPEATED" else base
 
 
 class BigQueryDestinationConfigurationError(ValueError):
@@ -156,9 +210,11 @@ class BigQueryDestinationWriter:
         if self._ctx.integration_id is None:
             raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
 
-        from posthog.models.integration import Integration  # noqa: PLC0415 — avoids a model import cycle
+        from posthog.integrations import IntegrationManager  # noqa: PLC0415 — avoids a model import cycle
 
-        integration = Integration.objects.get(id=self._ctx.integration_id, team_id=self._ctx.team_id)
+        integration = IntegrationManager.google_cloud_service_account.credentials.get(
+            self._ctx.team_id, self._ctx.integration_id
+        )
         google_cloud_integration = GoogleCloudServiceAccountIntegration(integration)
         if not google_cloud_integration.has_key():
             # Keyless means PostHog impersonates the team's service account instead of holding
@@ -207,8 +263,8 @@ class BigQueryDestinationWriter:
         # only holds characters a BigQuery label value accepts.
         return hashlib.sha256(self._ctx.run_uuid.encode()).hexdigest()[:63]
 
-    def _check_owned_or_absent(self, client: bigquery.Client, table_ref: str, action: str) -> bool:
-        """Whether `table_ref` does not exist yet.
+    def _owned_table(self, client: bigquery.Client, table_ref: str, action: str) -> bigquery.Table | None:
+        """The table at `table_ref`, or None when it does not exist yet.
 
         Raises if it exists and was not created by this schema's sync, rather than silently
         truncating, merging into or appending to a table that predates this sync and merely
@@ -217,12 +273,16 @@ class BigQueryDestinationWriter:
         try:
             existing = client.get_table(table_ref)
         except NotFound:
-            return True
+            return None
         if (existing.labels or {}).get(_OWNERSHIP_LABEL_KEY) != self._schema_label():
             raise UnrelatedTableExistsError(
                 f"{table_ref} already exists and was not created by this sync; refusing to {action}."
             )
-        return False
+        return existing
+
+    def _check_owned_or_absent(self, client: bigquery.Client, table_ref: str, action: str) -> bool:
+        """Whether `table_ref` does not exist yet. Raises like `_owned_table`."""
+        return self._owned_table(client, table_ref, action) is None
 
     def _set_labels(self, client: bigquery.Client, table_ref: str, labels: dict[str, str]) -> None:
         existing = client.get_table(table_ref)
@@ -308,9 +368,15 @@ class BigQueryDestinationWriter:
             # pq.write_table needs a Table, and one record batch is one load job.
             table = pa.Table.from_batches([record_batch])
             target_ref = self._table_ref(run.table_name)
-            target_absent = self._check_owned_or_absent(client, target_ref, "append to it")
+            target = self._owned_table(client, target_ref, "append to it")
+            if target is not None:
+                # `ALLOW_FIELD_ADDITION` only covers a column the target lacks; it does not let
+                # a load job widen a column's existing type, so a batch sending a wider type
+                # than the target already has (e.g. a count turning into a fraction) fails the
+                # load outright on every retry without this.
+                table = self._align_to_target(table, target)
             self._load(client, run.table_name, table, bigquery.WriteDisposition.WRITE_APPEND)
-            if target_absent:
+            if target is None:
                 self._mark_owned(client, target_ref)
             return table.num_rows
 
@@ -362,21 +428,86 @@ class BigQueryDestinationWriter:
 
         temp = f"{run.table_name}__ph_tmp_{run_scope(run.run_uuid, 8)}_{ctx.batch_index}_{chunk}"
         target_ref = self._table_ref(run.table_name)
-        target_absent = self._check_owned_or_absent(client, target_ref, "merge into it")
+        target = self._owned_table(client, target_ref, "merge into it")
+        if target is not None:
+            table = self._align_to_target(table, target)
 
         self._load(client, temp, table, bigquery.WriteDisposition.WRITE_TRUNCATE)
         try:
-            if target_absent:
+            if target is None:
                 # `MERGE` fails outright against a target that does not exist, and an
                 # incremental schema is on `sync_type` "incremental" from its very first run,
                 # so nothing else ever creates it. Take the schema BigQuery just derived for the
                 # scratch table rather than mapping Arrow types a second time.
                 self._create_like(client, target_ref, temp)
                 self._mark_owned(client, target_ref)
+            else:
+                self._evolve_table(client, target_ref, target.schema, temp, list(table.schema.names))
             self._merge(client, run.table_name, temp, list(table.schema.names), primary_keys)
         finally:
             client.delete_table(self._table_ref(temp), not_found_ok=True)
         return table.num_rows
+
+    def _align_to_target(self, table: pa.Table, target: bigquery.Table) -> pa.Table:
+        """Cast each column to the type the live table holds it as.
+
+        The scratch table takes its schema from this chunk alone, but the live table keeps the
+        types of earlier runs. Upstream can send a column as text in one run, so without the cast
+        the `MERGE` fails on every retry. A value that cannot convert is a configuration error,
+        because only a change to the live table can let the chunk merge.
+        """
+        for field in target.schema:
+            if field.name not in table.schema.names or field.mode == "REPEATED":
+                continue
+            target_type = _STANDARD_BIGQUERY_TYPE.get(field.field_type, field.field_type)
+            arrow_type = _ARROW_TYPE_FOR_BIGQUERY_TYPE.get(target_type)
+            index = table.schema.get_field_index(field.name)
+            column = table.column(index)
+            if arrow_type is None or _bigquery_type_of(column.type) == target_type:
+                continue
+            try:
+                cast = pc.cast(column, arrow_type)
+                # `safe` casting still lets any nonzero number through to BOOL as `true`, because
+                # Arrow does not treat that as a loss of precision the way it does a fractional
+                # float truncated to an int. Casting back and comparing catches it the same way a
+                # retry against the live table would have, instead of silently losing the number.
+                if arrow_type == pa.bool_() and not column.equals(pc.cast(cast, column.type)):
+                    raise pa.ArrowInvalid(f"{field.name} holds a value other than 0 or 1")
+            except pa.ArrowException as err:
+                raise DestinationConfigurationError(
+                    self._ctx.destination_name,
+                    f"The column {field.name} in {self._table_ref(self._ctx.table_name)} is {target_type}, but this "
+                    f"sync sent values that cannot convert to {target_type}. Change the column type in BigQuery to "
+                    "match the source, then run the sync again.",
+                ) from err
+            table = table.set_column(index, pa.field(field.name, arrow_type), cast)
+        return table
+
+    def _evolve_table(
+        self,
+        client: bigquery.Client,
+        target_ref: str,
+        target_schema: list[bigquery.SchemaField],
+        temp: str,
+        column_names: list[str],
+    ) -> None:
+        """Add columns the source chunk has grown, before `MERGE` can reference them.
+
+        Unlike `_load`'s `ALLOW_FIELD_ADDITION` on the plain-append path, `MERGE` does not
+        evolve the target's schema on its own, so a column new to this chunk needs adding to
+        the target first — otherwise the `MERGE` fails referencing a column T does not have.
+        Additive only, same as the other SQL writers' `_evolve_table`. Skips the extra
+        `get_table` call for the scratch table's schema when the chunk carries no column the
+        target lacks, which is the common case on an incremental sync's steady-state batches.
+        """
+        existing = {field.name for field in target_schema}
+        if all(name in existing for name in column_names):
+            return
+        additions = [field for field in client.get_table(self._table_ref(temp)).schema if field.name not in existing]
+        if not additions:
+            return
+        clauses = ", ".join(f"ADD COLUMN IF NOT EXISTS {_backtick(f.name)} {_ddl_type(f)}" for f in additions)
+        client.query(f"ALTER TABLE {_backtick(target_ref)} {clauses}").result()
 
     def _create_like(self, client: bigquery.Client, table_ref: str, model: str) -> None:
         """Create an empty table carrying another table's schema."""

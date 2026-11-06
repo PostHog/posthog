@@ -10,7 +10,8 @@ import * as zod from 'zod'
 
 /**
  * Observed values for one metric attribute key, most frequent first.
- * Backs the filter bar's value autocomplete.
+ * Backs the filter bar's value autocomplete. `metricName` limits choices
+ * to one metric.
  */
 export const MetricsAttributeValuesRetrieveParams = () => zod.object({
     project_id: zod
@@ -24,6 +25,9 @@ export const metricsAttributeValuesRetrieveQueryKeyMax = 255
 
 export const metricsAttributeValuesRetrieveQueryLimitDefault = 100
 export const metricsAttributeValuesRetrieveQueryLimitMax = 1000
+
+export const metricsAttributeValuesRetrieveQueryMetricNameDefault = ``
+export const metricsAttributeValuesRetrieveQueryMetricNameMax = 255
 
 export const metricsAttributeValuesRetrieveQueryValueDefault = ``
 export const metricsAttributeValuesRetrieveQueryValueMax = 1024
@@ -50,6 +54,11 @@ export const MetricsAttributeValuesRetrieveQueryParams = () => zod.object({
         .max(metricsAttributeValuesRetrieveQueryLimitMax)
         .default(metricsAttributeValuesRetrieveQueryLimitDefault)
         .describe('Max number of values to return. Defaults to 100; maximum 1000.'),
+    metricName: zod
+        .string()
+        .max(metricsAttributeValuesRetrieveQueryMetricNameMax)
+        .default(metricsAttributeValuesRetrieveQueryMetricNameDefault)
+        .describe('Exact metric name to limit values to. Omit to list values across all metrics.'),
     value: zod
         .string()
         .max(metricsAttributeValuesRetrieveQueryValueMax)
@@ -403,7 +412,6 @@ export const MetricsQueryCreateParams = () => zod.object({
 
 export const metricsQueryCreateBodyQueryOneMetricNameMax = 255
 
-export const metricsQueryCreateBodyQueryOneAggregationDefault = `sum`
 export const metricsQueryCreateBodyQueryOneQuantileMin = 0
 export const metricsQueryCreateBodyQueryOneQuantileMax = 1
 
@@ -435,6 +443,8 @@ export const metricsQueryCreateBodyQueryOneClausesItemGroupByItemKeyMax = 255
 export const metricsQueryCreateBodyQueryOneClausesItemGroupByItemScopeDefault = `auto`
 export const metricsQueryCreateBodyQueryOneFormulaMax = 512
 
+export const metricsQueryCreateBodyQueryOnePromqlMax = 8192
+
 export const MetricsQueryCreateBody = () => zod.object({
     query: zod
         .object({
@@ -463,9 +473,9 @@ export const MetricsQueryCreateBody = () => zod.object({
                 .describe(
                     '\* `none` - none\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
                 )
-                .default(metricsQueryCreateBodyQueryOneAggregationDefault)
+                .optional()
                 .describe(
-                    "Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.\n\n\* `none` - none\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile"
+                    "Defaults to 'sum'. Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.\n\n\* `none` - none\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile"
                 ),
             rangeFunction: zod
                 .union([
@@ -683,6 +693,13 @@ export const MetricsQueryCreateBody = () => zod.object({
                 .nullish()
                 .describe(
                     "Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) \/ a'. Supports + - \* \/ and parentheses; division by zero yields 0. When set, only the formula result series are returned."
+                ),
+            promql: zod
+                .string()
+                .max(metricsQueryCreateBodyQueryOnePromqlMax)
+                .nullish()
+                .describe(
+                    "PromQL expression, run as a range query over the request's time grid, e.g. 'sum by (job) (rate(http_requests_total[5m]))'. Use it to run an alert or runbook expression as written. Mutually exclusive with 'metricName' and 'clauses'; put label selectors and grouping in the expression instead of 'filters' and 'groupBy'. In PromQL, service.name is service_name and other label names with dots need quotes. A bucket that a series did not report is null, not zero."
                 ),
             dateFrom: zod
                 .string()

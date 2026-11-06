@@ -33,6 +33,7 @@ avoids referencing a same-SELECT alias as another expression's input.
 """
 
 from products.engineering_analytics.backend.logic.merge_queue import merge_queue_branch_expr
+from products.engineering_analytics.backend.logic.reverts import revert_title_expr
 
 # Bots whose handle does not carry GitHub's automatic ``[bot]`` suffix. Kept
 # deliberately small; per-team configuration is deferred.
@@ -60,6 +61,7 @@ def build_query(table_name: str) -> str:
             author_handle,
             author_avatar_url,
             (author_handle LIKE '%[bot]' OR author_handle IN ({_bot_handle_in_list()})) AS is_bot,
+            {revert_title_expr("title")} AS is_revert,
             arrayElement(repo_parts, 1) AS repo_owner,
             arrayElement(repo_parts, 2) AS repo_name,
             arrayMap(label -> JSONExtractString(label, 'name'), JSONExtractArrayRaw(labels_json)) AS labels,

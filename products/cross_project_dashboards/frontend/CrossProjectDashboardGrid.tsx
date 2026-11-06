@@ -1,4 +1,4 @@
-import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type RefObject, useCallback, useEffect, useMemo, useState } from 'react'
 import { Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
 import type { Layout, LayoutItem } from 'react-grid-layout'
 import { GridBackground } from 'react-grid-layout/extras'
@@ -13,6 +13,7 @@ import {
     whenPressBecomesDrag,
 } from 'scenes/dashboard/editLayoutGesture'
 import { useDashboardLayoutInteraction } from 'scenes/dashboard/useDashboardLayoutInteraction'
+import { useDragAutoScroll } from 'scenes/dashboard/useDragAutoScroll'
 
 import type { DashboardLayoutSize, InsightColor } from '~/types'
 
@@ -27,14 +28,12 @@ import {
 import { CrossProjectTile } from './CrossProjectTile'
 import type { CrossProjectDashboardTileApi } from './generated/api.schemas'
 
-const DRAG_AUTO_SCROLL_THRESHOLD = 100
-const DRAG_AUTO_SCROLL_SPEED = 50
 const CONTAINER_PADDING: [number, number] = [0, 0]
 
 // Single-project edit mode's handle, cancel and edge set.
 const DRAG_HANDLE = '.CardMeta,.DashboardTileCard__body,.WidgetCard__header,.drag-handle'
 const DRAG_CANCEL = 'a,table,button,input,.Popover'
-const RESIZE_HANDLES = ['s', 'e', 'se', 'n', 'w', 'nw', 'ne', 'sw'] as const
+const RESIZE_HANDLES = ['s', 'e', 'se', 'w', 'sw'] as const
 const NOT_A_DRAG_HANDLE =
     'input,textarea,button,select,a,p,h4,[contenteditable="true"],[role="textbox"],.ProseMirror,.LemonMarkdown'
 
@@ -69,10 +68,7 @@ export function CrossProjectDashboardGrid({
 }: CrossProjectDashboardGridProps): JSX.Element {
     const { width, containerRef, mounted } = useContainerWidth()
     const [containerHeight, setContainerHeight] = useState(0)
-    const [resizingTileId, setResizingTileId] = useState<string | null>(null)
-    const scrollContainerRef = useRef<HTMLElement | null>(null)
-    const scrollContainerRectRef = useRef<DOMRect | null>(null)
-    const scrollAnimationRef = useRef<number | null>(null)
+    const { startAutoScroll, autoScrollOnDrag, stopAutoScroll } = useDragAutoScroll()
 
     const updateLayouts = useCallback(
         (next: Partial<Record<DashboardLayoutSize, Layout>>) => onLayoutsChange(next as Partial<ResponsiveTileLayouts>),
@@ -171,13 +167,7 @@ export function CrossProjectDashboardGrid({
         [startInteraction]
     )
 
-    const handleResize = useCallback((_layout: unknown, _oldItem: unknown, newItem: LayoutItem | null) => {
-        // Setting state to the same id bails out of re-rendering, so this re-renders once per gesture.
-        setResizingTileId(newItem?.i ?? null)
-    }, [])
-
     const handleResizeStop = useCallback(() => {
-        setResizingTileId(null)
         finishGesture()
     }, [finishGesture])
 
@@ -187,57 +177,21 @@ export function CrossProjectDashboardGrid({
                 return
             }
             startInteraction(layout, newItem, 'drag')
-            scrollContainerRef.current = document.getElementById('main-content')
-            scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
+            startAutoScroll()
         },
-        [startInteraction]
+        [startInteraction, startAutoScroll]
     )
 
     const handleDrag = useCallback(
-        (_layout: unknown, _oldItem: unknown, _newItem: unknown, _placeholder: unknown, e: unknown) => {
-            if (scrollAnimationRef.current) {
-                cancelAnimationFrame(scrollAnimationRef.current)
-                scrollAnimationRef.current = null
-            }
-            const scrollContainer = scrollContainerRef.current
-            const containerRect = scrollContainerRectRef.current
-            if (!scrollContainer || !containerRect) {
-                return
-            }
-            const mouseY = (e as MouseEvent).clientY
-            let scrollSpeed = 0
-            if (mouseY < containerRect.top + DRAG_AUTO_SCROLL_THRESHOLD) {
-                scrollSpeed = -DRAG_AUTO_SCROLL_SPEED
-            } else if (mouseY > containerRect.bottom - DRAG_AUTO_SCROLL_THRESHOLD) {
-                scrollSpeed = DRAG_AUTO_SCROLL_SPEED
-            }
-            if (scrollSpeed !== 0) {
-                const scroll = (): void => {
-                    const atTop = scrollSpeed < 0 && scrollContainer.scrollTop === 0
-                    const atBottom =
-                        scrollSpeed > 0 &&
-                        scrollContainer.scrollTop + scrollContainer.clientHeight >= scrollContainer.scrollHeight
-                    if (atTop || atBottom) {
-                        return
-                    }
-                    scrollContainer.scrollBy(0, scrollSpeed)
-                    scrollAnimationRef.current = requestAnimationFrame(scroll)
-                }
-                scrollAnimationRef.current = requestAnimationFrame(scroll)
-            }
-        },
-        []
+        (_layout: unknown, _oldItem: unknown, _newItem: unknown, _placeholder: unknown, e: Event) =>
+            autoScrollOnDrag(e),
+        [autoScrollOnDrag]
     )
 
     const handleDragStop = useCallback(() => {
-        if (scrollAnimationRef.current) {
-            cancelAnimationFrame(scrollAnimationRef.current)
-            scrollAnimationRef.current = null
-        }
-        scrollContainerRef.current = null
-        scrollContainerRectRef.current = null
+        stopAutoScroll()
         finishGesture()
-    }, [finishGesture])
+    }, [finishGesture, stopAutoScroll])
 
     return (
         <div
@@ -284,7 +238,6 @@ export function CrossProjectDashboardGrid({
                         breakpoints={GRID_BREAKPOINTS}
                         cols={GRID_COLUMN_COUNTS}
                         onResizeStart={handleResizeStart}
-                        onResize={handleResize}
                         onResizeStop={handleResizeStop}
                         onDragStart={handleDragStart}
                         onDrag={handleDrag}
@@ -299,7 +252,6 @@ export function CrossProjectDashboardGrid({
                                 showTimezone={timezonesDiverge}
                                 missingPropertyKeys={missingPropertyKeys[tile.project_id]}
                                 dashboardFilters={dashboardFilters}
-                                isResizing={resizingTileId === tile.id}
                                 showResizeHandles={canEditLayout}
                                 canEnterEditModeFromEdge={canEnterEditModeFromEdge}
                                 onEnterEditModeFromEdge={onEnterEditModeFromEdge}

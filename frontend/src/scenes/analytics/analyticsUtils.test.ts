@@ -1,8 +1,10 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 
-import { fileSystemEntryToAnalytics, newCanvasSpaceIdForPath } from './analyticsUtils'
+import { fileSystemEntryToAnalytics, fromPostHogItems, newCanvasSpaceIdForPath } from './analyticsUtils'
 
 const canvas = (overrides: Partial<CanvasApi>): CanvasApi =>
     ({
@@ -26,6 +28,28 @@ const entry = (overrides: Partial<FileSystemEntry>): FileSystemEntry =>
     }) as FileSystemEntry
 
 describe('analyticsUtils', () => {
+    test.each([
+        [true, undefined],
+        [true, false],
+        [true, 'control'],
+        [true, 'test'],
+        [true, true],
+        [false, undefined],
+        [false, false],
+        [false, 'control'],
+        [false, 'test'],
+        [false, true],
+    ] as const)('shows the Product analytics link with rail %s and Home flag %s', (railEnabled, homeFlag) => {
+        const items = fromPostHogItems({
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: railEnabled,
+            [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOME_TAB]: homeFlag,
+        })
+
+        expect(
+            items.some(({ key, href }) => key === 'product_analytics' && href === '/analytics/product-analytics')
+        ).toBe(railEnabled)
+    })
+
     it('reads an item from its file system row, resolving the creator and the escaped name', () => {
         const users = [{ id: 1, uuid: 'u1', first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' }]
         const analytics = fileSystemEntryToAnalytics(entry({}), users)

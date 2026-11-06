@@ -4,11 +4,11 @@ import { Form } from 'kea-forms'
 import { LemonButton, LemonInput, LemonModal, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { currencyFormatter } from 'scenes/billing/billing-utils'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
+import { urls } from 'scenes/urls'
 
 import { BillingProductV2Type } from '~/types'
 
@@ -20,13 +20,6 @@ const FILL_CLASS: Record<InboxUsageStatus, string> = {
     normal: 'bg-brand-blue',
     warning: 'bg-warning',
     limit: 'bg-danger',
-}
-
-// The Usage settings section is already a card; the legacy setup rail needs the widget to frame itself.
-function cardClassName(redesign: boolean): string {
-    return redesign
-        ? 'flex flex-col gap-2'
-        : 'flex flex-col gap-2 rounded border border-primary bg-surface-primary px-2.5 py-2'
 }
 
 /** A single status-coloured fill over a neutral track. Width is runtime-derived, hence inline. */
@@ -43,9 +36,8 @@ function UsageBar({ percentage, status }: { percentage: number; status: InboxUsa
 }
 
 function UsageCardSkeleton(): JSX.Element {
-    const redesign = useFeatureFlag('INBOX_REDESIGN')
     return (
-        <div className={cardClassName(redesign)}>
+        <div className="flex flex-col gap-2">
             <LemonSkeleton className="h-3 w-24" />
             <LemonSkeleton className="h-2 w-full" />
             <div className="flex items-center justify-between">
@@ -148,9 +140,10 @@ function EditLimitModal(): JSX.Element {
  * autonomy throttles in SelfDrivingSection, so a self-imposed cap never reads as a plan limit.
  */
 export function InboxUsageWidget(): JSX.Element | null {
-    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const {
         product,
+        spendProduct,
+        spendAmountUsd,
         isLoading,
         isSubscribed,
         canAccessBilling,
@@ -174,6 +167,30 @@ export function InboxUsageWidget(): JSX.Element | null {
     if (isLoading) {
         return <UsageCardSkeleton />
     }
+    if (spendProduct) {
+        return (
+            <div className="flex flex-col gap-2">
+                <span className="text-[13px] font-semibold">Inbox spend</span>
+                {spendAmountUsd != null && (
+                    <span className="text-xs tabular-nums">{currencyFormatter(spendAmountUsd)}</span>
+                )}
+                {quotaLimited && (
+                    <>
+                        <LemonTag type="warning">Spending limit reached</LemonTag>
+                        <span className="text-xs text-secondary">
+                            New work is paused. Work already underway will finish.
+                            {!canAccessBilling && ' Ask an organization admin to change the limit.'}
+                        </span>
+                    </>
+                )}
+                {canAccessBilling && (
+                    <LemonButton size="small" type="secondary" to={urls.organizationBilling()}>
+                        View usage and limits
+                    </LemonButton>
+                )}
+            </div>
+        )
+    }
     if (!product) {
         return null
     }
@@ -181,7 +198,7 @@ export function InboxUsageWidget(): JSX.Element | null {
     // Only org admins/owners can change billing (canAccessBilling) — others get a read-only view with a hint.
     return (
         <>
-            <div className={cardClassName(redesign)}>
+            <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-1.5">
                     <span className="text-[13px] font-semibold text-default">Pull requests</span>
                     {!isSubscribed ? (
@@ -231,8 +248,7 @@ export function InboxUsageWidget(): JSX.Element | null {
                 )}
                 {quotaLimited && (
                     <span className="text-xs font-medium text-danger">
-                        Agents are paused. They won't write new reports or open pull requests until the limit is raised
-                        or usage resets.
+                        New work is paused until the limit is raised or usage resets. Work already underway will finish.
                     </span>
                 )}
                 {canAccessBilling ? (

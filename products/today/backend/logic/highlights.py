@@ -5,9 +5,11 @@ from contextlib import suppress
 from dataclasses import replace
 from datetime import date, datetime, time, timedelta
 from functools import partial
+from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
 from django.utils import timezone
 
 import structlog
@@ -16,6 +18,7 @@ from pydantic import TypeAdapter, ValidationError
 from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.temporal.common.client import sync_connect
@@ -23,8 +26,14 @@ from posthog.week_start_day import WeekStartDay
 
 from ..facade import contracts
 from ..facade.contracts import HighlightCandidate, HighlightFindings, HighlightSource
-from ..facade.enums import HighlightInterval, HighlightLabel, HighlightPriority, HighlightsStatus
-from ..feature_flags import pulse_ranking
+from ..facade.enums import (
+    HighlightInterval,
+    HighlightLabel,
+    HighlightPinStatus,
+    HighlightPriority,
+    HighlightsStatus,
+    PulseSlotStatus,
+)
 from ..models import TodayHighlights
 from ..temporal.inputs import (
     HIGHLIGHTS_WORKFLOW_NAME,
@@ -32,10 +41,15 @@ from ..temporal.inputs import (
     FinalizeHighlightsInputs,
     HighlightSourceInputs,
     HighlightSourceResult,
+    PinnedNumber,
+    ResolvePinsInputs,
     highlights_workflow_id,
 )
-from .highlight_registry import load_sources
+from . import pulse_pins
+from .highlight_registry import load_sources, source_product
 from .highlight_types import CACHE_SECONDS, Context, property_restrictions
+from .pinned import PINNED_METRICS
+from .today_highlights.routine import PULSE_CANDIDATES
 
 logger = structlog.get_logger(__name__)
 
@@ -45,26 +59,58 @@ START_LOCK_SECONDS = 30
 MAX_ITEMS = 6
 MAX_PER_FAMILY = 2
 MIN_SCORE = 0.2
-PULSE_TILES = 4
 URGENT_RISK_SCORE = 0.75
 MINOR_OPPORTUNITY_SCORE = 0.4
+PINNED_SOURCE = "pinned"
 
 _FINDINGS = TypeAdapter(HighlightFindings)
 _HIGHLIGHTS = TypeAdapter(contracts.Highlights)
 
 
-def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> contracts.Highlights:
+@frozen
+class PulseSourceProgress:
+    found: HighlightFindings
+    slots: list[contracts.PulseSlot]
+
+
+_PROGRESS = TypeAdapter(dict[str, PulseSourceProgress])
+
+
+def get_highlights(
+    *, team: Team, user: User, scopes: frozenset[str] | None, refresh: bool = False
+) -> contracts.Highlights:
     now = timezone.now()
     day = now.astimezone(team.timezone_info).date()
+    pins = [
+        PinnedNumber(key=pin.key, dashboard_id=pin.dashboard_id)
+        for pin in pulse_pins.get_pins(team=team, user_id=user.id, scopes=scopes)
+    ]
     key = _key(team, user, scopes)
+    pins_key = _pins_key(pins)
     rows = (
         TodayHighlights.objects.for_team(team.id)
         .filter(user_id=user.id, key=key, local_day=day)
         .order_by("-created_at")
     )
     latest = rows.first()
-    if latest is None or _is_due(latest, now):
-        _start(team, user, scopes, day, key)
+    retry_failed = (
+        refresh
+        and latest is not None
+        and latest.failed_sources
+        and latest.status != HighlightsStatus.COMPUTING
+        and cache.add(f"today_highlights:retry:{team.id}:{user.id}", True, FAILED_CACHE_SECONDS)
+    )
+    if latest is None or latest.pins_key != pins_key or _is_due(latest, now) or retry_failed:
+        _start(
+            team,
+            user,
+            scopes,
+            day,
+            key,
+            pins,
+            pins_key,
+            after=latest.id if latest else None,
+        )
         status = HighlightsStatus.COMPUTING
     else:
         status = HighlightsStatus(latest.status)
@@ -73,18 +119,54 @@ def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> 
         if latest is not None and latest.status == HighlightsStatus.READY
         else rows.filter(status=HighlightsStatus.READY).first()
     )
+    if latest is not None and latest.content.get("pulse_slots"):
+        with suppress(ValidationError):
+            content = _HIGHLIGHTS.validate_python(latest.content)
+            if status == HighlightsStatus.COMPUTING and ready is not None and ready.id != latest.id:
+                old = _HIGHLIGHTS.validate_python(ready.content)
+                pending = {slot.key for slot in content.pulse_slots or [] if slot.status == PulseSlotStatus.PENDING}
+                shown = {metric.key for metric in content.pulse}
+                pin_keys = {pin.key for pin in pins}
+                retained = [
+                    metric
+                    for metric in old.pulse
+                    if metric.key in pending or (metric.key in pin_keys and metric.key not in shown)
+                ]
+                retained_keys = {metric.key for metric in retained}
+                content = replace(
+                    content,
+                    pulse=[*content.pulse, *retained],
+                    pulse_slots=[
+                        replace(slot, status=PulseSlotStatus.READY) if slot.key in retained_keys else slot
+                        for slot in content.pulse_slots or []
+                    ],
+                )
+            return replace(content, status=status)
     if ready is not None:
         with suppress(ValidationError):
             return replace(_HIGHLIGHTS.validate_python(ready.content), status=status)
     return contracts.Highlights(
-        status=status, generated_at=None, day=day, refresh_at=_refresh_at(team, day), pulse=[], items=[]
+        status=status,
+        generated_at=None,
+        day=day,
+        refresh_at=_refresh_at(team, day),
+        pulse=[],
+        items=[],
+        pulse_slots=[],
     )
 
 
 def _key(team: Team, user: User, scopes: frozenset[str] | None) -> str:
     granted = "session" if scopes is None else ",".join(sorted(scopes))
     restrictions = property_restrictions(team, user)
-    return hashlib.sha256(f"{granted}:{restrictions}:{pulse_ranking(user, team)}".encode()).hexdigest()[:32]
+    return hashlib.sha256(f"{granted}:{restrictions}".encode()).hexdigest()[:32]
+
+
+def _pins_key(pins: Sequence[PinnedNumber]) -> str:
+    if not pins:
+        return ""
+    signature = ",".join(f"{pin.key}@{pin.dashboard_id or ''}" for pin in pins)
+    return hashlib.sha256(signature.encode()).hexdigest()[:32]
 
 
 def _is_due(row: TodayHighlights, now: datetime) -> bool:
@@ -94,10 +176,22 @@ def _is_due(row: TodayHighlights, now: datetime) -> bool:
     return row.ready_at is None or row.ready_at < now - timedelta(seconds=fresh_seconds)
 
 
-def _start(team: Team, user: User, scopes: frozenset[str] | None, day: date, key: str) -> None:
-    if not cache.add(f"today_highlights:start:{team.id}:{user.id}:{key}:{day.isoformat()}", True, START_LOCK_SECONDS):
+def _start(
+    team: Team,
+    user: User,
+    scopes: frozenset[str] | None,
+    day: date,
+    key: str,
+    pins: list[PinnedNumber],
+    pins_key: str,
+    after: UUID | None,
+) -> None:
+    lock = f"today_highlights:start:{team.id}:{user.id}:{key}:{pins_key}:{day.isoformat()}:{after}"
+    if not cache.add(lock, True, START_LOCK_SECONDS):
         return
-    row = TodayHighlights.objects.for_team(team.id).create(team_id=team.id, user_id=user.id, local_day=day, key=key)
+    row = TodayHighlights.objects.for_team(team.id).create(
+        team_id=team.id, user_id=user.id, local_day=day, key=key, pins_key=pins_key
+    )
     inputs = ComputeHighlightsInputs(
         team_id=team.id,
         user_id=user.id,
@@ -105,6 +199,7 @@ def _start(team: Team, user: User, scopes: frozenset[str] | None, day: date, key
         local_day=day.isoformat(),
         scopes=None if scopes is None else sorted(scopes),
         source_names=[source.name for source in load_sources()],
+        pins=pins,
     )
     try:
         asyncio.run(
@@ -121,6 +216,107 @@ def _start(team: Team, user: User, scopes: frozenset[str] | None, day: date, key
         capture_exception(error, {"highlights_id": str(row.id), "product": "today"})
 
 
+def _pulse_content(
+    content: contracts.Highlights,
+    progress: dict[str, PulseSourceProgress],
+    previous: list[contracts.PulseSlot],
+    *,
+    complete: bool = False,
+) -> contracts.Highlights:
+    metrics = {metric.key: metric for metric in content.pulse}
+    offered = {metric.key for source in progress.values() for metric in source.found.pulse}
+    slots = {slot.key: slot for slot in previous}
+    owners: dict[str, int] = {}
+    order = {source.name: source.pulse_order for source in load_sources()}
+    for name, source in progress.items():
+        for metric in source.found.pulse:
+            owners[metric.key] = order.get(name, 0)
+        for slot in source.slots:
+            slots[slot.key] = slot
+            owners[slot.key] = order.get(name, 0)
+    for metric in content.pulse:
+        slots[metric.key] = contracts.PulseSlot(
+            key=metric.key,
+            name=metric.name,
+            url=metric.url,
+            interval=metric.interval,
+            reason=metric.reason,
+            status=PulseSlotStatus.READY,
+        )
+    pin_order = {pin.key: index for index, pin in enumerate(content.pins)}
+    selected = [
+        slot
+        for slot in slots.values()
+        if slot.status != PulseSlotStatus.EMPTY and (slot.key not in offered or slot.key in metrics)
+    ]
+    selected.sort(
+        key=lambda slot: (
+            slot.key not in pin_order,
+            pin_order.get(slot.key, 0),
+            owners.get(slot.key, 0),
+        )
+    )
+    if complete:
+        selected = [
+            replace(slot, status=PulseSlotStatus.ERROR) if slot.status == PulseSlotStatus.PENDING else slot
+            for slot in selected
+        ]
+    return replace(content, pulse_slots=selected)
+
+
+def publish_pulse(inputs: HighlightSourceInputs, found: HighlightFindings, slots: list[contracts.PulseSlot]) -> None:
+    if inputs.highlights_id is None:
+        return
+    with transaction.atomic():
+        row = (
+            TodayHighlights.objects.for_team(inputs.team_id)
+            .select_for_update()
+            .filter(id=inputs.highlights_id, status=HighlightsStatus.COMPUTING)
+            .first()
+        )
+        if row is None:
+            return
+        progress = _PROGRESS.validate_python(row.content.get("_pulse_sources", {}))
+        previous = progress.get(inputs.source_name)
+        if previous is not None:
+            metrics = {metric.key: metric for metric in previous.found.pulse}
+            metrics.update({metric.key: metric for metric in found.pulse})
+            found = replace(found, pulse=tuple(metrics.values()))
+            slots = list({slot.key: slot for slot in [*previous.slots, *slots]}.values())
+        progress[inputs.source_name] = PulseSourceProgress(found=found, slots=slots)
+        pinned = _published_pins(progress)
+        content = build_highlights(
+            load_sources(),
+            {name: source.found for name, source in progress.items()},
+            Team.objects.get(id=inputs.team_id),
+            row.local_day,
+            pins=list(pinned),
+            pinned=pinned,
+        )
+        previous_slots = _HIGHLIGHTS.validate_python(row.content).pulse_slots if row.content else []
+        content = _pulse_content(content, progress, previous_slots or [])
+        row.content = _HIGHLIGHTS.dump_python(replace(content, status=HighlightsStatus.COMPUTING), mode="json")
+        row.content["_pulse_sources"] = _PROGRESS.dump_python(progress, mode="json")
+        row.save(update_fields=["content"])
+
+
+def publish_pinned(inputs: ResolvePinsInputs, metric: contracts.HighlightMetric) -> None:
+    source = HighlightSourceInputs(
+        team_id=inputs.team_id,
+        user_id=inputs.user_id,
+        local_day=inputs.local_day,
+        scopes=inputs.scopes,
+        source_name=PINNED_SOURCE,
+        highlights_id=inputs.highlights_id,
+    )
+    publish_pulse(source, HighlightFindings(pulse=(metric,)), [])
+
+
+def _published_pins(progress: Mapping[str, PulseSourceProgress]) -> dict[str, contracts.HighlightMetric]:
+    published = progress.get(PINNED_SOURCE)
+    return {metric.key: metric for metric in published.found.pulse} if published else {}
+
+
 def run_source(inputs: HighlightSourceInputs) -> HighlightSourceResult:
     source = next((source for source in load_sources() if source.name == inputs.source_name), None)
     context = Context(
@@ -128,22 +324,51 @@ def run_source(inputs: HighlightSourceInputs) -> HighlightSourceResult:
         User.objects.get(id=inputs.user_id),
         date.fromisoformat(inputs.local_day),
         None if inputs.scopes is None else frozenset(inputs.scopes),
+        frozenset(inputs.pinned),
+        publish_pulse=partial(publish_pulse, inputs) if inputs.highlights_id is not None else None,
     )
     if source is None or not context.allows(*source.scopes):
         return HighlightSourceResult(source_name=inputs.source_name, found=None, failed=False)
     with tags_context(product=Product.TODAY, feature=Feature.QUERY, team_id=context.team.id):
         found = context.guard(source.name, partial(source.find, context), HighlightFindings())
+    context.publish_pulse(found, [])
     return HighlightSourceResult(
         source_name=source.name, found=_FINDINGS.dump_json(found).decode(), failed=bool(context.failures)
     )
 
 
+@transaction.atomic
 def finalize(inputs: FinalizeHighlightsInputs) -> None:
-    row = TodayHighlights.objects.for_team(inputs.team_id).filter(id=inputs.highlights_id).first()
+    row = (
+        TodayHighlights.objects.for_team(inputs.team_id)
+        .select_for_update()
+        .filter(id=inputs.highlights_id, status=HighlightsStatus.COMPUTING)
+        .first()
+    )
     if row is None:
         return
     found = {result.source_name: _FINDINGS.validate_json(result.found) for result in inputs.results if result.found}
-    highlights = build_highlights(load_sources(), found, Team.objects.get(id=inputs.team_id), row.local_day)
+    progress = _PROGRESS.validate_python(row.content.get("_pulse_sources", {}))
+    for name, source in progress.items():
+        final = found.get(name, source.found)
+        metrics = {metric.key: metric for metric in source.found.pulse}
+        metrics.update({metric.key: metric for metric in final.pulse})
+        found[name] = replace(final, pulse=tuple(metrics.values()))
+    highlights = build_highlights(
+        load_sources(),
+        found,
+        Team.objects.get(id=inputs.team_id),
+        row.local_day,
+        pins=[pin.key for pin in inputs.pins],
+        pinned={
+            **_published_pins(progress),
+            **{metric.key: metric for metric in PINNED_METRICS.validate_json(inputs.pinned)},
+        },
+    )
+    if "_pulse_sources" in row.content:
+        highlights = _pulse_content(
+            highlights, progress, _HIGHLIGHTS.validate_python(row.content).pulse_slots or [], complete=True
+        )
     failed = [result for result in inputs.results if result.failed]
     usable = bool(highlights.items or highlights.pulse)
     row.status = (
@@ -152,7 +377,7 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
         else HighlightsStatus.READY
     )
     row.content = _HIGHLIGHTS.dump_python(highlights, mode="json")
-    row.failed_sources = bool(failed)
+    row.failed_sources = bool(failed) or inputs.pins_failed
     row.ready_at = timezone.now()
     row.save(update_fields=["status", "content", "failed_sources", "ready_at"])
     if row.status == HighlightsStatus.READY:
@@ -163,17 +388,25 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
 
 def delete_for_teams(team_ids: list[int]) -> None:
     TodayHighlights.objects.unscoped().filter(team_id__in=team_ids).delete()
+    pulse_pins.delete_for_teams(team_ids)
 
 
 def build_highlights(
-    sources: Sequence[HighlightSource], found: Mapping[str, HighlightFindings], team: Team, day: date
+    sources: Sequence[HighlightSource],
+    found: Mapping[str, HighlightFindings],
+    team: Team,
+    day: date,
+    pins: Sequence[str] = (),
+    pinned: Mapping[str, contracts.HighlightMetric] | None = None,
 ) -> contracts.Highlights:
-    pulse = [
-        metric
-        for source in sorted(sources, key=lambda source: source.pulse_order)
-        if source.name in found
-        for metric in found[source.name].pulse
-    ][:PULSE_TILES]
+    offered: dict[str, contracts.HighlightMetric] = {}
+    for source in sorted(sources, key=lambda source: source.pulse_order):
+        for metric in found[source.name].pulse if source.name in found else ():
+            offered.setdefault(metric.key, metric)
+    resolved = {**offered, **(pinned or {})}
+    chosen = [resolved[key] for key in pins if key in resolved]
+    suggested = [metric for key, metric in offered.items() if key not in pins]
+    pulse = [*chosen, *suggested][:PULSE_CANDIDATES]
     ranked = rank([replace(c, source=name) for name, result in found.items() for c in result.items])
     return contracts.Highlights(
         status=HighlightsStatus.READY,
@@ -185,6 +418,12 @@ def build_highlights(
             for metric in pulse
         ],
         items=sorted((_item(c) for c in ranked), key=lambda item: item.priority),
+        pins=[
+            contracts.HighlightPin(
+                key=key, status=HighlightPinStatus.READY if key in resolved else HighlightPinStatus.UNAVAILABLE
+            )
+            for key in pins
+        ],
     )
 
 
@@ -209,6 +448,7 @@ def _item(candidate: HighlightCandidate) -> contracts.HighlightItem:
         url=candidate.url,
         series=candidate.series,
         score=score,
+        product=source_product(candidate.source),
     )
 
 

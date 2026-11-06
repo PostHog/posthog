@@ -14,7 +14,7 @@ from posthog.llm.gateway_usage import GatewayRequestCost, fetch_gateway_cost
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.pricing import cost_to_spend
-from products.signals.backend.spend import record_llm_spend
+from products.signals.backend.spend import begin_signal_spend, record_llm_spend
 
 logger = structlog.get_logger(__name__)
 USAGE_WAIT_SECONDS = 10.0
@@ -75,7 +75,6 @@ async def _settle_generation(
         return None
     finally:
         await database_sync_to_async(record_llm_spend)(
-            request_id,
             token_cost_microusd=cost_microusd,
             team_id=team_id,
             signal_id=signal_id,
@@ -98,6 +97,8 @@ async def generate_with_spend(
     and marks the stage unaccounted.
     """
     try:
+        if team_id is not None and signal_id is not None:
+            await database_sync_to_async(begin_signal_spend)(team_id=team_id, signal_id=signal_id)
         response = await generation
     except (Exception, asyncio.CancelledError) as error:
         request_id = (
@@ -107,7 +108,7 @@ async def generate_with_spend(
             await _settle_generation(request_id, gateway=gateway, team_id=team_id, signal_id=signal_id, stage=stage)
         else:
             await database_sync_to_async(record_llm_spend)(
-                None, token_cost_microusd=None, team_id=team_id, signal_id=signal_id, stage=stage
+                token_cost_microusd=None, team_id=team_id, signal_id=signal_id, stage=stage
             )
         raise
     spend = await _settle_generation(

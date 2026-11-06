@@ -3,7 +3,7 @@ from typing import cast
 import structlog
 
 from posthog.hogql import ast
-from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
+from posthog.hogql.errors import ResolutionError, TableAccessDeniedError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -45,46 +45,50 @@ def _list_us_organization_ids(email: str) -> tuple[str, ...]:
     return tuple(str(organization_id) for organization_id in organization_ids)
 
 
-def _list_eu_organization_ids(team: Team, user: User, email: str) -> tuple[str, ...]:
+def _query_eu_organization_members(
+    team: Team,
+    user: User,
+    *,
+    query: str,
+    placeholders: dict[str, ast.Expr],
+    query_type: str,
+    log_event: str,
+) -> tuple[str, ...]:
     try:
         with tags_context(product=Product.CUSTOMER_ANALYTICS, feature=Feature.QUERY):
             response = execute_hogql_query(
-                query=f"""
-                    SELECT DISTINCT organization_id
-                    FROM {EU_ORGANIZATION_MEMBERS_VIEW}
-                    WHERE email = {{email}}
-                    ORDER BY organization_id
-                    LIMIT {ACCOUNT_MEMBER_SEARCH_MAX_ORGANIZATIONS}
-                """,
-                placeholders={"email": ast.Constant(value=email)},
+                query=query,
+                placeholders=placeholders,
                 team=team,
                 user=user,
-                query_type="customer_analytics_account_member_email_lookup",
+                query_type=query_type,
             )
     except (ResolutionError, TableAccessDeniedError) as error:
-        logger.info(
-            "account_member_email_lookup_unavailable",
-            team_id=team.id,
-            error_type=type(error).__name__,
-        )
-        return ()
-    except QueryError as error:
-        logger.warning(
-            "account_member_email_lookup_failed",
-            team_id=team.id,
-            error_type=type(error).__name__,
-        )
+        logger.info(f"{log_event}_unavailable", team_id=team.id, error_type=type(error).__name__)
         return ()
     except Exception as error:
-        logger.warning(
-            "account_member_email_lookup_failed",
-            team_id=team.id,
-            error_type=type(error).__name__,
-        )
+        logger.warning(f"{log_event}_failed", team_id=team.id, error_type=type(error).__name__)
         return ()
 
     rows = cast(list[list[object]], response.results or [])
     return tuple(str(row[0]) for row in rows if row and row[0] is not None)
+
+
+def _list_eu_organization_ids(team: Team, user: User, email: str) -> tuple[str, ...]:
+    return _query_eu_organization_members(
+        team,
+        user,
+        query=f"""
+            SELECT DISTINCT organization_id
+            FROM {EU_ORGANIZATION_MEMBERS_VIEW}
+            WHERE email = {{email}}
+            ORDER BY organization_id
+            LIMIT {ACCOUNT_MEMBER_SEARCH_MAX_ORGANIZATIONS}
+        """,
+        placeholders={"email": ast.Constant(value=email)},
+        query_type="customer_analytics_account_member_email_lookup",
+        log_event="account_member_email_lookup",
+    )
 
 
 def list_account_external_ids_by_member_email(*, team: Team, user: User, email: str) -> tuple[str, ...]:

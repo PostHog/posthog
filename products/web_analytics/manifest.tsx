@@ -7,12 +7,10 @@ import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Web Analytics',
-    // Boot-time approximation of webVitalsSetupLogic - this gates only the web
-    // vitals tab, not the analytics tabs. The in-scene check stays the source of
-    // truth (it also reads the autocapture opt-in for the waiting state).
+    // Boot-time approximation of webAnalyticsSetupLogic.
     setupProbe: {
         productKey: ProductKey.WEB_ANALYTICS,
-        hasDataEvents: ['$web_vitals'],
+        hasDataEvents: ['$pageview'],
     },
     urls: {
         webAnalytics: (): string => `/web`,
@@ -81,7 +79,16 @@ export const manifest: ProductManifest = {
                 { name: 'Page reports', href: urls.webAnalyticsPageReports() },
                 { name: 'Live', href: urls.webAnalyticsLive() },
                 { name: 'Installation health', href: urls.webAnalyticsHealth() },
-                { name: 'Bots', href: urls.webAnalyticsBotAnalytics(), flag: FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS },
+                {
+                    name: 'AI visibility',
+                    href: urls.webAnalyticsContentAutopilot(),
+                    flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
+                },
+                {
+                    name: 'Bots',
+                    href: urls.webAnalyticsBotAnalytics(),
+                    flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
+                },
                 {
                     name: 'Search & AI',
                     href: urls.webAnalyticsPagePerformance(),

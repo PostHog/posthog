@@ -25,7 +25,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     mark_schema_running_unless_halted,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, DataWarehouseTable
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
     NoActiveDestinationsError,
     destination_ids_for_run,
@@ -141,7 +141,7 @@ def _enrichment_pending(team_id: int, table: DataWarehouseTable | None, schema: 
         return True
     # Hidden plumbing columns (_dlt_id, partition key, …) are never enriched, so they'd otherwise
     # show up perpetually in `columns - annotated` and keep this returning True on every sync.
-    columns = set((table.columns or {}).keys()) - HIDDEN_COLUMNS
+    columns = set((table.columns or {}).keys()) - table.hidden_columns()
     annotated = set(
         WarehouseColumnAnnotation.objects.for_team(team_id)
         .filter(table_id=table.id)
@@ -176,7 +176,9 @@ def _build_schema_snapshot(schema: ExternalDataSchema) -> dict[str, Any]:
 
     `post_import_job` reads `last_synced_at` back, and a CDC history lane's job adds
     `cdc_write_mode` for the jobs API. The rest is only ever read by a person: the schema audit log does not diff
-    `sync_type_config`, so this is the one record of the cursor and reset flags a run ran with.
+    `sync_type_config`, so this is the one record of the cursor and reset flags a run ran with. A
+    webhook-sync run that polls the API because no webhook is enabled adds `webhook_fallback`
+    (see `WebhookSourceManager.record_webhook_fallback`), and keeps `sync_type` as it is.
     """
     sync_type_config = {
         key: value

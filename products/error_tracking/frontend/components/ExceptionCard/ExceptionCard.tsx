@@ -13,6 +13,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tabs, TabsList, TabsTrigger } from 'lib/ui/quill'
 
 import { ViewLogsButton } from 'products/logs/frontend/components/ViewLogsButton'
+import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
 
 import { ExceptionCardFooter } from './ExceptionCardFooter'
 import { exceptionCardLogic } from './exceptionCardLogic'
@@ -37,6 +38,7 @@ export interface ExceptionCardProps extends ExceptionCardContentProps {
     event?: ErrorEventType
     loading: boolean
     logicKey?: string
+    onShowOnlyWithRecording?: () => void
 }
 
 export function ExceptionCard({
@@ -45,9 +47,13 @@ export function ExceptionCard({
     event,
     loading,
     logicKey,
+    onShowOnlyWithRecording,
     ...contentProps
 }: ExceptionCardProps): JSX.Element {
-    const cardLogicProps = useMemo(() => ({ issueId, loading, logicKey }), [issueId, loading, logicKey])
+    const cardLogicProps = useMemo(
+        () => ({ issueId, loading, logicKey, onShowOnlyWithRecording }),
+        [issueId, loading, logicKey, onShowOnlyWithRecording]
+    )
 
     const eventProps = useMemo<ErrorPropertiesLogicProps>(
         () => ({
@@ -85,6 +91,9 @@ function ExceptionCardContent({
     const { sessionId, spanId, traceId } = useValues(errorPropertiesLogic)
     const { setCurrentTab } = useActions(exceptionCardLogic)
     const logsEnabled = useFeatureFlag('LOGS_IN_ERROR_TRACKING')
+    const openTraceDialog = useOpenTraceDialog()
+    const usableTraceId = usableId(traceId)
+    const usableSpanId = usableId(spanId)
     const headerRef = useRef<HTMLDivElement>(null)
 
     // Base UI scrolls the active tab into view on mount and on keyboard navigation, but not when the
@@ -190,17 +199,27 @@ function ExceptionCardContent({
                             )}
                         </TabsList>
                         <div className="flex justify-end gap-1">
-                            <ViewTraceButton
-                                traceId={usableId(traceId)}
-                                spanId={usableId(spanId)}
-                                timestamp={timestamp}
-                                size="xsmall"
-                                data-attr="error-tracking-view-trace"
-                            />
+                            {usableTraceId && (
+                                <ViewTraceButton
+                                    traceId={usableTraceId}
+                                    spanId={usableSpanId}
+                                    timestamp={timestamp}
+                                    size="xsmall"
+                                    data-attr="error-tracking-view-trace"
+                                    onClick={(event) =>
+                                        openTraceDialog(
+                                            event,
+                                            { traceId: usableTraceId, spanId: usableSpanId, ts: timestamp },
+                                            { entryPoint: 'exception_card' }
+                                        )
+                                    }
+                                />
+                            )}
                             {sessionId && (currentTab === 'timeline' || currentTab === 'recording') ? (
                                 <ViewLogsButton
                                     sessionId={sessionId}
                                     timestamp={timestamp}
+                                    openedFrom="exception"
                                     size="xsmall"
                                     data-attr="error-tracking-session-view-logs"
                                 />

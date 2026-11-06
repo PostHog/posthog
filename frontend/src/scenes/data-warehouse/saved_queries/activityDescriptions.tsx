@@ -229,6 +229,8 @@ function describeSyncFrequencyReset(
     }
 }
 
+const WAREHOUSE_SUGGESTION_TRIGGER_JOB_TYPE = 'warehouse_suggestion'
+
 const SAVED_QUERY_EVENTS = new Map([
     ['created', { action: 'Created the view', description: 'created' }],
     ['deleted', { action: 'Deleted the view', description: 'deleted' }],
@@ -246,7 +248,14 @@ export function dataWarehouseSavedQueryActivityDescriber(
         return { description: null }
     }
 
-    const user = <ActivityLogUserName logItem={logItem} />
+    const user = (
+        <>
+            <ActivityLogUserName logItem={logItem} />
+            {logItem.detail?.trigger?.job_type === WAREHOUSE_SUGGESTION_TRIGGER_JOB_TYPE ? (
+                <span className="text-muted"> (via a warehouse suggestion)</span>
+            ) : null}
+        </>
+    )
     const viewName = logItem.detail?.name ? <strong>{logItem.detail.name}</strong> : <i>a view</i>
     const event = SAVED_QUERY_EVENTS.get(logItem.activity)
     if (event) {

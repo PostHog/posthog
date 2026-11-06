@@ -6,12 +6,12 @@ import { LemonInputSelect, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { timeZoneLabel } from 'lib/utils/timezones'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
-import { HogFlowDuration } from './components/HogFlowDuration'
+import { HogFlowDuration, MAX_DELAY_VALUE_FOR_DURATION_UNIT } from './components/HogFlowDuration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
 import {
     DEFAULT_DELAY_TIMEZONE,
@@ -71,6 +71,7 @@ export function StepDelayConfiguration({
                     <HogFlowDuration
                         value={config.delay_duration ?? ''}
                         onChange={(value) => setDelayWorkflowActionConfig(action.id, { delay_duration: value })}
+                        maxValueForUnit={MAX_DELAY_VALUE_FOR_DURATION_UNIT}
                     />
                 ) : (
                     <>

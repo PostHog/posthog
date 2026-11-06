@@ -3,7 +3,8 @@
 Staff always may. Other users need the `inbox-model-sort` flag. It is evaluated locally, with the person and group
 properties the web client registers (`frontend/src/lib/utils/posthogIdentity.ts`), so the API agrees with the inbox
 menu without a remote flag call on every inbox request. A flag that fails to evaluate denies access.
-Raw probabilities and model metadata stay staff only.
+Users with access see the served model key, probabilities and lifts. The manifest version and the model metadata
+stay in the `ranking_score` artefacts.
 """
 
 import structlog
@@ -21,12 +22,17 @@ INBOX_MODEL_SORT_FLAG = "inbox-model-sort"
 def can_view_inbox_ranking(user: User, team: Team) -> bool:
     if user.is_staff:
         return True
+    return user_flag_enabled(INBOX_MODEL_SORT_FLAG, user, team)
+
+
+def user_flag_enabled(flag: str, user: User, team: Team) -> bool:
+    """Evaluate `flag` locally for `user` in `team`, with the properties the web client registers. A failure denies."""
     if not user.distinct_id:
         return False
     organization = team.organization
     try:
         return feature_enabled_or_false(
-            INBOX_MODEL_SORT_FLAG,
+            flag,
             user.distinct_id,
             groups={"organization": str(organization.id), "project": str(team.uuid)},
             person_properties={
@@ -53,5 +59,5 @@ def can_view_inbox_ranking(user: User, team: Team) -> bool:
             send_feature_flag_events=False,
         )
     except Exception:
-        logger.exception("signals.inbox_ranking.flag_failed", team_id=team.id, user_id=user.id)
+        logger.exception("signals.inbox_ranking.flag_failed", flag=flag, team_id=team.id, user_id=user.id)
         return False

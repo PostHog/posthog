@@ -1,34 +1,36 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlusSmall } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonCard,
-    LemonCollapse,
-    LemonDialog,
-    LemonSelect,
-    LemonSkeleton,
-    LemonTabs,
-    Spinner,
-} from '@posthog/lemon-ui'
-
-import { pluralize } from 'lib/utils/strings'
+import { LemonBanner, LemonButton, LemonDialog, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
 
 import { ContentAutopilotDrafts } from './ContentAutopilotDrafts'
-import { contentAutopilotLogic } from './contentAutopilotLogic'
+import { type ContentAutopilotWorkspaceTab, contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotOpportunities } from './ContentAutopilotOpportunities'
+import { ContentAutopilotPromptAddModal } from './ContentAutopilotPromptAddModal'
+import { ContentAutopilotPrompts } from './ContentAutopilotPrompts'
+import { ContentAutopilotPromptsOverview } from './ContentAutopilotPromptsOverview'
+import { ContentAutopilotPromptSuggestModal } from './ContentAutopilotPromptSuggestModal'
 import { ContentAutopilotProposalDetail } from './ContentAutopilotProposalDetail'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
+import { ContentAutopilotSiteGate } from './ContentAutopilotSiteGate'
 
-export const ContentAutopilot = (): JSX.Element => {
+export interface ContentAutopilotBotsTab {
+    active: boolean
+    open: () => void
+    close: () => void
+    content: JSX.Element
+}
+
+type AiVisibilityTab = ContentAutopilotWorkspaceTab | 'bots'
+
+export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): JSX.Element => {
     const {
         profile,
         activeRun,
         siteRuns,
-        reviewQueue,
+        draftRows,
         readyDraftCount,
-        failedDraftCount,
+        latestRunErrors,
         workspaceTab,
         onboardingOpen,
         siteProfiles,
@@ -37,8 +39,6 @@ export const ContentAutopilot = (): JSX.Element => {
         proposalsLoading,
         runMutationLoading,
         workspaceError,
-        workspaceErrors,
-        workspaceInitialized,
         profileDataLoaded,
         visibleOpportunities,
     } = useValues(contentAutopilotLogic)
@@ -46,7 +46,6 @@ export const ContentAutopilot = (): JSX.Element => {
         useActions(contentAutopilotLogic)
     const loading = siteProfilesLoading || runsLoading || proposalsLoading
     const lastRun = siteRuns[0]
-    const lastRunErrors = lastRun?.run_status === 'failed' ? lastRun.errors.map(({ message }) => message).join(' ') : ''
     const confirmCancelRun = (): void => {
         if (!activeRun) {
             return
@@ -62,19 +61,25 @@ export const ContentAutopilot = (): JSX.Element => {
             secondaryButton: { children: 'Keep drafting' },
         })
     }
-
-    if (!workspaceInitialized) {
-        return <LemonSkeleton className="h-72 w-full" />
+    const selectTab = (tab: AiVisibilityTab): void => {
+        if (tab === 'bots') {
+            bots?.open()
+            return
+        }
+        if (bots?.active) {
+            bots.close()
+        }
+        setWorkspaceTab(tab)
     }
 
     return (
         <div className="flex flex-col gap-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                    <h1 className="m-0">Content autopilot</h1>
+                    <h1 className="m-0">AI visibility</h1>
                     <p className="m-0 mt-1 text-muted max-w-3xl">
-                        Find questions AI assistants answer without citing your site, and draft the pages that fix it.
-                        Nothing is published until you download a draft and ship it yourself.
+                        Track whether AI assistants mention and cite your site when they answer the prompts you care
+                        about.
                     </p>
                 </div>
                 {profile && !onboardingOpen ? (
@@ -97,102 +102,90 @@ export const ContentAutopilot = (): JSX.Element => {
 
             {workspaceError ? (
                 <LemonBanner type="error" action={{ children: 'Try again', onClick: loadWorkspace, loading }}>
-                    Some content autopilot data could not be loaded. {workspaceError}
+                    Some AI visibility data could not be loaded. {workspaceError}
                 </LemonBanner>
             ) : null}
 
-            {workspaceErrors.profiles && !profile ? (
-                <LemonCard hoverEffect={false} className="p-8 text-center">
-                    <h2>Sites could not be loaded</h2>
-                    <p className="text-muted">Try again before adding or changing a site.</p>
-                </LemonCard>
-            ) : onboardingOpen || !profile ? (
+            {profile && onboardingOpen ? (
                 <ContentAutopilotSetup onboarding />
             ) : (
                 <>
-                    {!profileDataLoaded ? (
-                        <LemonSkeleton className="h-72 w-full" />
-                    ) : (
-                        <>
-                            {activeRun ? (
-                                <LemonCard hoverEffect={false} className="p-4 flex items-center justify-between gap-3">
-                                    <div className="flex items-center gap-3">
-                                        <Spinner className="text-xl" />
-                                        <div>
-                                            <h3 className="m-0">Drafting pages</h3>
-                                            <p className="m-0 mt-1 text-muted">
-                                                PostHog is reading your pages and the pages AI assistants cite, then
-                                                writing and checking each draft. This takes a few minutes per page.
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <LemonButton
-                                        type="secondary"
-                                        status="danger"
-                                        onClick={confirmCancelRun}
-                                        loading={runMutationLoading}
-                                    >
-                                        Stop drafting
-                                    </LemonButton>
-                                </LemonCard>
-                            ) : failedDraftCount > 0 ? (
-                                <LemonBanner
-                                    type="error"
-                                    action={
-                                        workspaceTab === 'drafts'
-                                            ? undefined
-                                            : {
-                                                  children: 'View drafts',
-                                                  onClick: () => setWorkspaceTab('drafts'),
-                                                  'data-attr': 'content-autopilot-view-failed-drafts',
-                                              }
-                                    }
+                    {profile && profileDataLoaded && latestRunErrors.length > 0 ? (
+                        <LemonBanner type={lastRun?.run_status === 'failed' ? 'error' : 'warning'}>
+                            {latestRunErrors.join(' ')}
+                        </LemonBanner>
+                    ) : null}
+
+                    <LemonTabs<AiVisibilityTab>
+                        activeKey={bots?.active ? 'bots' : workspaceTab}
+                        onChange={selectTab}
+                        data-attr="content-autopilot-workspace-tabs"
+                        rightSlot={
+                            activeRun ? (
+                                <LemonButton
+                                    type="tertiary"
+                                    status="danger"
+                                    size="small"
+                                    onClick={confirmCancelRun}
+                                    loading={runMutationLoading}
+                                    data-attr="content-autopilot-stop-drafting"
                                 >
-                                    {pluralize(failedDraftCount, 'draft')} from the latest run didn't pass. Open a draft
-                                    to see what to fix, or regenerate it.
-                                    {lastRunErrors ? ` ${lastRunErrors}` : null}
-                                </LemonBanner>
-                            ) : lastRun?.run_status === 'failed' ? (
-                                <LemonBanner type="error">
-                                    The latest run failed.{' '}
-                                    {lastRunErrors || 'Select opportunities and draft them again.'}
-                                </LemonBanner>
-                            ) : null}
-
-                            <LemonTabs
-                                activeKey={workspaceTab}
-                                onChange={setWorkspaceTab}
-                                data-attr="content-autopilot-workspace-tabs"
-                                tabs={[
-                                    {
-                                        key: 'opportunities',
-                                        label: `Opportunities (${visibleOpportunities.length})`,
-                                        content: <ContentAutopilotOpportunities />,
-                                    },
-                                    {
-                                        key: 'drafts',
-                                        label: readyDraftCount
-                                            ? `Drafts (${readyDraftCount} ready to review)`
-                                            : `Drafts (${reviewQueue.length})`,
-                                        content: <ContentAutopilotDrafts />,
-                                    },
-                                ]}
-                            />
-                        </>
-                    )}
-
-                    <LemonCollapse
-                        panels={[
+                                    Stop drafting
+                                </LemonButton>
+                            ) : null
+                        }
+                        tabs={[
                             {
-                                key: 'settings',
-                                header: `Settings for ${profile.name || profile.domain}`,
-                                content: <ContentAutopilotSetup />,
+                                key: 'overview',
+                                label: 'Overview',
+                                content: <ContentAutopilotPromptsOverview />,
                             },
+                            {
+                                key: 'prompts',
+                                label: 'Prompts',
+                                content: <ContentAutopilotPrompts />,
+                            },
+                            bots ? { key: 'bots', label: 'Bots', content: bots.content } : null,
+                            {
+                                key: 'opportunities',
+                                label: profile ? `Opportunities (${visibleOpportunities.length})` : 'Opportunities',
+                                content: (
+                                    <ContentAutopilotSiteGate>
+                                        <ContentAutopilotOpportunities />
+                                    </ContentAutopilotSiteGate>
+                                ),
+                            },
+                            profile
+                                ? {
+                                      key: 'drafts',
+                                      label: readyDraftCount
+                                          ? `Drafts (${readyDraftCount} ready to review)`
+                                          : `Drafts (${draftRows.length})`,
+                                      content: (
+                                          <ContentAutopilotSiteGate>
+                                              <ContentAutopilotDrafts />
+                                          </ContentAutopilotSiteGate>
+                                      ),
+                                  }
+                                : null,
+                            profile
+                                ? {
+                                      key: 'settings',
+                                      label: 'Settings',
+                                      content: (
+                                          <ContentAutopilotSiteGate>
+                                              <ContentAutopilotSetup />
+                                          </ContentAutopilotSiteGate>
+                                      ),
+                                  }
+                                : null,
                         ]}
                     />
                 </>
             )}
             <ContentAutopilotProposalDetail />
+            <ContentAutopilotPromptAddModal />
+            <ContentAutopilotPromptSuggestModal />
         </div>
     )
 }

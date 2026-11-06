@@ -121,6 +121,7 @@ class ActivityLogOCSFSerializer(serializers.ModelSerializer):
                 "organization_id": str(instance.organization_id) if instance.organization_id else None,
                 "was_impersonated": instance.was_impersonated,
                 "is_system": instance.is_system,
+                "credential_type": instance.credential_type,
             },
         }
 
@@ -141,6 +142,13 @@ class ActivityLogOCSFSerializer(serializers.ModelSerializer):
             # what the client tag holds: either the self-reported x-posthog-client header, or the
             # scout the server named from the authenticated run.
             actor["app_name"] = instance.client
+        credential_id = instance.customer_visible_credential_id
+        if credential_id:
+            # A key-authenticated request has no session of its own. OCSF carries such a key in
+            # `credential_uid`, the attribute its own example fills with an AWS access key id.
+            actor["session"] = (
+                {"uid": credential_id} if instance.credential_type == "session" else {"credential_uid": credential_id}
+            )
         if actor:
             event["actor"] = actor
 

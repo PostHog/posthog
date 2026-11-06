@@ -101,10 +101,12 @@ function RunOutputWidget({ report }: { report: SignalReport }): JSX.Element {
                     <IconWarning className="size-4" />
                 </span>
                 <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                    <span className="font-medium text-sm text-primary">Run failed</span>
+                    <span className="font-medium text-sm text-primary">
+                        {report.startup_failure ? 'Research could not start' : 'Run failed'}
+                    </span>
                     <span className="text-xs text-secondary leading-snug">
-                        Research couldn't complete. Check the linked run below for the error. The agent may retry
-                        automatically.
+                        {report.startup_failure?.message ??
+                            "Research couldn't complete. Check the linked run below for the error before retrying."}
                     </span>
                 </div>
             </div>

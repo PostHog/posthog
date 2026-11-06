@@ -84,7 +84,7 @@ structlog.configure(
         *foreign_pre_chain,
         structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
     ],
-    context_class=structlog.threadlocal.wrap_dict(dict),
+    context_class=dict,
     logger_factory=structlog.stdlib.LoggerFactory(),
     wrapper_class=structlog.stdlib.BoundLogger,
     cache_logger_on_first_use=True,
@@ -180,12 +180,18 @@ LOGGING: dict[str, Any] = {
         },
         "posthog.auth.mfa": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.security.command_exec_audit": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        # Same clamp: the host guards log a matched out-of-band interaction domain at INFO,
+        # while the refusal beside it logs at WARNING, so the gap is invisible without this.
+        "posthog.security.url_validation": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        "posthog.dns_hosts": {"level": "INFO", "handlers": ["console"], "propagate": False},
         # The posthoganalytics SDK claims the "posthog" logger name and clamps it to WARNING
         # at client init, so the source-registry prewarm's INFO lifecycle logs need an
         # explicit level to be visible.
         "posthog.warehouse_source_prewarm": {"level": "INFO", "handlers": ["console"], "propagate": False},
         # Same clamp: the api query budget logs the team and balance behind every would-be 429 at INFO.
         "posthog.api_queries_budget": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        # Same clamp: the signed-out-with-session-cookie diagnostic in posthog/utils.py logs at INFO.
+        "posthog.utils": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load": {
             "level": "DEBUG",
             "handlers": ["console"],

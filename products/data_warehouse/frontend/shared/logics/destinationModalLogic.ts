@@ -31,6 +31,8 @@ export interface DestinationModalLogicProps {
     /** Distinguishes the source-level modal from the schema-level one so they keep separate form state. */
     modalKey: string
     onSaved: (destination: ExternalDataDestinationApi) => void
+    /** Called for a new destination in place of the generic success toast, so the caller can show its own next step. */
+    onCreated?: (destination: ExternalDataDestinationApi) => void
     /** Called after a destination is deleted, so the caller can drop it from its list. */
     onDeleted?: (destinationId: string) => void
 }
@@ -44,6 +46,10 @@ export interface DestinationFormValues extends Record<string, any> {
 }
 
 const DEFAULT_TYPE: CreatableDestinationType = 'Postgres'
+
+function findIntegration(integrations: IntegrationType[] | null, id: number | null): IntegrationType | null {
+    return (id && integrations?.find((one) => one.id === id)) || null
+}
 
 export function newDestinationForm(type: CreatableDestinationType = DEFAULT_TYPE): DestinationFormValues {
     const definition = WAREHOUSE_DESTINATIONS[type]
@@ -76,6 +82,7 @@ export interface destinationModalLogicValues {
     isDestinationFormSubmitting: boolean
     isDestinationFormValid: boolean
     isOpen: boolean
+    selectedIntegration: IntegrationType | null
     showDestinationFormErrors: boolean
 }
 
@@ -190,6 +197,7 @@ export interface destinationModalLogicMeta {
         definition: (destinationForm: any) => WarehouseDestinationDefinition
         availableIntegrations: (integrations: any, destinationForm: any) => IntegrationType[]
         editingIntegration: (editing: any, integrations: any) => IntegrationType | null
+        selectedIntegration: (integrations: any, destinationForm: any) => IntegrationType | null
     }
 }
 
@@ -245,6 +253,7 @@ export const destinationModalLogic = kea<destinationModalLogicType>([
                     {
                         isNew: !values.editing,
                         formValues,
+                        selectedIntegration: findIntegration(values.integrations, formValues.integrationId),
                     }
                 ),
             }),
@@ -261,7 +270,13 @@ export const destinationModalLogic = kea<destinationModalLogicType>([
                     ? await externalDataDestinationsPartialUpdate(teamId, values.editing.id, payload)
                     : await externalDataDestinationsCreate(teamId, payload)
 
-                lemonToast.success(values.editing ? 'Destination updated' : 'Destination added')
+                if (values.editing) {
+                    lemonToast.success('Destination updated')
+                } else if (props.onCreated) {
+                    props.onCreated(saved)
+                } else {
+                    lemonToast.success('Destination added')
+                }
                 actions.closeModal()
                 props.onSaved(saved)
             },
@@ -286,8 +301,13 @@ export const destinationModalLogic = kea<destinationModalLogicType>([
             (
                 editing: ExternalDataDestinationApi | null,
                 integrations: IntegrationType[] | null
-            ): IntegrationType | null =>
-                (editing?.integration && integrations?.find((one) => one.id === editing.integration)) || null,
+            ): IntegrationType | null => findIntegration(integrations, editing?.integration ?? null),
+        ],
+        // The connection picked in the form, so a type's fields can depend on how it signs in.
+        selectedIntegration: [
+            (s: any) => [s.integrations, s.destinationForm],
+            (integrations: IntegrationType[] | null, destinationForm: DestinationFormValues): IntegrationType | null =>
+                findIntegration(integrations, destinationForm.integrationId),
         ],
     }),
     listeners(({ actions, values, props }: any) => ({

@@ -14,9 +14,9 @@ from posthog.models import (
     OrganizationDomain,
     OrganizationMembership,
 )
-
-from ee.models.scim_provisioned_user import SCIMProvisionedUser
-from ee.models.scim_request_log import SCIMRequestLog
+from posthog.models.scim_provisioned_user import SCIMProvisionedUser
+from posthog.models.scim_request_log import SCIMRequestLog
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 
 class TestIdentityProviderConfigAPI(APIBaseTest):
@@ -429,14 +429,15 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
         self._make_admin()
         self._enable_features(AvailableFeature.XAA_AUTHENTICATION)
         config = IdentityProviderConfig.objects.create(organization=self.organization)
-        response = self.client.patch(
-            f"/api/organizations/@current/identity_provider_configs/{config.id}/",
-            {
-                "id_jag_issuer_url": "https://example.com/",
-                "id_jag_jwks_url": "https://example.com/keys.json",
-                "id_jag_allowed_clients": ["client-a"],
-            },
-        )
+        with mock_anti_ssrf_dns_lookup():
+            response = self.client.patch(
+                f"/api/organizations/@current/identity_provider_configs/{config.id}/",
+                {
+                    "id_jag_issuer_url": "https://example.com/",
+                    "id_jag_jwks_url": "https://example.com/keys.json",
+                    "id_jag_allowed_clients": ["client-a"],
+                },
+            )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id_jag_issuer_url"], "https://example.com")
         self.assertTrue(response.json()["has_id_jag"])
@@ -444,10 +445,11 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
     def test_cannot_configure_id_jag_without_feature(self):
         self._make_admin()
         config = IdentityProviderConfig.objects.create(organization=self.organization)
-        response = self.client.patch(
-            f"/api/organizations/@current/identity_provider_configs/{config.id}/",
-            {"id_jag_issuer_url": "https://example.com"},
-        )
+        with mock_anti_ssrf_dns_lookup():
+            response = self.client.patch(
+                f"/api/organizations/@current/identity_provider_configs/{config.id}/",
+                {"id_jag_issuer_url": "https://example.com"},
+            )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "id_jag_issuer_url")
 

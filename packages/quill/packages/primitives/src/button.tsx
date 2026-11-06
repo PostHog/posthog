@@ -20,6 +20,7 @@ const buttonVariants = cva(
                 destructive: 'quill-button--variant-destructive',
                 'destructive-outline': 'quill-button--variant-destructive-outline',
                 link: 'quill-button--variant-link',
+                'link-foreground': 'quill-button--variant-link-foreground',
                 'link-muted': 'quill-button--variant-link-muted',
             },
             size: {
@@ -67,6 +68,13 @@ export type ButtonProps = ButtonPrimitive.Props &
          * Use with `primary` or `outline`. At most two in a row; any further button is a flat `default`. See AGENTS.md.
          */
         elevated?: boolean
+        /**
+         * A dot on the top-right corner that flags something waiting behind the button, such as unread
+         * items. Say what it means in the `aria-label`. Off the app background, set
+         * `--quill-button-indicator-ring` to the surface behind the button. `warning` and `destructive`
+         * color the dot for a problem rather than news.
+         */
+        indicator?: 'default' | 'warning' | 'destructive'
         /** Text shown on hover and focus. Icon-only buttons need one, matching their `aria-label`. */
         tooltip?: React.ReactNode
         /**
@@ -124,6 +132,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             left = false,
             elevated = false,
             loading = false,
+            indicator,
             disabled,
             tooltip,
             disabledReason,
@@ -144,6 +153,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                 data-slot="button"
                 data-size={size}
                 data-loading={loading || undefined}
+                data-indicator={indicator || undefined}
                 aria-busy={loading || undefined}
                 disabled={isDisabled}
                 nativeButton={nativeButton ?? !rendersNonButton(renderTarget)}
@@ -160,6 +170,14 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                 {...props}
             >
                 {children}
+                {indicator && (
+                    <span
+                        aria-hidden
+                        data-slot="button-indicator"
+                        data-variant={indicator}
+                        className="quill-button__indicator"
+                    />
+                )}
                 {loading && <Spinner className="quill-button__spinner" />}
             </ButtonPrimitive>
         )

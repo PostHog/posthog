@@ -1,20 +1,16 @@
+from collections.abc import Iterable
 from functools import cached_property
-from typing import Any, Optional, cast
+from typing import cast
 
 from posthog.schema import (
     CachedInsightActorsQueryOptionsResponse,
-    HogQLQueryModifiers,
     InsightActorsQueryOptions,
     InsightActorsQueryOptionsResponse,
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.timings import HogQLTimings
 
-from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner, query_node_modifiers
-from posthog.models import Team
-from posthog.models.user import User
+from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 
 from products.product_analytics.backend.facade.queries import (
     FunnelsQueryRunner,
@@ -27,26 +23,8 @@ class InsightActorsQueryOptionsRunner(QueryRunner):
     query: InsightActorsQueryOptions
     cached_response: CachedInsightActorsQueryOptionsResponse
 
-    def __init__(
-        self,
-        query: InsightActorsQueryOptions | dict[str, Any],
-        team: Team,
-        timings: Optional[HogQLTimings] = None,
-        modifiers: Optional[HogQLQueryModifiers] = None,
-        limit_context: Optional[LimitContext] = None,
-        query_id: Optional[str] = None,
-        user: Optional[User] = None,
-    ):
-        super().__init__(
-            query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            query_id=query_id,
-            extract_modifiers=lambda query: query_node_modifiers(query.source.source),
-            user=user,
-        )
+    def _child_runners(self) -> Iterable[QueryRunner]:
+        return [self.source_runner] if "source_runner" in self.__dict__ else []
 
     @cached_property
     def source_runner(self) -> QueryRunner:
@@ -71,8 +49,6 @@ class InsightActorsQueryOptionsRunner(QueryRunner):
             lifecycle_runner = cast(LifecycleQueryRunner, self.source_runner)
             return lifecycle_runner.to_actors_query_options()
         elif isinstance(self.source_runner, FunnelsQueryRunner):
-            # Only plain FunnelsActorsQuery sources land here — correlation modals wrap a
-            # FunnelCorrelationQueryRunner and keep falling through to the empty response.
             funnels_runner = cast(FunnelsQueryRunner, self.source_runner)
             return funnels_runner.to_actors_query_options()
 

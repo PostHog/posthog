@@ -543,7 +543,7 @@ class BasePrinter(Visitor[str]):
         table_type: ast.TableType | ast.LazyTableType,
         node_type: ast.TableOrSelectType | None,
     ) -> ast.Expr | None:
-        """Floor events-table scans to the team's retention window. Overridden by the ClickHouse dialect;
+        """Floor scans of events and events-derived tables to the team's retention window. Overridden by the ClickHouse dialect;
         default no-op — the HogQL and warehouse dialects don't enforce events retention."""
         return None
 
@@ -1356,8 +1356,7 @@ class BasePrinter(Visitor[str]):
         return self._unsafe_json_extract_trim_quotes(self.visit(node.expr), self._json_property_args(node.keys))
 
     def visit_sample_expr(self, node: ast.SampleExpr) -> Optional[str]:
-        # SAMPLE 1 means no sampling, skip it entirely
-        if node.sample_value.left.value == 1 and node.sample_value.right is None and node.offset_value is None:
+        if node.samples_all_rows():
             return None
 
         sample_value = self.visit_ratio_expr(node.sample_value)
@@ -1385,6 +1384,9 @@ class BasePrinter(Visitor[str]):
 
     def visit_field_alias_type(self, type: ast.FieldAliasType):
         return self._print_identifier(type.alias)
+
+    def visit_array_join_alias_type(self, type: ast.ArrayJoinAliasType):
+        return self.visit_field_alias_type(type)
 
     def visit_expression_field_type(self, type: ast.ExpressionFieldType):
         return self.visit(type.expr)

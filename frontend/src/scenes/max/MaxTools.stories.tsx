@@ -1136,6 +1136,7 @@ export const DangerousOperationPendingApproval: Story = {
     parameters: {
         testOptions: {
             waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr="max-dangerous-operation-input"]',
         },
     },
 }
@@ -1324,6 +1325,7 @@ The following services will need to be notified:
     parameters: {
         testOptions: {
             waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr="max-dangerous-operation-input"]',
         },
     },
 }

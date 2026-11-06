@@ -11,13 +11,66 @@ import * as zod from 'zod'
 
 export const warehouseSuggestionsAcceptCreateBodyRefreshIntervalSecondsMax = 2592000
 
+export const warehouseSuggestionsAcceptCreateBodyLookbackSecondsMin = 0
+export const warehouseSuggestionsAcceptCreateBodyLookbackSecondsMax = 2592000
+
 export const WarehouseSuggestionsAcceptCreateBody = /* @__PURE__ */ zod.object({
     refresh_interval_seconds: zod
         .number()
         .min(1)
         .max(warehouseSuggestionsAcceptCreateBodyRefreshIntervalSecondsMax)
         .optional()
-        .describe('Materialize only: refresh interval to use instead of the proposed one, in seconds.'),
+        .describe(
+            'Materialize only: refresh interval to use instead of the proposed one, in seconds. Omit to keep the proposed interval.'
+        ),
+    refresh_mode: zod
+        .enum(['full', 'incremental'])
+        .describe('\* `full` - Full\n\* `incremental` - Incremental')
+        .optional()
+        .describe(
+            'Materialize only: incremental or full, instead of the proposed refresh_mode. Omit to keep the proposed one. Switching to incremental needs incremental_key and unique_key when the payload has none.\n\n\* `full` - Full\n\* `incremental` - Incremental'
+        ),
+    incremental_key: zod
+        .string()
+        .optional()
+        .describe(
+            'Materialize only, incremental refresh only: an output column whose value only grows as rows arrive, such as a date, a datetime or an increasing number, instead of the proposed one. view-check-incremental lists the columns that qualify. Omit to keep the proposed key.'
+        ),
+    unique_key: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Materialize only, incremental refresh only: output columns that identify a row, instead of the proposed ones. Must include every GROUP BY column. Omit to keep the proposed key.'
+        ),
+    lookback_seconds: zod
+        .number()
+        .min(warehouseSuggestionsAcceptCreateBodyLookbackSecondsMin)
+        .max(warehouseSuggestionsAcceptCreateBodyLookbackSecondsMax)
+        .optional()
+        .describe(
+            "Materialize only, incremental refresh only: how far before the last refresh's highest incremental_key value each refresh reads again, in seconds, so late rows are picked up. Omit to keep the proposed lookback."
+        ),
+    keep_materialized: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Deprecate only: true to keep a materialized view refreshing after it is deprecated. By default, accepting a deprecate suggestion also stops the view's refreshes and deletes its stored table, unless other views or syncs depend on it."
+        ),
+    delete_view: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Deprecate only: true to delete the view instead of marking it deprecated. Deleting also drops its stored table and refreshes, and cannot be undone. Refused when another view now reads it, or when it feeds person properties, account properties, a destination or a workflow. Refused with a 400 when any day in the read window has no read data, because a view read only on those days would look unread.'
+        ),
+})
+
+export const WarehouseSuggestionsAssignCreateBody = /* @__PURE__ */ zod.object({
+    assignee_id: zod
+        .number()
+        .nullable()
+        .describe(
+            'ID of the user to assign. They must be able to accept the suggestion: edit access to the view or table, and to the data catalog for certify and deprecate suggestions. Null removes the assignee. The assignee gets a notification unless they assign themselves.'
+        ),
 })
 
 export const warehouseSuggestionsDismissCreateBodyNoteMax = 1000

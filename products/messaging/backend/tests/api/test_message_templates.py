@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest
@@ -9,6 +10,7 @@ from rest_framework import status
 
 from posthog.models import Organization, Team
 
+from products.cdp.backend.presentation.hog_functions import build_html_wrap_design
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError
@@ -78,7 +80,72 @@ class TestMessageTemplatesAPI(APIBaseTest):
 
         assert pages == [[str(ids[2]), str(ids[1])], [str(ids[0]), str(self.message_template.id)]]
 
-    def test_retrieve_message_template(self):
+    def test_tags_round_trip_through_create_update_and_list(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {
+                "name": "Tagged",
+                "content": {"email": {"subject": "Hi", "text": "Body"}},
+                "type": "email",
+                "tags": ["Onboarding", "growth"],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        template_id = response.json()["id"]
+        assert response.json()["tags"] == ["growth", "onboarding"]
+
+        url = f"/api/projects/{self.team.id}/messaging_templates/{template_id}/"
+        response = self.client.patch(url, {"name": "Renamed"}, format="json")
+        assert response.json()["tags"] == ["growth", "onboarding"]
+
+        response = self.client.patch(url, {"tags": ["growth"]}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == ["growth"]
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/").json()["results"]
+        assert {row["id"]: row["tags"] for row in listed}[template_id] == ["growth"]
+
+        response = self.client.patch(url, {"tags": []}, format="json")
+        assert response.json()["tags"] == []
+
+    def test_rejects_a_tag_that_grows_past_the_column_limit_when_lowercased(self):
+        # "\u0130" lowercases to two code points, so 128 of them fit the field but not Tag.name.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.message_template.id}/",
+            {"tags": ["\u0130" * 128]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_tags_only_update_leaves_the_template_row_alone(self):
+        before = MessageTemplate.objects.get(pk=self.message_template.id).updated_at
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.message_template.id}/",
+            {"tags": ["growth"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == ["growth"]
+        # A row save here would write back every column this request read, losing a concurrent content edit.
+        assert MessageTemplate.objects.get(pk=self.message_template.id).updated_at == before
+
+    @parameterized.expand(
+        [
+            ("no_sender", None),
+            ("blank_sender", ""),
+            ("destination_sender", "Hedgebox <hello@example.com>"),
+            ("sender_without_an_id", {"name": "Hedgebox"}),
+        ]
+    )
+    def test_retrieve_message_template(self, _name: str, stored_sender: Any) -> None:
+        if stored_sender is not None:
+            email = {**self.message_template.content["email"], "from": stored_sender}
+            MessageTemplate.objects.filter(id=self.message_template.id).update(content={"email": email})
+        listed = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/")
+        assert listed.status_code == status.HTTP_200_OK
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/")
         assert response.status_code == status.HTTP_200_OK
 
@@ -132,20 +199,32 @@ class TestMessageTemplatesAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
+    @parameterized.expand(
+        [
+            # The editor's blank template carries an empty sender.
+            ("blank_template", ""),
+            # A destination's "Save as new template" carries its sender string.
+            ("destination_sender", "Hedgebox <hello@example.com>"),
+        ]
+    )
     @patch("products.messaging.backend.presentation.views.message_templates.report_user_action")
-    def test_create_email_template_with_subject_succeeds(self, mock_report):
+    def test_create_email_template_with_subject_succeeds(self, _name: str, sender: str, mock_report: Any) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/messaging_templates/",
             data={
                 "name": "Valid Template",
-                "content": {"email": {"subject": "Hello", "html": "<p>Hello</p>"}},
+                "content": {"email": {"subject": "Hello", "html": "<p>Hello</p>", "from": sender}},
                 "type": "email",
+                "sensitive": True,
             },
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["name"] == "Valid Template"
+        assert response.json()["sensitive"] is True
+        assert MessageTemplate.objects.get(id=response.json()["id"]).sensitive is True
         assert response.json()["content"]["email"]["subject"] == "Hello"
+        assert "from" not in response.json()["content"]["email"]
         # The AI-first experiment counts creations from the editor and the agent with this one event.
         mock_report.assert_called_once()
         assert mock_report.call_args.args[1] == "message_template_created"
@@ -169,6 +248,39 @@ class TestMessageTemplatesAPI(APIBaseTest):
         contents = email["design"]["body"]["rows"][0]["columns"][0]["contents"]
         assert contents[0]["type"] == "html"
         assert contents[0]["values"]["html"] == "<p>Hello</p>"
+
+    @parameterized.expand(
+        [
+            ("stale_wrap_is_rebuilt", "<p>New copy</p>", "<p>New copy</p>"),
+            ("wrap_with_appended_copy_is_rebuilt", "<p>Old copy</p><p>Footer</p>", "<p>Old copy</p><p>Footer</p>"),
+            (
+                "wrap_with_its_unlayer_render_is_kept",
+                '<html><body class="clean-body u_body"><div class="u-row"><p>Old copy</p></div></body></html>',
+                "<p>Old copy</p>",
+            ),
+        ]
+    )
+    def test_update_with_html_and_wrap_design(self, _name, html, expected_block_html):
+        self.message_template.content = {
+            "email": {"subject": "Hi", "html": "<p>Old copy</p>", "design": build_html_wrap_design("<p>Old copy</p>")}
+        }
+        self.message_template.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.message_template.id}/",
+            data={
+                "content": {
+                    "email": {"subject": "Hi", "html": html, "design": build_html_wrap_design("<p>Old copy</p>")}
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        self.message_template.refresh_from_db()
+        email = self.message_template.content["email"]
+        assert email["html"] == html
+        assert email["design"] == build_html_wrap_design(expected_block_html)
 
     def test_create_email_template_without_email_content_succeeds(self):
         response = self.client.post(
@@ -237,7 +349,14 @@ class TestMessageTemplatesAPI(APIBaseTest):
             f"/api/projects/{self.team.id}/messaging_templates/",
             data={
                 "name": "Editor-saved template",
-                "content": {"email": {"subject": "Hi", "html": "<p>Editor export</p>", "design": MINIMAL_DESIGN}},
+                "content": {
+                    "email": {
+                        "subject": "Hi",
+                        "preheader": "A quick heads-up",
+                        "html": "<p>Editor export</p>",
+                        "design": MINIMAL_DESIGN,
+                    }
+                },
                 "type": "email",
             },
             format="json",
@@ -245,7 +364,9 @@ class TestMessageTemplatesAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         mock_render.assert_not_called()
-        assert response.json()["content"]["email"]["html"] == "<p>Editor export</p>"
+        email = MessageTemplate.objects.get(id=response.json()["id"]).content["email"]
+        assert email["html"] == "<p>Editor export</p>"
+        assert email["preheader"] == "A quick heads-up"
 
     @parameterized.expand(
         [

@@ -23,12 +23,13 @@ use uuid::Uuid;
 
 use crate::domain::{
     bands_for_day, person_chunk_sentinel_day, AttemptCount, Band, BandSpec, BandSpecError, ChunkId,
-    ChunkLease, ChunkSpec, ChunkStatus, ClaimEpoch, ClaimKind, ClaimedChunk, DaySchedule,
-    EnqueuedChunk, Halted, PersonRange, PersonRangeError, PlannedDay, ProduceHwms, ProducedChunk,
-    RunId, SChunkMs, ScanVolume, ScannedChunk, StreamedChunk, UtcMillis,
+    ChunkLease, ChunkSpec, ChunkStatus, ClaimCandidates, ClaimEpoch, ClaimKind, ClaimedChunk,
+    DaySchedule, EnqueuedChunk, Halted, PersonRange, PersonRangeError, PlannedDay, ProduceHwms,
+    ProducedChunk, RunId, SChunkMs, ScanVolume, StreamedChunk, UtcMillis,
 };
 
 use super::lease::LeaseHandle;
+use super::runs::RunKind;
 use super::{Claimant, LeaseDuration, MaxAttempts, RenderedError, PERSISTED_ERROR_LIMIT};
 
 /// Chunk statuses holding a live lease — the targets of the fenced heartbeat/fail/confirm writes.
@@ -239,25 +240,46 @@ impl PgChunkStore {
 
     pub async fn claim_next(
         &self,
-        run_ids: &[RunId],
+        candidates: &ClaimCandidates,
         claimant: &Claimant,
         lease: LeaseDuration,
         max_attempts: MaxAttempts,
     ) -> Result<Option<Claim>, ChunkStoreError> {
-        if run_ids.is_empty() {
-            return Ok(None);
-        }
-        let run_ids = run_ids.iter().map(|run_id| run_id.0).collect::<Vec<_>>();
+        let run_ids = candidates
+            .iter()
+            .map(|candidate| candidate.run_id.0)
+            .collect::<Vec<_>>();
+        let team_loads = candidates
+            .iter()
+            .map(|candidate| i64::from(candidate.load.team))
+            .collect::<Vec<_>>();
+        let run_loads = candidates
+            .iter()
+            .map(|candidate| i64::from(candidate.load.run))
+            .collect::<Vec<_>>();
         let sql = format!(
             r#"
-            WITH next_chunk AS (
+            WITH candidate AS (
+                SELECT * FROM unnest($1::uuid[], $10::bigint[], $11::bigint[])
+                    AS u(run_id, team_load, run_load)
+            ), next_chunk AS (
                 SELECT c.id, c.status IN {active} AS was_reclaim
                 FROM cohort_backfill_chunks c
+                JOIN candidate u ON u.run_id = c.run_id
                 JOIN cohort_backfill_runs r ON r.id = c.run_id
+                -- `ANY($1)` repeats the join so that the planner reads only the claimable chunks
+                -- through `cohort_bfc_run_status_day_idx`. With the join alone, it probes each
+                -- candidate through the `(run_id, day, band)` key and filters out every
+                -- confirmed chunk row by row. Only a plan built for the bound arrays does this,
+                -- so the statement is not cached.
                 WHERE c.run_id = ANY($1) AND r.status IN {seedable}
                   -- A trailing day is scanned only once it has ended and its run is `trailing`.
                   -- Claimed while the run still seeds, it would lose its lease when the
                   -- reconciling CAS fires, because the heartbeat joins the same run statuses.
+                  -- The newest-day index depends on this too. Readiness does not wait for a
+                  -- trailing day. A trailing day scanned while a historical chunk still sends
+                  -- would make that chunk skip its tiles, and readiness could finish before the
+                  -- trailing day's tile lands.
                   AND (c.claimable_after IS NULL
                        OR (c.claimable_after <= now() AND r.status = 'trailing'))
                   AND ((c.status = $7 AND c.attempts < $4)
@@ -268,10 +290,22 @@ impl PgChunkStore {
                            AND (c.next_attempt_at IS NULL OR c.next_attempt_at <= now()))
                        OR (c.status = $6 AND c.lease_expires_at < now())
                        OR (c.status = $5 AND c.lease_expires_at < now() AND c.attempts < $4))
-                -- Cross-kind priority rides on this ordering: person chunks are planned under a
-                -- far-future sentinel day, so behavioral work (readiness-gating, fence-sensitive)
-                -- always drains first. Reordering here silently inverts that.
-                ORDER BY c.day, c.band
+                -- `r.backfill_kind = $9` is true only for person runs, and `false` sorts first,
+                -- so behavioral chunks (readiness-gating, fence-sensitive) claim before person
+                -- chunks. The kind key must lead: person chunks sit on a far-future sentinel day,
+                -- which `day DESC` alone would claim first. Of the claimable chunks, only trailing
+                -- days have a `claimable_after`, so the next key puts them ahead of every load,
+                -- because their cohorts already serve as ready and under-count the boundary day
+                -- until the trailing tiles apply. The load keys come next: the team holding
+                -- the fewest of this replica's slots of the kind goes first, then the run holding
+                -- the fewest. A heavy run's chunk holds its slot for hours while a cheap one frees
+                -- its slot in seconds, so under day order alone the heavy run ends up holding
+                -- every slot and every other run advances one day per freed slot. A team alone
+                -- still gets every slot. Among equal loads, newest day first lets a short-window
+                -- cohort, whose days are all recent, finish without waiting behind a long run's
+                -- older days.
+                ORDER BY (r.backfill_kind = $9), (c.claimable_after IS NULL), u.team_load,
+                         u.run_load, c.day DESC, c.band
                 LIMIT 1
                 FOR UPDATE OF c SKIP LOCKED
             )
@@ -294,6 +328,9 @@ impl PgChunkStore {
             seedable = SEEDABLE_RUN_STATUSES_SQL,
         );
         let row = sqlx::query_as::<_, ClaimedRow>(&sql)
+            // Postgres can switch a cached statement to a generic plan after five runs. That plan
+            // loops over the candidates and reads every chunk of each, confirmed ones included.
+            .persistent(false)
             .bind(run_ids)
             .bind(claimant.as_str())
             .bind(lease.as_secs())
@@ -302,6 +339,9 @@ impl PgChunkStore {
             .bind(ChunkStatus::Produced.as_str())
             .bind(ChunkStatus::Pending.as_str())
             .bind(ChunkStatus::Failed.as_str())
+            .bind(RunKind::PersonProperty.as_str())
+            .bind(team_loads)
+            .bind(run_loads)
             .fetch_optional(&self.pool)
             .await?;
 
@@ -385,9 +425,9 @@ impl PgChunkStore {
         Ok(rows.into_iter().map(ExhaustedRun::from).collect())
     }
 
-    /// The person path's mark: seeds were already streamed to Kafka during the scan, so only the
-    /// count crosses the `scanning`→`produced` CAS.
-    pub async fn mark_produced_streamed(
+    /// The mark for both paths: every seed is already enqueued, so only the count sent crosses the
+    /// `scanning`→`produced` CAS.
+    pub async fn mark_produced(
         &self,
         chunk: StreamedChunk,
     ) -> Result<EnqueuedChunk, Halted<StreamedChunk, ChunkStoreError>> {
@@ -401,30 +441,6 @@ impl PgChunkStore {
             return Err(Halted::failed(chunk, error));
         }
         Ok(EnqueuedChunk::new(spec, seeds_produced))
-    }
-
-    pub async fn mark_produced(
-        &self,
-        chunk: ScannedChunk,
-    ) -> Result<EnqueuedChunk, Halted<ScannedChunk, ChunkStoreError>> {
-        let spec = chunk.spec();
-        let tiles_produced = match u64::try_from(chunk.tiles().len()) {
-            Ok(count) => count,
-            Err(_) => {
-                return Err(Halted::failed(
-                    chunk,
-                    ChunkStoreError::TilesProducedOutOfRange(u64::MAX),
-                ));
-            }
-        };
-        let volume = chunk.volume();
-        if let Err(error) = self
-            .mark_produced_raw(spec.lease, tiles_produced, volume)
-            .await
-        {
-            return Err(Halted::failed(chunk, error));
-        }
-        Ok(EnqueuedChunk::new(spec, tiles_produced))
     }
 
     pub async fn confirm(

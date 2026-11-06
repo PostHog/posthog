@@ -4,20 +4,21 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { createFuse } from 'lib/utils/fuseSearch'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import type { Params } from 'scenes/sceneTypes'
 import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { IntegrationType, PreflightStatus, TeamPublicType, TeamType } from '../../types'
-import type { AvailableFeature, OrganizationType } from '../../types'
-import { matchesFlagDefinition } from './flagGating'
-import { ADMIN_ONLY_SECTION_IDS, findUnavailableSection } from './sectionGating'
+import type { AvailableFeature, OrganizationType, UserType } from '../../types'
+import { matchesFlagDefinition, visibleSettingsSections } from './flagGating'
+import { findUnavailableSection } from './sectionGating'
 import { SETTINGS_MAP } from './SettingsMap'
 import {
     FUSE_THRESHOLD,
@@ -90,6 +91,7 @@ export interface settingsLogicValues {
     preflight: PreflightStatus | null // preflightLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    user: UserType | null // userLogic
     collapsedGroups: Record<string, boolean>
     collapsedLevels: Record<SettingLevelId, boolean>
     defaultSectionId: SettingSectionId | null
@@ -168,7 +170,7 @@ export interface settingsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         levels: (sections: SettingSection[]) => SettingLevelId[]
         sections: (
-            doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
+            featureFlags: FeatureFlagsSet,
             isCloudOrDev: boolean | undefined,
             currentTeam: TeamPublicType | TeamType | null,
             currentOrganization: OrganizationType | null,
@@ -176,7 +178,7 @@ export interface settingsLogicMeta {
             preflight: PreflightStatus | null,
             billingEntryUrl: string | null,
             isAdminOrOwner: boolean | null,
-            featureFlags: FeatureFlagsSet
+            user: UserType | null
         ) => SettingSection[]
         selectedLevel: (
             selectedLevelRaw: 'environment' | 'organization' | 'project' | 'user',
@@ -209,7 +211,8 @@ export interface settingsLogicMeta {
             doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
             preflight: PreflightStatus | null,
             currentTeam: TeamPublicType | TeamType | null,
-            isAdminOrOwner: boolean | null
+            isAdminOrOwner: boolean | null,
+            user: UserType | null
         ) => Setting[]
         selectedSetting: (settings: Setting[], selectedSettingId: SettingId | null) => Setting | null
         doesMatchFlags: (featureFlags: FeatureFlagsSet) => (flagDefinition: Pick<Setting, 'flag'>) => boolean
@@ -221,7 +224,8 @@ export interface settingsLogicMeta {
             doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
             preflight: PreflightStatus | null,
             currentTeam: TeamPublicType | TeamType | null,
-            isAdminOrOwner: boolean | null
+            isAdminOrOwner: boolean | null,
+            user: UserType | null
         ) => GlobalSearchFuse
         searchResults: (searchTerm: string, globalSearchIndex: GlobalSearchFuse) => SearchResultGroup[]
         filteredLevels: (
@@ -263,7 +267,7 @@ export const settingsLogic = kea<settingsLogicType>([
             featureFlagLogic,
             ['featureFlags', 'receivedFeatureFlags'],
             userLogic,
-            ['hasAvailableFeature'],
+            ['hasAvailableFeature', 'user'],
             preflightLogic,
             ['preflight', 'isCloudOrDev'],
             teamLogic,
@@ -387,6 +391,12 @@ export const settingsLogic = kea<settingsLogicType>([
                 actions.expandGroup(`${level}-${sectionObj.group}`)
             }
             setTimeout(() => {
+                const anchorId = router.values.location.hash.slice(1)
+                const anchorElement = anchorId ? document.getElementById(anchorId) : null
+                if (anchorElement) {
+                    anchorElement.scrollIntoView()
+                    return
+                }
                 const mainElement = document.querySelector('main')
                 if (mainElement) {
                     mainElement.scrollTo({ top: 0, behavior: 'smooth' })
@@ -444,7 +454,7 @@ export const settingsLogic = kea<settingsLogicType>([
         ],
         sections: [
             (s) => [
-                s.doesMatchFlags,
+                s.featureFlags,
                 s.isCloudOrDev,
                 s.currentTeam,
                 s.currentOrganization,
@@ -452,10 +462,10 @@ export const settingsLogic = kea<settingsLogicType>([
                 s.preflight,
                 s.billingEntryUrl,
                 s.isAdminOrOwner,
-                s.featureFlags,
+                s.user,
             ],
             (
-                doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
+                featureFlags: FeatureFlagsSet,
                 isCloudOrDev: boolean | undefined,
                 currentTeam: null | import('../../types').TeamPublicType | import('../../types').TeamType,
                 currentOrganization: null | import('../../types').OrganizationType,
@@ -463,80 +473,24 @@ export const settingsLogic = kea<settingsLogicType>([
                 preflight: null | import('../../types').PreflightStatus,
                 billingEntryUrl: string | null,
                 isAdminOrOwner: boolean | null,
-                featureFlags: FeatureFlagsSet
-            ): SettingSection[] => {
-                const isSettingVisible = (setting: Setting): boolean => {
-                    if (!doesMatchFlags(setting)) {
-                        return false
+                user: UserType | null
+            ): SettingSection[] =>
+                visibleSettingsSections(
+                    featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
+                        ? SETTINGS_MAP.map(withRailNavigationLink)
+                        : SETTINGS_MAP,
+                    {
+                        featureFlags,
+                        isCloudOrDev,
+                        realm: preflight?.realm,
+                        currentTeam,
+                        currentOrganization,
+                        hasOrganizationIntegrations: !!organizationIntegrations?.length,
+                        billingEntryUrl,
+                        isAdminOrOwner,
+                        isStaff: !!user?.is_staff,
                     }
-                    if (preflight?.realm && setting.hideOn?.includes(preflight.realm)) {
-                        return false
-                    }
-                    if (setting.allowForTeam && !setting.allowForTeam(currentTeam)) {
-                        return false
-                    }
-                    if (setting.organizationAdminOnly && !isAdminOrOwner) {
-                        return false
-                    }
-                    return true
-                }
-
-                const source = featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
-                    ? SETTINGS_MAP.map(withRailNavigationLink)
-                    : SETTINGS_MAP
-                const sections = source.filter(doesMatchFlags).filter((section) => {
-                    if (section.hideSelfHost && !isCloudOrDev) {
-                        return false
-                    }
-                    if (
-                        section.id === 'organization-integrations' &&
-                        (!organizationIntegrations || organizationIntegrations.length === 0)
-                    ) {
-                        return false
-                    }
-
-                    // Explicit gates to avoid showing this in the sidebar when the use doesn't have access to it
-                    if (section.id === 'organization-billing' && !billingEntryUrl) {
-                        return false
-                    }
-                    if (ADMIN_ONLY_SECTION_IDS.includes(section.id) && !isAdminOrOwner) {
-                        return false
-                    }
-
-                    return true
-                })
-
-                // If there's no current organization, hide everything except user sections
-                if (!currentOrganization) {
-                    return sections.filter((section) => section.level === 'user')
-                }
-
-                // If there's no current team, hide project and environment sections entirely
-                if (!currentTeam) {
-                    return sections.filter((section) => section.level !== 'environment' && section.level !== 'project')
-                }
-
-                // Convert environment sections to project sections
-                return sections
-                    .filter((section) => section.level !== 'project')
-                    .map((section) => ({
-                        ...section,
-                        id: section.id.replace('environment-', 'project-') as SettingSectionId,
-                        level: section.level === 'environment' ? 'project' : section.level,
-                        settings: section.settings.map((setting) => ({
-                            ...setting,
-                            title:
-                                typeof setting.title === 'string'
-                                    ? setting.title.replace('environment', 'project')
-                                    : setting.title,
-                            id: setting.id.replace('environment-', 'project-') as SettingId,
-                        })),
-                    }))
-                    .filter(
-                        (section) =>
-                            section.to || section.settings.length === 0 || section.settings.some(isSettingVisible)
-                    )
-            },
+                ),
         ],
         selectedLevel: [
             (s) => [s.selectedLevelRaw, s.selectedSectionIdRaw, s.currentTeam],
@@ -626,6 +580,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 s.preflight,
                 s.currentTeam,
                 s.isAdminOrOwner,
+                s.user,
             ],
             (
                 selectedLevel: SettingLevelId,
@@ -635,7 +590,8 @@ export const settingsLogic = kea<settingsLogicType>([
                 doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
                 preflight: null | import('../../types').PreflightStatus,
                 currentTeam: null | import('../../types').TeamPublicType | import('../../types').TeamType,
-                isAdminOrOwner: boolean | null
+                isAdminOrOwner: boolean | null,
+                user: UserType | null
             ): Setting[] => {
                 const effectiveSectionId = selectedSectionId ?? defaultSectionId
 
@@ -660,6 +616,9 @@ export const settingsLogic = kea<settingsLogicType>([
                         return false
                     }
                     if (x.organizationAdminOnly && !isAdminOrOwner) {
+                        return false
+                    }
+                    if (x.staffOnly && !user?.is_staff) {
                         return false
                     }
                     if (x.allowForTeam) {
@@ -717,13 +676,14 @@ export const settingsLogic = kea<settingsLogicType>([
         isSearching: [(s) => [s.searchTerm], (searchTerm: string): boolean => searchTerm.trim().length > 0],
 
         globalSearchIndex: [
-            (s) => [s.sections, s.doesMatchFlags, s.preflight, s.currentTeam, s.isAdminOrOwner],
+            (s) => [s.sections, s.doesMatchFlags, s.preflight, s.currentTeam, s.isAdminOrOwner, s.user],
             (
                 sections: SettingSection[],
                 doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
                 preflight: null | import('../../types').PreflightStatus,
                 currentTeam: null | import('../../types').TeamPublicType | import('../../types').TeamType,
-                isAdminOrOwner: boolean | null
+                isAdminOrOwner: boolean | null,
+                user: UserType | null
             ): GlobalSearchFuse => {
                 const isSettingVisible = (setting: Setting): boolean => {
                     if (!doesMatchFlags(setting)) {
@@ -733,6 +693,9 @@ export const settingsLogic = kea<settingsLogicType>([
                         return false
                     }
                     if (setting.organizationAdminOnly && !isAdminOrOwner) {
+                        return false
+                    }
+                    if (setting.staffOnly && !user?.is_staff) {
                         return false
                     }
                     return !setting.allowForTeam || setting.allowForTeam(currentTeam)
@@ -807,7 +770,7 @@ export const settingsLogic = kea<settingsLogicType>([
             ]
         },
     })),
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values, props }) => ({
         // A section with a scene of its own has no section selection, so its route moves the pane to its tab.
         ...Object.fromEntries(
             SETTINGS_SECTION_SCENES.flatMap(({ level, url, legacyUrl }) =>
@@ -816,6 +779,16 @@ export const settingsLogic = kea<settingsLogicType>([
                     .map((root) => [`${root}(/*)`, () => actions.setNavLevel(level)])
             )
         ),
+        // The settings scene instance outlives a scene change, and its selectSetting pushes `/settings/...`.
+        ...(props.logicKey === 'settingsScene' ? {} : embeddedSettingsRoutes(actions, values)),
+    })),
+])
+
+function embeddedSettingsRoutes(
+    actions: settingsLogicType['actions'],
+    values: settingsLogicType['values']
+): Record<string, (params: Params, searchParams: Params, hashParams: Params) => void> {
+    return {
         ['*/replay/settings']: (_, __, hashParams) => {
             const { selectedSetting } = hashParams
             const selectedSettingId = selectedSetting as SettingId
@@ -841,5 +814,5 @@ export const settingsLogic = kea<settingsLogicType>([
                 actions.selectSetting(selectedSettingId)
             }
         },
-    })),
-])
+    }
+}

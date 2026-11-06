@@ -1,28 +1,21 @@
-import uuid
 import datetime as dt
-from typing import Any, cast
+from typing import Any
+from uuid import UUID
 
 from django.db import models
 from django.http import HttpResponseRedirect
 
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import (
-    OpenApiParameter,
-    OpenApiResponse,
-    PolymorphicProxySerializer,
-    extend_schema,
-    extend_schema_view,
-)
+from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer, extend_schema
 from rest_framework import response, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.throttling import BaseThrottle
 
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import ValidatedRequest, validated_request
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseQueryTimeOut
@@ -42,10 +35,6 @@ from products.batch_exports.backend.presentation.views.utils import (
 
 FILE_DOWNLOAD_MAX_RANGE = dt.timedelta(weeks=1)
 DEFAULT_MAX_SIZE_MB = 1024
-# The viewset declares no queryset, so drf-spectacular cannot read the type of the id from a model.
-RUN_ID_PARAMETER = OpenApiParameter(
-    "id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="A UUID string identifying this batch export run."
-)
 
 
 class FileFormat(models.TextChoices):
@@ -378,10 +367,13 @@ def _to_file_download_request(validated_data: dict[str, Any]) -> contracts.FileD
 
 
 @extend_schema(tags=["batch_exports"])
-@extend_schema_view(logs=extend_schema(parameters=[RUN_ID_PARAMETER]))
 class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.GenericViewSet):
+    path_parameters = {"pk": PathParameter(type=UUID, description="A UUID string identifying this batch export run.")}
     scope_object = "batch_export"
+    # batch_export is not an access-control resource, so no rule names one run.
+    records_have_object_access_rules = False
     serializer_class = FileDownloadBatchExportOnDemandSerializer
+    pagination_class = FacadeLimitOffsetPagination
     log_source = "batch_exports"
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
@@ -397,33 +389,17 @@ class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMix
             return [BatchExportsCountRowsBurstRateThrottle(), BatchExportsCountRowsSustainedRateThrottle()]
         return super().get_throttles()
 
-    def dangerously_get_object(self) -> contracts.FileDownloadRun:
-        # This replaces the queryset read only. The facade scopes the read to the team, and the
-        # object permissions run on the contract as they ran on the model. `logs` reads the run here.
+    def read_object(self) -> contracts.FileDownloadRun:
         try:
-            run_id = uuid.UUID(str(self.kwargs["pk"]))
-        except ValueError:
-            raise NotFound()
-        try:
-            run = batch_exports_api.get_file_download_run(self.team_id, run_id)
+            return batch_exports_api.get_file_download_run(self.team_id, self.kwargs["pk"])
         except contracts.FileDownloadNotFoundError as e:
             raise NotFound(*e.args) from e
-        self.check_object_permissions(self.request, run)
-        return run
 
     def list(self, request, *args, **kwargs) -> response.Response:
-        # The facade slices the page, so the paginator gets its state set directly instead of a queryset.
-        paginator = cast(LimitOffsetPagination, self.paginator)
-        limit = paginator.get_limit(request)
-        offset = paginator.get_offset(request)
-        # PAGE_SIZE gives every request a limit.
-        assert limit is not None
-        runs, count = batch_exports_api.list_file_download_runs(self.team_id, offset=offset, limit=limit)
-        paginator.request = request
-        paginator.limit = limit
-        paginator.offset = offset
-        paginator.count = count
-        return paginator.get_paginated_response(ListOutputSerializer(runs, many=True).data)
+        return facade_page_response(
+            self,
+            lambda page: batch_exports_api.list_file_download_runs(self.team_id, page=page),
+        )
 
     @extend_schema(
         request=PolymorphicProxySerializer(
@@ -465,7 +441,6 @@ class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMix
         return response.Response({"id": run_id}, status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(
-        parameters=[RUN_ID_PARAMETER],
         responses={
             200: PolymorphicProxySerializer(
                 component_name="RetrieveFileDownloadResponse",
@@ -502,7 +477,6 @@ class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMix
 
         return response.Response(body)
 
-    @extend_schema(parameters=[RUN_ID_PARAMETER])
     @action(
         methods=["GET"], detail=True, url_path=r"download(?:/(?P<part>[^/.]+))?", required_scopes=["batch_export:read"]
     )
@@ -531,7 +505,7 @@ class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMix
 
         return response
 
-    @extend_schema(request=None, parameters=[RUN_ID_PARAMETER])
+    @extend_schema(request=None)
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def cancel(self, request, *args, **kwargs) -> response.Response:
         """Cancel an ongoing file-download batch export."""

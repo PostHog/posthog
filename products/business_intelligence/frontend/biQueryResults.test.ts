@@ -27,8 +27,36 @@ const node = (config: BIConfig): BIVisualizationNode => ({
 })
 
 describe('BI visualization data reuse', () => {
+    test.each(['result', 'results'] as const)(
+        'renders saved pivot data from %s and applies the row limit',
+        (resultKey) => {
+            const query = node({ ...config, chartType: ChartDisplayType.ActionsTable, rows: [], limit: 100 })
+            const columns = [...getBIResultDimensions(query.config).map(({ column }) => column), 'sum_revenue']
+            const rows = Array.from({ length: 101 }, (_, index) => [`category ${index}`, index])
+            const response = {
+                columns,
+                types: columns.map((column, index) => [column, index === 0 ? 'String' : 'Float64']),
+                [resultKey]: rows,
+                last_refresh: '2026-10-01T00:00:00Z',
+            }
+            const original = structuredClone(response)
+            expect(getBIVisualizationResponse(query, response)).toMatchObject({
+                columns,
+                types: response.types,
+                results: rows.slice(0, 100),
+                hasMore: true,
+                last_refresh: response.last_refresh,
+            })
+            expect(getBIResultSummary(query, response)).toMatchObject({ groups: 100, marks: 100, limited: true })
+            expect(response).toEqual(original)
+            expect(getBIVisualizationResponse(query, { ...response, [resultKey]: [] })).toMatchObject({
+                results: [],
+                hasMore: false,
+            })
+        }
+    )
+
     test.each([
-        ChartDisplayType.ActionsTable,
         ChartDisplayType.ScatterPlot,
         ChartDisplayType.ActionsLineGraph,
         ChartDisplayType.ActionsBarValue,
@@ -68,23 +96,24 @@ describe('BI visualization data reuse', () => {
         expect((getBIVisualizationResponse(query, cached) as HogQLQueryResponse).columns).toEqual(expected)
     })
 
-    it('keeps data changes and pivot queries distinct, and preserves source execution options', () => {
-        const query = node(config)
-        const source = getBIVisualizationSource(query)
-        expect(
-            getBIVisualizationSource(node({ ...config, chartType: ChartDisplayType.TwoDimensionalHeatmap }))
-        ).not.toEqual(source)
-        expect(
-            getBIVisualizationSource(
-                node({ ...config, filters: [{ field: config.rows[0], operator: 'equals', value: 'east' }] })
-            )
-        ).not.toEqual(source)
-        expect(getBIVisualizationSource(node({ ...config, limit: 10000 }))).not.toEqual(source)
-        query.source.connectionId = 'example-connection'
-        query.source.variables = { example: { variableId: 'example', code_name: 'threshold', value: 3 } }
-        expect(getBIVisualizationSource(query)).toMatchObject({
-            connectionId: 'example-connection',
-            variables: query.source.variables,
-        })
-    })
+    it.each([ChartDisplayType.ActionsTable, ChartDisplayType.TwoDimensionalHeatmap])(
+        'keeps data changes and %s pivot queries distinct, and preserves source execution options',
+        (chartType) => {
+            const query = node(config)
+            const source = getBIVisualizationSource(query)
+            expect(getBIVisualizationSource(node({ ...config, chartType }))).not.toEqual(source)
+            expect(
+                getBIVisualizationSource(
+                    node({ ...config, filters: [{ field: config.rows[0], operator: 'equals', value: 'east' }] })
+                )
+            ).not.toEqual(source)
+            expect(getBIVisualizationSource(node({ ...config, limit: 10000 }))).not.toEqual(source)
+            query.source.connectionId = 'example-connection'
+            query.source.variables = { example: { variableId: 'example', code_name: 'threshold', value: 3 } }
+            expect(getBIVisualizationSource(query)).toMatchObject({
+                connectionId: 'example-connection',
+                variables: query.source.variables,
+            })
+        }
+    )
 })

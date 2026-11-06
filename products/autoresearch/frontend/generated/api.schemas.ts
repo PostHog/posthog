@@ -263,6 +263,23 @@ export interface AutoresearchPipelineApi {
      * * `60` - 60
      * * `90` - 90 */
     readonly research_interval_days: ResearchIntervalDaysEnumApi | null
+    /**
+     * Model the training agent runs on, as set on this pipeline. Null uses the autoresearch default.
+     * @nullable
+     */
+    readonly agent_model: string | null
+    /**
+     * Reasoning effort for the training agent, as set on this pipeline. Null uses the autoresearch default.
+     * @nullable
+     */
+    readonly agent_reasoning_effort: string | null
+    /** Model the next training run uses: agent_model, or the autoresearch default when that is null. */
+    readonly effective_agent_model: string
+    /**
+     * Reasoning effort the next training run uses: agent_reasoning_effort, or the autoresearch default when that is null. Null when the model has no effort setting.
+     * @nullable
+     */
+    readonly effective_agent_reasoning_effort: string | null
     /** explore: a research run on each scoring day until a run does not promote a better model, or until 5 research runs have run. maintain: one research run every research_interval_days.
      *
      * * `explore` - Explore
@@ -273,6 +290,11 @@ export interface AutoresearchPipelineApi {
      * @nullable
      */
     readonly next_research_at: string | null
+    /**
+     * Why the best model of the newest completed training run did not go live, for example a failed fit or a failed scorability check. Set only while the pipeline is bootstrapping with no champion.
+     * @nullable
+     */
+    readonly not_promoted_reason: string | null
     /**
      * Target AUC threshold. Training stops early if this score is reached.
      * @nullable
@@ -454,6 +476,18 @@ export interface AutoresearchPipelineCreateApi {
      * * `60` - 60
      * * `90` - 90 */
     research_interval_days?: ResearchIntervalDaysEnumApi | null
+    /**
+     * Model the training agent runs on, a model id from the PostHog Tasks catalogue such as 'claude-opus-5-5', 'claude-sonnet-5-5' or 'gpt-6.1-sol'. Null or omitted uses the autoresearch default, Claude Opus 5.5. A larger model costs more per training run. Scheduled runs and Train now use it.
+     * @maxLength 100
+     * @nullable
+     */
+    agent_model?: string | null
+    /**
+     * Reasoning effort for the training agent, such as 'low', 'medium' or 'high'. It must be one the model supports, and without agent_model it is checked against the default model. Null or omitted uses the autoresearch default, medium. Higher effort costs more per training run.
+     * @maxLength 20
+     * @nullable
+     */
+    agent_reasoning_effort?: string | null
     /**
      * Target AUC threshold (0-1). Training stops early if reached. Default: 0.75.
      * @minimum 0
@@ -1031,6 +1065,26 @@ export interface AutoresearchTrainingRunApi {
      * * `rescue` - Rescue
      * * `manual` - Manual */
     readonly kickoff_reason: AutoresearchTrainingRunKickoffReasonEnumApi | null
+    /**
+     * Runtime that drove the training agent, 'claude' or 'codex'. Null for older runs and runs with no task.
+     * @nullable
+     */
+    readonly agent_runtime_adapter: string | null
+    /**
+     * Model the training agent ran on. Null for older runs and runs with no task.
+     * @nullable
+     */
+    readonly agent_model: string | null
+    /**
+     * Display name of agent_model, e.g. 'Claude Opus 5.5'. Null when agent_model is null.
+     * @nullable
+     */
+    readonly agent_model_label: string | null
+    /**
+     * Reasoning effort the training agent ran at. Null for older runs, runs with no task, and models with no effort setting.
+     * @nullable
+     */
+    readonly agent_reasoning_effort: string | null
     /**
      * Maximum iterations allowed for this run.
      * @minimum -2147483648
@@ -1640,6 +1694,18 @@ export interface PatchedAutoresearchPipelineCreateApi {
      * * `90` - 90 */
     research_interval_days?: ResearchIntervalDaysEnumApi | null
     /**
+     * Model the training agent runs on, a model id from the PostHog Tasks catalogue such as 'claude-opus-5-5', 'claude-sonnet-5-5' or 'gpt-6.1-sol'. Null or omitted uses the autoresearch default, Claude Opus 5.5. A larger model costs more per training run. Scheduled runs and Train now use it.
+     * @maxLength 100
+     * @nullable
+     */
+    agent_model?: string | null
+    /**
+     * Reasoning effort for the training agent, such as 'low', 'medium' or 'high'. It must be one the model supports, and without agent_model it is checked against the default model. Null or omitted uses the autoresearch default, medium. Higher effort costs more per training run.
+     * @maxLength 20
+     * @nullable
+     */
+    agent_reasoning_effort?: string | null
+    /**
      * Target AUC threshold (0-1). Training stops early if reached. Default: 0.75.
      * @minimum 0
      * @maximum 1
@@ -1848,11 +1914,80 @@ export interface OnlinePerformanceApi {
 
 export interface StartTrainingRequestApi {
     /**
-     * Iterations for this training run. Defaults to the pipeline's iterations_per_run.
+     * Iterations for this training run. Defaults to the pipeline's iterations_per_run. The project's iteration limit per run can lower it.
      * @minimum 1
-     * @maximum 500
+     * @maximum 50
      */
     iteration_budget?: number
+}
+
+export interface TrainingRunCapReachedApi {
+    /** Why the run did not start. */
+    detail: string
+    /** Sandbox training runs the project started in the last 24 hours, across all its pipelines. */
+    used: number
+    /** Sandbox training runs the project may start in any 24 hours. */
+    limit: number
+    /**
+     * When the next training run can start. Null when training runs are turned off for the project.
+     * @nullable
+     */
+    next_slot_at: string | null
+}
+
+export interface AgentReasoningEffortOptionApi {
+    /** Effort id to pass as agent_reasoning_effort, e.g. 'medium'. */
+    value: string
+    /** Display name, e.g. 'Medium'. */
+    label: string
+}
+
+export interface AgentModelOptionApi {
+    /** Model id to pass as agent_model, e.g. 'claude-sonnet-5-5'. */
+    model: string
+    /** Display name, e.g. 'Claude Sonnet 5.5'. */
+    label: string
+    /** Runtime that drives the model: 'claude' or 'codex'. */
+    runtime_adapter: string
+    /** Reasoning efforts this model supports. Empty when it has no effort setting. */
+    supported_efforts: AgentReasoningEffortOptionApi[]
+    /**
+     * Token price relative to Claude Sonnet 5, e.g. '2×'. Null when no rate is known.
+     * @nullable
+     */
+    cost_multiplier: string | null
+}
+
+export interface AgentModelOptionsApi {
+    /** Model a pipeline with a null agent_model trains on. */
+    default_model: string
+    /** Display name of default_model. */
+    default_model_label: string
+    /**
+     * Reasoning effort a pipeline with a null agent_reasoning_effort trains at.
+     * @nullable
+     */
+    default_reasoning_effort: string | null
+    /** Models a pipeline may set as agent_model. */
+    models: AgentModelOptionApi[]
+}
+
+export interface ProjectLimitsApi {
+    /** Sandbox training runs the project may start in any 24 hours, across all its pipelines. 0 means training is turned off. */
+    max_training_runs_per_day: number
+    /** Sandbox training runs the project started in the last 24 hours, across all its pipelines. */
+    training_runs_used: number
+    /**
+     * When the next training run can start, while the project is at its daily limit. Null while a run can start now, and when training is turned off.
+     * @nullable
+     */
+    next_slot_at: string | null
+    /** Most experiments any one training run gets. A pipeline's iterations_per_run above this is lowered to it. */
+    max_iterations_per_run: number
+    /** Most pipelines the project may have live (bootstrapping, running or converged, or a draft with an open training run, which goes live when the run promotes). Starting a draft's first training run or resuming a paused pipeline is refused at this limit. */
+    max_live_pipelines: number
+    /** Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered. */
+    live_pipelines: number
 }
 
 /**
@@ -2080,6 +2215,7 @@ export interface ValidatePipelineResponseApi {
 export type AutoresearchListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2091,6 +2227,7 @@ export type AutoresearchListParams = {
 export type AutoresearchModelsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2102,6 +2239,7 @@ export type AutoresearchModelsListParams = {
 export type AutoresearchRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2113,6 +2251,7 @@ export type AutoresearchRunsListParams = {
 export type AutoresearchSuggestionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2124,6 +2263,7 @@ export type AutoresearchSuggestionsListParams = {
 export type AutoresearchTrainingRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

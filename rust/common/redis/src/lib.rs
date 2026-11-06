@@ -325,6 +325,11 @@ pub trait Client: Send + Sync {
     /// default no-op. Must be cheap to call repeatedly -- implementations own
     /// their own cooldown.
     async fn heal(&self) {}
+
+    /// Return whether a fresh connection replaced the old one. Test clients do not reconnect.
+    async fn reconnect(&self) -> bool {
+        false
+    }
 }
 
 /// Extension trait providing the `.pipeline()` builder method.

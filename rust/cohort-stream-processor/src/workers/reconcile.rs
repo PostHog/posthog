@@ -372,6 +372,7 @@ fn evaluate_guard(
 
 /// Advance the queue head by at most one scan page or one marker produce per tick.
 #[allow(clippy::too_many_arguments)]
+#[hotpath::measure]
 pub(crate) async fn handle_reconcile_drain(
     partition_id: u16,
     handle: &StoreHandle,

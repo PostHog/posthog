@@ -19,17 +19,21 @@ from posthog.models.team import Team
 from posthog.ph_client import feature_enabled_or_false
 from posthog.scoping_audit import skip_team_scope_audit
 
-from products.aeo.backend.facade.contracts import AEO_CITATION_TRACKING_FLAG
+from products.aeo.backend import suggestions
+from products.aeo.backend.facade.contracts import AEO_CITATION_TRACKING_FLAG, PromptSuggestionRequest
 from products.aeo.backend.runner import run_citation_checks
 
 logger = structlog.get_logger(__name__)
 
 
-# A full run is up to 50 prompts x 3 engines of sequential web-search calls
-# (typically 10-60s each); four hours gives slow days headroom without letting
-# a hung run hold a worker slot indefinitely.
-RUN_SOFT_TIME_LIMIT_SECONDS = 4 * 60 * 60
+# A full run covers the whole prompt set: each prompt makes one web-search call per
+# engine (about a minute each), AEO_RUN_CONCURRENCY prompts at a time. Ten hours
+# leaves headroom for a slow day and still ends a hung run well before the next
+# daily dispatch.
+RUN_SOFT_TIME_LIMIT_SECONDS = 10 * 60 * 60
 RUN_TIME_LIMIT_SECONDS = RUN_SOFT_TIME_LIMIT_SECONDS + 300
+SUGGESTION_SOFT_TIME_LIMIT_SECONDS = 6 * 60
+SUGGESTION_TIME_LIMIT_SECONDS = SUGGESTION_SOFT_TIME_LIMIT_SECONDS + 60
 
 
 def _citation_tracking_enabled(team: Team) -> bool:
@@ -89,4 +93,32 @@ def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
         # The runner already absorbs per-prompt failures, so anything reaching here is
         # unexpected. Re-raise so Celery marks the task failed and alerting sees it.
         logger.exception("aeo_citation_task_failed", team_id=team_id)
+        raise
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    soft_time_limit=SUGGESTION_SOFT_TIME_LIMIT_SECONDS,
+    time_limit=SUGGESTION_TIME_LIMIT_SECONDS,
+)
+@skip_team_scope_audit  # Team is the tenant; prompts are read via AEOPrompt.objects.for_team
+def suggest_aeo_prompts_task(team_id: int, job_id: str, request: dict) -> None:
+    try:
+        suggestions.run_job(
+            team_id,
+            job_id,
+            PromptSuggestionRequest(
+                domain=request["domain"],
+                brand=request["brand"],
+                description=request["description"],
+                competitors=tuple(request["competitors"]),
+                topics=tuple(request["topics"]),
+                count=request["count"],
+            ),
+        )
+    except Exception:
+        # Without this the client would poll a pending job until it expires.
+        suggestions.fail_job(team_id, job_id, "Prompt suggestions failed. Try again in a minute.")
+        logger.exception("aeo_prompt_suggestions_task_failed", team_id=team_id)
         raise

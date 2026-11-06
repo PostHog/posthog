@@ -89,6 +89,21 @@ class TestAiHumanOutcomeAPI(APIBaseTest):
         self.ticket.refresh_from_db()
         assert "human_outcome" not in self.ticket.ai_triage
 
+    def test_automated_update_does_not_replace_the_latest_ai_draft(self) -> None:
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Pull request update",
+            item_context={"author_type": "AI", "is_private": True, "automated_update_key": "pr-123"},
+        )
+
+        response = self.client.post(self.url, self._payload("used"), format="json")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "used"
+
 
 class TestAiTriageSourcesAPI(APIBaseTest):
     def setUp(self) -> None:

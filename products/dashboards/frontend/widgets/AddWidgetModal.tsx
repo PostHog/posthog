@@ -10,6 +10,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -74,11 +75,20 @@ function AddWidgetCatalogPicker({
 }
 
 export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetModalProps): JSX.Element {
-    const { addWidgetSelectedTypes, addWidgetCollapsedGroups } = useValues(dashboardLogic)
-    const { toggleAddWidgetSelectedType, toggleAddWidgetCollapsedGroup } = useActions(dashboardLogic)
+    const { addWidgetSelectedTypes, addWidgetCollapsedGroups, addWidgetFilteredGroups } = useValues(dashboardLogic)
+    const { toggleAddWidgetSelectedType, toggleAddWidgetCollapsedGroup, toggleAddWidgetFilteredGroup } =
+        useActions(dashboardLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const pickerGroups = DASHBOARD_WIDGET_CATALOG_GROUPS.map((group) => ({
+        ...group,
+        widgets: group.widgets.filter(({ entry }) => !entry.featureFlag || !!featureFlags[entry.featureFlag]),
+    })).filter((group) => group.widgets.length > 0)
     const selectedTypes = new Set(addWidgetSelectedTypes)
     const collapsedGroups = new Set(addWidgetCollapsedGroups)
+    const filteredGroups = new Set(addWidgetFilteredGroups)
+    const visibleGroups =
+        filteredGroups.size > 0 ? pickerGroups.filter((group) => filteredGroups.has(group.groupId)) : pickerGroups
 
     const selectedCount = selectedTypes.size
 
@@ -108,13 +118,26 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                 <>
                     <span>Bring context from your different PostHog products into one dashboard.</span>
                     <span className="mt-2 flex flex-wrap gap-2" data-attr="dashboard-widget-product-badges">
-                        {[...DASHBOARD_WIDGET_CATALOG_GROUPS]
+                        {[...pickerGroups]
                             .sort((a, b) => a.groupLabel.localeCompare(b.groupLabel))
                             .map((group) => {
                                 const GroupIcon = getDashboardWidgetGroupIcon(group.groupId)
+                                const isFiltered = filteredGroups.has(group.groupId)
 
                                 return (
-                                    <LemonTag key={group.groupId} type="muted">
+                                    <LemonTag
+                                        key={group.groupId}
+                                        type={isFiltered ? 'primary' : 'muted'}
+                                        tabIndex={0}
+                                        aria-pressed={isFiltered}
+                                        onClick={() => toggleAddWidgetFilteredGroup(group.groupId)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault()
+                                                toggleAddWidgetFilteredGroup(group.groupId)
+                                            }
+                                        }}
+                                    >
                                         <span className="flex items-center gap-1.5">
                                             {GroupIcon ? <GroupIcon className="size-4" /> : null}
                                             {group.groupLabel}
@@ -157,7 +180,7 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                     className="grid grid-cols-1 @min-[56rem]/add-widget-modal:grid-cols-2 gap-x-3 gap-y-4"
                     aria-label="Widget types"
                 >
-                    {DASHBOARD_WIDGET_CATALOG_GROUPS.map((group, groupIndex) => {
+                    {visibleGroups.map((group, groupIndex) => {
                         const productIntro = getDashboardWidgetGroupProductIntro(group.groupId)
                         // Nudge only when the product's setup requirement (a project setting) is unmet.
                         const showProductIntro =

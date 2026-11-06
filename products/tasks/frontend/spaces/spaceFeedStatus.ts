@@ -50,5 +50,9 @@ export function spaceFeedStatus(
     if (run.environment !== 'cloud' && !TERMINAL_STATUSES.has(run.status)) {
         return null
     }
+    // An interactive run stays `in_progress` between turns, so its turn output is ready for the reader.
+    if (run.status === 'in_progress' && run.state?.mode === 'interactive') {
+        return RUN_STATUSES.completed
+    }
     return RUN_STATUSES[run.status] ?? null
 }

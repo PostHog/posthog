@@ -7,16 +7,27 @@ import { FileSystemImport } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 
 import { getDefaultTreeData, getDefaultTreeProducts } from '../../ProjectTree/defaultTree'
-import { POPULAR_CATEGORY, POPULAR_PRODUCT_PATHS } from './productsCatalog'
+import {
+    POPULAR_CATEGORY,
+    POPULAR_PRODUCT_PATHS,
+    ProductsItemGroup,
+    groupProducts,
+    productMatchesSearch,
+} from './productsCatalog'
 
 // These pages are tabs of Event definitions, so the sidebar lists only that entry for them.
 const DEFINITIONS_TAB_HREFS = new Set(DEFINITIONS_TABS.filter((tab) => tab.key !== 'events').map((tab) => tab.url))
 
+export function isDefinitionsTabHref(href: string | undefined): boolean {
+    return !!href && DEFINITIONS_TAB_HREFS.has(href)
+}
+
 // Items in this category sit above Starred and All products, so they are never starred or grouped.
 export const PINNED_CATEGORY = 'Project'
 
-export function getNavProductItems(featureFlags: FeatureFlagsSet): FileSystemImport[] {
-    const items: FileSystemImport[] = [
+/** Every page the Products tab can list, before feature flags apply. */
+export function getNavProductPages(): FileSystemImport[] {
+    return [
         {
             path: 'Home',
             category: PINNED_CATEGORY,
@@ -52,9 +63,13 @@ export function getNavProductItems(featureFlags: FeatureFlagsSet): FileSystemImp
         ),
         ...getDefaultTreeData(),
     ]
+}
+
+export function getNavProductItems(featureFlags: FeatureFlagsSet): FileSystemImport[] {
+    const items = getNavProductPages()
     const destinations = new Map<string, FileSystemImport>()
     for (const item of items) {
-        if (!item.href || DEFINITIONS_TAB_HREFS.has(item.href) || !isFileSystemImportFlagEnabled(item, featureFlags)) {
+        if (!item.href || isDefinitionsTabHref(item.href) || !isFileSystemImportFlagEnabled(item, featureFlags)) {
             continue
         }
         const existing = destinations.get(item.href)
@@ -63,4 +78,38 @@ export function getNavProductItems(featureFlags: FeatureFlagsSet): FileSystemImp
     return [...destinations.values()].map((item) =>
         POPULAR_PRODUCT_PATHS.includes(item.path) ? { ...item, category: POPULAR_CATEGORY } : item
     )
+}
+
+export function pinnedNavProducts(items: FileSystemImport[], search: string): FileSystemImport[] {
+    return items
+        .filter((item) => item.category === PINNED_CATEGORY && productMatchesSearch(item, search))
+        .sort((a, b) => (a.visualOrder ?? Infinity) - (b.visualOrder ?? Infinity))
+}
+
+export function groupNavProducts(items: FileSystemImport[], search: string): ProductsItemGroup[] {
+    return groupProducts(
+        items.filter((item) => item.category !== PINNED_CATEGORY),
+        search
+    )
+}
+
+// Session replay opens its home page, but every recording page under /replay/ belongs to it too.
+function navProductMatchPath(item: FileSystemImport): string | null {
+    return item.path === 'Session replay' ? '/replay' : (item.href?.split(/[?#]/)[0] ?? null)
+}
+
+export function navProductHrefForPath(path: string, items: FileSystemImport[]): string | null {
+    let match: { href: string; matchPath: string } | null = null
+    for (const item of items) {
+        const matchPath = navProductMatchPath(item)
+        if (
+            item.href &&
+            matchPath &&
+            (path === matchPath || path.startsWith(`${matchPath}/`)) &&
+            (!match || matchPath.length > match.matchPath.length)
+        ) {
+            match = { href: item.href, matchPath }
+        }
+    }
+    return match?.href ?? null
 }

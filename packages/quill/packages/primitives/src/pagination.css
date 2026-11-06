@@ -25,6 +25,12 @@
         font-variant-numeric: tabular-nums;
     }
 
+    .quill-pagination__button[data-size='icon-sm'] {
+        width: auto;
+        min-width: 1.5rem;
+        padding-inline: 0.375rem;
+    }
+
     .quill-pagination__ellipsis {
         display: flex;
         align-items: center;

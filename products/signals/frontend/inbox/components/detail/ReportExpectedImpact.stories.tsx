@@ -68,14 +68,22 @@ const monitoringConfig: MetricThresholdConfigApi = {
     },
     monitoring: monitoringDefinition,
 }
+const monitoringStartedAt = '2026-08-26T00:00:00Z'
 const monitoringCheck: SignalReportCheckApi = {
     ...check,
     title: 'Checkout errors stay low',
     config: monitoringConfig,
-}
-const flagOffCheck: SignalReportCheckApi = {
-    ...monitoringCheck,
-    config: { ...monitoringConfig, monitoring: undefined },
+    status: 'active',
+    soak_minutes: 10080,
+    run_interval_minutes: 360,
+    next_run_at: '2026-08-29T18:00:00Z',
+    created_at: '2026-08-25T00:00:00Z',
+    monitoring_timing: {
+        state: 'scheduled',
+        started_at: monitoringStartedAt,
+        ends_at: '2026-09-02T00:00:00Z',
+        next_measurement_at: '2026-08-29T18:00:00Z',
+    },
 }
 const fixedTargetCheck: SignalReportCheckApi = {
     ...monitoringCheck,
@@ -112,7 +120,7 @@ const meta: Meta<typeof ReportExpectedImpact> = {
         layout: 'centered',
         viewMode: 'story',
         mockDate: '2026-08-29T12:00:00Z',
-        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE],
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
     },
     args: { report, reportUrl: 'https://example.com/report' },
     decorators: [
@@ -150,18 +158,11 @@ const meta: Meta<typeof ReportExpectedImpact> = {
 export default meta
 type Story = StoryObj<typeof ReportExpectedImpact>
 
-export const MonitoringDefinitionFlagOff: Story = {
-    parameters: {
-        check: flagOffCheck,
-        featureFlags: { [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE]: true, 'signals-report-monitoring': false },
-    },
-}
-
 export const MonitoringDefinition: Story = {
-    args: { report: { ...report, monitoring_started_at: '2026-08-27T12:00:00Z' } },
+    args: { report: { ...report, monitoring_started_at: monitoringStartedAt } },
     parameters: {
         check: monitoringCheck,
-        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE, 'signals-report-monitoring'],
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
     },
 }
 
@@ -170,7 +171,7 @@ export const MonitoringDefinitionNarrow: Story = {
     parameters: {
         check: monitoringCheck,
         narrow: true,
-        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE, 'signals-report-monitoring'],
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
     },
 }
 
@@ -178,24 +179,37 @@ export const MonitoringFixedTarget: Story = {
     args: MonitoringDefinition.args,
     parameters: {
         check: fixedTargetCheck,
-        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE, 'signals-report-monitoring'],
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
     },
 }
 
 export const MetricCheck: Story = {}
+export const MonitoringWindowEnded: Story = {
+    args: MonitoringDefinition.args,
+    parameters: {
+        check: {
+            ...monitoringCheck,
+            soak_minutes: 4320,
+            next_run_at: '2026-08-29T00:00:00Z',
+            monitoring_timing: {
+                state: 'window_ended',
+                started_at: monitoringStartedAt,
+                ends_at: '2026-08-29T00:00:00Z',
+                next_measurement_at: null,
+            },
+        },
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
+    },
+}
 export const RangeGoal: Story = { parameters: { check: rangeCheck } }
 export const Narrow: Story = { parameters: { narrow: true } }
 export const Failed: Story = { parameters: { check: failedCheck } }
 export const LoadFailure: Story = { parameters: { loadFailure: true } }
 
-export const ReplacementUnavailable: Story = {
-    parameters: { featureFlags: { [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE]: false } },
-}
-
 export const MonitoringRateTarget: Story = {
     args: MonitoringDefinition.args,
     parameters: {
         check: rateTargetCheck,
-        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE, 'signals-report-monitoring'],
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
     },
 }

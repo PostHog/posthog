@@ -5,6 +5,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
 from django.utils import timezone
 
 import dateutil.parser
@@ -18,6 +19,7 @@ from posthog.api.test.test_user import create_user
 from posthog.models import ActivityLog, ObjectMediaPreview, Tag, Team, UploadedMedia, User
 
 from products.event_definitions.backend.models.event_definition import EventDefinition
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import License, LicenseManager
@@ -699,6 +701,35 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert event_def.verified_by == self.user
         assert event_def.verified_at is not None
 
+    def test_clear_owner(self):
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
+        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="owned_event", owner=self.user)
+
+        response = self.client.patch(f"/api/projects/@current/event_definitions/{event.id}/", {"owner": None})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["owner"] is None
+        event.refresh_from_db()
+        assert event.owner is None
+
+    def test_list_filters_stay_unambiguous_when_both_tables_have_the_columns(self):
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
+        EnterpriseEventDefinition.objects.create(team=self.demo_team, name="checkout_completed", verified=True)
+        with connection.cursor() as cursor:
+            # Run the deferred FK checks of the inserts above, or Postgres refuses the ALTER TABLE.
+            cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+            cursor.execute(
+                "ALTER TABLE posthog_eventdefinition ADD COLUMN IF NOT EXISTS description text,"
+                " ADD COLUMN IF NOT EXISTS verified boolean, ADD COLUMN IF NOT EXISTS hidden boolean"
+            )
+
+        response = self.client.get(
+            "/api/projects/@current/event_definitions/?verified=true&exclude_hidden=true&search=checkout_completed"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["name"] for row in response.json()["results"]] == ["checkout_completed"]
+
     def test_cannot_assign_owner_from_another_organization(self):
         """Owner must belong to the current organization (PATCH)."""
         License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
@@ -874,6 +905,33 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         event_data = next(r for r in response.json()["results"] if r["name"] == "event_with_media")
         assert len(event_data["media_preview_urls"]) == 1
         assert "uploaded_media" in event_data["media_preview_urls"][0]
+
+    @parameterized.expand(
+        [
+            ("other_members_export", None, False),
+            ("event_screenshot", "session-1", True),
+        ]
+    )
+    def test_media_preview_urls_follow_export_access(self, _name, session_recording_id, expects_url):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", "password")
+        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="event_with_export")
+        asset = ExportedAsset.objects.create(
+            team=self.demo_team,
+            export_format="image/png",
+            created_by=None if session_recording_id else other_user,
+            export_context={"session_recording_id": session_recording_id} if session_recording_id else None,
+        )
+        ObjectMediaPreview.objects.create(team=self.demo_team, event_definition=event, exported_asset=asset)
+
+        list_response = self.client.get("/api/projects/@current/event_definitions/")
+        retrieve_response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
+
+        listed = next(r for r in list_response.json()["results"] if r["name"] == "event_with_export")
+        for urls in (listed["media_preview_urls"], retrieve_response.json()["media_preview_urls"]):
+            assert len(urls) == (1 if expects_url else 0)
 
     def test_list_media_preview_urls_empty_when_no_media(self):
         """Events without media previews return empty media_preview_urls."""

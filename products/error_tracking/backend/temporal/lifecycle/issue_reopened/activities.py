@@ -46,8 +46,16 @@ async def emit_issue_reopened_signal_activity(inputs: IssueReopenedWorkflowInput
     )
 
 
+@activity.defn
+def generate_issue_reopened_summary_activity(inputs: IssueReopenedWorkflowInputs) -> None:
+    # A no-op that keeps the activity registered. The workflow schedules it behind SUMMARY_ON_REOPEN_PATCH, so removing
+    # the call would break the replay of every workflow that already scheduled it.
+    pass
+
+
 ACTIVITIES = [
     dispatch_issue_reopened_alert_activity,
     emit_issue_reopened_internal_event_activity,
     emit_issue_reopened_signal_activity,
+    generate_issue_reopened_summary_activity,
 ]

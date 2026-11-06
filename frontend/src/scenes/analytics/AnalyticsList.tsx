@@ -1,18 +1,20 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { ReactNode, useEffect, useMemo, useState } from 'react'
 import { useInView } from 'react-intersection-observer'
 
 import {
     IconChevronDown,
     IconFolder,
     IconFolderPlus,
+    IconList,
+    IconPerson,
     IconPlus,
     IconSearch,
     IconTrash,
-    IconTrends,
 } from '@posthog/icons'
 import {
     Button,
+    Card,
     DataTable,
     DropdownMenu,
     DropdownMenuContent,
@@ -24,7 +26,6 @@ import {
     EmptyHeader,
     EmptyMedia,
     EmptyTitle,
-    Skeleton,
     Spinner,
     Text,
 } from '@posthog/quill'
@@ -32,6 +33,7 @@ import {
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -43,16 +45,20 @@ import { TodayAnalyticsNewFolderDialog } from '~/layout/today/TodayAnalyticsNewF
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
+import { analyticsOrderByOfColumn, parseAnalyticsOrderBy } from './analyticsFeed'
 import { AnalyticsFolderBreadcrumbs } from './AnalyticsFolderBreadcrumbs'
 import { AnalyticsListRow, analyticsListColumns } from './AnalyticsListColumns'
 import { AnalyticsListFilters } from './AnalyticsListFilters'
 import { analyticsListLogic, analyticsListUrlParams } from './analyticsListLogic'
+import { AnalyticsListSkeleton } from './AnalyticsListSkeleton'
+import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { ANALYTICS_DRAG_SCOPE, ANALYTICS_TYPE_INFO, USERS_FOLDER, analyticsSpaceOfPath } from './analyticsUtils'
 import { NewAnalyticsMenu } from './NewAnalyticsMenu'
 import { ShareToSpaceDialog } from './ShareToSpaceDialog'
 
 const SCROLL_PREFETCH_MARGIN = '1200px 0px'
+const EMPTY_COLLECTION: ReactNode = <Text size="sm">Nothing in this collection.</Text>
 
 export const scene: SceneExport = {
     component: AnalyticsList,
@@ -63,16 +69,6 @@ export function AnalyticsList(): JSX.Element {
     const analyticsEnabled = useFeatureFlag('TODAY_RAIL_NAV')
     // The page ships behind the Today navigation, so without the flag `/analytics/all` stays a missing page.
     return analyticsEnabled ? <AnalyticsListContent /> : <NotFound object="page" />
-}
-
-function TableSkeleton(): JSX.Element {
-    return (
-        <div className="flex flex-col gap-2" aria-busy aria-label="Loading analytics">
-            {Array.from({ length: 6 }, (_, index) => (
-                <Skeleton key={index} className="h-9" />
-            ))}
-        </div>
-    )
 }
 
 function AnalyticsListContent(): JSX.Element {
@@ -89,20 +85,30 @@ function AnalyticsListContent(): JSX.Element {
         mode,
         scope,
         loadedCount,
+        feedQuery,
     } = useValues(analyticsListLogic)
-    const { clearFilters, loadList, loadMore } = useActions(analyticsListLogic)
+    const { clearFilters, loadList, loadMore, setFilters } = useActions(analyticsListLogic)
     const { setNewFolderDialogOpen } = useActions(todayAnalyticsLogic)
     const { deleteItem } = useActions(projectTreeDataLogic)
-    const { ref: endRef, inView: endInView } = useInView({
-        root: document.getElementById('main-content'),
+    const [tableViewport, setTableViewport] = useState<HTMLDivElement | null>(null)
+    const { ref: tableEndRef, inView: tableEndInView } = useInView({
+        root: tableViewport,
         rootMargin: SCROLL_PREFETCH_MARGIN,
+        skip: !tableViewport,
     })
+    // With no table on screen, a filter may have left out every row so far, so the next page may hold the first.
+    const nearEnd = !tableViewport || tableEndInView
     // An opened page sends the person back to this exact list, filters included.
     const backUrl =
         scope === 'mine'
             ? urls.analyticsMine(analyticsListUrlParams(filters))
             : urls.analyticsList(analyticsListUrlParams(filters))
-    const columns = analyticsListColumns({ backUrl, showSpace: mode === 'feed' })
+    const showSpace = mode === 'feed'
+    const showOwner = scope !== 'mine'
+    const columns = useMemo(
+        () => analyticsListColumns({ backUrl, showSpace, showOwner }),
+        [backUrl, showSpace, showOwner]
+    )
     const rows = useMemo<AnalyticsListRow[]>(
         () => [
             ...subfolders.map((folder) => ({ kind: 'folder' as const, folder })),
@@ -116,13 +122,13 @@ function AnalyticsListContent(): JSX.Element {
     const isSpaceRoot = !!topLevelSpace && topLevelSpace !== USERS_FOLDER && folderBreadcrumbs.length === 1
 
     useEffect(() => {
-        if (endInView && hasMore) {
+        if (nearEnd && hasMore) {
             loadMore()
         }
-    }, [endInView, hasMore, loadedCount, loadMore])
+    }, [nearEnd, hasMore, loadedCount, loadMore])
 
     const newButton = (
-        <NewAnalyticsMenu source="list" trigger={<Button variant="primary" size="sm" data-attr="analytics-list-new" />}>
+        <NewAnalyticsMenu source="list" trigger={<Button variant="primary" data-attr="analytics-list-new" />}>
             <IconPlus />
             New
         </NewAnalyticsMenu>
@@ -139,6 +145,7 @@ function AnalyticsListContent(): JSX.Element {
                     <EmptyContent>
                         <Button
                             variant="outline"
+                            size="sm"
                             loading={loading}
                             onClick={() => loadList()}
                             data-attr="analytics-list-retry"
@@ -150,7 +157,11 @@ function AnalyticsListContent(): JSX.Element {
             )
         }
         if (listState === 'loading') {
-            return <TableSkeleton />
+            return (
+                <Card size="sm" flush className="pt-0">
+                    <AnalyticsListSkeleton columns={columns} />
+                </Card>
+            )
         }
         if (listState === 'no-matches') {
             return (
@@ -165,6 +176,7 @@ function AnalyticsListContent(): JSX.Element {
                     <EmptyContent>
                         <Button
                             variant="outline"
+                            size="sm"
                             onClick={() => clearFilters()}
                             data-attr="analytics-list-clear-filters"
                         >
@@ -202,6 +214,7 @@ function AnalyticsListContent(): JSX.Element {
                         ) : (
                             <Button
                                 variant="outline"
+                                size="sm"
                                 nativeButton={false}
                                 render={<LinkPrimitive to={urls.analyticsSpaces()} />}
                                 data-attr="analytics-list-browse-all"
@@ -215,22 +228,33 @@ function AnalyticsListContent(): JSX.Element {
         }
         return (
             <div
-                className={feedStale ? 'opacity-60 transition-opacity' : 'transition-opacity'}
+                className={cn('flex min-h-0 flex-col transition-opacity', feedStale && 'opacity-60')}
                 aria-busy={feedStale || hasMore}
             >
                 {rows.length > 0 && (
-                    <DataTable
-                        columns={columns}
-                        data={rows}
-                        fullWidth
-                        size="sm"
-                        stickyHeader
-                        // The title column soaks up the slack, and `max-w-0` stops a long title from widening
-                        // the table past its container, so the filters above keep their width across types.
-                        // Below the minimum width the table scrolls sideways instead of squeezing the title away.
-                        className="w-full min-w-0 **:data-expand:max-w-0 **:data-[slot=table]:min-w-208"
-                        empty={<Text size="sm">Nothing in this collection.</Text>}
-                    />
+                    <Card size="sm" flush className="min-h-0 pt-0">
+                        <DataTable
+                            columns={columns}
+                            data={rows}
+                            fullWidth
+                            size="sm"
+                            stickyHeader
+                            resizableColumns
+                            viewportRef={setTableViewport}
+                            viewportEndRef={tableEndRef}
+                            sorting={
+                                mode === 'feed' && feedQuery.orderBy ? [parseAnalyticsOrderBy(feedQuery.orderBy)] : []
+                            }
+                            onSortingChange={([sort]) => {
+                                const orderBy = sort && analyticsOrderByOfColumn(sort)
+                                if (orderBy) {
+                                    setFilters({ orderBy })
+                                }
+                            }}
+                            className="flex min-h-0 flex-col [--quill-table-sticky-bg:var(--card)]"
+                            empty={EMPTY_COLLECTION}
+                        />
+                    </Card>
                 )}
                 {hasMore && (
                     <div className="flex items-center justify-center gap-2 py-3" aria-busy>
@@ -245,9 +269,9 @@ function AnalyticsListContent(): JSX.Element {
     }
 
     return (
-        <SceneContent>
+        <SceneContent className="min-h-0 flex-1 pb-4">
             <SceneTitleSection
-                name={spaceName ?? (scope === 'mine' ? 'My work' : 'Analytics')}
+                name={spaceName ?? (scope === 'mine' ? 'My work' : 'View all')}
                 description={
                     mode === 'folder'
                         ? null
@@ -257,7 +281,13 @@ function AnalyticsListContent(): JSX.Element {
                 }
                 resourceType={{
                     type: 'analytics',
-                    forceIcon: spaceName ? <AnalyticsSpaceGlyph name={spaceName} /> : <IconTrends />,
+                    forceIcon: spaceName ? (
+                        <AnalyticsSpaceGlyph name={spaceName} />
+                    ) : scope === 'mine' ? (
+                        <IconPerson />
+                    ) : (
+                        <IconList />
+                    ),
                 }}
                 actions={
                     <div data-quill className="flex items-center gap-2">
@@ -281,6 +311,14 @@ function AnalyticsListContent(): JSX.Element {
                                     <IconChevronDown />
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end" className="min-w-48">
+                                    <AnalyticsPinMenuItem
+                                        target={{
+                                            type: 'folder',
+                                            ref: filters.folder!,
+                                            name: spaceName ?? topLevelSpace,
+                                        }}
+                                        dataAttr="analytics-space-pin-manage"
+                                    />
                                     <DropdownMenuItem
                                         variant="destructive"
                                         onClick={() =>
@@ -301,7 +339,7 @@ function AnalyticsListContent(): JSX.Element {
                     </div>
                 }
             />
-            <div data-quill className="@container/analytics flex flex-col gap-3">
+            <div data-quill className="flex min-h-0 flex-1 flex-col gap-3">
                 {mode === 'folder' && <AnalyticsFolderBreadcrumbs crumbs={folderBreadcrumbs} />}
                 <AnalyticsListFilters />
                 {listState === 'ready' && failedTypes.length > 0 && (
@@ -323,7 +361,6 @@ function AnalyticsListContent(): JSX.Element {
                     </div>
                 )}
                 {renderBody()}
-                <div ref={endRef} aria-hidden />
             </div>
             <AnalyticsCreateModals />
             <ShareToSpaceDialog />

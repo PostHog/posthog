@@ -20,7 +20,7 @@ from products.alerts.backend.facade.contracts import (
     DestinationEligibility,
     HogFunctionPathReason,
 )
-from products.alerts.backend.logic.destination_configs import WebhookDestination
+from products.alerts.backend.logic.destination_configs import PagerDutyDestination, WebhookDestination
 from products.alerts.backend.logic.destination_eligibility import (
     bucket_for,
     classify_alert_destinations,
@@ -28,7 +28,8 @@ from products.alerts.backend.logic.destination_eligibility import (
     unbound_alert_destinations,
 )
 from products.alerts_platform.backend.facade.contracts import DeliveryPath, SourceKind
-from products.alerts_platform.backend.facade.delivery import native_sends_legacy_webhook_body
+from products.alerts_platform.backend.facade.delivery import has_legacy_webhook_body, keeps_legacy_webhook_body
+from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 logger = structlog.get_logger(__name__)
 
@@ -72,11 +73,18 @@ class _TeamDestinations:
     def choice(self, destinations: Sequence[DestinationEligibility]) -> DeliveryPathChoice:
         if any(bucket_for(destination) != DestinationBucket.STOCK for destination in destinations):
             return DeliveryPathChoice(reason=HogFunctionPathReason.CUSTOMIZED)
+        # Per alert, so the team's other alerts still deliver natively.
+        if self._source == SourceKind.INSIGHT and any(
+            destination.template_id == PagerDutyDestination.template_id
+            and LEGACY_INSIGHT_ALERT_EVENT in destination.event_ids
+            for destination in destinations
+        ):
+            return DeliveryPathChoice(reason=HogFunctionPathReason.PAGERDUTY_NOT_NATIVE)
         if any(destination.template_id == WebhookDestination.template_id for destination in destinations):
-            if self._native_webhook_body is None:
+            if self._keeps_legacy_webhook_body is None:
                 return DeliveryPathChoice(reason=HogFunctionPathReason.WEBHOOK_BODY_UNKNOWN)
-            if not self._native_webhook_body:
-                return DeliveryPathChoice(reason=HogFunctionPathReason.NEW_WEBHOOK_BODY)
+            if self._keeps_legacy_webhook_body and not has_legacy_webhook_body(self._source):
+                return DeliveryPathChoice(reason=HogFunctionPathReason.LEGACY_WEBHOOK_BODY_NOT_NATIVE)
         return DeliveryPathChoice()
 
     @cached_property
@@ -88,5 +96,5 @@ class _TeamDestinations:
         )
 
     @cached_property
-    def _native_webhook_body(self) -> bool | None:
-        return native_sends_legacy_webhook_body(self._source, Team.objects.get(id=self._team_id))
+    def _keeps_legacy_webhook_body(self) -> bool | None:
+        return keeps_legacy_webhook_body(Team.objects.get(id=self._team_id))

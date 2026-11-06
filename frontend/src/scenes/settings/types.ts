@@ -35,6 +35,7 @@ export type SettingSectionId =
     | 'environment-details'
     | 'environment-access-control'
     | 'environment-activity-logs'
+    | 'environment-ai-gateway-dev-mode'
     | 'environment-ai-observability'
     | 'environment-approvals'
     | 'environment-autocapture'
@@ -60,6 +61,7 @@ export type SettingSectionId =
     | 'environment-replay'
     | 'environment-revenue-analytics'
     | 'environment-secret-api-keys'
+    | 'environment-trusted-workloads'
     | 'environment-surveys'
     | 'environment-task-agent-instructions'
     | 'environment-task-agents'
@@ -96,12 +98,14 @@ export type SettingSectionId =
     | 'organization-roles'
     | 'organization-access-resolution'
     | 'organization-security'
+    | 'organization-ssf'
     | 'organization-startup-program'
     | 'organization-danger-zone'
     // User
     | 'user-profile'
     | 'user-api-keys'
     | 'user-connected-apps'
+    | 'user-ai-gateway-dev-mode'
     | 'user-customization'
     | 'user-feature-previews'
     | 'user-notifications'
@@ -109,6 +113,7 @@ export type SettingSectionId =
     | 'user-reminders'
     | 'user-danger-zone'
     // Standalone
+    | 'mcp-analytics'
     | 'mcp-servers'
     | 'posthog-mcp'
 
@@ -137,14 +142,16 @@ export type SettingId =
     | 'changelog'
     | 'channel-type'
     | 'connected-apps'
+    | 'ai-gateway-dev-mode'
+    | 'ai-gateway-dev-mode-team-usage'
     | 'conversations-ai'
     | 'conversations-channels'
     | 'conversations-general'
     | 'conversations-imports'
+    | 'conversations-macros'
     | 'conversations-notifications'
     | 'cookieless-server-hash-mode'
     | 'core-memory'
-    | 'correlation-analysis'
     | 'csp-reporting'
     | 'custom-bot-definitions'
     | 'customer-analytics-accounts'
@@ -176,10 +183,12 @@ export type SettingId =
     | 'environment-experiment-sequential-tuning-parameter'
     | 'environment-experiment-stats-method'
     | 'environment-secret-api-keys'
+    | 'environment-trusted-workloads'
     | 'error-tracking-alerting'
     | 'error-tracking-auto-assignment'
     | 'error-tracking-custom-grouping'
     | 'error-tracking-exception-autocapture'
+    | 'error-tracking-general'
     | 'error-tracking-ingestion-controls'
     | 'error-tracking-integrations'
     | 'error-tracking-rate-limits'
@@ -194,6 +203,7 @@ export type SettingId =
     | 'feature-flag-default-release-conditions'
     | 'feature-flag-evaluation-context-suggestions'
     | 'feature-flag-require-tags'
+    | 'feature-flag-request-blocklist'
     | 'feature-flag-require-evaluation-contexts'
     | 'feature-flag-secure-api-key'
     | 'feature-flags-interface'
@@ -207,6 +217,7 @@ export type SettingId =
     | 'human-friendly-comparison-periods'
     | 'integration-error-tracking'
     | 'integration-github'
+    | 'integration-gitlab'
     | 'integration-ip-allowlist'
     | 'integration-linear'
     | 'integration-other'
@@ -227,6 +238,7 @@ export type SettingId =
     | 'logs-retention'
     | 'logs-session-id-attribute-keys'
     | 'marketing-settings'
+    | 'mcp-analytics-custom-harnesses'
     | 'mcp-servers-manage'
     | 'members'
     | 'member-notifications'
@@ -240,6 +252,7 @@ export type SettingId =
     | 'organization-default-role'
     | 'organization-delete'
     | 'organization-display-name'
+    | 'organization-events-retention'
     | 'organization-experiment-stats-method'
     | 'organization-id'
     | 'organization-integrations-list'
@@ -250,6 +263,7 @@ export type SettingId =
     | 'organization-roles'
     | 'organization-access-resolution-preview'
     | 'organization-security'
+    | 'organization-ssf'
     | 'organization-mcp-access'
     | 'organization-personal-api-keys'
     | 'passkeys'
@@ -267,6 +281,7 @@ export type SettingId =
     | 'posthog-mcp-configure'
     | 'profile-picture'
     | 'project-delete'
+    | 'project-events-retention'
     | 'project-move'
     | 'realtime-notifications'
     | 'replay'
@@ -288,7 +303,6 @@ export type SettingId =
     | 'saml-configuration'
     | 'oidc-configuration'
     | 'scim-configuration'
-    | 'session-join-mode'
     | 'session-table-version'
     | 'snippet'
     | 'snippet-v2'
@@ -322,6 +336,7 @@ export type SettingId =
     | 'workflows-ai-task-limits'
     | 'workflows-replay-vision-limits'
     | 'workflows-email-tracking-consent'
+    | 'workflows-utm-defaults'
     | 'workflows-engagement-events'
     | 'xaa-configuration'
 
@@ -358,6 +373,9 @@ export type Setting = {
      * Use it for an organization-scoped API, because a project admin can be an ordinary organization member.
      */
     organizationAdminOnly?: boolean
+
+    /** Shows the setting only to PostHog staff. The API it calls must enforce the same check. */
+    staffOnly?: boolean
 
     /**
      * If true, this setting will be hidden when viewing all settings (no specific section selected),

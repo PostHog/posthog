@@ -20,11 +20,27 @@ ACTIVITY_EVENTS_MAX_PROPERTY_VALUE_LENGTH = 4000
 LOGS_LIST_MAX_LIMIT = 100
 LOGS_LIST_DEFAULT_LIMIT = 50
 
+# Metrics table: one metrics query clause per column, and one row per value of the group-by label.
+# The metrics query keeps at most 100 series per clause, so the row limit cannot go higher.
+# Six columns fit rate, errors and three percentiles side by side.
+METRICS_TABLE_MAX_COLUMNS = 6
+METRICS_TABLE_MAX_FILTERS = 5
+METRICS_TABLE_MAX_LIMIT = 100
+METRICS_TABLE_DEFAULT_LIMIT = 25
+# Points per sparkline, and also the bucket count of the query. A query returns one row per bucket and label
+# value, and the metrics query fails above its row budget, so fewer buckets leave room for more label values.
+METRICS_TABLE_SPARKLINE_POINTS = 30
+# A label with many values can go past the metrics row budget at METRICS_TABLE_SPARKLINE_POINTS buckets.
+# The widget then retries once with this many buckets: shorter sparklines, the same row values.
+METRICS_TABLE_RETRY_BUCKETS = 6
+# Metrics queries span at most 31 days, so the longer widget presets are not allowed.
+METRICS_TABLE_UNSUPPORTED_DATE_FROM_VALUES = frozenset({"-90d"})
+
 # Cap widgets per batch create / run-widgets request.
 MAX_WIDGETS_BATCH_SIZE = 10
 
 MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH = 10_000
-MAX_GROUP_TITLES = 100
+MAX_GROUPS = 100
 MAX_GROUP_KEY_LENGTH = 100
 MAX_GROUP_TITLE_LENGTH = 200
 

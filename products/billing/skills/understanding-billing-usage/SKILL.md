@@ -205,7 +205,8 @@ WHERE timestamp >= {window_start}
     '$conversations_loaded', '$conversations_widget_loaded',
     '$conversations_message_sent', '$conversations_user_identified',
     '$conversations_restore_link_requested',
-    '$conversations_widget_state_changed', '$conversations_back_to_tickets'
+    '$conversations_widget_state_changed', '$conversations_back_to_tickets',
+    '$anomaly_score', '$anomaly_score_shadow'
   )
   AND NOT startsWith(event, '$ai_')
 GROUP BY event

@@ -4,7 +4,7 @@ import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from '~/cdp/_tests/examples'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
-import { CohortMembershipRepository } from '~/cdp/services/cohorts/cohort-membership-repository'
+import { CohortMembershipRepository, StoredCohortMembership } from '~/cdp/services/cohorts/cohort-membership-repository'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 
@@ -197,6 +197,10 @@ describe('action.conditional_branch', () => {
                 }
                 return Promise.resolve(this.memberCohortIds)
             }
+
+            getCohortMembership(): Promise<StoredCohortMembership | null> {
+                return Promise.reject(new Error('not used by branches'))
+            }
         }
 
         // Same shape the Python serializer emits: the authored properties plus compiled bytecode.
@@ -372,6 +376,7 @@ describe('action.conditional_branch', () => {
             }
             const stubCohortMembershipRepository: CohortMembershipRepository = {
                 getMemberCohortIds: () => Promise.resolve([]),
+                getCohortMembership: () => Promise.resolve(null),
             }
             handler = new ConditionalBranchHandler(stubCohortMembershipRepository)
             counterHogflowWaitAdvancedAtMaxWait.reset()

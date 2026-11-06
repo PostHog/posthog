@@ -15,6 +15,7 @@ const SOURCE_TRIGGER_COPY: Partial<Record<SignalSourceType, string>> = {
     [SignalSourceType.CiFlakyCheck]: 'a CI check becomes flaky',
     [SignalSourceType.CiBrokenDefaultBranch]: 'the default branch breaks',
     [SignalSourceType.CiDurationRegression]: 'a CI workflow slows down',
+    [SignalSourceType.Incident]: 'an incident or on-call alert opens',
 }
 
 export function sourceTriggerCopy(sourceType: SignalSourceType): string {

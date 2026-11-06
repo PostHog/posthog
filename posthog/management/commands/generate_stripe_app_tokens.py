@@ -20,6 +20,8 @@ from django.utils import timezone as tz
 from oauth2_provider.generators import generate_client_secret
 from oauthlib.common import generate_token
 
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.models import Team, User
 from posthog.models.integration import StripeIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
@@ -149,10 +151,10 @@ class Command(BaseCommand):
         self.stdout.write("")
 
     def _resolve_client_id(self) -> str | None:
-        """Resolve the OAuth client ID from the Django setting or directly from .env."""
-        # The Django setting is populated if the env var was in the shell environment at startup
-        if settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
-            return settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID
+        """Read the OAuth client ID from the service, settings, or .env, in that order."""
+        client_id = get_or_settings(ENV_KEY, CredentialsCaller.INTEGRATIONS)
+        if client_id:
+            return client_id
 
         # Fall back to reading .env directly — manage.py doesn't load .env into the
         # process environment, so the setting may be empty even though .env has the value

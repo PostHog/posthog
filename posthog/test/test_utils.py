@@ -14,7 +14,7 @@ from unittest.mock import call, patch
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.core.handlers.wsgi import WSGIRequest
-from django.http import HttpRequest
+from django.http import HttpRequest, QueryDict
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.client import RequestFactory
 from django.utils.timezone import now
@@ -26,8 +26,10 @@ from rest_framework import serializers
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
-from posthog.models import EventDefinition, Organization, PropertyDefinition, Team, User
+from posthog.models import Organization, Team, User
 from posthog.settings.utils import get_from_env
+
+from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
 
 if TYPE_CHECKING:
     from posthog.models.group_type_mapping import GroupTypeMapping
@@ -124,6 +126,12 @@ class TestAbsoluteUrls(SimpleTestCase):
                 "https://app.posthog.com",
                 "https://app.posthog.com/signup?email=someone%40example.com",
             ),
+            # Leading slashes are dropped, so a doubled slash stays a path on SITE_URL.
+            (
+                "//api/path",
+                "https://app.posthog.com",
+                "https://app.posthog.com/api/path",
+            ),
             ("/api/path", "", "/api/path"),  # current behavior whether correct or not
             (
                 "/api/path",
@@ -166,6 +174,15 @@ class TestAbsoluteUrls(SimpleTestCase):
             ("percent_encoded_slash", "https://attacker.example%2F@app.posthog.com/path"),
             ("percent_encoded_question_mark", "https://attacker.example%3F@app.posthog.com/path"),
             ("percent_encoded_hash", "https://attacker.example%23@app.posthog.com/path"),
+            # URL parsers strip these before reading the authority, so the value would
+            # resolve to another host while looking scheme-less here.
+            ("leading_tab", "\t//attacker.example/path"),
+            ("leading_newline", "\n//attacker.example/path"),
+            ("leading_space", " //attacker.example/path"),
+            ("leading_nul", "\x00//attacker.example/path"),
+            ("tab_between_slashes", "/\t//attacker.example/path"),
+            ("same_host_without_scheme", "\t//app.posthog.com/path"),
+            ("space_between_slashes", "/ //attacker.example/path"),
         ]
     )
     def test_absolute_uri_rejects_ambiguous_authority(self, _name: str, url: str) -> None:
@@ -214,7 +231,7 @@ class TestFormatUrls(SimpleTestCase):
                 "HTTP_HOST": "www.testserver",
                 "HTTP_X_FORWARDED_PROTO": "https",
             }
-            request: Request = Request(build_req)  # ty: ignore[invalid-assignment]
+            request: Request = Request(build_req)
             self.assertEqual("https://www.testserver", format_query_params_absolute_url(request))
 
 
@@ -817,22 +834,22 @@ class TestLoadDataFromRequest(TestCase):
 class TestShouldRefresh(SimpleTestCase):
     def test_refresh_requested_by_client_with_refresh_true(self):
         request = HttpRequest()
-        request.GET["refresh"] = "true"
+        request.GET = QueryDict("refresh=true")
         self.assertTrue(refresh_requested_by_client(Request(request)))
 
     def test_refresh_requested_by_client_with_refresh_empty(self):
         request = HttpRequest()
-        request.GET["refresh"] = ""
+        request.GET = QueryDict("refresh=")
         self.assertTrue(refresh_requested_by_client(Request(request)))
 
     def test_should_not_refresh_with_refresh_false(self):
         request = HttpRequest()
-        request.GET["refresh"] = "false"
+        request.GET = QueryDict("refresh=false")
         self.assertFalse(refresh_requested_by_client(Request(request)))
 
     def test_should_not_refresh_with_refresh_gibberish(self):
         request = HttpRequest()
-        request.GET["refresh"] = "2132klkl"
+        request.GET = QueryDict("refresh=2132klkl")
         self.assertFalse(refresh_requested_by_client(Request(request)))
 
     def test_refresh_requested_by_client_with_data_true(self):
@@ -1093,13 +1110,26 @@ class TestSharingOverrideProtection(SimpleTestCase):
 
         assert result == {"date_from": "-30d"}
 
-    def test_filters_override_allowed_for_normal_auth(self):
-        request = self._make_request(None, query_params={"filters_override": json.dumps({"date_from": "-7d"})})
+    @parameterized.expand(
+        [
+            ("date", {"date_from": "-7d"}),
+            (
+                "grouped_property_list",
+                {"properties": [{"type": "AND", "values": [{"type": "event", "key": "browser", "value": "Chrome"}]}]},
+            ),
+            (
+                "grouped_property_dict",
+                {"properties": {"type": "AND", "values": [{"type": "event", "key": "browser", "value": "Chrome"}]}},
+            ),
+        ]
+    )
+    def test_filters_override_allowed_for_normal_auth(self, _name: str, override: dict[str, Any]) -> None:
+        request = self._make_request(None, query_params={"filters_override": json.dumps(override)})
         dashboard = type("Dashboard", (), {"filters": {"date_from": "-30d"}})()
 
         result = filters_override_requested_by_client(request, dashboard)
 
-        assert result == {"date_from": "-7d"}
+        assert result == {"date_from": "-30d", **override}
 
     def test_filters_override_gets_saved_metric_variable_definitions(self):
         saved = {"name": "env", "source": "sql", "query": "SELECT 1", "current": {"values": ["a"]}}
@@ -1118,6 +1148,35 @@ class TestSharingOverrideProtection(SimpleTestCase):
 
         with pytest.raises(serializers.ValidationError):
             filters_override_requested_by_client(request, dashboard)
+
+    @parameterized.expand(
+        [
+            (
+                "unknown_keys",
+                {"date_from": "-7d", "display": "ActionsLineGraph"},
+                "Unknown key(s) in filters_override: display.",
+            ),
+            ("not_an_object", ["date_from"], "filters_override must be a JSON object."),
+            ("invalid_value", {"interval": "fortnight"}, "Invalid value in filters_override at 'interval'"),
+            (
+                "nested_unknown_key",
+                {"compareFilter": {"surprise": True}},
+                "Invalid value in filters_override at 'compareFilter.surprise': Extra inputs are not permitted.",
+            ),
+            (
+                "invalid_property_group",
+                {"properties": [{"type": "OR", "values": []}]},
+                "Invalid value in filters_override: Only AND property groups are supported.",
+            ),
+        ]
+    )
+    def test_filters_override_rejects_invalid_filters(self, _name: str, override: Any, expected_detail: str) -> None:
+        request = self._make_request(None, query_params={"filters_override": json.dumps(override)})
+
+        with pytest.raises(serializers.ValidationError) as exc_info:
+            filters_override_requested_by_client(request, None)
+
+        assert expected_detail in str(exc_info.value.detail)
 
     @parameterized.expand(
         [

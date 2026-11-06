@@ -3,7 +3,8 @@
 pub mod manager;
 
 pub use cohort_core::filters::{
-    build_catalog_from_rows, load_realtime_cohorts, CohortRow, REALTIME_COHORTS_SQL,
+    build_catalog_from_rows, load_realtime_cohorts, load_realtime_cohorts_for_teams, CohortRow,
+    REALTIME_COHORTS_SQL,
 };
 pub use cohort_core::filters::{leaf_classifier, loader, reverse_index, tree};
 pub use cohort_core::filters::{
@@ -13,4 +14,4 @@ pub use cohort_core::filters::{
 pub use cohort_core::filters::{FilterCatalog, Generation};
 pub use cohort_core::filters::{TeamFilters, TeamFiltersBuilder};
 
-pub use manager::{run_refresh_loop, CatalogHandle, CatalogRefreshError, CatalogStats};
+pub use manager::{CatalogHandle, CatalogRefreshError, CatalogRefresher, CatalogStats};

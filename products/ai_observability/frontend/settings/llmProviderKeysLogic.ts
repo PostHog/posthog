@@ -184,6 +184,44 @@ export interface KeyValidationResult {
     error_field?: string | null
 }
 
+/** Serializer fields that the edit modal renders an input for. */
+export type EditKeyField = 'name' | 'api_key' | 'azure_endpoint' | 'api_version' | 'base_url'
+
+export interface ProviderKeyFieldError {
+    field: EditKeyField
+    message: string
+}
+
+// An Anthropic key keeps the API it was created for, so only Foundry keys show the endpoint.
+export function isFoundryKey(key: LLMProviderKey): boolean {
+    return key.provider === 'anthropic' && !!key.azure_endpoint_display
+}
+
+function editKeyFieldsFor(key: LLMProviderKey): EditKeyField[] {
+    if (key.provider === 'azure_openai') {
+        return ['name', 'api_key', 'azure_endpoint', 'api_version']
+    }
+    if (isFoundryKey(key)) {
+        return ['name', 'api_key', 'azure_endpoint']
+    }
+    if (key.provider === 'openai_compatible') {
+        return ['name', 'api_key', 'base_url']
+    }
+    return ['name', 'api_key']
+}
+
+/**
+ * Attributes a validation 400 from saving an edited key to the edit modal input that shows it.
+ * Returns null when the modal has no input for the rejected field, so the caller toasts instead.
+ */
+export function getEditKeyFieldError(key: LLMProviderKey, errorObject: unknown): ProviderKeyFieldError | null {
+    if (!(errorObject instanceof ApiError) || errorObject.status !== 400 || !errorObject.detail) {
+        return null
+    }
+    const field = editKeyFieldsFor(key).find((candidate) => candidate === errorObject.attr)
+    return field ? { field, message: errorObject.detail } : null
+}
+
 export interface DependentEvaluation {
     id: string
     name: string
@@ -206,6 +244,7 @@ export interface llmProviderKeysLogicValues {
     activeProviderKey: LLMProviderKey | null | undefined
     dependentConfigs: DependentConfigsResponse | null
     dependentConfigsLoading: boolean
+    editKeyFieldError: ProviderKeyFieldError | null
     editingKey: LLMProviderKey | null
     evaluationConfig: EvaluationConfig | null
     evaluationConfigLoading: boolean
@@ -370,6 +409,9 @@ export interface llmProviderKeysLogicActions {
             base_url?: string
         }
     }
+    setEditKeyFieldError: (fieldError: ProviderKeyFieldError | null) => {
+        fieldError: ProviderKeyFieldError | null
+    }
     setEditingKey: (key: LLMProviderKey | null) => {
         key: LLMProviderKey | null
     }
@@ -456,6 +498,7 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         clearPreValidation: true,
         setNewKeyModalOpen: (open: boolean) => ({ open }),
         setEditingKey: (key: LLMProviderKey | null) => ({ key }),
+        setEditKeyFieldError: (fieldError: ProviderKeyFieldError | null) => ({ fieldError }),
         setKeyToDelete: (key: LLMProviderKey | null) => ({ key }),
         confirmDelete: (replacementKeyId?: string) => ({ replacementKeyId }),
     }),
@@ -487,6 +530,14 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
             null as LLMProviderKey | null,
             {
                 setEditingKey: (_, { key }) => key,
+            },
+        ],
+        editKeyFieldError: [
+            null as ProviderKeyFieldError | null,
+            {
+                setEditKeyFieldError: (_, { fieldError }) => fieldError,
+                updateProviderKey: () => null,
+                setEditingKey: () => null,
             },
         ],
         validatingKeyId: [
@@ -717,7 +768,12 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         createProviderKeyFailure: ({ error }) => {
             lemonToast.error(`Failed to create API key: ${error || 'Unknown error'}`)
         },
-        updateProviderKeyFailure: ({ error }) => {
+        updateProviderKeyFailure: ({ error, errorObject }) => {
+            const fieldError = values.editingKey ? getEditKeyFieldError(values.editingKey, errorObject) : null
+            if (fieldError) {
+                actions.setEditKeyFieldError(fieldError)
+                return
+            }
             lemonToast.error(`Failed to update API key: ${error || 'Unknown error'}`)
         },
         deleteProviderKeyFailure: ({ error }) => {

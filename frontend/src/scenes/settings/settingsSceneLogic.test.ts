@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+
 import { initKeaTests } from '~/test/init'
 
 import { settingsSceneLogic } from './settingsSceneLogic'
@@ -18,6 +20,41 @@ describe('settingsSceneLogic', () => {
         initKeaTests()
         logic = settingsSceneLogic()
         logic.mount()
+    })
+
+    it.each([
+        ['/replay/settings', 'replay-log-capture'],
+        ['/logs', 'logs-drop-rules'],
+    ])('leaves %s alone when its embedded settings hash changes', async (pathname, setting) => {
+        router.actions.push('/settings/project-replay')
+        await expectLogic(logic).toMatchValues({ selectedSectionId: 'project-replay' })
+
+        router.actions.push(pathname, {}, { selectedSetting: setting })
+        await expectLogic(logic).delay(10)
+
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(pathname)
+    })
+
+    it.each([
+        [
+            'keeps the setting anchor when the URL opens a section',
+            (): void => router.actions.push('/settings/project-details', {}, { 'date-and-time': true }),
+            { 'date-and-time': true },
+        ],
+        [
+            'drops the setting anchor when the sidebar opens another section',
+            (): void => logic.actions.selectSection('project-details', 'project'),
+            {},
+        ],
+    ])('%s', async (_, openSection, expectedHash) => {
+        router.actions.push('/settings/project-customization', {}, { 'date-and-time': true })
+        await expectLogic(logic).toMatchValues({ selectedSectionId: 'project-customization' })
+
+        openSection()
+
+        await expectLogic(logic).toMatchValues({ selectedSectionId: 'project-details' })
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/settings/project-details')
+        expect(router.values.hashParams).toEqual(expectedHash)
     })
 
     it('reads filters from the URL', async () => {

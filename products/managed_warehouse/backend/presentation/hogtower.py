@@ -218,11 +218,16 @@ def _reset_password(call: _Call) -> TranslatedResponse:
 
 
 def _check_name(call: _Call) -> TranslatedResponse:
-    """v1 GET /database-name/check?name= -> v2 GET /database-names/:name."""
+    """v1 GET /database-name/check?name= -> v2 GET /database-names/:name?org_id=.
+
+    hogtower reserves a name for the org whose warehouse carried it, and without org_id it
+    answers for a new org: the asking org's own earlier names would read as taken.
+    """
     name = (call.params or {}).get("name")
     if not name:
         return _bad_request("name query parameter is required")
-    resp = call.send("GET", f"/database-names/{quote(str(name), safe='')}")
+    params = {"org_id": call.org_id} if call.org_id else None
+    resp = call.send("GET", f"/database-names/{quote(str(name), safe='')}", params=params)
     if resp.ok and isinstance(resp.body, dict) and not resp.body.get("reason"):
         # v1 omits an empty reason.
         resp.body.pop("reason", None)
@@ -467,3 +472,54 @@ def request(
     if handler is None:
         return _not_supported(method, path)
     return handler(call)
+
+
+# --- hogtower-only routes -----------------------------------------------------------------
+# No duckgres v1 counterpart, so no translation: callers check is_configured() first.
+
+MEMBER_TEAMS_TIMEOUT_SECONDS = 10
+
+
+def _member_path(organization_id: object, user_uuid: object) -> str:
+    return f"/warehouses/{quote(str(organization_id), safe='')}/members/{quote(str(user_uuid), safe='')}"
+
+
+def list_warehouses(*, timeout: int | float = 30) -> TranslatedResponse:
+    """v2 GET /warehouses: every warehouse hogtower manages, as ``{"warehouses": [...]}``."""
+    return _send("GET", "/warehouses", timeout=timeout)
+
+
+def list_members(organization_id: object, *, timeout: int | float = MEMBER_TEAMS_TIMEOUT_SECONDS) -> TranslatedResponse:
+    """v2 GET /warehouses/:id/members: the members hogtower holds who are not removed."""
+    return _send("GET", f"/warehouses/{quote(str(organization_id), safe='')}/members", timeout=timeout)
+
+
+def put_member_teams(
+    organization_id: object,
+    user_uuid: object,
+    teams: dict[int, str],
+    version: int,
+    *,
+    timeout: int | float = MEMBER_TEAMS_TIMEOUT_SECONDS,
+) -> TranslatedResponse:
+    """v2 PUT /warehouses/:id/members/:user_uuid/teams: the member's whole team set.
+
+    ``teams`` maps a team id to ``"read"`` or ``"write"``. hogtower keeps the push with
+    the highest ``version`` and answers 409 for an older one.
+    """
+    body = {"teams": {str(team_id): perm for team_id, perm in teams.items()}, "version": version}
+    return _send("PUT", f"{_member_path(organization_id, user_uuid)}/teams", json_body=body, timeout=timeout)
+
+
+def remove_member(
+    organization_id: object,
+    user_uuid: object,
+    version: int,
+    *,
+    timeout: int | float = MEMBER_TEAMS_TIMEOUT_SECONDS,
+) -> TranslatedResponse:
+    """v2 DELETE /warehouses/:id/members/:user_uuid: tombstone the member at ``version``.
+
+    hogtower revokes every team credential the member owns in the same transaction.
+    """
+    return _send("DELETE", _member_path(organization_id, user_uuid), json_body={"version": version}, timeout=timeout)

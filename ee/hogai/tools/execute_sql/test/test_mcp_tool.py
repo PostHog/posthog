@@ -9,9 +9,10 @@ from parameterized import parameterized
 from posthog.schema import HogQLNotice, HogQLQuery
 
 from posthog.event_usage import EventSource
-from posthog.models import EventDefinition, Organization, Team, User
+from posthog.models import Organization, Team, User
 from posthog.sync import database_sync_to_async
 
+from products.event_definitions.backend.models import EventDefinition
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
 from ee.hogai.context.insight.context import InsightContext
@@ -119,6 +120,19 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertIn("validation failed", str(ctx.exception).lower())
         self.assertEqual(ctx.exception.error_code, expected_code)
+
+    async def test_unreadable_result_type_names_its_class(self) -> None:
+        with self.assertRaises(MaxToolRetryableError) as ctx:
+            await self.tool.execute(ExecuteSQLMCPToolArgs(query="SELECT argMinState(event, timestamp) FROM events"))
+
+        self.assertEqual(ctx.exception.error_type, "validation")
+        self.assertEqual(ctx.exception.error_code, "unknown_type")
+        self.assertEqual(
+            str(ctx.exception),
+            "This query returns a column of type `AggregateFunction(argMin, String, DateTime64(6, 'UTC'))`, which "
+            "PostHog can't send back in results. The column holds a stored aggregate state. Wrap it in the matching "
+            "-Merge function, for example `argMinMerge(column)`, to get the final value.",
+        )
 
     @parameterized.expand(
         [

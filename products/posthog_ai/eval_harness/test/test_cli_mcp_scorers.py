@@ -377,6 +377,50 @@ def test_chart_scorers_grade_each_chart_path(
     assert ChartFromTypedQuery()._run_eval_sync(output, expected={"chart_from_typed_query": spec}).score == typed
 
 
+@parameterized.expand(
+    [
+        (
+            "native_metadata_without_render_note",
+            {"_meta": {"com.posthog.mcp/app_data": {"query": {"kind": "TrendsQuery"}, "results": []}}},
+            "completed",
+            1.0,
+        ),
+        (
+            "native_structured_content",
+            {"structuredContent": {"query": {"kind": "TrendsQuery"}, "results": []}},
+            "completed",
+            1.0,
+        ),
+        (
+            "wrong_query_kind",
+            {"_meta": {"com.posthog.mcp/app_data": {"query": {"kind": "HogQLQuery", "query": "SELECT 1"}}}},
+            "completed",
+            0.0,
+        ),
+        (
+            "failed_native_query",
+            {"_meta": {"com.posthog.mcp/app_data": {"query": {"kind": "TrendsQuery"}}}},
+            "failed",
+            0.0,
+        ),
+        ("desktop_note_without_native_payload", {"content": INLINE_VIEW_NOTE}, "completed", 0.0),
+    ]
+)
+def test_posthog_ai_chart_scorers_require_native_query_data(
+    _name: str, payload: dict, status: str, shown: float
+) -> None:
+    output = _chart_output(
+        [("mcp__posthog__query-trends", {"series": []}, json.dumps(payload), status)],
+        answer=f"Signups rose.\n\n{_SQL_CHART}",
+    )
+    spec = {"tool_name_any_of": ["query-trends"], "surface": "posthog_ai"}
+
+    assert ChartShown()._run_eval_sync(output, expected={"chart_shown": spec}).score == shown
+    assert ChartFromTypedQuery()._run_eval_sync(output, expected={"chart_from_typed_query": spec}).score == (
+        1.0 if shown else None
+    )
+
+
 _LONG_TABLE = "| Week | Signups |\n|---|---|\n| W1 | 10 |\n| W2 | 12 |\n| W3 | 9 |\n| W4 | 14 |"
 _SUMMARY_TABLE = "| Period | Signups |\n| :--- | ---: |\n| Last 7 days | 45 |\n| Previous 7 days | 38 |"
 

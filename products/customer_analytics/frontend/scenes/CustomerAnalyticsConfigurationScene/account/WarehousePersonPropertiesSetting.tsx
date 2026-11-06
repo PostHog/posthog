@@ -189,14 +189,14 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                         .filter(Boolean)
                         .join(' — ') || undefined
                 return (
-                    <Tooltip title={tooltipTitle}>
-                        <span className="flex items-center gap-2">
+                    <span className="flex items-center gap-2">
+                        <Tooltip title={tooltipTitle}>
                             <LemonTag type={TAG_TYPE_BY_SYNC_LEVEL[status.level]}>{status.label}</LemonTag>
-                            {status.level === 'synced' && definition.source.last_synced_at && (
-                                <TZLabel time={definition.source.last_synced_at} className="text-secondary" />
-                            )}
-                        </span>
-                    </Tooltip>
+                        </Tooltip>
+                        {status.level === 'synced' && definition.source.last_synced_at && (
+                            <TZLabel time={definition.source.last_synced_at} className="text-secondary" />
+                        )}
+                    </span>
                 )
             },
         },

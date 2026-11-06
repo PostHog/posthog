@@ -37,7 +37,7 @@ describe('AiIngestionPipeline', () => {
     let mockKafkaProducer: jest.Mocked<KafkaProducerWrapper>
     let mockTeamManager: jest.Mocked<TeamManager>
     let mockEventIngestionRestrictionManager: jest.Mocked<EventIngestionRestrictionManager>
-    let mockEventFilterManager: { getFilter: jest.Mock }
+    let mockEventFilterManager: { getFilter: jest.Mock; dropsAllEvents: jest.Mock }
     let mockCookielessManager: jest.Mocked<CookielessManager>
     let mockHogTransformer: jest.Mocked<
         Pick<
@@ -117,7 +117,10 @@ describe('AiIngestionPipeline', () => {
             forceRefresh: jest.fn(),
         } as unknown as jest.Mocked<EventIngestionRestrictionManager>
 
-        mockEventFilterManager = { getFilter: jest.fn().mockReturnValue(undefined) }
+        mockEventFilterManager = {
+            getFilter: jest.fn().mockReturnValue(undefined),
+            dropsAllEvents: jest.fn().mockReturnValue(false),
+        }
 
         mockCookielessManager = {
             doBatch: jest.fn().mockImplementation((events: any[]) => Promise.resolve(events.map((e) => ok(e)))),

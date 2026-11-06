@@ -22,6 +22,14 @@ from products.messaging.backend.models.message_preferences import (
     PreferenceStatus,
 )
 
+SEND_CLAIMS = {
+    "app_source_id": "flow-1",
+    "instance_id": "action-1",
+    "workflow_id": "flow-1",
+    "invocation_id": "run-1",
+    "workflow_version": 3,
+}
+
 STYLESHEET_LINK = '<link rel="stylesheet" href="/static/message-preferences.css" />'
 
 
@@ -66,6 +74,12 @@ class TestMessagePreferencesViews(BaseTest):
         self._token_patch.stop()
         super().tearDown()
 
+    def _post_one_click(self):
+        return self.client.post(
+            reverse("message_preferences", kwargs={"token": self.token}) + "?one_click_unsubscribe=1",
+            {"List-Unsubscribe": "One-Click"},
+        )
+
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_preferences_page_valid_token(self, mock_validate_messaging_preferences_token):
         mock_validate_messaging_preferences_token.return_value = mock_response(
@@ -96,32 +110,40 @@ class TestMessagePreferencesViews(BaseTest):
         )
 
         response = self.client.get(
-            reverse("message_preferences", kwargs={"token": self.token}),
-            {"one_click_unsubscribe": "1"},
+            reverse("message_preferences", kwargs={"token": self.token}), {"one_click_unsubscribe": "1"}
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertTemplateUsed(response, "message_preferences/one_click_unsubscribe_success.html")
+        self.assertTemplateUsed(response, "message_preferences/one_click_unsubscribe_confirm.html")
         self.assertContains(response, STYLESHEET_LINK)
+        self.assertContains(response, 'method="post"')
 
         self.recipient.refresh_from_db()
-        prefs = self.recipient.get_all_preferences()
-        self.assertEqual(prefs[str(self.category.id)], PreferenceStatus.OPTED_OUT)
-        self.assertEqual(prefs[str(self.category2.id)], PreferenceStatus.OPTED_OUT)
-        self.assertEqual(prefs[ALL_MESSAGE_PREFERENCE_CATEGORY_ID], PreferenceStatus.OPTED_OUT)
+        self.assertNotIn(ALL_MESSAGE_PREFERENCE_CATEGORY_ID, self.recipient.get_all_preferences())
 
+    @parameterized.expand(
+        [
+            ("mail_client_button", {"List-Unsubscribe": "One-Click"}, None),
+            ("confirm_form", {"one_click_unsubscribe": "1"}, "message_preferences/one_click_unsubscribe_success.html"),
+        ]
+    )
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
-    def test_preferences_page_one_click_unsubscribe_post(self, mock_validate_messaging_preferences_token):
+    def test_preferences_page_one_click_unsubscribe_post(
+        self, _name, body, expected_template, mock_validate_messaging_preferences_token
+    ):
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
 
         response = self.client.post(
-            reverse("message_preferences", kwargs={"token": self.token}),
-            {"one_click_unsubscribe": "1"},
+            reverse("message_preferences", kwargs={"token": self.token}) + "?one_click_unsubscribe=1", body
         )
 
         self.assertEqual(response.status_code, 200)
+        if expected_template:
+            self.assertTemplateUsed(response, expected_template)
+        else:
+            self.assertEqual(response.content, b"")
 
         self.recipient.refresh_from_db()
         prefs = self.recipient.get_all_preferences()
@@ -206,25 +228,167 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(json.loads(response.content), {"error": "Preference values must be 'true' or 'false'"})
 
+    @parameterized.expand(
+        [
+            ("one_click", "one_click", {}, True),
+            ("preferences_opt_out", "opt_out", {}, True),
+            ("already_opted_out", "one_click", {"$all": PreferenceStatus.OPTED_OUT.value}, False),
+            ("preferences_opt_in", "opt_in", {}, False),
+            ("page_view", "view", {}, False),
+            ("unknown_category_only", "junk_opt_out", {}, False),
+            ("unknown_category_alone", "junk_alone", {}, False),
+        ]
+    )
+    @patch("products.messaging.backend.services.unsubscribe_metrics.get_producer")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
+    def test_opt_out_records_unsubscribed_metric_for_the_sending_email(
+        self, _name, action, prior_preferences, expect_metric, mock_validate, mock_get_producer
+    ):
+        run_id = "0192a3b4-c5d6-7e8f-9a0b-1c2d3e4f5a6b"
+        self.recipient.preferences = prior_preferences
+        self.recipient.save()
+        mock_validate.return_value = mock_response(
+            200,
+            {
+                "valid": True,
+                "team_id": self.team.id,
+                "identifier": self.recipient.identifier,
+                "app_source_id": run_id,
+                "instance_id": "action_function_email_1",
+            },
+        )
+
+        if action == "one_click":
+            response = self._post_one_click()
+        elif action == "view":
+            response = self.client.get(reverse("message_preferences", kwargs={"token": self.token}))
+        else:
+            prefs = {
+                "opt_out": [f"{self.category.id}:false"],
+                "opt_in": [f"{self.category.id}:true"],
+                "junk_opt_out": [f"{self.category.id}:true", "not-a-real-category:false"],
+                "junk_alone": ["not-a-real-category:false"],
+            }[action]
+            response = self.client.post(
+                reverse("message_preferences_update"), {"token": self.token, "preferences[]": prefs}
+            )
+
+        self.assertEqual(response.status_code, 200)
+        produce = mock_get_producer.return_value.produce
+        if not expect_metric:
+            produce.assert_not_called()
+            return
+        produce.assert_called_once()
+        self.assertEqual(
+            {k: v for k, v in produce.call_args.kwargs["data"].items() if k != "timestamp"},
+            {
+                "team_id": self.team.id,
+                "app_source": "hog_flow",
+                "app_source_id": run_id,
+                "instance_id": "action_function_email_1",
+                "metric_kind": "email",
+                "metric_name": "email_unsubscribed",
+                "count": 1,
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("no_claims", {}),
+            ("app_source_id_not_a_uuid", {"app_source_id": "../other", "instance_id": "action_1"}),
+            ("instance_id_unsafe", {"app_source_id": "0192a3b4-c5d6-7e8f-9a0b-1c2d3e4f5a6b", "instance_id": "a b"}),
+            ("instance_id_missing", {"app_source_id": "0192a3b4-c5d6-7e8f-9a0b-1c2d3e4f5a6b"}),
+        ]
+    )
+    @patch("products.messaging.backend.services.unsubscribe_metrics.get_producer")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
+    def test_one_click_without_usable_source_opts_out_without_metric(
+        self, _name, claims, mock_validate, mock_get_producer
+    ):
+        mock_validate.return_value = mock_response(
+            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier, **claims}
+        )
+
+        response = self._post_one_click()
+
+        self.assertEqual(response.status_code, 200)
+        self.recipient.refresh_from_db()
+        self.assertEqual(
+            self.recipient.get_all_preferences()[ALL_MESSAGE_PREFERENCE_CATEGORY_ID], PreferenceStatus.OPTED_OUT
+        )
+        mock_get_producer.return_value.produce.assert_not_called()
+
+    @patch("products.messaging.backend.services.unsubscribe_metrics.get_producer")
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
+    def test_one_click_opts_out_when_metric_produce_fails(self, mock_validate, mock_get_producer):
+        mock_get_producer.return_value.produce.side_effect = RuntimeError("kafka down")
+        mock_validate.return_value = mock_response(
+            200,
+            {
+                "valid": True,
+                "team_id": self.team.id,
+                "identifier": self.recipient.identifier,
+                "app_source_id": "0192a3b4-c5d6-7e8f-9a0b-1c2d3e4f5a6b",
+                "instance_id": "action_1",
+            },
+        )
+
+        response = self._post_one_click()
+
+        self.assertEqual(response.status_code, 200)
+        self.recipient.refresh_from_db()
+        self.assertEqual(
+            self.recipient.get_all_preferences()[ALL_MESSAGE_PREFERENCE_CATEGORY_ID], PreferenceStatus.OPTED_OUT
+        )
+
     def _enable_engagement_events(self):
         config = self.team.workflows_config
         config.capture_workflows_engagement_events = True
         config.save()
 
+    @parameterized.expand(
+        [
+            ("a link that names no email", {}, {}),
+            ("a link that names the email but not its run", {"app_source_id": "flow-1", "instance_id": "action-1"}, {}),
+            (
+                "a link that names the step, run and version that sent it",
+                SEND_CLAIMS,
+                {
+                    "$workflow_id": "flow-1",
+                    "$workflow_action_id": "action-1",
+                    "$workflow_invocation_id": "run-1",
+                    "$workflow_version": 3,
+                },
+            ),
+            (
+                "a link that names its run but not its step or version",
+                {"app_source_id": "batch-run-1", "workflow_id": "flow-1", "invocation_id": "run-1"},
+                {"$workflow_id": "flow-1", "$workflow_invocation_id": "run-1"},
+            ),
+            ("a link whose run id is not a string", {**SEND_CLAIMS, "invocation_id": 42}, {}),
+            (
+                "a link whose step id the metric rejects",
+                {**SEND_CLAIMS, "instance_id": "action 1"},
+                {"$workflow_id": "flow-1", "$workflow_invocation_id": "run-1", "$workflow_version": 3},
+            ),
+            (
+                "a link whose version is not an integer",
+                {**SEND_CLAIMS, "workflow_version": True},
+                {"$workflow_id": "flow-1", "$workflow_action_id": "action-1", "$workflow_invocation_id": "run-1"},
+            ),
+        ]
+    )
     @patch("products.messaging.backend.presentation.views.recipient_preferences.capture_internal")
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_one_click_unsubscribe_emits_unsubscribed_event(
-        self, mock_validate_messaging_preferences_token, mock_capture_internal
+        self, _name, token_claims, send_properties, mock_validate_messaging_preferences_token, mock_capture_internal
     ):
         self._enable_engagement_events()
         mock_validate_messaging_preferences_token.return_value = mock_response(
-            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
+            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier, **token_claims}
         )
 
-        response = self.client.get(
-            reverse("message_preferences", kwargs={"token": self.token}),
-            {"one_click_unsubscribe": "1"},
-        )
+        response = self._post_one_click()
 
         self.assertEqual(response.status_code, 200)
         mock_capture_internal.assert_called_once_with(
@@ -236,15 +400,13 @@ class TestMessagePreferencesViews(BaseTest):
                 "$email": self.recipient.identifier,
                 "category": ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
                 "source": "one_click",
+                **send_properties,
             },
         )
 
         # A replay (scanner prefetch, reused token) is not a transition and must not emit again
         mock_capture_internal.reset_mock()
-        response = self.client.get(
-            reverse("message_preferences", kwargs={"token": self.token}),
-            {"one_click_unsubscribe": "1"},
-        )
+        response = self._post_one_click()
         self.assertEqual(response.status_code, 200)
         mock_capture_internal.assert_not_called()
 
@@ -262,7 +424,7 @@ class TestMessagePreferencesViews(BaseTest):
         }
         self.recipient.save()
         mock_validate_messaging_preferences_token.return_value = mock_response(
-            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
+            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier, **SEND_CLAIMS}
         )
 
         data = {
@@ -282,6 +444,7 @@ class TestMessagePreferencesViews(BaseTest):
         )
         for call in mock_capture_internal.call_args_list:
             self.assertEqual(call.kwargs["properties"]["source"], "preferences_page")
+            self.assertEqual(call.kwargs["properties"]["$workflow_invocation_id"], "run-1")
 
     @parameterized.expand(["one_click", "preferences_form"])
     @patch("products.messaging.backend.presentation.views.recipient_preferences.capture_internal")
@@ -294,10 +457,7 @@ class TestMessagePreferencesViews(BaseTest):
         )
 
         if code_path == "one_click":
-            response = self.client.get(
-                reverse("message_preferences", kwargs={"token": self.token}),
-                {"one_click_unsubscribe": "1"},
-            )
+            response = self._post_one_click()
         else:
             response = self.client.post(
                 reverse("message_preferences_update"),
@@ -420,10 +580,7 @@ class TestMessagePreferencesViews(BaseTest):
         )
 
         if code_path == "one_click":
-            response = self.client.get(
-                reverse("message_preferences", kwargs={"token": self.token}),
-                {"one_click_unsubscribe": "1"},
-            )
+            response = self._post_one_click()
         else:
             response = self.client.post(
                 reverse("message_preferences_update"),

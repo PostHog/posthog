@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from posthog.schema_enums import AlertState as InsightAlertState
 
+from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts_platform.backend.facade.lifecycle import (
     AlertCheckOutcome,
     AlertPolicy,
@@ -33,6 +35,17 @@ INSIGHT_ALERT_POLICY = AlertPolicy(
     notify_resolve=False,
     errors_set_errored_state=True,
 )
+
+# The AI detector flags the same bad state on check after check, so renotifying sends one message per check.
+AI_DETECTOR_ALERT_POLICY = replace(INSIGHT_ALERT_POLICY, renotify_while_firing=False)
+
+# Tells the investigation safety net and the cutover that an unsent firing check owes no notification.
+FIRING_NOT_RENOTIFIED_KEY = "firing_not_renotified"
+
+
+def insight_alert_policy(detector_config: Any) -> AlertPolicy:
+    """The policy both stacks run for an insight alert with this detector."""
+    return AI_DETECTOR_ALERT_POLICY if is_llm_detector_config(detector_config) else INSIGHT_ALERT_POLICY
 
 
 def insight_snapshot(
@@ -79,7 +92,7 @@ def evaluate_alert_check(
         snapshot_from_alert(alert),
         CheckInput(threshold_breached=threshold_breached, error_message=error_message),
         now,
-        policy=INSIGHT_ALERT_POLICY,
+        policy=insight_alert_policy(alert.detector_config),
     )
 
 
@@ -121,5 +134,14 @@ def apply_invalid_configuration(alert: AlertConfiguration) -> list[str]:
     ]
 
 
+def apply_platform_state(alert: AlertConfiguration, state: InsightAlertState) -> list[str]:
+    """Takes a state the platform holds for the alert, such as the one it hands back with ownership."""
+    return apply_outcome(alert, ControlPlaneOutcome(new_state=platform_state_of(state), consecutive_failures=0))
+
+
 def should_notify(outcome: AlertCheckOutcome) -> bool:
     return outcome.notification != NotificationAction.NONE
+
+
+def is_firing_not_renotified(outcome: AlertCheckOutcome) -> bool:
+    return outcome.new_state == AlertState.FIRING and outcome.error_message is None and not should_notify(outcome)

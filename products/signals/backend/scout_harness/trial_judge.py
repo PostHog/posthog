@@ -78,7 +78,6 @@ def _assert_scout_available(snapshot: TrialEvaluationSnapshot, evidence: TrialRu
             task_run__task__created_by_id=snapshot.user_id,
             task_run__task__deleted=False,
             task_run__task__origin_product="signals_scout",
-            task_run__task__origin_key=f"scout-trial:{evidence.launch_id}",
         )
         .first()
     )
@@ -90,6 +89,7 @@ def _assert_scout_available(snapshot: TrialEvaluationSnapshot, evidence: TrialRu
         or marker.get("launch_id") != str(evidence.launch_id)
         or marker.get("context_id") != str(snapshot.context_id)
         or run.task_run.status != "completed"
+        or run.task_run.task.stored_idempotency_key != f"scout-trial:{evidence.launch_id}"
     ):
         raise TrialJudgeValidationError("The saved scout run is no longer available for this evaluation.")
     if ScoutTrialStore(run).invalid_reason() is not None:

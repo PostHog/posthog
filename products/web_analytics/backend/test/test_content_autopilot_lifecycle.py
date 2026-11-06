@@ -15,6 +15,7 @@ from products.web_analytics.backend.content_autopilot.lifecycle import (
     reject_proposal,
     start_run,
 )
+from products.web_analytics.backend.content_autopilot.opportunities import draft_opportunities
 from products.web_analytics.backend.models import (
     ContentAutopilotOpportunity,
     ContentAutopilotProposal,
@@ -22,6 +23,7 @@ from products.web_analytics.backend.models import (
     ContentAutopilotSiteProfile,
 )
 from products.web_analytics.backend.test.content_autopilot_test_utils import (
+    create_content_autopilot_opportunity,
     create_content_autopilot_profile,
     create_content_autopilot_proposal,
     create_content_autopilot_run,
@@ -112,6 +114,34 @@ class TestContentAutopilotLifecycle(BaseTest):
             cancel_run(team=self.team, run_id=str(canceled.id))
         with self.assertRaises(ContentAutopilotLifecycleError):
             reject_proposal(team=self.team, proposal_id=str(rejected.id))
+
+    @parameterized.expand(
+        [
+            ("before_the_worker_starts", ContentAutopilotRun.RunStatus.PENDING, ContentAutopilotOpportunity.Status.NEW),
+            (
+                "while_the_worker_drafts",
+                ContentAutopilotRun.RunStatus.GENERATING,
+                ContentAutopilotOpportunity.Status.QUEUED,
+            ),
+        ]
+    )
+    def test_cancel_releases_queued_opportunities_the_worker_will_not_reach(
+        self, _name: str, run_status: str, expected_status: str
+    ) -> None:
+        profile = create_content_autopilot_profile(self.team)
+        opportunity = create_content_autopilot_opportunity(self.team, profile)
+        run = draft_opportunities(
+            team=self.team,
+            profile_id=str(profile.id),
+            opportunity_ids=[str(opportunity.id)],
+            triggered_by_id=self.user.id,
+        )
+        ContentAutopilotRun.objects.for_team(self.team.id).filter(id=run.id).update(run_status=run_status)
+
+        cancel_run(team=self.team, run_id=str(run.id))
+
+        opportunity.refresh_from_db()
+        self.assertEqual(opportunity.status, expected_status)
 
     def test_edit_keeps_markdown_single_sourced_and_invalidates_validation(self) -> None:
         profile = create_content_autopilot_profile(self.team)

@@ -8,7 +8,9 @@ import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { createXAxisTickCallback } from '@posthog/quill-charts'
 
+import 'lib/components/Cards/InsightCard/InsightCard.scss'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { getResultMenuPoint, isResultMenuContextMenu, replayAsClick } from 'lib/components/ResultMenu/resultMenuTrigger'
 import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
@@ -17,10 +19,12 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     AnyResponseType,
     DashboardFilter,
+    GoalLine,
     VisualizationNode,
     HogQLQuery,
     HogQLQueryResponse,
@@ -37,7 +41,13 @@ import { getBIChartDateAxis } from 'products/business_intelligence/frontend/biCh
 import { BIChartYearLabels } from 'products/business_intelligence/frontend/BIChartYearLabels'
 import { BIComparisonSummary } from 'products/business_intelligence/frontend/BIComparisonSummary'
 import { getBIChartRecord } from 'products/business_intelligence/frontend/biDrilldown'
-import { biDrilldownLogic } from 'products/business_intelligence/frontend/biDrilldownLogic'
+import {
+    BIDrilldownProps,
+    BIDrillInteraction,
+    biDrilldownLogic,
+    biDrilldownLogicType,
+} from 'products/business_intelligence/frontend/biDrilldownLogic'
+import { BIDrilldownMenu } from 'products/business_intelligence/frontend/BIDrilldownMenu'
 import { BIDrilldownModal } from 'products/business_intelligence/frontend/BIDrilldownModal'
 import { getBIResultDimensions } from 'products/business_intelligence/frontend/biEditorTypes'
 import { createBIMemberFormatter } from 'products/business_intelligence/frontend/biMemberAliases'
@@ -45,6 +55,7 @@ import { BIPaneCharts } from 'products/business_intelligence/frontend/BIPaneChar
 import { BIPivotTable } from 'products/business_intelligence/frontend/BIPivotTable'
 import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
 import { BIScatterGraph } from 'products/business_intelligence/frontend/BIScatterGraph'
+import { isBIPivotTable } from 'products/business_intelligence/frontend/biTableLayout'
 import { HogQLBoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber'
 
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
@@ -60,7 +71,7 @@ import { SqlMetricCard } from './Components/Charts/SqlMetricCard'
 import { partOfWholeChartData } from './Components/Charts/sqlPieGraphAdapter'
 import { SqlScatterGraph } from './Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
-import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
+import { seriesBreakdownLogic, seriesBreakdownLogicValues } from './Components/seriesBreakdownLogic'
 import { SideBar } from './Components/SideBar'
 import { Table } from './Components/Table'
 import { TableDisplay } from './Components/TableDisplay'
@@ -68,7 +79,8 @@ import { AddVariableButton } from './Components/Variables/AddVariableButton'
 import { variableModalLogic } from './Components/Variables/variableModalLogic'
 import { VariablesForInsight } from './Components/Variables/Variables'
 import { VariablesLogicProps, variablesLogic } from './Components/Variables/variablesLogic'
-import { DataVisualizationLogicProps, dataVisualizationLogic } from './dataVisualizationLogic'
+import { conditionalFormattingColor } from './conditionalFormatting'
+import { DataVisualizationLogicProps, SideBarTab, dataVisualizationLogic } from './dataVisualizationLogic'
 import { displayLogic } from './displayLogic'
 import { applyDataVisualizationQueryUpdate } from './queryUpdateUtils'
 
@@ -122,6 +134,7 @@ export function DataTableVisualization({
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeCollectionId = insightVizDataCollectionId(insightProps, key)
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
+        loadQueue: context?.loadQueue,
         key: vizKey,
         query,
         dashboardId: insightProps.dashboardId,
@@ -139,6 +152,7 @@ export function DataTableVisualization({
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
+        loadQueue: context?.loadQueue,
         query: getBIVisualizationSource(query),
         retainResponseOnUnmount: insightProps.retainResponseOnUnmount,
         key: vizKey,
@@ -169,30 +183,27 @@ export function DataTableVisualization({
 
     useAttachedLogic(dataNodeLogic(dataNodeLogicProps), attachTo)
     useAttachedLogic(dataVisualizationLogic(dataVisualizationLogicProps), attachTo)
-    useAttachedLogic(displayLogic({ key: dataVisualizationLogicProps.key }), attachTo)
     useAttachedLogic(variablesLogic(variablesLogicProps), attachTo)
 
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
-                <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                    <BindLogic logic={variablesLogic} props={variablesLogicProps}>
-                        <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                            <InternalDataTableVisualization
-                                uniqueKey={key}
-                                query={query}
-                                setQuery={setQuery}
-                                context={context}
-                                cachedResults={cachedResults}
-                                readOnly={readOnly}
-                                exportContext={exportContext}
-                                editMode={editMode}
-                                embedded={embedded}
-                                inSharedMode={inSharedMode}
-                                filtersOverride={filtersOverride ?? insightProps.filtersOverride}
-                                variablesOverride={variablesOverride ?? insightProps.variablesOverride}
-                            />
-                        </BindLogic>
+                <BindLogic logic={variablesLogic} props={variablesLogicProps}>
+                    <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
+                        <InternalDataTableVisualization
+                            uniqueKey={key}
+                            query={query}
+                            setQuery={setQuery}
+                            context={context}
+                            cachedResults={cachedResults}
+                            readOnly={readOnly}
+                            exportContext={exportContext}
+                            editMode={editMode}
+                            embedded={embedded}
+                            inSharedMode={inSharedMode}
+                            filtersOverride={filtersOverride ?? insightProps.filtersOverride}
+                            variablesOverride={variablesOverride ?? insightProps.variablesOverride}
+                        />
                     </BindLogic>
                 </BindLogic>
             </BindLogic>
@@ -200,44 +211,63 @@ export function DataTableVisualization({
     )
 }
 
-function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX.Element {
-    const { readOnly } = props
-    const settingsPanel = props.context?.visualizationSettingsPanel
+interface ChartLogicValues {
+    drilldownProps: BIDrilldownProps
+    drilldownLogic: BuiltLogic<biDrilldownLogicType>
+    inspectResult: (record: Record<string, unknown>) => void
+    setInteraction: (interaction: BIDrillInteraction) => void
+    closeResultMenu: () => void
+    seriesBreakdownData: seriesBreakdownLogicValues['seriesBreakdownData']
+    chartData: seriesBreakdownLogicValues['chartData']
+    goalLines: GoalLine[]
+    alertThresholdLines: GoalLine[]
+    alertsInsightProps: InsightLogicProps
+    insightNumericId: number | 'new'
+}
 
-    const {
-        query,
-        effectiveVisualizationType,
-        showResultControls,
-        sourceFeatures,
-        response,
-        responseLoading,
-        responseError,
-        queryCancelled,
-        isChartSettingsPanelOpen,
-        xData,
-        yData,
-        columns,
-        chartSettings,
-        dashboardId,
-        dataVisualizationProps,
-        presetChartHeight: scenePresetChartHeight,
-    } = useValues(dataVisualizationLogic)
-
-    const presetChartHeight =
-        !props.embedded &&
-        scenePresetChartHeight &&
-        !(query.kind === NodeKind.BIVisualizationNode && props.context?.visualizationSettingsPanel)
-    const drilldownProps = {
-        key: dataVisualizationProps.key,
+function getDrilldownProps(
+    props: DataTableVisualizationProps,
+    query: VisualizationNode,
+    key: string
+): BIDrilldownProps {
+    return {
+        key,
         query,
         filtersOverride: props.filtersOverride,
         variablesOverride: props.variablesOverride,
+        onFilterDashboard: !props.inSharedMode ? props.context?.onSelectBIMark : undefined,
+        isDashboardFilterSelected: !props.inSharedMode ? props.context?.isBIMarkActiveFilter : undefined,
+        getDashboardFilterUrl: !props.inSharedMode ? props.context?.getBIMarkDashboardUrl : undefined,
     }
-    const { inspect } = useActions(biDrilldownLogic(drilldownProps))
-    const isQuerySnapshot = query.kind === NodeKind.BIVisualizationNode && !!query.config.querySnapshot
-    const canDrill = query.kind === NodeKind.BIVisualizationNode && !isQuerySnapshot && !props.inSharedMode
+}
 
-    const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
+// Plain tables skip the chart, alert and drilldown logics, because each mounted logic slows every later dispatch.
+function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX.Element {
+    const { query, effectiveVisualizationType, dataVisualizationProps } = useValues(dataVisualizationLogic)
+    const isPlainTable =
+        query.kind !== NodeKind.BIVisualizationNode && effectiveVisualizationType === ChartDisplayType.ActionsTable
+
+    if (isPlainTable && props.readOnly) {
+        return <DataTableVisualizationContent {...props} chartLogics={null} />
+    }
+    // Only charts and the editable settings sidebar read displayLogic, so a read-only table does not bind it.
+    return (
+        <BindLogic logic={displayLogic} props={{ key: dataVisualizationProps.key }}>
+            {isPlainTable ? (
+                <DataTableVisualizationContent {...props} chartLogics={null} />
+            ) : (
+                <DataTableVisualizationWithChartLogics {...props} />
+            )}
+        </BindLogic>
+    )
+}
+
+function DataTableVisualizationWithChartLogics(props: DataTableVisualizationProps): JSX.Element {
+    const { query, dataVisualizationProps } = useValues(dataVisualizationLogic)
+    const drilldownProps = getDrilldownProps(props, query, dataVisualizationProps.key)
+    const drilldownLogic = biDrilldownLogic(drilldownProps)
+    const { inspect: inspectResult, setInteraction, close: closeResultMenu } = useActions(drilldownLogic)
+    const { seriesBreakdownData, chartData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
 
     // Overlay alert threshold bounds on the chart, like trends does — only when rendering a saved
@@ -260,14 +290,92 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         () => (insight?.id ? alertsToThresholdGoalLines(alerts) : []),
         [insight?.id, alerts]
     )
-    const paneGoalLines = useMemo(() => [...alertThresholdLines, ...goalLines], [alertThresholdLines, goalLines])
+    return (
+        <DataTableVisualizationContent
+            {...props}
+            chartLogics={{
+                drilldownProps,
+                drilldownLogic,
+                inspectResult,
+                setInteraction,
+                closeResultMenu,
+                seriesBreakdownData,
+                chartData,
+                goalLines,
+                alertThresholdLines,
+                alertsInsightProps,
+                insightNumericId: insight?.id || 'new',
+            }}
+        />
+    )
+}
+
+function DataTableVisualizationContent({
+    chartLogics,
+    ...props
+}: DataTableVisualizationProps & { chartLogics: ChartLogicValues | null }): JSX.Element {
+    const { readOnly } = props
+    const settingsPanel = props.context?.visualizationSettingsPanel
+
+    const {
+        query,
+        effectiveVisualizationType,
+        showResultControls,
+        sourceFeatures,
+        response,
+        responseLoading,
+        responseError,
+        queryCancelled,
+        isChartSettingsPanelOpen,
+        xData,
+        yData,
+        columns,
+        chartSettings,
+        conditionalFormattingRules,
+        hogVm,
+        hogVmLoadFailed,
+        dashboardId,
+        dataVisualizationProps,
+        presetChartHeight: scenePresetChartHeight,
+    } = useValues(dataVisualizationLogic)
+
+    const { isDarkModeOn } = useValues(themeLogic)
+    const columnTypes = useMemo(() => new Map(columns.map((column) => [column.name, column.type.name])), [columns])
+
+    const presetChartHeight =
+        !props.embedded &&
+        scenePresetChartHeight &&
+        !(query.kind === NodeKind.BIVisualizationNode && props.context?.visualizationSettingsPanel)
+    const resultMenuTriggerRef = useRef<HTMLDivElement>(null)
+    const inspectedPoint = useRef(false)
+    const replayingClick = useRef(false)
+    const inspectResult = chartLogics?.inspectResult
+    const inspect = useCallback(
+        (record: Record<string, unknown>): void => {
+            inspectedPoint.current = true
+            inspectResult?.(record)
+        },
+        [inspectResult]
+    )
+    const isQuerySnapshot = query.kind === NodeKind.BIVisualizationNode && !!query.config.querySnapshot
+    const canDrill = query.kind === NodeKind.BIVisualizationNode && !isQuerySnapshot && !props.inSharedMode
+    const resultMenu = canDrill && !!props.context?.dashboardResultMenu
+
+    const chartData = chartLogics?.chartData
+    const seriesBreakdownData = chartLogics?.seriesBreakdownData
+    const alertThresholdLines = chartLogics?.alertThresholdLines
+    const goalLines = chartLogics?.goalLines
+    const paneGoalLines = useMemo(
+        () => [...(alertThresholdLines ?? []), ...(goalLines ?? [])],
+        [alertThresholdLines, goalLines]
+    )
     const biConfig = query.kind === NodeKind.BIVisualizationNode ? query.config : undefined
     const paneConfig = useMemo(
         () => (biConfig ? { ...biConfig, chartType: effectiveVisualizationType } : undefined),
         [biConfig, effectiveVisualizationType]
     )
 
-    const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
+    const { toggleChartSettingsPanel, setSideBarTab } = useActions(dataVisualizationLogic)
 
     const { queryId, pollResponse } = useValues(dataNodeLogic)
 
@@ -304,11 +412,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     const isDateXAxis = xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME'
 
     const sqlChartData = useMemo(() => {
-        if (!isSqlChartVisualizationType(effectiveVisualizationType)) {
+        if (!chartData || !isSqlChartVisualizationType(effectiveVisualizationType)) {
             return null
         }
-        const chartXData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
-        const chartYData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
+        const { xData: chartXData, yData: chartYData } = chartData
         const xDimension = biConfig
             ? getBIResultDimensions(biConfig).find(({ column }) => column === chartXData?.column.name)
             : undefined
@@ -337,20 +444,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                   }
                 : dateAxis,
         }
-    }, [
-        effectiveVisualizationType,
-        seriesBreakdownData,
-        xData,
-        yData,
-        biConfig,
-        dateAxis,
-        isDateXAxis,
-        timezone,
-        dateBucket,
-    ])
+    }, [effectiveVisualizationType, chartData, biConfig, dateAxis, isDateXAxis, timezone, dateBucket])
 
     const pieDisplayData = useMemo(() => {
-        if (!PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
+        if (!seriesBreakdownData || !PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
             return null
         }
         const pieData = partOfWholeChartData(seriesBreakdownData, xData, yData)
@@ -361,17 +458,19 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                   )
                 : undefined
         const aliasLabels = new Map<string, string>()
+        const records = new Map<string, Record<string, unknown>>()
         let pieXData = pieData.xData
         let pieYData = pieData.yData
         const memberFormatter =
             query.kind === NodeKind.BIVisualizationNode && pieDimension
                 ? createBIMemberFormatter(query.config, pieDimension.field)
                 : undefined
-        if (memberFormatter) {
+        if (query.kind === NodeKind.BIVisualizationNode) {
             if (pieData.yData.every((series) => 'breakdownValue' in series)) {
                 pieYData = pieData.yData.map((series) => {
                     const key = JSON.stringify([series.breakdownValue, series.name])
                     aliasLabels.set(key, series.settings?.display?.label ?? series.name)
+                    records.set(key, getBIChartRecord(query, '', undefined, series.breakdownValue))
                     return { ...series, name: key }
                 })
             } else if (pieXData && pieData.yData.length === 1) {
@@ -379,7 +478,15 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     ...pieXData,
                     data: pieXData.data.map((value) => {
                         const key = JSON.stringify(value ?? null)
-                        aliasLabels.set(key, memberFormatter(value))
+                        aliasLabels.set(
+                            key,
+                            memberFormatter
+                                ? memberFormatter(value)
+                                : value == null || value === ''
+                                  ? '[No value]'
+                                  : String(value)
+                        )
+                        records.set(key, { [pieData.xData!.column.name]: value })
                         return key
                     }),
                 }
@@ -390,6 +497,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             xData: pieXData,
             yData: pieYData,
             labelFormatter: aliasLabels.size ? (label: string): string => aliasLabels.get(label) ?? label : undefined,
+            records,
         }
     }, [effectiveVisualizationType, seriesBreakdownData, xData, yData, query, chartSettings.seriesBreakdownColumn])
 
@@ -444,7 +552,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         )
     } else if (
         query.kind === NodeKind.BIVisualizationNode &&
-        (query.config.chartType === ChartDisplayType.TwoDimensionalHeatmap ||
+        (isBIPivotTable(query.config) ||
             (query.config.compareFilter?.compare &&
                 [ChartDisplayType.ActionsTable, ChartDisplayType.BoldNumber, ChartDisplayType.Metric].includes(
                     effectiveVisualizationType
@@ -457,15 +565,25 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             chartSettings,
             onInspect: canDrill ? inspect : undefined,
         }
-        component =
-            query.config.chartType === ChartDisplayType.TwoDimensionalHeatmap ? (
-                <BIPivotTable {...resultProps} />
-            ) : (
-                <BIComparisonSummary
-                    {...resultProps}
-                    card={effectiveVisualizationType !== ChartDisplayType.ActionsTable}
-                />
-            )
+        component = isBIPivotTable(query.config) ? (
+            <BIPivotTable
+                {...resultProps}
+                embedded={props.embedded}
+                formattingLoadFailed={hogVmLoadFailed}
+                cellBackground={(record, column) =>
+                    conditionalFormattingColor(
+                        conditionalFormattingRules,
+                        hogVm?.execHog,
+                        column,
+                        columnTypes.get(column) ?? 'UNKNOWN',
+                        record[column],
+                        isDarkModeOn
+                    )
+                }
+            />
+        ) : (
+            <BIComparisonSummary {...resultProps} card={effectiveVisualizationType !== ChartDisplayType.ActionsTable} />
+        )
     } else if (
         query.kind === NodeKind.BIVisualizationNode &&
         query.config.panes?.fields.length &&
@@ -495,15 +613,15 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     } else if (sqlChartData) {
         const { xData: _xData, yData: _yData } = sqlChartData
         component = (
-            <BindLogic logic={insightLogic} props={alertsInsightProps}>
+            <BindLogic logic={insightLogic} props={chartLogics?.alertsInsightProps}>
                 <SqlChart
                     className="p-3"
                     {...sqlChartData}
                     visualizationType={effectiveVisualizationType}
                     chartSettings={chartSettings}
                     dashboardId={dashboardId}
-                    goalLines={[...alertThresholdLines, ...goalLines]}
-                    insightNumericId={insight?.id || 'new'}
+                    goalLines={paneGoalLines}
+                    insightNumericId={chartLogics?.insightNumericId ?? 'new'}
                     showAnnotations={!props.inSharedMode && isDateXAxis && chartSettings.showAnnotations === true}
                     presetChartHeight={presetChartHeight}
                     embedded={props.embedded}
@@ -542,6 +660,16 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             <PartOfWholeChart
                 className="p-3"
                 {...pieDisplayData}
+                onSliceClick={
+                    canDrill
+                        ? ({ series }) => {
+                              const record = pieDisplayData.records.get(series.key)
+                              if (record) {
+                                  inspect(record)
+                              }
+                          }
+                        : undefined
+                }
                 visualizationType={effectiveVisualizationType}
                 chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}
@@ -558,6 +686,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     rows={'results' in response && Array.isArray(response.results) ? response.results : []}
                     chartKey={dataVisualizationProps.key}
                     onKeepOnly={props.editMode && !props.inSharedMode ? props.context?.onKeepBISelection : undefined}
+                    onInspect={canDrill ? inspect : undefined}
                     className="p-3"
                     xData={xData}
                     yData={yData}
@@ -607,7 +736,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     if (query.kind === NodeKind.BIVisualizationNode) {
         component = (
             <>
-                {seriesBreakdownData.warning ? (
+                {seriesBreakdownData?.warning ? (
                     <LemonBanner type="info">{seriesBreakdownData.warning}</LemonBanner>
                 ) : null}
                 {!responseLoading && response && 'hasMore' in response && response.hasMore ? (
@@ -619,14 +748,22 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     </LemonBanner>
                 ) : null}
                 {component}
-                {canDrill ? (
-                    <BIDrilldownModal
-                        logicProps={drilldownProps}
-                        navigationDisabledReason={props.context?.biHierarchyDrillDisabledReason}
-                        onNavigate={
-                            props.editMode && !props.inSharedMode ? props.context?.onDrillBIHierarchy : undefined
-                        }
-                    />
+                {canDrill && chartLogics ? (
+                    <>
+                        {resultMenu && (
+                            <BIDrilldownMenu
+                                logicProps={chartLogics.drilldownProps}
+                                triggerRef={resultMenuTriggerRef}
+                            />
+                        )}
+                        <BIDrilldownModal
+                            logicProps={chartLogics.drilldownProps}
+                            navigationDisabledReason={props.context?.biHierarchyDrillDisabledReason}
+                            onNavigate={
+                                props.editMode && !props.inSharedMode ? props.context?.onDrillBIHierarchy : undefined
+                            }
+                        />
+                    </>
                 ) : null}
             </>
         )
@@ -635,10 +772,55 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     if (props.embedded) {
         return (
             <div
+                ref={resultMenuTriggerRef}
                 className={clsx(
                     'DataVisualization InsightCard__viz',
                     effectiveVisualizationType === ChartDisplayType.Metric && 'InsightCard__viz--Metric'
                 )}
+                onClickCapture={
+                    resultMenu
+                        ? (event) => {
+                              if (
+                                  !replayingClick.current &&
+                                  chartLogics?.drilldownLogic.values.interaction &&
+                                  event.currentTarget.contains(event.target as Node)
+                              ) {
+                                  chartLogics?.closeResultMenu()
+                              }
+                          }
+                        : undefined
+                }
+                onContextMenuCapture={
+                    resultMenu
+                        ? (event) => {
+                              if (isResultMenuContextMenu(event)) {
+                                  inspectedPoint.current = false
+                              }
+                          }
+                        : undefined
+                }
+                onContextMenu={
+                    resultMenu
+                        ? (event) => {
+                              if (!isResultMenuContextMenu(event)) {
+                                  return
+                              }
+                              event.preventDefault()
+                              chartLogics?.setInteraction(getResultMenuPoint(event))
+                              if (!inspectedPoint.current) {
+                                  replayingClick.current = true
+                                  try {
+                                      replayAsClick(event)
+                                  } finally {
+                                      replayingClick.current = false
+                                  }
+                              }
+                              if (!inspectedPoint.current) {
+                                  inspect({})
+                              }
+                          }
+                        : undefined
+                }
             >
                 {component}
             </div>
@@ -701,6 +883,28 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                 tooltip="Visualization settings"
                                 aria-label="Visualization settings"
                             />
+
+                            {query.kind === NodeKind.BIVisualizationNode &&
+                                (effectiveVisualizationType === ChartDisplayType.ActionsTable ||
+                                    isBIPivotTable(query.config)) && (
+                                    <LemonButton
+                                        size={controlSize}
+                                        type="secondary"
+                                        data-attr="bi-conditional-formatting"
+                                        onClick={() => {
+                                            setSideBarTab(SideBarTab.ConditionalFormatting)
+                                            if (settingsPanel) {
+                                                if (!settingsPanel.isOpen) {
+                                                    settingsPanel.onToggle()
+                                                }
+                                            } else {
+                                                toggleChartSettingsPanel(true)
+                                            }
+                                        }}
+                                    >
+                                        Conditional formatting
+                                    </LemonButton>
+                                )}
 
                             {props.exportContext && (
                                 <ExportButton

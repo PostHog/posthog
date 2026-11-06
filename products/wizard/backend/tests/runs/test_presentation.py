@@ -182,6 +182,15 @@ class TestWizardRunViewSet(APIBaseTest):
         invalid_date_response = self.client.get(f"{self._url()}?created_after=invalid")
         self.assertEqual(invalid_date_response.status_code, status.HTTP_400_BAD_REQUEST)
 
+        other_user = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        WizardRun.objects.for_team(self.team.id).filter(id=run_ids[1]).update(created_by=other_user)
+        own_response = self.client.get(f"{self._url()}?created_by_id={self.user.id}")
+        self.assertEqual(own_response.status_code, status.HTTP_200_OK)
+        self.assertEqual([run["id"] for run in own_response.json()["results"]], [run_ids[2], run_ids[0]])
+
+        invalid_user_response = self.client.get(f"{self._url()}?created_by_id=me")
+        self.assertEqual(invalid_user_response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_create_requires_program_id(self) -> None:
         response = self.client.post(
             self._url(),
@@ -347,7 +356,7 @@ class TestWizardRunViewSet(APIBaseTest):
     ) -> None:
         # The run mints its gateway token later with no request, so an IP rule only matches here.
         with patch(
-            "products.wizard.backend.presentation.runs.views.security_access_refused", return_value=refused
+            "products.wizard.backend.presentation.security.security_access_refused", return_value=refused
         ) as check:
             response = self.client.post(
                 self._url(), self._cloud_payload(idempotency_key=f"rules-{_name}"), format="json"

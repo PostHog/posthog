@@ -52,7 +52,10 @@ export function NotebookCodeCellRunButton({ node, updateProps }: NotebookCompone
         isInterrupting,
         operationBlockReason,
         isJupyterModeActive,
+        runError,
+        result: runResult,
     } = useValues(dataLogic)
+    const result = runResult ?? (node.props.result as NotebookNodeSQLV2Result | undefined)
     // A queued cell shows as running, like Jupyter's In [*] for a cell waiting on the kernel.
     const isRunning = isRunningNow || isQueued
     const { runNode, interruptRun } = useActions(dataLogic)
@@ -107,6 +110,7 @@ export function NotebookCodeCellRunButton({ node, updateProps }: NotebookCompone
                   isRunning,
                   isQueued,
                   executionCount,
+                  hasError: !!runError || !!result?.stderr,
                   interrupt,
               }
             : null

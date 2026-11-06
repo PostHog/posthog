@@ -30,15 +30,10 @@ export function ProjectName({ team, className }: { team: TeamBasicType; classNam
 }
 
 export function PendingInviteDot({ className }: { className?: string }): JSX.Element {
-    const { pendingInvites } = useValues(pendingInvitesLogic)
-    const organizationNames = pendingInvites.map((invite) => invite.organization_name)
-    const title =
-        organizationNames.length === 1
-            ? `You have a pending invite to join ${organizationNames[0]}.`
-            : `You have pending invites to join ${organizationNames.length} organizations.`
+    const { pendingInvitesLabel } = useValues(pendingInvitesLogic)
 
     return (
-        <Tooltip title={title} placement="right">
+        <Tooltip title={pendingInvitesLabel} placement="right">
             <span
                 aria-label="Pending invite"
                 className={cn('relative flex items-center justify-center size-3 shrink-0', className)}

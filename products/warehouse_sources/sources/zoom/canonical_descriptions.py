@@ -1,0 +1,133 @@
+"""Canonical, documentation-sourced descriptions for Zoom endpoints and columns.
+
+Sourced from the official Zoom API reference (https://developers.zoom.us/docs/api/). Keyed by the
+endpoint names in `settings.py` `ZOOM_ENDPOINTS`, which match the `ExternalDataSchema.name` of a
+synced Zoom table. Columns absent here fall back to LLM enrichment.
+"""
+
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "users": {
+        "description": "A user in the Zoom account.",
+        "docs_url": "https://developers.zoom.us/docs/api/users/#tag/users/GET/users",
+        "columns": {
+            "id": "Unique identifier of the user.",
+            "email": "The user's email address.",
+            "first_name": "The user's first name.",
+            "last_name": "The user's last name.",
+            "display_name": "The user's display name.",
+            "type": "The user's plan type (1 = Basic, 2 = Licensed, 4 = No meetings host).",
+            "status": "The user's status: active, inactive, or pending.",
+            "role_id": "Unique identifier of the role assigned to the user.",
+            "pmi": "The user's personal meeting ID.",
+            "timezone": "The user's time zone.",
+            "dept": "The department the user belongs to.",
+            "created_at": "Time the user's account was created.",
+            "last_login_time": "Time the user last logged in.",
+            "verified": "Whether the user's email address is verified (1) or not (0).",
+        },
+    },
+    "meetings": {
+        "description": "A scheduled meeting hosted by a user in the Zoom account.",
+        "docs_url": "https://developers.zoom.us/docs/api/meetings/#tag/meetings/GET/users/{userId}/meetings",
+        "columns": {
+            "id": "Unique numeric identifier of the meeting.",
+            "uuid": "Universally unique identifier of the meeting instance.",
+            "host_id": "Unique identifier of the user hosting the meeting.",
+            "topic": "The meeting's topic.",
+            "type": "Meeting type (1 = instant, 2 = scheduled, 3 = recurring no fixed time, 8 = recurring fixed time).",
+            "start_time": "The meeting's scheduled start time.",
+            "duration": "The meeting's scheduled duration, in minutes.",
+            "timezone": "Time zone of the meeting's start time.",
+            "agenda": "The meeting's agenda.",
+            "join_url": "URL participants use to join the meeting.",
+            "created_at": "Time the meeting was created.",
+        },
+    },
+    "webinars": {
+        "description": "A scheduled webinar hosted by a user in the Zoom account.",
+        "docs_url": "https://developers.zoom.us/docs/api/webinars/#tag/webinars/GET/users/{userId}/webinars",
+        "columns": {
+            "id": "Unique numeric identifier of the webinar.",
+            "uuid": "Universally unique identifier of the webinar instance.",
+            "host_id": "Unique identifier of the user hosting the webinar.",
+            "topic": "The webinar's topic.",
+            "type": "Webinar type (5 = scheduled, 6 = recurring no fixed time, 9 = recurring fixed time).",
+            "start_time": "The webinar's scheduled start time.",
+            "duration": "The webinar's scheduled duration, in minutes.",
+            "timezone": "Time zone of the webinar's start time.",
+            "agenda": "The webinar's agenda.",
+            "join_url": "URL participants use to join the webinar.",
+            "created_at": "Time the webinar was created.",
+        },
+    },
+    "meeting_registrants": {
+        "description": "An approved registration for a registration-enabled meeting.",
+        "docs_url": "https://developers.zoom.us/docs/api/meetings/#tag/meetings/GET/meetings/{meetingId}/registrants",
+        "columns": {
+            "meeting_id": "Numeric identifier of the meeting the registration is for.",
+            "id": "Unique identifier of the registrant.",
+            "email": "The registrant's email address.",
+            "first_name": "The registrant's first name.",
+            "last_name": "The registrant's last name.",
+            "status": "The registrant's status: approved, pending, or denied. Only approved registrants are synced.",
+            "create_time": "Time the registrant registered.",
+            "join_url": "URL an approved registrant uses to join.",
+            "custom_questions": "The registrant's answers to the custom registration questions.",
+        },
+    },
+    "webinar_registrants": {
+        "description": "An approved registration for a webinar.",
+        "docs_url": "https://developers.zoom.us/docs/api/meetings/#tag/webinars/GET/webinars/{webinarId}/registrants",
+        "columns": {
+            "webinar_id": "Numeric identifier of the webinar the registration is for.",
+            "id": "Unique identifier of the registrant.",
+            "email": "The registrant's email address.",
+            "first_name": "The registrant's first name.",
+            "last_name": "The registrant's last name.",
+            "status": "The registrant's status: approved, pending, or denied. Only approved registrants are synced.",
+            "create_time": "Time the registrant registered.",
+            "join_url": "URL an approved registrant uses to join.",
+            "custom_questions": "The registrant's answers to the custom registration questions.",
+        },
+    },
+    "meeting_participants": {
+        "description": "One join session of a participant in an ended meeting instance. A participant who rejoins has one row per join.",
+        "docs_url": "https://developers.zoom.us/docs/api/meetings/#tag/meetings/GET/past_meetings/{meetingId}/participants",
+        "columns": {
+            "meeting_id": "Numeric identifier of the meeting.",
+            "meeting_uuid": "Unique identifier of the meeting instance the participant attended.",
+            "id": "The participant's universally unique identifier. Empty for participants who are not signed in to Zoom.",
+            "user_id": "Participant ID that Zoom assigns when the participant joins. Valid only for this instance.",
+            "name": "The participant's display name.",
+            "user_email": "The participant's email address.",
+            "registrant_id": "The participant's registrant ID, when they registered.",
+            "join_time": "Time the participant joined.",
+            "leave_time": "Time the participant left.",
+            "duration": "Time the participant spent in this session, in seconds.",
+            "failover": "Whether a failover occurred during the session.",
+            "status": "The participant's status: in_meeting or in_waiting_room.",
+            "internal_user": "Whether the participant is a user in the host's account.",
+        },
+    },
+    "webinar_participants": {
+        "description": "One join session of a participant in an ended webinar instance. A participant who rejoins has one row per join.",
+        "docs_url": "https://developers.zoom.us/docs/api/meetings/#tag/webinars/GET/past_webinars/{webinarId}/participants",
+        "columns": {
+            "webinar_id": "Numeric identifier of the webinar.",
+            "webinar_uuid": "Unique identifier of the webinar instance the participant attended.",
+            "id": "The participant's universally unique identifier. Empty for participants who are not signed in to Zoom.",
+            "user_id": "Participant ID that Zoom assigns when the participant joins. Valid only for this instance.",
+            "name": "The participant's display name.",
+            "user_email": "The participant's email address.",
+            "registrant_id": "The participant's registrant ID, when they registered.",
+            "join_time": "Time the participant joined.",
+            "leave_time": "Time the participant left.",
+            "duration": "Time the participant spent in this session, in seconds.",
+            "failover": "Whether a failover occurred during the session.",
+            "status": "The participant's status: in_meeting or in_waiting_room.",
+            "internal_user": "Whether the participant is a user in the host's account.",
+        },
+    },
+}

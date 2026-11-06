@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef } from 'react'
+import React, { useCallback, useRef } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
@@ -8,6 +8,7 @@ import type { RadialSlicePayload } from '../../core/hooks/useRadialInteraction'
 import { useRadialLayout } from '../../core/radial-context'
 import { RadialChart } from '../../core/RadialChart'
 import type { RadialLayoutBuilder } from '../../core/RadialChart'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     ChartDrawArgs,
     ChartLegendConfig,
@@ -25,7 +26,7 @@ import type { SliceValueDisplay } from './SliceLabels'
 export interface PieChartConfig<Meta = unknown> {
     /** 0 = pie (default), 0.5 = donut. Clamped to [0, 0.95]. */
     innerRadiusRatio?: number
-    /** Show the slice value above the slice (per Chart.js parity). Default true. */
+    /** Show the slice value above the slice. Default true for a pie, false for a donut, whose `centerLabel` carries the number. */
     showValueOnSlice?: boolean
     /** Show the breakdown label above the slice. Default false. */
     showLabelOnSlice?: boolean
@@ -67,7 +68,8 @@ export interface PieChartConfig<Meta = unknown> {
 
 export interface PieChartProps<Meta = unknown> {
     series: Series<Meta>[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: PieChartConfig<Meta>
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onSliceClick?: (payload: RadialSlicePayload<Meta>) => void
@@ -78,8 +80,8 @@ export interface PieChartProps<Meta = unknown> {
      *  Receives the raw slice magnitude; the chart handles percent conversion when
      *  `isPercent` is on. */
     valueFormatter?: (value: number) => string
-    /** Optional content rendered at the center of the chart — typically the aggregation
-     *  total for a donut. Receives the layout so consumers can position custom content. */
+    /** Content rendered in the center of the chart, typically the total of a donut
+     *  (`config.innerRadiusRatio` above 0). A top-level prop, not a `config` key. */
     centerLabel?: React.ReactNode
     /** React children passed through to the radial overlay layer (custom decorations). */
     children?: React.ReactNode
@@ -136,7 +138,7 @@ function defaultValueFormatter(value: number): string {
 
 function PieChartInner<Meta = unknown>({
     series,
-    theme,
+    theme: themeProp,
     config,
     tooltip,
     onSliceClick,
@@ -146,9 +148,10 @@ function PieChartInner<Meta = unknown>({
     centerLabel,
     children,
 }: Omit<PieChartProps<Meta>, 'onError'>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         innerRadiusRatio = 0,
-        showValueOnSlice = true,
+        showValueOnSlice = !(innerRadiusRatio > 0),
         showLabelOnSlice = false,
         sliceValueDisplay,
         isPercent = false,
@@ -187,14 +190,6 @@ function PieChartInner<Meta = unknown>({
     // Backdrop-dim level (0 = none, 1 = full), held across slice crossings — see the ramp in
     // drawHover for why it can't be read straight off hoverProgress.
     const dimRef = useRef(0)
-
-    const drawStatic = useCallback((args: ChartDrawArgs) => {
-        const layout = getLayoutFromArgs<Meta>(args)
-        if (!layout) {
-            return
-        }
-        drawSlices(args.ctx, layout, { outerRadiusBoost: 0 })
-    }, [])
 
     const drawHover = useCallback(
         (args: ChartDrawArgs): boolean => {
@@ -237,24 +232,20 @@ function PieChartInner<Meta = unknown>({
         [effectiveHoverGrowth]
     )
 
-    const renderTooltip = useMemo(
-        () =>
-            tooltip ??
-            ((ctx: TooltipContext<Meta>): React.ReactNode => (
-                <PieTooltip ctx={ctx} valueFormatter={valueFormatter} isPercent={isPercent} />
-            )),
-        [tooltip, valueFormatter, isPercent]
-    )
-
     return (
         <ChartLegend {...legendProps} legendDataAttr="hog-chart-pie-legend">
             <RadialChart<Meta>
                 series={visibleSeries}
                 theme={theme}
                 buildLayout={buildLayout}
-                drawStatic={drawStatic}
+                drawStatic={drawPieStatic}
                 drawHover={drawHover}
-                tooltip={renderTooltip}
+                tooltip={
+                    tooltip ??
+                    ((ctx: TooltipContext<Meta>): React.ReactNode => (
+                        <PieTooltip ctx={ctx} valueFormatter={valueFormatter} isPercent={isPercent} />
+                    ))
+                }
                 showTooltip={showTooltip}
                 onSliceClick={onSliceClick}
                 hitOuterSlack={effectiveHoverGrowth}
@@ -293,6 +284,14 @@ function PieCenterLabel({ children }: { children: React.ReactNode }): React.Reac
 function getLayoutFromArgs<Meta>(args: ChartDrawArgs): PieLayout<Meta> | null {
     const priv = args.scales._private as { __radialChart?: { layout: PieLayout<Meta> } } | undefined
     return priv?.__radialChart?.layout ?? null
+}
+
+function drawPieStatic(args: ChartDrawArgs): void {
+    const layout = getLayoutFromArgs(args)
+    if (!layout) {
+        return
+    }
+    drawSlices(args.ctx, layout, { outerRadiusBoost: 0 })
 }
 
 interface DrawSlicesOptions {

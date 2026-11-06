@@ -19,14 +19,18 @@ import { useEffect, useState } from 'react'
 import api from 'lib/api'
 import type { SupportTicketExceptionEvent } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { listenForGoldRingsKeys } from 'lib/holidayGoldRings'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { inviteLogic } from 'lib/logic/inviteLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { markBootPhase } from 'lib/utils/bootTiming'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { addProjectIdIfMissing, getProjectIdentifierInPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { handleLoginRedirect } from 'lib/utils/loginRedirect'
 import { retryImport } from 'lib/utils/retryImport'
 import { isStableChunkBuild, reloadAfterChunkLoadError } from 'lib/utils/stableChunks'
 import { identifierToHuman } from 'lib/utils/strings'
@@ -53,16 +57,14 @@ import { urls } from 'scenes/urls'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel } from '~/types'
+import { loadCoreFilterDefinitions } from '~/taxonomy/loadCoreFilterDefinitions'
+import { AccessControlLevel, UserType } from '~/types'
 
-import { handleLoginRedirect } from './authentication/login/loginLogic'
 import { parseCouponCampaign } from './coupons/utils'
 import { isOnboardingRedirectSuppressed } from './onboarding/onboardingDelegationState'
 import { organizationLogic } from './organizationLogic'
-import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { isPathOpenWhileProjectPendingDeletion, projectLogic } from './projectLogic'
 import type { SceneProps } from './sceneTypes'
-import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
 
@@ -72,6 +74,28 @@ interface MountedSceneLogic {
     sceneId: string
     sceneKey?: string
     unmount: () => void
+}
+
+function unmountSceneLogic(cache: Record<string, any>): void {
+    const mountedLogic: MountedSceneLogic | null = cache.mountedSceneLogic
+    if (!mountedLogic) {
+        return
+    }
+    try {
+        mountedLogic.unmount()
+    } catch (error) {
+        console.error('Error unmounting previous scene logic:', error)
+    }
+    cache.mountedSceneLogic = null
+}
+
+// A failed load must fail the scene, because code that builds queries from an empty taxonomy returns wrong results.
+function loadCoreFilterDefinitionsFor(sceneId: string, loggedIn: boolean): Promise<void> {
+    const sceneConfig = sceneConfigurations[sceneId]
+    if (sceneConfig?.onlyUnauthenticated || (sceneConfig?.allowUnauthenticated && !loggedIn)) {
+        return Promise.resolve()
+    }
+    return retryImport(loadCoreFilterDefinitions)
 }
 
 const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
@@ -115,7 +139,7 @@ function leaveBlockedOrganizationPath(): boolean {
 
 // `/` and `/home` both resolve the configured homepage through this, so anything asking whether a
 // location is the homepage has to derive it the same way.
-const homepageTargetPathname = (homepage: SceneTab): string => {
+export const homepageTargetPathname = (homepage: SceneTab): string => {
     const targetPathname = addProjectIdIfMissing(homepage.pathname || urls.projectHomepage())
     return removeProjectIdIfPresent(targetPathname) === '/'
         ? addProjectIdIfMissing(urls.projectHomepage())
@@ -124,7 +148,7 @@ const homepageTargetPathname = (homepage: SceneTab): string => {
 
 // Bootstrapped by Django into APP_CONTEXT so the configured homepage is known on first paint,
 // before any async fetch — otherwise urlToAction runs with a null homepage and /home can't redirect.
-const getBootstrappedHomepage = (): SceneTab | null => {
+export const getBootstrappedHomepage = (): SceneTab | null => {
     const homepage = getAppContext()?.homepage
     if (!homepage) {
         return null
@@ -166,6 +190,8 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/agentic',
     // /cli/authorize, /cli/live (CLI auth round-trip).
     '/cli',
+    // /device, where a person approves an OAuth device login (urls.oauthDeviceAuthorize).
+    '/device',
     // /stamphog/install/callback — GitHub App install round-trip carrying a one-time OAuth code;
     // if /onboarding swallows it the installation completes on GitHub but no repos ever connect.
     '/stamphog/install/callback',
@@ -184,9 +210,45 @@ function isRefusedProjectPath(pathname: string): boolean {
     return !!refusedProject && getProjectIdentifierInPath(pathname) === refusedProject
 }
 
+function isAccountSettingsPath(pathname: string): boolean {
+    return /^\/settings\/(user|organization)/.test(removeProjectIdIfPresent(pathname))
+}
+
+function isProjectAccessDenied(sceneId: string, pathname: string, isCurrentProjectAccessDenied: boolean): boolean {
+    if (!sceneConfigurations[sceneId]?.projectBased) {
+        return false
+    }
+    // The server refused the project this address names and served the user's own one, so the page
+    // cannot load. Once the address bar names a project we do serve, the scene loads as usual.
+    if (isRefusedProjectPath(pathname)) {
+        return true
+    }
+    return isCurrentProjectAccessDenied && !isAccountSettingsPath(pathname)
+}
+
+function isFirstProjectWithoutData(user: UserType): boolean {
+    const { currentTeam, hasOnboardedAnyProduct } = teamLogic.values
+    return (
+        !user.is_impersonated &&
+        user.organization?.teams.length === 1 &&
+        !!currentTeam &&
+        !currentTeam.is_demo &&
+        !hasOnboardedAnyProduct &&
+        !currentTeam.ingested_event &&
+        // The access denied page must show, else the link silently opens the onboarding of the user's own project.
+        !isRefusedProjectPath(router.values.location.pathname)
+    )
+}
+
 export function isOnboardingNotRequiredForPath(pathname: string): boolean {
     const path = removeProjectIdIfPresent(pathname)
     return pathPrefixesOnboardingNotRequiredFor.some((prefix) => path.startsWith(prefix))
+}
+
+export function getOnboardingRedirectNextPath(nextParam: string | null | undefined, location: Location): string {
+    return (
+        getRelativeNextPath(nextParam, location) ?? `${removeProjectIdIfPresent(location.pathname)}${location.search}`
+    )
 }
 
 const DelayedLoadingSpinner = (): JSX.Element => {
@@ -388,6 +450,7 @@ export interface sceneLogicMeta {
         activeSceneId: (
             sceneId: string | null,
             isCurrentTeamUnavailable: boolean,
+            isCurrentProjectAccessDenied: boolean,
             location: {
                 hash: string
                 pathname: string
@@ -442,6 +505,11 @@ export const sceneLogic = kea<sceneLogicType>([
         cache.lastTrackedScene = null as { sceneId?: string; sceneKey?: string } | null
         cache.homepageSave = Promise.resolve()
         cache.homepageRequest = 0
+        cache.disposables.add(() =>
+            listenForGoldRingsKeys(
+                () => featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS] === true
+            )
+        )
     }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -579,15 +647,22 @@ export const sceneLogic = kea<sceneLogicType>([
             { resultEqualityCheck: equal },
         ],
         activeSceneId: [
-            (s) => [s.sceneId, teamLogic.selectors.isCurrentTeamUnavailable, router.selectors.location],
-            (sceneId: string | null, isCurrentTeamUnavailable: boolean, location: { pathname: string }) => {
+            (s) => [
+                s.sceneId,
+                teamLogic.selectors.isCurrentTeamUnavailable,
+                teamLogic.selectors.isCurrentProjectAccessDenied,
+                router.selectors.location,
+            ],
+            (
+                sceneId: string | null,
+                isCurrentTeamUnavailable: boolean,
+                isCurrentProjectAccessDenied: boolean,
+                location: { pathname: string }
+            ) => {
                 const appContext = getAppContext()
                 const effectiveResourceAccessControl = appContext?.effective_resource_access_control
 
-                // The server refused the project this address names and served the user's own one,
-                // so the page cannot load. Once the address bar names a project we do serve, the
-                // scene loads as usual.
-                if (sceneId && sceneConfigurations[sceneId]?.projectBased && isRefusedProjectPath(location.pathname)) {
+                if (sceneId && isProjectAccessDenied(sceneId, location.pathname, isCurrentProjectAccessDenied)) {
                     return Scene.ErrorProjectAccessDenied
                 }
 
@@ -747,6 +822,11 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
+        [teamLogic.actionTypes.currentProjectAccessDenied]: () => {
+            if (values.activeSceneId === Scene.ErrorProjectAccessDenied) {
+                unmountSceneLogic(cache)
+            }
+        },
         // A homepage pointing at a deleted object answers every `/` and Home with a not-found screen,
         // and the picker that would change it sits behind that screen. Drop the setting instead.
         resetUnavailableHomepage: ({ pathname }) => {
@@ -834,7 +914,8 @@ export const sceneLogic = kea<sceneLogicType>([
             }
 
             let newLogicErrored = false
-            if (exportedScene?.logic) {
+            // A scene behind the access denied screen would keep loading and polling the refused project.
+            if (exportedScene?.logic && values.activeSceneId !== Scene.ErrorProjectAccessDenied) {
                 try {
                     const builtLogicProps = { ...exportedScene?.paramsToProps?.(params) }
                     const mountedLogic = cache.mountedSceneLogic
@@ -872,15 +953,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     newLogicErrored = true
                 }
             } else {
-                const mountedLogic = cache.mountedSceneLogic
-                if (mountedLogic) {
-                    try {
-                        mountedLogic.unmount()
-                    } catch (error) {
-                        console.error('Error unmounting previous scene logic:', error)
-                    }
-                    cache.mountedSceneLogic = null
-                }
+                unmountSceneLogic(cache)
             }
 
             if (newLogicErrored) {
@@ -958,14 +1031,17 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
 
                 if (sceneId !== Scene.InviteSignup) {
+                    // The agentic and OAuth consent pages pick or create the organization and project
+                    // they use, so approving there must not require either first.
+                    const isConsentPage =
+                        location.pathname.startsWith(urls.agenticAuthorize()) ||
+                        location.pathname.startsWith(urls.oauthAuthorize())
                     // Redirect to org/project creation if there's no org/project respectively, unless using invite
                     if (organizationLogic.values.isCurrentOrganizationUnavailable) {
                         if (
                             location.pathname !== urls.organizationCreateFirst() &&
                             !location.pathname.startsWith(urls.settings('user')) &&
-                            // The agentic consent page picks or creates the organization and project
-                            // it uses, so approving there must not require either first.
-                            !location.pathname.startsWith(urls.agenticAuthorize())
+                            !isConsentPage
                         ) {
                             console.warn('Organization not available, redirecting to organization creation')
                             router.actions.replace(urls.organizationCreateFirst())
@@ -981,7 +1057,7 @@ export const sceneLogic = kea<sceneLogicType>([
                             if (
                                 location.pathname !== urls.projectCreateFirst() &&
                                 !location.pathname.startsWith('/settings') &&
-                                !location.pathname.startsWith(urls.agenticAuthorize())
+                                !isConsentPage
                             ) {
                                 console.warn(
                                     'Project not available and no other projects, redirecting to project creation'
@@ -995,32 +1071,40 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                     } else if (
                         // Or redirect to onboarding in case we detect people have to do onboarding for their first project
-                        user.organization?.teams.length === 1 &&
-                        teamLogic.values.currentTeam &&
-                        !teamLogic.values.currentTeam.is_demo &&
-                        !teamLogic.values.hasOnboardedAnyProduct &&
-                        !teamLogic.values.currentTeam?.ingested_event &&
+                        isFirstProjectWithoutData(user) &&
                         // Suppress the redirect when the user has explicitly exited onboarding
                         // (skipped for later, or delegated to a teammate with a pending invite).
                         // If the delegation invite is cancelled or expires, the backend clears
                         // onboarding_delegated_to_invite and the redirect re-fires.
                         !isOnboardingRedirectSuppressed(user) &&
-                        !isOnboardingNotRequiredForPath(location.pathname) &&
-                        // The access denied page must show, else the link silently opens the onboarding of the user's own project.
-                        !isRefusedProjectPath(router.values.location.pathname)
+                        !isOnboardingNotRequiredForPath(location.pathname)
                     ) {
-                        const nextUrl =
-                            getRelativeNextPath(params.searchParams.next, location) ??
-                            removeProjectIdIfPresent(location.pathname)
+                        const nextUrl = getOnboardingRedirectNextPath(params.searchParams.next, location)
 
                         // Check if user is coming from a coupon campaign link
-                        const campaign = nextUrl ? parseCouponCampaign(nextUrl) : null
-                        if (campaign) {
-                            router.actions.replace(urls.onboarding({ campaign }), { next: nextUrl })
+                        const couponCampaign = nextUrl ? parseCouponCampaign(nextUrl) : null
+                        if (couponCampaign) {
+                            router.actions.replace(urls.onboarding({ campaign: couponCampaign }), { next: nextUrl })
                             return
                         }
 
                         router.actions.replace(urls.onboarding(), nextUrl ? { next: nextUrl } : undefined)
+                        return
+                    } else if (
+                        isFirstProjectWithoutData(user) &&
+                        user.onboarding_skipped_reason === 'connector' &&
+                        user.onboarding_skipped_organization_id === user.organization?.id &&
+                        // Only the homepage redirects, so a deep link the connecting assistant hands out still opens.
+                        removeProjectIdIfPresent(router.values.location.pathname) === urls.projectHomepage()
+                    ) {
+                        router.actions.replace(
+                            withForwardedHashAndSearchParams(
+                                urls.onboardingWelcome(),
+                                params.searchParams,
+                                params.hashParams,
+                                forwardedRedirectQueryParams
+                            )
+                        )
                         return
                     }
                 }
@@ -1058,7 +1142,10 @@ export const sceneLogic = kea<sceneLogicType>([
                     // Capture the importer in the narrowed scope; the early guard above ensures it's
                     // defined, but that narrowing wouldn't flow into the retryImport closure.
                     const importScene = props.scenes[sceneId]
-                    importedScene = await retryImport(() => importScene())
+                    ;[importedScene] = await Promise.all([
+                        retryImport(() => importScene()),
+                        loadCoreFilterDefinitionsFor(sceneId, !!userLogic.values.user),
+                    ])
                 } catch (error: any) {
                     if (isChunkLoadError(error)) {
                         // Reloaded once in the last 20 seconds and now reloading again? Show network error

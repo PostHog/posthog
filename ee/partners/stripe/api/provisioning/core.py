@@ -2,7 +2,7 @@
 
 The Stripe orchestrator is a fixed, partner-less identity: auth codes are
 minted with an empty ``partner_id`` and token exchange binds to the Stripe
-Projects OAuth app resolved from ``settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID``.
+Projects OAuth app resolved from ``STRIPE_POSTHOG_OAUTH_CLIENT_ID``.
 """
 
 from __future__ import annotations
@@ -21,6 +21,8 @@ import structlog
 
 from posthog.accessible_teams import AccessibleTeams
 from posthog.api.authentication import password_reset_token_generator
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
@@ -75,7 +77,7 @@ class StripeOAuthAppMissingError(Exception):
 
 
 def get_stripe_oauth_app() -> OAuthApplication:
-    client_id = settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID
+    client_id = get_or_settings("STRIPE_POSTHOG_OAUTH_CLIENT_ID", CredentialsCaller.INTEGRATIONS)
     if not client_id:
         error = StripeOAuthAppMissingError("STRIPE_POSTHOG_OAUTH_CLIENT_ID is not configured")
         capture_exception(error)
@@ -100,7 +102,7 @@ def is_stripe_oauth_app(app: OAuthApplication) -> bool:
     Fails closed when ``STRIPE_POSTHOG_OAUTH_CLIENT_ID`` is unset: with no
     configured Stripe identity, no caller can be the Stripe orchestrator.
     """
-    client_id = settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID
+    client_id = get_or_settings("STRIPE_POSTHOG_OAUTH_CLIENT_ID", CredentialsCaller.INTEGRATIONS)
     return bool(client_id) and app.client_id == client_id
 
 

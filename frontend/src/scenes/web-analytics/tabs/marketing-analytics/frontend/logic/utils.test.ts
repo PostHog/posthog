@@ -24,6 +24,7 @@ import { NativeSource } from './marketingAnalyticsLogic'
 import {
     conversionGoalToSeries,
     createMarketingTile,
+    externalTableTypeLabel,
     findSchemaByFieldName,
     getEnabledNativeMarketingSources,
     getOrderBy,
@@ -595,6 +596,16 @@ describe('marketing analytics utils', () => {
             expect(mathHogql).not.toContain(`${costColumn} / 1000000`)
         })
 
+        it.each(['cpc', 'cost_per_reported_conversion', 'roas'] as const)(
+            'converts Google Ads %s to the project currency',
+            (metric) => {
+                const source = makeMockSource('GoogleAds', sourceFields.GoogleAds)
+                expect(createMarketingTile(source, metric, 'EUR')?.math_hogql).toContain(
+                    "convertCurrency(coalesce(customer_currency_code, 'EUR'), 'EUR'"
+                )
+            }
+        )
+
         const testCases = VALID_NATIVE_MARKETING_SOURCES.flatMap((sourceType) =>
             ALL_TILE_COLUMNS.map(
                 (column) =>
@@ -746,6 +757,15 @@ describe('marketing analytics utils', () => {
             expect(nativeSourceConnectionStatus(source).status).toBe('Needs attention')
         }
     )
+
+    it.each([
+        ['BigQuery', 'Data warehouse'],
+        ['FileUpload', 'Files'],
+        ['google-cloud', 'Self-managed'],
+        ['Postgres', null],
+    ])('labels a %s table as %s in the source settings', (sourceType, label) => {
+        expect(externalTableTypeLabel(sourceType)).toBe(label)
+    })
 
     describe('sanitizeIntegrationFilter', () => {
         it('drops a key the query schema no longer accepts', () => {

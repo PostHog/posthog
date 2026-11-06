@@ -70,10 +70,12 @@ fn rebuild_all_marks_every_workspace_crate() {
 #[test]
 fn file_outside_workspace_produces_no_crates() {
     let (graph, images) = load_test_fixtures();
-    let result = compute_affected(&["README.md".into()], None, &graph, &images).unwrap();
-    assert!(!result.rebuild_all);
-    assert!(result.crates.is_empty());
-    assert!(result.images.is_empty());
+    for file in ["README.md", "rust/AGENTS.md"] {
+        let result = compute_affected(&[file.into()], None, &graph, &images).unwrap();
+        assert!(!result.rebuild_all, "{file} must not mark every crate");
+        assert!(result.crates.is_empty());
+        assert!(result.images.is_empty());
+    }
 }
 
 #[test]
@@ -111,6 +113,7 @@ fn every_deployable_binary_has_an_image_entry() {
         "stl_dump",
         "run", // hogvm dev/diff CLI, not a service
         "hermes",
+        "logs-ingestion-bench",   // logs consumer benchmark CLI, not a service
         "personhog-stateright",   // model-checker explorer CLI, not a service
         "personhog-test-harness", // e2e load/correctness harness CLI, not a service
         "reconcile_dispatch",     // operator-invoked cohort reconcile dispatcher CLI, not a service
@@ -252,7 +255,12 @@ fn leaf_service_only_affects_itself_and_dependents() {
     assert_eq!(result.directly_changed, vec!["capture"]);
     assert_eq!(
         result.images,
-        vec!["capture", "capture-apm-metrics", "capture-logs"]
+        vec![
+            "capture",
+            "capture-apm-metrics",
+            "capture-logs",
+            "replay-recorder-v4"
+        ]
     );
 }
 

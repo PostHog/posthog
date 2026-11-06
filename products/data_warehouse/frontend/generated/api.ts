@@ -84,9 +84,12 @@ import type {
     SavedQueryLineageRequestApi,
     SavedQueryMaterializeApi,
     SavedQueryResumeApi,
+    SavedQueryResumeRequestApi,
     SavedQueryResumeSchedulesRequestApi,
     SavedQueryRunApi,
+    SavedQueryRunResponseApi,
     TableApi,
+    UploadedFileApi,
     ViewLinkApi,
     ViewLinkValidationApi,
     ViewLinkValidationResponseApi,
@@ -1870,11 +1873,14 @@ export const getWarehouseSavedQueriesResumeCreateUrl = (projectId: string, id: s
 export const warehouseSavedQueriesResumeCreate = async (
     projectId: string,
     id: string,
+    savedQueryResumeRequestApi?: SavedQueryResumeRequestApi,
     options?: RequestInit
 ): Promise<SavedQueryResumeApi> => {
     return apiMutator<SavedQueryResumeApi>(getWarehouseSavedQueriesResumeCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(savedQueryResumeRequestApi),
     })
 }
 
@@ -1915,8 +1921,8 @@ export const warehouseSavedQueriesRunCreate = async (
     id: string,
     savedQueryRunApi?: SavedQueryRunApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getWarehouseSavedQueriesRunCreateUrl(projectId, id), {
+): Promise<SavedQueryRunResponseApi> => {
+    return apiMutator<SavedQueryRunResponseApi>(getWarehouseSavedQueriesRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -2312,7 +2318,7 @@ export const getWarehouseTablesRefreshSchemaCreateUrl = (projectId: string, id: 
 }
 
 /**
- * Re-introspect a self-managed (manually linked) warehouse table's schema from its underlying source files and overwrite its stored column list. Use when the source schema has evolved (e.g. new columns in the underlying Delta/Parquet/CSV files) but queries still can't see the new columns, because PostHog serves a cached column snapshot until the table is refreshed. Not for tables managed by an external data source sync — those refresh on their own schedule.
+ * Re-introspect an existing direct-read warehouse table's schema from its underlying source files and overwrite its stored column list. Use when the source schema has evolved (e.g. new columns in the underlying Delta/Parquet/CSV files) but queries still can't see the new columns, because PostHog serves a cached column snapshot until the table is refreshed. This applies only to existing direct-read tables. New direct-read tables cannot be created. Tables managed by an external data source sync refresh on their own schedule.
  * @summary Refresh table schema from source
  */
 export const warehouseTablesRefreshSchemaCreate = async (
@@ -2323,6 +2329,28 @@ export const warehouseTablesRefreshSchemaCreate = async (
     return apiMutator<void>(getWarehouseTablesRefreshSchemaCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getWarehouseTablesReplaceFileCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${id}/replace_file/`
+}
+
+/**
+ * Point a table made from an uploaded file at a new upload, then import it with one full refresh. Upload the new file with upload_file first. The table keeps its id and its name, and its rows are replaced when the sync finishes. The old file is deleted only after that sync succeeds. The sync bills its rows like any other import.
+ * @summary Replace the file of a table made from an uploaded file
+ */
+export const warehouseTablesReplaceFileCreate = async (
+    projectId: string,
+    id: string,
+    uploadedFileApi: UploadedFileApi,
+    options?: RequestInit
+): Promise<TableApi> => {
+    return apiMutator<TableApi>(getWarehouseTablesReplaceFileCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(uploadedFileApi),
     })
 }
 
@@ -2352,14 +2380,17 @@ export const getWarehouseTablesCreateFromUploadCreateUrl = (projectId: string) =
 }
 
 /**
- * Turn a previously uploaded file into a self-managed warehouse table.
+ * Turn a previously uploaded file into a warehouse table with a FileUpload source.
  *
  * The file already sits in PostHog's own bucket (see `upload_file`), so the table points straight
- * at it and is read in place — no import pipeline and no recurring sync, the same shape as a linked
- * S3/GCS bucket. The read location is always derived from the caller's own team, so a client-supplied
+ * at it for the initial direct read. The source imports it on its first sync. The read location
+ * is always derived from the caller's own team, so a client-supplied
  * `upload_id` can only resolve inside that team's folder, and the table carries no credential (reads
  * fall back to the node role, never a user-supplied key).
- * @summary Create a self-managed warehouse table from an uploaded file
+ *
+ * For a team with object storage sources, the table also gets a file upload source. Its first
+ * sync imports the file and turns the same table row into a managed table.
+ * @summary Create a warehouse table and FileUpload source from an uploaded file
  */
 export const warehouseTablesCreateFromUploadCreate = async (
     projectId: string,
@@ -2410,12 +2441,12 @@ export const getWarehouseTablesUploadFileCreateUrl = (projectId: string) => {
 }
 
 /**
- * Store an uploaded file in object storage so a self-managed table can be created from it.
+ * Store an uploaded file for a new warehouse table and FileUpload source.
  *
  * Uploading is a separate first step from `create_from_upload` so the create call stays JSON-only:
  * this returns an `upload_id` the caller passes back to build the table. The file is written under
  * a team-scoped prefix, so a table can only ever read back its own team's uploads.
- * @summary Upload a file for a new self-managed warehouse table
+ * @summary Upload a file for a new warehouse table and FileUpload source
  */
 export const warehouseTablesUploadFileCreate = async (
     projectId: string,
