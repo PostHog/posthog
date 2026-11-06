@@ -1099,7 +1099,7 @@ class TestDataHealthIssuesPersonalAPIKey(APIBaseTest):
 
 
 class TestHoglakeCredentialsPersonalAPIKeyScopes(APIBaseTest):
-    """GET and POST /hoglake-credentials share one route, and DRF gives the POST the GET's
+    """GET and POST /hoglake_credentials share one route, and DRF gives the POST the GET's
     action kwargs. The viewset's dangerously_get_required_scopes splits them, so a read-only
     key can list but not mint a credential."""
 
@@ -1112,7 +1112,7 @@ class TestHoglakeCredentialsPersonalAPIKeyScopes(APIBaseTest):
 
     def _call(self, method: str, value: str):
         return getattr(self.client, method)(
-            f"/api/projects/{self.team.id}/data_warehouse/hoglake-credentials/",
+            f"/api/projects/{self.team.id}/data_warehouse/hoglake_credentials/",
             {"name": "laptop", "scope": "read"},
             content_type="application/json",
             headers={"authorization": f"Bearer {value}"},
@@ -1136,13 +1136,13 @@ class TestHoglakeCredentialsPersonalAPIKeyScopes(APIBaseTest):
 
 
 class TestMyHoglakeCredentialsPersonalAPIKeyScopes(APIBaseTest):
-    """GET and POST /my-hoglake-credentials share one route, like /hoglake-credentials."""
+    """GET and POST /my_hoglake_credentials share one route, like /hoglake_credentials."""
 
     CONFIG_AUTO_LOGIN = False
 
     def _call(self, method: str, value: str):
         return getattr(self.client, method)(
-            f"/api/projects/{self.team.id}/data_warehouse/my-hoglake-credentials/",
+            f"/api/projects/{self.team.id}/data_warehouse/my_hoglake_credentials/",
             {"name": "laptop", "scope": "read", "team_ids": [self.team.id]},
             content_type="application/json",
             headers={"authorization": f"Bearer {value}"},

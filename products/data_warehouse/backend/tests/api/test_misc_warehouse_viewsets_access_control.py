@@ -424,10 +424,10 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
 
     @parameterized.expand(
         [
-            ("list", "get", "hoglake-credentials/", "list_hoglake_credentials"),
-            ("create", "post", "hoglake-credentials/", "create_hoglake_credential"),
-            ("rotate", "post", f"hoglake-credentials/{_HLC}/rotate/", "rotate_hoglake_credential"),
-            ("revoke", "delete", f"hoglake-credentials/{_HLC}/", "revoke_hoglake_credential"),
+            ("list", "get", "hoglake_credentials/", "list_hoglake_credentials"),
+            ("create", "post", "hoglake_credentials/", "create_hoglake_credential"),
+            ("rotate", "post", f"hoglake_credentials/{_HLC}/rotate/", "rotate_hoglake_credential"),
+            ("revoke", "delete", f"hoglake_credentials/{_HLC}/", "revoke_hoglake_credential"),
         ]
     )
     def test_hoglake_credentials_blocked_for_project_editor_who_is_not_org_admin(self, _name, method, path, helper):
@@ -448,7 +448,7 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         with patch(f"{_MW}.create_hoglake_credential") as create:
             create.return_value = Response({"client_id": _HLC, "client_secret": "s"}, status=201)
             response = self.client.post(
-                self._path("hoglake-credentials/"),
+                self._path("hoglake_credentials/"),
                 {"name": "laptop", "scope": "write", "ttl_seconds": 7200},
                 content_type="application/json",
             )
@@ -474,7 +474,7 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         self._create_access_control(self.editor_user, access_level="editor")
         self.client.force_login(self.editor_user)
         with patch(f"{_MW}.create_hoglake_credential") as create:
-            response = self.client.post(self._path("hoglake-credentials/"), body, content_type="application/json")
+            response = self.client.post(self._path("hoglake_credentials/"), body, content_type="application/json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         create.assert_not_called()
@@ -487,8 +487,8 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
             patch(f"{_MW}.rotate_hoglake_credential", return_value=Response({"client_id": _HLC})) as rotate,
             patch(f"{_MW}.revoke_hoglake_credential", return_value=Response({"revoked": _HLC})) as revoke,
         ):
-            rotated = self.client.post(self._path(f"hoglake-credentials/{_HLC}/rotate/"))
-            revoked = self.client.delete(self._path(f"hoglake-credentials/{_HLC}/"))
+            rotated = self.client.post(self._path(f"hoglake_credentials/{_HLC}/rotate/"))
+            revoked = self.client.delete(self._path(f"hoglake_credentials/{_HLC}/"))
 
         self.assertEqual((rotated.status_code, revoked.status_code), (200, 200))
         principal = f"api:{self.editor_user.email}"
@@ -501,7 +501,7 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         with patch(f"{_MW}.create_my_hoglake_credential") as create:
             create.return_value = Response({"client_id": _HLC, "client_secret": "s"}, status=201)
             response = self.client.post(
-                self._path("my-hoglake-credentials/"),
+                self._path("my_hoglake_credentials/"),
                 {"name": "laptop", "scope": "read", "team_ids": [self.team.id]},
                 content_type="application/json",
             )
@@ -524,9 +524,9 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
             patch(f"{_MW}.list_my_hoglake_credentials", return_value=Response({"hoglake_credentials": []})) as list_,
             patch(f"{_MW}.create_my_hoglake_credential") as create,
         ):
-            listed = self.client.get(self._path("my-hoglake-credentials/"))
+            listed = self.client.get(self._path("my_hoglake_credentials/"))
             created = self.client.post(
-                self._path("my-hoglake-credentials/"),
+                self._path("my_hoglake_credentials/"),
                 {"name": "laptop", "scope": "read", "team_ids": [self.team.id]},
                 content_type="application/json",
             )
@@ -546,7 +546,7 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         self._create_access_control(self.editor_user, access_level="editor")
         self.client.force_login(self.editor_user)
         with patch(f"{_MW}.create_my_hoglake_credential") as create:
-            response = self.client.post(self._path("my-hoglake-credentials/"), body, content_type="application/json")
+            response = self.client.post(self._path("my_hoglake_credentials/"), body, content_type="application/json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         create.assert_not_called()
@@ -558,8 +558,8 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
             patch(f"{_MW}.rotate_my_hoglake_credential", return_value=Response({"client_id": _HLC})) as rotate,
             patch(f"{_MW}.revoke_my_hoglake_credential", return_value=Response({"revoked": _HLC})) as revoke,
         ):
-            rotated = self.client.post(self._path(f"my-hoglake-credentials/{_HLC}/rotate/"))
-            revoked = self.client.delete(self._path(f"my-hoglake-credentials/{_HLC}/"))
+            rotated = self.client.post(self._path(f"my_hoglake_credentials/{_HLC}/rotate/"))
+            revoked = self.client.delete(self._path(f"my_hoglake_credentials/{_HLC}/"))
 
         self.assertEqual((rotated.status_code, revoked.status_code), (200, 200))
         principal = f"api:{self.editor_user.email}"
@@ -571,7 +571,7 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         self._create_access_control(self.editor_user, access_level="editor")
         self.client.force_login(self.editor_user)
         with patch(f"{_MW}.revoke_hoglake_credential") as revoke:
-            response = self.client.delete(self._path("hoglake-credentials/svc_0123456789abcdef/"))
+            response = self.client.delete(self._path("hoglake_credentials/svc_0123456789abcdef/"))
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         revoke.assert_not_called()

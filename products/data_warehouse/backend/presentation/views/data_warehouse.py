@@ -391,8 +391,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return None
 
     def dangerously_get_required_scopes(self, request: Request, view: viewsets.ViewSet) -> list[str] | None:
-        # GET and POST /hoglake-credentials share one route (see hoglake_credentials), and so do
-        # GET and POST /my-hoglake-credentials.
+        # GET and POST /hoglake_credentials share one route (see hoglake_credentials), and so do
+        # GET and POST /my_hoglake_credentials.
         if self.action == "hoglake_credentials":
             return ["warehouse_view:read"]
         if self.action == "create_hoglake_credential":
@@ -1780,7 +1780,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     # No required_scopes here: DRF gives a .mapping.post the action's kwargs, so the GET's
     # read scope would also admit the POST. dangerously_get_required_scopes splits them.
-    @action(methods=["GET"], detail=False, url_path="hoglake-credentials")
+    @action(methods=["GET"], detail=False, url_path="hoglake_credentials")
     def hoglake_credentials(self, request: Request, **kwargs) -> Response:
         admin_error = self._require_organization_admin(request, "view the hoglake credentials of")
         if admin_error is not None:
@@ -1819,7 +1819,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(
         methods=["POST"],
         detail=False,
-        url_path=rf"hoglake-credentials/(?P<credential_id>{_HOGLAKE_CREDENTIAL_ID})/rotate",
+        url_path=rf"hoglake_credentials/(?P<credential_id>{_HOGLAKE_CREDENTIAL_ID})/rotate",
         required_scopes=["warehouse_view:write"],
     )
     def rotate_hoglake_credential(self, request: Request, credential_id: str, **kwargs) -> Response:
@@ -1839,7 +1839,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(
         methods=["DELETE"],
         detail=False,
-        url_path=rf"hoglake-credentials/(?P<credential_id>{_HOGLAKE_CREDENTIAL_ID})",
+        url_path=rf"hoglake_credentials/(?P<credential_id>{_HOGLAKE_CREDENTIAL_ID})",
         required_scopes=["warehouse_view:write"],
     )
     def revoke_hoglake_credential(self, request: Request, credential_id: str, **kwargs) -> Response:
@@ -1857,7 +1857,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         "in one, and where to use them.",
     )
     # Scopes split by dangerously_get_required_scopes, as for hoglake_credentials.
-    @action(methods=["GET"], detail=False, url_path="my-hoglake-credentials")
+    @action(methods=["GET"], detail=False, url_path="my_hoglake_credentials")
     def my_hoglake_credentials(self, request: Request, **kwargs) -> Response:
         return managed_warehouse.list_my_hoglake_credentials(self.team.organization, cast(User, request.user))
 
@@ -1892,7 +1892,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(
         methods=["POST"],
         detail=False,
-        url_path=rf"my-hoglake-credentials/(?P<credential_id>{_HOGLAKE_CREDENTIAL_ID})/rotate",
+        url_path=rf"my_hoglake_credentials/(?P<credential_id>{_HOGLAKE_CREDENTIAL_ID})/rotate",
         required_scopes=["warehouse_view:write"],
     )
     def rotate_my_hoglake_credential(self, request: Request, credential_id: str, **kwargs) -> Response:
@@ -1909,7 +1909,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(
         methods=["DELETE"],
         detail=False,
-        url_path=rf"my-hoglake-credentials/(?P<credential_id>{_HOGLAKE_CREDENTIAL_ID})",
+        url_path=rf"my_hoglake_credentials/(?P<credential_id>{_HOGLAKE_CREDENTIAL_ID})",
         required_scopes=["warehouse_view:write"],
     )
     def revoke_my_hoglake_credential(self, request: Request, credential_id: str, **kwargs) -> Response:
