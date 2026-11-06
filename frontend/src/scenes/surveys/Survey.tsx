@@ -49,7 +49,7 @@ export function SurveyComponent({ id }: SurveyLogicProps): JSX.Element {
     const { openMax } = useMaxTool({
         identifier: 'edit_survey',
         active: !!id && id !== 'new',
-        initialMaxPrompt: `Change the survey "${survey.name}": `,
+        initialMaxPrompt: 'Change this survey: ',
         callback: (toolOutput: { survey_id?: string; error?: string }) => {
             if (!toolOutput?.error && toolOutput?.survey_id === id) {
                 loadSurvey()

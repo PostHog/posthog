@@ -37,7 +37,7 @@ export function SurveyProvenanceDetails({ surveyId }: { surveyId: string }): JSX
                     panels={[
                         {
                             key: 'request',
-                            header: 'See the request',
+                            header: 'See the stated request',
                             dataAttr: 'survey-draft-provenance-request',
                             content: <p className="m-0 border-l-2 pl-2 text-xs whitespace-pre-wrap">{agentIntent}</p>,
                         },

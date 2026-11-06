@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { MakeLogicType, afterMount, connect, isBreakpoint, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { projectLogic } from 'scenes/projectLogic'
@@ -49,10 +49,15 @@ export type surveyProvenanceLogicType = MakeLogicType<
 const ACTIVITY_PAGE_SIZE = 100
 const MAX_ACTIVITY_PAGES = 5
 
-async function fetchActivityUntilCreated(projectId: string, surveyId: string): Promise<ActivityLogEntryApi[]> {
+async function fetchActivityUntilCreated(
+    projectId: string,
+    surveyId: string,
+    breakpoint: () => void
+): Promise<ActivityLogEntryApi[]> {
     const entries: ActivityLogEntryApi[] = []
     for (let page = 1; page <= MAX_ACTIVITY_PAGES; page++) {
         const response = await surveysActivityRetrieve(projectId, surveyId, { limit: ACTIVITY_PAGE_SIZE, page })
+        breakpoint()
         entries.push(...response.results)
         if (!response.next || entries.some((entry) => entry.activity === 'created')) {
             break
@@ -76,16 +81,20 @@ export const surveyProvenanceLogic = kea<surveyProvenanceLogicType>([
                 // Provenance is secondary to the review, so a failed load falls back quietly instead of
                 // reaching the loaders plugin, which shows an error toast.
                 loadActivity: async (_, breakpoint): Promise<SurveyActivity> => {
-                    let activity: SurveyActivity
                     try {
-                        const entries = await fetchActivityUntilCreated(String(values.currentProjectId), props.surveyId)
-                        activity = { status: 'loaded', entries }
-                    } catch {
-                        activity = { status: 'unavailable' }
+                        const entries = await fetchActivityUntilCreated(
+                            String(values.currentProjectId),
+                            props.surveyId,
+                            breakpoint
+                        )
+                        return { status: 'loaded', entries }
+                    } catch (error) {
+                        // A newer request or an unmount cancels this one; only the latest load may write.
+                        if (error instanceof Error && isBreakpoint(error)) {
+                            throw error
+                        }
+                        return { status: 'unavailable' }
                     }
-                    // Outside the try so a newer request's cancellation isn't swallowed: only the latest wins.
-                    breakpoint()
-                    return activity
                 },
             },
         ],
