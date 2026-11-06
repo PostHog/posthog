@@ -294,6 +294,54 @@ func TestParse_CaptureOptions(t *testing.T) {
 			expected: map[string]interface{}{"$lib": "posthog-go-mcp", "$lib_version": "0.3.0"},
 		},
 		{
+			name:     "a bool for a string option is skipped",
+			data:     `{"event":"$pageview","properties":{"$session_id":"client","$product_tour_id":"client"}}`,
+			options:  `{"session_id":true,"product_tour_id":false}`,
+			expected: map[string]interface{}{"$session_id": "client", "$product_tour_id": "client"},
+		},
+		{
+			name:     "req_lib fills a missing $lib_version when $lib matches",
+			data:     `{"event":"$pageview","properties":{"$lib":"posthog-go"}}`,
+			options:  `{"req_lib":"posthog-go","req_lib_version":"2.0.0"}`,
+			expected: map[string]interface{}{"$lib": "posthog-go", "$lib_version": "2.0.0"},
+		},
+		{
+			name:     "req_lib fills a null $lib_version when $lib matches",
+			data:     `{"event":"$pageview","properties":{"$lib":"posthog-go","$lib_version":null}}`,
+			options:  `{"req_lib":"posthog-go","req_lib_version":"2.0.0"}`,
+			expected: map[string]interface{}{"$lib": "posthog-go", "$lib_version": "2.0.0"},
+		},
+		{
+			name:     "a client $lib_version for the same $lib is kept",
+			data:     `{"event":"$pageview","properties":{"$lib":"posthog-go","$lib_version":"1.9.0"}}`,
+			options:  `{"req_lib":"posthog-go","req_lib_version":"2.0.0"}`,
+			expected: map[string]interface{}{"$lib": "posthog-go", "$lib_version": "1.9.0"},
+		},
+		{
+			name:     "an empty client $lib is kept",
+			data:     `{"event":"$pageview","properties":{"$lib":""}}`,
+			options:  `{"req_lib":"posthog-go","req_lib_version":"2.0.0"}`,
+			expected: map[string]interface{}{"$lib": ""},
+		},
+		{
+			name:     "req_lib_version without req_lib is skipped",
+			data:     `{"event":"$pageview","properties":{"a":1}}`,
+			options:  `{"req_lib_version":"2.0.0"}`,
+			expected: map[string]interface{}{"a": float64(1)},
+		},
+		{
+			name:     "unknown option keys stay out of the properties",
+			data:     `{"event":"$pageview","properties":{"a":1}}`,
+			options:  `{"future_key":"x","session_id":"server"}`,
+			expected: map[string]interface{}{"a": float64(1), "$session_id": "server"},
+		},
+		{
+			name:     "options apply to empty properties",
+			data:     `{"event":"$pageview","properties":{}}`,
+			options:  `{"session_id":"server"}`,
+			expected: map[string]interface{}{"$session_id": "server"},
+		},
+		{
 			name:     "options inside data are ignored",
 			data:     `{"event":"$pageview","properties":{"$session_id":"client"},"options":{"session_id":"injected","req_lib":"x","req_lib_version":"1"}}`,
 			expected: map[string]interface{}{"$session_id": "client"},
@@ -320,6 +368,44 @@ func TestParse_CaptureOptions(t *testing.T) {
 			assert.Equal(t, tt.expected, got.Properties)
 		})
 	}
+}
+
+func TestPostHogEventWrapper_KeepsEveryOptionKey(t *testing.T) {
+	var wrapper PostHogEventWrapper
+	require.NoError(t, json.Unmarshal([]byte(`{"options":{"session_id":"s","future_key":{"nested":[1,true]}}}`), &wrapper))
+
+	assert.Equal(t, CaptureOptions{
+		"session_id": "s",
+		"future_key": map[string]interface{}{"nested": []interface{}{float64(1), true}},
+	}, wrapper.Options)
+}
+
+func TestParse_NonObjectOptionsKeepTheRestOfTheMessage(t *testing.T) {
+	for _, options := range []string{`"session_id"`, `["session_id"]`, `42`, `true`, `null`} {
+		t.Run(options, func(t *testing.T) {
+			input := `{"uuid":"test-uuid","options":` + options + `,"distinct_id":"user-1",` +
+				`"data":"{\"event\":\"$pageview\",\"properties\":{\"$session_id\":\"client\"}}","token":"tok"}`
+
+			got := parse(new(mocks.GeoLocator), nil, []byte(input))
+
+			assert.Equal(t, "$pageview", got.Event)
+			assert.Equal(t, "tok", got.Token)
+			assert.Equal(t, "user-1", got.DistinctId)
+			assert.Equal(t, map[string]interface{}{"$session_id": "client"}, got.Properties)
+		})
+	}
+}
+
+func TestParse_OptionSessionIdReachesFiltersAndResponse(t *testing.T) {
+	input := `{"uuid":"test-uuid","distinct_id":"user-1","token":"tok","options":{"session_id":"server"},` +
+		`"data":"{\"event\":\"$pageview\",\"properties\":{\"$session_id\":\"client\"}}"}`
+
+	event := parse(new(mocks.GeoLocator), nil, []byte(input))
+
+	assert.True(t, matchesPropertyFilters(event.Properties,
+		[]CompiledPropertyFilter{NewCompiledPropertyFilter("$session_id", OpExact, []string{"server"})}))
+	response := convertToResponsePostHogEvent(event, 1, []string{"$session_id"}, nil)
+	assert.Equal(t, map[string]interface{}{"$session_id": "server"}, response.Properties)
 }
 
 func TestRunParsing_SubscriberGate(t *testing.T) {
@@ -470,12 +556,35 @@ func BenchmarkRunParsingPerEvent(b *testing.B) {
 			{Key: "event", Value: []byte("$pageview")},
 		},
 	}
+	valueWithOptions, err := json.Marshal(map[string]any{
+		"uuid":        "019a0000-0000-7000-8000-000000000005",
+		"distinct_id": "019a0000-0000-7000-8000-000000000001",
+		"data":        string(data),
+		"token":       "tok",
+		"timestamp":   "2026-10-05T12:00:00.000Z",
+		"options": map[string]any{
+			"session_id":             "019a0000-0000-7000-8000-000000000002",
+			"window_id":              "019a0000-0000-7000-8000-000000000003",
+			"process_person_profile": true,
+			"req_lib":                "posthog-go",
+			"req_lib_version":        "1.6.0",
+		},
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
 	classifier := bot.NewClassifier()
 
 	b.Run("full parse", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
 			parse(nil, classifier, newIncomingMessage(msg).value)
+		}
+	})
+	b.Run("full parse with options", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			parse(nil, classifier, valueWithOptions)
 		}
 	})
 	b.Run("headers only", func(b *testing.B) {

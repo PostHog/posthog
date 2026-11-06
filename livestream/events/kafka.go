@@ -103,7 +103,35 @@ type PostHogEventWrapper struct {
 	Token      string         `json:"token"`
 	Timestamp  string         `json:"timestamp"`
 	// Set only by capture v1. Read from the outer message: `data` is client-controlled.
-	Options map[string]interface{} `json:"options,omitempty"`
+	Options CaptureOptions `json:"options,omitempty"`
+}
+
+// CaptureOptions keeps every key capture v1 publishes, so capture can add an
+// option without a livestream change. A value that is not an object is skipped
+// rather than failing the decode of the rest of the message.
+type CaptureOptions map[string]interface{}
+
+func (o *CaptureOptions) UnmarshalEasyJSON(in *jlexer.Lexer) {
+	if !in.IsDelim('{') {
+		in.SkipRecursive()
+		return
+	}
+	in.Delim('{')
+	options := make(CaptureOptions)
+	for !in.IsDelim('}') {
+		key := in.String()
+		in.WantColon()
+		options[key] = in.Interface()
+		in.WantComma()
+	}
+	in.Delim('}')
+	*o = options
+}
+
+func (o *CaptureOptions) UnmarshalJSON(data []byte) error {
+	in := jlexer.Lexer{Data: data}
+	o.UnmarshalEasyJSON(&in)
+	return in.Error()
 }
 
 //easyjson:json
@@ -314,8 +342,9 @@ var captureOptionOverrides = []struct {
 }
 
 // applyCaptureOptions skips values with the wrong type. It fills $lib and
-// $lib_version from req_lib and req_lib_version only when the event has no $lib.
-func applyCaptureOptions(options, properties map[string]interface{}) {
+// $lib_version from req_lib and req_lib_version only when the event has no $lib,
+// and $lib_version alone when $lib already equals req_lib.
+func applyCaptureOptions(options CaptureOptions, properties map[string]interface{}) {
 	for _, o := range captureOptionOverrides {
 		switch value := options[o.key].(type) {
 		case string:
@@ -331,8 +360,14 @@ func applyCaptureOptions(options, properties map[string]interface{}) {
 
 	lib, libOk := options["req_lib"].(string)
 	libVersion, libVersionOk := options["req_lib_version"].(string)
-	if libOk && libVersionOk && properties["$lib"] == nil {
+	if !libOk || !libVersionOk {
+		return
+	}
+	current := properties["$lib"]
+	if current == nil {
 		properties["$lib"] = lib
+		properties["$lib_version"] = libVersion
+	} else if current == lib && properties["$lib_version"] == nil {
 		properties["$lib_version"] = libVersion
 	}
 }
