@@ -25,12 +25,12 @@ from products.customer_analytics.backend.temporal.membership_backfill import (
     prepare_membership_backfill_activity,
     sync_membership_page_activity,
 )
-from products.customer_analytics.backend.temporal.membership_cleanup import (
-    MembershipCleanupTeamWorkflow,
-    MembershipCleanupWorkflow,
-    list_membership_cleanup_teams_activity,
-    membership_cleanup_activity,
-    record_membership_cleanup_team_activity,
+from products.customer_analytics.backend.temporal.membership_discovery import (
+    MembershipDiscoveryTeamWorkflow,
+    MembershipDiscoveryWorkflow,
+    list_membership_discovery_teams_activity,
+    membership_discovery_activity,
+    record_membership_discovery_team_activity,
 )
 from products.customer_analytics.backend.temporal.ownership_claims import (
     OwnershipClaimsCoordinatorWorkflow,
@@ -42,8 +42,8 @@ from products.customer_analytics.backend.temporal.ownership_claims import (
 WORKFLOWS = [
     MembershipBackfillWorkflow,
     MembershipCoordinatorWorkflow,
-    MembershipCleanupTeamWorkflow,
-    MembershipCleanupWorkflow,
+    MembershipDiscoveryTeamWorkflow,
+    MembershipDiscoveryWorkflow,
     AccountTrackRuleCoordinatorWorkflow,
     AccountTrackRuleEvaluationWorkflow,
     CalendarSyncCoordinatorWorkflow,
@@ -58,9 +58,9 @@ ACTIVITIES = [
     sync_membership_page_activity,
     observe_membership_backfill_activity,
     prepare_membership_backfill_activity,
-    list_membership_cleanup_teams_activity,
-    membership_cleanup_activity,
-    record_membership_cleanup_team_activity,
+    list_membership_discovery_teams_activity,
+    membership_discovery_activity,
+    record_membership_discovery_team_activity,
     account_track_rule_collect_configs_activity,
     account_track_rule_create_scheduled_run_activity,
     account_track_rule_fail_run_activity,

@@ -2,15 +2,19 @@ import json
 from collections.abc import Sequence
 from hashlib import sha256
 
+from redis.lock import Lock
+
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models.person.util import get_distinct_id_rows
 from posthog.personhog_client.client import personhog_call, require_personhog_client
 from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG, GetGroupsRequest, GroupIdentifier, ReadOptions
+from posthog.redis import get_client as get_redis_client
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 QUERY_TIMEOUT_SECONDS = HOGQL_INCREASED_MAX_EXECUTION_TIME
+MEMBERSHIP_LEASE_SECONDS = 60 * 60
 
 # Partial results must fail the batch, never report a missing identity.
 QUERY_SETTINGS = {
@@ -20,6 +24,12 @@ QUERY_SETTINGS = {
     "timeout_overflow_mode": "throw",
     "read_overflow_mode": "throw",
 }
+
+
+def get_membership_cleanup_lease(team_id: int) -> Lock:
+    return get_redis_client(socket_timeout=2, socket_connect_timeout=2).lock(
+        f"customer_analytics:membership_cleanup:{team_id}", timeout=MEMBERSHIP_LEASE_SECONDS, blocking=False
+    )
 
 
 @frozen

@@ -108,72 +108,42 @@ The gate runs before shard processing and again during verification, with the sa
 
 `sharded_person_group_membership` has no age-based TTL.
 It stores distinct IDs and historical group associations, but no person properties.
-Cleanup checks current distinct-ID mappings and live persons before it removes membership.
+The `customer-analytics-membership-discovery` Temporal schedule records missing persons and groups in Postgres.
+It never deletes membership or eligibility config.
+The schedule starts paused and runs hourly when enabled.
+Worker restarts preserve its existing schedule settings.
+
+Discovery checks current distinct-ID mappings and live persons.
 Deleted mappings and deleted persons count as missing identities.
-When ClickHouse reports a person as missing, a strong personhog read confirms the mapping and its owner before cleanup.
-Cleanup decodes JSON escapes in membership group keys before identity lookups and keeps the stored keys for erasure.
-When ClickHouse reports a group as missing, a strong personhog read confirms its absence before cleanup.
-Group identity reads exclude properties.
-Malformed JSON group keys retain their raw representation and do not block the scan.
+When ClickHouse reports a person as missing, a strong personhog read confirms the mapping and its owner.
+Discovery decodes JSON escapes in group keys before identity lookups and keeps stored keys in candidates.
+When ClickHouse reports a group as missing, a strong personhog read confirms its absence.
+Group identity reads exclude properties. Malformed JSON keys retain their raw representation.
 Deleted teams need no identity reads.
 
-The `customer-analytics-membership-cleanup` Temporal schedule owns physical person and group cleanup.
-It does not change the existing person or group deletion processes.
-The schedule starts paused, runs hourly when enabled, and defaults to dry-run mode.
-Worker restarts preserve the existing schedule and its operator settings.
+Each batch scans at most 100 membership keys and rechecks 100 saved candidates.
+It saves the next unprocessed key in Postgres so later batches can resume after rows disappear.
+Scan pages also clear recovered candidates outside the recheck page.
+New candidates use bulk inserts and preserve `first_missing_at` on repeated discovery.
+Identity read failures leave candidates and scan positions unchanged.
+A renewable per-team Redis lease prevents overlapping membership batches.
+Postgres transactions contain database writes only.
 
-Each batch checks at most 100 stored membership keys and 100 pending candidates.
-One extra key locates the next page. Cleanup defers deletion of that key until the cursor advances.
-The job saves its team scan position and membership key position in Postgres.
-It discovers teams from stored membership, eligibility config, and saved scans, including disabled and deleted teams.
-Team discovery uses primary-key seeks instead of scanning all membership distinct IDs.
-Cleanup state has no project foreign key, so project deletion cannot remove pending erasure work.
-Team zero holds the coordinator cursor and never starts a team sweep.
-A renewable Redis lease prevents concurrent batches for each team.
-Postgres transactions contain database writes only. ClickHouse and personhog calls run outside those transactions.
-Each team workflow processes at most 100 batches and stops starting batches after 10 minutes.
-It stops early when the membership scan is complete and no full candidate batch made progress.
-The coordinator processes at most 10 pages of 25 teams in sequence.
-It stops at the end of the team scan and stops starting teams after 45 minutes.
-Child workflow timeouts cannot exceed the remaining coordinator budget. The schedule has a 50-minute execution timeout.
-The coordinator saves each processed team so the next run can process the remaining teams in the page.
-The job saves scan positions between runs when it reaches these limits.
+The coordinator discovers teams from membership, eligibility config, and saved scans.
+It processes at most 10 pages of 25 teams and stops starting teams after 45 minutes.
+Each team processes at most 100 batches and stops starting batches after 10 minutes.
+The coordinator saves each processed team. Team zero holds its cursor and never starts a project scan.
+Cleanup state has no project foreign key, so project deletion cannot remove pending work.
 
-For each missing side, the job records a candidate with `first_missing_at`.
-Repeated discovery preserves that timestamp.
-The job waits 24 hours from that timestamp, then checks current mappings, live persons, and groups again.
-Recovered matches clear their candidates.
-Failed or incomplete lookups leave candidates and scan positions unchanged.
-Membership timestamps do not shorten the grace period.
-
-Deletion requires `dry_run=false` and the team's ID in `delete_team_ids` in the schedule input.
-The job uses lightweight deletes on storage shards, waits for replication, and checks for survivors through the distributed table.
-Lightweight deletes hide rows through a row mask. ClickHouse merges remove the masked data from disk.
-A retry waits for pending table mutations and skips shards where the rows are already absent.
-A stable query ID also prevents concurrent submission of the same deletion.
-It removes candidates only after that check returns zero.
-Failed mutations and failed verification leave candidates pending for a later attempt.
-Each batch submits at most one membership mutation per shard, with one shard query at a time.
-A storage table with five pending mutations refuses more work.
 Queries use the SQL editor's `HOGQL_INCREASED_MAX_EXECUTION_TIME` setting, which defaults to 600 seconds.
-Memory, read, thread, and result limits come from the ClickHouse profile, as they do for SQL editor queries.
-Shard connections have a socket timeout of twice the query execution limit so a stalled network read releases the batch lock.
-Mutation task logs omit membership keys.
-Unavailable shards and overflow limits fail the query rather than return partial results.
+Memory, read, thread, and result limits come from the ClickHouse profile.
+Unavailable shards and overflow limits fail queries instead of returning partial results.
+Queries use the `OFFLINE` workload because discovery runs in the background.
+The `customer_analytics_membership_discovery_` metrics report outcomes, batch duration, and scan duration.
 
-Deleted-team cleanup also removes eligibility config.
-A whole-team person purge leaves eligibility config in place while the team exists.
-Reusing a distinct ID or group key before cleanup can preserve old membership.
-Persistently missing profiles cause cleanup even if the profiles never existed.
-New events can recreate membership after cleanup.
+Discovery does not change existing person or group deletion processes.
+Membership erasure requires a separate deletion job that rechecks saved candidates before it deletes rows.
 Event deletion and configured group-property deletion do not repair membership or its activity timestamps.
-That repair is separate from person and group cleanup.
-
-Before enabling deletion, inspect recovered-match counts, recovery time, full-scan duration, overdue candidates, and deletion failures.
-The cleanup metrics use the `customer_analytics_membership_` prefix.
-Start with a small team list after dry-run validation.
-Total cleanup time includes scan discovery, the grace period, schedule delay, and mutation completion.
-Stop ingestion and backfill on rollback. Keep cleanup until stored membership is erased.
 
 ## Tables on TTL alone
 
