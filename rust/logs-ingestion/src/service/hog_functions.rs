@@ -1,6 +1,3 @@
-//! `HogFunctionManagerService` for the logs server: Postgres rows, Fernet-decrypted `encrypted_inputs`,
-//! two `LazyLoader` caches and the `reload-hog-functions` Redis channel.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -24,10 +21,8 @@ use super::lazy_loader::{LazyLoader, LazyLoaderOptions, LoadResult};
 use super::postgres::classify_pg_error;
 
 pub const RELOAD_CHANNEL: &str = "reload-hog-functions";
-/// `refreshAgeMs` default in `lazy-loader.ts`.
 const REFRESH_AGE: Duration = Duration::from_secs(5 * 60);
 
-/// `EncryptedFields`: one Fernet per `ENCRYPTION_SALT_KEYS` entry, the raw key bytes as the key.
 pub struct EncryptedFields {
     fernet: Option<MultiFernet>,
 }
@@ -63,7 +58,6 @@ impl EncryptedFields {
     }
 }
 
-/// `sanitize`: the column holds a Fernet token, or, in older rows, the object itself.
 /// A value that does not decrypt is kept as a string in Node, where the transformer then finds no inputs in it.
 pub fn decrypt_encrypted_inputs(raw: Option<&str>, fields: &EncryptedFields) -> Option<JsValue> {
     let raw = raw?;
@@ -217,13 +211,11 @@ impl PgHogFunctions {
         Self { by_team, by_id }
     }
 
-    /// `onHogFunctionsReloaded`.
     pub fn reload(&self, team_id: &str, function_ids: &[String]) {
         self.by_team.mark_for_refresh(&[team_id.to_string()]);
         self.by_id.mark_for_refresh(function_ids);
     }
 
-    /// The `reload-hog-functions` subscription. It reconnects until the process exits.
     pub fn spawn_reload_listener(&self, client: redis::Client) -> tokio::task::JoinHandle<()> {
         let this = self.clone();
         tokio::spawn(async move {
@@ -292,7 +284,6 @@ impl HogFunctionSource for PgHogFunctions {
     }
 }
 
-/// Builds a function from the JSON row shape the parity fixtures store, decrypting a string `encrypted_inputs`.
 pub fn function_from_js(value: &JsValue, fields: &EncryptedFields) -> HogFunction {
     let mut row = row_from_js(value);
     if let Some(JsValue::Object(o)) = Some(value) {
@@ -311,7 +302,6 @@ mod tests {
     use super::*;
     use crate::js::json_stringify;
 
-    /// The dev and test default of `ENCRYPTION_SALT_KEYS`.
     const KEY: &str = "00beef0000beef0000beef0000beef00";
     /// `new EncryptedFields(KEY).encrypt('{"apiKey":{"value":"test-key","order":0}}')` from fernet-nodejs.
     const NODE_TOKEN: &str = "gAAAAABq7brKHRWvBDB4PkkAK5QfuvLhlNIXH2xPsrMUwpW2F5o_58MUyAlspxmFh0feDmwGx9lEqevRRedtiZ3p0zKxxLEqBvWzvJ0U4VOqgNHVgtCyB6kdby0naw8OM_7AF95Ir-8Z";
@@ -324,7 +314,6 @@ mod tests {
     fn encrypted_inputs_decrypt_like_hog_function_manager_sanitize() {
         let fields = EncryptedFields::new(&format!("{KEY},{}", "1".repeat(32))).unwrap();
         let expected = Some(r#"{"apiKey":{"value":"test-key","order":0}}"#.to_string());
-        // A token written by Node, as a text column and as a JSON string.
         assert_eq!(
             text(decrypt_encrypted_inputs(Some(NODE_TOKEN), &fields)),
             expected
@@ -334,13 +323,11 @@ mod tests {
             text(decrypt_encrypted_inputs(Some(&quoted), &fields)),
             expected
         );
-        // A value that is already an object is kept.
         let plain = r#"{"apiKey":{"value":"test-key","order":0}}"#;
         assert_eq!(
             text(decrypt_encrypted_inputs(Some(plain), &fields)),
             expected
         );
-        // A token under the second key still decrypts, as MultiFernet tries each key.
         let rotated = EncryptedFields::new(&"1".repeat(32)).unwrap();
         let token = rotated.encrypt(plain).unwrap();
         assert_eq!(

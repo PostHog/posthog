@@ -1,6 +1,3 @@
-//! `PgHogFunctions` against a table with the column types of Django's `HogFunction` model
-//! (`products/cdp/backend/models/hog_functions/hog_function.py`). Skips without Postgres.
-
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,7 +8,6 @@ use sqlx::PgPool;
 
 // Any database works, because the table is a temporary one that shadows `public.posthog_hogfunction`.
 const DATABASE_URL: &str = "postgres://posthog:posthog@localhost:5432/postgres";
-/// The dev and test default of `ENCRYPTION_SALT_KEYS`.
 const KEY: &str = "00beef0000beef0000beef0000beef00";
 /// `new EncryptedFields(KEY).encrypt('{"apiKey":{"value":"test-key","order":0}}')` from fernet-nodejs.
 const NODE_TOKEN: &str = "gAAAAABq7brKHRWvBDB4PkkAK5QfuvLhlNIXH2xPsrMUwpW2F5o_58MUyAlspxmFh0feDmwGx9lEqevRRedtiZ3p0zKxxLEqBvWzvJ0U4VOqgNHVgtCyB6kdby0naw8OM_7AF95Ir-8Z";
@@ -75,7 +71,6 @@ async fn insert(
     .unwrap();
 }
 
-// `execution_order` is a smallint, which sqlx refuses to decode as i32. That failure fails every load.
 #[tokio::test]
 async fn loads_transformations_with_smallint_order_and_decrypted_inputs() {
     let Some(pool) = pool().await else {
@@ -143,7 +138,6 @@ async fn loads_transformations_with_smallint_order_and_decrypted_inputs() {
     assert_eq!(keys, vec!["tag", "apiKey"]);
     assert_eq!(functions[0].sensitive_values, vec!["test-key".to_string()]);
 
-    // A reload message marks both caches stale, so the next read sees the new order.
     sqlx::query("UPDATE posthog_hogfunction SET execution_order = 9 WHERE id = $1::uuid")
         .bind(first)
         .execute(&pool)

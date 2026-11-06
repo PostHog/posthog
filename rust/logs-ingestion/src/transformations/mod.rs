@@ -1,5 +1,3 @@
-//! Hog log transformations: `nodejs/src/logs/transformations`.
-
 pub mod exec;
 pub mod functions;
 pub mod monitoring;

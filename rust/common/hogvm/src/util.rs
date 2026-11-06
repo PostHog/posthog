@@ -171,7 +171,6 @@ pub fn get_json_nested<'h>(
     Ok(None)
 }
 
-/// [`get_json_nested`] over [`OrderedJson`], with the same index and miss rules.
 pub fn get_ordered_nested<'h>(
     haystack: &'h OrderedJson,
     mut chain: &[HogValue],

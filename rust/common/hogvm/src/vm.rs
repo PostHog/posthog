@@ -87,7 +87,6 @@ pub struct HogVM<'a> {
     // `set_chunk`) so the per-step fetch is a bounds-checked index instead of a symbol match plus
     // table lookup. Borrows from the context, like every other program view.
     current_tokens: &'a [Token],
-    // The finished program's value, kept unconverted when the context asks for a raw result.
     result: Option<HogValue>,
 }
 
@@ -134,7 +133,6 @@ impl<'a> HogVM<'a> {
         self.result.take()
     }
 
-    /// Approximate bytes the program holds: the heap plus every value on the operand stack.
     /// Strings on the stack are not on the heap, so a host that bounds memory reads this.
     pub fn memory_bytes(&self) -> usize {
         self.stack.iter().fold(self.heap.current_bytes, |acc, v| {
