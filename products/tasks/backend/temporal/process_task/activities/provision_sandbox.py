@@ -403,7 +403,7 @@ def _repository_snapshot_integration_id(ctx: TaskProcessingContext, *, has_repo:
     from whenever the snapshot was taken. A fresh clone with the read-only mint is the only tree
     that holds both guarantees.
     """
-    if not has_repo or ctx.custom_image_name or ctx.github_read_access:
+    if not has_repo or ctx.custom_image_name or ctx.github_read_access or ctx.github_token_scope is not None:
         return None
     return ctx.github_integration_id
 

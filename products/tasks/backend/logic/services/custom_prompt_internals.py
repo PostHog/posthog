@@ -7,7 +7,7 @@ import asyncio
 import logging
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID, uuid4
 
 from django.conf import settings
@@ -171,6 +171,7 @@ class CustomPromptSandboxContext:
     ``contents: read``, so a run that pins repositories still clones them and just cannot push.
     Best-effort: if no team GitHub integration exists or the mint fails, the sandbox starts
     without a token."""
+    github_token_scope: Literal["read", "push"] | None = None
     interaction_origin: str | None = None
     """Surface the run is answering on (e.g. ``"slack"``). The agent server branches its system
     prompt on this, so evals that grade surface-specific behavior must set it to exercise the
@@ -424,6 +425,7 @@ async def _create_task_and_trigger(
         sandbox_timeout_seconds=context.sandbox_timeout_seconds,
         workflow_id_prefix=workflow_id_prefix,
         github_read_access=context.github_read_access,
+        github_token_scope=context.github_token_scope,
         mcp_credential_owner_id=mcp_credential_owner_id,
         mcp_gateway_server_ids=mcp_gateway_server_ids,
         mcp_tool_allowlist=mcp_tool_allowlist,

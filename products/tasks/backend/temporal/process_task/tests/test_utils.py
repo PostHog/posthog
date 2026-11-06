@@ -24,6 +24,8 @@ from products.tasks.backend.models import Task
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.utils import (
     POSTHOG_MCP_DESCRIPTION,
+    PUSH_SANDBOX_GITHUB_PERMISSIONS,
+    READONLY_SANDBOX_GITHUB_PERMISSIONS,
     GitHubCredentialSource,
     McpServerConfig,
     PrAuthorshipMode,
@@ -1402,6 +1404,30 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
 
         assert result == "ghs_bot"
         mock_get_github_token.assert_called_once_with(123, repositories=expected_repositories)
+
+    @parameterized.expand(
+        [
+            ("bot_authored_push", "bot", "push", PUSH_SANDBOX_GITHUB_PERMISSIONS),
+            ("user_authored_push", "user", "push", PUSH_SANDBOX_GITHUB_PERMISSIONS),
+            ("bot_authored_read", "bot", "read", READONLY_SANDBOX_GITHUB_PERMISSIONS),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_scoped_github_token")
+    def test_scoped_run_mints_only_from_the_attached_installation(
+        self, _name, authorship, scope, permissions, mock_scoped, mock_full
+    ) -> None:
+        mock_scoped.return_value = "ghs_scoped"
+
+        result = get_sandbox_github_token(
+            123,
+            run_id="run-1",
+            state={"pr_authorship_mode": authorship, "github_token_scope": scope, "repositories": ["acme/api"]},
+        )
+
+        assert result == "ghs_scoped"
+        mock_scoped.assert_called_once_with(123, ["acme/api"], permissions)
+        mock_full.assert_not_called()
 
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
     def test_no_state_falls_through_to_installation_token(self, mock_get_github_token) -> None:

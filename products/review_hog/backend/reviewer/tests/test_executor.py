@@ -151,14 +151,14 @@ class TestRunSandboxReview:
 
     @parameterized.expand(
         [
-            ("single_turn", run_sandbox_review, {}, True),
-            ("warm_session", start_sandbox_session, {}, True),
-            ("warm_session_that_pushes", start_sandbox_session, {"can_push": True}, False),
+            ("single_turn", run_sandbox_review, {}, "read"),
+            ("warm_session", start_sandbox_session, {}, "read"),
+            ("warm_session_that_pushes", start_sandbox_session, {"can_push": True}, "push"),
         ]
     )
     @pytest.mark.asyncio
     async def test_github_access_is_read_only_unless_the_session_pushes(
-        self, _name, entrypoint, extra_kwargs, expected_read_only
+        self, _name, entrypoint, extra_kwargs, expected_scope
     ) -> None:
         mock_start = AsyncMock(return_value=(AsyncMock(), DummyModel(result="ok")))
 
@@ -174,7 +174,7 @@ class TestRunSandboxReview:
                 **extra_kwargs,
             )
 
-        assert mock_start.call_args.kwargs["context"].github_read_access is expected_read_only
+        assert mock_start.call_args.kwargs["context"].github_token_scope == expected_scope
 
     @parameterized.expand(
         [
