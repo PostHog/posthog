@@ -453,8 +453,13 @@ def get_http_client(**overrides):
 
 # Named users that exist on the logs cluster. Every other named user exists on the main cluster
 # only, and sync_execute assigns some of them (APP, API) from tags without checking the workload.
+# ALERTS_PLATFORM_INSIGHT exists on both, because an insight can read logs, spans or metrics.
 LOGS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset(
-    {ClickHouseUser.ALERTS_PLATFORM_LOGS, ClickHouseUser.ALERTS_PLATFORM_METRICS}
+    {
+        ClickHouseUser.ALERTS_PLATFORM_INSIGHT,
+        ClickHouseUser.ALERTS_PLATFORM_LOGS,
+        ClickHouseUser.ALERTS_PLATFORM_METRICS,
+    }
 )
 
 
