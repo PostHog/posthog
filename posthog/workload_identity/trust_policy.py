@@ -127,6 +127,15 @@ def normalize_workload_conditions(conditions: Any, provider: WorkloadProvider) -
     return canonical
 
 
+def validate_condition_companions(conditions: dict[str, str], provider: WorkloadProvider) -> None:
+    labels = {claim.name: claim.label for claim in provider.condition_claims}
+    for rule in provider.condition_companions:
+        alone = next((claim for claim in rule.claims if claim in conditions), None)
+        if alone is not None and not any(name in conditions for name in rule.companions):
+            needed = " or ".join(labels[name] for name in rule.companions)
+            raise serializers.ValidationError({"conditions": f"{labels[alone]} needs {needed} too. {rule.reason}"})
+
+
 def validate_workload_trust_conditions(attrs: dict[str, Any], *, instance: Any | None = None) -> dict[str, Any]:
     """Shared by policies and policy requests, so both enforce the same conditions. Normalizes
     `attrs["conditions"]` against the issuer's provider whenever the issuer or the conditions change."""
@@ -139,13 +148,7 @@ def validate_workload_trust_conditions(attrs: dict[str, Any], *, instance: Any |
         raise serializers.ValidationError({"issuer": UNSUPPORTED_ISSUER_MESSAGE})
     raw_conditions = attrs["conditions"] if "conditions" in attrs else getattr(instance, "conditions", {})
     attrs["conditions"] = normalize_workload_conditions(raw_conditions, provider)
-    labels_by_name = {claim.name: claim.label for claim in provider.condition_claims}
-    for claim, companions in provider.condition_claim_companions:
-        if claim in attrs["conditions"] and not any(name in attrs["conditions"] for name in companions):
-            needed = " or ".join(labels_by_name[name] for name in companions)
-            raise serializers.ValidationError(
-                {"conditions": f"{labels_by_name[claim]} also matches runs you may not expect. Set {needed} too."}
-            )
+    validate_condition_companions(attrs["conditions"], provider)
     if provider.condition_claims and not attrs["conditions"]:
         labels = ", ".join(claim.label for claim in provider.condition_claims)
         raise serializers.ValidationError(
@@ -323,6 +326,16 @@ class WorkloadClaimSerializer(serializers.Serializer):
     placeholder = serializers.CharField(allow_blank=True, help_text="An example value to show in an empty field.")
 
 
+class ConditionCompanionsSerializer(serializers.Serializer):
+    claims = serializers.ListField(
+        child=serializers.CharField(), help_text="Condition claims a policy may set only with a companion."
+    )
+    companions = serializers.ListField(
+        child=serializers.CharField(), help_text="Claims of which a policy must set at least one beside them."
+    )
+    reason = serializers.CharField(help_text="Why the claims need a companion, to show the person.")
+
+
 class ConditionPresetSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="Stable identifier of the preset within its provider.")
     label = serializers.CharField(help_text="What the UI calls the preset, like Pushes to a branch.")  # type: ignore[assignment]
@@ -352,8 +365,8 @@ class WorkloadProviderSerializer(serializers.Serializer):
     condition_presets = ConditionPresetSerializer(
         many=True, help_text="Common choices of conditions to offer before the raw claims, in display order."
     )
-    condition_claim_companions = serializers.SerializerMethodField(
-        help_text="Condition claims that a policy may set only together with at least one of the listed claims."
+    condition_companions = ConditionCompanionsSerializer(
+        many=True, help_text="Rules for condition claims that a policy may set only together with another claim."
     )
     can_resolve_subject = serializers.SerializerMethodField(
         help_text="Whether PostHog can look up the subject from its name with resolve_subject."
@@ -361,10 +374,6 @@ class WorkloadProviderSerializer(serializers.Serializer):
     setup_snippet = serializers.SerializerMethodField(
         help_text="The CI config a job of this project needs, empty when the provider has none."
     )
-
-    @extend_schema_field(serializers.DictField(child=serializers.ListField(child=serializers.CharField())))
-    def get_condition_claim_companions(self, provider: WorkloadProvider) -> dict[str, list[str]]:
-        return {claim: list(companions) for claim, companions in provider.condition_claim_companions}
 
     def get_can_resolve_subject(self, provider: WorkloadProvider) -> bool:
         return provider.resolve_subject is not None
