@@ -137,7 +137,7 @@ class MeanQueryBuilder:
             metric_events_cte = build_precomputed_metric_events_cte(
                 cte_name="metric_events",
                 source=self._b.metric.source,
-                entity_key=self._b.entity_key,
+                entity_id_sql=self._b.context.precomputed_entity_id_sql(),
                 job_ids_placeholder="metric_events_job_ids",
             )
         else:

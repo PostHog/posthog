@@ -725,32 +725,100 @@ describe('SesWebhookHandler', () => {
         fetchSpy.mockRestore()
     })
 
-    it('confirms a signed SubscriptionConfirmation end to end (SubscribeURL is part of the signed string)', async () => {
+    // Signs like AWS SNS SignatureVersion=1: alphabetical key/value lines of the fields each
+    // envelope type signs, and serves the matching certificate.
+    const SIGNED_FIELDS: Record<string, string[]> = {
+        Notification: ['Message', 'MessageId', 'Timestamp', 'TopicArn', 'Type'],
+        SubscriptionConfirmation: ['Message', 'MessageId', 'SubscribeURL', 'Timestamp', 'Token', 'TopicArn', 'Type'],
+    }
+    const signEnvelope = (envelope: Record<string, any>): jest.SpyInstance => {
         const { generateKeyPairSync, createSign } = jest.requireActual<typeof import('node:crypto')>('node:crypto')
         const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
         const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }).toString()
-
-        const envelope = buildConfirmationEnvelope(
-            'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&TopicArn=arn:aws:sns:us-east-1:123456789012:ses-topic&Token=token-123'
-        )
-        // String to sign per AWS SNS SignatureVersion=1 for SubscriptionConfirmation:
-        // alphabetical key/value lines incl. the top-level SubscribeURL.
-        const stringToSign =
-            ['Message', 'MessageId', 'SubscribeURL', 'Timestamp', 'Token', 'TopicArn', 'Type']
-                .map((k) => `${k}\n${envelope[k]}`)
-                .join('\n') + '\n'
+        const stringToSign = SIGNED_FIELDS[envelope.Type].map((k) => `${k}\n${envelope[k]}`).join('\n') + '\n'
         const sign = createSign('RSA-SHA1')
         sign.update(stringToSign, 'utf8')
         envelope.Signature = sign.sign(privateKey, 'base64')
-
-        const fetchSpy = jest
+        return jest
             .spyOn(handler as any, 'fetchText')
             .mockImplementation((url) => Promise.resolve((url as string).endsWith('.pem') ? publicKeyPem : ''))
+    }
+
+    it('confirms a signed SubscriptionConfirmation end to end (SubscribeURL is part of the signed string)', async () => {
+        const envelope = buildConfirmationEnvelope(
+            'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&TopicArn=arn:aws:sns:us-east-1:123456789012:ses-topic&Token=token-123'
+        )
+        const fetchSpy = signEnvelope(envelope)
 
         const result = await handler.handleWebhook({ body: envelope, headers: {}, verifySignature: true })
         expect(result.status).toBe(200)
         expect(fetchSpy).toHaveBeenCalledWith(envelope.SubscribeURL)
         fetchSpy.mockRestore()
+    })
+
+    describe('a Notification whose Message is not JSON', () => {
+        const plainText = 'Successfully validated SNS topic for Amazon SES event publishing.'
+        const plainTextNotification = (message = plainText): Record<string, any> => ({
+            Type: 'Notification',
+            MessageId: 'sns-msg-1',
+            TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-topic',
+            Message: message,
+            Timestamp: '2025-10-03T12:10:00Z',
+            SignatureVersion: '1',
+            Signature: 'forged',
+            SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
+        })
+        const ignoredCount = async (): Promise<number> => {
+            const metric = await register.getSingleMetric('ses_webhook_ignored_notifications_total')?.get()
+            return metric?.values.find((v) => v.labels.reason === 'non_json_message')?.value ?? 0
+        }
+
+        it.each([
+            { label: 'plain text', message: plainText, logged: plainText },
+            { label: 'control character', message: '\u001b[31mforged\nline', logged: ' (31mforged line' },
+            {
+                label: 'truncated SES JSON',
+                message: '{"eventType":"Bounce","mail":{"destination":["victim@example.com"',
+                logged: undefined,
+            },
+        ])(
+            'is acknowledged without metrics when signed, logging its $label prefix only if not JSON-shaped',
+            async ({ message, logged }) => {
+                const warnSpy = jest.spyOn(logger, 'warn')
+                const envelope = plainTextNotification(message)
+                const fetchSpy = signEnvelope(envelope)
+                const before = await ignoredCount()
+
+                const result = await handler.handleWebhook({ body: envelope, headers: {}, verifySignature: true })
+
+                expect(result.status).toBe(200)
+                expect(result.metrics).toEqual([])
+                expect(await ignoredCount()).toBe(before + 1)
+                expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('not JSON'), {
+                    topicArn: envelope.TopicArn,
+                    messageId: envelope.MessageId,
+                    messageLength: message.length,
+                    messagePrefix: logged,
+                })
+                fetchSpy.mockRestore()
+                warnSpy.mockRestore()
+            }
+        )
+
+        it('is rejected when its signature does not verify', async () => {
+            const fetchSpy = jest.spyOn(handler as any, 'fetchText').mockResolvedValue('not a certificate')
+            const before = await ignoredCount()
+
+            const result = await handler.handleWebhook({
+                body: plainTextNotification(),
+                headers: {},
+                verifySignature: true,
+            })
+
+            expect(result.status).toBe(403)
+            expect(await ignoredCount()).toBe(before)
+            fetchSpy.mockRestore()
+        })
     })
 
     it.each([
@@ -1057,6 +1125,24 @@ describe('SesWebhookHandler', () => {
                 {},
                 { eventType: 'Reject', reject: { reason: 'Bad content' } },
                 update('failed', transactionalMail.timestamp, 'provider_rejected'),
+            ],
+            [
+                'an open',
+                {},
+                { eventType: 'Open', open: { timestamp: '2025-10-03T12:04:00Z' } },
+                update('opened', '2025-10-03T12:04:00Z'),
+            ],
+            [
+                'a click',
+                {},
+                { eventType: 'Click', click: { link: 'https://example.com/reset', timestamp: '2025-10-03T12:05:00Z' } },
+                update('clicked', '2025-10-03T12:05:00Z'),
+            ],
+            [
+                'an open of an untagged email',
+                { tags: baseMail.tags },
+                { eventType: 'Open', open: { timestamp: '2025-10-03T12:04:00Z' } },
+                [],
             ],
             ['a delivery of an untagged email', { tags: baseMail.tags }, delivery(['to@example.com']), []],
             ['a delivery to the cc recipient only', {}, delivery(['cc@example.com']), []],

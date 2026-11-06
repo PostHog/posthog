@@ -15,14 +15,14 @@ from rest_framework.test import APIClient
 from posthog.models import ProjectSecretAPIKey, Team
 from posthog.models.utils import hash_key_value
 
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import Task, TaskRun, TaskRunGatewayRequest
 
 
 @override_settings(AI_GATEWAY_INTERNAL_TOKEN="gateway-token")
 class TestTaskRunGatewayUsageAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.schedule_usage = self.enterContext(patch("products.tasks.backend.facade.gateway.schedule_gateway_usage"))
+        self.schedule_usage = self.enterContext(patch("products.tasks.backend.facade.gateway.current_app.send_task"))
 
     def _run(
         self,
@@ -75,13 +75,18 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         run.refresh_from_db()
+        queued = TaskRunGatewayRequest.objects.for_team(self.team.id).filter(task_run_id=run.id)
         if environment == TaskRun.Environment.CLOUD:
-            assert run.state == {"unprocessed_request_ids": ["request_1"], "token_cost": {}}
-            self.schedule_usage.assert_called_once()
+            assert list(queued.values_list("request_id", flat=True)) == ["request_1"]
+            self.schedule_usage.assert_called_once_with(
+                "products.tasks.backend.tasks.tasks.schedule_task_run_gateway_usage",
+                kwargs={"run_id": str(run.id), "team_id": run.team_id},
+            )
         else:
-            assert run.state == {}
-            assert run.updated_at == updated_at
+            assert not queued.exists()
             self.schedule_usage.assert_not_called()
+        assert run.state == {}
+        assert run.updated_at == updated_at
 
     def test_callback_rejects_missing_or_invalid_service_credential(self) -> None:
         run = self._run()
@@ -98,32 +103,39 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         run = self._run()
         assert self._post(run).status_code == status.HTTP_401_UNAUTHORIZED
 
-    @parameterized.expand([("state_write",), ("scheduling",)])
+    @parameterized.expand([("queue_write",), ("scheduling",)])
     def test_callback_does_not_acknowledge_a_failed_write_or_schedule(self, failure: str) -> None:
         run = self._run()
         client = APIClient()
         client.raise_request_exception = False
-        target = (
-            "products.tasks.backend.logic.services.gateway_usage._save_accounting_state"
-            if failure == "state_write"
-            else "products.tasks.backend.facade.gateway.schedule_gateway_usage"
-        )
-        with patch(target, side_effect=OperationalError("unavailable")):
-            response = client.post(
+
+        def post() -> HttpResponse:
+            return client.post(
                 self._url(run),
                 {},
                 format="json",
                 HTTP_AUTHORIZATION="Bearer gateway-token",
                 HTTP_X_POSTHOG_GATEWAY_TEAM_ID=str(run.team_id),
             )
+
+        if failure == "queue_write":
+            with patch("django.db.models.QuerySet.bulk_create", side_effect=OperationalError("unavailable")):
+                response = post()
+        else:
+            self.schedule_usage.side_effect = OperationalError("unavailable")
+            try:
+                response = post()
+            finally:
+                self.schedule_usage.side_effect = None
+
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         run.refresh_from_db()
-        assert run.state == (
-            {} if failure == "state_write" else {"unprocessed_request_ids": ["request_1"], "token_cost": {}}
-        )
+        assert run.state == {}
+        queued = TaskRunGatewayRequest.objects.for_team(self.team.id).filter(task_run_id=run.id, request_id="request_1")
+        assert queued.exists() == (failure == "scheduling")
+
         assert self._post(run).status_code == status.HTTP_204_NO_CONTENT
-        run.refresh_from_db()
-        assert run.state["unprocessed_request_ids"] == ["request_1"]
+        assert queued.exists()
 
     def test_callback_requires_a_valid_wallet_and_request_identifiers(self) -> None:
         run = self._run()
@@ -151,8 +163,11 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         response = self._post(run, wallet_team_id=other_team.id)
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        run.refresh_from_db()
-        assert run.state["unprocessed_request_ids"] == ["request_1"]
+        assert (
+            TaskRunGatewayRequest.objects.for_team(self.team.id)
+            .filter(task_run_id=run.id, request_id="request_1")
+            .exists()
+        )
 
     @override_settings(SANDBOX_AI_GATEWAY_MINT_KEY="phs_callback_mint")
     def test_callback_rejects_a_foreign_wallet(self) -> None:
@@ -170,10 +185,17 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
     def test_callback_is_idempotent_before_and_after_processing_and_terminalization(self) -> None:
         run = self._run()
 
+        def queued_request_ids() -> list[str]:
+            return list(
+                TaskRunGatewayRequest.objects.for_team(self.team.id)
+                .filter(task_run_id=run.id)
+                .order_by("created_at", "id")
+                .values_list("request_id", flat=True)
+            )
+
         assert self._post(run).status_code == status.HTTP_204_NO_CONTENT
         assert self._post(run).status_code == status.HTTP_204_NO_CONTENT
-        run.refresh_from_db()
-        assert run.state["unprocessed_request_ids"] == ["request_1"]
+        assert queued_request_ids() == ["request_1"]
 
         run.status = TaskRun.Status.COMPLETED
         run.state = {
@@ -185,11 +207,11 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         assert self._post(run).status_code == status.HTTP_204_NO_CONTENT
         run.refresh_from_db()
         assert run.status == TaskRun.Status.COMPLETED
-        assert run.state["unprocessed_request_ids"] == []
         assert run.state["token_cost"]["model"]["provider"]["cost_microusd"] == 4
+        assert queued_request_ids() == ["request_1"]
         assert self._post(run, "request_2").status_code == status.HTTP_204_NO_CONTENT
+        assert queued_request_ids() == ["request_1", "request_2"]
         run.refresh_from_db()
-        assert run.state["unprocessed_request_ids"] == ["request_2"]
         assert run.status == TaskRun.Status.COMPLETED
 
     def test_callback_returns_not_found_for_a_run_outside_the_path_team(self) -> None:

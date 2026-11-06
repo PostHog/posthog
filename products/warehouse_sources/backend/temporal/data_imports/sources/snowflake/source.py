@@ -66,6 +66,19 @@ _UNENCRYPTED_KEY_WITH_PASSPHRASE_MESSAGE = (
 
 _RESOURCE_MONITOR_QUOTA_ERROR = "cannot be resumed because resource monitor"
 
+# Snowflake error 251001: the connector's own `_validate_account` rejects an account identifier
+# containing a character other than letters, digits, '_', '-', or '.' before any request reaches
+# Snowflake — typically the customer pasted a full URL or hostname (e.g.
+# "https://xy12345.snowflakecomputing.com") into the account id field instead of the bare
+# identifier. Nothing we send differs between attempts, so retrying can never succeed until the
+# customer corrects the field. The message is fully static (no account value embedded), so it's
+# safe to match as-is. Same `{action}` placeholder convention as `_MALFORMED_PEM_MESSAGE`.
+_INVALID_ACCOUNT_IDENTIFIER_MESSAGE = (
+    "Snowflake rejected the account identifier because it contains a character other than letters, "
+    "digits, '_', '-', or '.' (for example a slash from a pasted URL or hostname). Enter just the "
+    "account identifier (for example xy12345 or xy12345.us-east-1), then {action}"
+)
+
 # Shown when `validate_credentials` hits a transient connect blip (see `get_retryable_errors`). The
 # sync path retries such a blip quietly, but interactive validation has nothing to retry
 # automatically, so it tells the user it was a brief blip and to try again rather than capturing it
@@ -92,6 +105,7 @@ SnowflakeErrors = {
     "Incorrect username or password was specified": "Incorrect username or password was specified",
     "This session does not have a current database": "No database is available for this connection. Check that the configured database exists and that the connecting role has USAGE on it, then try again.",
     "Verify the account name is correct": "Can't find an account with the specified account ID",
+    "Invalid account identifier": _INVALID_ACCOUNT_IDENTIFIER_MESSAGE.format(action="try again."),
     "Multi-factor authentication is required for this account": "This Snowflake account requires multi-factor authentication enrollment. Connect with a service user that uses key-pair authentication or is exempt from MFA.",
     # Snowflake error 290404: the login-request endpoint 404s because the account identifier doesn't
     # resolve to a real deployment (wrong/incomplete account id, missing region/cloud segment). The
@@ -336,6 +350,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig], ResumableSource[Snowflak
             # match the stable phrase.
             "This session does not have a current database": "No database is available for this connection. Check that the configured database exists and that the connecting role has USAGE on it, then resync.",
             "404 Not Found": None,
+            "Invalid account identifier": _INVALID_ACCOUNT_IDENTIFIER_MESSAGE.format(action="resync."),
             "Your free trial has ended": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
             "Your account is suspended due to lack of payment method": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
             # Snowflake error 250001: the user account was disabled by the customer's Snowflake admin
