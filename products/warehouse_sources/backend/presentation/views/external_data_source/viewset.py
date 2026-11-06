@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any, cast
 
 from django.db.models import Prefetch
@@ -31,6 +32,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
     latest_completed_job_prefetch,
+    latest_completed_job_subquery,
 )
 
 from . import credential_store, helpers, oauth_accounts, source_setup
@@ -46,6 +48,16 @@ from .webhook_setup import ExternalDataSourceWebhookSetupMixin
 
 class ExternalDataSourceExistsSerializer(serializers.Serializer):
     exists = serializers.BooleanField(help_text="Whether the project has any accessible external data sources.")
+
+
+class ExternalDataSourceSyncStateSerializer(serializers.Serializer):
+    fingerprint = serializers.CharField(
+        help_text=(
+            "Opaque digest of the sync state the sources list shows: each source's status and last "
+            "completed run, and each table's status, sync toggle, error, last sync and row count. "
+            "It changes when that state changes. Compare it with an earlier value; do not parse it."
+        )
+    )
 
 
 @extend_schema(extensions={"x-product": "warehouse_sources"})
@@ -105,6 +117,7 @@ class ExternalDataSourceViewSet(
     ]
     scope_object_read_actions = [
         "exists",
+        "sync_state",
         "list",
         "retrieve",
         "jobs",
@@ -131,6 +144,43 @@ class ExternalDataSourceViewSet(
         if not is_service_auth(request):
             queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
         return Response(ExternalDataSourceExistsSerializer({"exists": queryset.exists()}).data)
+
+    @extend_schema(responses=ExternalDataSourceSyncStateSerializer)
+    @action(methods=["GET"], detail=False, pagination_class=None, filter_backends=[])
+    def sync_state(self, request: Request, **kwargs: object) -> Response:
+        """Return a fingerprint of the sync state the sources list shows.
+
+        A client that polls the list can compare fingerprints and refetch the list only when it changed.
+        """
+        sources = self.get_queryset().select_related(None).prefetch_related(None)
+        if not is_service_auth(request):
+            sources = self.user_access_control.filter_queryset_by_access_level(sources)
+        source_rows = list(
+            sources.annotate(last_run_at=latest_completed_job_subquery(self.team_id, "created_at"))
+            .values_list("id", "status", "prefix", "description", "last_run_at")
+            .order_by("id")
+        )
+        schema_rows = list(
+            ExternalDataSchema.objects.filter(team_id=self.team_id, source_id__in=[row[0] for row in source_rows])
+            .exclude(deleted=True)
+            .values_list(
+                "id",
+                "source_id",
+                "name",
+                "label",
+                "status",
+                "should_sync",
+                "sync_type",
+                "latest_error",
+                "last_synced_at",
+                "table_id",
+                "table__row_count",
+                "table__deleted",
+            )
+            .order_by("id")
+        )
+        fingerprint = hashlib.sha256(repr((source_rows, schema_rows)).encode()).hexdigest()
+        return Response(ExternalDataSourceSyncStateSerializer({"fingerprint": fingerprint}).data)
 
     def check_object_permissions(self, request: Request, obj: Any) -> None:
         super().check_object_permissions(request, obj)

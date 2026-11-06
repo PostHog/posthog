@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api, { PaginatedResponse } from 'lib/api'
@@ -9,6 +10,7 @@ import { initKeaTests } from '~/test/init'
 import { ExternalDataSource } from '~/types'
 
 import { warehouseTablesList } from 'products/data_warehouse/frontend/generated/api'
+import { externalDataSourcesSyncStateRetrieve } from 'products/warehouse_sources/frontend/generated/api'
 
 import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
 import { sourceManagementLogic } from '../sourceManagementLogic'
@@ -16,6 +18,9 @@ import { sourceManagementLogic } from '../sourceManagementLogic'
 jest.mock('lib/api')
 jest.mock('products/data_warehouse/frontend/generated/api', () => ({
     warehouseTablesList: jest.fn(),
+}))
+jest.mock('products/warehouse_sources/frontend/generated/api', () => ({
+    externalDataSourcesSyncStateRetrieve: jest.fn(),
 }))
 jest.mock('~/queries/query')
 
@@ -49,6 +54,7 @@ describe('sourceManagementLogic', () => {
             tables: {},
             joins: [],
         } as DatabaseSchemaQueryResponse)
+        ;(externalDataSourcesSyncStateRetrieve as jest.Mock).mockResolvedValue({ fingerprint: 'fp-1' })
     })
 
     afterEach(() => {
@@ -253,5 +259,25 @@ describe('sourceManagementLogic', () => {
         expect(logic.values.selfManagedTables.map((table) => table.name)).toEqual(expected)
         // The sources list shows its self-managed section only while one of these tables is left.
         expect(logic.values.hasSelfManagedTables).toBe(expected.length > 0)
+    })
+    it.each([
+        ['unchanged', () => Promise.resolve({ fingerprint: 'fp-1' }), false],
+        ['changed', () => Promise.resolve({ fingerprint: 'fp-2' }), true],
+        ['unavailable', () => Promise.reject(new Error('offline')), true],
+    ])('refetches the sources list on a poll only when the sync state is %s', async (_, nextState, refetches) => {
+        router.actions.push('/data-management/sources')
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSourcesSuccess']).toMatchValues({ sourcesFingerprint: 'fp-1' })
+        ;(externalDataSourcesSyncStateRetrieve as jest.Mock).mockImplementation(nextState)
+
+        logic.actions.pollSources()
+
+        if (refetches) {
+            await expectLogic(logic).toDispatchActions(['loadSources'])
+        } else {
+            await expectLogic(logic)
+                .toDispatchActions(['scheduleSourcesPoll'])
+                .toNotHaveDispatchedActions(['loadSources'])
+        }
     })
 })
