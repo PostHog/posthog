@@ -44,6 +44,7 @@ const BASE: MCPSetupModeViewProps = {
     connectState: { kind: 'waiting' },
     recentCalls: null,
     recentCallsFailed: false,
+    toolCallsTotal: 2,
     serverTools: null,
     serverToolsFailed: false,
     onExit: () => {},
