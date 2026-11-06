@@ -2858,7 +2858,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             else configuration
         )
         with patch("products.cdp.backend.api.hog_function.create_hog_invocation_test") as mock_invocation:
-            mock_invocation.return_value = MagicMock(status_code=500, json=lambda: {"errors": ["Worker failed"]})
+            mock_invocation.return_value = MagicMock(
+                status_code=500,
+                json=lambda: {"errors": ["Worker failed"], "request_origins": ["https://example.com"]},
+            )
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/{function_id}/invocations/",
                 data={"configuration": tested_configuration, "mock_async_functions": mock_async_functions},
@@ -2882,6 +2885,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "input_references": {"payload": ["workspace"]},
             "mapping_input_references": {"mapping_text": ["mapping_workspace"]},
             "hog": EXAMPLE_FULL["hog"],
+            "request_origins": ["https://example.com"],
         }
         assert "0e02d917-563f-4050-9725-aad881b69937" not in json.dumps(detail)
 
