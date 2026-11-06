@@ -127,19 +127,19 @@ async fn end_to_end_resolver_test() {
 
     let wrapped = NoOpChunkIdFetcher { inner: sourcemap };
     let hmp = NoOpChunkIdFetcher {
-        inner: HermesMapProvider {},
+        inner: HermesMapProvider::new(&config.resolver),
     };
 
     let pgp = NoOpChunkIdFetcher {
-        inner: ProguardProvider {},
+        inner: ProguardProvider::new(&config.resolver),
     };
 
     let apple = NoOpChunkIdFetcher {
-        inner: AppleProvider {},
+        inner: AppleProvider::new(&config.resolver),
     };
 
     let native = NoOpChunkIdFetcher {
-        inner: NativeProvider {},
+        inner: NativeProvider::new(&config.resolver),
     };
 
     let catalog = Catalog::new(Caching::new(wrapped, cache), hmp, pgp, apple, native);

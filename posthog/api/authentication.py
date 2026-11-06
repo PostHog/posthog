@@ -56,7 +56,7 @@ from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredential
 from posthog.api.email_verification import email_verification_code_verifier, is_email_verification_disabled
 from posthog.auth import ACCOUNT_BLOCKED_DETAIL
 from posthog.caching.login_device_cache import check_and_cache_login_device
-from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
+from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, POSTHOG_INTERNAL_EMAIL_SUFFIX
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
@@ -429,7 +429,10 @@ class LoginSerializer(serializers.Serializer):
                 code="verified_domain_required",
             )
 
-        clear_two_factor_session_flags(request)
+        # A re-auth keeps the 2FA flag so that the signed-in session works while the user enters
+        # the second factor. Without the flag, enforced 2FA refuses every other request until logout.
+        if not was_authenticated_before_login_attempt:
+            clear_two_factor_session_flags(request)
 
         if self._check_if_2fa_required(user):
             request.session["user_authenticated_but_no_2fa"] = user.pk
@@ -1592,6 +1595,25 @@ def social_reauth_complete(strategy: DjangoStrategy, backend, user: User | None 
         # Matching `log_user_login_activity`: a failed audit write must not fail the re-auth itself
         logger.exception("Failed to log SSO re-authentication activity", user_id=user.id, error=e)
         capture_exception(e)
+
+
+def social_grant_staff_to_google_workspace_members(
+    backend: BaseAuth, response: dict[str, Any], user: User | None = None, **kwargs: Any
+) -> None:
+    """
+    Employees on dev ask for Django staff. This step grants it when they log in to dev with Google,
+    so they do not have to ask. The `hd` claim confirms that our Google Workspace manages the account.
+    """
+    if (
+        settings.CLOUD_DEPLOYMENT == "DEV"
+        and backend.name == "google-oauth2"
+        and user is not None
+        and not user.is_staff
+        and user.email.endswith(POSTHOG_INTERNAL_EMAIL_SUFFIX)
+        and response.get("hd") in settings.ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS
+    ):
+        user.is_staff = True
+        user.save(update_fields=["is_staff"])
 
 
 def social_login_notification(

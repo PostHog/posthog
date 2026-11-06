@@ -64,6 +64,15 @@ class PropertyAccessControlState:
     default_access_level: PropertyAccessLevel = PropertyAccessLevel.READ_WRITE
 
 
+@frozen
+class PropertyDefinitionLabel:
+    """How a property access control rule names its property definition."""
+
+    id: UUID
+    name: str
+    is_person: bool
+
+
 # --- Input DTOs ---
 
 
@@ -79,7 +88,7 @@ class FallbackParent:
 class ObjectAccessRef:
     """The fields object-level access control reads from one object, without the model.
 
-    A view that serves a facade contract passes this to `check_object_permissions` in place of a
+    A view that serves a facade contract returns this from `object_access_ref()` in place of a
     model instance. Resolution needs the resource, the object id, and the creator. A resource that
     inherits access from a parent object through a foreign key (`RESOURCE_FALLBACK_MAP`) also needs
     `fallback_parent`, read off that foreign key. Without it the check raises, because resolution
