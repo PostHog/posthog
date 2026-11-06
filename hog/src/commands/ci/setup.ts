@@ -13,8 +13,8 @@ interface Setup {
     // What to add to posthog.json. A job reads a host from it only for PostHog Cloud.
     posthogJson: { host?: Host; projectId: number }
     snippet: string
-    // What the job sets instead of posthog.json, or as well as it for a self-hosted PostHog.
-    env: { HOG_HOST: Host; HOG_PROJECT_ID: string }
+    // The job sets it as HOG_HOST when posthog.json can't name it.
+    host: Host
     docsUrl: string
 }
 
@@ -41,7 +41,7 @@ function setupFor(provider: WorkloadProvider, target: { host: Host; projectId: P
         provider: provider.name,
         posthogJson: { ...(cloud ? { host: cloud } : {}), projectId: Number(target.projectId) },
         snippet: provider.snippet(target),
-        env: { HOG_HOST: target.host, HOG_PROJECT_ID: String(target.projectId) },
+        host: target.host,
         docsUrl: provider.docsUrl,
     }
 }
@@ -89,8 +89,8 @@ function printSnippet(out: Output, result: Setup): void {
     out.line('')
     out.line(
         result.posthogJson.host
-            ? `Or, instead of posthog.json, set HOG_HOST=${result.env.HOG_HOST} and HOG_PROJECT_ID=${result.env.HOG_PROJECT_ID} in the job.`
-            : `This PostHog isn't PostHog Cloud, so the job also needs HOG_HOST=${result.env.HOG_HOST}.`
+            ? `Or, instead of posthog.json, set HOG_HOST=${result.host} and HOG_PROJECT_ID=${result.posthogJson.projectId} in the job.`
+            : `This PostHog isn't PostHog Cloud, so the job also needs HOG_HOST=${result.host}.`
     )
     out.line(out.style(`More in ${result.docsUrl}`, 'dim'))
 }
