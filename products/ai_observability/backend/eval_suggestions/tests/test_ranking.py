@@ -7,12 +7,13 @@ from products.ai_observability.backend.eval_suggestions.measure import Measureme
 from products.ai_observability.backend.eval_suggestions.profile import TeamProfile
 
 
-def _sampled(trace_id: str, product: str, held_out: bool = False) -> SampledTrace:
+def _sampled(trace_id: str, product: str, held_out: bool = False, earlier: tuple[str, ...] = ()) -> SampledTrace:
     return SampledTrace(
         trace=LLMTrace(id=trace_id, createdAt="2026-11-01T00:00:00Z", distinctId="user", events=[]),
         held_out=held_out,
         spans_days=False,
         segments={"ai_product": product},
+        segment_values={"ai_product": frozenset({product, *earlier})},
         raw_segments={"ai_product": product},
         final_text="answer",
         turn_text="",
@@ -36,6 +37,7 @@ def _population(
 PROFILE = TeamProfile(
     generations=5000,
     traces=1000,
+    sessions=100,
     generations_by_days_ago={0: 700, 1: 700},
     traces_by_days_ago={0: 150, 1: 150},
     tool_call_share=0.5,
@@ -189,3 +191,30 @@ def test_judge_rollout_stays_near_the_weekly_budget(
 ) -> None:
     cost = ranking.judge_cost(weekly_units, None, ranking.DEFAULT_JUDGE_MODEL)
     assert (cost.rollout_percentage, cost.weekly_runs) == (rollout, weekly_runs)
+
+
+@parameterized.expand(
+    [
+        ("last_generation_matches", "batch", (), True),
+        ("an_earlier_generation_matches", "chat", ("batch",), True),
+        ("no_generation_matches", "chat", (), False),
+    ]
+)
+def test_a_filtered_check_runs_where_any_generation_matches(
+    _name: str, last: str, earlier: tuple[str, ...], in_scope: bool
+) -> None:
+    filters = [{"key": "ai_product", "value": ["batch"], "operator": "exact", "type": "event"}]
+    assert ranking._in_scope(filters, _sampled("t", last, earlier=earlier)) is in_scope
+
+
+# Above the 1,000-run weekly budget the rollout shrinks, so generations and traces both land near 1,000.
+@parameterized.expand([("generation", 1000), ("trace", 1000), ("session", 100)])
+def test_a_screened_judge_counts_runs_in_its_own_unit(target: str, weekly_units: int) -> None:
+    result = ranking.ScreeningResult(template_key="prompt_injection", screened=10, flagged=[("t1", "flagged")] * 3)
+    sample = TraceSample(main=[_sampled("t1", "chat")], held_out=[])
+
+    proposal = ranking.screened_proposal(
+        result, PROFILE, sample, target=target, judge_model=ranking.DEFAULT_JUDGE_MODEL, similar_evaluation_id=None
+    )
+
+    assert proposal is not None and proposal.estimated_weekly_runs == weekly_units

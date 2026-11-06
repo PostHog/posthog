@@ -18,7 +18,7 @@ from . import cards, catalog
 from .adapters import AdaptedCheck
 from .coverage import EvalFix
 from .measure import Measurement, Outcome, SampledTrace, TraceSample
-from .profile import StructuredGap, TeamProfile
+from .profile import StructuredGap, TeamProfile, normalize_segment_value
 from .stats import wilson_interval
 
 MAX_SUGGESTIONS = 3
@@ -184,12 +184,13 @@ def filter_for(
     """
     total_failures = len(failing_ids)
     best: tuple[float, str, str] | None = None
-    keys = {key for sampled in traces for key in sampled.segments}
+    # The scheduler runs a trace evaluation when any generation matches, so a trace belongs to every value it sent.
+    keys = {key for sampled in traces for key in sampled.segment_values}
     for key in sorted(keys):
-        values = {sampled.segments[key] for sampled in traces if key in sampled.segments}
+        values = {value for sampled in traces for value in sampled.segment_values.get(key, ())}
         for value in sorted(values):
-            inside = [s for s in traces if s.segments.get(key) == value and s.trace.id in outcomes_by_trace]
-            outside = [s for s in traces if s.segments.get(key) != value and s.trace.id in outcomes_by_trace]
+            inside = [s for s in traces if _sent(s, key, value) and s.trace.id in outcomes_by_trace]
+            outside = [s for s in traces if not _sent(s, key, value) and s.trace.id in outcomes_by_trace]
             failed_in = sum(1 for s in inside if s.trace.id in failing_ids)
             failed_out = sum(1 for s in outside if s.trace.id in failing_ids)
             if failed_in < max(MIN_FILTER_FAILURES, MIN_FILTER_FAILURE_SHARE * total_failures) or not outside:
@@ -197,8 +198,8 @@ def filter_for(
             low_in = wilson_interval(failed_in, len(inside)).low
             if low_in <= wilson_interval(failed_out, len(outside)).high:
                 continue
-            held_in = [failed for s, failed in held_out if s.segments.get(key) == value]
-            held_rest = [failed for s, failed in held_out if s.segments.get(key) != value]
+            held_in = [failed for s, failed in held_out if _sent(s, key, value)]
+            held_rest = [failed for s, failed in held_out if not _sent(s, key, value)]
             if not held_in or not held_rest or sum(held_in) / len(held_in) <= sum(held_rest) / len(held_rest):
                 continue
             if best is None or low_in > best[0]:
@@ -214,8 +215,15 @@ def segment_filter(key: str, value: str, traces: Sequence[SampledTrace]) -> dict
     return {"key": key, "value": raw_values or [value], "operator": "exact", "type": "event"}
 
 
+def _sent(sampled: SampledTrace, key: str, value: str) -> bool:
+    return value in sampled.segment_values.get(key, ())
+
+
 def _in_scope(filters: list[dict[str, Any]], sampled: SampledTrace) -> bool:
-    return all(sampled.raw_segments.get(prop["key"]) in prop["value"] for prop in filters)
+    """Whether the live evaluation would run on this trace: some generation matches every filter."""
+    return all(
+        any(_sent(sampled, prop["key"], normalize_segment_value(value)) for value in prop["value"]) for prop in filters
+    )
 
 
 def _scope_share(filters: list[dict[str, Any]], traces: Sequence[SampledTrace]) -> float:
@@ -254,9 +262,7 @@ def code_check_proposal(
     failed, applicable = counts.failed, counts.applicable
     failing = [outcome for outcome in main if outcome.failed]
     weekly_units = profile.traces * applicable / max(len(sample.main), 1)
-    segment = (
-        next((s.segments[filters[0]["key"]] for s in sample.traces if _in_scope(filters, s)), None) if filters else None
-    )
+    segment = normalize_segment_value(filters[0]["value"][0]) if filters else None
     text = cards.code_check_text(check, failed / applicable, segment)
     return Proposal(
         kind=EvalSuggestionKind.NEW_HOG,
@@ -371,7 +377,7 @@ def screened_proposal(
     template = catalog.template(result.template_key)
     # Sentiment runs per generation, so it keeps the template's target whatever the traffic looks like.
     unit_target = template.target if template.evaluation_type == "sentiment" else target
-    weekly_units = profile.generations if unit_target == "generation" else profile.traces
+    weekly_units = {"generation": profile.generations, "session": profile.sessions}.get(unit_target, profile.traces)
     cost = judge_cost(weekly_units, mean_unit_tokens(unit_target, profile, sample), judge_model)
     credible = len(result.flagged) / result.screened * profile.traces * SCREENING_PRECISION
     is_judge = template.evaluation_type == "llm_judge"

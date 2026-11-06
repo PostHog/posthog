@@ -13,6 +13,7 @@ from products.ai_observability.backend.eval_suggestions.measure import SampledTr
 from products.ai_observability.backend.eval_suggestions.profile import TeamProfile
 
 PROFILE = TeamProfile(
+    sessions=0,
     generations=1000,
     traces=200,
     generations_by_days_ago={0: 500, 1: 500},
@@ -104,6 +105,7 @@ def _trace_calling(trace_id: str, *tools: str) -> SampledTrace:
         held_out=False,
         spans_days=False,
         segments={},
+        segment_values={},
         raw_segments={},
         final_text="",
         turn_text="",
