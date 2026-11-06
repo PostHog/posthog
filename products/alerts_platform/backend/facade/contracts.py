@@ -1013,7 +1013,6 @@ class PlatformAlertConfigurationView:
     alerts: tuple[PlatformAlertSnapshot, ...]
     labels: dict[str, str] = field(default_factory=dict)
     annotations: dict[str, str] = field(default_factory=dict)
-    # Recorded only for an alert with no source row. A copy's source row records them.
     created_by_id: int | None = None
     first_enabled_at: datetime | None = None
 

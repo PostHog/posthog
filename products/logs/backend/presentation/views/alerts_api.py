@@ -916,7 +916,6 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     def _update_native(
         self, instance: LogsAlertConfiguration, validated_data: dict, *, grouping: Grouping | None, snooze_data: object
     ) -> LogsAlertConfiguration:
-        # The platform's edit ends the firing and moves the state the way the logs state machine does here.
         snooze_changed = snooze_data is not _SENTINEL
         updated = _write_platform_edit(
             lambda: update_native(
@@ -1702,7 +1701,6 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 if platform_failures is None:
                     raise ValidationError({"state": "Only broken alerts can be reset."})
                 previous_failures = platform_failures
-            # An alert with no logs row has no logs state or history to move.
             if not is_native(alert):
                 self._reset_logs_row(alert)
             # The model's auto-signal skips these fields (signal_exclusions silences
