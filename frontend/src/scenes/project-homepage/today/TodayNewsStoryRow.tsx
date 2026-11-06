@@ -1,38 +1,21 @@
-import { IconArrowRight } from '@posthog/icons'
-import { Text } from '@posthog/quill'
-
-import { TodayChange } from './TodayChange'
 import type { TodayNewsStory } from './todayNewsEdition'
-import { productIcon } from './todayRowIcons'
+import { TodayNewsKicker } from './TodayNewsKicker'
 
 export function TodayNewsStoryRow({ story, onDiveIn }: { story: TodayNewsStory; onDiveIn: () => void }): JSX.Element {
     return (
-        <li className="border-t">
+        <li className="border-t py-4 first:border-t-0 first:pt-0 last:pb-0">
             <button
                 type="button"
                 onClick={onDiveIn}
                 aria-label={`Dive in: ${story.title}`}
-                className="group/story -mx-2 flex w-[calc(100%+1rem)] cursor-pointer items-start gap-3 rounded-md px-2 py-3 text-start hover:bg-fill-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30"
+                className="group/story flex w-full cursor-pointer flex-col gap-1.5 rounded-sm text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                 data-attr="today-news-dive-in"
             >
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="flex items-center gap-2">
-                        <span className="flex items-center gap-1.5 text-muted-foreground [&_svg]:size-3.5">
-                            {productIcon(story.product).glyph}
-                            <Text size="xs" variant="muted" render={<span />}>
-                                {story.productLabel}
-                            </Text>
-                        </span>
-                        <TodayChange change={story.change} tone={story.tone} />
-                    </span>
-                    <Text size="sm" render={<span />} className="font-medium">
-                        {story.title}
-                    </Text>
-                    <Text size="sm" variant="muted" render={<span />} className="text-pretty">
-                        {story.summary}
-                    </Text>
+                <TodayNewsKicker story={story} />
+                <span className="text-lg leading-snug font-bold tracking-tight text-balance decoration-2 underline-offset-4 group-hover/story:underline">
+                    {story.title}
                 </span>
-                <IconArrowRight className="mt-5 size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/story:opacity-100 group-focus-visible/story:opacity-100 motion-reduce:transition-none" />
+                <span className="text-sm text-pretty text-muted-foreground">{story.summary}</span>
             </button>
         </li>
     )

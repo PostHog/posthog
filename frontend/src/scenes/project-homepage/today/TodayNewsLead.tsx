@@ -1,13 +1,12 @@
 import { Suspense, lazy } from 'react'
 
-import { IconArrowRight } from '@posthog/icons'
-import { Skeleton, Text } from '@posthog/quill'
+import { Skeleton } from '@posthog/quill'
 
 import { retryImport } from 'lib/utils/retryImport'
 
 import { TodayChange } from './TodayChange'
 import type { TodayNewsLeadStory } from './todayNewsEdition'
-import { productIcon } from './todayRowIcons'
+import { TodayNewsKicker } from './TodayNewsKicker'
 
 const TodaySparkline = lazy(() =>
     retryImport(() => import('./TodaySparkline').then((m) => ({ default: m.TodaySparkline })))
@@ -19,35 +18,26 @@ export function TodayNewsLead({ story, onDiveIn }: { story: TodayNewsLeadStory; 
             type="button"
             onClick={onDiveIn}
             aria-label={`Dive in: ${story.title}`}
-            className="group/story -mx-2 flex w-[calc(100%+1rem)] cursor-pointer flex-col gap-1 rounded-md px-2 pt-1 pb-3 text-start hover:bg-fill-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30"
+            className="group/story flex h-full w-full cursor-pointer flex-col gap-3 rounded-sm text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
             data-attr="today-news-dive-in"
         >
-            <span className="flex items-center justify-between gap-2">
-                <span className="flex items-center gap-1.5 text-muted-foreground [&_svg]:size-3.5">
-                    {productIcon(story.product).glyph}
-                    <Text size="xs" variant="muted" render={<span />}>
-                        {story.productLabel}
-                    </Text>
-                </span>
-                <IconArrowRight className="size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/story:opacity-100 group-focus-visible/story:opacity-100 motion-reduce:transition-none" />
-            </span>
-            <Text render={<h3 />} className="m-0 text-base font-medium text-balance">
+            <TodayNewsKicker story={story} showChange={false} />
+            <h3 className="m-0 text-3xl leading-tight font-bold tracking-tight text-balance decoration-2 underline-offset-4 group-hover/story:underline">
                 {story.title}
-            </Text>
-            <Text size="sm" variant="muted" render={<span />} className="text-pretty">
-                {story.summary}
-            </Text>
-            <span className="mt-2 flex items-center gap-4">
-                <span className="flex shrink-0 items-baseline gap-1.5">
-                    <Text size="xs" variant="muted" render={<span />}>
-                        {story.metricLabel}
-                    </Text>
-                    <Text size="sm" render={<span />} className="font-medium" translate="no">
-                        {story.metricValue}
-                    </Text>
-                    <TodayChange change={story.change} tone={story.tone} />
-                </span>
-                <span className="h-8 min-w-0 flex-1">
+            </h3>
+            <p className="m-0 text-base text-pretty text-muted-foreground">{story.summary}</p>
+            <figure className="m-0 mt-2 flex min-h-40 flex-1 flex-col gap-3">
+                <figcaption className="flex items-baseline justify-between gap-4 border-t pt-2 font-mono text-xs tracking-wide text-muted-foreground uppercase">
+                    <span className="flex items-baseline gap-2">
+                        <span>{story.metricLabel}</span>
+                        <span className="text-foreground" translate="no">
+                            {story.metricValue}
+                        </span>
+                        <TodayChange change={story.change} tone={story.tone} />
+                    </span>
+                    <span className="text-foreground group-hover/story:underline">Dive in</span>
+                </figcaption>
+                <span className="min-h-28 flex-1">
                     <Suspense fallback={<Skeleton className="h-full w-full" />}>
                         <TodaySparkline
                             values={story.series}
@@ -57,7 +47,7 @@ export function TodayNewsLead({ story, onDiveIn }: { story: TodayNewsLeadStory; 
                         />
                     </Suspense>
                 </span>
-            </span>
+            </figure>
         </button>
     )
 }
