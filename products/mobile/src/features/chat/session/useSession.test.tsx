@@ -29,6 +29,10 @@ jest.mock('@/features/ai/aiApproval', () => ({
     })),
 }))
 jest.mock('expo-notifications', () => ({}))
+jest.mock('@/auth/projectScope', () => {
+    const scope = { host: 'https://app.example.com', projectId: 2 }
+    return { ...jest.requireActual('@/auth/projectScope'), sessionProjectScope: () => scope }
+})
 jest.mock('@/auth/useProjectScope', () => {
     const scope = { host: 'https://app.example.com', projectId: 2 }
     return { useProjectScope: () => scope }
@@ -143,7 +147,7 @@ function liveStream(caughtUp = true): {
 }
 
 function sentCommands(): unknown[] {
-    return mocked.sendTaskRunCommand.mock.calls.map(([, , command]) => command)
+    return mocked.sendTaskRunCommand.mock.calls.map(([, , , command]) => command)
 }
 
 const LIVE_TOOL_CALL = logLine({
@@ -152,6 +156,8 @@ const LIVE_TOOL_CALL = logLine({
     title: 'Run regression tests',
     status: 'in_progress',
 })
+
+const SESSION_SCOPE = { host: 'https://app.example.com', projectId: 2 }
 
 describe('useSession', () => {
     const originalAppState = AppState.currentState
@@ -165,7 +171,7 @@ describe('useSession', () => {
             signal: new AbortController().signal,
         })
         mocked.openTaskRunStream.mockReset().mockImplementation(
-            (_taskId, _runId, options) =>
+            (_scope, _taskId, _runId, options) =>
                 new Promise<Response>((_resolve, reject) => {
                     options?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
                 })
@@ -183,7 +189,7 @@ describe('useSession', () => {
             else if (initial === 'failed-read') mocked.getTask.mockRejectedValueOnce(new TransportError())
             else
                 mocked.getTask.mockImplementationOnce(
-                    (_id, signal) =>
+                    (_scope, _id, signal) =>
                         new Promise((_resolve, reject) => {
                             signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
                         })
@@ -293,14 +299,14 @@ describe('useSession', () => {
                     if (trigger === 'network') useConnectivity.setState({ status: 'offline' })
                     else changeAppState('background')
                 })
-                expect(mocked.openTaskRunStream.mock.calls[0]?.[2]?.signal?.aborted).toBe(true)
+                expect(mocked.openTaskRunStream.mock.calls[0]?.[3]?.signal?.aborted).toBe(true)
                 expect(mocked.openTaskRunStream).toHaveBeenCalledTimes(1)
                 await act(async () => {
                     if (trigger === 'network') useConnectivity.setState({ status: 'connected' })
                     else changeAppState('active')
                 })
                 expect(mocked.openTaskRunStream).toHaveBeenCalledTimes(2)
-                expect(mocked.openTaskRunStream.mock.calls[1]?.[2]?.lastEventId).toBe('100-0')
+                expect(mocked.openTaskRunStream.mock.calls[1]?.[3]?.lastEventId).toBe('100-0')
                 await act(async () => {
                     second.push(saved, '100-0')
                     second.push({}, undefined, 'keepalive')
@@ -533,7 +539,7 @@ describe('useSession', () => {
                     await act(async () => {
                         jest.advanceTimersByTime(2000)
                     })
-                    expect(mocked.openTaskRunStream.mock.calls.at(-1)?.[2]?.lastEventId).toBe('log-0')
+                    expect(mocked.openTaskRunStream.mock.calls.at(-1)?.[3]?.lastEventId).toBe('log-0')
                     await act(async () => {
                         reconnected.push(last, 'log-1')
                         reconnected.push({}, undefined, 'keepalive')
@@ -568,7 +574,7 @@ describe('useSession', () => {
                 firstStream.push({ type: 'resync' }, undefined, 'end')
             })
             await waitFor(() => expect(mocked.openTaskRunStream).toHaveBeenCalledTimes(2))
-            expect(mocked.openTaskRunStream.mock.calls[1]?.[2]?.lastEventId).toBeUndefined()
+            expect(mocked.openTaskRunStream.mock.calls[1]?.[3]?.lastEventId).toBeUndefined()
             await act(async () => {
                 secondStream.push(first, 'log-0')
                 secondStream.push(last, 'log-1')
@@ -664,7 +670,7 @@ describe('useSession', () => {
                 firstStream.push({ type: 'rotated' }, undefined, 'end')
             })
             await waitFor(() => expect(mocked.openTaskRunStream).toHaveBeenCalledTimes(2))
-            expect(mocked.openTaskRunStream.mock.calls[1]?.[2]?.lastEventId).toBe('log-0')
+            expect(mocked.openTaskRunStream.mock.calls[1]?.[3]?.lastEventId).toBe('log-0')
             expect(result.current.items).toEqual([])
             await act(async () => {
                 secondStream.push(last, 'log-1')
@@ -767,6 +773,7 @@ describe('useSession', () => {
 
             expect(mocked.sendTaskRunCommand).not.toHaveBeenCalled()
             expect(mocked.startTaskRun).toHaveBeenCalledWith(
+                SESSION_SCOPE,
                 TASK_ID,
                 {
                     mode: 'interactive',
@@ -778,7 +785,7 @@ describe('useSession', () => {
             )
             expect(result.current?.runId).toBe('run-2')
             expect(result.current?.items.at(-1)).toMatchObject({ kind: 'user', text: 'Rename the helper too' })
-            expect(mocked.openTaskRunStream).toHaveBeenCalledWith(TASK_ID, 'run-2', expect.anything())
+            expect(mocked.openTaskRunStream).toHaveBeenCalledWith(SESSION_SCOPE, TASK_ID, 'run-2', expect.anything())
         }
     )
 
@@ -849,8 +856,9 @@ describe('useSession', () => {
             await result.current.start('Why did signups drop?', context, options)
         })
 
-        expect(mocked.createTask).toHaveBeenCalledWith(createBody, expect.anything())
+        expect(mocked.createTask).toHaveBeenCalledWith(SESSION_SCOPE, createBody, expect.anything())
         expect(mocked.startTaskRun).toHaveBeenCalledWith(
+            SESSION_SCOPE,
             TASK_ID,
             {
                 mode: 'interactive',
@@ -862,7 +870,7 @@ describe('useSession', () => {
         expect(result.current.taskId).toBe(TASK_ID)
         expect(result.current.title).toBe('Signups drop')
         expect(result.current.items).toMatchObject([{ kind: 'user', text: 'Why did signups drop?' }])
-        expect(mocked.openTaskRunStream).toHaveBeenCalledWith(TASK_ID, 'run-1', expect.anything())
+        expect(mocked.openTaskRunStream).toHaveBeenCalledWith(SESSION_SCOPE, TASK_ID, 'run-1', expect.anything())
     })
 
     test('a refused first run deletes the new task and hands back the message', async () => {
@@ -971,6 +979,7 @@ describe('useSession', () => {
         expect(upload).toHaveBeenCalledWith({ kind: 'staged', taskId: TASK_ID }, [SHOT], expect.any(AbortSignal))
         expect(mocked.createTask.mock.invocationCallOrder[0]).toBeLessThan(upload.mock.invocationCallOrder[0] ?? 0)
         expect(mocked.startTaskRun).toHaveBeenCalledWith(
+            SESSION_SCOPE,
             TASK_ID,
             expect.objectContaining({ pending_user_artifact_ids: ['art-1'] }),
             expect.anything()
@@ -1005,6 +1014,7 @@ describe('useSession', () => {
             { method: 'user_message', params: { content: 'What is this?', artifact_ids: ['run-art'] } },
         ])
         expect(mocked.startTaskRun).toHaveBeenCalledWith(
+            SESSION_SCOPE,
             TASK_ID,
             expect.objectContaining({ resume_from_run_id: 'run-1', pending_user_artifact_ids: ['staged-art'] }),
             expect.anything()
@@ -1057,6 +1067,7 @@ describe('useSession', () => {
         })
 
         expect(mocked.startTaskRun).toHaveBeenCalledWith(
+            SESSION_SCOPE,
             TASK_ID,
             {
                 mode: 'interactive',
@@ -1245,6 +1256,7 @@ describe('useSession', () => {
         })
 
         expect(mocked.startTaskRun).toHaveBeenCalledWith(
+            SESSION_SCOPE,
             TASK_ID,
             expect.objectContaining({ pending_user_message: 'Also cover refunds', resume_from_run_id: 'run-1' }),
             expect.anything()

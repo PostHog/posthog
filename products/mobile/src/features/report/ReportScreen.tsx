@@ -6,6 +6,7 @@ import { type ReactElement, useEffect, useRef, useState } from 'react'
 import { View, type ViewInstance } from 'react-native'
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated'
 import { useAuthStore } from '@/auth/authStore'
+import { ProjectScopeOverride } from '@/auth/projectScope'
 import { CLOUD_REGIONS } from '@/auth/regions'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useViewer } from '@/auth/useViewer'
@@ -137,14 +138,16 @@ export function ReportScreen({ reportId, from, link = NO_LINK }: ReportScreenPro
                         <ChartCanvasBudget active={focused}>
                             {!isReportId(reportId, demo) ? (
                                 <ReportNotFound />
-                            ) : linkScope === 'elsewhere' ? (
+                            ) : linkScope.kind === 'elsewhere' ? (
                                 <ReportElsewhere reportId={reportId} link={link} />
-                            ) : linkScope === 'unverified' ? (
-                                <ReportUnverified reportId={reportId} />
-                            ) : linkScope === 'pending' ? (
-                                <ReportPending />
                             ) : (
-                                <ReportContent reportId={reportId} from={from} />
+                                <ProjectScopeOverride.Provider value={linkScope.override}>
+                                    <ReportContent
+                                        reportId={reportId}
+                                        from={from}
+                                        link={linkScope.override ? link : undefined}
+                                    />
+                                </ProjectScopeOverride.Provider>
                             )}
                         </ChartCanvasBudget>
                     </SceneFrame>
@@ -152,39 +155,6 @@ export function ReportScreen({ reportId, from, link = NO_LINK }: ReportScreenPro
             </View>
             {navigation ? <ReportNavigation /> : null}
         </OverlayHost>
-    )
-}
-
-function ReportPending(): ReactElement {
-    const styles = useStyles()
-    const router = useRouter()
-    return (
-        <View style={styles.screen}>
-            <TopChrome onBack={() => goBackOrInbox(router)} />
-            <LoadingView label="Loading the report" />
-        </View>
-    )
-}
-
-function ReportUnverified({ reportId }: { reportId: string }): ReactElement {
-    const styles = useStyles()
-    const colors = useColors()
-    const router = useRouter()
-    useEffect(() => {
-        track('mobile_report_load_failed', { report_id: reportId, kind: 'project_unverified' })
-    }, [reportId])
-    return (
-        <View style={styles.screen}>
-            <TopChrome onBack={() => goBackOrInbox(router)} />
-            <StateView
-                icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
-                title="Couldn't check this report's project"
-                message="Check your connection and try again."
-                actionLabel="Try again"
-                onAction={() => void useAuthStore.getState().reloadAccount()}
-                testID="report-unverified"
-            />
-        </View>
     )
 }
 
@@ -247,7 +217,7 @@ function ReportNotFound(): ReactElement {
     )
 }
 
-function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
+function ReportContent({ reportId, from, link }: ReportScreenProps): ReactElement {
     const styles = useStyles()
     const colors = useColors()
     const router = useRouter()
@@ -279,12 +249,14 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
 
     // A background refetch that fails keeps the cached report, so only a report that never loaded counts.
     const loadFailed = !query.data && query.isError
-    // biome-ignore lint/correctness/useExhaustiveDependencies: one event each time the error screen appears.
+    const errorKind = loadFailed ? apiErrorKind(query.error) : undefined
+    // The server answers for the link's project, so a project the account cannot read fails here, not before.
+    const linkRefused = link !== undefined && (errorKind === 'forbidden' || errorKind === 'not_found')
     useEffect(() => {
-        if (loadFailed) {
-            track('mobile_report_load_failed', { report_id: reportId, kind: apiErrorKind(query.error) })
+        if (errorKind && !linkRefused) {
+            track('mobile_report_load_failed', { report_id: reportId, kind: errorKind })
         }
-    }, [loadFailed, reportId])
+    }, [errorKind, linkRefused, reportId])
 
     const goBack = (): void => goBackOrInbox(router)
     const goTo = (id: string | undefined): (() => void) | undefined =>
@@ -312,6 +284,9 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
     }
 
     const report = query.data
+    if (!report && link && linkRefused) {
+        return <ReportElsewhere reportId={reportId} link={link} />
+    }
     if (!report) {
         return (
             <View style={styles.screen}>
@@ -335,8 +310,15 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
     const state = actionBarStateFor(report, { answer, handOffPending: actions.pending.handOff })
     const task = report.task
     const taskId = task?.taskId ?? report.work.assignee?.taskId
+    // Chat runs in the session's project, so a report from another project moves the session there first.
+    const followReportProject = (): void => {
+        if (link?.projectId != null) {
+            useAuthStore.getState().selectProject(link.projectId, 'link')
+        }
+    }
     const openTaskChat = (entry: TaskChatEntry): void => {
         if (taskId) {
+            followReportProject()
             track('mobile_report_action_pressed', {
                 action: 'task_chat',
                 from: entry,
@@ -384,6 +366,7 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
     }
     const openChat = (): void => {
         track('mobile_report_action_pressed', { action: 'chat', from: 'action_bar', report_id: report.id })
+        followReportProject()
         router.push({ pathname: '/chat', params: { reportId: report.id, entry: 'report' satisfies ChatSheetEntry } })
     }
 
@@ -399,7 +382,15 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
                 onNext={goTo(neighbors.nextId)}
                 onReassign={() => openSheet('assignee', 'chip')}
                 onChangePriority={() => openSheet('priority', 'chip')}
-                onReadFull={() => router.push({ pathname: '/report/[id]/details', params: { id: report.id } })}
+                onReadFull={() =>
+                    router.push({
+                        pathname: '/report/[id]/details',
+                        params: {
+                            id: report.id,
+                            ...(link?.projectId != null ? { project: String(link.projectId) } : {}),
+                        },
+                    })
+                }
             />
             <ActionBar
                 report={report}

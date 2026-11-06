@@ -5,7 +5,7 @@ import { isRecord } from '@/lib/records'
 import { sleep } from '@/lib/sleep'
 
 import type { BudgetFamily } from './budget'
-import { apiJson, projectPath } from './client'
+import { apiJson, projectPath, scopedPath } from './client'
 import { type ProjectScope, scopeKey } from './reports'
 
 // Shapes follow `QueryRequest`, `QueryStatusResponse` and `TrendsQueryResponse` in `posthog/schema.py`.
@@ -70,6 +70,8 @@ export interface RunQueryOptions {
     poll?: boolean
     /** Spends this budget instead of the Views `query` budget. */
     budgetFamily?: BudgetFamily
+    /** The project to query. Without it the query runs in the session's project. */
+    scope?: ProjectScope | null
 }
 
 /**
@@ -84,7 +86,10 @@ export async function runQuery(query: unknown, options: RunQueryOptions = {}): P
         refresh = 'blocking',
         poll = true,
         budgetFamily,
+        scope,
     } = options
+    const path = (relative: string): string =>
+        scope === undefined ? projectPath(relative) : scopedPath(scope, relative)
     const deadline = Date.now() + timeoutMs
     const controller = new AbortController()
     let timedOut = false
@@ -101,7 +106,7 @@ export async function runQuery(query: unknown, options: RunQueryOptions = {}): P
         Math.max(0, timeoutMs)
     )
     try {
-        const body = await apiJson<unknown>(projectPath('query/'), {
+        const body = await apiJson<unknown>(path('query/'), {
             method: 'POST',
             json: { query, client_query_id: randomUUID(), refresh },
             signal: controller.signal,
@@ -125,7 +130,7 @@ export async function runQuery(query: unknown, options: RunQueryOptions = {}): P
                 throw new QueryTimeoutError()
             }
             await sleep(Math.min(pollIntervalMs, Math.max(0, deadline - Date.now())), controller.signal)
-            const polled: unknown = await apiJson<unknown>(projectPath(`query/${encodeURIComponent(status.id)}/`), {
+            const polled: unknown = await apiJson<unknown>(path(`query/${encodeURIComponent(status.id)}/`), {
                 signal: controller.signal,
                 budgetFamily,
             })

@@ -180,6 +180,7 @@ export function useHandoffActions(reportId: string): HandoffActions {
                 return
             }
             const started = await kickOffReportTask(reportId, {
+                scope,
                 run,
                 signal: approval.signal,
                 taskId: handoffEntry(reportId).unstartedTaskId,
@@ -243,7 +244,7 @@ export function useHandoffActions(reportId: string): HandoffActions {
                 return
             }
             await deliverAnswer(question, input, { requestId, kind: live.pending.kind }, (signal) =>
-                deliverPermissionResponse(run, plan.params, { signal })
+                deliverPermissionResponse(scope, run, plan.params, { signal })
             )
             return
         }

@@ -61,7 +61,7 @@ export function useAvailableReviewers(query: string): QueryState<Person[]> {
     const people = useMemo(() => DEMO_PEOPLE.filter((person) => matches(person, query)), [query])
     const live = useQuery({
         queryKey: reportKeys.availableReviewers(scope, search),
-        queryFn: ({ signal }) => fetchAvailableReviewers(search, signal),
+        queryFn: ({ signal }) => fetchAvailableReviewers(scope, search, signal),
         enabled: mode === 'live' && scope !== null,
         staleTime: REVIEWERS_STALE_MS,
         placeholderData: keepPreviousData,
@@ -91,7 +91,7 @@ export function useGithubOnlyReviewerCount(reportId: string): number {
     const scope = useProjectScope()
     const count = useQuery({
         queryKey: reportKeys.reviewers(scope, reportId),
-        queryFn: ({ signal }) => fetchLatestReviewerArtefact(reportId, signal),
+        queryFn: ({ signal }) => fetchLatestReviewerArtefact(scope, reportId, signal),
         enabled: mode === 'live' && scope !== null,
         select: (data) => githubOnlyReviewers(data ? [data] : []).length,
     })
@@ -113,7 +113,7 @@ export function useReportReviewersQuery(reportId: string): QueryState<Reviewer[]
     const demo = useDemoReportQuery(reportId)
     const live = useQuery({
         queryKey: reportKeys.reviewers(scope, reportId),
-        queryFn: ({ signal }) => fetchLatestReviewerArtefact(reportId, signal),
+        queryFn: ({ signal }) => fetchLatestReviewerArtefact(scope, reportId, signal),
         enabled: mode === 'live' && scope !== null,
         select: selectReviewers,
     })
@@ -150,13 +150,13 @@ export function useSetReviewersAction(reportId: string): AsyncAction<[string[]]>
         }
         // The sheet only lists PostHog users. Reviewers known only by GitHub login go back unchanged,
         // because the PUT replaces the whole list.
-        const latest = await fetchLatestReviewerArtefact(reportId)
+        const latest = await fetchLatestReviewerArtefact(scope, reportId)
         const githubOnly = githubOnlyReviewers(latest ? [latest] : [])
         const content: SuggestedReviewerWriteApi[] = [
             ...[...new Set(uuids)].map((uuid) => ({ user_uuid: uuid })),
             ...githubOnly.map((login) => ({ github_login: login })),
         ]
-        await putReportReviewers(reportId, content)
+        await putReportReviewers(scope, reportId, content)
         track('mobile_reviewers_changed', { report_id: reportId, count: uuids.length })
         void queryClient.invalidateQueries({ queryKey: reportKeys.inbox(scope) })
         // The sheet closes when this resolves, so wait for the work log that names the new reviewers.

@@ -119,7 +119,7 @@ test.each(['run', 'question', 'project'] as const)(
 test('leaving the screen aborts an approved decision delivery', async () => {
     useAiConsentStore.getState().accept(aiConsentKey(HOST, 'person-1'))
     let signal: AbortSignal | undefined
-    jest.mocked(deliverPermissionResponse).mockImplementation((_run, _params, options) => {
+    jest.mocked(deliverPermissionResponse).mockImplementation((_scope, _run, _params, options) => {
         signal = options?.signal
         return new Promise((_resolve, reject) => {
             signal?.addEventListener('abort', () => reject(new Error('Aborted')))

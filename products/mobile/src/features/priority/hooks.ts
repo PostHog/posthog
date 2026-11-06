@@ -25,7 +25,7 @@ export function useSetPriorityAction(reportId: string): AsyncAction<[ReportPrior
         }
         const session = sessionGeneration()
         try {
-            await postPriorityJudgment(reportId, priority)
+            await postPriorityJudgment(scope, reportId, priority)
         } catch (error) {
             if (sessionGeneration() === session) {
                 reportScopeError(error, 'inbox')

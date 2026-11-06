@@ -56,7 +56,10 @@ describe('useSetPriorityAction', () => {
         )
         const { result } = renderHook(
             () => ({
-                report: useQuery({ queryKey: DETAIL_KEY, queryFn: ({ signal }) => fetchReport(REPORT_ID, signal) }),
+                report: useQuery({
+                    queryKey: DETAIL_KEY,
+                    queryFn: ({ signal }) => fetchReport(SCOPE, REPORT_ID, signal),
+                }),
                 action: useSetPriorityAction(REPORT_ID),
             }),
             { wrapper }

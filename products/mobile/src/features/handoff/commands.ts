@@ -1,4 +1,5 @@
 import { ApiError } from '@/api/client'
+import type { ProjectScope } from '@/api/reports'
 import {
     type PermissionResponseParams,
     sendTaskRunCommand,
@@ -69,6 +70,7 @@ function isResolved(response: TaskRunCommandResponseApi): boolean {
 
 /** HTTP 200 can carry a JSON-RPC error, so success is only `result.resolved === true`. */
 export async function deliverPermissionResponse(
+    scope: ProjectScope | null,
     run: RunRef,
     params: PermissionResponseParams,
     options: { signal?: AbortSignal; clock?: Clock } = {}
@@ -79,6 +81,7 @@ export async function deliverPermissionResponse(
         response = await retryWhileStarting(
             () =>
                 sendTaskRunCommand(
+                    scope,
                     run.taskId,
                     run.runId,
                     { method: 'permission_response', params },
@@ -104,6 +107,7 @@ export async function deliverPermissionResponse(
 
 /** A 409 means the run's workflow is over; continuing would need a new resume run. */
 export async function sendUserMessage(
+    scope: ProjectScope | null,
     run: RunRef,
     content: string,
     options: { id: string; signal?: AbortSignal; clock?: Clock; steer?: boolean; artifactIds?: readonly string[] }
@@ -119,6 +123,7 @@ export async function sendUserMessage(
         const response = await retryWhileStarting(
             () =>
                 sendTaskRunCommand(
+                    scope,
                     run.taskId,
                     run.runId,
                     { method: 'user_message', params },
