@@ -39,9 +39,14 @@ def body_for(source: SourceKind) -> LegacyWebhookBody | None:
 
 
 def keeps_legacy_webhook_body(team: Team) -> bool | None:
-    """Whether native delivery sends this team the body its source's own stack sent. None when unknown."""
+    """Whether native delivery sends this team the body its source's own stack sent. None when unknown.
+
+    The gate is read before the list. A flag refresh can land between the two reads, and the list is
+    always topped up before the gate turns on, so a gate read from the older definitions is either
+    off, which keeps the legacy body, or already sees the topped-up list.
+    """
+    gets_alertmanager_body = team_flag_enabled(ALERTMANAGER_WEBHOOK_BODY_FLAG, team)
     listed = team_flag_enabled(LEGACY_WEBHOOK_BODY_FLAG, team)
     if listed is None or listed:
         return listed
-    gets_alertmanager_body = team_flag_enabled(ALERTMANAGER_WEBHOOK_BODY_FLAG, team)
     return None if gets_alertmanager_body is None else not gets_alertmanager_body

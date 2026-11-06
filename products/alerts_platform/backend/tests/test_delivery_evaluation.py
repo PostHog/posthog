@@ -640,6 +640,20 @@ class TestDeliverEvaluation(APIBaseTest):
         assert post.call_args.kwargs["headers"] == {"X-PostHog-Webhook-Version": header}
         assert post.call_args.args[1]["version"] == body_version
 
+    def test_a_flag_refresh_between_the_two_reads_keeps_a_newly_listed_team_on_the_legacy_body(self) -> None:
+        before = {LEGACY_WEBHOOK_BODY_FLAG: False, ALERTMANAGER_WEBHOOK_BODY_FLAG: False}
+        after = {LEGACY_WEBHOOK_BODY_FLAG: True, ALERTMANAGER_WEBHOOK_BODY_FLAG: True}
+        reads: list[str] = []
+
+        def flag(key: str, *_args: Any, **_kwargs: Any) -> bool:
+            reads.append(key)
+            return (before if len(reads) == 1 else after)[key]
+
+        with patch(
+            "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled", side_effect=flag
+        ):
+            assert legacy_webhook.keeps_legacy_webhook_body(self.team) is True
+
     def test_logs_registers_its_legacy_webhook_body_at_startup(self) -> None:
         # Every other case here patches the registry, so none of them notices a missing registration,
         # which would send grandfathered teams the Alertmanager body without any error.
