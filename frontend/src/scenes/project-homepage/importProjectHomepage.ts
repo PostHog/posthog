@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -12,11 +14,16 @@ export function importTodayHome(): Promise<typeof import('./today/TodayHome')> {
     return import('./today/TodayHome')
 }
 
-export function importProjectHomepage(): Promise<typeof import('./ProjectHomepage')> {
+// The boot prefetch runs before the app mounts featureFlagLogic, so it reads the flag from posthog-js.
+function todayRailNavIsOn(): boolean {
     const featureFlags = featureFlagLogic.findMounted()?.values.featureFlags
-    if (featureFlags) {
-        const importContent = featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] ? importTodayHome : importAiFirstHomepage
-        importContent().catch(() => {})
-    }
+    return featureFlags
+        ? !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
+        : !!posthog.isFeatureEnabled(FEATURE_FLAGS.TODAY_RAIL_NAV, { send_event: false })
+}
+
+export function importProjectHomepage(): Promise<typeof import('./ProjectHomepage')> {
+    const importContent = todayRailNavIsOn() ? importTodayHome : importAiFirstHomepage
+    importContent().catch(() => {})
     return import('./ProjectHomepage')
 }
