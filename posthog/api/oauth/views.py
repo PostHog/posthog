@@ -47,6 +47,7 @@ from posthog.api import id_jag
 from posthog.api.oauth.cimd import (
     CIMD_THROTTLE_CLASSES,
     CIMDFetchError,
+    CIMDSigningKeyMissingError,
     CIMDValidationError,
     enqueue_cimd_refresh_if_stale,
     get_or_create_cimd_application,
@@ -172,7 +173,9 @@ _OTHER_CLOUD_REGION_HOST = {"US": "https://eu.posthog.com", "EU": "https://us.po
 # InvalidClientIdError doesn't carry the request, so this is how error_response learns the
 # reason. validate_client_id resets it on every call, and error_response only uses it for the
 # same client_id.
-_cimd_resolution_error: ContextVar[tuple[str, str] | None] = ContextVar("cimd_resolution_error", default=None)
+_cimd_resolution_error: ContextVar[tuple[str, CIMDFetchError | CIMDValidationError] | None] = ContextVar(
+    "cimd_resolution_error", default=None
+)
 
 
 def unknown_client_id_description(client_id: str | None, cimd_error: str | None = None) -> str:
@@ -764,7 +767,7 @@ class OAuthValidator(OAuth2Validator):
                 return True
             except (CIMDFetchError, CIMDValidationError) as e:
                 logger.warning("cimd_resolution_failed", client_id=client_id, error=str(e), cause=repr(e.__cause__))
-                _cimd_resolution_error.set((client_id, str(e)))
+                _cimd_resolution_error.set((client_id, e))
                 return False
 
         # Standard UUID lookup
@@ -2026,8 +2029,14 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             # only ever reaches the JSON body.
             client_id = self.request.query_params.get("client_id")
             failure = _cimd_resolution_error.get()
+            cimd_error = failure[1] if failure and failure[0] == client_id else None
+            if isinstance(cimd_error, CIMDSigningKeyMissingError):
+                return Response(
+                    {"error": "server_error", "error_description": str(cimd_error)},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
             oauthlib_error.description = unknown_client_id_description(
-                client_id, cimd_error=failure[1] if failure and failure[0] == client_id else None
+                client_id, cimd_error=str(cimd_error) if cimd_error else None
             )
 
         redirect, error_response = super().error_response(error, **kwargs)
