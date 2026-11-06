@@ -313,7 +313,7 @@ class TestSandboxTenantStateSync(BaseTest):
             ("database_unreachable", PsycopgOperationalError("connection refused"), "error"),
         ]
     )
-    def test_a_sync_that_cannot_lock_the_state_row_is_counted_and_retried(
+    def test_a_sync_that_cannot_lock_the_state_row_is_counted_and_raised(
         self, _name: str, cause: Exception, kind: str
     ) -> None:
         def get(**_kwargs: object) -> None:

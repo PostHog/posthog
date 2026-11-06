@@ -33,6 +33,9 @@ class TestSandboxSenderAPI(APIBaseTest):
         self.boto3_client = self.enterContext(patch("products.workflows.backend.providers.ses.boto3.client"))
         self.flag_enabled = self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         self.capture = self.enterContext(patch("posthoganalytics.capture"))
+        self.capture_exception = self.enterContext(
+            patch("products.workflows.backend.services.sandbox_sender.capture_exception")
+        )
 
     def _ensure(self) -> "_MonkeyPatchedResponse":
         return self.client.post(f"/api/projects/{self.team.id}/integrations/email_sandbox_sender/")
@@ -119,6 +122,8 @@ class TestSandboxSenderAPI(APIBaseTest):
             ("domain unset", {"WORKFLOWS_SANDBOX_SENDER_DOMAIN": ""}, True),
             ("from address unset", {"SES_SANDBOX_FROM_ADDRESS": ""}, True),
             ("from address off the sandbox domain", {"SES_SANDBOX_FROM_ADDRESS": "hello@example.org"}, True),
+            ("from address without a local part", {"SES_SANDBOX_FROM_ADDRESS": "sandbox.example.com"}, True),
+            ("from address with an empty local part", {"SES_SANDBOX_FROM_ADDRESS": "@sandbox.example.com"}, True),
             ("tenant name unset", {"SES_SANDBOX_TENANT_NAME": ""}, True),
         ]
     )
@@ -133,6 +138,7 @@ class TestSandboxSenderAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
         assert not self._sandbox_rows().exists()
         assert self._provisioned_events() == []
+        assert self.capture_exception.called == flag_enabled
 
     def test_ensure_is_not_found_while_the_organization_is_blocked_and_keeps_existing_senders(self) -> None:
         other_organization = Organization.objects.create(name="Other organization")
