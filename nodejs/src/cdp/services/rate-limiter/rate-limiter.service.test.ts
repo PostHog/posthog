@@ -9,9 +9,8 @@ import { TeamManager } from '~/common/utils/team-manager'
 import { Hub } from '~/types'
 
 import { getDefaultCdpConfig } from '../../config'
-import { createSandboxEmailCapValkey } from '../../email-action-valkeys'
 import { SandboxEmailSender } from '../messaging/sandbox-email-sender'
-import { createSesRateLimiterValkeyPool } from './rate-limiter-valkey-pool'
+import { createSandboxEmailCapValkey, createSesRateLimiterValkeyPool } from './rate-limiter-valkey-pool'
 import { ClaimRequest, IssuedClaim, RateLimiterService } from './rate-limiter.service'
 
 const KEY = `@posthog-test/ses-rate-limiter/{${randomUUID()}}/bucket`
@@ -548,7 +547,10 @@ describe('RateLimiterService', () => {
             ).toEqual({ granted: false, deniedIndexes: null })
         })
 
-        it('fails a command at once while a fail-fast pool reconnects', async () => {
+        it.each([
+            ['a fail-fast pool fails the command at once', 'failFast', 'rejects'],
+            ['an optional pool queues the command until it reconnects', 'optional', 'resolves'],
+        ] as const)('while the connection drops, %s', async (_name, mode, outcome) => {
             const optionalValkey = createSesRateLimiterValkeyPool(
                 {
                     SES_RATE_LIMITER_VALKEY_HOST: hub.CDP_REDIS_HOST || '127.0.0.1',
@@ -559,7 +561,7 @@ describe('RateLimiterService', () => {
                     REDIS_POOL_MAX_SIZE: 1,
                 },
                 'reconnect-test',
-                { mode: 'failFast' }
+                { mode }
             )!
             let pooled: RedisClient | undefined
             try {
@@ -573,7 +575,11 @@ describe('RateLimiterService', () => {
                     return client.get(`${KEY}/during-outage`)
                 })
 
-                await expect(duringOutage).rejects.toThrow('enableOfflineQueue')
+                if (outcome === 'rejects') {
+                    await expect(duringOutage).rejects.toThrow('enableOfflineQueue')
+                } else {
+                    await expect(duringOutage).resolves.toBeNull()
+                }
             } finally {
                 pooled?.disconnect()
             }
@@ -627,7 +633,7 @@ describe('RateLimiterService', () => {
                 })
             )
             await new Promise<void>((resolve) => stalledValkey.listen(0, '127.0.0.1', resolve))
-            const { sandboxEmailCapValkey } = createSandboxEmailCapValkey({
+            const sandboxEmailCapValkey = createSandboxEmailCapValkey({
                 ...getDefaultCdpConfig(),
                 SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
                 SES_RATE_LIMITER_VALKEY_PORT: (stalledValkey.address() as AddressInfo).port,
