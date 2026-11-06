@@ -618,12 +618,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         return self.param_derived_from_user_current_team == "team_id" or "team_id" in self.parent_query_kwargs
 
     @property
-    def _is_project_view(self):
-        return self.param_derived_from_user_current_team == "project_id" or "project_id" in self.parent_query_kwargs
-
-    @property
     def _is_nested_project_view(self) -> bool:
         return "project_id" in self.parent_query_kwargs
+
+    @property
+    def _is_project_view(self):
+        return self.param_derived_from_user_current_team == "project_id" or self._is_nested_project_view
 
     @cached_property
     def team_id(self) -> int:

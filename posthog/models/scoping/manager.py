@@ -233,6 +233,8 @@ class TeamScopedManager(models.Manager[T]):
 
         Pass `canonical=True` only when the caller has independently
         verified the id is canonical (or is using a synthetic id in tests).
+
+        The lookup is skipped for the team that the current scope was resolved from.
         """
         if not canonical:
             team_id = resolve_effective_team_id(team_id)
