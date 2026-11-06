@@ -6,10 +6,13 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { IngestionOutputMessage } from '~/common/outputs/types'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '~/common/utils/db/error'
 import { parseJSON } from '~/common/utils/json-parse'
+import { getDefaultMetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
+import {
+    MetricsPipelineConsumer,
+    MetricsPipelineConsumerDeps,
+} from '~/ingestion/pipelines/metrics/metrics-pipeline-consumer'
 import { toKafkaMessage } from '~/logs/parity/parity-harness'
 
-import { getDefaultMetricsIngestionConsumerConfig } from '../config'
-import { MetricsPipelineConsumer, MetricsPipelineConsumerDeps } from '../metrics-pipeline-consumer'
 import type {
     MetricsParityError,
     MetricsParityExpected,
