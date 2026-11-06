@@ -15,7 +15,7 @@ import * as zod from 'zod'
  */
 export const aeoPromptsPartialUpdateBodyTopicMax = 200
 
-export const aeoPromptsPartialUpdateBodyPromptMax = 10000
+export const aeoPromptsPartialUpdateBodyPromptMax = 2000
 
 export const aeoPromptsPartialUpdateBodyVersionDescriptionMax = 400
 
