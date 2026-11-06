@@ -6168,6 +6168,11 @@ export interface WorkloadTrustPolicyRequestApi {
      * @nullable
      */
     readonly policy_id: string | null
+    /**
+     * For a custom OIDC provider, the issuer host the approver must type to approve. Null for supported providers.
+     * @nullable
+     */
+    readonly confirm_issuer_host: string | null
 }
 
 export interface PaginatedWorkloadTrustPolicyRequestListApi {
@@ -6177,6 +6182,14 @@ export interface PaginatedWorkloadTrustPolicyRequestListApi {
     /** @nullable */
     previous?: string | null
     results: WorkloadTrustPolicyRequestApi[]
+}
+
+export interface ApproveWorkloadTrustPolicyRequestApi {
+    /**
+     * The issuer host, typed by the approver. A custom OIDC provider request needs it to equal the request's confirm_issuer_host.
+     * @maxLength 255
+     */
+    confirm_issuer_host?: string
 }
 
 export interface ResolvedWorkloadSubjectApi {

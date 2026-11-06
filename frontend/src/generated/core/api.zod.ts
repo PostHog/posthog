@@ -1592,6 +1592,18 @@ export const WorkloadTrustPolicyRequestsCreateBody = /* @__PURE__ */ zod.object(
         .describe("The scopes the policy's tokens would carry."),
 })
 
+export const workloadTrustPolicyRequestsApproveCreateBodyConfirmIssuerHostMax = 255
+
+export const WorkloadTrustPolicyRequestsApproveCreateBody = /* @__PURE__ */ zod.object({
+    confirm_issuer_host: zod
+        .string()
+        .max(workloadTrustPolicyRequestsApproveCreateBodyConfirmIssuerHostMax)
+        .optional()
+        .describe(
+            "The issuer host, typed by the approver. A custom OIDC provider request needs it to equal the request's confirm_issuer_host."
+        ),
+})
+
 /**
  * Public, unauthenticated endpoint for self-service revocation of a leaked PostHog personal API key, project secret API key, legacy feature flags secure API key, or OAuth access/refresh token. If the token matches a real credential, it is revoked immediately and the owner is notified by email. This includes an expired OAuth access token: the paired refresh token it protects may still be live. A legacy feature flags secure API key is matched through its migrated project secret API key row; it cannot be rotated automatically, so its project admins get an email to rotate it.
  *

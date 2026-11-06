@@ -45,6 +45,7 @@ const policyRequest = {
     resolved_by: null,
     resolved_at: null,
     policy_id: null,
+    confirm_issuer_host: null,
 }
 
 function renderWith(overrides: Record<string, unknown>): JSX.Element {
@@ -80,6 +81,7 @@ export const CustomIssuerForAnAdmin: Story = {
             provider_name: 'Custom OIDC provider',
             subject_claim: 'sub',
             subject_name_claim: '',
+            confirm_issuer_host: 'auth.example.com',
             subject: 'deploy-bot',
             subject_name: 'Deploy bot',
             conditions: { env: 'production' },
