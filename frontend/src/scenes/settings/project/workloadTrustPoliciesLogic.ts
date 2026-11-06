@@ -579,7 +579,6 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
             actions.setEditingPolicyValue('conditions', conditionsFromRows(rows, values.editingProvider).conditions)
         },
         lookUpSubjectSuccess: ({ subjectLookup }) => {
-            // A lookup that comes back after the person typed another name is about a name they left.
             const typed = values.editingPolicy.subject_name.trim().toLowerCase()
             if (subjectLookup && subjectLookup.subject_name.toLowerCase() === typed) {
                 // The provider's spelling is the one the token carries, so it replaces what was typed.

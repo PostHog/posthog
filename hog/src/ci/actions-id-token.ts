@@ -9,8 +9,7 @@ import { ProviderIdTokenSchema, type ProviderIdToken } from '@/posthog/tokens'
 
 const REQUEST_TIMEOUT_MS = 30_000
 
-// What `@actions/core` getIDToken reads. GitHub Actions sets both only for a job with
-// `permissions: id-token: write`, and Depot CI sets them the same way.
+// GitHub Actions and Depot CI set both only for a job with `permissions: id-token: write`.
 const IdTokenResponse = z.object({ value: ProviderIdTokenSchema })
 
 export async function fetchActionsIdToken(
