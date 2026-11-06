@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { HogError } from '@/core/errors'
-import { parseOrThrow, type ParseFailure } from '@/core/schema'
+import { parseOrThrow, type ParseFailure, type Schema } from '@/core/schema'
 
 import type { PostHogApi } from './api'
 
@@ -14,25 +14,37 @@ export interface Page<T> {
     next?: URL
 }
 
-export async function getPage<S extends z.ZodType>(api: PostHogApi, path: string, item: S): Promise<Page<z.output<S>>> {
-    const body = await api.get(
-        path,
-        z.object({ results: z.array(item), count: z.number().nullish(), next: z.string().nullish() })
-    )
+// Lets a zod schema hold a hog Schema, so zod adds the place of a failing item, as in `results.3.name`.
+function zodOf<T>(schema: Schema<T>): z.ZodType<T> {
+    return z.unknown().transform((raw, ctx) => {
+        const parsed = schema.safeParse(raw)
+        if (parsed.success) {
+            return parsed.data
+        }
+        for (const issue of parsed.error.issues) {
+            ctx.addIssue({ code: 'custom', message: issue.message, path: [...issue.path] })
+        }
+        return z.NEVER
+    })
+}
+
+export async function getPage<T>(api: PostHogApi, path: string, item: Schema<T>): Promise<Page<T>> {
+    const page = z.object({ results: z.array(zodOf(item)), count: z.number().nullish(), next: z.string().nullish() })
+    const { results, count, next } = await api.get(path, page)
     return {
-        results: body.results,
-        ...(typeof body.count === 'number' ? { count: body.count } : {}),
-        ...(body.next ? { next: new URL(body.next) } : {}),
+        results,
+        ...(typeof count === 'number' ? { count } : {}),
+        ...(next ? { next: new URL(next) } : {}),
     }
 }
 
 // False when it stops at MAX_PAGES first. Keeping only a link's path and query sends every page to
 // the configured host, whatever host the link names.
-async function eachPage<S extends z.ZodType>(
+async function eachPage<T>(
     api: PostHogApi,
     path: string,
-    item: S,
-    visit: (results: z.output<S>[]) => boolean,
+    item: Schema<T>,
+    visit: (results: T[]) => boolean,
     maxPages = MAX_PAGES
 ): Promise<boolean> {
     let next: string | undefined = path
@@ -40,7 +52,7 @@ async function eachPage<S extends z.ZodType>(
         if (read === maxPages) {
             return false
         }
-        const page: Page<z.output<S>> = await getPage(api, next, item)
+        const page: Page<T> = await getPage(api, next, item)
         if (visit(page.results)) {
             return true
         }
@@ -53,13 +65,8 @@ export function listTooLong(noun: string, hint: string): HogError {
     return new HogError('list_too_long', `The project has more ${noun} than hog reads in one command.`, hint)
 }
 
-export async function readAll<S extends z.ZodType>(
-    api: PostHogApi,
-    path: string,
-    item: S,
-    tooLong: HogError
-): Promise<z.output<S>[]> {
-    const results: z.output<S>[] = []
+export async function readAll<T>(api: PostHogApi, path: string, item: Schema<T>, tooLong: HogError): Promise<T[]> {
+    const results: T[] = []
     const complete = await eachPage(api, path, item, (page) => {
         results.push(...page)
         return false
@@ -72,16 +79,16 @@ export async function readAll<S extends z.ZodType>(
 
 // Reads pages until every name has turned up or the list ends. When `complete` is false, hog
 // stopped at `maxPages` and a name missing from `found` can still be in the list.
-export async function findNamed<S extends z.ZodType>(
+export async function findNamed<T>(
     api: PostHogApi,
     path: string,
-    item: S,
+    item: Schema<T>,
     names: Iterable<string>,
-    nameOf: (item: z.output<S>) => string | null,
+    nameOf: (item: T) => string | null,
     maxPages = MAX_PAGES
-): Promise<{ found: Map<string, z.output<S>>; complete: boolean }> {
+): Promise<{ found: Map<string, T>; complete: boolean }> {
     const wanted = new Set(names)
-    const found = new Map<string, z.output<S>>()
+    const found = new Map<string, T>()
     if (wanted.size === 0) {
         return { found, complete: true }
     }
