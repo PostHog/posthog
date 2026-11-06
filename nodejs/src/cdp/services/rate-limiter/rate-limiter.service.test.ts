@@ -1,14 +1,61 @@
 import { randomUUID } from 'crypto'
+import { AddressInfo, Server, Socket, createServer } from 'net'
 import { register } from 'prom-client'
 
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { RedisClient, RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { Hub } from '~/types'
 
-import { RateLimiterService } from './rate-limiter.service'
+import { createSesRateLimiterValkeyPool } from './rate-limiter-valkey-pool'
+import { ClaimRequest, IssuedClaim, RateLimiterService } from './rate-limiter.service'
 
-const KEY = `@posthog-test/ses-rate-limiter/${randomUUID()}/bucket`
+const KEY = `@posthog-test/ses-rate-limiter/{${randomUUID()}}/bucket`
+
+const INFO = 'redis_version:7.2.0\r\nloading:0'
+
+function stallingValkey(): {
+    server: Server
+    sockets: Set<Socket>
+    stall: () => void
+    stallOpenConnections: () => void
+    commandsWhileStalled: () => number
+    timesReceived: (value: string) => number
+} {
+    let stalled = false
+    let received = 0
+    let traffic = ''
+    const stalledSockets = new Set<Socket>()
+    const sockets = new Set<Socket>()
+    const server = createServer((socket) => {
+        sockets.add(socket)
+        socket.on('close', () => sockets.delete(socket))
+        socket.on('data', (chunk) => {
+            const text = chunk.toString()
+            traffic += text
+            for (const line of text.split('\r\n')) {
+                if (!line.startsWith('*')) {
+                    continue
+                }
+                if (stalled || stalledSockets.has(socket)) {
+                    received += 1
+                    continue
+                }
+                socket.write(text.toLowerCase().includes('info') ? `$${INFO.length}\r\n${INFO}\r\n` : '+OK\r\n')
+            }
+        })
+    })
+    return {
+        server,
+        sockets,
+        stall: () => {
+            stalled = true
+        },
+        stallOpenConnections: () => sockets.forEach((socket) => stalledSockets.add(socket)),
+        commandsWhileStalled: () => received,
+        timesReceived: (value) => traffic.split(value).length - 1,
+    }
+}
 
 describe('RateLimiterService', () => {
     jest.retryTimes(3, { logErrorsBeforeRetry: true })
@@ -310,6 +357,295 @@ describe('RateLimiterService', () => {
             // Only the first got a slot. The other two share one wake time and are told so,
             // which is the caller's cue to spread its own wake.
             expect([first.reserved, second.reserved, third.reserved]).toEqual([true, false, false])
+        })
+    })
+
+    describe('claimRefundable', () => {
+        it('spends an unanswered claim once when the same EVAL is replayed', async () => {
+            const bucket = { key: `${KEY}/claim-replay`, requested: 1, capacity: 2, refillPerSecond: 0 }
+            const replayingRedis: RedisV2 = {
+                ...redis,
+                useClient: async (options, callback) =>
+                    redis.useClient(options, async (client) => {
+                        const evaluate = client.eval.bind(client)
+                        const replay = jest.spyOn(client, 'eval').mockImplementation(async (...args) => {
+                            await evaluate(...args)
+                            return evaluate(...args)
+                        })
+                        try {
+                            return await callback(client)
+                        } finally {
+                            replay.mockRestore()
+                        }
+                    }),
+            }
+            const replayingLimiter = new RateLimiterService(replayingRedis, { name: 'ses-rate-limiter' })
+
+            expect(await replayingLimiter.claimRefundable([bucket])).toMatchObject({ granted: true })
+            expect(await limiter.claimRefundable([bucket])).toMatchObject({ granted: true })
+            expect(await limiter.claimRefundable([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
+        })
+
+        it('takes no tokens for a claim that reaches Valkey after its caller gave up', async () => {
+            const bucket = { key: `${KEY}/claim-too-late`, requested: 1, capacity: 1, refillPerSecond: 0 }
+            const issuedAt = Date.now() - 5000
+            const lateClock = jest.spyOn(Date, 'now').mockReturnValue(issuedAt)
+            try {
+                expect(await limiter.claimRefundable([bucket])).toEqual({ granted: false, deniedIndexes: null })
+            } finally {
+                lateClock.mockRestore()
+            }
+
+            expect(await limiter.claimRefundable([bucket])).toMatchObject({ granted: true })
+        })
+
+        it('names every short bucket and spends none of the others', async () => {
+            const bucket = (name: string, capacity: number): ClaimRequest => ({
+                key: `${KEY}/several-${name}`,
+                requested: 1,
+                capacity,
+                refillPerSecond: 0,
+            })
+            const [roomy, drained, empty] = [bucket('roomy', 2), bucket('drained', 1), bucket('empty', 0)]
+            expect(await limiter.claimRefundable([drained])).toMatchObject({ granted: true })
+
+            expect(await limiter.claimRefundable([roomy, drained, empty])).toEqual({
+                granted: false,
+                deniedIndexes: [1, 2],
+            })
+
+            expect(await limiter.claimRefundable([roomy])).toMatchObject({ granted: true })
+            expect(await limiter.claimRefundable([roomy])).toMatchObject({ granted: true })
+            expect(await limiter.claimRefundable([roomy])).toEqual({ granted: false, deniedIndexes: [0] })
+        })
+
+        it.each([
+            ['no buckets', [], 'every bucket key only once'],
+            ['the same bucket twice', [`${KEY}/twice`, `${KEY}/twice`], 'every bucket key only once'],
+            ['keys without a hash tag', ['@posthog-test/untagged/a', '@posthog-test/untagged/b'], 'one {hash tag}'],
+            ['keys in different hash slots', [`${KEY}/first`, '@posthog-test/{other}/second'], 'one {hash tag}'],
+        ])('refuses a claim with %s', async (_name, keys, error) => {
+            await expect(
+                limiter.claimRefundable(keys.map((key) => ({ key, requested: 1, capacity: 1, refillPerSecond: 0 })))
+            ).rejects.toThrow(error)
+        })
+
+        it('fails closed through an optional pool whose Valkey is unreachable', async () => {
+            const unreachableValkey = createSesRateLimiterValkeyPool(
+                {
+                    SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
+                    SES_RATE_LIMITER_VALKEY_PORT: 1,
+                    SES_RATE_LIMITER_VALKEY_PASSWORD: '',
+                    SES_RATE_LIMITER_VALKEY_TLS: false,
+                    REDIS_POOL_MIN_SIZE: 1,
+                    REDIS_POOL_MAX_SIZE: 2,
+                },
+                'unreachable-test',
+                { mode: 'optional' }
+            )!
+            const unreachable = new RateLimiterService(unreachableValkey, { name: 'sandbox-email' })
+
+            expect(
+                await unreachable.claimRefundable([
+                    { key: `${KEY}/optional-pool`, requested: 1, capacity: 1, refillPerSecond: 0 },
+                ])
+            ).toEqual({ granted: false, deniedIndexes: null })
+        })
+
+        it.each([
+            ['a fail-fast pool refuses the command at once', 'failFast', 'refused'],
+            ['an optional pool queues the command instead of refusing it', 'optional', 'queued'],
+        ] as const)('while the connection drops, %s', async (_name, mode, handling) => {
+            const optionalValkey = createSesRateLimiterValkeyPool(
+                {
+                    SES_RATE_LIMITER_VALKEY_HOST: hub.CDP_REDIS_HOST || '127.0.0.1',
+                    SES_RATE_LIMITER_VALKEY_PORT: hub.CDP_REDIS_PORT,
+                    SES_RATE_LIMITER_VALKEY_PASSWORD: '',
+                    SES_RATE_LIMITER_VALKEY_TLS: false,
+                    REDIS_POOL_MIN_SIZE: 1,
+                    REDIS_POOL_MAX_SIZE: 1,
+                },
+                'reconnect-test',
+                { mode }
+            )!
+            let pooled: RedisClient | undefined
+            try {
+                await optionalValkey.useClient({ name: 'warm-up' }, (client) => {
+                    pooled = client
+                    return client.ping()
+                })
+
+                const duringOutage = optionalValkey.useClient({ name: 'during-outage' }, (client) => {
+                    ;(client as unknown as { stream: { destroy: () => void } }).stream.destroy()
+                    return client.get(`${KEY}/during-outage`)
+                })
+
+                // A queued command can still hit the optional pool's timeout before the reconnect.
+                const settled = await duringOutage.then(
+                    () => 'queued',
+                    (error: Error) =>
+                        error.message.includes('enableOfflineQueue')
+                            ? 'refused'
+                            : error.message === 'Command timed out'
+                              ? 'queued'
+                              : error.message
+                )
+                expect(settled).toBe(handling)
+            } finally {
+                pooled?.disconnect()
+            }
+        })
+
+        it('does not run a timed-out command again once a fail-fast pool reconnects', async () => {
+            const valkey = stallingValkey()
+            await new Promise<void>((resolve) => valkey.server.listen(0, '127.0.0.1', resolve))
+            const reconnectingValkey = createSesRateLimiterValkeyPool(
+                {
+                    SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
+                    SES_RATE_LIMITER_VALKEY_PORT: (valkey.server.address() as AddressInfo).port,
+                    SES_RATE_LIMITER_VALKEY_PASSWORD: '',
+                    SES_RATE_LIMITER_VALKEY_TLS: false,
+                    REDIS_POOL_MIN_SIZE: 1,
+                    REDIS_POOL_MAX_SIZE: 1,
+                },
+                'resend-test',
+                { mode: 'failFast' }
+            )!
+            let pooled: RedisClient | undefined
+            try {
+                await reconnectingValkey.useClient({ name: 'warm-up' }, (client) => {
+                    pooled = client
+                    return client.set('warm', '1')
+                })
+                valkey.stallOpenConnections()
+
+                await expect(
+                    reconnectingValkey.useClient({ name: 'claim' }, (client) => client.set('claim', 'timed-out-claim'))
+                ).rejects.toThrow('Command timed out')
+                await new Promise((resolve) => pooled!.once('ready', resolve))
+
+                expect(
+                    await reconnectingValkey.useClient({ name: 'after' }, (client) => client.set('claim', 'later'))
+                ).toBe('OK')
+                expect(valkey.timesReceived('timed-out-claim')).toBe(1)
+            } finally {
+                pooled?.disconnect()
+                valkey.sockets.forEach((socket) => socket.destroy())
+                await new Promise<void>((resolve) => valkey.server.close(() => resolve()))
+            }
+        })
+
+        it('stops sending commands to a connected Valkey that no longer replies once one command times out', async () => {
+            const valkey = stallingValkey()
+            await new Promise<void>((resolve) => valkey.server.listen(0, '127.0.0.1', resolve))
+            const stalledValkey = createSesRateLimiterValkeyPool(
+                {
+                    SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
+                    SES_RATE_LIMITER_VALKEY_PORT: (valkey.server.address() as AddressInfo).port,
+                    SES_RATE_LIMITER_VALKEY_PASSWORD: '',
+                    SES_RATE_LIMITER_VALKEY_TLS: false,
+                    REDIS_POOL_MIN_SIZE: 1,
+                    REDIS_POOL_MAX_SIZE: 1,
+                },
+                'stall-test',
+                { mode: 'failFast' }
+            )!
+            let pooled: RedisClient | undefined
+            try {
+                await stalledValkey.useClient({ name: 'warm-up' }, (client) => {
+                    pooled = client
+                    return client.set('warm', '1')
+                })
+                valkey.stall()
+
+                const outcomes: string[] = []
+                for (let attempt = 0; attempt < 8; attempt++) {
+                    await stalledValkey
+                        .useClient({ name: 'claim' }, (client) => client.set('claim', String(attempt)))
+                        .then(
+                            () => outcomes.push('ok'),
+                            (error: Error) => outcomes.push(error.message)
+                        )
+                }
+
+                expect(outcomes[0]).toBe('Command timed out')
+                expect(outcomes).not.toContain('ok')
+                expect(valkey.commandsWhileStalled()).toBeLessThanOrEqual(3)
+            } finally {
+                pooled?.disconnect()
+                valkey.sockets.forEach((socket) => socket.destroy())
+                await new Promise<void>((resolve) => valkey.server.close(() => resolve()))
+            }
+        })
+
+        it('reports a limiter error without naming a denied bucket', async () => {
+            const unreachable = new RateLimiterService(
+                {
+                    useClient: () => Promise.reject(new Error('Connection is closed.')),
+                    usePipeline: () => Promise.reject(new Error('Connection is closed.')),
+                },
+                { name: 'ses-rate-limiter' }
+            )
+
+            expect(
+                await unreachable.claimRefundable([
+                    { key: `${KEY}/unreachable`, requested: 1, capacity: 1, refillPerSecond: 0 },
+                ])
+            ).toEqual({ granted: false, deniedIndexes: null })
+        })
+    })
+
+    describe('returnClaim', () => {
+        const grantedClaim = async (bucket: ClaimRequest): Promise<IssuedClaim> => {
+            const claim = await limiter.claimRefundable([bucket])
+            if (!claim.granted) {
+                throw new Error('Expected the claim to be granted.')
+            }
+            return claim
+        }
+
+        it('gives each bucket of a claim back once, even when the return is replayed', async () => {
+            const first = { key: `${KEY}/return-pair-first`, requested: 1, capacity: 2, refillPerSecond: 0 }
+            const second = { key: `${KEY}/return-pair-second`, requested: 1, capacity: 3, refillPerSecond: 0 }
+            const claim = await limiter.claimRefundable([first, second])
+            if (!claim.granted) {
+                throw new Error('Expected the claim to be granted.')
+            }
+            expect(await limiter.claimRefundable([first, second])).toMatchObject({ granted: true })
+
+            await limiter.returnClaim(claim)
+            await limiter.returnClaim(claim)
+
+            expect(await limiter.claimRefundable([first, second])).toMatchObject({ granted: true })
+            expect(await limiter.claimRefundable([first, second])).toEqual({ granted: false, deniedIndexes: [0] })
+            expect(await limiter.claimRefundable([second])).toMatchObject({ granted: true })
+            expect(await limiter.claimRefundable([second])).toEqual({ granted: false, deniedIndexes: [0] })
+        })
+
+        it('ignores the return of a claim issued longer ago than its window', async () => {
+            const bucket = { key: `${KEY}/late-return`, requested: 1, capacity: 1, refillPerSecond: 0 }
+            const claim = await grantedClaim(bucket)
+
+            await limiter.returnClaim({ ...claim, returnBy: Date.now() - 1000 })
+
+            expect(await limiter.claimRefundable([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
+        })
+
+        it('ignores the return of a claim whose bucket could have expired and been drained again', async () => {
+            const bucket = {
+                key: `${KEY}/short-ttl-return`,
+                requested: 1,
+                capacity: 1,
+                refillPerSecond: 0,
+                ttlSeconds: 1,
+            }
+            const claim = await grantedClaim(bucket)
+            await deleteKeysWithPrefix(redis, bucket.key)
+            await grantedClaim(bucket)
+
+            await limiter.returnClaim(claim)
+
+            expect(await limiter.claimRefundable([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
         })
     })
 })

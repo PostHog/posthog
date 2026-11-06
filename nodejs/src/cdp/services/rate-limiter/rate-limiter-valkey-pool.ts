@@ -1,3 +1,5 @@
+import { Counter } from 'prom-client'
+
 import type { CommonConfig } from '~/common/config'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
@@ -5,6 +7,15 @@ import { logger } from '~/common/utils/logger'
 import type { CdpConfig } from '../../config'
 
 const OPTIONAL_VALKEY_TIMEOUT_MS = 250
+const COMMAND_TIMED_OUT = 'Command timed out'
+
+const forcedReconnects = new Counter({
+    name: 'cdp_ses_valkey_forced_reconnects_total',
+    help: 'Fail-fast SES Valkey clients dropped and reconnected because a command timed out.',
+    labelNames: ['pool'],
+})
+
+export type SesValkeyPoolMode = 'required' | 'optional' | 'failFast'
 
 export type RateLimiterValkeyConfig = Pick<
     CdpConfig,
@@ -29,7 +40,7 @@ export type RateLimiterValkeyConfig = Pick<
 export function createSesRateLimiterValkeyPool(
     config: RateLimiterValkeyConfig,
     name = 'ses-rate-limiter',
-    { optional = false }: { optional?: boolean } = {}
+    { mode = 'required' }: { mode?: SesValkeyPoolMode } = {}
 ): RedisV2 | null {
     if (!config.SES_RATE_LIMITER_VALKEY_HOST) {
         logger.info('🪙', `[${name}] no SES Valkey host configured — feature disabled`)
@@ -43,36 +54,53 @@ export function createSesRateLimiterValkeyPool(
 
     const tls = config.SES_RATE_LIMITER_VALKEY_TLS ? {} : undefined
 
-    if (optional) {
-        // A caller that works without this Valkey must not stop when it is down, or wait on it long.
-        return createRedisV2PoolFromConfig({
-            connection: {
-                url: config.SES_RATE_LIMITER_VALKEY_HOST,
-                options: {
-                    port: config.SES_RATE_LIMITER_VALKEY_PORT,
-                    password: config.SES_RATE_LIMITER_VALKEY_PASSWORD,
-                    tls,
-                    commandTimeout: OPTIONAL_VALKEY_TIMEOUT_MS,
-                },
-                name,
-                exitOnRepeatedErrors: false,
-            },
-            poolMinSize: 0,
-            poolMaxSize: config.REDIS_POOL_MAX_SIZE,
-            acquireTimeoutMillis: OPTIONAL_VALKEY_TIMEOUT_MS,
-        })
-    }
-    return createRedisV2PoolFromConfig({
+    // A caller that works without this Valkey must not stop when it is down, or wait on it long.
+    const optional = mode !== 'required'
+    const pool = createRedisV2PoolFromConfig({
         connection: {
             url: config.SES_RATE_LIMITER_VALKEY_HOST,
             options: {
                 port: config.SES_RATE_LIMITER_VALKEY_PORT,
                 password: config.SES_RATE_LIMITER_VALKEY_PASSWORD,
                 tls,
+                ...(optional ? { commandTimeout: OPTIONAL_VALKEY_TIMEOUT_MS } : {}),
+                // The caller of a command that timed out has given up on it, so a reconnect must not run it late.
+                ...(mode === 'failFast' ? { autoResendUnfulfilledCommands: false } : {}),
             },
             name,
+            exitOnRepeatedErrors: !optional,
         },
-        poolMinSize: config.REDIS_POOL_MIN_SIZE,
+        poolMinSize: optional ? 0 : config.REDIS_POOL_MIN_SIZE,
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+        ...(optional ? { acquireTimeoutMillis: OPTIONAL_VALKEY_TIMEOUT_MS } : {}),
     })
+    return mode === 'failFast' ? withoutOfflineQueue(pool, name) : pool
+}
+
+// A client waits for its first connection in the offline queue, so the queue can only be switched off
+// once the pool hands the client out. After that a dropped connection fails commands at once instead of
+// queueing every caller's work for the whole outage and replaying it on recovery.
+function withoutOfflineQueue(pool: RedisV2, name: string): RedisV2 {
+    const useClient: RedisV2['useClient'] = (options, callback) =>
+        pool.useClient(options, async (client) => {
+            client.options.enableOfflineQueue = false
+            try {
+                return await callback(client)
+            } catch (error) {
+                if (error instanceof Error && error.message === COMMAND_TIMED_OUT) {
+                    forcedReconnects.inc({ pool: name })
+                    client.disconnect(true)
+                }
+                throw error
+            }
+        })
+    return {
+        useClient,
+        usePipeline: (options, callback) =>
+            useClient(options, async (client) => {
+                const pipeline = client.pipeline()
+                callback(pipeline)
+                return pipeline.exec()
+            }),
+    }
 }
