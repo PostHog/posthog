@@ -392,8 +392,11 @@ def assert_history_table_droppable(schema: ExternalDataSchema, *, keeps_history:
         raise HistoryTableDropRefusedError(HISTORY_TABLE_SYNC_IN_FLIGHT_ERROR)
 
 
-def drop_history_table(schema: ExternalDataSchema) -> DataWarehouseTable | None:
+def drop_history_table(schema: ExternalDataSchema, *, rebuilding: bool = False) -> DataWarehouseTable | None:
     """Delete the schema's registered history table: its files, its record and the schema's state for it.
+
+    `rebuilding` is for a schema that keeps history through a rebuild that starts a new history table, such
+    as a new mask, so the mode alone does not refuse the delete. A sync in flight still does.
 
     Returns the dropped table, or None when the schema has no history table. Raises
     `HistoryTableDropRefusedError` while the schema's mode writes the table, or while a sync could still
@@ -412,7 +415,7 @@ def drop_history_table(schema: ExternalDataSchema) -> DataWarehouseTable | None:
     # the record still in place, so a retry deletes the rest.
     with transaction.atomic():
         locked = ExternalDataSchema.objects.select_for_update().get(id=schema.id, team_id=schema.team_id)
-        assert_history_table_droppable(locked, keeps_history=locked.keeps_history)
+        assert_history_table_droppable(locked, keeps_history=locked.keeps_history and not rebuilding)
         _delete_history_files(schema, folder_name)
         config = locked.sync_type_config or {}
         config.pop(HISTORY_NAMING_OPTION, None)

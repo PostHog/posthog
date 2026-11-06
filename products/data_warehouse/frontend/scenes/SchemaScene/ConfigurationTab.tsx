@@ -870,6 +870,12 @@ function ColumnsAndRowFiltersSection({
     const newlyMasked = draftMasked.filter((column) => !savedMasked.includes(column))
     const unmasked = savedMasked.filter((column) => !draftMasked.includes(column))
     const masksChanged = newlyMasked.length > 0 || unmasked.length > 0
+    // A CDC table that keeps history reseeds it from the new snapshot. Elsewhere a new mask can't reach the
+    // history table's past values, so the save deletes it and the rebuild starts a new one.
+    const masksDropHistory =
+        newlyMasked.length > 0 &&
+        !!schema.registered_history_table_name &&
+        !(schema.sync_type === 'cdc' && writesHistoryTable(schema.sync_type, schema.cdc_table_mode))
 
     const isDirty =
         !sameColumns(draftColumns, schema.enabled_columns ?? null, available) ||
@@ -892,17 +898,23 @@ function ColumnsAndRowFiltersSection({
             // stale one a still-queued PATCH hasn't written yet.
             // The backend starts the resync itself when it saves a mask change, and it can refuse one.
             setSaving(true)
-            void api.externalDataSchemas
-                .update(schema.id, {
-                    enabled_columns: draftColumns,
-                    row_filters: draftRowFilters,
-                    // Unchanged masks stay out, so a column that left the source can't block the save.
-                    ...(masksChanged ? { masked_columns: draftMasked } : {}),
-                })
-                .then(() => {
+            void externalDataSchemasPartialUpdate(String(ApiConfig.getCurrentTeamId()), schema.id, {
+                enabled_columns: draftColumns,
+                row_filters: draftRowFilters,
+                // Unchanged masks stay out, so a column that left the source can't block the save.
+                ...(masksChanged ? { masked_columns: draftMasked } : {}),
+                ...(masksDropHistory ? { drop_history_table: true } : {}),
+            })
+                .then((saved) => {
                     updateSchema(next)
                     if (!masksChanged) {
                         resyncSchema(next)
+                    }
+                    if (masksDropHistory && saved.registered_history_table_name) {
+                        lemonToast.warning(
+                            `Saved, but ${saved.registered_history_table_name} was kept because a sync was still running. It still has the unmasked values. Delete it from the danger zone.`
+                        )
+                        return
                     }
                     // The backend only stages the rebuild of a table that does not sync.
                     lemonToast.success(
@@ -928,7 +940,7 @@ function ColumnsAndRowFiltersSection({
 
         // A mask change also cancels and restarts a running first sync, which has no last_synced_at yet.
         const isRunning = schema.status === 'Running'
-        if (masksChanged && (!!schema.last_synced_at || isRunning)) {
+        if (masksChanged && (!!schema.last_synced_at || isRunning || masksDropHistory)) {
             LemonDialog.open({
                 title: 'Changing masked columns starts a full resync',
                 description: (
@@ -940,6 +952,14 @@ function ColumnsAndRowFiltersSection({
                         </span>
                         {isRunning && syncType !== 'cdc' && (
                             <span>The sync currently running will be canceled when you save.</span>
+                        )}
+                        {masksDropHistory && (
+                            <span>
+                                Masking also deletes the history table{' '}
+                                <code>{schema.registered_history_table_name}</code>, because its past versions keep the
+                                unmasked values. Its history is lost and can't be restored. If the table keeps history,
+                                the rebuild starts a new history table with the column masked.
+                            </span>
                         )}
                         {newlyMasked.length > 0 && newlyMasked.length <= 6 && (
                             <span className="text-xs text-muted">
@@ -1493,7 +1513,7 @@ function writesHistoryTable(
     syncType: ExternalDataSourceSchema['sync_type'],
     cdcTableMode: ExternalDataSourceSchema['cdc_table_mode']
 ): boolean {
-    return syncType === 'cdc' && (cdcTableMode ?? 'consolidated') !== 'consolidated'
+    return (syncType === 'cdc' || syncType === 'incremental') && (cdcTableMode ?? 'consolidated') !== 'consolidated'
 }
 
 function DangerZoneSection({

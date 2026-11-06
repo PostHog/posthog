@@ -24,6 +24,7 @@ from posthog.api.test.test_user import create_user
 from posthog.models import Team, User
 
 from products.warehouse_sources.backend.facade.models import (
+    INCREMENTAL_HISTORY_KEY,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
@@ -768,6 +769,65 @@ def test_a_switch_off_history_drops_the_history_table_only_when_asked(
         if call.kwargs.get("event") == "data warehouse history table deleted"
     ]
     assert [event["properties"]["trigger"] for event in deleted_events] == (["mode_change"] if dropped else [])
+
+
+@pytest.mark.parametrize(
+    ("sync_type", "mode", "drop", "expected_status", "dropped"),
+    [
+        # A table that stopped writing history keeps it, and a new mask can't reach its past values.
+        (ExternalDataSchema.SyncType.CDC, "consolidated", False, 400, False),
+        (ExternalDataSchema.SyncType.CDC, "consolidated", True, 200, True),
+        # An incremental table that keeps history starts a new history table from the masking rebuild.
+        (ExternalDataSchema.SyncType.INCREMENTAL, "both", False, 400, False),
+        (ExternalDataSchema.SyncType.INCREMENTAL, "both", True, 200, True),
+    ],
+)
+def test_masking_a_table_with_a_history_table_deletes_it_only_when_asked(
+    team, user, client: HttpClient, sync_type, mode, drop, expected_status, dropped
+):
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode=mode)
+    config = {
+        **schema.sync_type_config,
+        "schema_metadata": {
+            "columns": [
+                {"name": name, "data_type": "text", "is_nullable": True} for name in ("id", "email", "updated_at")
+            ]
+        },
+    }
+    if sync_type == ExternalDataSchema.SyncType.INCREMENTAL:
+        config |= {
+            "incremental_field": "updated_at",
+            "incremental_field_type": "datetime",
+            INCREMENTAL_HISTORY_KEY: True,
+        }
+    ExternalDataSchema.objects.filter(id=schema.id).update(sync_type=sync_type, sync_type_config=config)
+    if sync_type == ExternalDataSchema.SyncType.INCREMENTAL:
+        # Incremental history always writes the `_history` naming.
+        history = DataWarehouseTable.objects.create(
+            team=team,
+            name="postgres_orders_history",
+            format="DeltaS3Wrapper",
+            external_data_source=schema.source,
+            options={"history_table": True, "history_naming": "ph_validity"},
+        )
+    else:
+        history = _history_table(schema)
+    client.force_login(user)
+
+    with ExitStack() as stack:
+        for patcher in _history_drop_mocks():
+            stack.enter_context(patcher)
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"masked_columns": ["email"], "drop_history_table": drop},
+            content_type="application/json",
+        )
+
+    assert response.status_code == expected_status, response.content
+    history.refresh_from_db()
+    schema.refresh_from_db()
+    assert history.deleted is dropped
+    assert (schema.masked_columns or []) == (["email"] if expected_status == 200 else [])
 
 
 @pytest.mark.parametrize(("mode", "expected_status"), [("consolidated", 204), ("both", 400)])

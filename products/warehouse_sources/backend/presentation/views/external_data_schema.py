@@ -113,7 +113,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     pinned_history_naming,
     purge_buffer_prefix,
     registered_history_columns,
-    registered_history_naming,
     registered_history_table,
     repair_is_running,
     reserved_column_collisions,
@@ -1599,7 +1598,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         masked_columns_changed = _validate_masked_columns(instance, validated_data, data)
         # The rebuild a new mask starts leaves a registered history table as it is, also after the schema
         # stopped writing it, so the earlier values would stay readable there. Only a table that is CDC and
-        # keeps history after this request reseeds that table from its new snapshot. Removing a mask leaks nothing.
+        # keeps history after this request reseeds that table from its new snapshot. Elsewhere the request
+        # deletes the history table with `drop_history_table`, and the rebuild starts a new one. Removing a
+        # mask leaks nothing.
         stored_masks = {fold_column_name(column) for column in instance.masked_columns or []}
         adds_a_mask = masked_columns_changed and any(
             fold_column_name(column) not in stored_masks for column in validated_data.get("masked_columns") or []
@@ -1607,10 +1608,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         reseeds_history = data.get("sync_type", instance.sync_type) == ExternalDataSchema.SyncType.CDC and (
             is_history_table_mode(data.get("cdc_table_mode", previous_cdc_table_mode))
         )
-        if adds_a_mask and not reseeds_history and registered_history_naming(instance) is not None:
+        masks_rebuild_history = adds_a_mask and not reseeds_history and registered_history_table(instance) is not None
+        if masks_rebuild_history and not drop_history:
             raise ValidationError(
                 "This table has a history table that keeps the past values of its columns. A new mask can't "
-                "hide those values, so the column can't be masked."
+                "hide those values, so masking deletes the history table. Confirm the delete to mask the column."
             )
 
         # Validate against the schema's columns; raw filters are persisted as-is and re-coerced at sync time.
@@ -1930,7 +1932,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 "can't sync. Rename the table on your database to sync it."
             )
 
-        history_table_to_drop = self._history_table_to_drop(instance, validated_data) if drop_history else None
+        history_table_to_drop = (
+            self._history_table_to_drop(instance, validated_data, rebuilding=masks_rebuild_history)
+            if drop_history
+            else None
+        )
 
         should_sync = validated_data.get("should_sync", None)
         sync_frequency = data.get("sync_frequency", None)
@@ -2182,7 +2188,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             self._run_temporal_side_effect(publication_removal)
         # Ahead of the side effects below, because a sync they start would block the drop.
         if history_table_to_drop is not None:
-            self._run_temporal_side_effect(lambda: self._drop_history_table_after_mode_change(updated_instance))
+            self._run_temporal_side_effect(
+                lambda: self._drop_history_table_after_mode_change(updated_instance, rebuilding=masks_rebuild_history)
+            )
 
         if masked_columns_changed:
             # Profiles computed before the mask hold plaintext bounds, and the profiler recomputes them only daily.
@@ -2329,7 +2337,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         return updated_instance
 
     def _history_table_to_drop(
-        self, instance: ExternalDataSchema, validated_data: dict[str, Any]
+        self, instance: ExternalDataSchema, validated_data: dict[str, Any], *, rebuilding: bool = False
     ) -> DataWarehouseTable | None:
         """The history table a request with `drop_history_table` deletes, or None when the schema has none."""
         resulting_sync_type = validated_data.get("sync_type", instance.sync_type)
@@ -2341,16 +2349,17 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         try:
             assert_history_table_droppable(
                 instance,
-                keeps_history=resulting_sync_type == ExternalDataSchema.SyncType.CDC
+                keeps_history=not rebuilding
+                and resulting_sync_type in (ExternalDataSchema.SyncType.CDC, ExternalDataSchema.SyncType.INCREMENTAL)
                 and is_history_table_mode(resulting_mode),
             )
         except HistoryTableDropRefusedError as e:
             raise ValidationError({"drop_history_table": str(e)})
         return table
 
-    def _drop_history_table_after_mode_change(self, schema: ExternalDataSchema) -> None:
+    def _drop_history_table_after_mode_change(self, schema: ExternalDataSchema, *, rebuilding: bool = False) -> None:
         try:
-            dropped = drop_history_table(schema)
+            dropped = drop_history_table(schema, rebuilding=rebuilding)
         except HistoryTableDropRefusedError:
             # A sync started after the check above. The table stays, and the later delete can remove it.
             logger.warning("history_table_drop_refused_after_mode_change", schema_id=str(schema.id), exc_info=True)
