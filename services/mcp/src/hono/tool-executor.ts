@@ -1216,16 +1216,15 @@ function normalizeErrorField(attr: string): string | undefined {
  * fragments) and `PostHogApiError`'s default message embeds the upstream
  * response body. API errors are rebuilt from status + method + URL path instead.
  */
+const CONTROL_CHARACTERS = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g
+
 function extractErrorMessage(error: unknown): string | undefined {
     const raw = resolveSafeErrorMessage(error)
     if (!raw) {
         return undefined
     }
     // Strip control characters except newline/tab (multi-line validation errors stay readable)
-    const sanitized = raw
-        .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
-        .trim()
-        .slice(0, MAX_ERROR_MESSAGE_LENGTH)
+    const sanitized = raw.replace(CONTROL_CHARACTERS, '').trim().slice(0, MAX_ERROR_MESSAGE_LENGTH)
     return sanitized || undefined
 }
 
@@ -1297,10 +1296,11 @@ function isValueShapedToken(token: string): boolean {
 
 function maskCallerValues(detail: string): string {
     // Capped first so masking cost stays bounded on a large API body; a value the cap
-    // cuts through is left unterminated and masked whole.
+    // cuts through is left unterminated and masked whole. Control characters go before
+    // tokenizing, or stripping them later would rejoin a token they split.
     const quoted = QUOTED_VALUE_PATTERNS.reduce(
         (text, pattern) => text.replace(pattern, MASKED_VALUE),
-        detail.slice(0, MAX_ERROR_MESSAGE_LENGTH)
+        detail.slice(0, MAX_ERROR_MESSAGE_LENGTH).replace(CONTROL_CHARACTERS, '')
     ).replace(UNTERMINATED_VALUE, MASKED_VALUE)
     return quoted.replace(/\S+/g, (token) => (isValueShapedToken(token) ? MASKED_VALUE : token)).trim()
 }

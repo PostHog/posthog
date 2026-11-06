@@ -119,9 +119,14 @@ describe('invokeMcpTool', () => {
         expect((error as PostHogPermissionError).missingScope).toBe('query:read')
     })
 
-    it('throws PostHogValidationError on a validation_error body', async () => {
+    // The backend's error body types `detail` loosely, so a list must still reach the
+    // error as text rather than break every reader that treats it as a string.
+    it.each([
+        ['a string detail', 'bad query', 'bad query'],
+        ['a list detail', ['bad query'], '["bad query"]'],
+    ])('throws PostHogValidationError on a validation_error body with %s', async (_label, detail, expected) => {
         stubFetch(
-            new Response(JSON.stringify({ type: 'validation_error', detail: 'bad query', attr: 'query' }), {
+            new Response(JSON.stringify({ type: 'validation_error', detail, attr: 'query' }), {
                 status: 400,
             })
         )
@@ -129,6 +134,6 @@ describe('invokeMcpTool', () => {
         const error = await invokeMcpTool(makeContext(), 'execute_sql', { query: 'SELECT 1' }).catch((e) => e)
 
         expect(error).toBeInstanceOf(PostHogValidationError)
-        expect((error as PostHogValidationError).attr).toBe('query')
+        expect(error).toMatchObject({ attr: 'query', detail: expected })
     })
 })

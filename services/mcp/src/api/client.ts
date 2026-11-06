@@ -635,7 +635,8 @@ export class ApiClient {
         }
 
         if (errorData?.type === 'validation_error') {
-            const detail = errorData.detail || errorData.code || 'unknown'
+            const rawDetail = errorData.detail || errorData.code || 'unknown'
+            const detail = typeof rawDetail === 'string' ? rawDetail : JSON.stringify(rawDetail)
             const attrLog = errorData.attr ? ` (field: ${errorData.attr})` : ''
             console.error(`[API] Validation error on ${method} ${url}: ${detail}${attrLog}`)
             return new PostHogValidationError({

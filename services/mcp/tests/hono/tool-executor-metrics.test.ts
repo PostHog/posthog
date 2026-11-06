@@ -391,6 +391,11 @@ describe('ToolExecutor metrics', () => {
                 'Validation error: invalid_input (field: query): Unterminated string <value>',
             ],
             [
+                'a PostHogValidationError, with control characters stripped before masking',
+                apiValidationError('Unable to resolve field: sk_li\x0bve_9\x0bf3a', 'query'),
+                'Validation error: invalid_input (field: query): Unable to resolve field: <value>',
+            ],
+            [
                 'a PostHogValidationError, with short numbers and long digit-free tokens masked',
                 apiValidationError('Pin 4821 and key correcthorsebatterystaple rejected', 'pin'),
                 'Validation error: invalid_input (field: pin): Pin <value> and key <value> rejected',
