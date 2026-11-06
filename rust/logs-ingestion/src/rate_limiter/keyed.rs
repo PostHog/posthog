@@ -10,11 +10,12 @@ use super::redis::{
     ioredis_integer, token_bucket_v2, token_bucket_v3, LuaScript, ScriptCall, TokenBucketRedis,
 };
 
-/// The root of every key: `@posthog-test` under `NODE_ENV=test`, else `@posthog`.
+/// `@posthog-test` under `NODE_ENV=test`, else `@posthog`. `Shadow` keeps the Rust shadow off the Node consumer's tokens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyRoot {
     Production,
     Test,
+    Shadow,
 }
 
 impl KeyRoot {
@@ -30,6 +31,7 @@ impl KeyRoot {
         match self {
             KeyRoot::Production => "@posthog",
             KeyRoot::Test => "@posthog-test",
+            KeyRoot::Shadow => "@posthog-logs-rust-shadow",
         }
     }
 }

@@ -46,6 +46,7 @@ from products.metrics.backend.facade.contracts import (
     MetricFilter,
     MetricPoint,
     MetricQueryClause,
+    MetricQueryCount,
     MetricQueryRequest,
     MetricSeries,
     MetricsOverview,
@@ -79,6 +80,11 @@ from products.metrics.backend.metric_samples_query_runner import build_metric_qu
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
 from products.metrics.backend.promql import run_promql_range
 from products.metrics.backend.query_concurrency import query_concurrency_slots
+from products.metrics.backend.query_counts import (
+    list_metric_query_counts as _list_metric_query_counts,
+    record_metric_queries,
+    record_promql_query as _record_promql_query,
+)
 from products.metrics.backend.variable_options import check_options_window, compile_regex, list_variable_options
 from products.metrics.backend.variables import from_dashboard, with_values
 
@@ -371,6 +377,7 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
         if request.formula is not None
         else None
     )
+    record_metric_queries(team, (clause.metric_name for clause in request.clauses))
     runners: list[tuple[MetricQueryClause, MetricQueryRunner, bool]] = []
     for clause in request.clauses:
         runner_aggregation = _resolve_runner_aggregation(clause)
@@ -443,6 +450,16 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
             else series_by_clause[clause.name]
         )
     ]
+
+
+def list_metric_query_counts(*, team: Team, days: int, limit: int) -> list[MetricQueryCount]:
+    """How often queries read each metric of the team in the last `days` UTC days, the most queried first."""
+    return _list_metric_query_counts(team, days=days, limit=limit)
+
+
+def record_promql_query(*, team: Team, expr: str) -> None:
+    """Count one query for each metric that a PromQL expression selects. A failed write never raises."""
+    _record_promql_query(team, expr)
 
 
 def run_promql_query(

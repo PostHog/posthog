@@ -10,6 +10,7 @@ import posthoganalytics
 
 from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
+from posthog.helpers.email_utils import email_domain
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.oauth import MCP_READ_SCOPES
@@ -38,6 +39,7 @@ from products.tasks.backend.facade.onboarding_prompt import (
 )
 from products.tasks.backend.logic.services.model_catalogue import filter_unsupported_effort, runtime_adapter_for
 from products.tasks.backend.models import Task, TaskClientProvenance
+from products.tasks.backend.task_sources import idempotency_key_q
 
 from ee.billing.salesforce_enrichment.constants import PERSONAL_EMAIL_DOMAINS
 
@@ -62,8 +64,8 @@ def _origin_key(user_id: int) -> str:
 def _started_session_id(team_id: int, user_id: int) -> UUID | None:
     return (
         Task.objects.filter(
+            idempotency_key_q(_origin_key(user_id)),
             team_id=team_id,
-            origin_key=_origin_key(user_id),
             created_by_id=user_id,
             origin_product=Task.OriginProduct.USER_CREATED,
         )
@@ -73,7 +75,7 @@ def _started_session_id(team_id: int, user_id: int) -> UUID | None:
 
 
 def company_domain_from(email: str) -> str | None:
-    _, _, domain = email.strip().lower().partition("@")
+    domain = email_domain(email.strip().lower())
     if not domain or domain in PERSONAL_EMAIL_DOMAINS:
         return None
     return normalize_target(domain)

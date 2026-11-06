@@ -1,5 +1,5 @@
 import { type ReactElement, type ReactNode, useCallback } from 'react'
-import { Text, View } from 'react-native'
+import { Text, View, type ViewInstance } from 'react-native'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
 import { GripIcon } from '@/ui/icons/GripIcon'
@@ -11,7 +11,7 @@ import { ViewIcon } from './viewMeta'
 
 export function PinDragTile({ id, drag, children }: { id: string; drag: PinDrag; children: ReactNode }): ReactElement {
     const { register, measureAll } = drag
-    const ref = useCallback((node: View | null) => register(id, node), [id, register])
+    const ref = useCallback((node: ViewInstance | null) => register(id, node), [id, register])
     return (
         <View
             ref={ref}
