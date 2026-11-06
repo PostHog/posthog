@@ -63876,6 +63876,25 @@ export namespace Schemas {
       readonly count: number;
     }
 
+    export interface MCPCustomHarness {
+      readonly id: string;
+      /**
+         * Name to show for calls from this harness.
+         * @maxLength 100
+         * @pattern ^[\w .+&()/-]+$
+         */
+      name: string;
+      /**
+         * Text to look for in the client name or User-Agent product that the harness reports. Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent/1.2`.
+         * @maxLength 100
+         */
+      match_pattern: string;
+      /** Optional icon shown next to the harness name. A base64 data URI of a PNG, GIF or WebP image with a transparent background, 16 KB or smaller and at most 256 by 256 pixels. The icon shows in one color, like the built-in harness logos. An empty string means no icon. */
+      icon?: string;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     /**
      * Score breakdown so an agent can explain its choice: fit, liveness, trust, and whether real usage signal contributed.
      */
@@ -66161,19 +66180,6 @@ export namespace Schemas {
     export interface MemberProjectAccessResponse {
       /** One entry per visible organization member. */
       results: MemberProjectAccess[];
-    }
-
-    export interface MergePush {
-      /**
-         * The 40-character SHA of the master merge commit.
-         * @pattern ^[0-9a-f]{40}$
-         */
-      commit_sha: string;
-    }
-
-    export interface MergePushResponse {
-      /** Always accepted; the merge check runs in the background. */
-      status: string;
     }
 
     export type MessageContextualTools = { [key: string]: unknown };
@@ -84540,6 +84546,25 @@ export namespace Schemas {
       readonly updated_at?: string | null;
     }
 
+    export interface PatchedMCPCustomHarness {
+      readonly id?: string;
+      /**
+         * Name to show for calls from this harness.
+         * @maxLength 100
+         * @pattern ^[\w .+&()/-]+$
+         */
+      name?: string;
+      /**
+         * Text to look for in the client name or User-Agent product that the harness reports. Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent/1.2`.
+         * @maxLength 100
+         */
+      match_pattern?: string;
+      /** Optional icon shown next to the harness name. A base64 data URI of a PNG, GIF or WebP image with a transparent background, 16 KB or smaller and at most 256 by 256 pixels. The icon shows in one color, like the built-in harness logos. An empty string means no icon. */
+      icon?: string;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+    }
+
     export interface PatchedMCPGatewayServerUpdate {
       /**
          * Display name shown across the gateway.
@@ -93452,6 +93477,24 @@ export namespace Schemas {
       onboarding_tasks?: unknown;
       /** @nullable */
       web_analytics_pre_aggregated_tables_enabled?: boolean | null;
+    }
+
+    export interface ProjectLimits {
+      /** Sandbox training runs the project may start in any 24 hours, across all its pipelines. 0 means training is turned off. */
+      max_training_runs_per_day: number;
+      /** Sandbox training runs the project started in the last 24 hours, across all its pipelines. */
+      training_runs_used: number;
+      /**
+         * When the next training run can start, while the project is at its daily limit. Null while a run can start now, and when training is turned off.
+         * @nullable
+         */
+      next_slot_at: string | null;
+      /** Most experiments any one training run gets. A pipeline's iterations_per_run above this is lowered to it. */
+      max_iterations_per_run: number;
+      /** Most pipelines the project may have live (bootstrapping, running or converged, or a draft with an open training run, which goes live when the run promotes). Starting a draft's first training run or resuming a paused pipeline is refused at this limit. */
+      max_live_pipelines: number;
+      /** Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered. */
+      live_pipelines: number;
     }
 
     /**
@@ -106662,7 +106705,7 @@ export namespace Schemas {
       pull_requests?: string[];
       /** Explicitly end another actor's claim and take ownership. */
       takeover?: boolean;
-      /** With takeover, the claim the caller expects to replace. The takeover is rejected when a different claim is active, so a takeover based on a stale read cannot replace a newer claim. */
+      /** With takeover, the claim the caller expects to replace. The takeover is rejected when a different claim is active, so a takeover based on a stale read cannot replace a newer claim. Required to take over a claim that another person holds, directly or through their agent. That person is notified. */
       takeover_claim_id?: string;
       /** Compatibility alias for adding one PR. Prefer pull_requests for new callers. */
       pr_url?: string;
@@ -134854,11 +134897,11 @@ export namespace Schemas {
 
     export type SurveysStatsRetrieveParams = {
     /**
-     * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+     * Optional start date: an ISO 8601 timestamp (e.g. 2024-01-01T00:00:00Z) or a relative date such as -7d, -24h or -1m
      */
     date_from?: string;
     /**
-     * Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+     * Optional end date: an ISO 8601 timestamp (e.g. 2024-01-31T23:59:59Z) or a relative date such as -1d
      */
     date_to?: string;
     /**
@@ -134880,11 +134923,11 @@ export namespace Schemas {
 
     export type SurveysGlobalStatsRetrieveParams = {
     /**
-     * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+     * Optional start date: an ISO 8601 timestamp (e.g. 2024-01-01T00:00:00Z) or a relative date such as -7d, -24h or -1m
      */
     date_from?: string;
     /**
-     * Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+     * Optional end date: an ISO 8601 timestamp (e.g. 2024-01-31T23:59:59Z) or a relative date such as -1d
      */
     date_to?: string;
     };

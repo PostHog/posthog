@@ -65,6 +65,25 @@ class TrainingRunCapReached(Exception):
         super().__init__(message)
 
 
+class LivePipelineCapReached(AutoresearchConflict):
+    """The project already has its limit of live pipelines, so another cannot go live.
+
+    An ``AutoresearchConflict``, so the viewsets map it to a 400 with the message as-is, and the
+    message is user-facing copy.
+    """
+
+    def __init__(self, *, used: int, limit: int) -> None:
+        self.used = used
+        self.limit = limit
+        if limit == 0:
+            message = "Active models are turned off for this project. Contact support to turn them on."
+        else:
+            message = (
+                f"This project has reached its limit of {limit} active models. Pause or delete one to start another."
+            )
+        super().__init__(message)
+
+
 class InvalidTarget(ValueError):
     """The target names something the labeler cannot honor.
 
@@ -359,6 +378,19 @@ class AgentModelOptions:
     default_model_label: str
     default_reasoning_effort: str | None
     models: list[AgentModelOption]
+
+
+@dataclass(frozen=True)
+class ProjectLimits:
+    """The project's autoresearch limits, and how much of each it is using now."""
+
+    max_training_runs_per_day: int
+    training_runs_used: int
+    # When the next training run can start, while the project is at its daily limit.
+    next_slot_at: datetime | None
+    max_iterations_per_run: int
+    max_live_pipelines: int
+    live_pipelines: int
 
 
 # ── Write contracts ────────────────────────────────────────────────────────

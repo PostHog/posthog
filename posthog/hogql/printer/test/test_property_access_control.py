@@ -124,7 +124,7 @@ class TestRestrictPropertiesInHogQL(BaseTest):
             modifiers=HogQLQueryModifiers(useNewEventsSchema=True),
         )
         sql, _ = prepare_and_print_ast(parse_select(query), context=context, dialect="clickhouse")
-        assert "getSubcolumn" not in sql
+        assert "customer" not in sql
 
     def test_allowed_property_not_affected(self):
         PropertyAccessControl.objects.create(

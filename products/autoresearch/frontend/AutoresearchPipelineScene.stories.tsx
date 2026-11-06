@@ -15,6 +15,7 @@ import type {
     AutoresearchRunApi,
     AutoresearchSuggestionApi,
     AutoresearchTrainingRunApi,
+    ProjectLimitsApi,
 } from './generated/api.schemas'
 
 const PIPELINE_ID = '0190c3f2-0000-7000-8000-000000000001'
@@ -366,6 +367,15 @@ const trainingRuns = [
     },
 ] as unknown as AutoresearchTrainingRunApi[]
 
+const projectLimits: ProjectLimitsApi = {
+    max_training_runs_per_day: 3,
+    training_runs_used: 1,
+    next_slot_at: null,
+    max_iterations_per_run: 10,
+    max_live_pipelines: 3,
+    live_pipelines: 2,
+}
+
 const meta: Meta = {
     component: App,
     title: 'Products/Autoresearch/Model detail scene',
@@ -391,6 +401,7 @@ const meta: Meta = {
                 ]),
                 [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/suggestions/`]: toPaginatedResponse(suggestions),
                 [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/online_performance/`]: onlinePerformance,
+                '/api/projects/:team_id/autoresearch/limits/': projectLimits,
             },
         }),
     ],

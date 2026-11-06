@@ -1,6 +1,9 @@
 import json
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError, transaction
 
 import pydantic
 from rest_framework import serializers
@@ -12,7 +15,16 @@ from posthog.schema import (
     SessionPropertyFilter,
 )
 
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
+from products.mcp_analytics.backend.facade.constants import (
+    HARNESS_LABELS,
+    MARKED_CLIENT_NAMES,
+    MAX_CUSTOM_HARNESSES,
+    UNIDENTIFIED_HARNESS_LABEL,
+)
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
 
 _PROPERTY_FILTERS_ADAPTER: pydantic.TypeAdapter[list[AnyPropertyFilterDiscriminated]] = pydantic.TypeAdapter(
     list[AnyPropertyFilterDiscriminated]
@@ -863,3 +875,83 @@ class MCPMissingCapabilityCreateSerializer(MCPAnalyticsSubmissionContextSerializ
         default=True,
         help_text="Whether the missing capability blocked the user's progress.",
     )
+
+
+DUPLICATE_MATCH_PATTERN_ERROR = "A custom harness already uses this pattern."
+_BUILT_IN_HARNESS_LABELS = frozenset(
+    label.lower() for label in (*HARNESS_LABELS, *MARKED_CLIENT_NAMES, UNIDENTIFIED_HARNESS_LABEL)
+)
+
+
+class MCPCustomHarnessSerializer(serializers.ModelSerializer):
+    match_pattern = serializers.CharField(
+        max_length=100,
+        help_text=(
+            "Text to look for in the client name or User-Agent product that the harness reports. "
+            "Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent/1.2`."
+        ),
+    )
+
+    class Meta:
+        model = MCPCustomHarness
+        fields = ["id", "name", "match_pattern", "icon", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+        extra_kwargs = {
+            "name": {"help_text": "Name to show for calls from this harness."},
+            "icon": {
+                "help_text": (
+                    "Optional icon shown next to the harness name. A base64 data URI of a PNG, GIF or WebP image "
+                    "with a transparent background, 16 KB or smaller and at most 256 by 256 pixels. The icon shows "
+                    "in one color, like the built-in harness logos. An empty string means no icon."
+                )
+            },
+        }
+
+    def _other_team_harnesses(self) -> "QuerySet[MCPCustomHarness]":
+        others = MCPCustomHarness.objects.for_team(self.context["get_team"]().id)
+        return others.exclude(pk=self.instance.pk) if self.instance is not None else others
+
+    def validate_name(self, value: str) -> str:
+        name = value.strip()
+        if self.instance is not None and name == self.instance.name:
+            return name
+        # The dashboard shows its own logo for a built-in label, so a team rule with that name would lose its icon.
+        if name.lower() in _BUILT_IN_HARNESS_LABELS:
+            raise serializers.ValidationError(f"{name} is a built-in label. Choose another name.")
+        # The dashboard finds a harness icon by name, so two rules with one name would share one icon.
+        if self._other_team_harnesses().filter(name__iexact=name).exists():
+            raise serializers.ValidationError("Another custom harness already uses this name.")
+        return name
+
+    def validate_match_pattern(self, value: str) -> str:
+        pattern = value.strip().lower()
+        try:
+            MCPCustomHarness._meta.get_field("match_pattern").run_validators(pattern)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError(error.messages)
+        return pattern
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        others = self._other_team_harnesses()
+        if "match_pattern" in attrs and others.filter(match_pattern=attrs["match_pattern"]).exists():
+            raise serializers.ValidationError({"match_pattern": DUPLICATE_MATCH_PATTERN_ERROR})
+        if self.instance is None and others.count() >= MAX_CUSTOM_HARNESSES:
+            raise serializers.ValidationError(f"A project can have at most {MAX_CUSTOM_HARNESSES} custom harnesses.")
+        return attrs
+
+    def create(self, validated_data: dict[str, Any]) -> MCPCustomHarness:
+        # validate() already checked for a duplicate pattern, but a concurrent request can still
+        # win the race and insert first. The atomic block keeps the IntegrityError from poisoning
+        # an outer transaction, so the view can still return a normal 400.
+        try:
+            with transaction.atomic():
+                return MCPCustomHarness.objects.create(team_id=self.context["get_team"]().id, **validated_data)
+        except IntegrityError:
+            raise serializers.ValidationError({"match_pattern": DUPLICATE_MATCH_PATTERN_ERROR})
+
+    def update(self, instance: MCPCustomHarness, validated_data: dict[str, Any]) -> MCPCustomHarness:
+        try:
+            with transaction.atomic():
+                return super().update(instance, validated_data)
+        except IntegrityError:
+            raise serializers.ValidationError({"match_pattern": DUPLICATE_MATCH_PATTERN_ERROR})

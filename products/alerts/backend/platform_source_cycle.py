@@ -43,7 +43,7 @@ from posthog.temporal.alerts.retry_policy import alert_timeouts
 
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.comparator import MAX_BREACH_MESSAGES
-from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, check_alert_per_series
 from products.alerts.backend.facade.contracts import INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION
 from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, insight_snapshot
@@ -223,6 +223,11 @@ SETTINGS_FIELDS: Final = (
     "recurrence_unit",
     "anchor_time",
 )
+
+
+def interval_of(check_interval_minutes: int) -> str | None:
+    """The insight cadence a platform alert's `check_interval_minutes` stands for, or None for one insight has not."""
+    return next((interval for interval, (minutes, _) in _RECURRENCE.items() if minutes == check_interval_minutes), None)
 
 
 def platform_upsert_of(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
@@ -777,15 +782,16 @@ def _decide(
         )
     except LLMDetectorPausedError as error:
         # As production: no retry, and the alert stays enabled so it resumes once access or credits return.
-        return _verdict(
+        return _errored_stays_enabled(
             check,
             snapshot,
-            CheckInput(threshold_breached=False, error_message=str(error)),
+            alert,
             now=now,
-            skip=SkipReason.QUERY_FAILED,
-            context=_context(alert),
+            message=str(error),
             check_detail={ERROR_CODE_KEY: LLM_DETECTOR_PAUSED_ERROR_CODE},
         )
+    except AlertDataUnavailableError as error:
+        return _errored_stays_enabled(check, snapshot, alert, now=now, message=str(error))
     except (AlertExtractionError, LLMDetectorMisconfiguredError) as error:
         return _broken(check, snapshot, alert, now=now, message=str(error))
     except Exception as error:
@@ -860,6 +866,31 @@ def _broken(
         skip=SkipReason.BROKEN_CONFIG,
         disable=True,
         source_detail=_context(alert),
+    )
+
+
+def _errored_stays_enabled(
+    check: PlatformAlertCheckInput,
+    snapshot: AlertSnapshot,
+    alert: AlertConfiguration,
+    *,
+    now: datetime,
+    message: str,
+    check_detail: dict[str, Any] | None = None,
+) -> PlatformAlertOutcome:
+    """A check that reached no verdict, but that a later check can, such as one whose history is still short.
+
+    As production, it errors and the copy stays enabled. `AlertDataUnavailableError` subclasses
+    `AlertExtractionError`, so its catch must come before the one that sends the copy to `_broken`.
+    """
+    return _verdict(
+        check,
+        snapshot,
+        CheckInput(threshold_breached=False, error_message=message),
+        now=now,
+        skip=SkipReason.QUERY_FAILED,
+        context=_context(alert),
+        check_detail=check_detail,
     )
 
 
@@ -941,6 +972,8 @@ def _decide_grouped(
         )
     except ClickHouseBudgetFull:
         return None
+    except AlertDataUnavailableError as error:
+        return _errored_stays_enabled(check, snapshot, alert, now=now, message=str(error))
     except AlertExtractionError as error:
         return _broken(check, snapshot, alert, now=now, message=str(error))
     except Exception as error:
