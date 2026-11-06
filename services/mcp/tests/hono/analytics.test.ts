@@ -248,23 +248,29 @@ describe('Hono MCP analytics contexts', () => {
             false,
         ],
         [
-            'an argument too deep to redact',
+            'an argument nested past the capture depth',
             false,
             { parameters: JSON.parse('['.repeat(20_000) + ']'.repeat(20_000)), response: 'rows' },
-            false,
-            false,
+            true,
+            true,
         ],
-    ])(
-        'records the event without the payload it cannot send for %s',
-        async (_case, isError, meta, sendsArguments, sendsResult) => {
-            await trackToolCall('query-logs', 12, isError, makeState(), undefined, meta)
+    ])('captures what policy and size allow for %s', async (_case, isError, meta, sendsArguments, sendsResult) => {
+        await trackToolCall('query-logs', 12, isError, makeState(), undefined, meta)
 
-            const captured = mockCaptureToolCall.mock.calls[0]![0]
-            expect(captured.toolName).toBe('query-logs')
-            expect(captured.parameters !== undefined).toBe(sendsArguments)
-            expect(captured.response !== undefined).toBe(sendsResult)
-        }
-    )
+        const captured = mockCaptureToolCall.mock.calls[0]![0]
+        expect(captured.toolName).toBe('query-logs')
+        expect(captured.parameters !== undefined).toBe(sendsArguments)
+        expect(captured.response !== undefined).toBe(sendsResult)
+    })
+
+    it('bounds how much of a payload it walks before capture', async () => {
+        const wide = Array.from({ length: 10_000 }, (_, i) => ({ id: i, token: 'secret' }))
+        await trackToolCall('query-logs', 12, false, makeState(), undefined, { parameters: { rows: wide } })
+
+        const { rows } = mockCaptureToolCall.mock.calls[0]![0].parameters
+        expect(rows.length).toBeLessThan(wide.length)
+        expect(rows[0]).toEqual({ id: 0, token: '[redacted]' })
+    })
 
     it('drops preloaded app data from the captured result for every consumer', async () => {
         const appData = { rows: [{ value: 'widget-only-data' }] }

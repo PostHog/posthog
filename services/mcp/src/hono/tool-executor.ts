@@ -469,7 +469,8 @@ export class ToolExecutor {
                     ...inputShape,
                     ...errorAnalyticsProperties(classifyToolError(rejection, tool.name), rejection),
                 },
-                analyticsMeta,
+                // A rejected shape can hide a credential inside a string, past key-based redaction.
+                { ...analyticsMeta, parameters: undefined },
                 this.servedToolDescription(tool.name)
             )
             return {
@@ -1067,7 +1068,7 @@ export class ToolExecutor {
                     ...inputShape,
                     ...errorAnalyticsProperties(classifyToolError(rejection, 'render-ui'), rejection),
                 },
-                analyticsMeta
+                { ...analyticsMeta, parameters: undefined }
             )
             return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
         }

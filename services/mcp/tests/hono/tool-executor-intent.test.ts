@@ -282,6 +282,36 @@ describe('ToolExecutor analytics capture', () => {
         capture.mockRestore()
     })
 
+    it('sends no arguments for a call its schema rejects', async () => {
+        const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+        const tool = {
+            name: 'switch-project',
+            title: 'Switch project',
+            description: 'Synthetic switch',
+            scopes: [],
+            annotations: { readOnlyHint: false },
+            schema: z.object({ projectId: z.number() }),
+            handler: async () => 'unreachable',
+        }
+        vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+            build: () => tool,
+            meta: undefined,
+            rawInputSchema: undefined,
+            definition: undefined,
+        })
+        const state = makeToolExecutorState([tool], { suppressAnalytics: false })
+
+        await executor.handleToolCall(
+            { name: tool.name, arguments: { projectId: '{"password":"canary-secret"}' } },
+            state
+        )
+
+        await vi.waitFor(() => expect(capture).toHaveBeenCalledOnce())
+        expect(capture.mock.calls[0]![0].isError).toBe(true)
+        expect(capture.mock.calls[0]![0].parameters).toBeUndefined()
+        capture.mockRestore()
+    })
+
     it.each([
         ['an unknown tool', 'call no-such-tool {"password":"canary-secret"}'],
         ['a disconnected vendor tool', 'call linear__create_issue {"description":"canary-secret"}'],

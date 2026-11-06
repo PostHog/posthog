@@ -493,6 +493,30 @@ function serializeSpanState(value: unknown): string | undefined {
     }
 }
 
+// The SDK truncates what it receives, so walking more than this only costs time and memory.
+const MAX_CAPTURED_DEPTH = 8
+const MAX_CAPTURED_ITEMS = 50
+
+function redactForCapture(value: unknown, depth = 0): unknown {
+    if (value === null || typeof value !== 'object') {
+        return value
+    }
+    if (depth >= MAX_CAPTURED_DEPTH) {
+        return '[truncated]'
+    }
+    if (Array.isArray(value)) {
+        return value.slice(0, MAX_CAPTURED_ITEMS).map((item) => redactForCapture(item, depth + 1))
+    }
+    return Object.fromEntries(
+        Object.entries(value)
+            .slice(0, MAX_CAPTURED_ITEMS)
+            .map(([key, val]) => [
+                key,
+                SENSITIVE_KEY_PATTERN.test(key) ? REDACTED_VALUE : redactForCapture(val, depth + 1),
+            ])
+    )
+}
+
 // Failed calls send no result: their text embeds upstream error bodies that `$mcp_error_message` sanitizes.
 function capturedPayload(
     toolName: string,
@@ -500,18 +524,13 @@ function capturedPayload(
     analyticsMeta: ToolCallAnalyticsMeta | undefined
 ): { parameters?: unknown; response?: unknown } {
     const { parameters, response } = analyticsMeta ?? {}
-    try {
-        return {
-            ...(parameters !== undefined && shouldCaptureToolInput(toolName, parameters)
-                ? { parameters: redactSecrets(parameters) }
-                : {}),
-            ...(response !== undefined && !isError && shouldCaptureToolOutput(toolName, parameters)
-                ? { response: redactSecrets(omitAppData(response)) }
-                : {}),
-        }
-    } catch {
-        // A payload too deep to redact must not cost the event its usage and failure metrics.
-        return {}
+    return {
+        ...(parameters !== undefined && shouldCaptureToolInput(toolName, parameters)
+            ? { parameters: redactForCapture(parameters) }
+            : {}),
+        ...(response !== undefined && !isError && shouldCaptureToolOutput(toolName, parameters)
+            ? { response: redactForCapture(omitAppData(response)) }
+            : {}),
     }
 }
 
