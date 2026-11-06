@@ -419,7 +419,7 @@ export const dataWarehouseDeprovisionCreate = async (
 }
 
 export const getDataWarehouseHoglakeCredentialsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_warehouse/hoglake-credentials/`
+    return `/api/projects/${projectId}/data_warehouse/hoglake_credentials/`
 }
 
 /**
@@ -437,7 +437,7 @@ export const dataWarehouseHoglakeCredentialsRetrieve = async (
 }
 
 export const getDataWarehouseHoglakeCredentialsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_warehouse/hoglake-credentials/`
+    return `/api/projects/${projectId}/data_warehouse/hoglake_credentials/`
 }
 
 /**
@@ -458,7 +458,7 @@ export const dataWarehouseHoglakeCredentialsCreate = async (
 }
 
 export const getDataWarehouseHoglakeCredentialsDestroyUrl = (projectId: string, credentialId: string) => {
-    return `/api/projects/${projectId}/data_warehouse/hoglake-credentials/${credentialId}/`
+    return `/api/projects/${projectId}/data_warehouse/hoglake_credentials/${credentialId}/`
 }
 
 /**
@@ -480,7 +480,7 @@ export const dataWarehouseHoglakeCredentialsDestroy = async (
 }
 
 export const getDataWarehouseHoglakeCredentialsRotateCreateUrl = (projectId: string, credentialId: string) => {
-    return `/api/projects/${projectId}/data_warehouse/hoglake-credentials/${credentialId}/rotate/`
+    return `/api/projects/${projectId}/data_warehouse/hoglake_credentials/${credentialId}/rotate/`
 }
 
 /**
