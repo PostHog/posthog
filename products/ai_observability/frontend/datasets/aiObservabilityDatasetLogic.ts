@@ -866,7 +866,6 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
                             description: formValues.description,
                             metadata: parseJsonObject(formValues.metadata),
                         })
-                        aiObservabilityDatasetsLogic.findMounted()?.actions.datasetRetentionChanged()
                         lemonToast.success('Dataset created successfully')
                         router.actions.replace(getDatasetDetailUrl(savedDataset.id, router.values.searchParams))
 
@@ -881,6 +880,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
                         })
                         lemonToast.success('Dataset updated successfully')
                     }
+                    aiObservabilityDatasetsLogic.findMounted()?.actions.datasetRetentionChanged()
                     aiObservabilityDatasetsLogic.findMounted()?.actions.loadDatasets(false)
                     actions.setDataset(savedDataset)
                     actions.editDataset(false)
@@ -1026,6 +1026,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
             if (props.datasetId !== 'new') {
                 try {
                     await datasetsApi.archiveDataset(props.datasetId)
+                    aiObservabilityDatasetsLogic.findMounted()?.actions.datasetRetentionChanged()
                     const datasetName = values.dataset?.name || 'Dataset'
                     lemonToast.info(`${datasetName} has been archived.`, {
                         button: {
@@ -1034,6 +1035,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
                             action: async () => {
                                 try {
                                     await datasetsApi.restoreDataset(props.datasetId)
+                                    aiObservabilityDatasetsLogic.findMounted()?.actions.datasetRetentionChanged()
                                     aiObservabilityDatasetsLogic.findMounted()?.actions.loadDatasets(false)
                                     lemonToast.success(`${datasetName} has been restored.`)
                                 } catch {
@@ -1057,6 +1059,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
             try {
                 const restoredDataset = await datasetsApi.restoreDataset(props.datasetId)
                 actions.setDataset(restoredDataset)
+                aiObservabilityDatasetsLogic.findMounted()?.actions.datasetRetentionChanged()
                 aiObservabilityDatasetsLogic.findMounted()?.actions.loadDatasets(false)
                 lemonToast.success(`${restoredDataset.name} has been unarchived.`)
             } catch (error) {
