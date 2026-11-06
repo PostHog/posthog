@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING, Literal
 
+from django.core.cache import cache
+
 import structlog
 
 from posthog.dataclasses import frozen
@@ -25,6 +27,7 @@ REPLY_SUGGESTIONS_METHOD = "_posthog/reply_suggestions"
 REPLY_SUGGESTIONS_AI_PRODUCT = "posthog_ai"
 REPLY_SUGGESTIONS_FEATURE = "reply_suggestions"
 REPLY_SUGGESTIONS_REASONING_EFFORT = "none"
+TURN_CLAIM_SECONDS = 60 * 60
 
 OutcomeStatus = Literal["emitted", "skipped", "failed"]
 
@@ -83,6 +86,9 @@ def generate_reply_suggestions(run_id: str, team_id: int) -> ReplySuggestionsOut
         return _skipped("turn_in_progress")
     if not transcript.assistant_text.strip():
         return _skipped("no_answer")
+    turn_index = len(transcript.human_messages) - 1
+    if not cache.add(f"posthog_ai_reply_suggestions:{task.id}:{turn_index}", True, timeout=TURN_CLAIM_SECONDS):
+        return _skipped("turn_already_claimed")
 
     suggestions = suggest_replies(
         transcript.assistant_text,
@@ -106,7 +112,7 @@ def generate_reply_suggestions(run_id: str, team_id: int) -> ReplySuggestionsOut
         task_run.team_id,
         REPLY_SUGGESTIONS_METHOD,
         {
-            "turnIndex": len(transcript.human_messages) - 1,
+            "turnIndex": turn_index,
             "suggestions": [{"label": s.label, "reply": s.reply} for s in suggestions],
         },
         persist=False,

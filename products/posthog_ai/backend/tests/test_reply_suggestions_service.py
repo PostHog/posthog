@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+
 from celery.exceptions import Retry
 from parameterized import parameterized
 
@@ -51,6 +53,7 @@ TWO_TURNS = [
 class TestGenerateReplySuggestions(BaseTest):
     def setUp(self):
         super().setUp()
+        cache.clear()
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         self.task = Task.objects.create(
@@ -94,6 +97,21 @@ class TestGenerateReplySuggestions(BaseTest):
             "suggestions": [{"label": OPEN_PR.label, "reply": OPEN_PR.reply}],
         }
         assert publish.kwargs == {"persist": False}
+
+    def test_each_turn_calls_the_model_once_however_many_reports_arrive(self):
+        first = self._generate()
+        repeat = self._generate()
+        self.mocks["history"].return_value = [
+            *TWO_TURNS,
+            _user_message("And for logins?"),
+            _agent_final("Should I add a login event too?"),
+            _turn_complete(),
+        ]
+        next_turn = self._generate()
+
+        assert (first.status, repeat.reason, next_turn.status) == ("emitted", "turn_already_claimed", "emitted")
+        assert self.mocks["suggest"].call_count == 2
+        assert self.mocks["publish"].call_args.args[4]["turnIndex"] == 2
 
     def test_a_long_answer_reaches_the_model_with_its_closing_question(self):
         answer = "Step details. " * 600 + "Should I open a pull request with the fix?"

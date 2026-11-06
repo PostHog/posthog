@@ -1,7 +1,5 @@
 from typing import TYPE_CHECKING, Any
 
-from django.core.cache import cache
-
 import structlog
 
 from products.tasks.backend.facade.task_run_signals import TaskOriginProduct
@@ -11,7 +9,6 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-ENQUEUE_DEDUP_SECONDS = 2
 REPLY_SUGGESTIONS_EXPIRES_SECONDS = 30
 
 
@@ -20,8 +17,6 @@ def enqueue_reply_suggestions(task_run: "TaskRun") -> bool:
         if task_run.origin_product != TaskOriginProduct.POSTHOG_AI:
             return False
         run_id = str(task_run.id)
-        if not cache.add(f"posthog_ai_reply_suggestions:{run_id}", True, timeout=ENQUEUE_DEDUP_SECONDS):
-            return False
         from products.posthog_ai.backend.tasks import generate_reply_suggestions_task  # noqa: PLC0415
 
         generate_reply_suggestions_task.apply_async(
