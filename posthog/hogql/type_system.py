@@ -209,6 +209,7 @@ _STRING_RESULT_FUNCTIONS = frozenset(
         "rightpad",
         "rightpadutf8",
         "sha1",
+        "sha256",
         "substring",
         "substringutf8",
         "tostring",
