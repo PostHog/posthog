@@ -4,24 +4,32 @@ from typing import Any, ClassVar, cast
 
 from django import forms
 from django.contrib import messages
-from django.contrib.admin.models import CHANGE, LogEntry
+from django.contrib.admin.models import ADDITION, CHANGE, LogEntry
+from django.contrib.admin.utils import construct_change_message
+from django.db import transaction
 from django.db.models import Model
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.template.defaultfilters import filesizeformat
 from django.utils import timezone
 
-from posthog.admin.admins.data_deletion_request_admin import CLICKHOUSE_TEAM_GROUP
-from posthog.admin.console.panels import Fact, Gate, Operation, Owner, Panel, ReasonForm, Tone
+from posthog.admin.console.deletion_request_form import (
+    CLICKHOUSE_TEAM_GROUP,
+    DataDeletionRequestForm,
+    initial_from_query,
+)
+from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.records import RECORD_TYPES, request_type_label
 from posthog.admin.console.registry import console
-from posthog.admin.console.tools import Cell, Notice, Page, Row, Table
+from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table, ToolOperation
 from posthog.models.data_deletion_request import (
     AUTO_APPROVE_INTERVAL_MINUTES,
     AUTO_APPROVE_MAX_EVENTS,
+    EDITABLE_STATUSES,
     DataDeletionRequest,
     ExecutionMode,
     RequestStatus,
     RequestType,
+    StaffEditNotice,
     count_adhoc_event_deletion_backlog,
     count_remaining_for_request,
     fetch_deletion_stats,
@@ -65,12 +73,14 @@ def _number(value: int | None) -> str:
     return "-" if value is None else f"{value:,}"
 
 
-def _log_change(request: HttpRequest, obj: DataDeletionRequest, message: str) -> None:
+def _log_change(
+    request: HttpRequest, obj: DataDeletionRequest, message: str | list[dict], action_flag: int = CHANGE
+) -> None:
     # The same entry ModelAdmin.log_change writes, so the history on the Django admin page stays complete.
     LogEntry.objects.log_actions(
         user_id=cast(User, request.user).pk,
         queryset=[obj],
-        action_flag=CHANGE,
+        action_flag=action_flag,
         change_message=message,
         single_object=True,
     )
@@ -290,7 +300,7 @@ def _listed(values: list[str]) -> str:
     return f"{shown} and {hidden:,} more" if hidden > 0 else shown
 
 
-def _criteria_rows(obj: DataDeletionRequest) -> list[Row]:
+def _criteria_values(obj: DataDeletionRequest) -> list[tuple[str, str]]:
     criteria = [
         ("Type", request_type_label(obj)),
         ("Team", str(obj.team_id)),
@@ -315,7 +325,11 @@ def _criteria_rows(obj: DataDeletionRequest) -> list[Row]:
             if flag
         ]
         criteria.append(("Drops", ", ".join(dropped)))
-    return [Row(cells=(Cell(text=label), Cell(text=value, mono=True))) for label, value in criteria if value]
+    return [(label, value) for label, value in criteria if value]
+
+
+def _criteria_rows(obj: DataDeletionRequest) -> list[Row]:
+    return [Row(cells=(Cell(text=label), Cell(text=value, mono=True))) for label, value in _criteria_values(obj)]
 
 
 def _stats_block(obj: DataDeletionRequest) -> Notice | Table:
@@ -575,3 +589,150 @@ class DeletionRequestWorkflowPanel(Panel):
                 "for the ClickHouse Team."
             ),
         )
+
+
+def _show_notices(request: HttpRequest, notices: list[StaffEditNotice]) -> None:
+    for notice in notices:
+        if notice.warning:
+            messages.warning(request, notice.text)
+        else:
+            messages.info(request, notice.text)
+
+
+def _refuse_clickhouse_team_type(request: HttpRequest, form: DataDeletionRequestForm) -> HttpResponse | None:
+    # The create form hides these types from everyone else, and the edit form cannot, because record forms are
+    # built without the request. This check covers both, and a hand-built POST.
+    if not form.needs_clickhouse_team() or CLICKHOUSE_TEAM.allows(request):
+        return None
+    form.add_error("request_type", f"Only {CLICKHOUSE_TEAM.label} can pick this type.")
+    return HttpResponse(status=400)
+
+
+def create_request(request: HttpRequest, form: forms.Form | None) -> HttpResponse | Page | None:
+    assert isinstance(form, DataDeletionRequestForm)
+    refused = _refuse_clickhouse_team_type(request, form)
+    if refused is not None:
+        return refused
+    obj = form.instance
+    notices = obj.apply_staff_edit(cast(User, request.user), form.changed_data, is_new=True)
+    obj.save()
+    _log_change(request, obj, construct_change_message(form, [], add=True), action_flag=ADDITION)
+    _show_notices(request, notices)
+    messages.success(request, "Draft created. Fetch its stats, then submit it for approval.")
+    return HttpResponseRedirect(RECORD_TYPES["deletion-request"].url(obj))
+
+
+def edit_criteria(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
+    assert isinstance(obj, DataDeletionRequest) and isinstance(form, DataDeletionRequestForm)
+    refused = _refuse_clickhouse_team_type(request, form)
+    if refused is not None:
+        return refused
+    if not form.has_changed():
+        messages.info(request, "Nothing changed.")
+        return None
+    change_message = construct_change_message(form, [], add=False)
+    with transaction.atomic():
+        # The lock makes a concurrent approval wait for this save, and then miss the request it moved to draft.
+        current_status = (
+            DataDeletionRequest.objects.select_for_update().filter(pk=obj.pk).values_list("status", flat=True).first()
+        )
+        if current_status not in EDITABLE_STATUSES:
+            messages.error(request, "The request was approved or started since you opened this form. Reload it.")
+            return HttpResponse(status=409)
+        obj.status = current_status
+        notices = obj.apply_staff_edit(cast(User, request.user), form.changed_data, is_new=False)
+        obj.save()
+    _log_change(request, obj, change_message)
+    _show_notices(request, notices)
+    messages.success(request, "Criteria saved.")
+    return None
+
+
+def duplicate(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
+    assert isinstance(obj, DataDeletionRequest)
+    original_url = request.build_absolute_uri(RECORD_TYPES["deletion-request"].url(obj))
+    copy = obj.duplicate_as_draft(
+        cast(User, request.user), copy_note=f"Copy of data deletion request {obj.pk} ({original_url})."
+    )
+    _log_change(request, copy, [{"added": {}}], action_flag=ADDITION)
+    messages.success(request, "Duplicated as a new draft. This is the copy.")
+    return HttpResponseRedirect(RECORD_TYPES["deletion-request"].url(copy))
+
+
+@console.register_panel
+class DeletionRequestCriteriaPanel(Panel):
+    record = "deletion-request"
+    key = "criteria"
+    title = "Criteria"
+    owner = CLICKHOUSE
+
+    def facts(self, obj: Model) -> list[Fact]:
+        assert isinstance(obj, DataDeletionRequest)
+        facts = [
+            Fact(label=label, value=value, mono=True)
+            for label, value in _criteria_values(obj)
+            if label not in ("Type", "Team")
+        ]
+        if obj.criteria_updated_at is not None:
+            editor = obj.criteria_updated_by.email if obj.criteria_updated_by else "a deleted user"
+            facts.append(Fact(label="Last changed", value=f"By {editor}, {_when(obj.criteria_updated_at)}"))
+        return facts[:MAX_FACTS_PER_PANEL]
+
+    def operations(self, obj: Model) -> list[Operation]:
+        assert isinstance(obj, DataDeletionRequest)
+        operations = []
+        if obj.status in EDITABLE_STATUSES:
+            operations.append(
+                Operation(
+                    key="edit",
+                    label="Edit criteria",
+                    handler=edit_criteria,
+                    form_class=DataDeletionRequestForm.for_request(obj),
+                    description=(
+                        "Changes what the request matches. A changed criterion clears the stats, and a pending "
+                        "request goes back to draft."
+                    ),
+                )
+            )
+        operations.append(
+            Operation(
+                key="duplicate",
+                label="Duplicate as a new draft",
+                handler=duplicate,
+                description="Creates a draft with the same criteria and opens it.",
+            )
+        )
+        return operations
+
+
+@console.register_tool
+class NewDeletionRequestTool(ConsoleTool):
+    key = "new-deletion-request"
+    title = "New deletion request"
+    owner = CLICKHOUSE
+    group = "Data"
+    description = "Creates a draft request to delete events, or properties from events, of one team."
+
+    def page(self, request: HttpRequest) -> Page:
+        return Page(
+            blocks=(
+                Notice(
+                    text="A new request starts as a draft. Nothing is deleted until it is submitted and approved.",
+                    link_text="All requests in Django admin",
+                    href="/admin/posthog/datadeletionrequest/",
+                ),
+            )
+        )
+
+    def operations(self, request: HttpRequest) -> list[ToolOperation]:
+        return [
+            ToolOperation(
+                key="create",
+                label="Create deletion request",
+                handler=create_request,
+                form_class=DataDeletionRequestForm.for_staff(CLICKHOUSE_TEAM.allows(request)),
+                # Support links prefill the form, for example ?team_id=2&events=$pageview.
+                form_initial={"request_type": RequestType.EVENT_REMOVAL.value, **initial_from_query(request.GET)},
+                description="Creates a draft and opens it. Nothing is deleted yet.",
+            )
+        ]

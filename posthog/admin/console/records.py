@@ -127,7 +127,7 @@ class DeletionRequestRecord(RecordType):
     pk_converter = "uuid"
 
     def queryset(self) -> QuerySet:
-        return DataDeletionRequest.objects.select_related("approved_by")
+        return DataDeletionRequest.objects.select_related("approved_by", "criteria_updated_by")
 
     def title(self, obj: Model) -> str:
         assert isinstance(obj, DataDeletionRequest)
@@ -148,9 +148,9 @@ class DeletionRequestRecord(RecordType):
     def links(self, obj: Model) -> list[RecordLink]:
         return [
             RecordLink(
-                label="Edit in Django admin",
+                label="Raw record in Django admin",
                 href=reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]),
-                title="The raw request, where its criteria are edited",
+                title="The raw request, with every field",
             ),
         ]
 

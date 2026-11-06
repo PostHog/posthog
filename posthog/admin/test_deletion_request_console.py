@@ -1,19 +1,24 @@
 from datetime import timedelta
+from typing import cast
 
 import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.contrib.admin.models import LogEntry
+from django import forms
+from django.contrib.admin.models import ADDITION, LogEntry
 from django.contrib.auth.models import Group
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
+from bs4 import BeautifulSoup
 from parameterized import parameterized
 
+from posthog.admin.console.deletion_request_form import ArrayTextareaField, DataDeletionRequestForm
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL
 from posthog.admin.console.registry import console
 from posthog.models.data_deletion_request import (
+    EDITABLE_STATUSES,
     AdhocEventDeletionBacklog,
     DataDeletionRequest,
     ExecutionMode,
@@ -22,6 +27,7 @@ from posthog.models.data_deletion_request import (
 )
 
 PANELS = "posthog.admin.console.deletion_request_panels"
+CREATE_URL = "/admin/console/tools/new-deletion-request/create/"
 
 
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
@@ -68,7 +74,14 @@ class TestDeletionRequestConsole(BaseTest):
 
         assert response.status_code == 200
         content = response.content.decode()
-        for title in ("Overview", "ClickHouse stats", "Workflow", "Retry deletion", "Verify deletion"):
+        for title in (
+            "Overview",
+            "ClickHouse stats",
+            "Criteria",
+            "Workflow",
+            "Retry deletion",
+            "Duplicate as a new draft",
+        ):
             assert title in content
         assert f"/admin/console/teams/{self.team.pk}/" in content
         for panel in console.panels_for("deletion-request"):
@@ -363,3 +376,226 @@ class TestDeletionRequestConsole(BaseTest):
         assert "Selector count: 2 person targets" in response.content.decode()
         obj.refresh_from_db()
         assert (obj.count, obj.stats_calculated_at is not None) == ((2, True) if saved else (None, False))
+
+    def _create(self, **data):
+        fields = {
+            "team_id": str(self.team.pk),
+            "request_type": RequestType.EVENT_REMOVAL.value,
+            "start_time": "2026-11-01 00:00",
+            "end_time": "2026-11-02 00:00",
+            "events": "$pageview\n$autocapture",
+            "properties": "$ip",
+            "notes": "Ticket 123",
+        }
+        return self.client.post(CREATE_URL, {**fields, **data})
+
+    def test_create_makes_a_draft_and_opens_it(self) -> None:
+        response = self._create()
+
+        obj = DataDeletionRequest.objects.get()
+        assert response.status_code == 302
+        assert response["Location"] == self._url(obj)
+        assert (obj.status, obj.events, obj.properties, obj.created_by, obj.created_by_staff) == (
+            RequestStatus.DRAFT,
+            ["$pageview", "$autocapture"],
+            [],
+            self.user,
+            True,
+        )
+        assert LogEntry.objects.filter(object_id=str(obj.pk), action_flag=ADDITION).exists()
+
+    @parameterized.expand([("member", True, 302), ("outside_clickhouse_team", False, 400)])
+    def test_property_removal_is_only_created_by_the_clickhouse_team(
+        self, _name: str, in_clickhouse_team: bool, expected: int
+    ) -> None:
+        if not in_clickhouse_team:
+            self.user.groups.clear()
+
+        response = self._create(request_type=RequestType.PROPERTY_REMOVAL.value)
+
+        assert response.status_code == expected
+        assert DataDeletionRequest.objects.exists() == in_clickhouse_team
+
+    @parameterized.expand(
+        [
+            ("naive", "2025-01-08 08:12:00", "2025-01-08 08:12:00"),
+            ("iso_utc", "2025-01-08T08:12:00Z", "2025-01-08 08:12:00"),
+            ("other_offset", "2025-01-08T10:12:00+02:00", "2025-01-08 08:12:00"),
+            ("unparseable", "next tuesday", ""),
+            ("invalid_date", "2025-13-45 08:12:00", ""),
+        ]
+    )
+    def test_create_form_is_prefilled_from_the_link(self, _name: str, start_time: str, expected: str) -> None:
+        response = self.client.get(CREATE_URL, {"team_id": "42", "events": "$pageview", "start_time": start_time})
+
+        assert response.status_code == 200
+        soup = BeautifulSoup(response.content, "html.parser")
+        assert soup.select_one("input[name=team_id]")["value"] == "42"
+        assert soup.select_one("textarea[name=events]").get_text() == "$pageview"
+        assert soup.select_one("input[name=start_time]")["value"] == expected
+
+    def test_the_old_django_admin_add_link_opens_the_create_form_with_its_values(self) -> None:
+        response = self.client.get("/admin/posthog/datadeletionrequest/add/?team_id=42&events=%24pageview")
+
+        assert response.status_code == 302
+        assert response["Location"] == f"{CREATE_URL}?team_id=42&events=%24pageview"
+
+    def test_editing_the_criteria_of_a_pending_request_moves_it_back_to_draft(self) -> None:
+        obj = self._request(status=RequestStatus.PENDING, count=10, stats_calculated_at=timezone.now())
+
+        page = self.client.get(self._url(obj, "criteria", "edit"))
+        response = self.client.post(
+            self._url(obj, "criteria", "edit"),
+            {
+                "request_type": RequestType.EVENT_REMOVAL.value,
+                "start_time": "2026-10-30 12:00",
+                "end_time": "2026-11-06 11:59",
+                "events": "$autocapture",
+            },
+        )
+
+        assert "$pageview" in BeautifulSoup(page.content, "html.parser").select_one("textarea[name=events]").get_text()
+        assert response.status_code == 302
+        obj.refresh_from_db()
+        assert (obj.status, obj.events, obj.count, obj.stats_calculated_at, obj.criteria_updated_by) == (
+            RequestStatus.DRAFT,
+            ["$autocapture"],
+            None,
+            None,
+            self.user,
+        )
+        assert LogEntry.objects.filter(object_id=str(obj.pk), change_message__contains='"events"').exists()
+
+    def test_editing_only_the_notes_keeps_a_pending_request_and_its_stats(self) -> None:
+        obj = self._request(status=RequestStatus.PENDING, count=10)
+
+        response = self.client.post(
+            self._url(obj, "criteria", "edit"),
+            {
+                "request_type": RequestType.EVENT_REMOVAL.value,
+                "start_time": "2026-10-30 12:00",
+                "end_time": "2026-11-06 11:59",
+                "events": "$pageview",
+                "notes": "More context",
+            },
+        )
+
+        assert response.status_code == 302
+        obj.refresh_from_db()
+        assert (obj.status, obj.count, obj.notes) == (RequestStatus.PENDING, 10, "More context")
+
+    def test_staff_outside_the_clickhouse_team_cannot_switch_to_property_removal(self) -> None:
+        obj = self._request()
+        self.user.groups.clear()
+
+        response = self.client.post(
+            self._url(obj, "criteria", "edit"),
+            {
+                "request_type": RequestType.PROPERTY_REMOVAL.value,
+                "start_time": "2026-10-30 12:00",
+                "end_time": "2026-11-06 11:59",
+                "events": "$pageview",
+                "properties": "$ip",
+            },
+        )
+
+        assert response.status_code == 400
+        assert "Only the ClickHouse Team group can pick this type" in response.content.decode()
+        obj.refresh_from_db()
+        assert obj.request_type == RequestType.EVENT_REMOVAL
+
+    @parameterized.expand([(status.value, status) for status in RequestStatus if status not in EDITABLE_STATUSES])
+    def test_criteria_of_an_approved_or_later_request_cannot_be_edited(self, _name: str, status: RequestStatus) -> None:
+        obj = self._request(status=status)
+
+        response = self.client.post(self._url(obj, "criteria", "edit"), {"events": "$autocapture"})
+
+        assert response.status_code == 404
+        obj.refresh_from_db()
+        assert obj.events == ["$pageview"]
+
+    @parameterized.expand(
+        [
+            ("with_notes", RequestType.EVENT_REMOVAL, "please be careful"),
+            ("query_backed", RequestType.HOGQL_EVENT_REMOVAL, ""),
+        ]
+    )
+    def test_duplicate_copies_the_criteria_into_a_new_draft(
+        self, _name: str, request_type: RequestType, notes: str
+    ) -> None:
+        if request_type == RequestType.HOGQL_EVENT_REMOVAL:
+            original = self._request(
+                request_type=request_type,
+                events=[],
+                start_time=None,
+                end_time=None,
+                hogql_query="SELECT uuid FROM events WHERE event = {event}",
+                hogql_variables={"event": "$pageview"},
+                execution_mode=ExecutionMode.DEFERRED,
+                status=RequestStatus.COMPLETED,
+            )
+        else:
+            original = self._request(
+                notes=notes, status=RequestStatus.COMPLETED, count=42, approved=True, attempt_count=3
+            )
+
+        response = self.client.post(self._url(original, "criteria", "duplicate"))
+
+        copy = DataDeletionRequest.objects.exclude(pk=original.pk).get()
+        assert response["Location"] == self._url(copy)
+        assert (copy.team_id, copy.events, copy.hogql_query, copy.hogql_variables, copy.execution_mode) == (
+            original.team_id,
+            original.events,
+            original.hogql_query,
+            original.hogql_variables,
+            original.execution_mode,
+        )
+        assert (copy.status, copy.count, copy.approved, copy.attempt_count, copy.created_by) == (
+            RequestStatus.DRAFT,
+            None,
+            False,
+            0,
+            self.user,
+        )
+        assert copy.notes.startswith(
+            f"Copy of data deletion request {original.pk} (http://testserver{self._url(original)})."
+        )
+        assert copy.notes.endswith(notes or ").")
+
+
+class TestDeletionRequestForm(SimpleTestCase):
+    @staticmethod
+    def _type_values(form: DataDeletionRequestForm) -> list[str]:
+        request_type = form.fields["request_type"]
+        assert isinstance(request_type, forms.ChoiceField)
+        return [value for value, _ in cast("list[tuple[str, str]]", request_type.choices)]
+
+    @parameterized.expand(
+        [
+            ("outside_clickhouse_team", False, [RequestType.EVENT_REMOVAL]),
+            ("clickhouse_team", True, [RequestType.PROPERTY_REMOVAL, RequestType.EVENT_REMOVAL]),
+        ]
+    )
+    def test_types_offered_on_a_new_request(self, _name: str, member: bool, expected: list[RequestType]) -> None:
+        assert self._type_values(DataDeletionRequestForm.for_staff(member)()) == expected
+
+    @parameterized.expand([(RequestType.HOGQL_EVENT_REMOVAL,), (RequestType.PERSON_REMOVAL,)])
+    def test_an_existing_request_keeps_its_own_type_selectable(self, request_type: RequestType) -> None:
+        obj = DataDeletionRequest(team_id=1, request_type=request_type)
+        obj._state.adding = False
+
+        form = DataDeletionRequestForm.for_request(obj)()
+
+        assert request_type in self._type_values(form)
+        assert "team_id" not in form.fields
+
+    @parameterized.expand(
+        [
+            ("one_per_line", "a\n b \n\n", ["a", "b"]),
+            ("json_list", '["a", "b"]', ["a", "b"]),
+            ("python_list", "['a', 'b']", ["a", "b"]),
+            ("empty", "", []),
+        ]
+    )
+    def test_list_fields_parse_what_staff_paste(self, _name: str, text: str, expected: list[str]) -> None:
+        assert ArrayTextareaField(required=False).clean(text) == expected
