@@ -358,7 +358,9 @@ def _scan_conjuncts(node: ast.SelectQuery, union: EventsWithFlagCallsTable) -> l
     inliner = SelectAliasInliner(aliases)
     # The union exports a SELECT alias as its value, and `toJSONString` of the alias serializes that value. A copy of
     # the inlined read would serialize the way a direct read does instead, so a conjunct like that is not copied.
-    conjuncts = [conjunct for conjunct in filter_conjuncts(node) if not _serializes_select_alias(conjunct, aliases)]
+    conjuncts = [
+        conjunct for conjunct in filter_conjuncts(node) if not (aliases and _serializes_select_alias(conjunct, aliases))
+    ]
     extracted = [_scan_predicate(inliner.visit(conjunct), union) for conjunct in conjuncts]
     return [conjunct for conjunct in extracted if conjunct is not None]
 
