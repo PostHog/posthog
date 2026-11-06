@@ -1,6 +1,7 @@
 [
   { "kind": "created", "data": {} },
   { "kind": "status_changed", "data": { "previous": "resolved" } },
+  { "kind": "status_changed", "data": { "previous": "active", "reason": { "kind": "auto_resolve", "after_days": 14 } } },
   { "kind": "assignee_changed", "data": { "previous": { "type": "user", "id": "42" } } },
   { "kind": "assignee_changed", "data": { "previous": { "type": "role", "id": "0190a1b2-c3d4-7000-8000-000000000001" } } },
   { "kind": "assignee_changed", "data": { "previous": null } },

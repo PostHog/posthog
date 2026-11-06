@@ -8,6 +8,7 @@ from rest_framework import status
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.error_tracking.backend.logic.auto_resolve_sweep import auto_resolve_team
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSettings
 from products.error_tracking.backend.presentation.views.settings import ErrorTrackingSettingsSerializer
 from products.error_tracking.backend.tests.auto_resolve_fixtures import create_issue_with_exceptions
@@ -173,3 +174,29 @@ class TestErrorTrackingAutoResolvePreviewAPI(ClickhouseTestMixin, APIBaseTest):
     def test_preview_ignores_other_teams(self):
         create_issue_with_exceptions(self.create_team_with_organization(organization=self.organization))
         self.assertEqual(self._preview_count(), 0)
+
+    def test_run_resolves_exactly_the_previewed_issues(self):
+        for issue_kwargs in (
+            {"exception_days_ago": [[20]]},
+            {"created_days_ago": 400},
+            {"exception_days_ago": [[20, 2]]},
+            {"created_days_ago": 5},
+            {"status": ErrorTrackingIssue.Status.SUPPRESSED},
+        ):
+            create_issue_with_exceptions(self.team, **issue_kwargs)
+        preview_count = self._preview_count()
+        self.client.patch(
+            f"/api/projects/{self.team.id}/error_tracking/settings/update_settings/",
+            {"auto_resolve_after_days": self.AFTER_DAYS},
+            format="json",
+        )
+
+        run = auto_resolve_team(self.team.id)
+
+        self.assertEqual(preview_count, 2)
+        assert run is not None
+        self.assertEqual(run.resolved_count, preview_count)
+        self.assertEqual(
+            ErrorTrackingIssue.objects.filter(team=self.team, status=ErrorTrackingIssue.Status.RESOLVED).count(),
+            preview_count,
+        )

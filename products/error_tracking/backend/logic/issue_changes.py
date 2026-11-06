@@ -115,12 +115,39 @@ class Created:
 
 
 @frozen
+class StatusChangeReason:
+    """Why the system changed a status. Users and ingestion change statuses without one."""
+
+    kind: Literal["auto_resolve"]
+    after_days: int
+
+    @classmethod
+    def auto_resolve(cls, after_days: int) -> "StatusChangeReason":
+        return cls(kind="auto_resolve", after_days=after_days)
+
+    @classmethod
+    def from_json(cls, value: dict[str, Any] | None) -> "StatusChangeReason | None":
+        if value is None:
+            return None
+        if value["kind"] != "auto_resolve":
+            raise ValueError(f"Unknown status change reason: {value['kind']}")
+        return cls(kind=value["kind"], after_days=int(value["after_days"]))
+
+    def to_json(self) -> dict[str, Any]:
+        return {"kind": self.kind, "after_days": self.after_days}
+
+
+@frozen
 class StatusChanged:
     kind: ClassVar[Kind] = Kind.STATUS_CHANGED
     previous: Status
+    reason: StatusChangeReason | None = None
 
     def to_data(self) -> dict[str, Any]:
-        return {"previous": str(self.previous)}
+        data: dict[str, Any] = {"previous": str(self.previous)}
+        if self.reason is not None:
+            data["reason"] = self.reason.to_json()
+        return data
 
 
 @frozen
@@ -190,7 +217,9 @@ def parse_change_data(kind: str, data: dict[str, Any]) -> IssueChangeData:
         case Kind.CREATED:
             return Created()
         case Kind.STATUS_CHANGED:
-            return StatusChanged(previous=Status(data["previous"]))
+            return StatusChanged(
+                previous=Status(data["previous"]), reason=StatusChangeReason.from_json(data.get("reason"))
+            )
         case Kind.ASSIGNEE_CHANGED:
             return AssigneeChanged(previous=AssigneeRef.from_json(data["previous"]))
         case Kind.SEVERITY_CHANGED:

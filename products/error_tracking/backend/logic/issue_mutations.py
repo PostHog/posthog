@@ -13,7 +13,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Change, Detail, log_activity
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.tasks.email import send_error_tracking_issue_assigned
@@ -34,6 +34,7 @@ from products.error_tracking.backend.logic.issue_changes import (
     Split,
     Status,
     StatusChanged,
+    StatusChangeReason,
     record_issue_changes,
 )
 from products.error_tracking.backend.logic.lifecycle_events import (
@@ -429,6 +430,12 @@ class IssueActor:
         return cls(user=None, was_impersonated=False, operation=ChangeOperation.for_system(team_id, bulk=bulk))
 
 
+# The activity log encoder serializes a context through `__dict__`, so it cannot be slotted.
+@frozen(slots=False)
+class StatusChangeActivityContext(ActivityContextBase):
+    reason: dict[str, Any]
+
+
 def change_issue_statuses(
     issues: Sequence[ErrorTrackingIssue],
     new_status: ErrorTrackingIssue.Status,
@@ -436,14 +443,17 @@ def change_issue_statuses(
     team_id: int,
     actor: IssueActor,
     outward_records: bool = True,
+    reason: StatusChangeReason | None = None,
 ) -> list[UUID]:
     """Set the status of row-locked issues and return the ids of the issues that changed.
 
     Call it inside the transaction that holds the row locks, with the issues loaded with
     `select_related("team__organization")` to avoid a query per issue. Each changed issue gets an activity
     log entry and a state stamp. With `outward_records`, it also gets a lifecycle event and a
-    change log row. The caller syncs the returned ids to ClickHouse after the commit.
+    change log row. A `reason` goes into both the activity log detail and the change log row.
+    The caller syncs the returned ids to ClickHouse after the commit.
     """
+    context = StatusChangeActivityContext(reason=reason.to_json()) if reason is not None else None
     changed_issue_ids: list[UUID] = []
     issue_changes: list[IssueChange] = []
     transitions: list[PendingLifecycleEvent] = []
@@ -470,6 +480,7 @@ def change_issue_statuses(
                         after=new_status,
                     )
                 ],
+                context=context,
             ),
         )
         if outward_records and new_status in STATUS_CHANGE_EVENTS:
@@ -486,7 +497,7 @@ def change_issue_statuses(
         previous_status = Status(issue.status)
         # The queryset update below writes the same status; the snapshot reads it from this instance.
         issue.status = new_status
-        issue_changes.append(IssueChange(issue=issue, data=StatusChanged(previous=previous_status)))
+        issue_changes.append(IssueChange(issue=issue, data=StatusChanged(previous=previous_status, reason=reason)))
     if not changed_issue_ids:
         return changed_issue_ids
     ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=changed_issue_ids).update(
@@ -496,6 +507,30 @@ def change_issue_statuses(
         produce_issue_lifecycle_events_on_commit(transitions)
         record_issue_changes(actor.operation, issue_changes)
     return changed_issue_ids
+
+
+def auto_resolve_issues(team_id: int, issue_ids: Sequence[UUID], *, after_days: int) -> list[UUID]:
+    """Resolve the given quiet issues as the system in one transaction, and return the ids it resolved.
+
+    The ids come from a query that ran before the lock, so an issue a user or ingestion changed since then
+    is no longer `active` here and stays as it is.
+    """
+    actor = IssueActor.for_system(team_id, bulk=True)
+    with transaction.atomic():
+        issues = [
+            issue
+            for issue in _lock_issues(team_id, list(issue_ids), select_related=("team__organization",))
+            if issue.status == ErrorTrackingIssue.Status.ACTIVE
+        ]
+        resolved_ids = change_issue_statuses(
+            issues,
+            ErrorTrackingIssue.Status.RESOLVED,
+            team_id=team_id,
+            actor=actor,
+            reason=StatusChangeReason.auto_resolve(after_days),
+        )
+    sync_issues_to_clickhouse(issue_ids=resolved_ids, team_id=team_id)
+    return resolved_ids
 
 
 def bulk_update_issues(

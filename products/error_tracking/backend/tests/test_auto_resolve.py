@@ -1,0 +1,145 @@
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
+from prometheus_client import REGISTRY
+from temporalio.testing import ActivityEnvironment
+
+from posthog.models import Team
+from posthog.models.activity_logging.activity_log import ActivityLog
+
+from products.error_tracking.backend.logic import auto_resolve_sweep
+from products.error_tracking.backend.logic.auto_resolve_sweep import auto_resolve_team, auto_resolve_team_ids
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueAssignment,
+    ErrorTrackingIssueChange,
+    ErrorTrackingSettings,
+)
+from products.error_tracking.backend.temporal.auto_resolve.activities import auto_resolve_teams_activity
+from products.error_tracking.backend.temporal.auto_resolve.types import AutoResolveTeamsInputs
+from products.error_tracking.backend.tests.auto_resolve_fixtures import create_issue_with_exceptions
+
+AFTER_DAYS = 14
+Status = ErrorTrackingIssue.Status
+REASON = {"kind": "auto_resolve", "after_days": AFTER_DAYS}
+COUNTER_SAMPLE = "error_tracking_issues_auto_resolved_total"
+
+
+@patch("products.error_tracking.backend.logic.issue_changes.issue_change_log_enabled", return_value=True)
+class TestAutoResolveTeam(ClickhouseTestMixin, BaseTest):
+    def _enable(self, after_days: int | None = AFTER_DAYS) -> None:
+        ErrorTrackingSettings.objects.update_or_create(team=self.team, defaults={"auto_resolve_after_days": after_days})
+
+    @parameterized.expand(
+        [
+            ("quiet_active", {"exception_days_ago": [[20]]}, AFTER_DAYS, Status.RESOLVED),
+            ("exceptions_past_retention", {"created_days_ago": 400}, AFTER_DAYS, Status.RESOLVED),
+            ("recent_exception", {"exception_days_ago": [[20, 2]]}, AFTER_DAYS, Status.ACTIVE),
+            ("suppressed", {"status": Status.SUPPRESSED}, AFTER_DAYS, Status.SUPPRESSED),
+            ("created_recently", {"created_days_ago": 5}, AFTER_DAYS, Status.ACTIVE),
+            ("setting_off", {"exception_days_ago": [[20]]}, None, Status.ACTIVE),
+        ]
+    )
+    def test_resolves_only_quiet_active_issues(self, _flag, _name, issue_kwargs, after_days, expected_status) -> None:
+        issue = create_issue_with_exceptions(self.team, **issue_kwargs)
+        self._enable(after_days)
+
+        run = auto_resolve_team(self.team.id)
+
+        issue.refresh_from_db()
+        assert issue.status == expected_status
+        if after_days is None:
+            assert run is None
+        else:
+            assert run is not None
+            assert (run.after_days, run.resolved_count) == (after_days, int(expected_status == Status.RESOLVED))
+
+    def test_skips_an_issue_changed_after_the_candidate_query(self, _flag) -> None:
+        issue = create_issue_with_exceptions(self.team, exception_days_ago=[[20]])
+        self._enable()
+        find_candidates = auto_resolve_sweep.find_auto_resolve_candidates
+
+        def find_then_suppress(team, after_days):
+            candidates = find_candidates(team, after_days)
+            ErrorTrackingIssue.objects.filter(id=issue.id).update(status=Status.SUPPRESSED)
+            return candidates
+
+        with patch.object(auto_resolve_sweep, "find_auto_resolve_candidates", side_effect=find_then_suppress):
+            run = auto_resolve_team(self.team.id)
+
+        issue.refresh_from_db()
+        assert issue.status == Status.SUPPRESSED
+        assert run is not None and run.resolved_count == 0
+
+    @parameterized.expand([("change_log_on", True), ("change_log_off", False)])
+    def test_records_a_system_resolve_with_the_reason(self, change_log_flag, _name, change_log_enabled) -> None:
+        change_log_flag.return_value = change_log_enabled
+        issue = create_issue_with_exceptions(self.team, exception_days_ago=[[20]], assignee=self.user)
+        self._enable()
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            auto_resolve_team(self.team.id)
+
+        [entry] = ActivityLog.objects.filter(team_id=self.team.id, scope="ErrorTrackingIssue", item_id=str(issue.id))
+        assert entry.user is None
+        assert entry.detail is not None
+        assert entry.detail["changes"][0]["after"] == Status.RESOLVED
+        assert entry.detail["context"] == {"reason": REASON}
+        [call] = produce.call_args_list
+        assert (call.kwargs["event"].event, call.kwargs["person"]) == ("$error_tracking_issue_resolved", None)
+        changes = list(ErrorTrackingIssueChange.objects.for_team(self.team.id))
+        if change_log_enabled:
+            [change] = changes
+            assert (change.actor_type, change.actor_user_id, change.actor_automation_id, change.bulk) == (
+                "system",
+                None,
+                None,
+                True,
+            )
+            assert change.data == {"previous": Status.ACTIVE, "reason": REASON}
+        else:
+            assert changes == []
+        assert ErrorTrackingIssueAssignment.objects.get(issue=issue).user_id == self.user.id
+
+    def test_selects_teams_with_the_setting_the_flag_and_an_active_issue(self, _flag) -> None:
+        def team_with(after_days: int | None, *, issue_status: str | None = Status.ACTIVE) -> int:
+            team = Team.objects.create(organization=self.organization)
+            ErrorTrackingSettings.objects.create(team=team, auto_resolve_after_days=after_days)
+            if issue_status is not None:
+                ErrorTrackingIssue.objects.create(team=team, status=issue_status)
+            return team.id
+
+        due = team_with(AFTER_DAYS)
+        flag_off = team_with(AFTER_DAYS)
+        team_with(None)
+        team_with(AFTER_DAYS, issue_status=Status.RESOLVED)
+        team_with(AFTER_DAYS, issue_status=None)
+
+        with patch.object(
+            auto_resolve_sweep, "team_flag_enabled", side_effect=lambda _flag, team_id: team_id != flag_off
+        ):
+            assert auto_resolve_team_ids() == [due]
+
+    def test_activity_sends_one_event_and_counts_resolved_issues_per_team(self, _flag) -> None:
+        create_issue_with_exceptions(self.team, exception_days_ago=[[20]])
+        create_issue_with_exceptions(self.team, created_days_ago=400)
+        self._enable()
+        counted_before = REGISTRY.get_sample_value(COUNTER_SAMPLE) or 0
+        capture = MagicMock()
+
+        with patch("products.error_tracking.backend.temporal.auto_resolve.activities.ph_scoped_capture") as scoped:
+            scoped.return_value.__enter__.return_value = capture
+            result = ActivityEnvironment().run(
+                auto_resolve_teams_activity, AutoResolveTeamsInputs(team_ids=[self.team.id])
+            )
+
+        assert (result.teams_processed, result.issues_resolved) == (1, 2)
+        assert (REGISTRY.get_sample_value(COUNTER_SAMPLE) or 0) - counted_before == 2
+        [call] = capture.call_args_list
+        assert call.kwargs["event"] == "error tracking issues auto resolved"
+        assert call.kwargs["distinct_id"] == str(self.team.uuid)
+        assert call.kwargs["properties"] == {"resolved_count": 2, "after_days": AFTER_DAYS}

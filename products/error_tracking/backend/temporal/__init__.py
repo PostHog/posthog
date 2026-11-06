@@ -3,9 +3,14 @@ from products.error_tracking.backend.temporal.alerts import (
     WORKFLOWS as ALERT_WORKFLOWS,
     ErrorTrackingAlertDeliveryWorkflow,
 )
+from products.error_tracking.backend.temporal.auto_resolve import (
+    ACTIVITIES as AUTO_RESOLVE_ACTIVITIES,
+    WORKFLOWS as AUTO_RESOLVE_WORKFLOWS,
+    ErrorTrackingAutoResolveWorkflow,
+)
 from products.error_tracking.backend.temporal.lifecycle import (
-    ACTIVITIES as LIFECYCLE_ACTIVITIES,
-    WORKFLOWS as LIFECYCLE_WORKFLOWS,
+    ACTIVITIES as ISSUE_LIFECYCLE_ACTIVITIES,
+    WORKFLOWS as ISSUE_LIFECYCLE_WORKFLOWS,
     ErrorTrackingIssueCreatedWorkflow,
     ErrorTrackingIssueReopenedWorkflow,
     ErrorTrackingIssueSpikingWorkflow,
@@ -37,6 +42,10 @@ from products.error_tracking.backend.temporal.weekly_digest import (
     send_org_digest_activity,
 )
 
+# Auto-resolve changes issue state, so it shares the lifecycle queue with the other issue-state work.
+LIFECYCLE_WORKFLOWS = ISSUE_LIFECYCLE_WORKFLOWS + AUTO_RESOLVE_WORKFLOWS
+LIFECYCLE_ACTIVITIES = ISSUE_LIFECYCLE_ACTIVITIES + AUTO_RESOLVE_ACTIVITIES
+
 # Alert delivery rides the error tracking queue, not the lifecycle one: outbound Slack
 # I/O must not share worker slots with issue-state work such as auto-merge.
 WORKFLOWS = (
@@ -60,6 +69,7 @@ __all__ = [
     "LIFECYCLE_WORKFLOWS",
     "WORKFLOWS",
     "ErrorTrackingAlertDeliveryWorkflow",
+    "ErrorTrackingAutoResolveWorkflow",
     "ErrorTrackingIssueCreatedWorkflow",
     "ErrorTrackingIssueReopenedWorkflow",
     "ErrorTrackingIssueSpikingWorkflow",
