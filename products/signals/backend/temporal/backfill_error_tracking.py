@@ -157,10 +157,33 @@ async def fetch_error_tracking_issues_activity(input: BackfillErrorTrackingInput
 async def emit_backfill_signal_activity(input: EmitBackfillSignalInput) -> bool | None:
     """Emit an issue_created signal for a single error tracking issue. Returns whether it was dispatched."""
     from posthog.models import Team
+    from posthog.sync import database_sync_to_async
 
+    from products.error_tracking.backend.facade import alerts as error_tracking_alerts
+    from products.error_tracking.backend.facade.contracts import LifecycleFilterOutcome
     from products.signals.backend.facade.api import emit_signal
+    from products.signals.backend.facade.source_configs import enabled_issue_filters, record_source_filter_drop
 
     team = await Team.objects.aget(id=input.team_id)
+
+    # A backfilled issue has no triggering exception, so the stored issue stands in for it. A filter
+    # on an exception property cannot be decided and drops the issue rather than admitting it.
+    stored_filters = await database_sync_to_async(enabled_issue_filters, thread_sensitive=False)(
+        team_id=team.id, source_product="error_tracking", source_type="issue_created"
+    )
+    if stored_filters is not None:
+        outcome = await database_sync_to_async(
+            error_tracking_alerts.stored_issue_created_filter_outcome, thread_sensitive=False
+        )(team.id, input.issue.issue_id, input.issue.fingerprint, stored_filters)
+        if outcome != LifecycleFilterOutcome.MATCH:
+            await database_sync_to_async(record_source_filter_drop, thread_sensitive=False)(
+                team=team,
+                source_product="error_tracking",
+                source_type="issue_created",
+                source_id=input.issue.issue_id,
+                reason=outcome.value,
+            )
+            return False
 
     description = (
         f"New error tracking issue created - this particular exception was observed for the first time:\n"

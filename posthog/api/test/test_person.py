@@ -32,7 +32,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_tags
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.serialized_actors import get_serialized_people
-from posthog.models import Organization, Person, PropertyDefinition, Team
+from posthog.models import Organization, Person, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.bulk_delete import PersonDeletionFailure, PersonDeletionStep, PersonProfileDeletionResult
 from posthog.models.person.missing_person import uuidFromDistinctId
@@ -51,6 +51,7 @@ from posthog.test.persons import add_distinct_id, create_person, delete_person
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

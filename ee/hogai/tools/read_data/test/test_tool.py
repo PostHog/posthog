@@ -21,7 +21,7 @@ from posthog.schema import (
 )
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, PropertyDefinition
+from posthog.models import OrganizationMembership
 from posthog.models.scoping import team_scope
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
@@ -39,6 +39,7 @@ from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
 )
+from products.event_definitions.backend.models import PropertyDefinition
 from products.experiments.backend.facade.testing import acreate_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
@@ -768,6 +769,53 @@ class TestReadDataTool(BaseTest):
         assert "Table `stripe_charges` — Stripe charges with fields:" in result
         assert "- amount (integer) — charge amount in cents" in result
         assert "- currency (string)" in result
+
+    async def test_table_annotation_description_wins_over_source_schema_description(self):
+        credential = await DataWarehouseCredential.objects.acreate(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = await ExternalDataSource.objects.acreate(
+            source_id="src", connection_id="conn", team=self.team, source_type="Stripe"
+        )
+        table = await DataWarehouseTable.objects.acreate(
+            name="stripe_charges",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            external_data_source=source,
+            url_pattern="https://bucket.s3/data/*",
+            columns={
+                "amount": {"hogql": "IntegerDatabaseField", "clickhouse": "Nullable(Int64)", "schema_valid": True}
+            },
+        )
+        await ExternalDataSchema.objects.acreate(
+            name="stripe_charges", team=self.team, source=source, table=table, description="Source text"
+        )
+        with team_scope(self.team.pk, canonical=True):
+            await WarehouseColumnAnnotation.objects.acreate(
+                team=self.team,
+                table=table,
+                column_name="",
+                description="Curated text",
+                description_source=WarehouseColumnAnnotation.DescriptionSource.USER_EDITED,
+            )
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        table_list, _ = await tool._arun_impl({"kind": "data_warehouse_schema"})
+        table_detail, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "stripe_charges"})
+
+        assert "- stripe_charges — Curated text" in table_list
+        assert "Table `stripe_charges` — Curated text with fields:" in table_detail
+        assert "Source text" not in table_list
+        assert "Source text" not in table_detail
 
     async def test_table_schema_returns_view_fields(self):
         """Test that data_warehouse_table returns full schema for a view."""

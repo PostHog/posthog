@@ -93,7 +93,7 @@ def _history(
         before=parse_release_conditions(before, variant_keys=variant_keys),
         after=parse_release_conditions(after, variant_keys=variant_keys),
     )
-    return flag_history([change], launched_at=datetime(2026, 9, 12, 10, 0, tzinfo=UTC))
+    return flag_history([change], start_date=datetime(2026, 9, 12, 10, 0, tzinfo=UTC))
 
 
 def _traffic(people_by_set: dict[int, int], *, remotely_evaluated: float = 1.0) -> ConditionSetTraffic:

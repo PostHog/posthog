@@ -5,6 +5,7 @@ Importing this module loads the signals task module. Import it only from code th
 """
 
 from products.signals.backend.tasks import (
+    enqueue_signals_rated_usage,
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     reconcile_report_inbox_state_cache,
@@ -18,6 +19,7 @@ from products.signals.backend.tasks import (
 )
 
 __all__ = [
+    "enqueue_signals_rated_usage",
     "pause_inactive_signal_scouts",
     "prune_expired_scratchpad_entries_task",
     "reconcile_report_inbox_state_cache",

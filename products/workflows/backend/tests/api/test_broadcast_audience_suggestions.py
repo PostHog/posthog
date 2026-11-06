@@ -10,12 +10,12 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.models import PropertyDefinition
 from posthog.test.persons import create_person
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 from products.workflows.backend.facade.contracts import AudienceKind, AudienceSuggestion
 from products.workflows.backend.services.audience_suggestions.audience import cohort_filters, reachable_counts
 from products.workflows.backend.services.audience_suggestions.planner import AudienceIdea
