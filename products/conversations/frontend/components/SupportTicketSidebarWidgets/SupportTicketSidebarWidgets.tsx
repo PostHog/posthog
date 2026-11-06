@@ -13,10 +13,14 @@ import { StaffActionsPanel } from '../../scenes/ticket/StaffActionsPanel'
 import { supportTicketSceneLogic } from '../../scenes/ticket/supportTicketSceneLogic'
 import { TicketActivityPanel } from '../../scenes/ticket/TicketActivityPanel'
 import { TicketAiTracesPanel } from '../TicketAiTracesPanel/TicketAiTracesPanel'
-import { TicketSidebarWidgetSlots } from '../TicketSidebarWidgets/ticketSidebarLayout'
+import { TicketSidebarWidgetSlot, TicketSidebarWidgetSlots } from '../TicketSidebarWidgets/ticketSidebarLayout'
 import { TicketSidebarWidgets } from '../TicketSidebarWidgets/TicketSidebarWidgets'
 
 const WIDGET_TICKET_ONLY = 'Only shows on tickets from the in-app widget.'
+
+function widgetTicketOnlySlot(isWidgetTicket: boolean, content: JSX.Element): TicketSidebarWidgetSlot {
+    return { content: isWidgetTicket ? content : null, unavailableReason: WIDGET_TICKET_ONLY }
+}
 
 export function SupportTicketSidebarWidgets({ ticketId }: { ticketId: string }): JSX.Element {
     const { ticket, person, eventsQuery, exceptionsQuery, previousTickets, previousTicketsLoading } = useValues(
@@ -44,46 +48,38 @@ export function SupportTicketSidebarWidgets({ ticketId }: { ticketId: string }):
             content: aiSuggestionsEnabled && ticket ? <AIPanel aiTriage={ticket.ai_triage} /> : null,
             unavailableReason: 'AI suggestions are off for this project.',
         },
-        session_recording: {
-            content: isWidgetTicket ? (
-                <SessionRecordingPanel sessionContext={ticket?.session_context} distinctId={ticket?.distinct_id} />
-            ) : null,
-            unavailableReason: WIDGET_TICKET_ONLY,
-        },
-        recent_events: {
-            content: isWidgetTicket ? (
-                <RecentEventsPanel
-                    eventsQuery={eventsQuery}
-                    distinctId={ticket?.distinct_id}
-                    sessionId={ticket?.session_id}
-                />
-            ) : null,
-            unavailableReason: WIDGET_TICKET_ONLY,
-        },
-        exceptions: {
-            content: isWidgetTicket ? (
-                <ExceptionsPanel
-                    exceptionsQuery={exceptionsQuery}
-                    sessionId={ticket?.session_id}
-                    distinctId={ticket?.distinct_id}
-                />
-            ) : null,
-            unavailableReason: WIDGET_TICKET_ONLY,
-        },
+        session_recording: widgetTicketOnlySlot(
+            isWidgetTicket,
+            <SessionRecordingPanel sessionContext={ticket?.session_context} distinctId={ticket?.distinct_id} />
+        ),
+        recent_events: widgetTicketOnlySlot(
+            isWidgetTicket,
+            <RecentEventsPanel
+                eventsQuery={eventsQuery}
+                distinctId={ticket?.distinct_id}
+                sessionId={ticket?.session_id}
+            />
+        ),
+        exceptions: widgetTicketOnlySlot(
+            isWidgetTicket,
+            <ExceptionsPanel
+                exceptionsQuery={exceptionsQuery}
+                sessionId={ticket?.session_id}
+                distinctId={ticket?.distinct_id}
+            />
+        ),
         ai_traces: {
             content: person?.uuid ? <TicketAiTracesPanel personId={person.uuid} /> : null,
             unavailableReason: 'This ticket has no linked person.',
         },
-        previous_tickets: {
-            content: isWidgetTicket ? (
-                <PreviousTicketsPanel
-                    previousTickets={previousTickets}
-                    previousTicketsLoading={previousTicketsLoading}
-                    personDistinctIds={person?.distinct_ids}
-                />
-            ) : null,
-            unavailableReason: WIDGET_TICKET_ONLY,
-        },
+        previous_tickets: widgetTicketOnlySlot(
+            isWidgetTicket,
+            <PreviousTicketsPanel
+                previousTickets={previousTickets}
+                previousTicketsLoading={previousTicketsLoading}
+                personDistinctIds={person?.distinct_ids}
+            />
+        ),
         activity: {
             content: ticket?.id ? <TicketActivityPanel ticketId={ticket.id} /> : null,
         },
