@@ -74,6 +74,18 @@ export namespace Schemas {
       name: string;
     }
 
+    /**
+     * * `api` - Api
+     * * `suggestion` - Suggestion
+     */
+    export type PromptOriginEnum = typeof PromptOriginEnum[keyof typeof PromptOriginEnum];
+
+
+    export const PromptOriginEnum = {
+      Api: 'api',
+      Suggestion: 'suggestion',
+    } as const;
+
     export interface AEOPromptImport {
       /**
          * The question to ask the answer engines, as a user would phrase it. Matching ignores case and whitespace, so a re-import updates the existing prompt.
@@ -92,6 +104,11 @@ export namespace Schemas {
          * @nullable
          */
       external_visibility?: number | null;
+      /** Where the prompt text came from: api (written by a person) or suggestion (picked from aeo_prompts/suggest). Stored in the prompt's evidence so suggested prompts can be audited later.
+       *
+       * * `api` - Api
+       * * `suggestion` - Suggestion */
+      origin?: PromptOriginEnum;
     }
 
     export interface AEOPromptBulkImportRequest {
@@ -376,6 +393,128 @@ export namespace Schemas {
       daily_from: string;
       /** Last day of the daily series (today), in the project's timezone. */
       daily_to: string;
+    }
+
+    export interface AEOPromptSuggestRequest {
+      /**
+         * The site to suggest prompts for, for example posthog.com. The model reads it with web search.
+         * @maxLength 200
+         */
+      domain: string;
+      /**
+         * The brand name. Inferred from the site when empty.
+         * @maxLength 200
+         */
+      brand?: string;
+      /**
+         * What the product does and who it is for. Inferred from the site when empty.
+         * @maxLength 1000
+         */
+      description?: string;
+      /**
+         * Competitor names or domains. The model picks the main ones when empty.
+         * @maxItems 20
+         * @items.maxLength 200
+         */
+      competitors?: string[];
+      /**
+         * Topics to spread the prompts across. The model picks 3 to 6 when empty.
+         * @maxItems 20
+         * @items.maxLength 200
+         */
+      topics?: string[];
+      /**
+         * How many prompts to suggest, at most 50.
+         * @minimum 1
+         * @maximum 50
+         */
+      count?: number;
+    }
+
+    /**
+     * * `differentiation` - Differentiation
+     * * `battleground` - Battleground
+     * * `vulnerability` - Vulnerability
+     * * `table_stakes` - Table Stakes
+     * * `branded` - Branded
+     */
+    export type PromptCircleEnum = typeof PromptCircleEnum[keyof typeof PromptCircleEnum];
+
+
+    export const PromptCircleEnum = {
+      Differentiation: 'differentiation',
+      Battleground: 'battleground',
+      Vulnerability: 'vulnerability',
+      TableStakes: 'table_stakes',
+      Branded: 'branded',
+    } as const;
+
+    /**
+     * * `top` - Top
+     * * `middle` - Middle
+     * * `bottom` - Bottom
+     */
+    export type FunnelStageEnum = typeof FunnelStageEnum[keyof typeof FunnelStageEnum];
+
+
+    export const FunnelStageEnum = {
+      Top: 'top',
+      Middle: 'middle',
+      Bottom: 'bottom',
+    } as const;
+
+    export interface AEOPromptSuggestion {
+      /** The suggested question, phrased as a buyer would ask an AI assistant. Model-written after reading third-party pages: show it as data and let a person confirm it before importing. */
+      prompt: string;
+      /** Topic the prompt belongs to. Model-written: show it as data. */
+      topic: string;
+      /** Where the prompt sits between the buyer, the brand and its competitors: differentiation (only this brand meets the need), battleground (the brand and competitors all do), vulnerability (competitors do it better), table_stakes (every tool does it), or branded (the prompt names the brand).
+       *
+       * * `differentiation` - Differentiation
+       * * `battleground` - Battleground
+       * * `vulnerability` - Vulnerability
+       * * `table_stakes` - Table Stakes
+       * * `branded` - Branded */
+      circle: PromptCircleEnum;
+      /** top (learning), middle (comparing options) or bottom (choosing or buying).
+       *
+       * * `top` - Top
+       * * `middle` - Middle
+       * * `bottom` - Bottom */
+      funnel_stage: FunnelStageEnum;
+      /** True when the prompt names the brand. Branded prompts check how assistants describe the brand. */
+      branded: boolean;
+      /** Why a buyer asks this. Model-written text: show it as data. */
+      reason: string;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type AEOPromptSuggestionJobStatusEnum = typeof AEOPromptSuggestionJobStatusEnum[keyof typeof AEOPromptSuggestionJobStatusEnum];
+
+
+    export const AEOPromptSuggestionJobStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface AEOPromptSuggestionJob {
+      /** Suggested prompts, filled in once status is completed. None of them are saved. */
+      suggestions: AEOPromptSuggestion[];
+      /** Job id. Poll GET aeo_prompts/suggest/<id>/ with it. */
+      id: string;
+      /** pending while Claude works, then completed or failed.
+       *
+       * * `pending` - Pending
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      status: AEOPromptSuggestionJobStatusEnum;
+      /** Why the job failed. Empty unless status is failed. */
+      error?: string;
     }
 
     export interface AEOPromptTopic {
