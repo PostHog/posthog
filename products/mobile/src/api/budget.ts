@@ -2,7 +2,7 @@
 // exist to stop a client bug, such as a refresh loop, and normal use never empties them. They live in memory, so a cold
 // start refills them.
 
-export type BudgetFamily = 'insights' | 'dashboards' | 'query' | 'replay'
+export type BudgetFamily = 'insights' | 'dashboards' | 'query' | 'replay' | 'live'
 
 interface BucketSpec {
     capacity: number
@@ -28,6 +28,11 @@ export const BUDGETS: Record<BudgetFamily, readonly BucketSpec[]> = {
     ],
     // The session timeline also posts to `query/`, on buckets of its own, so heavy Views use never empties them.
     replay: [
+        { capacity: 60, windowMs: MINUTE_MS },
+        { capacity: 300, windowMs: HOUR_MS },
+    ],
+    // The Live screen polls `query/` by design, on buckets of its own, so it never starves Views or replay reads.
+    live: [
         { capacity: 60, windowMs: MINUTE_MS },
         { capacity: 300, windowMs: HOUR_MS },
     ],
