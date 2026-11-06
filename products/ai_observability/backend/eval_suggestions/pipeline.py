@@ -47,6 +47,10 @@ logger = structlog.get_logger(__name__)
 WINDOW = timedelta(days=7)
 # Traces younger than this may still be receiving events, so the window stops short of now.
 SETTLE = timedelta(minutes=30)
+DRAFT_PROBE_TRACES = 5
+DRAFT_ABORT_ERRORS = ("Execution timed out", "Memory limit exceeded")
+# Dedupe asks the model about each hand-written evaluation, so a team with many pays for this many at most.
+MAX_DEDUPED_EVALS = 50
 
 
 def judge_model(team: Team) -> str:
@@ -177,12 +181,18 @@ def _drafted_proposals(
         severity=ranking.SEVERITY["structured_output_gap"],
     )
     try:
+        # A drafted body can loop until the 10s Hog limit, so it proves itself on a few traces before the rest.
+        probe = measure([check], TraceSample(main=list(sample.main[:DRAFT_PROBE_TRACES]), held_out=[]))
+        if any(o.failed is None and o.reasoning.startswith(DRAFT_ABORT_ERRORS) for o in probe[0].main):
+            stages.set("drafting", "failed", detail="drafted Hog runs too long")
+            return []
         measured = measure([check], sample)
     except Exception:
         stages.set("drafting", "failed", detail="drafted Hog does not compile")
         return []
     proposal = ranking.code_check_proposal(measured[0], sample, profile, similar_evaluation_id=None)
-    return [proposal] if proposal else []
+    # The draft replaces the templated card for the same gap, so it shares its key and dismissals.
+    return [replace(proposal, dedupe_key=templated.dedupe_key)] if proposal else []
 
 
 def run_pipeline(
@@ -248,10 +258,11 @@ def run_pipeline(
         },
     )
 
+    held_out_outputs = structured_outputs(sample.held_out)
     gaps = [
         gap
         for gap in find_structured_gaps(structured_outputs(sample.main))
-        if gap_holds(gap, structured_outputs(sample.held_out)) is not False
+        if gap_holds(gap, held_out_outputs) is not False
     ]
     model = judge_model(team)
     gap_proposals = [
@@ -272,7 +283,11 @@ def run_pipeline(
     else:
         try:
             client = screening.build_client(team)
-            unmapped = [e for e in coverage.evals if e.enabled and e.template_key is None and e.dedupe_key is None]
+            unmapped = sorted(
+                (e for e in coverage.evals if e.enabled and e.template_key is None and e.dedupe_key is None),
+                key=lambda e: e.updated_at,
+                reverse=True,
+            )[:MAX_DEDUPED_EVALS]
             jeeves_matches = screening.dedupe(client, unmapped, candidate_options) if unmapped else {}
             screened = screening.screen(client, applicability.screened_judges, sample.main)
             stages.set(
@@ -306,14 +321,18 @@ def run_pipeline(
         )
     ]
 
-    if include_paid and settings.llm_drafting and screening.consented(team):
+    if not include_paid or not settings.llm_drafting:
+        stages.set("drafting", "skipped", detail="free stages only" if not include_paid else "switched off")
+    elif not screening.consented(team):
+        stages.set("drafting", "skipped", detail="AI data processing not approved")
+    else:
+        # Paying for a draft of a finding the team dismissed or already covers would be wasted.
+        draftable = [(gap, p) for gap, p in gap_proposals if dedupe([p], coverage, jeeves_matches, {})]
         try:
-            proposals += _drafted_proposals(team, run, gap_proposals, sample, profile, settings, stages)
+            proposals += _drafted_proposals(team, run, draftable, sample, profile, settings, stages)
         except Exception as error:
             logger.warning("eval_suggestions_drafting_failed", team_id=team.pk, error=str(error))
             stages.set("drafting", "failed", detail=type(error).__name__)
-    else:
-        stages.set("drafting", "skipped", detail="switched off")
 
     sources = {m.check.key: m.check.source for m in measurements}
     # A drafted judge comes after the templated one for the same gap and shares its dedupe key, so it replaces it.
