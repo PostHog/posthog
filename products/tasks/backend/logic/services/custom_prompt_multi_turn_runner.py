@@ -14,7 +14,7 @@ from pydantic import BaseModel, JsonValue, ValidationError
 from products.tasks.backend.facade.api import record_run_failure_cause
 from products.tasks.backend.facade.contracts import SessionFile
 from products.tasks.backend.facade.profiles import TaskProfile, TaskSource
-from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun
+from products.tasks.backend.models import Task, TaskRun
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
@@ -86,16 +86,12 @@ class MultiTurnSession:
         context: CustomPromptSandboxContext,
         model: type[_ModelT],
         *,
-        profile: TaskProfile | None = None,
+        profile: TaskProfile,
         branch: str | None = None,
         step_name: str = "",
         verbose: bool = False,
         output_fn: OutputFn = None,
         source: TaskSource | None = None,
-        origin_product: Task.OriginProduct | None = None,
-        signal_report_id: str | None = None,
-        internal: bool = False,
-        mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         spend_signal_id: str | None = None,
         ai_stage: str | None = None,
         ai_agent_name: str | None = None,
@@ -143,10 +139,6 @@ class MultiTurnSession:
             verbose=verbose,
             output_fn=output_fn,
             source=source,
-            origin_product=origin_product,
-            signal_report_id=signal_report_id,
-            internal=internal,
-            mcp_builtin_agent_key=mcp_builtin_agent_key,
             spend_signal_id=spend_signal_id,
             ai_stage=ai_stage,
             ai_agent_name=ai_agent_name,
@@ -221,16 +213,12 @@ class MultiTurnSession:
         prompt: str,
         context: CustomPromptSandboxContext,
         *,
-        profile: TaskProfile | None = None,
+        profile: TaskProfile,
         branch: str | None = None,
         step_name: str = "",
         verbose: bool = False,
         output_fn: OutputFn = None,
         source: TaskSource | None = None,
-        origin_product: Task.OriginProduct | None = None,
-        signal_report_id: str | None = None,
-        internal: bool = False,
-        mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         spend_signal_id: str | None = None,
         ai_stage: str | None = None,
         ai_agent_name: str | None = None,
@@ -278,10 +266,6 @@ class MultiTurnSession:
             branch=branch,
             step_name=step_name,
             source=source,
-            origin_product=origin_product,
-            signal_report_id=signal_report_id,
-            internal=internal,
-            mcp_builtin_agent_key=mcp_builtin_agent_key,
             spend_signal_id=spend_signal_id,
             ai_stage=ai_stage,
             ai_agent_name=ai_agent_name,
