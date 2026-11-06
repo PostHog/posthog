@@ -13,6 +13,7 @@
  * * `warehouse_source` - Warehouse source
  * * `warehouse_destination` - Warehouse destination
  * * `metrics` - Metrics
+ * * `error_tracking` - Error tracking
  */
 export type PlatformAlertConfigurationSourceKindEnumApi =
     (typeof PlatformAlertConfigurationSourceKindEnumApi)[keyof typeof PlatformAlertConfigurationSourceKindEnumApi]
@@ -23,6 +24,7 @@ export const PlatformAlertConfigurationSourceKindEnumApi = {
     WarehouseSource: 'warehouse_source',
     WarehouseDestination: 'warehouse_destination',
     Metrics: 'metrics',
+    ErrorTracking: 'error_tracking',
 } as const
 
 /**
@@ -209,7 +211,8 @@ export interface PlatformAlertConfigurationApi {
      * * `insight` - Insight
      * * `warehouse_source` - Warehouse source
      * * `warehouse_destination` - Warehouse destination
-     * * `metrics` - Metrics */
+     * * `metrics` - Metrics
+     * * `error_tracking` - Error tracking */
     readonly source_kind: PlatformAlertConfigurationSourceKindEnumApi
     /** How the alert's checks decide. threshold compares a value with a bound. appearance announces each new, or returning, identity once, such as a new log pattern.
      *
