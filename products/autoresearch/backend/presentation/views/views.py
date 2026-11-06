@@ -72,6 +72,7 @@ from .serializers import (
     OnlinePerformanceQuerySerializer,
     OnlinePerformanceSerializer,
     OpenTrainingRunSerializer,
+    ProjectLimitsSerializer,
     RecordIterationSerializer,
     ResolvedTemplateSerializer,
     ResolveTemplateRequestSerializer,
@@ -175,6 +176,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         "resolve_template",
         "online_performance",
         "agent_models",
+        "limits",
     ]
     scope_object_write_actions = [
         "create",
@@ -338,6 +340,20 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     def agent_models(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response(AgentModelOptionsSerializer(instance=api.list_agent_model_options()).data)
 
+    @extend_schema(
+        responses={200: ProjectLimitsSerializer},
+        summary="Read the project's limits",
+        description=(
+            "Return the project's autoresearch limits and how much of each it is using: sandbox training runs "
+            "in the last 24 hours against the daily limit, with when the next run can start at the limit, the "
+            "most experiments per training run, and live pipelines against the live pipeline limit. "
+            "Read-only; it runs no queries."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="limits", pagination_class=None)
+    def limits(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return Response(ProjectLimitsSerializer(instance=api.get_project_limits(self.team_id)).data)
+
     @validated_request(
         request_serializer=ResolveTemplateRequestSerializer,
         responses={
@@ -434,7 +450,8 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
             400: OpenApiResponse(
                 description=(
                     "A training run is already in progress, the pipeline is paused, "
-                    "or the pipeline's target or creator is no longer valid."
+                    "the pipeline's target or creator is no longer valid, "
+                    "or the pipeline is a draft and the project already has its limit of live pipelines."
                 )
             ),
             403: OpenApiResponse(
@@ -670,11 +687,16 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
                 response=AutoresearchPipelineSerializer,
                 description="The pipeline after resuming.",
             ),
-            400: OpenApiResponse(description="The pipeline is not paused."),
+            400: OpenApiResponse(
+                description="The pipeline is not paused, or the project already has its limit of live pipelines."
+            ),
             404: OpenApiResponse(description="The pipeline does not exist or is archived."),
         },
         summary="Resume a pipeline",
-        description="Resume a paused pipeline. Daily scoring and training will restart on the next cadence tick.",
+        description=(
+            "Resume a paused pipeline. Daily scoring and training will restart on the next cadence tick. "
+            "Refused when the project already has its limit of live pipelines, which the limits endpoint reports."
+        ),
     )
     @action(detail=True, methods=["post"], url_path="resume")
     def resume(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -830,7 +852,8 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             400: OpenApiResponse(
                 description=(
                     "The pipeline is archived or paused, a run is already in progress, "
-                    "or an action target needs the action:read scope."
+                    "an action target needs the action:read scope, or the pipeline is a draft, which this run "
+                    "would make live, and the project already has its limit of live pipelines."
                 )
             ),
         },
