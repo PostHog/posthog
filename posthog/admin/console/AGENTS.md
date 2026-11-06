@@ -27,8 +27,10 @@ Before you add or change a panel, operation or tool, invoke `/extending-the-admi
 A tool is a page that is not about one record, for example a report across all teams.
 
 1. In `products/<product>/backend/console.py`, subclass `ConsoleTool` and decorate it with `@console.register_tool`. Set `key`, `title`, `owner` and `group`; the group is the navigation heading. `posthog/admin/console/events_retention_tool.py` is the reference.
-2. `page(request)` returns a `Page` of blocks (`Notice`, `Table` with `Row` and `GroupRow`, `Paging`). The console renders the blocks, so a tool needs no template. When a tool needs a block that does not exist, add it to `tools.py` and `tool.html` in the shell, not a template in the product.
-3. When a tool replaces a Django admin page, keep the old URL name and point it at `MovedToConsole.page_redirect`, so existing links keep working.
+2. `page(request)` returns a `Page` of blocks (`Notice`, `Stats`, `Table` with `Row` and `GroupRow`, `Paging`, `Links`, `Filters`, `OperationForm`). The console renders the blocks, so a tool needs no template. When a tool needs a block that does not exist, add it to `tools.py` and `tool.html` in the shell, not a template in the product.
+3. `page` only reads, so a reload never changes state. Inputs that choose what to show go in a `Filters` block, which submits by GET.
+4. An action that spans many records is a `ToolOperation` from `operations(request)`, shown with an `OperationForm` block. It follows the same danger rules as `Operation`, and the console writes the same audit log. An action on one team stays a panel operation.
+5. When a tool replaces a Django admin page, keep the old URL name and point it at `MovedToConsole.page_redirect`, so existing links keep working.
 
 ## Move a Django admin action
 

@@ -43,6 +43,8 @@ class Table:
     empty_text: str = "Nothing to show."
     title: str = ""
     numeric_columns: tuple[int, ...] = ()
+    # For a long table above something staff must reach. It scrolls inside its card instead of growing the page.
+    scrolls: bool = False
 
 
 @frozen

@@ -336,6 +336,9 @@
     .end-2 {
         inset-inline-end: calc(0.25rem * 2);
     }
+    .top-0 {
+        top: calc(0.25rem * 0);
+    }
     .top-1 {
         top: calc(0.25rem * 1);
     }
@@ -560,6 +563,9 @@
     .max-h-\[320px\] {
         max-height: 320px;
     }
+    .max-h-\[480px\] {
+        max-height: 480px;
+    }
     .min-h-7 {
         min-height: calc(0.25rem * 7);
     }
@@ -637,6 +643,9 @@
     .max-w-\[42rem\] {
         max-width: 42rem;
     }
+    .max-w-\[280px\] {
+        max-width: 280px;
+    }
     .max-w-\[320px\] {
         max-width: 320px;
     }
@@ -651,6 +660,9 @@
     }
     .min-w-0 {
         min-width: calc(0.25rem * 0);
+    }
+    .min-w-\[160px\] {
+        min-width: 160px;
     }
     .min-w-\[240px\] {
         min-width: 240px;
@@ -722,9 +734,6 @@
     }
     .list-none {
         list-style-type: none;
-    }
-    .grid-cols-1 {
-        grid-template-columns: repeat(1, minmax(0, 1fr));
     }
     .grid-cols-7 {
         grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -841,6 +850,9 @@
     }
     .overflow-x-auto {
         overflow-x: auto;
+    }
+    .overflow-y-auto {
+        overflow-y: auto;
     }
     .\!rounded-full {
         border-radius: calc(infinity * 1px) !important;
@@ -1007,6 +1019,9 @@
     }
     .pb-2 {
         padding-bottom: calc(0.25rem * 2);
+    }
+    .pb-4 {
+        padding-bottom: calc(0.25rem * 4);
     }
     .pb-20 {
         padding-bottom: calc(0.25rem * 20);
@@ -1680,11 +1695,6 @@
             border-color: var(--border);
         }
     }
-    @container (width >= 28rem) {
-        .\@md\:grid-cols-2 {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-    }
     @container field-group (width >= 28rem) {
         .\@md\/field-group\:flex-row {
             flex-direction: row;
@@ -1713,11 +1723,6 @@
     @container (width >= 48rem) {
         .\@3xl\:grid-cols-2 {
             grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-    }
-    @container (width >= 48rem) {
-        .\@3xl\:grid-cols-4 {
-            grid-template-columns: repeat(4, minmax(0, 1fr));
         }
     }
     @container (width >= 48rem) {

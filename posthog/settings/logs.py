@@ -190,6 +190,8 @@ LOGGING: dict[str, Any] = {
         "posthog.warehouse_source_prewarm": {"level": "INFO", "handlers": ["console"], "propagate": False},
         # Same clamp: the api query budget logs the team and balance behind every would-be 429 at INFO.
         "posthog.api_queries_budget": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        # Same clamp: the admin console writes its audit log, with the reason staff gave, at INFO.
+        "posthog.admin.console.views": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load": {
             "level": "DEBUG",
             "handlers": ["console"],
