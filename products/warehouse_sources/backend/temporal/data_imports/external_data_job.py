@@ -40,6 +40,7 @@ from products.managed_warehouse.backend.facade.temporal import (
 )
 from products.warehouse_sources.backend.ad_hoc_sync import resume_schedule_after_ad_hoc_run
 from products.warehouse_sources.backend.billing import billed_usage_for_job
+from products.warehouse_sources.backend.facade.contracts import SOURCE_CREDENTIALS_MISSING_ERROR
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     AUTO_DISABLED_JOB_ERROR,
@@ -94,6 +95,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.err
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_ERROR,
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    SOURCE_HOST_NOT_ALLOWED_ERROR,
     SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR,
     TEMPORARY_HOST_RESOLUTION_PREFIX,
 )
@@ -176,6 +178,12 @@ Any_Source_Errors: dict[str, str | None] = {
     # entry: a config problem only the customer can fix, so retrying just re-hits the same
     # rejection. Match the stable prefix and exclude the volatile host details that follow it.
     DATABASE_HOST_NOT_ALLOWED_ERROR: DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    # Raised by the shared HTTP adapter when a request targets an out-of-band interaction domain.
+    # The host is in the source's config, so every retry replays the same refusal.
+    SOURCE_HOST_NOT_ALLOWED_ERROR: (
+        "PostHog rejected this source's host because it belongs to a blocked domain. "
+        "Point the source at a host on a domain you control, then re-enable the sync."
+    ),
     # Raised by `_pinned_ssh_host` for the bastion, the same class of config problem as the entry
     # above: the tunnel host doesn't resolve, or resolves to a private/internal address.
     SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR: (
@@ -202,6 +210,12 @@ Any_Source_Errors: dict[str, str | None] = {
     # integration id back at the customer.
     "Integration not found:": MISSING_INTEGRATION_MESSAGE,
     "Missing integration ID": MISSING_INTEGRATION_MESSAGE,
+    # Raised by `SourceInputsStore.load` when a source has no copy of its connection fields in `job_inputs` and
+    # its credentials row is missing or unreadable. A retry reads the same row, so only new credentials help.
+    SOURCE_CREDENTIALS_MISSING_ERROR: (
+        "The saved credentials of this source are missing or cannot be read. Enter the credentials of the "
+        "source again, or reconnect its account, then re-enable the sync."
+    ),
     # A fatal TLS alert from the remote host (raised in the shared HTTP transport for every
     # REST-based source). The server refused the handshake, which is deterministic for a given
     # host/TLS config — retrying replays the identical failure, so it's not transient. Usually a
