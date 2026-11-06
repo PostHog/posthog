@@ -47,13 +47,13 @@ function TestEmailRecipientField({ logicProps }: { logicProps: MessageTemplateLo
         recipientNotSuggested,
         recipientUncheckable,
         membersLoading,
-        sandboxEmailSenderEnabled,
+        isSandboxSenderSelected,
     } = useValues(logic)
     const { setRecipientEmail, loadAllMembers } = useActions(logic)
 
     return (
         <>
-            {sandboxEmailSenderEnabled ? (
+            {isSandboxSenderSelected ? (
                 <LemonInputSelect
                     mode="single"
                     allowCustomValues

@@ -212,6 +212,7 @@ describe('SendTestEmailModal', () => {
             },
         })
         openModal()
+        await waitFor(() => expect(logic.values.isSandboxSenderSelected).toBe(true))
         if (!loading) {
             await expectLogic(logic).toFinishAllListeners()
         }
