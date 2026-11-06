@@ -1,4 +1,4 @@
-import { ELLIPSIS } from '../../utils/text-measure'
+import { ELLIPSIS, truncateToWidth } from '../../utils/text-measure'
 import { type FlameShades, type FlameInk, MARK_GONE, MARK_NEW } from './flame-colors'
 import { type FlameCell, type FlameRowGeometry, type FlameTree, MIN_NODE_PX, rowTop } from './flame-layout'
 
@@ -50,37 +50,11 @@ export function createLabelFitter(): LabelFitter {
             }
             return maxChars >= 2 ? `${text.slice(0, maxChars - 1).trimEnd()}${ELLIPSIS}` : ''
         }
-        const full = measure(ctx, text)
-        if (full <= available) {
+        if (measure(ctx, text) <= available) {
             return text
         }
-        const fits = (chars: number): boolean =>
-            chars === 0 || ctx.measureText(`${text.slice(0, chars)}${ELLIPSIS}`).width <= available
-        // Probing around the average-width guess usually settles it in two measurements.
-        let lo = 0
-        let hi = text.length - 1
-        const room = available - measure(ctx, ELLIPSIS)
-        const guess = full > 0 ? Math.max(0, Math.min(hi, Math.floor((text.length * room) / full))) : 0
-        if (fits(guess)) {
-            lo = guess
-            if (guess < hi && !fits(guess + 1)) {
-                hi = guess
-            }
-        } else {
-            hi = guess - 1
-        }
-        while (lo < hi) {
-            const mid = Math.ceil((lo + hi) / 2)
-            if (fits(mid)) {
-                lo = mid
-            } else {
-                hi = mid - 1
-            }
-        }
-        // Never cut between the two halves of a surrogate pair, such as an emoji.
-        const code = text.charCodeAt(lo - 1)
-        const chars = code >= 0xd800 && code <= 0xdbff ? lo - 1 : lo
-        return chars > 0 ? `${text.slice(0, chars).trimEnd()}${ELLIPSIS}` : ''
+        const label = truncateToWidth(text, available, LABEL_FONT)
+        return label === ELLIPSIS ? '' : label
     }
 
     return { font: LABEL_FONT, fit }
