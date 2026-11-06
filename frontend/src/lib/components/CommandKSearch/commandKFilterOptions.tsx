@@ -24,6 +24,7 @@ const TYPE_ALIASES: Record<string, string[]> = {
     alert: ['alerts'],
     ticket: ['tickets', 'support'],
     endpoints: ['endpoint'],
+    person: ['persons', 'people'],
     'hog_function/destination': ['destinations'],
     'hog_function/transformation': ['transformations'],
 }
@@ -49,6 +50,7 @@ const EXTRA_TYPES: Record<string, FileSystemTypeDefinition> = {
         listHref: () => urls.destinations(),
         fileSystemTypes: ['hog_function/destination', 'hog_function/site_destination'],
     },
+    person: { name: 'Person', iconType: 'persons', listHref: () => urls.persons(), listSearchParam: 'search' },
     'hog_function/transformation': {
         name: 'Transformation',
         iconType: 'data_transformation',

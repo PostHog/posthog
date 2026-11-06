@@ -1,7 +1,9 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
@@ -74,6 +76,16 @@ describe('personsSceneLogic', () => {
                     }),
                 }),
             })
+        })
+    })
+
+    it('fills the search from a search param in the URL', async () => {
+        router.actions.push(urls.persons(), { search: 'acme' })
+
+        await expectLogic(logic).toMatchValues({
+            query: expect.objectContaining({
+                source: { ...PEOPLE_LIST_DEFAULT_QUERY.source, search: 'acme' },
+            }),
         })
     })
 

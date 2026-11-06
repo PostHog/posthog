@@ -81,7 +81,12 @@ export interface RemoteRequest {
     fetch: (query: string, signal: AbortSignal, context: RemoteContext) => Promise<RemoteResults>
 }
 
-const fetchPersons = async (term: string, signal: AbortSignal, context: RemoteContext): Promise<RemoteResults> => {
+async function searchPersons(
+    term: string,
+    limit: number,
+    signal: AbortSignal,
+    context: RemoteContext
+): Promise<SearchItem[]> {
     const clientQueryId = uuid()
     let finished = false
     // Aborting the request does not stop the ClickHouse query, so cancel it by id.
@@ -94,15 +99,19 @@ const fetchPersons = async (term: string, signal: AbortSignal, context: RemoteCo
     try {
         const response = await personsList(
             String(context.currentTeamId),
-            { search: term, limit: SECONDARY_LIMIT, client_query_id: clientQueryId },
+            { search: term || undefined, limit, client_query_id: clientQueryId },
             { signal }
         )
-        return { persons: (response.results ?? []).filter((person) => !!person.uuid).map(personToSearchItem) }
+        return (response.results ?? []).filter((person) => !!person.uuid).map(personToSearchItem)
     } finally {
         finished = true
         signal.removeEventListener('abort', cancel)
     }
 }
+
+const fetchPersons = async (term: string, signal: AbortSignal, context: RemoteContext): Promise<RemoteResults> => ({
+    persons: await searchPersons(term, SECONDARY_LIMIT, signal, context),
+})
 
 const fetchGroups = async (term: string, signal: AbortSignal, context: RemoteContext): Promise<RemoteResults> => {
     const settled = await Promise.allSettled(
@@ -208,6 +217,10 @@ const TYPE_SEARCHES: Record<string, TypeSearch> = {
         return response.results.map(alertToSearchItem)
     },
     endpoints: unifiedTypeSearch('endpoint', 'endpoints'),
+    person: async ({ text }, signal, context) => {
+        const persons = await searchPersons(text, RESULTS_LIMIT, signal, context)
+        return persons.map((person) => ({ ...person, category: 'results' }))
+    },
     product_tour: async ({ text }, signal, context) => {
         const response = await productToursList(
             String(context.currentTeamId),

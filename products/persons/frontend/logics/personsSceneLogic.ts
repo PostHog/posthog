@@ -11,7 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { ActorsQuery, DataTableNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
 import type { TeamPublicType, TeamType } from '~/types'
 
@@ -153,9 +153,16 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
     })),
 
     urlToAction(({ actions, values }) => ({
-        [urls.persons()]: (_, __, { q: queryParam }): void => {
+        [urls.persons()]: (_, { search }, { q: queryParam }): void => {
             if (!equal(queryParam, values.query)) {
-                if (!queryParam) {
+                // Command K links here with `?search=`. The router reads a numeric search as a number.
+                if (!queryParam && search) {
+                    actions.setQuery({
+                        ...values.defaultQuery,
+                        source: { ...(values.defaultQuery.source as ActorsQuery), search: String(search) },
+                        defaultColumns: values.defaultColumns,
+                    })
+                } else if (!queryParam) {
                     actions.setQuery({
                         ...values.defaultQuery,
                         defaultColumns: values.defaultColumns,
