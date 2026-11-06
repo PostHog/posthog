@@ -36,6 +36,7 @@ import {
     snapshotsAsJSONLines,
 } from './__mocks__/test-setup'
 import {
+    BUFFERING_STALL_LIMIT_MS,
     findNewEvents,
     findSegmentForTimestamp,
     INSTANT_SKIP_INACTIVITY_THRESHOLD_MS,
@@ -986,6 +987,132 @@ describe('sessionRecordingPlayerLogic', () => {
                 expect(logic.values.playerError).toBe('noPlayableFullSnapshot')
             } finally {
                 graceSpy.mockRestore()
+            }
+        })
+
+        it('turns a buffer that makes no progress into a retryable timeout', () => {
+            jest.useFakeTimers()
+            try {
+                const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
+                seedRecording(null, [inc(START + 61000), inc(START + 62000)])
+                // A live loader would resolve the missing source when fake timers flush, which is progress.
+                dataLogic.cache.playerActive = false
+                logic.actions.setPause()
+                const captureSpy = jest.spyOn(posthog, 'capture')
+                captureSpy.mockClear()
+
+                logic.actions.seekToTimestamp(START + 61500)
+                expect(logic.values.isBuffering).toBe(true)
+                expect(logic.values.player).toBeNull()
+
+                jest.advanceTimersByTime(BUFFERING_STALL_LIMIT_MS - 1)
+                expect(logic.values.playerError).toBeNull()
+
+                jest.advanceTimersByTime(1)
+                expect(logic.values.playerError).toBe('bufferingTimedOut')
+                expect(logic.values.currentPlayerState).toBe(SessionPlayerState.ERROR)
+                expect(captureSpy).toHaveBeenCalledWith(
+                    'player buffering timed out',
+                    expect.objectContaining({
+                        sessionRecordingId: '2',
+                        hasReplayer: false,
+                        snapshotsLoaded: true,
+                    })
+                )
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('resets the buffering deadline when snapshot data arrives', () => {
+            jest.useFakeTimers()
+            try {
+                const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
+                seedRecording(null, [inc(START + 61000), inc(START + 62000)])
+                dataLogic.cache.playerActive = false
+                logic.actions.setPause()
+                logic.actions.seekToTimestamp(START + 61500)
+                expect(logic.values.isBuffering).toBe(true)
+
+                jest.advanceTimersByTime(BUFFERING_STALL_LIMIT_MS - 1000)
+                // Another incremental in the already-loaded source moves the store version but leaves
+                // the earlier source unloaded, so the playhead is still waiting on data.
+                markLoaded(dataLogic.cache.store, 1, [
+                    inc(START + 61000),
+                    inc(START + 62000),
+                    inc(START + 63000),
+                ])
+                dataLogic.actions.storeUpdated()
+
+                jest.advanceTimersByTime(BUFFERING_STALL_LIMIT_MS - 1000)
+                expect(logic.values.playerError).toBeNull()
+                expect(logic.values.isBuffering).toBe(true)
+
+                jest.advanceTimersByTime(1000)
+                expect(logic.values.playerError).toBe('bufferingTimedOut')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('does not time out while the recording is still ingesting', () => {
+            jest.useFakeTimers()
+            const graceSpy = jest
+                .spyOn(sessionRecordingDataCoordinatorLogicModule, 'isWithinIngestionGracePeriod')
+                .mockReturnValue(true)
+            try {
+                const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
+                seedRecording([inc(START), inc(START + 1000)], [inc(START + 61000), inc(START + 62000)])
+                dataLogic.cache.playerActive = false
+                logic.actions.setPause()
+                logic.actions.seekToTimestamp(START + 61500)
+                expect(logic.values.isWaitingForIngestion).toBe(true)
+                expect(logic.values.isBuffering).toBe(true)
+
+                jest.advanceTimersByTime(BUFFERING_STALL_LIMIT_MS)
+                expect(logic.values.playerError).toBeNull()
+                expect(logic.values.isBuffering).toBe(true)
+            } finally {
+                graceSpy.mockRestore()
+                jest.useRealTimers()
+            }
+        })
+
+        it('keeps buffering when a renderable window has too few snapshots to build a replayer', () => {
+            const endBufferSpy = jest.spyOn(logic.actions, 'endBuffer')
+            seedRecording([fs(START)], [])
+            logic.actions.setPause()
+            endBufferSpy.mockClear()
+
+            logic.actions.seekToTimestamp(START)
+
+            expect(logic.values.currentSegment?.kind).toBe('window')
+            expect(logic.values.seekRenderability(START).kind).toBe('renderable')
+            expect(endBufferSpy).not.toHaveBeenCalled()
+            expect(logic.values.isBuffering).toBe(true)
+            expect(logic.values.currentPlayerState).toBe(SessionPlayerState.BUFFER)
+        })
+
+        it('retries a buffering timeout by clearing the error and loading snapshots again', async () => {
+            jest.useFakeTimers()
+            try {
+                const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
+                seedRecording(null, [inc(START + 61000), inc(START + 62000)])
+                dataLogic.cache.playerActive = false
+                logic.actions.setPause()
+                logic.actions.seekToTimestamp(START + 61500)
+                jest.advanceTimersByTime(BUFFERING_STALL_LIMIT_MS)
+                expect(logic.values.playerError).toBe('bufferingTimedOut')
+
+                jest.useRealTimers()
+                await expectLogic(dataLogic, () => {
+                    logic.actions.retryLoadingSnapshots()
+                }).toDispatchActions([dataLogic.actionTypes.retrySnapshotLoading])
+
+                expect(logic.values.playerError).toBeNull()
+                expect(logic.values.isBuffering).toBe(true)
+            } finally {
+                jest.useRealTimers()
             }
         })
 

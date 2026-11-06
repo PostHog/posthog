@@ -389,6 +389,87 @@ const LATE_FULL_SNAPSHOT_THRESHOLD_MS = 20000
 // Safety-net cadence for re-running syncPlayerState while buffering, since neither backed-off source polling nor the non-reactive wall-clock grace check re-triggers verdict re-evaluation on its own.
 const BUFFERING_REEVALUATION_INTERVAL_MS = 120000
 
+// How long the visible "Buffering…" state may sit without snapshot-store or replayer progress before
+// it becomes a retryable error. Repeated startBuffer calls do not reset this; only real progress does.
+// The ingestion grace message keeps its own clock and is excluded.
+export const BUFFERING_STALL_LIMIT_MS = 20_000
+
+function bufferingStallProgressKey(storeVersion: number, hasReplayer: boolean): string {
+    return `${storeVersion}:${hasReplayer ? 1 : 0}`
+}
+
+// Arms a single deadline for the current progress key. Hidden tabs pause it via the disposables
+// plugin default; passing pauseOnPageHidden: false would keep counting in the background.
+function syncBufferingStallWatch({
+    actions,
+    values,
+    cache,
+    props,
+}: {
+    actions: { setPlayerError: (reason: string) => void }
+    values: {
+        currentPlayerState: SessionPlayerState
+        isWaitingForIngestion: boolean
+        playerError: string | null
+        storeVersion: number
+        player: Player | null
+        snapshotsLoaded: boolean
+        currentSegment: RecordingSegment | null
+        currentTimestamp: number | undefined
+        seekRenderability: (timestamp: number) => SeekRenderability
+    }
+    cache: {
+        bufferingStallKey?: string
+        disposables?: {
+            add: (setup: () => () => void, key: string) => void
+            dispose: (key: string) => void
+        }
+    }
+    props: { sessionRecordingId: string }
+}): void {
+    const disposables = cache.disposables
+    if (!disposables) {
+        return
+    }
+    const stalled =
+        values.currentPlayerState === SessionPlayerState.BUFFER &&
+        !values.isWaitingForIngestion &&
+        values.playerError !== 'bufferingTimedOut'
+    if (!stalled) {
+        if (cache.bufferingStallKey !== undefined) {
+            cache.bufferingStallKey = undefined
+            disposables.dispose('bufferingStall')
+        }
+        return
+    }
+    const key = bufferingStallProgressKey(values.storeVersion, !!values.player?.replayer)
+    if (cache.bufferingStallKey === key) {
+        return
+    }
+    cache.bufferingStallKey = key
+    disposables.add(() => {
+        const timerId = setTimeout(() => {
+            if (
+                values.currentPlayerState !== SessionPlayerState.BUFFER ||
+                values.isWaitingForIngestion ||
+                bufferingStallProgressKey(values.storeVersion, !!values.player?.replayer) !== key
+            ) {
+                return
+            }
+            posthog.capture('player buffering timed out', {
+                sessionRecordingId: props.sessionRecordingId,
+                hasReplayer: !!values.player?.replayer,
+                snapshotsLoaded: values.snapshotsLoaded,
+                segmentKind: values.currentSegment?.kind ?? null,
+                renderability:
+                    values.currentTimestamp != null ? values.seekRenderability(values.currentTimestamp).kind : null,
+            })
+            actions.setPlayerError('bufferingTimedOut')
+        }, BUFFERING_STALL_LIMIT_MS)
+        return () => clearTimeout(timerId)
+    }, 'bufferingStall')
+}
+
 // a stretch of the recording playback cannot render
 export interface UnplayableSpan {
     startTimestamp: number
@@ -3048,6 +3129,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         // The single map from (position, verdict, play intent) to player state — seeks call it with reposition=true, while data arrivals and the safety tick call it without, making it a pure buffering reconciler that never touches a healthily playing replayer.
         syncPlayerState: ({ forcePlay, reposition }) => {
+            // A stall error stays up until Retry. The safety tick and a still-buffering segment would
+            // otherwise clear it and drop the viewer back into an endless Buffering overlay.
+            if (values.playerError === 'bufferingTimedOut') {
+                return
+            }
             // The null check also catches the null that currentTimestamp holds before playback initializes — acting on it would derail the initial load.
             const timestamp = values.currentTimestamp
             if (timestamp == null) {
@@ -3090,6 +3176,27 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // Also the only revival path for a loading chain killed by repeated fetch failures.
                 actions.loadNextSnapshotSource()
                 return
+            }
+
+            // A window with fewer than two snapshots can never build a replayer. Ending the buffer
+            // here would flip the overlay off and leave a black frame. Stay on Buffering until the
+            // stall deadline turns it into a retryable error. A gap keeps the previous window's
+            // replayer, so it still ends the buffer below.
+            if (segment?.kind === 'window' && segment.windowId !== undefined) {
+                const windowSnapshots = values.sessionPlayerData.snapshotsByWindowId[segment.windowId] ?? []
+                const playerForWindow = values.player?.windowId === segment.windowId && !!values.player.replayer
+                if (!playerForWindow && windowSnapshots.length < 2) {
+                    actions.startBuffer()
+                    return
+                }
+                // The frame is mounted and the snapshots are enough, but init still produced nothing.
+                if (!playerForWindow && windowSnapshots.length >= 2 && values.rootFrame) {
+                    actions.tryInitReplayer()
+                    if (!values.player?.replayer) {
+                        actions.startBuffer()
+                        return
+                    }
+                }
             }
 
             // endBuffer first, so the pause/play decision below reads the user's play intent rather than the buffering state that outranks it.
@@ -3300,8 +3407,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.setPlayerError('snapshotProcessingFailed')
         },
         retryLoadingSnapshots: () => {
+            // Drop the previous deadline first so the buffer we re-enter gets a fresh 20s.
+            // The timeout path has already disposed its timer; only a still-armed watch needs dispose.
+            if (cache.bufferingStallKey !== undefined) {
+                cache.bufferingStallKey = undefined
+                cache.disposables.dispose('bufferingStall')
+            }
             actions.clearPlayerError()
             actions.retrySnapshotLoading()
+            // A retry that only refetches blobs can still end on a black frame if no replayer exists.
+            actions.tryInitReplayer()
+            actions.syncPlayerState(values.playingState === SessionPlayerState.PLAY, true)
         },
         setPlay: () => {
             if (values.recordingTooLargeToPlay) {
@@ -3383,6 +3499,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         startBuffer: () => {
             actions.stopAnimation()
+            syncBufferingStallWatch({ actions, values, cache, props })
         },
         setPlayerError: () => {
             actions.incrementErrorCount()
@@ -3594,6 +3711,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                 // If we're beyond buffered position, set to buffering
                 if (values.currentSegment?.kind === 'buffer') {
+                    if (values.playerError === 'bufferingTimedOut') {
+                        return
+                    }
                     // Pause only the animation, not our player, so it will restart
                     // when the buffering progresses
                     values.player?.replayer?.pause()
@@ -3990,7 +4110,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
     })),
 
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions, values, cache, props }) => ({
         sessionPlayerData: (value, oldValue) => {
             const hasSnapshotChanges = value?.snapshotsByWindowId !== oldValue?.snapshotsByWindowId
 
@@ -4038,6 +4158,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
             // Update tracking state whenever player state changes
             actions.updatePlayerTimeTracking()
+            syncBufferingStallWatch({ actions, values, cache, props })
+        },
+        // Progress that does not pass through startBuffer (a blob landing, a replayer appearing,
+        // the ingestion grace ending) still has to reset or release the stall deadline.
+        storeVersion: () => {
+            syncBufferingStallWatch({ actions, values, cache, props })
+        },
+        isWaitingForIngestion: () => {
+            syncBufferingStallWatch({ actions, values, cache, props })
+        },
+        player: () => {
+            syncBufferingStallWatch({ actions, values, cache, props })
         },
     })),
 
