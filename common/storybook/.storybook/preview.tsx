@@ -25,9 +25,9 @@ import { withTheme } from './decorators/withTheme'
 // story a load-tolerant default budget instead of making each play pass its own timeout.
 configureTestingLibrary({ asyncUtilTimeout: 15000 })
 
-const setupMsw = (): Promise<unknown> => {
+const setupMsw = (): void => {
     // Make sure the msw worker is started
-    const workerStarted = worker.start({
+    worker.start({
         serviceWorker: { url: '/storybookServiceWorker.js' },
         quiet: true,
         onUnhandledRequest(request, print) {
@@ -45,9 +45,8 @@ const setupMsw = (): Promise<unknown> => {
     })
     ;(window as any).__mockServiceWorker = worker
     ;(window as any).POSTHOG_APP_CONTEXT = getStorybookAppContext()
-    return workerStarted
 }
-const mswStarted = setupMsw()
+setupMsw()
 
 const setupPosthogJs = (): void => {
     // Make sure we don't hit production posthog. We want to control requests to,
@@ -70,13 +69,6 @@ const loaders: Preview['loaders'] = [
         )
             .then(() => document.fonts.ready)
             .catch(() => undefined)
-        return {}
-    },
-    // MSW 2 does not hold requests back while its worker registers. Without this wait, the first story
-    // on a fresh page can send its API calls to the real server and render their failure instead.
-    // A failed start rejects here, so the story reports it rather than rendering without mocks.
-    async () => {
-        await mswStarted
         return {}
     },
 ]
