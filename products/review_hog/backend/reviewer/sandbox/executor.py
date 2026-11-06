@@ -145,6 +145,7 @@ async def run_sandbox_review(
         initial_permission_mode=initial_permission_mode,
         # Unset means "full" — never hand that to a session fed untrusted PR-comment text.
         posthog_mcp_scopes=REVIEW_MCP_SCOPES,
+        github_token_scope="read",
     )
     return await _run_prompt(
         full_prompt,
@@ -172,6 +173,7 @@ async def start_sandbox_session(
     model: str | None = None,
     reasoning_effort: str | None = None,
     initial_permission_mode: str | None = None,
+    can_push: bool = False,
 ) -> tuple[MultiTurnSession, _ModelT]:
     """Open a multi-turn sandbox session and return it with its first validated turn.
 
@@ -195,6 +197,7 @@ async def start_sandbox_session(
         initial_permission_mode=initial_permission_mode,
         # Unset means "full" — never hand that to a session fed untrusted PR-comment text.
         posthog_mcp_scopes=REVIEW_MCP_SCOPES,
+        github_token_scope="push" if can_push else "read",
     )
     try:
         return await MultiTurnSession.start(
