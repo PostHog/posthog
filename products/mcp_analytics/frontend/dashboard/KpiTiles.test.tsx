@@ -23,6 +23,9 @@ describe('KpiTiles', () => {
         const tileUrls = kpiTileUrls({ ...searchParams, landing: 'old', search: 'old' })
 
         expect(tileUrls.sessions).toBe(combineUrl(urls.mcpAnalyticsSessions(), searchParams).url)
+        expect(tileUrls.erroredSessions).toBe(
+            combineUrl(urls.mcpAnalyticsSessions(), { ...searchParams, has_errors: 'true' }).url
+        )
         expect(tileUrls.toolQuality).toBe(combineUrl(urls.mcpAnalyticsToolQuality(), searchParams).url)
         expect(tileUrls.intentClustering).toBe(combineUrl(urls.mcpAnalyticsIntentClustering(), searchParams).url)
     })

@@ -498,6 +498,7 @@ CREATE TABLE posthog.metrics4_samples (
   has_labels SimpleAggregateFunction(max, UInt8),
   instrumentation_scope SimpleAggregateFunction(any, String),
   histogram_bounds SimpleAggregateFunction(anyLast, Array(Float64)),
+  histogram_bounds_hash UInt64,
   _topic SimpleAggregateFunction(any, LowCardinality(String)),
   timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(Delta(8), Default),
   observed_timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(DoubleDelta, Default),
@@ -517,7 +518,7 @@ CREATE TABLE posthog.metrics4_samples (
   PROJECTION service_freshness_by_hour (SELECT team_id, time_bucket, service_name, max(arrayMax(timestamp_arr))
 GROUP BY
   team_id, time_bucket, service_name)
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_samples', '{replica}-{shard}') ORDER BY (team_id, metric_name, time_bucket, series_fingerprint) PARTITION BY original_expiry_date TTL original_expiry_date SETTINGS deduplicate_merge_projection_mode = 'rebuild', index_granularity = 128, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_samples', '{replica}-{shard}') PRIMARY KEY (team_id, metric_name, time_bucket, series_fingerprint) ORDER BY (team_id, metric_name, time_bucket, series_fingerprint, histogram_bounds_hash) PARTITION BY original_expiry_date TTL original_expiry_date SETTINGS deduplicate_merge_projection_mode = 'rebuild', index_granularity = 128, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics4_series (
   team_id Int32,
   metric_name LowCardinality(String),
