@@ -165,10 +165,10 @@ from products.replay_vision.backend.scanner_dashboard import (
     scanners_ready_for_dashboard,
 )
 from products.replay_vision.backend.scanner_draft import (
-    DRAFT_FIELDS,
     MAX_REFINE_INSTRUCTION_LENGTH,
     CurrentDraft,
     DraftError,
+    DraftField,
     ScannerDraft,
     UnknownExperimentVariantError,
     UnwatchableExperimentError,
@@ -2310,7 +2310,7 @@ class RefineScannerDraftResponseSerializer(DraftScannerResponseSerializer):
     """The revised draft, what changed against the current one, and what could not be applied. Nothing is persisted."""
 
     changed_fields = serializers.ListField(
-        child=serializers.ChoiceField(choices=list(DRAFT_FIELDS)),
+        child=serializers.ChoiceField(choices=DraftField.choices),
         help_text="The parts of the draft the change touched. Apply only these to the form.",
     )
     could_not = serializers.ListField(
