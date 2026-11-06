@@ -14829,6 +14829,22 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                 TaskClient.SLACK,
             ),
             (
+                "pi_dialog_answer",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {"command": {"id": "p1", "type": "extension_ui_response", "confirmed": True}},
+                {"jsonrpc": "2.0", "id": "p1", "result": {"resolved": True}},
+                TaskClientProvenance.POSTHOG_DESKTOP,
+            ),
+            (
+                "pi_dialog_cancel",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {"command": {"id": "p1", "type": "extension_ui_response", "cancelled": True}},
+                {"jsonrpc": "2.0", "id": "p1", "result": {"resolved": True}},
+                TaskClient.SLACK,
+            ),
+            (
                 "pi_control_command",
                 Task.Runtime.PI,
                 "pi/rpc",
