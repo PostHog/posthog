@@ -59,7 +59,7 @@ SCORING_SOURCE_OFF_MESSAGE = (
     "Scores written before it was turned off stay readable."
 )
 SCORING_TURNED_OFF_MESSAGE = (
-    "Anomaly scoring is turned off in this project's self-driving settings, so no insight is scored. "
+    "Anomaly scoring is turned off in this project's Product analytics source, so no insight is scored. "
     "Scores written before it was turned off stay readable."
 )
 

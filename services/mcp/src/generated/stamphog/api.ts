@@ -171,9 +171,31 @@ export const StamphogRoutingRunsListParams = () => zod.object({
         ),
 })
 
+export const stamphogRoutingRunsListQueryHeadShaMax = 64
+
 export const StamphogRoutingRunsListQueryParams = () => zod.object({
+    created_after: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Keep only runs created at or after this time (ISO 8601).'),
+    created_before: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Keep only runs created before this time (ISO 8601).'),
+    head_sha: zod
+        .string()
+        .min(1)
+        .max(stamphogRoutingRunsListQueryHeadShaMax)
+        .optional()
+        .describe('Keep only runs on this head commit. Pass the full 40-character SHA.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    outcome: zod
+        .enum(['requested', 'labeled', 'refused', 'cut', 'not_requested', 'already_requested'])
+        .optional()
+        .describe(
+            'Keep only runs where an owner got this outcome. With `owner`, that owner must have it, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.\n\n\* `requested` - Requested\n\* `labeled` - Labeled\n\* `refused` - Refused by GitHub\n\* `cut` - Cut\n\* `not_requested` - Not requested\n\* `already_requested` - Already requested'
+        ),
     owner: zod
         .string()
         .min(1)
@@ -182,6 +204,21 @@ export const StamphogRoutingRunsListQueryParams = () => zod.object({
             "Keep only runs that decided about this owner, spelled as in owners.yaml: a team slug such as 'team-devex', or a GitHub login such as '@octocat'."
         ),
     pr_number: zod.number().optional().describe('Filter by pull request number.'),
+    reason: zod
+        .enum([
+            'sensitive',
+            'new_path',
+            'largest_owner',
+            'diff_not_seen',
+            'cut_skipped',
+            'model_kept',
+            'model_cut',
+            'stamphog_approved',
+        ])
+        .optional()
+        .describe(
+            'Keep only runs where an owner was kept or cut for this reason. With `owner`, that owner must have it.\n\n\* `sensitive` - Owns a sensitive path\n\* `new_path` - Owns a new path\n\* `largest_owner` - Has the largest part\n\* `diff_not_seen` - Diff not shown to the model\n\* `cut_skipped` - Cut step skipped\n\* `model_kept` - Kept by the model\n\* `model_cut` - Cut by the model\n\* `stamphog_approved` - Stamphog approved'
+        ),
     repository: zod.string().min(1).optional().describe("Filter by repository full name, e.g. 'PostHog\/posthog'."),
 })
 

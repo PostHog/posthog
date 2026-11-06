@@ -51,6 +51,11 @@ class TwentySource(ResumableSource[TwentySourceConfig, TwentyResumeConfig]):
             **auth_non_retryable_errors(service="Twenty"),
             HOST_NOT_ALLOWED_ERROR: "The Twenty instance URL is not allowed. Please use a publicly reachable host.",
             HTTP_NOT_ALLOWED_ERROR: "The Twenty instance URL must use HTTPS. Please update the instance URL to use https://.",
+            # Twenty's own backend throws this for an unhandled server-side bug while building the
+            # query (observed on `opportunities` with an incremental filter + sort); it is a bug in
+            # Twenty, not in the request we send, and it reproduces identically on every retry since
+            # the request is unchanged until the sync's watermark moves past it.
+            "code=TypeError": "Twenty's API returned an internal error (TypeError) while processing this request. This is a bug on Twenty's side — please report it to Twenty support, or try again later once it's fixed.",
         }
 
     def get_retryable_errors(self) -> set[str]:

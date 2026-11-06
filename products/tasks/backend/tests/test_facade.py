@@ -349,6 +349,7 @@ class TestFacadeReadsAndMappers(TestCase):
                 "initial_prompt_override": "framed prompt",
                 "end_run_when_done": True,
                 "store_skills": [{"name": "my-skill", "description": "Mine.", "version": 1}],
+                "store_skills_bridge": True,
                 "systemPrompt": {"type": "preset", "preset": "claude_code", "append": "PostHog AI"},
                 "sandbox_jwt_kid": "secret",
                 "unknown_server_context": {"title": "Saved context"},
@@ -372,6 +373,7 @@ class TestFacadeReadsAndMappers(TestCase):
         assert detail.state.get("end_run_when_done") == (True if include_agent_state else None)
         # The agent writes these into its skill roots at boot; dropped, it installs none.
         assert ("store_skills" in detail.state) is include_agent_state
+        assert ("store_skills_bridge" in detail.state) is include_agent_state
         assert ("systemPrompt" in detail.state) is include_agent_state
         assert "sandbox_jwt_kid" not in detail.state
         assert "unknown_server_context" not in detail.state
@@ -833,6 +835,27 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(counted, 1 if drive == DrivePolicy.NONE else 0)
         if gate != "warm_resume":
             self.assertEqual(refused_by_gate, refused)
+
+    @parameterized.expand(
+        [
+            ("signal_report_in_the_team", SourceKind.SIGNAL_REPORT, False, False, True),
+            ("signal_report_in_another_team", SourceKind.SIGNAL_REPORT, True, False, False),
+            ("signal_report_with_a_malformed_id", SourceKind.SIGNAL_REPORT, False, True, False),
+            ("hog_flow_has_no_row_to_check", SourceKind.HOG_FLOW, False, False, False),
+            ("loop_without_a_row_to_check", SourceKind.LOOP, False, False, False),
+        ]
+    )
+    def test_task_source_in_team(
+        self, _name: str, kind: SourceKind, in_other_team: bool, malformed_id: bool, expected: bool
+    ) -> None:
+        from products.signals.backend.models import SignalReport
+
+        owner = Team.objects.create(organization=self.organization, name="Other team") if in_other_team else self.team
+        row_id = SignalReport.objects.create(team=owner).id if kind == SourceKind.SIGNAL_REPORT else uuid4()
+
+        source = TaskSource(kind=kind, id="not-an-id" if malformed_id else str(row_id))
+
+        self.assertIs(facade.task_source_in_team(self.team.id, source), expected)
 
     def test_task_control_runtime_and_origin_uses_control_predicate(self):
         task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI, runtime=Task.Runtime.PI)
@@ -1724,9 +1747,11 @@ class TestFacadeReadsAndMappers(TestCase):
             ("self_driving_head_branch", "posthog-self-driving/fix-abc123"),
             ("stack_base_branch", "posthog-self-driving/schema-abc123"),
             ("github_access_repositories", ["acme/api", "acme/assets"]),
+            ("github_read_access", True),
+            ("github_token_scope", "push"),
         ]
     )
-    def test_run_task_resume_carries_self_driving_branch_stamp(self, state_key: str, branch: str | list[str]):
+    def test_run_task_resume_carries_self_driving_branch_stamp(self, state_key: str, branch: str | list[str] | bool):
         # The signals review carve-out binds a PR to its run by matching the PR head ref against the
         # PATCH-protected state.self_driving_head_branch stamp. A resume mints a new run, so the
         # stamp must be copied forward or the carve-out stops matching the successor — the receiver
@@ -2745,6 +2770,21 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
                 user_id=self.user.id,
                 repository="posthog/posthog",
                 create_pr=False,
+            )
+        self.assertTrue(Task.objects.filter(id=created.task_id).exists())
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_admitted_implementation_continues_after_limit_is_reached(self, _mock_workflow):
+        Integration.objects.create(team=self.team, kind="github", config={})
+        with self._enforced_gate():
+            created = facade.create_and_run_task(
+                team=self.team,
+                title="Implementation: accepted report",
+                description="Finish the accepted pipeline",
+                origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
+                user_id=self.user.id,
+                repository="posthog/posthog",
+                continue_admitted_pipeline=True,
             )
         self.assertTrue(Task.objects.filter(id=created.task_id).exists())
 

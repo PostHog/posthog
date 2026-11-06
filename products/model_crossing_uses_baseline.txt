@@ -541,7 +541,7 @@ product_analytics.Insight posthog.models.file_system.unfiled_file_saver in-colle
 product_analytics.Insight posthog.models.product_intent.product_intent instance-many(filter) 2
 product_analytics.Insight posthog.models.resource_transfer.visitors.insight other(Return) 1
 product_analytics.Insight posthog.models.sharing_configuration passed-as-class(cast) 1
-product_analytics.Insight products.actions.backend.api.action instance-many(extra) 1
+product_analytics.Insight products.actions.backend.presentation.views.action instance-many(extra) 1
 product_analytics.Insight products.alerts.backend.max_tools instance-many(filter) 1
 product_analytics.Insight products.alerts.backend.max_tools passed-as-class(cast) 1
 product_analytics.Insight products.alerts.backend.max_tools write(create) 1
@@ -614,7 +614,7 @@ product_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_alert_su
 product_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_metrics_alerts drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_absolute_alerts drives(TrendsQuery) 2
 product_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_relative_alerts drives(TrendsQuery) 1
-product_analytics:backend/hogql_queries/ products.actions.backend.api.test.test_action drives(TrendsQuery) 9
+product_analytics:backend/hogql_queries/ products.actions.backend.tests.api.test_action drives(TrendsQuery) 9
 product_analytics:backend/hogql_queries/ products.alerts.backend.tests.api.test_alert drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.analytics_platform.backend.lazy_computation.tests.test_lazy_computation_executor drives(TrendsQueryRunner) 2
 product_analytics:backend/hogql_queries/ products.cohorts.backend.models.test.test_util drives(TrendsQuery) 1
@@ -981,7 +981,7 @@ web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_alert_subscr
 web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_metrics_alerts drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_absolute_alerts drives(TrendsQuery) 2
 web_analytics:backend/hogql_queries/ posthog.tasks.alerts.test.test_trends_relative_alerts drives(TrendsQuery) 1
-web_analytics:backend/hogql_queries/ products.actions.backend.api.test.test_action drives(TrendsQuery) 9
+web_analytics:backend/hogql_queries/ products.actions.backend.tests.api.test_action drives(TrendsQuery) 9
 web_analytics:backend/hogql_queries/ products.alerts.backend.tests.api.test_alert drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.cohorts.backend.models.test.test_util drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.dashboards.backend.api.test.test_dashboard_templates drives(TrendsQuery) 2

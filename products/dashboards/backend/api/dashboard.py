@@ -588,7 +588,7 @@ def _apply_reorder_layout(
     layout_mode: ReorderLayout,
 ) -> None:
     """Repack tiles. ``preserve`` keeps each tile's existing w/h and reuses the lowest-segment
-    greedy algorithm from ``frontend/src/scenes/dashboard/tileLayouts.ts``; the other modes overwrite w/h."""
+    greedy algorithm from ``products/dashboards/frontend/tileLayouts.ts``; the other modes overwrite w/h."""
     tiles_per_row = REORDER_LAYOUT_TILES_PER_ROW.get(layout_mode)
     if tiles_per_row is not None:
         tile_width = DASHBOARD_GRID_COLUMN_COUNT // tiles_per_row

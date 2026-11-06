@@ -81,6 +81,7 @@ from ..logic.traces.trace_export import (
 )
 from ..logic.traces.trace_queries import (
     TraceNodeRow,
+    load_available_trace_ids,
     load_trace,
     load_trace_feedback_rows,
     load_trace_git_rows,
@@ -122,6 +123,10 @@ def is_usable_timestamp_hint(timestamp_hint: datetime) -> bool:
     except OverflowError:
         return False
     return True
+
+
+def get_available_trace_ids(team: Team, user: User | None, trace_ids: list[str]) -> list[str]:
+    return load_available_trace_ids(team, user, trace_ids)
 
 
 def get_trace(team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None) -> contracts.Trace:

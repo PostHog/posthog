@@ -14,7 +14,11 @@ from products.slack_app.backend.logic.onboarding.step import OnboardingContext, 
 from products.slack_app.backend.logic.onboarding.steps import ONBOARDING_STEPS, STEPS_BY_KEY
 from products.slack_app.backend.services.slack_messages import context_block, section_block
 from products.slack_app.backend.services.slack_settings import resolve_onboarding, update_onboarding
-from products.slack_app.backend.services.slack_welcome_messages import ONBOARDING_INTRO_TEXT, build_onboarding_ready
+from products.slack_app.backend.services.slack_welcome_messages import (
+    build_onboarding_ready,
+    onboarding_done_text,
+    onboarding_intro_text,
+)
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 from products.slack_app.backend.temporal.types import (
     ONBOARDING_DONE_PLAN,
@@ -26,6 +30,7 @@ from products.slack_app.backend.temporal.types import (
 SETUP_STARTED_EVENT = "slack app onboarding started"
 STEP_SHOWN_EVENT = "slack app onboarding step shown"
 SETUP_COMPLETED_EVENT = "slack app onboarding completed"
+REMINDED_EVENT = "slack app onboarding reminded"
 
 
 StepStatus = Literal["done", "already_set", "not_needed", "skipped", "pending"]
@@ -74,14 +79,18 @@ def _progress_bar(checked: list[_PlannedStep]) -> str:
     return f"{'▰' * finished}{'▱' * (len(checked) - finished)}  {_progress(checked)}"
 
 
-def _root_message(checked: list[_PlannedStep], *, ready: bool, ts: str | None = None) -> SlackAppOnboardingMessage:
+def _root_message(
+    ctx: OnboardingContext, checked: list[_PlannedStep], *, ready: bool, ts: str | None = None
+) -> SlackAppOnboardingMessage:
+    blocks = (
+        [section_block(onboarding_done_text(ctx.slack_user_id))]
+        if ready
+        else [section_block(onboarding_intro_text(ctx.slack_user_id)), context_block(_progress_bar(checked))]
+    )
     return SlackAppOnboardingMessage(
         kind="root",
         text="PostHog is set up" if ready else "Set up PostHog in Slack",
-        blocks=[
-            section_block(ONBOARDING_INTRO_TEXT),
-            context_block(":white_check_mark: Setup done" if ready else _progress_bar(checked)),
-        ],
+        blocks=blocks,
         ts=ts,
         root_status=_progress(checked),
     )
@@ -175,7 +184,7 @@ def plan_onboarding(integration: WorkspaceIntegration, slack_user_id: str) -> Sl
             _PlannedStep(number=number, step=step, status="pending", shown=False)
             for number, step in enumerate(steps, start=1)
         ]
-        root = replace(_root_message(checked, ready=False), planned=[step.key for step in steps])
+        root = replace(_root_message(ctx, checked, ready=False), planned=[step.key for step in steps])
         return SlackAppOnboardingPlan(edits=[], post=root, finished=False, status=_status(checked))
 
     # A step can apply only after the account link, such as AI consent for an org admin. It joins at the end,
@@ -197,11 +206,11 @@ def plan_onboarding(integration: WorkspaceIntegration, slack_user_id: str) -> Sl
     ]
     current = _current(checked)
     if current is None:
-        edits.append(_root_message(checked, ready=True, ts=state.root_ts))
+        edits.append(_root_message(ctx, checked, ready=True, ts=state.root_ts))
         return SlackAppOnboardingPlan(edits=edits, post=_ready_message(ctx, checked), finished=True, status=status)
 
     if state.root_status != _progress(checked):
-        edits.append(_root_message(checked, ready=False, ts=state.root_ts))
+        edits.append(_root_message(ctx, checked, ready=False, ts=state.root_ts))
     message = _step_message(ctx, checked, current)
     current_ts = state.step_ts.get(current.step.key)
     if current_ts is None:
@@ -259,6 +268,28 @@ def _forget_deleted_message(
         update_onboarding(slack_workspace_id, slack_user_id, forget_step=message.step)
     # The rest of this refresh was planned for the old messages, so plan again.
     request_onboarding(integration, slack_user_id, may_start=False)
+
+
+def remind_onboarding(integration: WorkspaceIntegration, slack_user_id: str) -> None:
+    """Posts at most one reminder per person, as a reply that mentions them, so Slack notifies them."""
+    slack_workspace_id = integration.integration_id
+    state = resolve_onboarding(slack_workspace_id, slack_user_id)
+    if state is None or state.completed or state.reminded_at or state.channel is None or state.root_ts is None:
+        return
+    ctx = OnboardingContext(integration=integration, slack_user_id=slack_user_id)
+    checked = _check_planned(ctx, state.planned, state.step_ts, state.skipped)
+    current = _current(checked)
+    if current is None or not current.shown:
+        return
+    text = (
+        f"<@{slack_user_id}> Your PostHog setup is waiting at step {current.number} of {len(checked)}, "
+        f"{current.step.title}. Pick it up above when you have a minute, or skip the steps you don't need."
+    )
+    SlackIntegration(integration).client.chat_postMessage(
+        channel=state.channel, thread_ts=state.root_ts, text=text, blocks=[section_block(text)]
+    )
+    update_onboarding(slack_workspace_id, slack_user_id, reminded=True)
+    capture_slack_event(integration, REMINDED_EVENT, slack_user_id=slack_user_id, step=current.step.key)
 
 
 def edit_onboarding_message(

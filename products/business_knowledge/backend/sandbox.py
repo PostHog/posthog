@@ -241,10 +241,7 @@ def start_sandbox_run(
                 mcp_scopes=BK_MCP_SCOPES,
                 output_schema=SandboxAnswer.model_json_schema(),
             ),
-            extra_run_state={
-                "mcp_exclude_tools": list(task_profiles.BUSINESS_KNOWLEDGE.mcp_exclude_tools),
-                "config_snapshot": {"connectors": {"mcp_installation_ids": []}},
-            },
+            extra_run_state={"config_snapshot": {"connectors": {"mcp_installation_ids": []}}},
         )
         if created.latest_run is None:
             raise RuntimeError("Sandbox task was created without a run")
