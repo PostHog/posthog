@@ -270,6 +270,7 @@ SCOPE_OBJECTS_OMITTED_FROM_PICKERS: dict[APIScopeObject, str] = {
     "live_debugger": "Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.",
     "loop": "Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.",
     "user_interview": "Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.",
+    "knowledge_writer": "Retired: its only endpoint was removed, so no endpoint enforces it.",
     # Access control resources that no token check reads, so granting them to a token does nothing.
     "toolbar": "Access control resource only: no endpoint checks it as a token scope.",
     "revenue_analytics": "Access control resource only: no endpoint checks it as a token scope.",

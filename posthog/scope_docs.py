@@ -53,7 +53,8 @@ class ScopeDoc:
     object: APIScopeObject
     # The name scope pickers show, in sentence case, such as "Feature flag".
     name: str
-    # The lowercase plural that fits in a sentence, such as "feature flags".
+    # The plural that fits in a sentence, lowercase except for proper nouns and acronyms, such as
+    # "feature flags" or "LLM prompts".
     plural: str
     # One sentence on what the scope covers, without "read" or "write": every surface that shows it
     # adds the access level itself.
@@ -166,7 +167,7 @@ CORE_SCOPE_DOCS: tuple[ScopeDoc, ...] = (
         object="file_system",
         name="File system",
         plural="file system items",
-        description="The project file tree: folders, saved items, moving and deleting items, search, and recently viewed files.",
+        description="The project file tree: folders, saved items, search, and recently viewed files.",
         group="Organization & account",
         actions=("read",),
     ),
@@ -336,10 +337,11 @@ CORE_SCOPE_DOCS: tuple[ScopeDoc, ...] = (
 )
 
 
-def collect_scope_docs(declarations: Iterable[Iterable[ScopeDoc]]) -> dict[APIScopeObject, ScopeDoc]:
-    """Index declarations by scope object, sorted by object, refusing an object declared twice."""
+def collect_scope_docs(product_declarations: Iterable[Iterable[ScopeDoc]]) -> dict[APIScopeObject, ScopeDoc]:
+    """Index core's declarations and the given product ones by scope object, sorted by object,
+    refusing an object declared twice."""
     collected: dict[APIScopeObject, ScopeDoc] = {}
-    for declaration in declarations:
+    for declaration in [CORE_SCOPE_DOCS, *product_declarations]:
         for doc in declaration:
             if doc.object in collected:
                 raise ValueError(f"Scope object {doc.object!r} is declared more than once")
@@ -356,5 +358,5 @@ def get_scope_docs() -> dict[APIScopeObject, ScopeDoc]:
     global _scope_docs
     if _scope_docs is None:
         product_declarations = [getattr(module, "SCOPE_DOCS", ()) for module in load_product_modules("scopes")]
-        _scope_docs = collect_scope_docs([CORE_SCOPE_DOCS, *product_declarations])
+        _scope_docs = collect_scope_docs(product_declarations)
     return _scope_docs

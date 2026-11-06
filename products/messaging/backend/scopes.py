@@ -7,7 +7,7 @@ SCOPE_DOCS = (
         object="transactional_email",
         name="Transactional email",
         plural="transactional emails",
-        description="Sending transactional email from a template and reading a sent email's status, without editing templates.",
+        description="Making a template transactional and sending email from it, and reading a sent email's status with a project secret key.",
         group="Messaging",
         docs_url="https://posthog.com/docs/workflows/transactional-emails",
     ),

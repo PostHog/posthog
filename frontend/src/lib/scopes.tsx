@@ -98,7 +98,6 @@ export type APIScope = {
     info?: string | JSX.Element
     disabledActions?: ('read' | 'write')[]
     disabledWhenProjectScoped?: boolean
-    description?: string
     warnings?: Partial<Record<'read' | 'write', string | JSX.Element>>
     /** Mirrors `PRIVILEGED_SCOPES` in posthog/scopes.py — excluded from every unprivileged preset. */
     unprivilegedExcluded?: boolean
@@ -170,7 +169,6 @@ export const API_SCOPES: APIScope[] = Object.entries(SCOPE_DOCS).map(([key, doc]
     objectName: doc.name,
     objectPlural: doc.plural,
     info: doc.description,
-    description: doc.description,
     disabledActions: (['read', 'write'] as const).filter((action) => !doc.actions.includes(action)),
     disabledWhenProjectScoped: doc.organizationWide,
     unprivilegedExcluded: doc.privileged,
