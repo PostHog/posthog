@@ -126,6 +126,7 @@ Both charge one token per copy: each To, CC and BCC entry counts, so an address 
 The allowances are token buckets that refill their capacity over 24 hours, not calendar-day counters.
 A reached allowance skips the send instead of delaying it.
 A limiter error, or a cap value that is not a positive whole number, skips every sandbox send.
+The worker reads each cap as a number like its other numeric settings, so it keeps the leading number of a value such as `25 per day` and reads `1,000` as 1.
 The `workflows sandbox email blocked` event names the outcome: `project_cap_reached`, `recipient_cap_reached`, or `cap_check_failed`.
 The worker checks members after the claim and gives the claim back when that check skips the send.
 An SES throttle response also gives the claim back before the delivery retry, and so does an SES rejection, which means SES did not accept the message.
