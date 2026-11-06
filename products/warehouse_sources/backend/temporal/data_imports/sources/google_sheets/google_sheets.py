@@ -232,7 +232,13 @@ def _cell_value(cell: Any) -> Any:
     return cell
 
 
-def _records_from_grid(grid: list[list[Any]]) -> list[dict[str, Any]]:
+def _same_shape(grid: list[list[Any]], other: list[list[Any]]) -> bool:
+    return len(grid) == len(other) and all(len(row) == len(other_row) for row, other_row in zip(grid, other))
+
+
+def _records_from_grid(
+    grid: list[list[Any]], read_formatted_grid: Callable[[], list[list[Any]]]
+) -> list[dict[str, Any]]:
     if not grid or grid == [[]]:
         return []
 
@@ -243,11 +249,23 @@ def _records_from_grid(grid: list[list[Any]]) -> list[dict[str, Any]]:
 
     # A column that holds both numbers and text must stay text. The pipeline JSON-encodes a column
     # of mixed Python types, which stores each text cell wrapped in double quotes.
-    for index, name in enumerate(column_names):
-        if len({isinstance(record[name], str) for record in records if record.get(name) is not None}) > 1:
-            for raw_row, record in zip(grid[1:], records):
-                if name in record:
-                    record[name] = _cell_text(raw_row[index])
+    mixed_columns = [
+        (index, name)
+        for index, name in enumerate(column_names)
+        if len({isinstance(record[name], str) for record in records if record.get(name) is not None}) > 1
+    ]
+    if not mixed_columns:
+        return records
+
+    # The text of a number cell is what the spreadsheet shows, so "0.3" and "50%" stay as displayed
+    # instead of str() of the raw double. An edit between the two reads can move rows, so a grid of
+    # a different shape is not used.
+    formatted_grid = read_formatted_grid()
+    text_grid = formatted_grid if _same_shape(grid, formatted_grid) else grid
+    for index, name in mixed_columns:
+        for text_row, record in zip(text_grid[1:], records):
+            if name in record:
+                record[name] = _cell_text(text_row[index])
 
     return records
 
@@ -609,7 +627,10 @@ def google_sheets_source(
                 grid = []
             else:
                 raise
-        values = _records_from_grid(grid)
+        values = _records_from_grid(
+            grid,
+            lambda: cast(list[list[Any]], _retry_on_transient_api_error(lambda: worksheet.get(pad_values=True))),
+        )
 
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             values = [value for value in values if value.get("id", 0) > db_incremental_field_last_value]

@@ -380,12 +380,23 @@ def test_google_sheets_source_retries_transient_error_on_data_reads():
     assert mock_worksheet.get.call_count == 2
 
 
-def _read_sheet(header_row: list[str], data_rows: list[list[Any]], worksheet: Any = None) -> list[Any]:
+def _read_sheet(
+    header_row: list[str],
+    data_rows: list[list[Any]],
+    worksheet: Any = None,
+    formatted_rows: list[list[str]] | None = None,
+) -> list[Any]:
     config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
 
     mock_worksheet = worksheet or mock.MagicMock()
     mock_worksheet.get_all_values.return_value = [header_row]
-    mock_worksheet.get.return_value = [header_row, *data_rows]
+    unformatted_grid = [header_row, *data_rows]
+    formatted_grid = unformatted_grid if formatted_rows is None else [header_row, *formatted_rows]
+    mock_worksheet.get.side_effect = lambda **kwargs: (
+        unformatted_grid
+        if kwargs.get("value_render_option") == gspread.utils.ValueRenderOption.unformatted
+        else formatted_grid
+    )
 
     with (
         mock.patch(
@@ -403,19 +414,46 @@ def _read_sheet(header_row: list[str], data_rows: list[list[Any]], worksheet: An
         return list(cast(Iterable[Any], response.items()))
 
 
-def test_google_sheets_source_keeps_cell_text_in_a_column_mixing_numbers_and_text():
-    tables = _read_sheet(
-        ["id", "code"],
-        [[1, "spring sale"], [2, "1,200"], [3, ""], [4, "42"], [5, 0.5], [6, True]],
-    )
+_MIXED_COLUMN_ROWS: list[list[Any]] = [
+    [1, "spring sale"],
+    [2, "1,200"],
+    [3, ""],
+    [4, "42"],
+    [5, 0.5],
+    [6, True],
+    [7, 0.30000000000000004],
+]
+
+
+@pytest.mark.parametrize(
+    "formatted_rows,expected_codes",
+    [
+        pytest.param(
+            [["1", "spring sale"], ["2", "1,200"], ["3", ""], ["4", "42"], ["5", "0,5"], ["6", "TRUE"], ["7", "0,3"]],
+            ["spring sale", "1,200", None, "42", "0,5", "TRUE", "0,3"],
+            id="number_cells_keep_displayed_text",
+        ),
+        pytest.param(
+            [
+                ["1", "spring sale"],
+                ["2", "1,200"],
+                ["3", ""],
+                ["4", "42"],
+                ["5", "0,5"],
+                ["6", "TRUE"],
+                ["7", "0,3"],
+                ["8", "new row"],
+            ],
+            ["spring sale", "1,200", None, "42", "0.5", "TRUE", "0.30000000000000004"],
+            id="sheet_edited_between_reads",
+        ),
+    ],
+)
+def test_google_sheets_source_keeps_cell_text_in_a_column_mixing_numbers_and_text(formatted_rows, expected_codes):
+    tables = _read_sheet(["id", "code"], _MIXED_COLUMN_ROWS, formatted_rows=formatted_rows)
 
     assert tables[0].to_pylist() == [
-        {"id": 1, "code": "spring sale"},
-        {"id": 2, "code": "1,200"},
-        {"id": 3, "code": None},
-        {"id": 4, "code": "42"},
-        {"id": 5, "code": "0.5"},
-        {"id": 6, "code": "TRUE"},
+        {"id": row[0], "code": code} for row, code in zip(_MIXED_COLUMN_ROWS, expected_codes)
     ]
 
 
