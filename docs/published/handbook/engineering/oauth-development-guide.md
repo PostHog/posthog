@@ -278,6 +278,8 @@ Organization listing and account recovery remain available from a blocked IP. Bl
 
 The blocked-organization decision is reused only within the same request, principal, authentication context, and client IP.
 
+The native `/oauth/userinfo/` endpoint verifies the access token and `openid` scope before applying the same IP policy to the token's user. This applies to both GET and POST requests. A policy denial returns HTTP 403 with `error: access_denied` and `code: ip_not_allowed`; invalid or expired tokens retain the OAuth provider's error responses.
+
 If you would like to force the user to pick a single team or an organization you can use the `required_access_level=project` or `required_access_level=organization` query parameter in the authorization url.
 
 ## Testing Your OAuth Application
