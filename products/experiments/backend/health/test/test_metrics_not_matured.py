@@ -9,6 +9,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.activity_logging.activity_log import ActivityLog
+
 from products.experiments.backend.facade.api import get_experiment_health
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthCheckKey,
@@ -36,6 +38,7 @@ Status = ExperimentHealthCheckStatus
 NO_QUERIES = ExperimentHealthReaderAccess(
     can_read_flag_history=False, can_query_events=False, denied_event_properties=frozenset()
 )
+READS_HISTORY = replace(NO_QUERIES, can_read_flag_history=True)
 LAUNCHED_AT = datetime(2026, 10, 1, 12, tzinfo=UTC)
 PURCHASE = {"kind": "EventsNode", "event": "purchase"}
 NO_WINDOW = {"kind": "ExperimentMetric", "metric_type": "funnel", "series": [PURCHASE]}
@@ -64,7 +67,7 @@ RETENTION = {
 
 
 def _window(name: str, metric: dict[str, Any]) -> MetricWindow:
-    window = metric_window(name=name, definition=metric, start_date=LAUNCHED_AT)
+    window = metric_window(name=name, definition=metric, launched_at=LAUNCHED_AT)
     assert window is not None
     return window
 
@@ -173,11 +176,12 @@ class TestMetricsNotMatured(TestCase):
 class TestMetricsNotMaturedFromStoredMetrics(BaseTest):
     @parameterized.expand(
         [
-            ("saved_primary_held_back", [], [], FOUR_DAYS, Status.FINDING, "Checkout funnel"),
+            ("saved_primary_held_back", [], [], FOUR_DAYS, None, Status.FINDING, "Checkout funnel"),
             (
                 "a_secondary_past_its_window_does_not_clear_the_primaries",
                 [FOUR_DAYS],
                 [NO_WINDOW],
+                None,
                 None,
                 Status.FINDING,
                 "purchase conversion",
@@ -187,11 +191,41 @@ class TestMetricsNotMaturedFromStoredMetrics(BaseTest):
                 [FOUR_DAYS],
                 [],
                 {**FOUR_DAYS, "uuid": "primary-0"},
+                None,
                 Status.FINDING,
                 "purchase conversion",
             ),
-            ("only_a_secondary_held_back", [NO_WINDOW], [FOUR_DAYS], None, Status.PASSED, None),
-            ("a_primary_that_does_not_parse", [{"metric_type": "funnel"}], [], None, Status.NOT_CHECKED, None),
+            ("only_a_secondary_held_back", [NO_WINDOW], [FOUR_DAYS], None, None, Status.PASSED, None),
+            ("a_primary_that_does_not_parse", [{"metric_type": "funnel"}], [], None, None, Status.NOT_CHECKED, None),
+            (
+                "launched_after_its_start_date",
+                [FOUR_DAYS],
+                [],
+                None,
+                (5, 1),
+                Status.FINDING,
+                "purchase conversion",
+                True,
+            ),
+            (
+                "launch_hidden_from_a_reader_without_the_flag_history",
+                [FOUR_DAYS],
+                [],
+                None,
+                (5, 1),
+                Status.PASSED,
+                None,
+            ),
+            (
+                "start_date_moved_after_the_launch",
+                [FOUR_DAYS],
+                [],
+                None,
+                (3, 5),
+                Status.FINDING,
+                "purchase conversion",
+                True,
+            ),
         ]
     )
     def test_reads_the_windows_of_the_stored_primary_metrics(
@@ -200,8 +234,10 @@ class TestMetricsNotMaturedFromStoredMetrics(BaseTest):
         primary: list[dict[str, Any]],
         secondary: list[dict[str, Any]],
         saved_primary: dict[str, Any] | None,
+        start_and_launch_days_ago: tuple[int, int] | None,
         expected: Status,
         expected_metric: str | None,
+        reads_flag_history: bool = False,
     ) -> None:
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -217,15 +253,29 @@ class TestMetricsNotMaturedFromStoredMetrics(BaseTest):
                 },
             },
         )
+        start_days_ago, launch_days_ago = start_and_launch_days_ago or (3, None)
+        start_date = timezone.now() - timedelta(days=start_days_ago)
         experiment = Experiment.objects.create(
             team=self.team,
             name="checkout",
             feature_flag=flag,
-            start_date=timezone.now() - timedelta(days=3),
+            start_date=start_date,
             only_count_matured_users=True,
             metrics=[{**metric, "uuid": f"primary-{index}"} for index, metric in enumerate(primary)],
             metrics_secondary=[{**metric, "uuid": f"secondary-{index}"} for index, metric in enumerate(secondary)],
         )
+        counted_from = None
+        if launch_days_ago is not None:
+            launched_at = timezone.now() - timedelta(days=launch_days_ago)
+            ActivityLog.objects.create(
+                team_id=self.team.id,
+                scope="Experiment",
+                item_id=str(experiment.id),
+                activity="updated",
+                detail={"changes": [{"field": "start_date", "before": None, "after": launched_at.isoformat()}]},
+                created_at=launched_at,
+            )
+            counted_from = max(start_date, launched_at)
         if saved_primary is not None:
             saved_metric = ExperimentSavedMetric.objects.create(
                 team=self.team, name="Checkout funnel", query={"uuid": "saved-primary", **saved_primary}
@@ -235,7 +285,10 @@ class TestMetricsNotMaturedFromStoredMetrics(BaseTest):
             )
 
         health = get_experiment_health(
-            team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES, user=self.user
+            team_id=self.team.id,
+            experiment_id=experiment.id,
+            reader_access=READS_HISTORY if reads_flag_history else NO_QUERIES,
+            user=self.user,
         )
 
         check = next(check for check in health.checks if check.key == ExperimentHealthCheckKey.METRICS_NOT_MATURED)
@@ -247,3 +300,7 @@ class TestMetricsNotMaturedFromStoredMetrics(BaseTest):
         self.assertEqual(finding is not None, expected == Status.FINDING)
         if finding:
             self.assertEqual(finding.detail.count(f'"{expected_metric}"'), 1)
+        if finding and counted_from is not None:
+            self.assertEqual(
+                finding.evidence["first_users_count_at"], (counted_from + timedelta(days=4)).astimezone(UTC).isoformat()
+            )

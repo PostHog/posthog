@@ -1,6 +1,10 @@
-import type { ReactNode } from 'react'
+import './TodayShell.scss'
+
+import { type ReactNode, useRef } from 'react'
 
 import { Autocomplete, AutocompleteClear, AutocompleteInput, AutocompleteList, cn } from '@posthog/quill'
+
+import { highlightOption, toggleSectionWithArrow } from './todayPaneTreeKeys'
 
 export interface TodayPaneSearchListProps {
     query: string
@@ -18,7 +22,8 @@ export interface TodayPaneSearchListProps {
 
 /**
  * A sidebar pane's search field and list, after Desktop's sidebar. The list stays open, the field filters it,
- * the arrow keys move between rows and Enter opens the highlighted row.
+ * the arrow keys move between rows and Enter opens the highlighted row. With the field empty, Right and Left open and
+ * close a highlighted section heading, and Left on a row closes its section, like a tree.
  */
 export function TodayPaneSearchList({
     query,
@@ -31,6 +36,7 @@ export function TodayPaneSearchList({
     className,
     listClassName,
 }: TodayPaneSearchListProps): JSX.Element {
+    const listRef = useRef<HTMLDivElement>(null)
     return (
         <Autocomplete<string>
             inline
@@ -57,6 +63,16 @@ export function TodayPaneSearchList({
                                 event.preventDefault()
                                 event.stopPropagation()
                                 onQueryChange('')
+                            } else if (query === '') {
+                                const heading = toggleSectionWithArrow(
+                                    listRef.current?.querySelector('[data-highlighted]'),
+                                    event.key
+                                )
+                                if (heading) {
+                                    event.preventDefault()
+                                    // The section's rows unmount, so the highlight goes back to its heading.
+                                    requestAnimationFrame(() => highlightOption(heading))
+                                }
                             }
                         }}
                     >
@@ -72,6 +88,7 @@ export function TodayPaneSearchList({
                 </div>
                 {header && <div className="mt-2 shrink-0">{header}</div>}
                 <AutocompleteList
+                    ref={listRef}
                     className={cn(
                         'TodayPaneSearchList mt-2 min-h-0 !max-h-none flex-1 overflow-y-auto !p-0 pb-6',
                         header && 'mt-1',
