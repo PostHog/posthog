@@ -21,6 +21,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { UseMaxToolReturn } from 'scenes/max/useMaxTool'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
@@ -86,7 +87,7 @@ import { SurveyDetailsPanel, SurveyExportPanel } from './SurveySidebar'
 
 const RESOURCE_TYPE = 'survey'
 
-export function SurveyViewRedesign(): JSX.Element {
+export function SurveyViewRedesign({ openMax }: { openMax: UseMaxToolReturn['openMax'] }): JSX.Element {
     const { survey, surveyLoading, activeTab, surveyNotifications } = useValues(surveyLogic)
     const { preferredEditor } = useValues(surveysLogic)
     const { editingSurvey, updateSurvey, archiveSurvey, setActiveTab } = useActions(surveyLogic)
@@ -422,7 +423,7 @@ export function SurveyViewRedesign(): JSX.Element {
                             key: 'summary',
                             label: 'Summary',
                             content: isDraft ? (
-                                <SurveyDraftReview />
+                                <SurveyDraftReview openMax={openMax} />
                             ) : (
                                 <SurveySummaryContent onViewResponses={() => setActiveTab(SurveyTab.RESPONSES)} />
                             ),
