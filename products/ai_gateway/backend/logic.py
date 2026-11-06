@@ -13,11 +13,12 @@ import hashlib
 import secrets
 import dataclasses
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import QuerySet, Sum
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 import requests
@@ -59,6 +60,7 @@ logger = structlog.get_logger(__name__)
 DEV_PRODUCT = "dev"
 STAFF_EMAIL_DOMAIN = "@posthog.com"
 GATEWAY_TIMEOUT_SECONDS = 5
+TOKEN_CAP_MIN_USD = Decimal("1")
 CLI_CODE_TTL_SECONDS = 120
 _CLI_CODE_CACHE_PREFIX = "ai_gateway_dev_cli_code:"
 
@@ -99,10 +101,14 @@ def _window_start() -> datetime:
     return timezone.now() - timedelta(days=1)
 
 
+def _window_tokens(user_id: int) -> QuerySet[DevGatewayToken]:
+    return DevGatewayToken.objects.filter(user_id=user_id, created_at__gte=_window_start()).annotate(
+        counted_usd=Coalesce("spent_usd", "cap_usd")
+    )
+
+
 def _used_usd(user_id: int) -> Decimal:
-    used = DevGatewayToken.objects.filter(user_id=user_id, created_at__gte=_window_start()).aggregate(
-        total=Sum("cap_usd")
-    )["total"]
+    used = _window_tokens(user_id).aggregate(total=Sum("counted_usd"))["total"]
     return used or Decimal("0")
 
 
@@ -125,26 +131,30 @@ def _to_dto(row: DevGatewayToken, remaining: dict[str, Decimal] | None = None) -
     )
 
 
+def _available_at(user_id: int, left: Decimal) -> datetime:
+    for created_at, counted in _window_tokens(user_id).order_by("created_at").values_list("created_at", "counted_usd"):
+        left += counted
+        if left >= TOKEN_CAP_MIN_USD:
+            return created_at + timedelta(days=1)
+    return timezone.now()
+
+
 def _reserve(user: User, client: DevTokenClient) -> DevGatewayToken:
-    cap = token_cap_usd()
     with transaction.atomic():
         # Serializes one user's mints so two concurrent requests cannot both fit under the cap.
         User.objects.select_for_update().filter(pk=user.pk).first()
         used = _used_usd(user.pk)
-        if used + cap > daily_cap_usd():
-            oldest = (
-                DevGatewayToken.objects.filter(user_id=user.pk, created_at__gte=_window_start())
-                .order_by("created_at")
-                .values_list("created_at", flat=True)
-                .first()
-            )
-            available_at = (oldest + timedelta(days=1)) if oldest else timezone.now()
+        left = daily_cap_usd() - used
+        if left < TOKEN_CAP_MIN_USD:
+            available_at = _available_at(user.pk, left)
             raise DevTokenRefused(
                 "daily_limit",
                 f"You've used ${used:.2f} of your ${daily_cap_usd():.2f} limit for the last 24 hours. "
-                f"You can create another token at {available_at:%Y-%m-%d %H:%M} UTC.",
+                "Revoke a live token to get back what it hasn't spent, "
+                f"or create another token at {available_at:%Y-%m-%d %H:%M} UTC.",
                 429,
             )
+        cap = min(token_cap_usd(), left.quantize(Decimal("0.01"), rounding=ROUND_DOWN))
         return DevGatewayToken.objects.create(
             team_id=settings.DEV_GATEWAY_TEAM_ID, user=user, client=client.value, cap_usd=cap
         )
@@ -291,6 +301,7 @@ def usage(user: User) -> DevTokenUsage:
         daily_cap_usd=daily_cap_usd(),
         used_usd=used,
         token_cap_usd=token_cap_usd(),
+        token_cap_min_usd=TOKEN_CAP_MIN_USD,
         ttl_seconds=settings.DEV_GATEWAY_TOKEN_TTL_SECONDS,
         tokens=tokens,
     )
@@ -446,6 +457,13 @@ def team_usage(viewer: User) -> DevTeamUsage:
     return DevTeamUsage(paying_team_id=team.pk, users=result, activity=_activity(team.pk, since, rows))
 
 
+def _spent_usd(row: DevGatewayToken, remaining: dict[str, Decimal]) -> Decimal | None:
+    left = remaining.get(row.token_hash or "")
+    if left is None:
+        return None
+    return max(Decimal("0"), row.cap_usd - left)
+
+
 def revoke(user: User, token_id: str | None) -> int:
     """Returns the gateway's revoked count. Rows are marked revoked only after the gateway confirms."""
     with team_scope(settings.DEV_GATEWAY_TEAM_ID):
@@ -459,8 +477,10 @@ def revoke(user: User, token_id: str | None) -> int:
             raise DevTokenRefused("not_found", f"Token {token_id} is already revoked or expired.", 404)
         if not targets:
             return 0
+        hashes = [row.token_hash for row in targets if row.token_hash]
+        remaining = _remaining_by_hash(hashes)
         try:
-            response = _gateway_post("/v1/tokens/revoke", {"token_hashes": [row.token_hash for row in targets]})
+            response = _gateway_post("/v1/tokens/revoke", {"token_hashes": hashes})
         except requests.RequestException as e:
             logger.warning("ai_gateway_dev_revoke_unreachable", user_id=user.pk, exc_info=True)
             raise DevTokenRefused("revoke_failed", "Couldn't reach the AI gateway. Try again in a minute.", 503) from e
@@ -482,16 +502,25 @@ def revoke(user: User, token_id: str | None) -> int:
                 "ai_gateway_dev_revoke_count_mismatch", user_id=user.pk, sent=len(targets), revoked=revoked_count
             )
         revoked_at = timezone.now()
-        DevGatewayToken.objects.filter(
-            user_id=user.pk, team_id=settings.DEV_GATEWAY_TEAM_ID, id__in=[row.id for row in targets]
-        ).update(revoked_at=revoked_at)
+        for row in targets:
+            row.revoked_at = revoked_at
+            row.spent_usd = _spent_usd(row, remaining)
+        DevGatewayToken.objects.bulk_update(targets, ["revoked_at", "spent_usd"])
         # The bulk update skips save(), so each revoke is logged by hand.
         for row in targets:
             _log(
                 user,
                 row,
                 "revoked",
-                [Change(type="DevGatewayToken", action="changed", field="revoked_at", after=revoked_at.isoformat())],
+                [
+                    Change(type="DevGatewayToken", action="changed", field="revoked_at", after=revoked_at.isoformat()),
+                    Change(
+                        type="DevGatewayToken",
+                        action="changed",
+                        field="spent_usd",
+                        after=None if row.spent_usd is None else str(row.spent_usd),
+                    ),
+                ],
             )
     logger.info("ai_gateway_dev_tokens_revoked", user_id=user.pk, count=len(targets))
     return revoked_count

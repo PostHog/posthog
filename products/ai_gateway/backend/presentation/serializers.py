@@ -29,10 +29,15 @@ class DevTokenUsageSerializer(serializers.Serializer):
         max_digits=10, decimal_places=2, help_text="Most token caps one user can mint in 24 hours, in USD."
     )
     used_usd = serializers.DecimalField(
-        max_digits=10, decimal_places=2, help_text="Token caps the user minted in the last 24 hours, in USD."
+        max_digits=10,
+        decimal_places=2,
+        help_text="Budget used in the last 24 hours, in USD: spend for revoked tokens, the full cap otherwise.",
     )
     token_cap_usd = serializers.DecimalField(
-        max_digits=10, decimal_places=2, help_text="Cap of each new token, in USD."
+        max_digits=10, decimal_places=2, help_text="Largest cap of a new token, in USD."
+    )
+    token_cap_min_usd = serializers.DecimalField(
+        max_digits=10, decimal_places=2, help_text="Budget that must be left to create a token, in USD."
     )
     ttl_seconds = serializers.IntegerField(help_text="Lifetime of each new token, in seconds.")
     tokens = DevTokenSerializer(

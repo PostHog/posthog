@@ -45,6 +45,11 @@ def _minted(token: str = "phe_new") -> MagicMock:
     return _response(201, {"token": token, "expires_at": "2099-01-01T00:00:00Z", "cap_usd": "25"})
 
 
+def _status(token: str, remaining_usd: str) -> MagicMock:
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    return _response(200, {"tokens": [{"token_hash": token_hash, "remaining_usd": remaining_usd}]})
+
+
 class _DevGatewaySettings(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -325,6 +330,74 @@ class TestDevTokens(_DevGatewaySettings):
             ActivityLog.objects.filter(scope="DevGatewayToken", item_id=str(mine.id), activity="revoked").count() == 1
         )
         assert self.client.get(f"{URL}usage/").json()["tokens"][0]["status"] == "revoked"
+
+    @parameterized.expand(
+        [
+            ("spent_part_of_the_cap", _status("phe_mine", "23"), "2", "2"),
+            ("spent_nothing", _status("phe_mine", "25"), "0", "0"),
+            ("charged_past_the_cap", _status("phe_mine", "-1.5"), "26.5", "26.5"),
+            ("gateway_omits_the_token", _response(200, {"tokens": []}), None, "25"),
+            ("status_unreachable", requests.ConnectionError(), None, "25"),
+        ]
+    )
+    def test_revoke_counts_only_what_the_token_spent(self, _name, status, spent, used):
+        with patch(_POST, return_value=_minted("phe_mine")):
+            self.client.post(URL)
+
+        with patch(_POST, side_effect=[status, _response(200, {"revoked": True, "revoked_count": 1})]):
+            assert self.client.post(f"{URL}revoke/", {}).status_code == 200
+
+        row = self._rows(user=self.user).get()
+        assert row.spent_usd == (Decimal(spent) if spent is not None else None)
+        assert Decimal(self.client.get(f"{URL}usage/").json()["used_usd"]) == Decimal(used)
+
+    def test_refused_revoke_keeps_counting_the_full_cap(self):
+        with patch(_POST, return_value=_minted("phe_mine")):
+            self.client.post(URL)
+
+        with patch(_POST, side_effect=[_status("phe_mine", "23"), _response(500)]):
+            assert self.client.post(f"{URL}revoke/", {}).status_code == 503
+
+        row = self._rows(user=self.user).get()
+        assert (row.revoked_at, row.spent_usd) == (None, None)
+
+    def _spent_token(self, spent_usd: str, hours_ago: int) -> DevGatewayToken:
+        row = self._rows().create(
+            team=self.team,
+            user=self.user,
+            client="web",
+            cap_usd=Decimal("25"),
+            spent_usd=Decimal(spent_usd),
+            revoked_at=timezone.now(),
+        )
+        self._rows(pk=row.pk).update(created_at=timezone.now() - timedelta(hours=hours_ago))
+        return self._rows(pk=row.pk).get()
+
+    @parameterized.expand(
+        [
+            ("full_cap_fits", "2", "25"),
+            ("only_part_of_the_cap_fits", "30.505", "19.49"),
+            ("exactly_the_minimum_fits", "49", "1.00"),
+        ]
+    )
+    def test_new_token_is_capped_to_the_budget_left(self, _name, spent_usd, cap_usd):
+        self._spent_token(spent_usd, hours_ago=1)
+
+        with patch(_POST, return_value=_minted()) as post:
+            assert self.client.post(URL).status_code == 201
+
+        assert post.call_args.kwargs["json"]["cap_usd"] == cap_usd
+
+    def test_refusal_names_the_time_enough_budget_frees_up(self):
+        self._spent_token("0.25", hours_ago=20)
+        freeing = self._spent_token("49.50", hours_ago=10)
+
+        with patch(_POST) as post:
+            response = self.client.post(URL)
+
+        assert response.status_code == 429
+        post.assert_not_called()
+        assert f"{freeing.created_at + timedelta(days=1):%Y-%m-%d %H:%M} UTC" in response.json()["detail"]
 
     def test_cli_code_exchanges_once_for_the_authorizing_user(self):
         code = self.client.post(f"{URL}cli_authorize/", {"code_challenge": CHALLENGE}).json()["code"]

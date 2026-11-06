@@ -68,7 +68,7 @@ export function DevModeSetting(): JSX.Element {
                         usageLoading && !usage
                             ? 'Loading'
                             : !canMint
-                              ? `You've reached your $${usage?.daily_cap_usd} limit for the last 24 hours`
+                              ? `You've reached your $${usage?.daily_cap_usd} limit for the last 24 hours. Revoke a live token to get back what it hasn't spent.`
                               : undefined
                     }
                     data-attr="ai-gateway-dev-mode-mint"

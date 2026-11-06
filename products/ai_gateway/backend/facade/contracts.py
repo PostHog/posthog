@@ -42,6 +42,7 @@ class DevTokenUsage:
     daily_cap_usd: Decimal
     used_usd: Decimal
     token_cap_usd: Decimal
+    token_cap_min_usd: Decimal
     ttl_seconds: int
     tokens: list[DevToken]
 
