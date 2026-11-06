@@ -179,11 +179,11 @@ export function trendsQuery(series: GroupNode | EventsNode, dateRange: DateRange
     }
 }
 
-function statQuery(
+export function statQuery(
     key: HomeTabMetricKey,
     title: string,
     kind: WebAnalyticsItemKind,
-    series: GroupNode,
+    series: GroupNode | EventsNode,
     dateRange: DateRange,
     compare: boolean,
     isIncreaseBad?: boolean
@@ -201,11 +201,11 @@ function statQuery(
     }
 }
 
-function chartOption(
+export function chartOption(
     key: string,
     title: string,
     description: string,
-    series: GroupNode,
+    series: GroupNode | EventsNode,
     dateRange: DateRange,
     compare: boolean,
     interval?: IntervalType
@@ -570,7 +570,7 @@ interface HomeTabDashboardTile {
 
 // The Metric display (number with a sparkline) sums the interval points, which counts a person once per
 // active day. Weekly active users on the latest day counts each person once and still has a daily trend.
-const HOME_TAB_STAT_METRIC_SUMMARIES: Record<HomeTabMetricKey, 'total' | 'average' | 'latest'> = {
+const HOME_TAB_STAT_METRIC_SUMMARIES: Partial<Record<HomeTabMetricKey, 'total' | 'average' | 'latest'>> = {
     active_users: 'latest',
     sessions: 'total',
     new_users: 'total',
@@ -620,7 +620,7 @@ export function getHomeTabDashboardTemplate(): DashboardTemplateType {
                 trendsFilter: {
                     ...stat.query.trendsFilter,
                     display: ChartDisplayType.Metric,
-                    metricSummary: HOME_TAB_STAT_METRIC_SUMMARIES[stat.key],
+                    metricSummary: HOME_TAB_STAT_METRIC_SUMMARIES[stat.key] ?? 'total',
                     ...(stat.kind === 'duration_s' ? { aggregationAxisFormat: 'duration' } : {}),
                 },
             },

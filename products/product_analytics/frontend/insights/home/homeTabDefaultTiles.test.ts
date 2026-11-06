@@ -3,7 +3,7 @@ import { combineUrl } from 'kea-router'
 import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 
-import { DateRange, NodeKind } from '~/queries/schema/schema-general'
+import { DateRange, NodeKind, RetentionResult } from '~/queries/schema/schema-general'
 import {
     BaseMathType,
     ChartDisplayType,
@@ -29,7 +29,22 @@ import {
     isHomeTabStatBucketInProgress,
 } from './homeTabDefaultTiles'
 import { homeTabStatTrendKey } from './homeTabQueryKeys'
-import { getHomeTabViewRows } from './homeTabViewCharts'
+import {
+    getHomeTabRetentionSummary,
+    getHomeTabViewLayout,
+    type HomeTabViewChart,
+    type HomeTabViewLayout,
+} from './homeTabViewCharts'
+
+function layoutCharts({ headlines, sections }: HomeTabViewLayout): HomeTabViewChart[] {
+    const headlineCharts =
+        headlines.kind === 'trend'
+            ? Object.values(headlines.charts)
+            : [...new Set(headlines.stats.map(({ chart }) => chart))]
+    return [...headlineCharts, ...sections.flatMap(({ rows }) => rows.flat())].filter(
+        (chart): chart is HomeTabViewChart => !!chart
+    )
+}
 
 describe('homeTabDefaultTiles', () => {
     const dateRange: DateRange = { date_from: '-14d', date_to: null }
@@ -323,27 +338,49 @@ describe('homeTabDefaultTiles', () => {
     it.each(['new_users', 'engagement', 'retention'] as const)(
         'gives every %s chart its own key so charts in the view do not share results',
         (view) => {
-            const keys = getHomeTabViewRows(view, dateRange, true)
-                .flat()
-                .map(({ option }) => option.key)
+            const keys = layoutCharts(getHomeTabViewLayout(view, dateRange, true)).map(({ option }) => option.key)
 
             expect(keys.length).toBeGreaterThan(0)
             expect(new Set(keys).size).toBe(keys.length)
         }
     )
 
-    it.each(['new_user_activation', 'first_custom_events', 'custom_event_adoption', 'custom_events_over_time'])(
-        'leaves SDK events out of the %s custom event chart',
-        (key) => {
-            const option = (['new_users', 'engagement'] as const)
-                .flatMap((view) => getHomeTabViewRows(view, dateRange, false).flat())
-                .find(({ option }) => option.key === key)?.option
-            const query = JSON.stringify(option?.query)
+    it.each([
+        'new_user_activation',
+        'first_custom_events',
+        'activated_users',
+        'custom_event_adoption',
+        'custom_events_over_time',
+        'custom_event_users',
+    ])('leaves SDK events out of the %s custom event chart', (key) => {
+        const option = (['new_users', 'engagement'] as const)
+            .flatMap((view) => layoutCharts(getHomeTabViewLayout(view, dateRange, false)))
+            .find(({ option }) => option.key === key)?.option
+        const query = JSON.stringify(option?.query)
 
-            expect(query).toContain('Application Opened')
-            expect(query).toContain('survey shown')
-        }
-    )
+        expect(query).toContain('Application Opened')
+        expect(query).toContain('survey shown')
+    })
+
+    it('averages retention over the cohorts that had the full interval to come back, weighted by size', () => {
+        const cohort = (date: string, counts: number[]): RetentionResult => ({
+            date,
+            label: date,
+            values: counts.map((count) => ({ count })),
+        })
+        const results = [
+            cohort('2026-06-01', [100, 40, 20]),
+            cohort('2026-06-08', [300, 60, 30]),
+            cohort('2026-06-15', [200, 0]),
+        ]
+
+        expect(getHomeTabRetentionSummary(results, 1, 'week', dayjs('2026-06-22'))).toEqual({
+            value: 25,
+            trend: [40, 20],
+            labels: ['2026-06-01', '2026-06-08'],
+        })
+        expect(getHomeTabRetentionSummary(results, 1, 'week', dayjs('2026-06-10'))).toBeNull()
+    })
 
     it('copies Home into a dashboard template with saved queries and a non-overlapping layout', () => {
         const { tiles } = getHomeTabDashboardTemplate()

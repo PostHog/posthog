@@ -13,7 +13,13 @@ const METRIC_VALUES: Record<HomeTabMetricKey, number[]> = {
     new_users: [80, 110, 95, 140, 120, 170, 150],
     session_duration: [145, 160, 152, 180, 165, 195, 184],
     daily_active_users: [340, 410, 380, 520, 460, 610, 580],
+    identified_users: [30, 42, 38, 55, 47, 64, 59],
+    activated_users: [22, 31, 27, 40, 35, 48, 44],
+    sessions_per_user: [1.4, 1.37, 1.39, 1.38, 1.39, 1.39, 1.4],
+    custom_event_users: [120, 150, 140, 190, 170, 230, 220],
 }
+
+const AVERAGED_METRICS: HomeTabMetricKey[] = ['session_duration', 'daily_active_users', 'sessions_per_user']
 
 export function getHomeTabSampleStatData(metric: HomeTabMetricKey, query: TrendsQuery): TrendsQueryResponse {
     const values = METRIC_VALUES[metric]
@@ -25,9 +31,11 @@ export function getHomeTabSampleStatData(metric: HomeTabMetricKey, query: Trends
 
     return {
         results: Array.from({ length: query.compareFilter?.compare ? 2 : 1 }, (_, index): TrendResult => {
-            const data = values.map((value) => Math.round(value * (index === 0 ? 1 : 0.84)))
+            const data = values.map((value) =>
+                metric === 'sessions_per_user' ? value : Math.round(value * (index === 0 ? 1 : 0.84))
+            )
             const total = data.reduce((sum, value) => sum + value, 0)
-            const count = metric === 'session_duration' || metric === 'daily_active_users' ? total / data.length : total
+            const count = AVERAGED_METRICS.includes(metric) ? total / data.length : total
             return {
                 order: 0,
                 label: 'Sample',

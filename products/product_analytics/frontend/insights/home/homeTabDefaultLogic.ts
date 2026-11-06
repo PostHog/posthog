@@ -8,7 +8,16 @@ import { DateRange } from '~/queries/schema/schema-general'
 
 export const HOME_TAB_DEFAULT_DATE_RANGE: DateRange = { date_from: '-7d', date_to: null }
 
-export type HomeTabMetricKey = 'active_users' | 'sessions' | 'new_users' | 'session_duration' | 'daily_active_users'
+export type HomeTabMetricKey =
+    | 'active_users'
+    | 'sessions'
+    | 'new_users'
+    | 'session_duration'
+    | 'daily_active_users'
+    | 'identified_users'
+    | 'activated_users'
+    | 'sessions_per_user'
+    | 'custom_event_users'
 export type HomeTabContentKey = 'top_pages' | 'top_screens'
 // pinned: sent as the `view` property of the view change event
 export type HomeTabViewKey = 'overview' | 'new_users' | 'engagement' | 'retention'
@@ -21,6 +30,7 @@ export interface homeTabDefaultLogicValues {
     selectedContentKey: HomeTabContentKey
     selectedMetric: HomeTabMetricKey
     selectedView: HomeTabViewKey
+    selectedViewMetrics: Partial<Record<HomeTabViewKey, string>>
     showViews: boolean
 }
 
@@ -46,6 +56,13 @@ export interface homeTabDefaultLogicActions {
     }
     setSelectedView: (view: HomeTabViewKey) => {
         view: HomeTabViewKey
+    }
+    setSelectedViewMetric: (
+        view: HomeTabViewKey,
+        key: string
+    ) => {
+        view: HomeTabViewKey
+        key: string
     }
 }
 
@@ -78,6 +95,7 @@ export const homeTabDefaultLogic = kea<homeTabDefaultLogicType>([
         setSelectedContentKey: (key: HomeTabContentKey) => ({ key }),
         setSelectedMetric: (key: HomeTabMetricKey) => ({ key }),
         setSelectedView: (view: HomeTabViewKey) => ({ view }),
+        setSelectedViewMetric: (view: HomeTabViewKey, key: string) => ({ view, key }),
     }),
     reducers({
         dateRange: [
@@ -94,6 +112,10 @@ export const homeTabDefaultLogic = kea<homeTabDefaultLogicType>([
         selectedContentKey: ['top_pages' as HomeTabContentKey, { setSelectedContentKey: (_, { key }) => key }],
         selectedMetric: ['active_users' as HomeTabMetricKey, { setSelectedMetric: (_, { key }) => key }],
         selectedView: ['overview' as HomeTabViewKey, { setSelectedView: (_, { view }) => view }],
+        selectedViewMetrics: [
+            {} as Partial<Record<HomeTabViewKey, string>>,
+            { setSelectedViewMetric: (state, { view, key }) => ({ ...state, [view]: key }) },
+        ],
     }),
     selectors({
         showViews: [

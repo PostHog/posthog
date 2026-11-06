@@ -31,7 +31,7 @@ import { homeTabChartInsightId, homeTabStatKey, homeTabStatTrendKey } from './ho
 import { HomeTabReloadButton } from './HomeTabReloadButton'
 import { HomeTabStatTiles } from './HomeTabStatTiles'
 import { HomeTabView } from './HomeTabView'
-import { getHomeTabViewRows } from './homeTabViewCharts'
+import { getHomeTabViewLayout } from './homeTabViewCharts'
 
 const HOME_DATE_OPTIONS = dateMapping.filter((option) => option.key !== CUSTOM_OPTION_KEY)
 
@@ -42,7 +42,7 @@ const HOME_VIEW_TABS: { key: HomeTabViewKey; label: string }[] = [
     { key: 'retention', label: 'Retention' },
 ]
 
-const VIEWS_WITH_COMPARE: HomeTabViewKey[] = ['overview', 'new_users']
+const VIEWS_WITH_COMPARE: HomeTabViewKey[] = ['overview', 'new_users', 'engagement']
 
 export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactNode }): JSX.Element {
     useAttachedLogic(homeTabDefaultLogic(), savedInsightsLogic)
@@ -150,7 +150,8 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
             {showViews && selectedView !== 'overview' ? (
                 <HomeTabView
                     key={selectedView}
-                    rows={getHomeTabViewRows(selectedView, dateRange, compare)}
+                    view={selectedView}
+                    layout={getHomeTabViewLayout(selectedView, dateRange, compare)}
                     label={HOME_VIEW_TABS.find(({ key }) => key === selectedView)?.label ?? ''}
                     note={
                         selectedView === 'new_users' ? (
@@ -167,10 +168,11 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
             ) : (
                 <>
                     <HomeTabStatTiles
-                        dateRange={dateRange}
+                        stats={getHomeTabStatQueries(dateRange, compare)}
                         compare={compare}
                         selectedKey={selectedMetric}
                         onSelect={setSelectedMetric}
+                        label="Overview metrics"
                     />
 
                     <HomeTabChartCard

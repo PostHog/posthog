@@ -1,21 +1,18 @@
-import type { DateRange } from '~/queries/schema/schema-general'
-
 import type { HomeTabMetricKey } from './homeTabDefaultLogic'
-import { getHomeTabStatQueries } from './homeTabDefaultTiles'
+import type { HomeTabStatQuery } from './homeTabDefaultTiles'
 import { HomeTabStatTile } from './HomeTabStatTile'
 
 interface HomeTabStatTilesProps {
-    dateRange: DateRange
+    stats: HomeTabStatQuery[]
     compare: boolean
-    selectedKey: HomeTabMetricKey
+    selectedKey: string
     onSelect: (key: HomeTabMetricKey) => void
+    label: string
 }
 
-export function HomeTabStatTiles({ dateRange, compare, selectedKey, onSelect }: HomeTabStatTilesProps): JSX.Element {
-    const stats = getHomeTabStatQueries(dateRange, compare)
-
+export function HomeTabStatTiles({ stats, compare, selectedKey, onSelect, label }: HomeTabStatTilesProps): JSX.Element {
     return (
-        <div className="flex snap-x snap-proximity gap-2 overflow-x-auto pb-1" aria-label="Overview metrics">
+        <div className="flex snap-x snap-proximity gap-2 overflow-x-auto pb-1" aria-label={label}>
             {stats.map((stat) => (
                 <div
                     key={stat.key}
