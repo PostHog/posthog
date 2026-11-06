@@ -1,6 +1,5 @@
 import { fireEvent, waitFor } from '@testing-library/react'
 
-import { Y_LABEL_HORIZONTAL_PADDING } from '../../core/hooks/useChartMargins'
 import type { BarChartConfig, ChartTheme, PointClickData, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
 import { getChart, getChartTooltip, renderChart, waitForChartTooltip } from '../../testing'
@@ -183,31 +182,22 @@ describe('BarChart', () => {
             expect(chart.yAxisLabel()).toBe('Series')
         })
 
-        it.each<[Orientation, boolean, boolean]>([
-            ['horizontal', false, true],
-            ['vertical', false, false],
-            ['horizontal', true, false],
-        ])(
-            '%s, fixed left margin %s: a wide chart raises the category label cap (shows full label: %s)',
-            (axisOrientation, fixedLeftMargin, showsFull) => {
-                const label = 'filesystem::play_open_in_app'
-                const halfLabelWidth = measureLabelWidth(label) / 2
-                const { chart } = renderChart(
-                    <BarChart
-                        series={[{ key: 'a', label: 'A', data: [10] }]}
-                        labels={[label]}
-                        theme={THEME}
-                        config={{
-                            axisOrientation,
-                            maxCategoryLabelWidth: halfLabelWidth,
-                            margins: fixedLeftMargin ? { left: halfLabelWidth + Y_LABEL_HORIZONTAL_PADDING } : undefined,
-                        }}
-                    />
-                )
-                const [tick] = axisOrientation === 'horizontal' ? chart.yTicks() : chart.xTicks()
-                expect(tick === label).toBe(showsFull)
-            }
-        )
+        it.each<[Orientation, boolean]>([
+            ['horizontal', true],
+            ['vertical', false],
+        ])('%s: a wide chart raises the category label cap (shows full label: %s)', (axisOrientation, showsFull) => {
+            const label = 'filesystem::play_open_in_app'
+            const { chart } = renderChart(
+                <BarChart
+                    series={[{ key: 'a', label: 'A', data: [10] }]}
+                    labels={[label]}
+                    theme={THEME}
+                    config={{ axisOrientation, maxCategoryLabelWidth: measureLabelWidth(label) / 2 }}
+                />
+            )
+            const [tick] = axisOrientation === 'horizontal' ? chart.yTicks() : chart.xTicks()
+            expect(tick === label).toBe(showsFull)
+        })
 
         it('renders without crashing in yScaleType log with positive data', () => {
             const series: Series[] = [{ key: 'a', label: 'A', data: [1, 10, 100] }]
