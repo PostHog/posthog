@@ -1102,15 +1102,19 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             # A manual resume can share an internal Task with an automated run. Freeze billing
             # on this run so historical PR charges and pipeline attribution do not change.
             if (
-                task.origin_product == Task.OriginProduct.SIGNAL_REPORT
-                and state.get("ai_stage")
-                not in {
-                    "research",
-                    "implementation",
-                    "repo_selection",
-                    "custom_agent",
-                }
-            ) or (task.origin_product == Task.OriginProduct.SIGNALS_SCOUT and not state.get("ai_stage")):
+                (
+                    task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+                    and state.get("ai_stage")
+                    not in {
+                        "research",
+                        "implementation",
+                        "repo_selection",
+                        "custom_agent",
+                    }
+                )
+                or (task.origin_product == Task.OriginProduct.SIGNALS_SCOUT and not state.get("ai_stage"))
+                or task.origin_product == Task.OriginProduct.SLACK
+            ):
                 state["billing_product"] = "posthog_ai"
 
             if (
@@ -1860,6 +1864,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
         mcp_tool_allowlist: list[str] | None = None,
+        before_task_create: Callable[[], None] | None = None,
         before_task_dispatch: Callable[[uuid.UUID], dict[str, JsonValue] | None] | None = None,
         options: TaskRunOptions | None = None,
         source: TaskSource | None = None,
@@ -2004,6 +2009,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             run_extra_state["use_dedicated_stream"] = dedicated_stream_configured()
 
         with transaction.atomic():
+            # Preparation can call GitHub, so admission locks must wait until it completes.
+            if before_task_create is not None:
+                before_task_create()
             task.save()
             task_run = task.create_run(
                 mode=mode,
