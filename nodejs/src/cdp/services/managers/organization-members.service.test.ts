@@ -47,7 +47,7 @@ describe('OrganizationMembersService', () => {
     it.each([
         ['allows a verified member, whatever the case and padding', true, () => Promise.resolve(), 'allowed'],
         ['flags an unverified member', false, () => Promise.resolve(), 'unverified'],
-        ['allows a member with no recorded verification', null, () => Promise.resolve(), 'allowed'],
+        ['flags a member with no recorded verification as unverified', null, () => Promise.resolve(), 'unverified'],
         [
             'blocks a removed member',
             true,
