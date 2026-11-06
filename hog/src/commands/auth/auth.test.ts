@@ -867,7 +867,10 @@ describe('hog auth login', () => {
             }),
         })
 
-        expect(result.error()).toMatchObject({ code: 'scopes_not_granted' })
+        expect(result.error()).toMatchObject({
+            code: 'scopes_not_granted',
+            hint: expect.stringContaining(`\`hog auth add --host ${EU} insight:write\``),
+        })
         expect(result.keychain[EU]).toBe(OAUTH_LOGIN.keychain[EU])
         const revoke = result.requests.find((request) => request.url.endsWith('/oauth/revoke/'))
         expect((revoke?.body as { token?: string } | undefined)?.token).toBe(STEPPED_UP_REFRESH)
@@ -893,7 +896,7 @@ describe('hog auth login', () => {
 
         expect(result.error()).toMatchObject({
             code,
-            hint: expect.stringContaining('`hog auth add insight:write dashboard:write`'),
+            hint: expect.stringContaining(`\`hog auth add --host ${EU} insight:write dashboard:write\``),
         })
         expect(result.keychain[EU]).toBe(OAUTH_LOGIN.keychain[EU])
         expect(result.files[ADD_PENDING_FILE]).toBeUndefined()
@@ -968,9 +971,10 @@ describe('hog auth login', () => {
               ? { status: 200, body: ROWS }
               : { status: 403, body: { detail: 'missing scope' }, headers: { 'WWW-Authenticate': CHALLENGE } }
 
-    test('an agent gets the step-up command for the scopes a request lacks, without a prompt', async () => {
+    test('an agent at a terminal gets the step-up command for the scopes a request lacks, without a prompt', async () => {
         const result = await runHog(['query', 'run', 'select 1'], {
             env: { CLAUDECODE: '1' },
+            stdoutIsTTY: true,
             ...OAUTH_LOGIN,
             respond: challengedQuery,
         })
