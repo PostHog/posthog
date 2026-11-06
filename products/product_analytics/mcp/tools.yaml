@@ -39,7 +39,6 @@ tools:
             This powers heatmap/clickmap views; use it to answer "what do users click most" and "which elements get rage
             or dead clicks". Responses can be very large on busy projects — always pass a small `limit` (e.g. 100) and
             paginate with `offset` if you need more results.
-        reads_ingested_data: events
     insight-create:
         operation: insights_create
         enabled: true
@@ -89,6 +88,18 @@ tools:
 
             Save a `MetricsQuery` or `MetricsHistogramQuery` bare, as the top-level `query`. Do not put it in an
             `InsightVizNode`.
+
+
+            For a PromQL metrics insight, set `language` to `promql`, put the expression in `promql`, and send `clauses`
+            as an empty list. When query-metrics accepts a `promql` field, test the expression with it first:
+
+
+            ```json
+
+            { "name": "Request rate", "query": { "kind": "MetricsQuery", "language": "promql", "promql":
+            "sum(rate(http_requests_total[5m]))", "clauses": [], "dateRange": { "date_from": "-24h" } } }
+
+            ```
 
 
             Choose the TrendsQuery `trendsFilter.display` from the question the insight answers:

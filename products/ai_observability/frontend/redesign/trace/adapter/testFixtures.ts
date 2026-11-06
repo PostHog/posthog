@@ -2,6 +2,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import type {
     TraceApi,
+    TraceClusterApi,
     TraceEvaluationResultApi,
     TraceEvaluationResultsApi,
     TraceFeedbackApi,
@@ -12,6 +13,7 @@ import type {
     TraceNodeIOKeysApi,
     TraceNodeMetadataApi,
     TraceNodeStatsApi,
+    TraceSurveyResponseApi,
 } from '../../../generated/api.schemas'
 
 export function makeEvent(overrides: Partial<LLMTraceEvent> & { id: string }): LLMTraceEvent {
@@ -120,7 +122,15 @@ export function makeTraceResource(overrides: Partial<TraceApi> = {}): TraceApi {
                 })),
             },
         ],
-        timeline: [],
+        timeline: childIds.map((id) => ({
+            id,
+            kind: id.startsWith('gen') ? 'generation' : 'span',
+            name: id,
+            depth: 0,
+            startMs: 0,
+            durationMs: null,
+            hasError: false,
+        })),
         totalMs: 0,
         threadNodeIds: ['gen-2'],
         defaultNodeId: 'trace-1',
@@ -142,6 +152,20 @@ export function makeEvaluationResult(overrides: Partial<TraceEvaluationResultApi
         reasoning: 'Direct answer.',
         timestamp: '2026-09-01T10:16:00Z',
         isBackfill: false,
+        ...overrides,
+    }
+}
+
+export function makeTraceCluster(overrides: Partial<TraceClusterApi> = {}): TraceClusterApi {
+    return {
+        runId: '1_trace_20260902_030000',
+        runAt: '2026-09-02T03:40:00Z',
+        jobId: '0192f2a4-5c1e-7000-8000-0000000c1a01',
+        jobName: 'Support conversations',
+        clusterId: 3,
+        title: 'Billing questions',
+        description: 'Users ask why an invoice changed.',
+        isOutlier: false,
         ...overrides,
     }
 }
@@ -168,10 +192,31 @@ export function makeFeedbackText(overrides: Partial<TraceFeedbackTextApi> = {}):
     }
 }
 
+export function makeSurveyResponse(overrides: Partial<TraceSurveyResponseApi> = {}): TraceSurveyResponseApi {
+    return {
+        kind: 'survey',
+        id: 'submission-1',
+        nodeId: 'trace-1',
+        timestamp: '2026-09-01T10:18:00Z',
+        survey: { id: 'survey-1', name: 'Answer quality' },
+        answers: [{ kind: 'thumbs', question: 'Was this answer useful?', up: true }],
+        complete: true,
+        unavailable: null,
+        ...overrides,
+    }
+}
+
 export function makeFeedback(overrides: Partial<TraceFeedbackApi> = {}): TraceFeedbackApi {
     const scores = overrides.scores ?? [makeFeedbackScore()]
     const responses = overrides.responses ?? [makeFeedbackText()]
-    return { scores, responses, summary: { total: scores.length + responses.length }, ...overrides }
+    return {
+        scores,
+        responses,
+        unanswered: [],
+        surveyResponsesStatus: 'ok',
+        summary: { total: scores.length + responses.length, thumbsUp: 0, thumbsDown: 0 },
+        ...overrides,
+    }
 }
 
 export function makeEvaluationResults(overrides: Partial<TraceEvaluationResultsApi> = {}): TraceEvaluationResultsApi {

@@ -1,4 +1,6 @@
 import json
+from collections import defaultdict
+from collections.abc import Sequence
 from copy import deepcopy
 from datetime import timedelta
 from typing import Any, Optional, cast
@@ -185,6 +187,9 @@ def mask_config_secrets(content: dict) -> dict:
         if secret_keys and "transpiled" in content:
             content["transpiled"] = None
     return content
+
+
+REVISION_READ_ACTIONS = ("revisions", "revision_detail")
 
 
 def snapshot_hog_function_content(hog_function: HogFunction) -> dict:
@@ -1210,7 +1215,20 @@ class HogFunctionViewSet(
         # (`hog_function:read` would be a no-op since :write already satisfies it.)
         if self.action == "rerun":
             required_scopes += ["person:read", "group:read"]
+        # Reading a deleted function's history needs write access, as an undelete does.
+        if self.action in REVISION_READ_ACTIONS and self._target_is_deleted():
+            return required_scopes
         return required_scopes if len(required_scopes) > 1 else None
+
+    def _target_is_deleted(self) -> bool:
+        """False when scopes resolve without a URL, as OpenAPI generation does."""
+        pk = self.kwargs.get("pk")
+        if pk is None:
+            return False
+        try:
+            return HogFunction.objects.filter(team_id=self.team_id, pk=pk, deleted=True).exists()
+        except (ValueError, DjangoValidationError):
+            return False
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         if self.action == "list":
@@ -1230,6 +1248,24 @@ class HogFunctionViewSet(
             span.set_attribute("hog_function.search.result_count", results_len)
             span.set_attribute("hog_function.search.empty", results_len == 0)
         return response
+
+    def get_serializer(self, *args: Any, **kwargs: Any) -> BaseSerializer:
+        if self.action == "list" and args and isinstance(args[0], list):
+            self._attach_templates_without_fk(args[0])
+        return super().get_serializer(*args, **kwargs)
+
+    @staticmethod
+    def _attach_templates_without_fk(functions: Sequence[HogFunction]) -> None:
+        # Set in memory only, so HogFunction.template skips its per-row get_template fallback.
+        by_template_id: dict[str, list[HogFunction]] = defaultdict(list)
+        for fn in functions:
+            if fn.hog_function_template_id is None and fn.template_id:
+                by_template_id[fn.template_id].append(fn)
+        if not by_template_id:
+            return
+        for template_id, template in HogFunctionTemplate.get_latest_templates(by_template_id).items():
+            for fn in by_template_id[template_id]:
+                fn.hog_function_template = template
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
@@ -1255,11 +1291,12 @@ class HogFunctionViewSet(
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.exclude(type=HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value)
 
-        if not (self.action == "partial_update" and self.request.data.get("deleted") is False):
-            # We only want to include deleted functions if we are un-deleting them
+        undeleting = self.action == "partial_update" and self.request.data.get("deleted") is False
+        if not undeleting and self.action not in REVISION_READ_ACTIONS:
             queryset = queryset.filter(deleted=False)
 
         if self.action == "list":
+            queryset = queryset.select_related("created_by", "hog_function_template")
             search = self.request.GET.get("search")
             if search:
                 if len(search) > MAX_SEARCH_LENGTH:
@@ -1504,6 +1541,17 @@ class HogFunctionViewSet(
         ):
             raise exceptions.ValidationError({"enabled": CREATE_ENABLED_MESSAGE})
         serializer.save()
+        # No transaction with the save, because its post_save signal tells the workers to reload at once.
+        # A config edit that lands first writes revision 1 itself, so this must not fail on a duplicate.
+        HogFunctionRevision.objects.get_or_create(
+            team_id=self.team_id,
+            hog_function=serializer.instance,
+            version=serializer.instance.version,
+            defaults={
+                "content": snapshot_hog_function_content(serializer.instance),
+                "created_by": self.request.user if self.request.user.is_authenticated else None,
+            },
+        )
         log_activity_from_viewset(
             self,
             serializer.instance,

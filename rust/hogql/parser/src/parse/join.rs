@@ -1608,7 +1608,7 @@ fn attach_constraint_to_outermost_unconstrained_join<E: Emitter>(
         return (node, false);
     }
     // Try recursing into next_join first.
-    if let Some(nj) = emit.get_field(&node, "next_join") {
+    if let Some(nj) = emit.remove_field(&mut node, "next_join") {
         if emit.node_kind(&nj).is_some() {
             let (updated, attached) = attach_constraint_to_outermost_unconstrained_join(
                 emit,
@@ -1621,6 +1621,8 @@ fn attach_constraint_to_outermost_unconstrained_join<E: Emitter>(
             if attached {
                 return (node, true);
             }
+        } else {
+            emit.set_field(&mut node, "next_join", nj);
         }
     }
     if current_depth < min_attachable_depth {

@@ -4,23 +4,15 @@ import { useRef } from 'react'
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { pluralize } from 'lib/utils/strings'
-
-import { DataModelingNodeType } from '~/types'
 
 import { LineageGraph } from './LineageGraph'
 import { lineageNodeUrl } from './lineageNodeUrl'
 import { LineageSearchResults } from './LineageSearchResults'
-import { LINEAGE_FILTER_TYPES, modelsLineageLogic } from './modelsLineageLogic'
-import { NODE_TYPE_TAG_SETTINGS } from './nodeStyles'
+import { LineageTypeFilter } from './LineageTypeFilter'
+import { modelsLineageLogic } from './modelsLineageLogic'
 import { NodeTypeLegend } from './NodeTypeLegend'
 import { SEARCH_SYNTAX_HELP } from './SearchSyntaxHelp'
-
-const TYPE_OPTIONS = LINEAGE_FILTER_TYPES.map((type) => ({
-    key: type,
-    label: NODE_TYPE_TAG_SETTINGS[type].label,
-}))
 
 export function ModelsLineageTab(): JSX.Element {
     const searchInputRef = useRef<HTMLInputElement>(null)
@@ -41,6 +33,7 @@ export function ModelsLineageTab(): JSX.Element {
         searchFocusRequest,
         focusNodeIds,
         visibleNodes,
+        graphNodes,
         visibleEdges,
         isFiltered,
         nodePositions,
@@ -104,19 +97,7 @@ export function ModelsLineageTab(): JSX.Element {
                 <Tooltip title={SEARCH_SYNTAX_HELP}>
                     <IconInfo className="text-base text-secondary" />
                 </Tooltip>
-                <div className="w-44">
-                    <LemonInputSelect
-                        mode="multiple"
-                        size="small"
-                        placeholder="All types"
-                        options={TYPE_OPTIONS}
-                        value={typeFilter}
-                        onChange={(value) => setTypeFilter(value as DataModelingNodeType[])}
-                        displayMode="count"
-                        bulkActions="select-and-clear-all"
-                        data-attr="models-lineage-type-filter"
-                    />
-                </div>
+                <LineageTypeFilter value={typeFilter} onChange={setTypeFilter} dataAttr="models-lineage-type-filter" />
                 {isFiltered && (
                     <>
                         <span className="text-xs text-secondary">
@@ -153,7 +134,7 @@ export function ModelsLineageTab(): JSX.Element {
                     />
                 )}
                 <LineageGraph
-                    nodes={visibleNodes}
+                    nodes={graphNodes}
                     edges={visibleEdges}
                     focusNodeIds={focusNodeIds}
                     searchFocusRequest={searchFocusRequest}

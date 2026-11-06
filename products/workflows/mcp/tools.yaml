@@ -336,10 +336,12 @@ tools:
             idempotent: true
         title: Import Customer.io automations
         description: >
-            Turn Customer.io automations into draft PostHog workflows. Read each automation with the Customer.io MCP or
-            CLI first: GET /v1/environments/{environment_id}/campaigns/{campaign_id} gives `campaign` and `actions`.
-            Pass them unchanged; never pass people or customer profiles. Leave message templates out on the first call:
-            when the project stored a Customer.io App API key, PostHog reads the content itself and the response says
+            Turn Customer.io automations into draft PostHog workflows in the active project. Before the first call, tell
+            the user the active project's name and id and ask whether the drafts belong there; switch project if not.
+            Read each automation with the Customer.io MCP or CLI first: GET
+            /v1/environments/{environment_id}/campaigns/{campaign_id} gives `campaign` and `actions`. Pass them
+            unchanged; never pass people or customer profiles. Leave message templates out on the first call: when the
+            project stored a Customer.io App API key, PostHog reads the content itself and the response says
             content_fetched=true. For each automation whose notes still say its message content was not part of the
             import, read each message action's template with GET
             /v1/environments/{environment_id}/templates/{template_id} and pass them. Pass snippets that notes name. In a
@@ -563,16 +565,15 @@ tools:
         enabled: true
         title: Get email reputation and sending allowance
         description: >
-            The project's workflow email health over the last 30 days and its sending allowance: tier, hourly and daily
-            email caps, largest batch audience, and usage. Call it before planning a batch send or broadcast, and tell
-            the user when the audience or volume would go over a cap. The caps apply only while
-            sending_allowance.enforced is true; while it is false they are measured but not applied. Pass
-            fields=['sending_allowance'] when that is all you need. Tiers rise on their own with a clean sending record.
-            To get more sooner, the user can request a higher allowance in Workflows > Messaging > Reputation; the link
-            shows while the caps are enforced, to accounts that can open a support ticket. Also returns bounce and
-            complaint rates (project-wide and per workflow, worst first), the AWS SES verdict, per-mailbox-provider
-            health, and any suspension. sending_allowance, aws and reputation are null for a user without project-wide
-            workflow access.
+            The project's workflow email health over the last 30 days and its sending allowance: tier, daily email cap,
+            largest batch audience, and usage. Call it before planning a batch send or broadcast, and tell the user when
+            the audience or volume would go over a cap. The caps apply only while sending_allowance.enforced is true;
+            while it is false they are measured but not applied. Pass fields=['sending_allowance'] when that is all you
+            need. Tiers rise on their own with a clean sending record. To get more sooner, the user can request a higher
+            allowance in Workflows > Messaging > Reputation; the link shows while the caps are enforced, to accounts
+            that can open a support ticket. Also returns bounce and complaint rates (project-wide and per workflow,
+            worst first), the AWS SES verdict, per-mailbox-provider health, and any suspension. sending_allowance, aws
+            and reputation are null for a user without project-wide workflow access.
         feature_flag: workflows-sending-tier-requests
         response:
             include:
@@ -662,8 +663,9 @@ tools:
             at-a-glance view across ALL workflows, call workflows-global-stats first, then drill in here. Supports
             breakdown by metric kind (success/failure) or name, and time range filtering. For email engagement, read
             email_opened and email_link_clicked against (email_sent - email_untracked): email_untracked counts sends
-            with open/click tracking off, which can never register an open or a click. This reads the workflow's whole
-            history; for one published version, call workflows-version-stats.
+            with open/click tracking off, which can never register an open or a click. Set breakdown_by=name and name
+            the metrics you read in `name`: each named metric is returned, as zeros when it recorded nothing. This reads
+            the workflow's whole history; for one published version, call workflows-version-stats.
     workflows-suggest:
         operation: hog_flows_proposals_create
         enabled: true
@@ -771,4 +773,5 @@ tools:
             how you tell whether a change helped: compare the version before it with the version after it. The
             unversioned read in workflows-stats keys batch and broadcast runs on the run rather than the workflow, so it
             is not the sum of the versions - compare versions with each other, not with it. Set instance_id to the step
-            you are reading, or several steps share one denominator.
+            you are reading, or several steps share one denominator. Set breakdown_by=name and name the metrics you read
+            in `name`: each named metric is returned, as zeros when that version recorded nothing.

@@ -57,6 +57,7 @@ AUTOMATIC_UPDATES_ARGS = ("--automatic-updates", "always")
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
 _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
+REMOTE_REPO_PATH = "/home/coder/posthog"
 GIT_NAME_PARAMETER = "git_name"
 GIT_EMAIL_PARAMETER = "git_email"
 DOTFILES_URI_PARAMETER = "dotfiles_uri"
@@ -914,6 +915,49 @@ def _install_coder_cli(*, verbose: bool = False) -> None:
         _fail(f"Coder CLI install reported success but {managed} is missing.\nTry manually: {cmd}")
 
 
+_USER_BIN_DIRS = (Path.home() / ".local" / "bin", Path.home() / "bin")
+
+
+def _display_path(path: Path) -> str:
+    home = Path.home()
+    return f"~/{path.relative_to(home)}" if path.is_relative_to(home) else str(path)
+
+
+def coder_command_hint() -> str:
+    """Return how the user can run the Coder CLI from their own shell."""
+    if shutil.which("coder"):
+        return "coder"
+    return _display_path(_MANAGED_CODER_DIR / "coder")
+
+
+def ensure_coder_on_path() -> None:
+    """Link the managed Coder CLI into a user bin directory on PATH so `coder` runs in the user's shell.
+
+    hogli runs the binary from ~/.hogli/bin by full path, which isn't on PATH,
+    so commands the user runs themselves (like `coder login`) aren't found.
+    """
+    managed = _MANAGED_CODER_DIR / "coder"
+    if not managed.is_file() or shutil.which("coder"):
+        return
+
+    path_entries = {Path(entry).expanduser() for entry in os.environ.get("PATH", "").split(os.pathsep) if entry}
+    for bin_dir in _USER_BIN_DIRS:
+        link = bin_dir / "coder"
+        if bin_dir not in path_entries or not bin_dir.is_dir() or link.is_symlink() or link.exists():
+            continue
+        try:
+            link.symlink_to(managed)
+        except OSError:
+            continue
+        click.echo(f"  Linked `coder` into {_display_path(bin_dir)} so you can run it yourself.")
+        return
+
+    click.echo(
+        f"  To run `coder` yourself, add {_display_path(_MANAGED_CODER_DIR)} to your PATH:\n"
+        '    export PATH="$HOME/.hogli/bin:$PATH"'
+    )
+
+
 def ensure_coder_installed(*, verbose: bool = False) -> None:
     """Install the Coder CLI at the expected version, or reinstall on mismatch."""
     if not coder_installed():
@@ -962,6 +1006,14 @@ def ensure_coder_authenticated() -> None:
         _fail(f"`coder` is not installed. {RUNTIME_SETUP_HINT}", cause="coder_not_installed")
 
     coder_url = get_coder_url()
+    if not sys.stdin.isatty():
+        # `coder login` asks for a token pasted from the browser and fails with
+        # "paste token prompt: EOF" when stdin isn't a terminal.
+        _fail(
+            "Coder login needs you to paste a token, and this shell can't take input.\n"
+            f"  Run `{coder_command_hint()} login {coder_url}` in a terminal, then run `hogli devbox:setup` again.",
+            cause="coder_login_needs_terminal",
+        )
     click.echo(f"Logging in to {coder_url}...")
     result = _run(["coder", "login", coder_url])
     if result.returncode != 0:
@@ -1153,19 +1205,23 @@ def get_default_workspace_prefix() -> str:
 
 def _list_workspaces(*, timeout: float | None = None) -> list[dict[str, Any]]:
     """Return raw workspace payloads from the Coder CLI."""
+    return _fetch_workspaces(timeout=timeout) or []
+
+
+def _fetch_workspaces(*, timeout: float | None = None) -> list[dict[str, Any]] | None:
     try:
         result = _run(["coder", "list", "--output", "json"], capture_output=True, timeout=timeout)
     except subprocess.TimeoutExpired:
-        return []
+        return None
     if result.returncode != 0:
-        return []
+        return None
 
     try:
         workspaces = json.loads(result.stdout)
     except json.JSONDecodeError:
-        return []
+        return None
 
-    return workspaces if isinstance(workspaces, list) else []
+    return workspaces if isinstance(workspaces, list) else None
 
 
 def extract_workspace_label(workspace_name: str) -> str | None:
@@ -1208,8 +1264,16 @@ def region_from_workspace_name(workspace_name: str) -> str:
 
 def list_user_workspaces() -> list[dict[str, Any]]:
     """Return all workspaces belonging to the current user with the devbox prefix."""
+    return fetch_user_workspaces() or []
+
+
+def fetch_user_workspaces() -> list[dict[str, Any]] | None:
+    """Like ``list_user_workspaces``, but ``None`` when Coder could not list workspaces."""
+    workspaces = _fetch_workspaces()
+    if workspaces is None:
+        return None
     prefix = get_default_workspace_prefix()
-    return [ws for ws in _list_workspaces() if ws.get("name") == prefix or ws.get("name", "").startswith(f"{prefix}-")]
+    return [ws for ws in workspaces if ws.get("name") == prefix or ws.get("name", "").startswith(f"{prefix}-")]
 
 
 def get_workspace(name: str, workspaces: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
@@ -1836,6 +1900,20 @@ def exec_replace(name: str, command: list[str]) -> None:
     _execvp("ssh", ["ssh", _ssh_host_alias(name), shlex.join(command)])
 
 
+def run_in_workspace(name: str, command: list[str], *, timeout: float) -> subprocess.CompletedProcess[str]:
+    """Run one command in the workspace like :func:`exec_replace`, but capture its result.
+
+    For callers that must act on the remote exit code and output instead of
+    handing the terminal over to the command.
+    """
+    return subprocess.run(
+        ["ssh", _ssh_host_alias(name), shlex.join(command)],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
 def coder_ssh_alias_configured(name: str) -> bool:
     """Return whether ssh resolves a Coder ``ProxyCommand`` for the workspace host alias.
 
@@ -1889,7 +1967,7 @@ def open_cursor(name: str) -> None:
     cursor = shutil.which("cursor")
     if not cursor:
         _fail("`cursor` CLI is not on PATH. Open Cursor and enable Shell Integration from the Command Palette.")
-    _execvp(cursor, ["cursor", "--remote", f"ssh-remote+{_ssh_host_alias(name)}", "/home/coder/posthog"])
+    _execvp(cursor, ["cursor", "--remote", f"ssh-remote+{_ssh_host_alias(name)}", REMOTE_REPO_PATH])
 
 
 def open_web_ide(name: str) -> None:

@@ -18,7 +18,7 @@ test.describe('SQL editor axis labels', () => {
 
     test.beforeAll(async ({ playwrightSetup }) => {
         workspace = await playwrightSetup.createWorkspace({
-            use_current_time: true,
+            no_demo_data: true,
             skip_onboarding: true,
             insights: [
                 {
@@ -27,7 +27,7 @@ test.describe('SQL editor axis labels', () => {
                         kind: NodeKind.DataVisualizationNode,
                         source: {
                             kind: NodeKind.HogQLQuery,
-                            query: 'SELECT event, count() AS events, uniq(distinct_id) AS people FROM events GROUP BY event ORDER BY events DESC LIMIT 5',
+                            query: "SELECT 'sample' AS event, 10 AS events, 5 AS people",
                         },
                         display: ChartDisplayType.ActionsBar,
                         chartSettings: {
@@ -72,11 +72,14 @@ test.describe('SQL editor axis labels', () => {
         await page.getByTestId('sql-editor-visualization-settings-button').click()
         await page.getByRole('tab', { name: 'Display' }).click()
 
+        await page.getByText('X-axis', { exact: true }).click()
+        await page.getByText('Left Y-axis', { exact: true }).click()
+        await page.getByText('Right Y-axis', { exact: true }).click()
         await page.getByTestId('data-visualization-x-axis-label-input').fill('Event name')
-        await page.getByText('Left Y-axis').click()
         await page.getByTestId('data-visualization-left-y-axis-label-input').fill('Events')
-        await page.getByText('Right Y-axis').click()
         await page.getByTestId('data-visualization-right-y-axis-label-input').fill('People')
+        // Labels save when the field loses focus.
+        await page.keyboard.press('Tab')
 
         const saveRequestPromise = page.waitForResponse(
             (response) =>
@@ -93,10 +96,11 @@ test.describe('SQL editor axis labels', () => {
         await page.getByTestId('sql-editor-visualization-settings-button').click()
         await page.getByRole('tab', { name: 'Display' }).click()
 
+        await page.getByText('X-axis', { exact: true }).click()
+        await page.getByText('Left Y-axis', { exact: true }).click()
+        await page.getByText('Right Y-axis', { exact: true }).click()
         await expect(page.getByTestId('data-visualization-x-axis-label-input')).toHaveValue('Event name')
-        await page.getByText('Left Y-axis').click()
         await expect(page.getByTestId('data-visualization-left-y-axis-label-input')).toHaveValue('Events')
-        await page.getByText('Right Y-axis').click()
         await expect(page.getByTestId('data-visualization-right-y-axis-label-input')).toHaveValue('People')
     })
 })

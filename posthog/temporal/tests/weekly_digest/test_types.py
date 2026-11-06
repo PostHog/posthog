@@ -210,7 +210,9 @@ def test_team_digest_render_payload():
 
     report = payload["report"]
     assert isinstance(report, dict)
-    counted, uncounted = report["new_error_issues"]
+    error_issues = report["new_error_issues"]
+    assert isinstance(error_issues, list)
+    counted, uncounted = error_issues
     assert counted["description"].startswith("Request failed at fetch xxx")
     assert len(counted["description"]) == 140
     assert (counted["occurrence_count"], counted["occurrence_count_display"]) == (1_525, "1.52K")
@@ -227,10 +229,11 @@ def test_team_digest_render_payload():
     assert "report" in payload
     report = payload["report"]
     assert isinstance(report, dict)
-    assert len(report["new_dashboards"]) == 1
-    assert len(report["new_event_definitions"]) == 1
-    assert len(report["new_feature_flags"]) == 1
-    assert len(report["interesting_saved_filters"]) == 1
+    for key in ("new_dashboards", "new_event_definitions", "new_feature_flags", "interesting_saved_filters"):
+        items = report[key]
+        assert isinstance(items, list)
+        assert len(items) == 1
+    assert report["new_event_definitions_count"] == 1
     assert "expiring_recordings" in report
     expiring_recordings = report["expiring_recordings"]
     assert isinstance(expiring_recordings, dict)

@@ -7,6 +7,44 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface OrganizationEventsRetentionApi {
+    /**
+     * The period, in months, that every project without its own period uses. Null while those projects use the default period.
+     * @nullable
+     */
+    readonly organization_retention_months: number | null
+    /** The period, in months, that projects use while no period is set for them or their organization. 24 months on current plans, never longer than the plan's period and never shorter than the shortest period an admin can set. Plans from before the 24-month default use the plan's period. */
+    readonly default_retention_months: number
+    /** Whether the default is longer than 24 months because the plan predates the 24-month default. */
+    readonly default_is_grandfathered: boolean
+    /** The periods, in months, an admin can choose from. A save also has to be between min_retention_months and max_retention_months. Only PostHog staff can set other periods. */
+    readonly retention_months_choices: readonly number[]
+    /** The longest period the organization's plan allows, in months. */
+    readonly plan_retention_months: number
+    /** The shortest period an admin can set, in months. */
+    readonly min_retention_months: number
+    /** The longest period an admin can set, in months. Never longer than the plan's period. */
+    readonly max_retention_months: number
+    /** The date of the next monthly cleanup, in the timezone it runs in. */
+    readonly next_monthly_cleanup_on: string
+}
+
+export interface EventsRetentionUpdateApi {
+    /**
+     * The period in months, one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the period.
+     * @minimum 1
+     * @nullable
+     */
+    retention_months: number | null
+}
+
+export interface EventsDeletedApi {
+    /** The period in months that was counted for. */
+    readonly retention_months: number
+    /** How many queryable events are older than the cutoff for this period. The endpoint says which deletion sets the cutoff. The count can be up to a day old. */
+    readonly events_deleted: number
+}
+
 /**
  * * `private` - Private (only visible to creator)
  * * `shared` - Shared with team
@@ -213,17 +251,60 @@ export interface ElementValueApi {
 
 export interface EventsRetentionApi {
     /**
-     * How many months of events stay queryable, counted back from today. Null while no retention window applies to the project.
+     * The period, in months, that every project without its own period uses. Null while those projects use the default period.
+     * @nullable
+     */
+    readonly organization_retention_months: number | null
+    /** The period, in months, that projects use while no period is set for them or their organization. 24 months on current plans, never longer than the plan's period and never shorter than the shortest period an admin can set. Plans from before the 24-month default use the plan's period. */
+    readonly default_retention_months: number
+    /** Whether the default is longer than 24 months because the plan predates the 24-month default. */
+    readonly default_is_grandfathered: boolean
+    /** The periods, in months, an admin can choose from. A save also has to be between min_retention_months and max_retention_months. Only PostHog staff can set other periods. */
+    readonly retention_months_choices: readonly number[]
+    /** The longest period the organization's plan allows, in months. */
+    readonly plan_retention_months: number
+    /** The shortest period an admin can set, in months. */
+    readonly min_retention_months: number
+    /** The longest period an admin can set, in months. Never longer than the plan's period. */
+    readonly max_retention_months: number
+    /** The date of the next monthly cleanup, in the timezone it runs in. */
+    readonly next_monthly_cleanup_on: string
+    /**
+     * How many months of events stay queryable, counted back from today. Null while no retention period applies to the project.
      * @nullable
      */
     readonly retention_months: number | null
     /**
-     * The earliest date whose events are still queryable, in the project's timezone. Null while no retention window applies to the project.
+     * The earliest date whose events are still queryable, in the project's timezone. Null while no retention period applies to the project.
      * @nullable
      */
     readonly retained_from: string | null
     /** Where the events retention policy is documented. */
     readonly docs_url: string
+    /**
+     * The period, in months, set for this project. Null while the project uses the organization's period.
+     * @nullable
+     */
+    readonly project_retention_months: number | null
+    /**
+     * The date of the next cleanup that deletes this project's events. Null while no deletion is scheduled.
+     * @nullable
+     */
+    readonly next_deletion_on: string | null
+    /**
+     * The next cleanup deletes this project's events from before this date. Null while no deletion is scheduled.
+     * @nullable
+     */
+    readonly next_deletion_before: string | null
+    /**
+     * The next cleanup every 3 months that deletes this project's events past its current period. Null while the project has none scheduled.
+     * @nullable
+     */
+    readonly scheduled_pass_on: string | null
+    /** The earliest cleanup every 3 months for a period that gets shorter today. */
+    readonly first_pass_on: string
+    /** Whether the cleanup deletes this project's events past the default period while no period is set. */
+    readonly default_period_deletes: boolean
 }
 
 export type InsightVizNodeApiKind = (typeof InsightVizNodeApiKind)[keyof typeof InsightVizNodeApiKind]
@@ -1445,6 +1526,8 @@ export interface QueryStatusApi {
 export interface ResolvedDateRangeResponseApi {
     date_from: string
     date_to: string
+    /** The earliest timestamp the query reads, when only its first interval depends on rows from before date_from. Lifecycle sets it to the start of the interval before the range. */
+    read_from?: string | null
 }
 
 export interface QueryTimingApi {
@@ -3637,6 +3720,11 @@ export interface WebAnalyticsSamplingApi {
     forceSamplingRate?: SamplingRateApi | null
 }
 
+export interface WebAnalyticsQueryModifiersApi {
+    /** Serve web overview and stats table queries from the dimensional precompute tables when they hold ready data for the whole date range. Falls back to the normal path otherwise. */
+    useDimensionalTables?: boolean | null
+}
+
 export interface WebStatsTableQueryApi {
     /** Groups aggregation - not used in Web Analytics but required for type compatibility */
     aggregation_group_type_index?: number | null
@@ -3678,6 +3766,8 @@ export interface WebStatsTableQueryApi {
     useWebAnalyticsPrecompute?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
 export type WebAnalyticsItemKindApi = (typeof WebAnalyticsItemKindApi)[keyof typeof WebAnalyticsItemKindApi]
@@ -3763,6 +3853,8 @@ export interface WebOverviewQueryApi {
     useWebAnalyticsPrecompute?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
 export interface ActionsPieApi {
@@ -4009,6 +4101,8 @@ export interface HogQLMetadataResponseApi {
     errors: HogQLNoticeApi[]
     /** One entry per property filter, in query order. */
     index_usage?: PredicateIndexUsageApi[] | null
+    /** The validator raised an internal error, such as a database failure, so the errors do not prove that the query is invalid. */
+    internalError?: boolean | null
     isUsingIndices?: QueryIndexUsageApi | null
     isValid?: boolean | null
     notices: HogQLNoticeApi[]
@@ -4325,13 +4419,15 @@ export interface MarketingAnalyticsItemApi {
 
 export interface Response12Api {
     columns?: unknown[] | null
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql?: string | null
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string | null
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -4358,12 +4454,14 @@ export interface Response12Api {
 export type Response13ApiResults = { [key: string]: MarketingAnalyticsItemApi }
 
 export interface Response13Api {
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
     hogql?: string | null
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
@@ -4772,6 +4870,112 @@ export interface Response19Api {
     warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
 }
 
+export type AccountsTableAccountFieldApi =
+    (typeof AccountsTableAccountFieldApi)[keyof typeof AccountsTableAccountFieldApi]
+
+export const AccountsTableAccountFieldApi = {
+    Name: 'name',
+    ExternalId: 'external_id',
+    CreatedAt: 'created_at',
+    UpdatedAt: 'updated_at',
+    ChurnedAt: 'churned_at',
+    IgnoredAt: 'ignored_at',
+    StripeCustomerId: 'stripe_customer_id',
+    HubspotDealId: 'hubspot_deal_id',
+    BillingId: 'billing_id',
+    SfdcId: 'sfdc_id',
+    ZendeskId: 'zendesk_id',
+} as const
+
+export interface AccountsTableAccountFieldColumnApi {
+    field: AccountsTableAccountFieldApi
+    kind?: 'account_field'
+}
+
+export const AccountsTableTagsColumnApiValue = {
+    kind: 'tags',
+} as const
+export type AccountsTableTagsColumnApi = typeof AccountsTableTagsColumnApiValue
+
+export const AccountsTableNoteCountColumnApiValue = {
+    kind: 'note_count',
+} as const
+export type AccountsTableNoteCountColumnApi = typeof AccountsTableNoteCountColumnApiValue
+
+export interface AccountsTableRelationshipColumnApi {
+    /** Team-scoped relationship definition to return for each account. */
+    definitionId: string
+    kind?: 'relationship'
+}
+
+export interface AccountsTableCustomPropertyColumnApi {
+    /** Team-scoped custom property definition to return for each account. */
+    definitionId: string
+    kind?: 'custom_property'
+}
+
+export type WindowDaysApi = (typeof WindowDaysApi)[keyof typeof WindowDaysApi]
+
+export const WindowDaysApi = {
+    Number7: 7,
+    Number14: 14,
+    Number30: 30,
+    Number90: 90,
+} as const
+
+export interface AccountsTableCustomPropertyHistoryColumnApi {
+    /** Team-scoped numeric custom property definition whose write history should be returned. */
+    definitionId: string
+    kind?: 'custom_property_history'
+    /** Number of days of history to return. The current value is included even when it is older. */
+    windowDays: WindowDaysApi
+}
+
+export type AccountsTableCustomPropertyDisplayTypeApi =
+    (typeof AccountsTableCustomPropertyDisplayTypeApi)[keyof typeof AccountsTableCustomPropertyDisplayTypeApi]
+
+export const AccountsTableCustomPropertyDisplayTypeApi = {
+    Text: 'text',
+    Link: 'link',
+    Number: 'number',
+    Currency: 'currency',
+    Percent: 'percent',
+    Date: 'date',
+    Datetime: 'datetime',
+    Boolean: 'boolean',
+    Select: 'select',
+} as const
+
+export interface AccountsTableCustomPropertyOptionApi {
+    color: string
+    id?: string | null
+    label: string
+}
+
+export interface AccountsTableCustomPropertySourceApi {
+    id: string
+}
+
+export interface AccountsTableCustomPropertyDefinitionApi {
+    description?: string | null
+    display_type: AccountsTableCustomPropertyDisplayTypeApi
+    has_workflow_reference: boolean
+    id: string
+    is_big_number?: boolean | null
+    is_canonical: boolean
+    name: string
+    options?: AccountsTableCustomPropertyOptionApi[] | null
+    source?: AccountsTableCustomPropertySourceApi | null
+}
+
+export interface AccountsTableRelationshipDefinitionApi {
+    description?: string | null
+    id: string
+    is_controlled: boolean
+    is_single_holder?: boolean | null
+    name: string
+}
+
 export interface AccountsTableCustomPropertyHistoryPointApi {
     timestamp: string
     value: number
@@ -4818,6 +5022,17 @@ export interface AccountsTableRowApi {
 }
 
 export interface Response20Api {
+    columns?:
+        | (
+              | AccountsTableAccountFieldColumnApi
+              | AccountsTableTagsColumnApi
+              | AccountsTableNoteCountColumnApi
+              | AccountsTableRelationshipColumnApi
+              | AccountsTableCustomPropertyColumnApi
+              | AccountsTableCustomPropertyHistoryColumnApi
+          )[]
+        | null
+    customPropertyDefinitions?: AccountsTableCustomPropertyDefinitionApi[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore: boolean
@@ -4832,6 +5047,7 @@ export interface Response20Api {
     offset: number
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    relationshipDefinitions?: AccountsTableRelationshipDefinitionApi[] | null
     /** The resolved previous/comparison period date range, when comparing against another period */
     resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
@@ -5299,6 +5515,13 @@ export interface ExperimentEventExposureConfigApi {
     version?: number | null
 }
 
+export interface ExperimentWarehouseNativeUnitBindingApi {
+    /** Which ids represent that unit, such as `billing_customer_id`. */
+    id_namespace: string
+    /** What was randomized, as a stable project-scoped label such as `customer` or `account`. */
+    unit_type: string
+}
+
 export type ExperimentWarehouseNativeExposureConfigApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentWarehouseNativeExposureConfigApi {
@@ -5308,6 +5531,7 @@ export interface ExperimentWarehouseNativeExposureConfigApi {
     /** Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies the experiment's date range and multiple-variant handling. */
     query: string
     response?: ExperimentWarehouseNativeExposureConfigApiResponse
+    unit: ExperimentWarehouseNativeUnitBindingApi
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -5438,6 +5662,7 @@ export interface ExperimentWarehouseNativeNodeApi {
     /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure. */
     query: string
     response?: ExperimentWarehouseNativeNodeApiResponse
+    unit: ExperimentWarehouseNativeUnitBindingApi
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -6060,6 +6285,8 @@ export interface WebExternalClicksTableQueryApi {
     useSessionsTable?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
 export type WebBotsBreakdownApi = (typeof WebBotsBreakdownApi)[keyof typeof WebBotsBreakdownApi]
@@ -6129,6 +6356,8 @@ export interface WebBotsTableQueryApi {
     useSessionsTable?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
 export interface WebGoalsQueryResponseApi {
@@ -6200,6 +6429,8 @@ export interface WebGoalsQueryApi {
     useWebAnalyticsPrecompute?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
 export interface WebVitalsQueryApi {
@@ -6243,6 +6474,8 @@ export interface WebVitalsQueryApi {
     useSessionsTable?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
 export type WebVitalsMetricApi = (typeof WebVitalsMetricApi)[keyof typeof WebVitalsMetricApi]
@@ -6335,6 +6568,8 @@ export interface WebVitalsPathBreakdownQueryApi {
     useWebAnalyticsPrecompute?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
 export interface FiltersApi {
@@ -6873,13 +7108,15 @@ export const MarketingAnalyticsOrderByEnumApi = {
 
 export interface MarketingAnalyticsTableQueryResponseApi {
     columns?: unknown[] | null
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql?: string | null
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string | null
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -6949,17 +7186,21 @@ export interface MarketingAnalyticsTableQueryApi {
     useSessionsTable?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
 export type MarketingAnalyticsAggregatedQueryResponseApiResults = { [key: string]: MarketingAnalyticsItemApi }
 
 export interface MarketingAnalyticsAggregatedQueryResponseApi {
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
     hogql?: string | null
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
@@ -7018,6 +7259,8 @@ export interface MarketingAnalyticsAggregatedQueryApi {
     useSessionsTable?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
 export type ErrorTrackingOrderByApi = (typeof ErrorTrackingOrderByApi)[keyof typeof ErrorTrackingOrderByApi]
@@ -7106,6 +7349,8 @@ export interface ErrorTrackingQueryApi {
     response?: ErrorTrackingQueryResponseApi | null
     /** Free-text search across exception type, message, and stack frames. */
     searchQuery?: string | null
+    /** Filter by issue severity. */
+    severity?: ErrorTrackingQueryIssueSeverityApi | null
     /** Filter by issue status. */
     status?: ErrorTrackingIssueStatusApi | string | null
     tags?: QueryLogTagsApi | null
@@ -7486,67 +7731,6 @@ export interface AccountsQueryApi {
     version?: number | null
 }
 
-export type AccountsTableAccountFieldApi =
-    (typeof AccountsTableAccountFieldApi)[keyof typeof AccountsTableAccountFieldApi]
-
-export const AccountsTableAccountFieldApi = {
-    Name: 'name',
-    ExternalId: 'external_id',
-    CreatedAt: 'created_at',
-    UpdatedAt: 'updated_at',
-    ChurnedAt: 'churned_at',
-    IgnoredAt: 'ignored_at',
-    StripeCustomerId: 'stripe_customer_id',
-    HubspotDealId: 'hubspot_deal_id',
-    BillingId: 'billing_id',
-    SfdcId: 'sfdc_id',
-    ZendeskId: 'zendesk_id',
-} as const
-
-export interface AccountsTableAccountFieldColumnApi {
-    field: AccountsTableAccountFieldApi
-    kind?: 'account_field'
-}
-
-export const AccountsTableTagsColumnApiValue = {
-    kind: 'tags',
-} as const
-export type AccountsTableTagsColumnApi = typeof AccountsTableTagsColumnApiValue
-
-export const AccountsTableNoteCountColumnApiValue = {
-    kind: 'note_count',
-} as const
-export type AccountsTableNoteCountColumnApi = typeof AccountsTableNoteCountColumnApiValue
-
-export interface AccountsTableRelationshipColumnApi {
-    /** Team-scoped relationship definition to return for each account. */
-    definitionId: string
-    kind?: 'relationship'
-}
-
-export interface AccountsTableCustomPropertyColumnApi {
-    /** Team-scoped custom property definition to return for each account. */
-    definitionId: string
-    kind?: 'custom_property'
-}
-
-export type WindowDaysApi = (typeof WindowDaysApi)[keyof typeof WindowDaysApi]
-
-export const WindowDaysApi = {
-    Number7: 7,
-    Number14: 14,
-    Number30: 30,
-    Number90: 90,
-} as const
-
-export interface AccountsTableCustomPropertyHistoryColumnApi {
-    /** Team-scoped numeric custom property definition whose write history should be returned. */
-    definitionId: string
-    kind?: 'custom_property_history'
-    /** Number of days of history to return. The current value is included even when it is older. */
-    windowDays: WindowDaysApi
-}
-
 export type AccountsTableAccountFieldOperatorApi =
     (typeof AccountsTableAccountFieldOperatorApi)[keyof typeof AccountsTableAccountFieldOperatorApi]
 
@@ -7689,6 +7873,17 @@ export interface AccountsTableCountThresholdMetricApi {
 }
 
 export interface AccountsTableQueryResponseApi {
+    columns?:
+        | (
+              | AccountsTableAccountFieldColumnApi
+              | AccountsTableTagsColumnApi
+              | AccountsTableNoteCountColumnApi
+              | AccountsTableRelationshipColumnApi
+              | AccountsTableCustomPropertyColumnApi
+              | AccountsTableCustomPropertyHistoryColumnApi
+          )[]
+        | null
+    customPropertyDefinitions?: AccountsTableCustomPropertyDefinitionApi[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore: boolean
@@ -7703,6 +7898,7 @@ export interface AccountsTableQueryResponseApi {
     offset: number
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    relationshipDefinitions?: AccountsTableRelationshipDefinitionApi[] | null
     /** The resolved previous/comparison period date range, when comparing against another period */
     resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
@@ -7767,6 +7963,8 @@ export interface AccountsTableQueryApi {
               | AccountsTableCustomPropertyFilterApi
           )[]
         | null
+    /** Omit missing definitions and custom-property filters incompatible with their current types. */
+    ignoreMissingDefinitions?: boolean | null
     /** Include churned accounts. Churned accounts are hidden by default. */
     includeChurned?: boolean | null
     /** Include ignored accounts. Ignored accounts are hidden by default. */
@@ -7783,6 +7981,7 @@ export interface AccountsTableQueryApi {
     response?: AccountsTableQueryResponseApi | null
     sort?: AccountsTableSortApi | null
     tags?: QueryLogTagsApi | null
+    useDefaultColumns?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -8057,6 +8256,14 @@ export const DisplayTypeApi = {
     Area: 'area',
 } as const
 
+export type ValueLabelsApi = (typeof ValueLabelsApi)[keyof typeof ValueLabelsApi]
+
+export const ValueLabelsApi = {
+    Auto: 'auto',
+    Show: 'show',
+    Hide: 'hide',
+} as const
+
 export type YAxisPositionApi = (typeof YAxisPositionApi)[keyof typeof YAxisPositionApi]
 
 export const YAxisPositionApi = {
@@ -8066,9 +8273,14 @@ export const YAxisPositionApi = {
 
 export interface ChartSettingsDisplayApi {
     color?: string | null
+    description?: string | null
     displayType?: DisplayTypeApi | null
+    /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
+    excludeFromTotal?: boolean | null
     label?: string | null
     trendLine?: boolean | null
+    /** Overrides the chart's "Show values on series" for this series. Unset or 'auto' follows the chart setting. */
+    valueLabels?: ValueLabelsApi | null
     yAxisPosition?: YAxisPositionApi | null
 }
 
@@ -8104,6 +8316,8 @@ export interface ChartAxisApi {
 export type ChartSettingsApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface ChartSettingsApi {
+    /** Shows only the annotations saved at this level. Unset shows every level. */
+    annotationsScope?: AnnotationScopeApi | null
     barGap?: number | null
     boxPlot?: BoxPlotSettingsApi | null
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
@@ -8591,9 +8805,14 @@ export type _InsightQuerySchemaApi =
     | HogQueryApi
 
 export interface DashboardTileBasicApi {
+    /** ID of the dashboard tile. */
     readonly id: number
+    /** ID of the dashboard the tile sits on. */
     readonly dashboard_id: number
-    /** @nullable */
+    /**
+     * Whether the tile was removed from the dashboard.
+     * @nullable
+     */
     deleted?: boolean | null
 }
 
@@ -8819,9 +9038,19 @@ export const SearchMatchTypeEnumApi = {
 } as const
 
 /**
+ * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
  * @nullable
  */
 export type InsightApiResolvedDateRange = {
+    readonly date_from?: string
+    readonly date_to?: string
+} | null
+
+/**
+ * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+ * @nullable
+ */
+export type InsightApiResolvedCompareDateRange = {
     readonly date_from?: string
     readonly date_to?: string
 } | null
@@ -8929,8 +9158,16 @@ export interface InsightApi {
     readonly hogql: string | null
     /** @nullable */
     readonly types: readonly unknown[] | null
-    /** @nullable */
+    /**
+     * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+     * @nullable
+     */
     readonly resolved_date_range: InsightApiResolvedDateRange
+    /**
+     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+     * @nullable
+     */
+    readonly resolved_compare_date_range: InsightApiResolvedCompareDateRange
     /**
      * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
      * @nullable
@@ -8960,9 +9197,281 @@ export interface PaginatedInsightListApi {
 }
 
 /**
+ * * `time_series` - Time series
+ */
+export type ChartExplanationShapeEnumApi =
+    (typeof ChartExplanationShapeEnumApi)[keyof typeof ChartExplanationShapeEnumApi]
+
+export const ChartExplanationShapeEnumApi = {
+    TimeSeries: 'time_series',
+} as const
+
+export interface StorySeriesResultApi {
+    /**
+     * The series name.
+     * @maxLength 400
+     */
+    label?: string
+    /**
+     * One value per point. Saved for the followed series only.
+     * @maxItems 5000
+     */
+    data?: number[]
+    /**
+     * The date of each point, in the query's timezone. Saved for the followed series only.
+     * @maxItems 5000
+     */
+    days?: string[]
+}
+
+/**
+ * * `high` - High confidence
+ * * `medium` - Medium confidence
+ * * `low` - Low confidence
+ */
+export type StoryConfidenceEnumApi = (typeof StoryConfidenceEnumApi)[keyof typeof StoryConfidenceEnumApi]
+
+export const StoryConfidenceEnumApi = {
+    High: 'high',
+    Medium: 'medium',
+    Low: 'low',
+} as const
+
+/**
+ * * `query-trends` - Trends
+ * * `query-funnel` - Funnel
+ * * `query-retention` - Retention
+ * * `query-stickiness` - Stickiness
+ * * `query-paths` - Paths
+ * * `query-lifecycle` - Lifecycle
+ */
+export type StoryEvidenceQueryToolEnumApi =
+    (typeof StoryEvidenceQueryToolEnumApi)[keyof typeof StoryEvidenceQueryToolEnumApi]
+
+export const StoryEvidenceQueryToolEnumApi = {
+    QueryTrends: 'query-trends',
+    QueryFunnel: 'query-funnel',
+    QueryRetention: 'query-retention',
+    QueryStickiness: 'query-stickiness',
+    QueryPaths: 'query-paths',
+    QueryLifecycle: 'query-lifecycle',
+} as const
+
+/**
+ * * `line` - Line
+ * * `bar` - Bar
+ */
+export type StoryEvidenceChartTypeEnumApi =
+    (typeof StoryEvidenceChartTypeEnumApi)[keyof typeof StoryEvidenceChartTypeEnumApi]
+
+export const StoryEvidenceChartTypeEnumApi = {
+    Line: 'line',
+    Bar: 'bar',
+} as const
+
+export interface StoryEvidenceSeriesApi {
+    /** The breakdown value or column this line draws. */
+    name: string
+    /**
+     * One value per label. Null where the breakdown value has no row for that point.
+     * @maxItems 5000
+     */
+    values: (number | null)[]
+}
+
+export interface StoryEvidenceChartApi {
+    /** How the evidence chart draws its series.
+     *
+     * * `line` - Line
+     * * `bar` - Bar */
+    type: StoryEvidenceChartTypeEnumApi
+    /**
+     * The x-axis points.
+     * @maxItems 5000
+     */
+    labels: string[]
+    /**
+     * The axis label of each point, which leaves out a date that repeats.
+     * @maxItems 5000
+     */
+    ticks?: string[]
+    /** The lines or bars to draw. */
+    series: StoryEvidenceSeriesApi[]
+    /**
+     * The y-axis label, if any.
+     * @nullable
+     */
+    yAxisLabel: string | null
+}
+
+/**
+ * The query that shows the fact. The page links to it.
+ * @nullable
+ */
+export type StoryEvidenceApiQuery = { [key: string]: unknown } | null
+
+export interface StoryEvidenceApi {
+    /**
+     * One fact that supports the chapter, in one sentence.
+     * @maxLength 400
+     */
+    text: string
+    /**
+     * The query that shows the fact. The page links to it.
+     * @nullable
+     */
+    query?: StoryEvidenceApiQuery
+    /**
+     * The short id of a saved insight that shows the fact. The page links to it.
+     * @nullable
+     * @pattern ^[A-Za-z0-9]{8}$
+     */
+    insightShortId?: string | null
+    /**
+     * A link to the GitHub pull request or commit behind the fact. No other links are accepted.
+     * @maxLength 500
+     * @nullable
+     */
+    url?: string | null
+    /** The MCP query tool that can redraw `query`. The page redraws the query only when this is set.
+     *
+     * * `query-trends` - Trends
+     * * `query-funnel` - Funnel
+     * * `query-retention` - Retention
+     * * `query-stickiness` - Stickiness
+     * * `query-paths` - Paths
+     * * `query-lifecycle` - Lifecycle */
+    queryTool?: StoryEvidenceQueryToolEnumApi | null
+    /** The fact drawn as a chart, from its SQL. */
+    chart?: StoryEvidenceChartApi | null
+}
+
+export interface StoryChapterApi {
+    /**
+     * The moment on the chart this chapter explains.
+     * @maxLength 80
+     */
+    title: string
+    /**
+     * Inclusive indexes into the series' points. Null when the chapter's dates match no point.
+     * @minItems 2
+     * @maxItems 2
+     * @nullable
+     * @items.minimum 0
+     */
+    range: number[] | null
+    /**
+     * What happened in this moment.
+     * @maxLength 400
+     * @nullable
+     */
+    summary: string | null
+    /**
+     * The likely cause of this moment.
+     * @maxLength 600
+     * @nullable
+     */
+    cause: string | null
+    /** How sure the investigation is of the cause.
+     *
+     * * `high` - High confidence
+     * * `medium` - Medium confidence
+     * * `low` - Low confidence */
+    confidence: StoryConfidenceEnumApi | null
+    /**
+     * Why the confidence is what it is.
+     * @maxLength 200
+     * @nullable
+     */
+    confidenceReason: string | null
+    /** The facts behind the cause. */
+    evidence: StoryEvidenceApi[]
+}
+
+/**
+ * The insight query the explanation follows.
+ */
+export type ExplainChartDataApiQuery = { [key: string]: unknown }
+
+export interface ExplainChartDataApi {
+    /** What the explanation walks through, whichever insight drew the chart. A funnel over time is a time series too.
+     *
+     * * `time_series` - Time series */
+    shape?: ChartExplanationShapeEnumApi
+    /** The insight query the explanation follows. */
+    query: ExplainChartDataApiQuery
+    /** Every series on the chart when it was explained. */
+    results: StorySeriesResultApi[]
+    /**
+     * The index in `results` the explanation follows.
+     * @minimum 0
+     */
+    seriesIndex: number
+    /**
+     * The insight's name.
+     * @maxLength 400
+     * @nullable
+     */
+    insightName: string | null
+    /** Whether the last point's period had not ended yet. */
+    lastPointInProgress: boolean
+    /**
+     * One sentence a person could read in place of the whole explanation.
+     * @maxLength 300
+     */
+    headline: string
+    /** The moments that stand out, in reading order. */
+    chapters: StoryChapterApi[]
+    /**
+     * Warnings the chart's query came back with.
+     * @maxItems 20
+     */
+    warnings?: unknown[]
+}
+
+export interface InsightExplanationCreateApi {
+    /** The chart explanation, as the insight page shows it. */
+    data: ExplainChartDataApi
+}
+
+export interface ChartExplanationAuthorApi {
+    /** The user's id. */
+    id: number
+    /** The user's first name. */
+    first_name: string
+    /** The user's last name. */
+    last_name: string
+    /** The user's email address. */
+    email: string
+}
+
+export interface ChartExplanationApi {
+    /** The chart explanation, as the insight page shows it. */
+    data: ExplainChartDataApi
+    /** Who saved the explanation, directly or through an agent. */
+    created_by: ChartExplanationAuthorApi | null
+    /** The explanation's id, which its link carries. */
+    id: string
+    /** The insight the explanation belongs to. */
+    insight_id: number
+    /** When the explanation was first saved. */
+    created_at: string
+}
+
+/**
+ * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
  * @nullable
  */
 export type PatchedInsightApiResolvedDateRange = {
+    readonly date_from?: string
+    readonly date_to?: string
+} | null
+
+/**
+ * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+ * @nullable
+ */
+export type PatchedInsightApiResolvedCompareDateRange = {
     readonly date_from?: string
     readonly date_to?: string
 } | null
@@ -9070,8 +9579,16 @@ export interface PatchedInsightApi {
     readonly hogql?: string | null
     /** @nullable */
     readonly types?: readonly unknown[] | null
-    /** @nullable */
+    /**
+     * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+     * @nullable
+     */
     readonly resolved_date_range?: PatchedInsightApiResolvedDateRange
+    /**
+     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+     * @nullable
+     */
+    readonly resolved_compare_date_range?: PatchedInsightApiResolvedCompareDateRange
     /**
      * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
      * @nullable
@@ -9635,6 +10152,24 @@ export interface PathsV2SegmentToFunnelResponseApi {
     funnels_query: unknown
 }
 
+export type OrganizationEventsRetentionDeletionCountParams = {
+    /**
+     * The period in months to count for, at most 1200. Only events older than this period are counted.
+     * @minimum 1
+     * @maximum 1200
+     */
+    retention_months: number
+}
+
+export type OrganizationEventsRetentionDowngradeDeletionCountParams = {
+    /**
+     * The period in months to count for, at most 1200. Only events older than this period are counted.
+     * @minimum 1
+     * @maximum 1200
+     */
+    retention_months: number
+}
+
 export type ColumnConfigurationsListParams = {
     /**
      * Return saved views for this context only.
@@ -9710,6 +10245,15 @@ export type ElementsValuesListParams = {
      * Optional substring to filter values by (case-sensitive contains match).
      */
     value?: string
+}
+
+export type EventsRetentionDeletionCountParams = {
+    /**
+     * The period in months to count for, at most 1200. Only events older than this period are counted.
+     * @minimum 1
+     * @maximum 1200
+     */
+    retention_months: number
 }
 
 export type InsightsListParams = {

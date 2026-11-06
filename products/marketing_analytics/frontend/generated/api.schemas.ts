@@ -1871,6 +1871,8 @@ export interface QueryStatusApi {
 export interface ResolvedDateRangeResponseApi {
     date_from: string
     date_to: string
+    /** The earliest timestamp the query reads, when only its first interval depends on rows from before date_from. Lifecycle sets it to the start of the interval before the range. */
+    read_from?: string | null
 }
 
 export type WebAnalyticsItemKindApi = (typeof WebAnalyticsItemKindApi)[keyof typeof WebAnalyticsItemKindApi]
@@ -1945,13 +1947,15 @@ export interface AccessControlFilterWarningApi {
 
 export interface MarketingAnalyticsTableQueryResponseApi {
     columns?: unknown[] | null
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql?: string | null
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string | null
     limit?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -1989,6 +1993,11 @@ export interface QueryLogTagsApi {
     productKey?: string | null
     /** Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene * */
     scene?: string | null
+}
+
+export interface WebAnalyticsQueryModifiersApi {
+    /** Serve web overview and stats table queries from the dimensional precompute tables when they hold ready data for the whole date range. Falls back to the normal path otherwise. */
+    useDimensionalTables?: boolean | null
 }
 
 export interface MarketingAnalyticsTableQueryApi {
@@ -2037,6 +2046,8 @@ export interface MarketingAnalyticsTableQueryApi {
     useSessionsTable?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
 export interface ConversionRecordingsRequestApi {

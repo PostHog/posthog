@@ -54,8 +54,11 @@ function App() {
 }
 ```
 
-- `useChartTheme(opts?)` — React hook; re-reads the vars when the `class` / `theme`
-  attribute flips on `<html>` or `<body>`.
+- `useChartTheme(opts?)` — React hook; re-reads the vars when the `class`, `theme` or
+  `data-theme` attribute changes on `<html>` or `<body>`. All calls with the same
+  options share one observer and one theme object, so calling it in every chart is
+  cheap. A chart re-renders only when a theme value changes. Treat the result as
+  read-only, because other charts hold the same object.
 - `themeFromCssVars(opts?)` — one-shot, non-React read.
 - `DEFAULT_CHART_COLORS` — fallback palette used when the token vars aren't loaded
   (no quill-tokens stylesheet, or SSR). Without tokens loaded you get this palette,
@@ -144,7 +147,7 @@ import { Sparkline } from '@posthog/quill-charts'
 ## More
 
 - Choosing a chart, the gotchas, and the docs index → [AGENTS.md](../AGENTS.md)
-- Per-chart behavior (scatter, funnel, slope, pie, proportion bar, box plot, heatmap, sankey, sparkline, metric card) → [docs/chart-types.md](./docs/chart-types.md)
+- Per-chart behavior (scatter, funnel, slope, pie, proportion bar, box plot, heatmap, sankey, gauge, sparkline, metric card) → [docs/chart-types.md](./docs/chart-types.md)
 - Axes, ranges, multi-axis, chrome → [docs/axes.md](./docs/axes.md)
 - Bars: layouts, per-bar overrides, `minBarSize`, `trackData` → [docs/bars.md](./docs/bars.md)
 - Tooltips → [docs/tooltips.md](./docs/tooltips.md); legend → [docs/legend.md](./docs/legend.md)

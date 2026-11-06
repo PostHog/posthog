@@ -8,6 +8,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     CompareFilter,
     InsightVizNode,
@@ -19,7 +20,6 @@ import {
     WebStatsBreakdown,
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     BaseMathType,
     ChartDisplayType,

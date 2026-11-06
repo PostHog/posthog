@@ -64,6 +64,8 @@ import {
 import { appendRtkGuidanceForCodex } from "@posthog/harness/extensions/rtk";
 import {
   buildStoreSkillsInstructions,
+  NO_STORE_SKILLS,
+  type StoreSkillsListing,
   syncStoreSkills,
 } from "@posthog/harness/extensions/skills-store";
 import {
@@ -409,6 +411,13 @@ function hiddenPromptBlock(block: ContentBlock): ContentBlock {
   } as ContentBlock;
 }
 
+function compactionFailed(result: PromptResponse): boolean {
+  return (
+    (result._meta as { compactionFailed?: unknown } | undefined)
+      ?.compactionFailed === true
+  );
+}
+
 function isManualCompactPrompt(prompt: ContentBlock[]): boolean {
   return /^\/compact(?:\s|$)/.test(promptBlocksToText(prompt).trimStart());
 }
@@ -555,7 +564,7 @@ export class AgentServer {
   // run's state when the first message arrives (see resolveActivationSettings).
   private prewarmedRun = false;
   private prewarmedStartupTurnPending = false;
-  private storeSkillsInstalledCount = 0;
+  private storeSkills: StoreSkillsListing = NO_STORE_SKILLS;
   private storeSkillsActivationResolved = false;
   private agentInstructions: string | null = null;
   private autoPublishStateResolved = false;
@@ -1658,7 +1667,11 @@ export class AgentServer {
                 result = await runTurn();
               }
 
-              if (result.stopReason === "end_turn" && manualCompactPrompt) {
+              if (
+                result.stopReason === "end_turn" &&
+                manualCompactPrompt &&
+                !compactionFailed(result)
+              ) {
                 commitDelivery();
                 if (messageId) {
                   this.pendingCompactContinuationMessageIds.add(messageId);
@@ -2363,6 +2376,10 @@ export class AgentServer {
         runtimeAdapter !== "codex" && claudeSubscriptionToken !== null
           ? { oauthToken: claudeSubscriptionToken }
           : undefined,
+      claudeModelsGatewayUrl:
+        runtimeAdapter !== "codex" && claudeSubscriptionToken !== null
+          ? gatewayEnv.anthropicBaseUrl
+          : undefined,
       codexOptions:
         runtimeAdapter === "codex"
           ? {
@@ -2470,6 +2487,7 @@ export class AgentServer {
         taskOriginProduct: launch.originProduct,
       }),
       ...(launch.endRunWhenDone && { endRunWhenDone: true }),
+      ...(launch.callerEndsRun && { callerEndsRun: true }),
       ...(launch.disableRepoHooks && { disableRepoHooks: true }),
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&
@@ -2480,7 +2498,7 @@ export class AgentServer {
         this.config.fastMode !== undefined && {
           fastMode: this.config.fastMode,
         }),
-      ...this.buildClaudeCodeSessionMeta(runtimeAdapter),
+      ...this.buildClaudeCodeSessionMeta(runtimeAdapter, launch.disableSkills),
     };
 
     await this.measureInitialization("repository_ready", () =>
@@ -4418,7 +4436,7 @@ export class AgentServer {
     runId: string,
     runState: TaskRunState | null,
   ): Promise<void> {
-    this.storeSkillsInstalledCount = await syncStoreSkills(
+    this.storeSkills = await syncStoreSkills(
       runState,
       { taskId, runId },
       this.logger,
@@ -4554,12 +4572,13 @@ export class AgentServer {
    */
   private buildClaudeCodeSessionMeta(
     runtimeAdapter: Adapter,
+    disableSkills = false,
   ): { claudeCode: { options: Record<string, unknown> } } | undefined {
     const plugins = this.config.claudeCode?.plugins;
     const effort =
       runtimeAdapter === "claude" ? this.config.reasoningEffort : undefined;
 
-    if (!plugins?.length && !effort) {
+    if (!plugins?.length && !effort && !disableSkills) {
       return undefined;
     }
 
@@ -4569,6 +4588,9 @@ export class AgentServer {
     }
     if (effort) {
       options.effort = effort;
+    }
+    if (disableSkills) {
+      options.skills = [];
     }
     return { claudeCode: { options } };
   }
@@ -4656,13 +4678,20 @@ export class AgentServer {
     const context: string[] = [];
     if (shouldResolveStoreSkills) {
       const { task_id: taskId, run_id: runId } = this.session.payload;
-      const previousCount = this.storeSkillsInstalledCount;
+      const previousInstructions = buildStoreSkillsInstructions(
+        this.storeSkills,
+      );
       await this.installStoreSkills(taskId, runId, state ?? null);
       this.storeSkillsActivationResolved = true;
-      if (previousCount === 0 && this.storeSkillsInstalledCount > 0) {
-        context.push(
-          buildStoreSkillsInstructions(this.storeSkillsInstalledCount).trim(),
-        );
+      const storeSkillsInstructions = buildStoreSkillsInstructions(
+        this.storeSkills,
+      );
+      // The system prompt still carries the prewarm section, so only a changed one is worth sending.
+      if (
+        storeSkillsInstructions &&
+        storeSkillsInstructions !== previousInstructions
+      ) {
+        context.push(storeSkillsInstructions.trim());
       }
       const instructions = await new AgentInstructionFiles(this.logger).sync(
         state ?? null,
@@ -4796,7 +4825,7 @@ export class AgentServer {
       projectId: this.config.projectId,
       repositoryAttached: Boolean(this.config.repositoryPath),
       shouldAutoPublish: this.shouldAutoPublishCloudChanges(),
-      storeSkillsInstalledCount: this.storeSkillsInstalledCount,
+      storeSkills: this.storeSkills,
       taskId: this.config.taskId,
       taskRepositories: this.taskRepositories,
     });
@@ -5248,7 +5277,7 @@ export class AgentServer {
             outcome: { outcome: "cancelled" },
             _meta: {
               message:
-                "This run is configured to stop before publishing. Do not push commits or create/update pull requests unless the user explicitly asks.",
+                "This run is configured to stop before publishing. Publishing is disabled for this run, even if the user invokes a skill. Do not retry this push or pull request update here. Explain that publishing must be enabled for this run.",
             },
           };
         }

@@ -18,6 +18,7 @@ import structlog
 import posthoganalytics
 from rest_framework import exceptions, generics, permissions, response, serializers, status
 from rest_framework.request import Request
+from rest_framework.throttling import BaseThrottle
 from social_core.backends.base import BaseAuth
 from social_core.exceptions import AuthFailed
 from social_core.pipeline.partial import partial
@@ -37,6 +38,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import (
     EmailLookupHandler,
     EmailValidationHelper,
+    reject_lookalike_email_characters,
     reject_plus_addressed_email,
     validate_display_name,
 )
@@ -58,7 +60,12 @@ from posthog.models.identity_provider_config import ConfigScope, IdentityProvide
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
-from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, SignupResendInviteThrottle
+from posthog.rate_limit import (
+    SignupAttemptIPThrottle,
+    SignupEmailPrecheckThrottle,
+    SignupIPThrottle,
+    SignupResendInviteThrottle,
+)
 from posthog.utils import get_can_create_org, get_trusted_client_ip, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
@@ -227,6 +234,7 @@ class SignupSerializer(serializers.Serializer):
 
             value = session_email
 
+        reject_lookalike_email_characters(value)
         if not settings.DEMO:
             if not self.is_social_signup:
                 reject_plus_addressed_email(value)
@@ -465,6 +473,7 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
             # Mirror SignupSerializer.validate_email. Without this the form clears the email step,
             # the user fills in the rest, and only then hits the rejection on submit.
             reject_plus_addressed_email(email)
+            reject_lookalike_email_characters(email)
             email_exists = (
                 EmailValidationHelper.user_exists_with_stripped_alias(email)
                 or EmailValidationHelper.user_exists_with_gmail_canonical(email)
@@ -528,7 +537,29 @@ class SignupViewset(generics.CreateAPIView):
     serializer_class = SignupSerializer
     # Enables E2E testing of signup flow
     permission_classes = (permissions.AllowAny,) if settings.E2E_TESTING else (CanCreateOrg,)
-    throttle_classes = [] if settings.E2E_TESTING else [SignupIPThrottle]
+    throttle_classes = [] if settings.E2E_TESTING else [SignupAttemptIPThrottle, SignupIPThrottle]
+
+    account_created = False
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        # DRF builds new instances per call, and only the ones that checked this request know its reserved slot
+        if not hasattr(self, "_throttles"):
+            self._throttles = super().get_throttles()
+        return self._throttles
+
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        try:
+            super().perform_create(serializer)
+        finally:
+            # The account commits before the verification email goes out, so a later failure still counts.
+            self.account_created = getattr(serializer, "_user", None) is not None
+
+    def handle_exception(self, exc: Exception) -> response.Response:
+        if not self.account_created:
+            for throttle in self.get_throttles():
+                if isinstance(throttle, SignupIPThrottle):
+                    throttle.release()
+        return super().handle_exception(exc)
 
 
 class InviteSignupSerializer(serializers.Serializer):
@@ -607,7 +638,7 @@ class InviteSignupSerializer(serializers.Serializer):
         try:
             # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (invite UUID serves as auth token)
             invite: OrganizationInvite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
-        except OrganizationInvite.DoesNotExist:
+        except (OrganizationInvite.DoesNotExist, ValidationError):
             raise serializers.ValidationError("The provided invite ID is not valid.")
 
         if not user and invite.target_email:

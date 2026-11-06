@@ -14,8 +14,8 @@ from django.utils.dateparse import parse_datetime
 
 import numpy as np
 
-from posthog.models.event.util import create_event
 from posthog.models.team import Team
+from posthog.temporal.ai_observability.generated_event_usage import create_generated_ai_event
 from posthog.temporal.ai_observability.trace_clustering import constants
 from posthog.temporal.ai_observability.trace_clustering.constants import NOISE_CLUSTER_ID
 from posthog.temporal.ai_observability.trace_clustering.data import fetch_item_summaries
@@ -147,7 +147,7 @@ def emit_cluster_events(
     if clustering_params:
         properties["$ai_clustering_params"] = dataclasses.asdict(clustering_params)
 
-    create_event(
+    create_generated_ai_event(
         event_uuid=event_uuid,
         event=event_name,
         team=team,
