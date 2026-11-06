@@ -1225,12 +1225,22 @@ class InsightResultSerializer(InsightSerializer):
             "derived_name",
             "result",
             "warnings",
+            "user_access_level",
         ]
         read_only_fields = fields
 
     def to_representation(self, instance: Insight):
         # Skip InsightSerializer.to_representation which references fields
-        # (dashboard_tiles, dashboards, etc.) we've excluded from this narrow serializer.
+        # (dashboard_tiles, dashboards, etc.) we've excluded from this narrow serializer,
+        # but keep its dashboard-context access check so a restricted insight never renders a result.
+        if self.context.get("dashboard"):
+            user_access_level = self.get_user_access_level(instance)
+            if user_access_level and not access_level_satisfied_for_resource("insight", user_access_level, "viewer"):
+                return {
+                    "id": instance.id,
+                    "short_id": instance.short_id,
+                    "user_access_level": user_access_level,
+                }
         return serializers.ModelSerializer.to_representation(self, instance)
 
 
@@ -4082,11 +4092,39 @@ class DashboardsViewSet(
             (order, tile, tile.insight) for order, tile in ordered_tiles if tile.insight and tile.insight.query
         ]
 
+        # Insight access is independent of dashboard access: a viewer of this dashboard may still be
+        # restricted on individual insights. Mask those tiles before any query runs.
+        self.user_access_control.preload_object_access_controls([insight for _, _, insight in insight_tiles])
+        restricted_levels: dict[int, str] = {}
+        for _, tile, insight in insight_tiles:
+            user_access_level = self.user_access_control.get_user_access_level(insight)
+            if user_access_level and not access_level_satisfied_for_resource("insight", user_access_level, "viewer"):
+                restricted_levels[tile.id] = user_access_level
+
         tile_results = []
         used_chars = 0
         for index, (order, tile, insight) in enumerate(insight_tiles):
+            if tile.id in restricted_levels:
+                tile_results.append(
+                    {
+                        "id": tile.id,
+                        "insight": {
+                            "id": insight.id,
+                            "short_id": insight.short_id,
+                            "user_access_level": restricted_levels[tile.id],
+                        },
+                        "order": order,
+                        "last_refresh": None,
+                        "is_cached": False,
+                    }
+                )
+                continue
+
             if output_format == "optimized" and not tile_fits_response_budget(used_chars):
-                tile_results.extend(unrun_tile_results(insight_tiles[index:]))
+                # Budget markers carry the insight name, so restricted tiles stay out of them.
+                tile_results.extend(
+                    unrun_tile_results([t for t in insight_tiles[index:] if t[1].id not in restricted_levels])
+                )
                 break
 
             tile_context = {**context, "dashboard_tile": tile, "order": order}
