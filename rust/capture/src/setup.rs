@@ -377,6 +377,7 @@ pub async fn build_components(
         ai_byte_rate_limiter,
         replay_overflow_limiter,
         config.capture_v1_scatter_gather_min_batch,
+        config.capture_v1_legacy_property_splice,
         config.ai_gateway_signing_secret.clone(),
         ingestion_warning_emitter,
     );

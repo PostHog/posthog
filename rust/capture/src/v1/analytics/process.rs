@@ -69,6 +69,7 @@ pub async fn process_batch(
     context: &mut Context,
     batch: Batch,
 ) -> Result<BatchResponse, Error> {
+    context.legacy_property_splice = state.capture_v1_legacy_property_splice;
     let (batch, duplicates_dropped) = drop_duplicate_uuids(batch);
     if !duplicates_dropped.is_empty() {
         observe_duplicate_drops(state, context, &duplicates_dropped);
@@ -1973,6 +1974,7 @@ mod tests {
             capture_internal: false,
             historical_migration: false,
             gateway_signature: None,
+            legacy_property_splice: true,
         }
     }
 
@@ -3973,6 +3975,36 @@ mod tests {
             "forged marker must be stripped before publish"
         );
         assert!(payload.contains("$ai_model"));
+    }
+
+    /// process_batch wiring: the router-state splice switch reaches serialization.
+    #[tokio::test]
+    async fn process_batch_applies_legacy_property_splice_switch() {
+        for splice in [true, false] {
+            let ts = TestStateBuilder::new()
+                .with_legacy_property_splice(splice)
+                .build();
+            let mut ctx = test_utils::test_analytics_context();
+            let batch = valid_batch(vec![Event {
+                session_id: Some("sess-1".to_string()),
+                properties: test_utils::raw_obj(r#"{"custom":1}"#),
+                ..valid_event()
+            }]);
+
+            process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+            let records = ts.mock_producer.get_records();
+            assert_eq!(records.len(), 1);
+            let captured: common_types::CapturedEvent =
+                serde_json::from_slice(&records[0].payload).unwrap();
+            let data: serde_json::Value = serde_json::from_str(&captured.data).unwrap();
+            assert_eq!(
+                data["properties"].get("$session_id").is_some(),
+                splice,
+                "splice={splice}"
+            );
+            assert_eq!(captured.options.unwrap()["session_id"], "sess-1");
+        }
     }
 
     /// process_batch wiring: an AI event lands on the AI topic.
