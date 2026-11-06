@@ -1,6 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 
+import { parseJSON } from '../../common/utils/json-parse'
 import { HogFunctionInvocationGlobalsWithInputs } from '../types'
 import { LiquidRenderBudget, LiquidRenderer } from './liquid'
 
@@ -464,6 +465,48 @@ describe('LiquidRenderer', () => {
             }
             const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
             expect(result).toMatch(/^\d{8}$/)
+        })
+    })
+
+    // Written from real Handlebars and Go html/template output, and pinned to the Python converter by test_mailgun_import.py.
+    describe('templates imported from Mailgun', () => {
+        const cases: {
+            name: string
+            liquid: string
+            variables: Record<string, unknown>
+            expected: string
+            collapse_whitespace?: boolean
+        }[] = parseJSON(
+            fs.readFileSync(
+                path.join(
+                    __dirname,
+                    '../../../../products/messaging/backend/tests/fixtures/mailgun_template_renders.json'
+                ),
+                'utf8'
+            )
+        )
+        const decodeEntities = (text: string): string =>
+            text
+                .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+                .replace(/&#(\d+);/g, (_, decimal) => String.fromCodePoint(Number(decimal)))
+                .replace(/&quot;/g, '"')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&amp;/g, '&')
+
+        it.each(cases.map((testCase) => [testCase.name, testCase] as const))('renders %s', (_name, testCase) => {
+            const rendered = decodeEntities(
+                LiquidRenderer.renderWithHogFunctionGlobals(testCase.liquid, {
+                    ...globals,
+                    variables: testCase.variables,
+                } as HogFunctionInvocationGlobalsWithInputs)
+            )
+            const expected = decodeEntities(testCase.expected)
+            if (testCase.collapse_whitespace) {
+                expect(rendered.replace(/\s+/g, ' ')).toEqual(expected.replace(/\s+/g, ' '))
+            } else {
+                expect(rendered).toEqual(expected)
+            }
         })
     })
 })

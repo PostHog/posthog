@@ -199,7 +199,7 @@ export const MessagingPreferencesRemoveOptOutCreateBody = () => zod.object({
 })
 
 /**
- * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend and Mailgun suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary List the most recent provider imports
@@ -213,7 +213,7 @@ export const MessagingProviderImportsListParams = () => zod.object({
 })
 
 /**
- * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend and Mailgun suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Start a background import from another messaging tool
@@ -230,11 +230,15 @@ export const messagingProviderImportsCreateBodyStepsItemMax = 64
 
 export const messagingProviderImportsCreateBodyApiKeyMax = 512
 
+export const messagingProviderImportsCreateBodySettingsMaxOne = 64
+
 export const MessagingProviderImportsCreateBody = () => zod.object({
     provider: zod
-        .enum(['customerio', 'resend'])
-        .describe('\* `customerio` - Customer.io\n\* `resend` - Resend')
-        .describe('The provider to import from.\n\n\* `customerio` - Customer.io\n\* `resend` - Resend'),
+        .enum(['customerio', 'resend', 'mailgun'])
+        .describe('\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `mailgun` - Mailgun')
+        .describe(
+            'The provider to import from.\n\n\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `mailgun` - Mailgun'
+        ),
     steps: zod
         .array(zod.string().max(messagingProviderImportsCreateBodyStepsItemMax))
         .min(1)
@@ -246,12 +250,18 @@ export const MessagingProviderImportsCreateBody = () => zod.object({
         .max(messagingProviderImportsCreateBodyApiKeyMax)
         .optional()
         .describe(
-            "The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time."
+            "The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key, and for Mailgun, an account key that can read suppressions: PostHog deletes these when the run ends, so send one every time."
+        ),
+    settings: zod
+        .record(zod.string(), zod.string().max(messagingProviderImportsCreateBodySettingsMaxOne))
+        .optional()
+        .describe(
+            "Values for the provider's `settings`, by setting key, from the `providers` endpoint. A setting with a null `default` is required, such as Mailgun's `region`."
         ),
 })
 
 /**
- * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend and Mailgun suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Get a provider import and its progress
@@ -266,7 +276,7 @@ export const MessagingProviderImportsRetrieveParams = () => zod.object({
 })
 
 /**
- * Background imports from other messaging tools, such as Customer.io and Resend suppressions and unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend and Mailgun suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary List the providers and what each can import

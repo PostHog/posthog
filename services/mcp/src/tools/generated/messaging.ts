@@ -224,6 +224,9 @@ const providerImportsCreate = (): ToolBase<
         if (params.api_key !== undefined) {
             body['api_key'] = params.api_key
         }
+        if (params.settings !== undefined) {
+            body['settings'] = params.settings
+        }
         const result = await context.api.request<Schemas.ProviderImportRun>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_provider_imports/`,

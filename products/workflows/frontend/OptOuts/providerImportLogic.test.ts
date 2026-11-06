@@ -26,6 +26,24 @@ const PROVIDER_OPTION = {
     api_key_url: null,
     not_imported: '',
     next_steps: [],
+    settings: [],
+}
+
+const PROVIDER_WITH_SETTINGS = {
+    ...PROVIDER_OPTION,
+    key: 'mailgun',
+    label: 'Mailgun',
+    retains_credentials: false,
+    settings: [
+        { key: 'region', label: 'Mailgun region', help: '', default: null, choices: [{ value: 'eu', label: 'EU' }] },
+        {
+            key: 'template_versions',
+            label: 'Template versions',
+            help: '',
+            default: 'active',
+            choices: [{ value: 'active', label: 'Active' }],
+        },
+    ],
 }
 
 const importRun = (status: ProviderImportRunApi['status']): ProviderImportRunApi => ({
@@ -50,6 +68,7 @@ const importRun = (status: ProviderImportRunApi['status']): ProviderImportRunApi
     created_at: '2026-01-01T00:00:00Z',
     started_at: '2026-01-01T00:00:01Z',
     finished_at: status === 'completed' ? '2026-01-01T00:05:00Z' : null,
+    settings: {},
 })
 
 describe('providerImportLogic', () => {
@@ -100,6 +119,31 @@ describe('providerImportLogic', () => {
         customerIOLogic.unmount()
         logic.unmount()
         jest.useRealTimers()
+    })
+
+    it('holds the start until a setting with no default is chosen, then sends it with the defaults', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_provider_imports/providers/': () => [
+                    200,
+                    [PROVIDER_OPTION, PROVIDER_WITH_SETTINGS],
+                ],
+            },
+        })
+        logic.actions.loadImportProviders()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.selectProvider('mailgun')
+        expect(logic.values.missingImportSetting?.key).toEqual('region')
+
+        logic.actions.setImportSetting('region', 'eu')
+        expect(logic.values.missingImportSetting).toBeNull()
+        logic.actions.startImport({ apiKey: 'key' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(startBodies[0].settings).toEqual({ region: 'eu', template_versions: 'active' })
+
+        logic.actions.selectProvider('customerio')
+        expect(logic.values.importSettings).toEqual({})
     })
 
     it('starts the selected steps and polls the run until it finishes, through a failed refresh', async () => {
