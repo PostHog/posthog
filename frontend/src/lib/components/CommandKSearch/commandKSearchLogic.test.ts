@@ -1,8 +1,6 @@
 import { router } from 'kea-router'
 
 import { searchListsLogic } from 'lib/components/Search/searchListsLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type { SettingSectionId } from '~/scenes/settings/types'
 import { initKeaTests } from '~/test/init'
@@ -73,7 +71,6 @@ describe('commandKSearchLogic', () => {
         ['answered with nothing', false, { from: 'zzq_xyw', to: 'zzq xyw' }],
         ['answered, but one failed', true, null],
     ])('corrects a search only after every source %s', (_, oneFailed, expected) => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.COMMAND_K_UNIFIED_RANKING]: 'test' })
         logic.actions.inputChanged('zzq_xyw', 7, false)
         const sources = Object.keys(logic.values.remoteQueries)
         expect(sources.length).toBeGreaterThan(1)
