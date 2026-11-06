@@ -2,12 +2,12 @@ import re
 
 from django.utils.module_loading import autodiscover_modules
 
-from posthog.admin.console.panels import Panel
+from posthog.admin.console.panels import Owner, Panel
+from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.tools import ConsoleTool
 
-RECORD_TYPES = frozenset({"team"})
 # Navigation headings. Add one here, in the shell, only when no existing group fits a new tool.
-TOOL_GROUPS = frozenset({"Data"})
+TOOL_GROUPS = frozenset({"Data", "Billing", "Organizations"})
 KEY_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
@@ -67,12 +67,25 @@ class ConsoleRegistry:
         tool_class = self._tools.get(key)
         return tool_class() if tool_class else None
 
+    def owners(self) -> set[Owner]:
+        self.discover()
+        panel_owners = {panel_class.owner for panels in self._panels.values() for panel_class in panels.values()}
+        return panel_owners | {tool_class.owner for tool_class in self._tools.values()}
+
+    def staff_groups(self) -> set[str]:
+        return {owner.staff_group for owner in self.owners() if owner.staff_group is not None}
+
     def discover(self) -> None:
         if self._discovered:
             return
         # Core panels register first, so they lead each page.
         import posthog.admin.console.team_panels  # noqa: F401, PLC0415 — registers the core Team panels
+        import posthog.admin.console.health_checks_tool  # noqa: F401, PLC0415 — registers a core tool
+        import posthog.admin.console.organization_tools  # noqa: F401, PLC0415 — registers a core tool
+        import posthog.admin.console.usage_reports_tool  # noqa: F401, PLC0415 — registers a core tool
+        import posthog.admin.console.organization_panels  # noqa: F401, PLC0415 — registers the core Organization panels
         import posthog.admin.console.events_retention_tool  # noqa: F401, PLC0415 — registers a core tool
+        import posthog.admin.console.deletion_request_panels  # noqa: F401, PLC0415 — registers the core deletion request panels
 
         autodiscover_modules("console")
         # Set only after the imports succeed, so a failed import raises again on the next request instead of
