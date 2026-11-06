@@ -493,11 +493,11 @@ async function waitForPossiblyFramedSelector(page: Page, selector: string, timeo
  * only the first match and passes before any loader exists, so a spinner that a late request mounts
  * afterwards would otherwise reach the screenshot.
  */
-async function waitForQuiet(page: Page, timeout: number, loaderTimeoutMs: number = 0): Promise<void> {
-    await page
+async function waitForQuiet(page: Page, timeout: number, loaderTimeoutMs: number = 0): Promise<string | null> {
+    return await page
         .evaluate(
             ([quietWindowMs, timeoutMs, loaderMs, loaderSelector]) =>
-                new Promise<void>((resolve) => {
+                new Promise<string | null>((resolve) => {
                     const work = (
                         window as unknown as {
                             __testRunnerWork?: {
@@ -515,22 +515,31 @@ async function waitForQuiet(page: Page, timeout: number, loaderTimeoutMs: number
                         lastChange = performance.now()
                     })
                     let resolved = false
+                    let visibleLoader: string | null = null
                     const finish = (): void => {
                         if (!resolved) {
                             resolved = true
                             observer.disconnect()
-                            resolve()
+                            resolve(visibleLoader)
                         }
                     }
                     // Playwright counts an element with an empty box or `visibility: hidden` as hidden, so this matches it.
-                    const isLoaderVisible = (): boolean =>
-                        loaderMs > 0 &&
-                        Array.from(document.querySelectorAll(loaderSelector)).some((element) => {
-                            const rect = element.getBoundingClientRect()
+                    const findVisibleLoader = (): string | null => {
+                        if (loaderMs === 0) {
+                            return null
+                        }
+                        const element = Array.from(document.querySelectorAll(loaderSelector)).find((candidate) => {
+                            const rect = candidate.getBoundingClientRect()
                             return (
-                                rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== 'hidden'
+                                rect.width > 0 && rect.height > 0 && getComputedStyle(candidate).visibility !== 'hidden'
                             )
                         })
+                        if (!element) {
+                            return null
+                        }
+                        const owner = element.closest('[data-attr]')?.getAttribute('data-attr')
+                        return `<${element.tagName.toLowerCase()} class="${String(element.className).slice(0, 80)}">${owner ? ` inside [data-attr="${owner}"]` : ''}`
+                    }
                     // App renders this overlay while a scene's code chunk loads through import(), which the fetch
                     // tracking cannot see. It holds even for stories that opt out of the loader wait, because a
                     // scene that has not loaded is never a valid snapshot.
@@ -550,7 +559,9 @@ async function waitForQuiet(page: Page, timeout: number, loaderTimeoutMs: number
                             lastSize = size
                             lastChange = now
                         }
-                        const loading = isLoaderVisible() || isSceneLoading()
+                        visibleLoader =
+                            findVisibleLoader() ?? (isSceneLoading() ? 'the scene-level spinner overlay' : null)
+                        const loading = visibleLoader !== null
                         if (loading) {
                             lastChange = now
                         }
@@ -570,7 +581,7 @@ async function waitForQuiet(page: Page, timeout: number, loaderTimeoutMs: number
                 }),
             [QUIET_WINDOW_MS, timeout, loaderTimeoutMs, LOADER_SELECTORS.join(',')] as const
         )
-        .catch(() => undefined)
+        .catch(() => null)
 }
 
 /**
@@ -711,7 +722,18 @@ async function takeSnapshotWithTheme(
     })
 
     const { waitForLoadersToDisappear = true } = storyContext.parameters?.testOptions ?? {}
-    await waitForQuiet(page, CONTENT_SETTLE_TIMEOUT_MS, waitForLoadersToDisappear ? loaderTimeout(context) : 0)
+    const stuckLoader = await waitForQuiet(
+        page,
+        CONTENT_SETTLE_TIMEOUT_MS,
+        waitForLoadersToDisappear ? loaderTimeout(context) : 0
+    )
+    if (stuckLoader) {
+        // eslint-disable-next-line no-console
+        console.log(
+            `[test-runner] ${context.id} (${theme}): ${stuckLoader} was still visible when the loader wait timed out. ` +
+                'If the story shows it on purpose, set testOptions.waitForLoadersToDisappear to false.'
+        )
+    }
 
     await waitForChartCanvasesPainted(page)
 
