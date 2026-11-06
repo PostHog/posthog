@@ -8,7 +8,7 @@ import json
 from typing import Any, Literal
 
 import structlog
-from openai import APIError, Omit, OpenAI, omit
+from openai import APIError, Omit, OpenAI, RateLimitError, omit
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -101,9 +101,12 @@ def max_cost_usd(brief: str) -> float:
     A token covers at least one byte of the request and output stops at MAX_OUTPUT_TOKENS. Every HTTP
     call can bill: the flex attempt, then the standard tier and each of its retries.
     """
+    return (2 + STANDARD_MAX_RETRIES) * _max_call_cost_usd(brief)
+
+
+def _max_call_cost_usd(brief: str) -> float:
     request_bytes = len(json.dumps([_messages(brief), _RESPONSE_FORMAT]).encode())
-    calls = 2 + STANDARD_MAX_RETRIES
-    return calls * (request_bytes * INPUT_PRICE_PER_TOKEN + MAX_OUTPUT_TOKENS * OUTPUT_PRICE_PER_TOKEN)
+    return request_bytes * INPUT_PRICE_PER_TOKEN + MAX_OUTPUT_TOKENS * OUTPUT_PRICE_PER_TOKEN
 
 
 def _complete(
@@ -143,6 +146,9 @@ def draft_check(team_id: int, brief: str) -> DraftCall:
         GATEWAY_ROUTE, ai_product=AI_PRODUCT, properties={"team_id": str(team_id)}, distinct_id=distinct_id
     )
     standard = client.with_options(max_retries=STANDARD_MAX_RETRIES)
+    # A flex attempt that failed after the provider may have done the work still counts, at its most. Only a
+    # capacity refusal (429) is known not to bill.
+    unsettled = 0.0
     if DRAFT_MODEL not in FLEX_CAPABLE_MODELS:
         response = _complete(standard, brief, omit, STANDARD_TIMEOUT_SECONDS, distinct_id)
     else:
@@ -152,6 +158,8 @@ def draft_check(team_id: int, brief: str) -> DraftCall:
         except APIError as error:
             if not is_flex_recoverable(error):
                 raise
+            if not isinstance(error, RateLimitError):
+                unsettled = _max_call_cost_usd(brief)
             response = _complete(standard, brief, omit, STANDARD_TIMEOUT_SECONDS, distinct_id)
     logger.info("eval_suggestions_draft_served", team_id=team_id, service_tier=response.service_tier)
     usage = response.usage
@@ -160,4 +168,4 @@ def draft_check(team_id: int, brief: str) -> DraftCall:
         if usage
         else 0.0
     )
-    return DraftCall(draft=_parse(response.choices[0].message.content), cost_usd=cost)
+    return DraftCall(draft=_parse(response.choices[0].message.content), cost_usd=cost + unsettled)

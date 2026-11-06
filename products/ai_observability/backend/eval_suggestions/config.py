@@ -84,6 +84,9 @@ def is_enabled_for_organization(organization_id: str) -> bool:
             organization_id,
             groups={"organization": organization_id},
             group_properties={"organization": {"id": organization_id}},
+            # The weekly plan checks every visited organization in turn, so a remote lookup per organization
+            # could use up its deadline. Without local definitions the organization stays off.
+            only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
         is True
