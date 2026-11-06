@@ -76797,7 +76797,7 @@ export namespace Schemas {
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
       /**
-         * Set when posthog-js won't show this survey on its own, because surveys are off for the project. Null when the survey can display.
+         * Set when posthog-js won't show this survey on its own, because surveys are off in every environment of the project. Null when the survey can display.
          * @nullable
          */
       readonly display_warning: string | null;
@@ -89190,7 +89190,7 @@ export namespace Schemas {
       _create_in_folder?: string;
       form_content?: unknown;
       /**
-         * Set when posthog-js won't show this survey on its own, because surveys are off for the project. Null when the survey can display.
+         * Set when posthog-js won't show this survey on its own, because surveys are off in every environment of the project. Null when the survey can display.
          * @nullable
          */
       readonly display_warning?: string | null;
@@ -110698,7 +110698,7 @@ export namespace Schemas {
       _create_in_folder?: string;
       form_content?: unknown;
       /**
-         * Set when posthog-js won't show this survey on its own, because surveys are off for the project. Null when the survey can display.
+         * Set when posthog-js won't show this survey on its own, because surveys are off in every environment of the project. Null when the survey can display.
          * @nullable
          */
       readonly display_warning: string | null;
@@ -110941,7 +110941,7 @@ export namespace Schemas {
       _create_in_folder?: string;
       form_content?: unknown;
       /**
-         * Set when posthog-js won't show this survey on its own, because surveys are off for the project. Null when the survey can display.
+         * Set when posthog-js won't show this survey on its own, because surveys are off in every environment of the project. Null when the survey can display.
          * @nullable
          */
       readonly display_warning: string | null;

@@ -1022,12 +1022,12 @@ class SurveyResponsesListSerializer(PageLinksSerializer):
 
 IN_APP_SURVEY_TYPES = (Survey.SurveyType.POPOVER, Survey.SurveyType.WIDGET)
 SURVEYS_OFF_DISPLAY_WARNING = (
-    "Surveys are off for this project, so your app won't show this survey automatically. "
+    "Surveys are off in every environment of this project, so your app won't show this survey automatically. "
     "Turning on surveys in project settings (surveys_opt_in) also shows every other running popover and widget "
     "survey in this project. To show only this survey, call posthog.displaySurvey() with its ID from your app."
 )
 DISPLAY_WARNING_HELP_TEXT = (
-    "Set when posthog-js won't show this survey on its own, because surveys are off for the project. "
+    "Set when posthog-js won't show this survey on its own, because surveys are off in every environment of the project. "
     "Null when the survey can display."
 )
 
@@ -1039,9 +1039,18 @@ class DisplayWarningMixin(serializers.Serializer):
     def get_display_warning(self, survey: Survey) -> str | None:
         if survey.type not in IN_APP_SURVEY_TYPES:
             return None
-        get_team = self.context.get("get_team")
-        team = get_team() if get_team else survey.team
-        return None if get_surveys_opt_in(team) else SURVEYS_OFF_DISPLAY_WARNING
+        return None if self._project_shows_surveys(survey) else SURVEYS_OFF_DISPLAY_WARNING
+
+    def _project_shows_surveys(self, survey: Survey) -> bool:
+        # Every environment of the project serves the project's surveys, gated by its own surveys_opt_in.
+        # Cached on the shared context so a list response runs the query once.
+        if "project_shows_surveys" not in self.context:
+            get_team = self.context.get("get_team")
+            team = get_team() if get_team else survey.team
+            self.context["project_shows_surveys"] = Team.objects.filter(
+                project_id=team.project_id, surveys_opt_in=True
+            ).exists()
+        return self.context["project_shows_surveys"]
 
 
 class SurveySerializer(
