@@ -354,8 +354,12 @@ def _union_chain(field_type: ast.Type | None) -> tuple[EventsWithFlagCallsTable,
 
 def _scan_conjuncts(node: ast.SelectQuery, union: EventsWithFlagCallsTable) -> list[ast.Expr]:
     """The parts of the WHERE and PREWHERE of `node` that read only the union scan, with reads as chains on it."""
-    inliner = SelectAliasInliner({expr.alias: expr.expr for expr in node.select if isinstance(expr, ast.Alias)})
-    extracted = [_scan_predicate(inliner.visit(conjunct), union) for conjunct in filter_conjuncts(node)]
+    aliases = {expr.alias: expr.expr for expr in node.select if isinstance(expr, ast.Alias)}
+    inliner = SelectAliasInliner(aliases)
+    # The union exports a SELECT alias as its value, and `toJSONString` of the alias serializes that value. A copy of
+    # the inlined read would serialize the way a direct read does instead, so a conjunct like that is not copied.
+    conjuncts = [conjunct for conjunct in filter_conjuncts(node) if not _serializes_select_alias(conjunct, aliases)]
+    extracted = [_scan_predicate(inliner.visit(conjunct), union) for conjunct in conjuncts]
     return [conjunct for conjunct in extracted if conjunct is not None]
 
 
@@ -621,6 +625,34 @@ class _FlagEvaluationsReads(CloningVisitor):
             read = self.visit_field(argument)
             return serialized_like_events(self.columns.events, argument.chain, read, self.context)
         return super().visit_call(node)
+
+
+def _serializes_select_alias(expr: ast.Expr, aliases: dict[str, ast.Expr]) -> bool:
+    finder = _SelectAliasSerializationFinder(aliases)
+    finder.visit(expr)
+    return finder.found
+
+
+class _SelectAliasSerializationFinder(SyntaxVisitor):
+    """Finds a `toJSONString` call whose argument is a reference to one of `aliases`."""
+
+    def __init__(self, aliases: dict[str, ast.Expr]) -> None:
+        super().__init__()
+        self.aliases = aliases
+        self.found = False
+
+    def visit_call(self, node: ast.Call) -> None:
+        argument = node.args[0] if node.name == "toJSONString" and len(node.args) == 1 else None
+        while isinstance(argument, ast.Alias):
+            argument = argument.expr
+        if (
+            isinstance(argument, ast.Field)
+            and isinstance(argument.type, ast.FieldAliasType)
+            and argument.type.alias in self.aliases
+        ):
+            self.found = True
+            return
+        super().visit_call(node)
 
 
 class _UnionChainCollector(SyntaxVisitor):

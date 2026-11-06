@@ -1457,6 +1457,20 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             ("flag_property", "properties.`$feature/probe`", 123, '"123"'),
             ("nested_key", "properties.probe.a", {"a": 123}, '"123"'),
             param("legacy_events", "properties.probe", 123, '"123"', new_events_schema=False),
+            # Events reads a declared path as its declared type, which is String for `$browser`.
+            ("declared_path", "properties.$browser", 123, '"123"'),
+            # Events ingestion stores an integer that fits neither Int64 nor UInt64 as a string.
+            ("out_of_range_integer", "properties.probe", 18446744073709551616, '"18446744073709551616"'),
+            ("negative_out_of_range_integer", "properties.probe", -9223372036854775809, '"-9223372036854775809"'),
+            ("largest_integer", "properties.probe", 18446744073709551615, "18446744073709551615"),
+            # `toJSONString` of a SELECT alias serializes the text the alias holds, so both rows pass the filter.
+            param(
+                "select_alias_filter",
+                "properties.probe AS p",
+                123,
+                "123",
+                where="AND toJSONString(p) = '\"123\"'",
+            ),
         ]
     )
     def test_serialized_property_keeps_the_text_events_returns(
@@ -1467,12 +1481,13 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         expected: str,
         restriction: str | None = None,
         new_events_schema: bool = True,
+        where: str = "",
     ):
         if restriction is not None:
             _restrict(self.organization, self.team, restriction)
-        self._create_json_rows([{"probe": stored, "$feature/probe": stored}])
+        self._create_json_rows([{"probe": stored, "$feature/probe": stored, "$browser": stored}])
 
-        query = f"SELECT event, toJSONString({read}) FROM events WHERE {MIXED} AND distinct_id = 'json'"
+        query = f"SELECT event, toJSONString({read}) FROM events WHERE {MIXED} AND distinct_id = 'json' {where}"
         rows = self._run(query, ONLY, new_events_schema=new_events_schema).results
 
         assert sorted(rows) == [("$feature_flag_called", expected), ("$pageview", expected)]

@@ -22,7 +22,11 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
-from posthog.clickhouse.events_json import is_temporary_event_property
+from posthog.clickhouse.events_json import (
+    EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
+    PERSON_PROPERTIES_JSON_SUBCOLUMNS,
+    is_temporary_event_property,
+)
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
@@ -275,15 +279,28 @@ def serialized_like_events(table: Table, chain: list[str | int], read: ast.Field
     if on_event_properties and key.startswith(FEATURE_FLAG_PROPERTY_PREFIX):
         return serialized
     owner = table.fields.get(str(chain[0]))
+    assert context.database is not None
     restriction_table = owner if isinstance(owner, VirtualTable) else context.database.get_table(["events"])
     overlaps_restriction = property_path_overlaps_restriction(key, ast.TableType(table=restriction_table), context)
     if overlaps_restriction and not (on_event_properties and is_temporary_event_property(key)):
+        return serialized
+    # Events reads a declared path as the declared type, so a number stored under a String path serializes as text.
+    declared_paths = (
+        PERSON_PROPERTIES_JSON_SUBCOLUMNS if isinstance(owner, VirtualTable) else EVENTS_PROPERTIES_JSON_SUBCOLUMNS
+    )
+    if key in declared_paths:
         return serialized
     # Events reads a missing key and an empty object as NULL. An integer key names a key, not a position.
     raw = ast.Call(name="JSONExtractRaw", args=[ast.Field(chain=read.chain[:-1]), ast.Constant(value=key)])
     # Events reads a JSON null as NULL from a JSON subcolumn. A restriction makes events read the key from the
     # `temporary_properties` text instead, and that text keeps the JSON null as `null`.
-    return null_if_sentinels(raw, ("", "{}") if overlaps_restriction else ("", "{}", "null"))
+    value = null_if_sentinels(raw, ("", "{}") if overlaps_restriction else ("", "{}", "null"))
+    # Events ingestion stores an integer outside the Int64 and UInt64 ranges as a JSON string.
+    return parse_expr(
+        "if(match({value}, '^-?[0-9]+$') AND isNull(toInt64OrNull({value})) AND isNull(toUInt64OrNull({value})), "
+        "concat('\"', {value}, '\"'), {value})",
+        {"value": value},
+    )
 
 
 def union_table_of(table_type: ast.Type | None) -> "EventsWithFlagCallsTable | None":
