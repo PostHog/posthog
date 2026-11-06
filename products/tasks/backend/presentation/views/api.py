@@ -3941,7 +3941,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             tasks_facade.capture_relay_command_telemetry(
                 pk, task_id, self.team_id, method=method, params=params, success=success
             )
-            if success and method == "permission_response":
+            if (success and method == "permission_response") or (
+                agent_response.ok and self._is_pi_mcp_permission_answer(method, params, response_data)
+            ):
                 self._record_person_turn(request, task_id)
             if agent_response.ok:
                 tasks_facade.signal_task_run_client_activity(pk, task_id, self.team_id)
@@ -3998,6 +4000,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 TaskRunErrorResponseSerializer({"error": "Failed to send command to agent server"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+
+    @staticmethod
+    def _is_pi_mcp_permission_answer(method: str, params: object, response_data: object) -> bool:
+        command = params.get("command") if method == "pi/rpc" and isinstance(params, dict) else None
+        return (
+            isinstance(command, dict)
+            and command.get("type") == "mcp_permission_response"
+            and isinstance(response_data, dict)
+            and "error" not in response_data
+        )
 
     def _record_person_turn(self, request: Request, task_id: str) -> None:
         if request.headers.get("X-PostHog-Client-Platform") == "mobile":

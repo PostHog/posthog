@@ -14787,6 +14787,84 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         task.refresh_from_db()
         self.assertEqual(task.last_client, expected)
 
+    @parameterized.expand(
+        [
+            (
+                "acp_permission",
+                Task.Runtime.ACP,
+                "permission_response",
+                {"requestId": "perm-1", "optionId": "allow"},
+                {"jsonrpc": "2.0", "id": "p1", "result": {"resolved": True}},
+                TaskClientProvenance.POSTHOG_DESKTOP,
+            ),
+            (
+                "pi_mcp_permission",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {
+                    "command": {
+                        "id": "p1",
+                        "type": "mcp_permission_response",
+                        "requestId": "perm-1",
+                        "decision": "allow",
+                    }
+                },
+                {"jsonrpc": "2.0", "id": "p1", "result": {"resolved": True}},
+                TaskClientProvenance.POSTHOG_DESKTOP,
+            ),
+            (
+                "pi_mcp_permission_error",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {
+                    "command": {
+                        "id": "p1",
+                        "type": "mcp_permission_response",
+                        "requestId": "perm-1",
+                        "decision": "allow",
+                    }
+                },
+                {"jsonrpc": "2.0", "id": "p1", "error": {"code": -32000, "message": "No pending request"}},
+                TaskClient.SLACK,
+            ),
+            (
+                "pi_control_command",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {"command": {"id": "p1", "type": "get_state"}},
+                {"jsonrpc": "2.0", "id": "p1", "result": {}},
+                TaskClient.SLACK,
+            ),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_permission_answer_records_last_client(
+        self,
+        _name: str,
+        runtime: str,
+        method: str,
+        params: dict,
+        agent_body: dict,
+        expected: TaskClient | TaskClientProvenance,
+        mock_post,
+    ) -> None:
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, agent_body)
+        task = self.create_task(runtime=runtime)
+        Task.objects.filter(id=task.id).update(last_client=TaskClient.SLACK)
+        run = self._create_run_with_sandbox(task)
+
+        response = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV).post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": method, "params": params, "id": "p1"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.last_client, expected)
+
     @parameterized.expand([("claude", True), ("claude", False), ("codex", True), ("codex", False)])
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_signals_user_message(self, adapter, subscription_owner_matches, mock_signal_followup):
