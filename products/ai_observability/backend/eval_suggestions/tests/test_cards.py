@@ -1,6 +1,7 @@
 from parameterized import parameterized
 
 from products.ai_observability.backend.eval_suggestions import adapters, cards
+from products.ai_observability.backend.eval_suggestions.coverage import EvalFix
 from products.ai_observability.backend.eval_suggestions.profile import FieldMeaning, StructuredGap
 
 
@@ -72,3 +73,24 @@ def test_gap_headline(
         examples=(),
     )
     assert cards.gap_text(gap, cost="").headline == expected
+
+
+@parameterized.expand(
+    [
+        ("judge", "llm_judge", "Check that its prompt can tell a pass from a fail."),
+        ("hog_has_no_prompt", "hog", "Check that its code can return both answers."),
+    ]
+)
+def test_one_outcome_card_advice_fits_the_eval_type(_name: str, evaluation_type: str, advice: str) -> None:
+    reason = "It returned true on 99% of 1,200,000 runs in 30 days, and gives the same reasoning for both answers."
+    fix = EvalFix(
+        evaluation_id="e1",
+        evaluation_name="Grounded",
+        evaluation_type=evaluation_type,
+        problem="one_outcome",
+        reason=reason,
+        patch=None,
+        weekly_units=0,
+    )
+    text = cards.fix_text(fix)
+    assert (text.outcome, text.reason) == (advice, reason)

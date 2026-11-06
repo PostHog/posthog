@@ -84,27 +84,36 @@ def test_best_replacement(_name: str, old: str, values: dict[str, int], expected
 
 
 class TestFetchCoverage(ClickhouseTestMixin, APIBaseTest):
-    def _evaluation(self, name: str, product: str) -> Evaluation:
-        evaluation = Evaluation.objects.create(
-            team=self.team,
-            name=name,
-            evaluation_type="llm_judge",
-            evaluation_config={"prompt": "Return true when the finding cites its data."},
-            output_type="boolean",
-            output_config={},
-            target="trace",
-            enabled=True,
-            conditions=[
+    def _evaluation(
+        self, name: str, product: str | None, *, age: timedelta = timedelta(days=40), evaluation_type: str = "llm_judge"
+    ) -> Evaluation:
+        conditions = (
+            [
                 {
                     "id": "scoped",
                     "rollout_percentage": 100,
                     "properties": [{"key": "ai_product", "value": [product], "operator": "exact", "type": "event"}],
                 }
-            ],
+            ]
+            if product is not None
+            else []
+        )
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name=name,
+            evaluation_type=evaluation_type,
+            evaluation_config={"prompt": "Return true when the finding cites its data."}
+            if evaluation_type == "llm_judge"
+            else {"source": "return true"},
+            output_type="boolean",
+            output_config={},
+            target="trace",
+            enabled=True,
+            conditions=conditions,
         )
         # A brand-new evaluation has had no chance to run, so age it past the grace periods.
         Evaluation.objects.filter(pk=evaluation.pk).update(
-            created_at=timezone.now() - timedelta(days=40), updated_at=timezone.now() - timedelta(days=10)
+            created_at=timezone.now() - age, updated_at=timezone.now() - min(age, timedelta(days=10))
         )
         return evaluation
 
@@ -137,3 +146,51 @@ class TestFetchCoverage(ClickhouseTestMixin, APIBaseTest):
         assert (fix.filter_change.old_value, fix.filter_change.new_value) == ("signals", "signals_scout")
         assert fix.patch is not None
         assert fix.patch["conditions"][0]["properties"][0]["value"] == ["signals_scout"]
+
+    def _generations(self, end: datetime, products: tuple[str, ...]) -> None:
+        for hours in range(1, 4):
+            for product in products:
+                _create_event(
+                    team=self.team,
+                    event="$ai_generation",
+                    distinct_id="user-1",
+                    timestamp=end - timedelta(hours=hours),
+                    properties={"$ai_trace_id": f"{product}-{hours}", "ai_product": product},
+                )
+
+    def test_dead_evaluations_without_a_patch(self) -> None:
+        end = timezone.now() - timedelta(minutes=30)
+        self._generations(end, ("billing",))
+        no_match = self._evaluation("Nothing like it", "voice")
+        no_conditions = self._evaluation("No condition sets", None)
+        self._evaluation("Too new to judge", "voice", age=timedelta(days=3))
+
+        coverage = fetch_coverage(self.team, end - timedelta(days=7), end)
+
+        assert sorted((fix.evaluation_id, fix.patch) for fix in coverage.fixes) == sorted(
+            [(str(no_match.id), None), (str(no_conditions.id), None)]
+        )
+
+    @parameterized.expand([("same_reasoning_for_both_answers", True), ("distinct_reasoning", False)])
+    def test_one_outcome_needs_shared_reasoning(self, _name: str, shared: bool) -> None:
+        end = timezone.now() - timedelta(minutes=30)
+        evaluation = self._evaluation("Always passes", None, evaluation_type="hog")
+        Evaluation.objects.filter(pk=evaluation.pk).update(conditions=ALL_TRAFFIC)
+        for index in range(210):
+            result = index >= 5
+            reasoning = "The answer cites its data correctly." if shared else f"Run {index}: the answer is {result}."
+            _create_event(
+                team=self.team,
+                event="$ai_evaluation",
+                distinct_id="user-1",
+                timestamp=end - timedelta(hours=1),
+                properties={
+                    "$ai_evaluation_id": str(evaluation.id),
+                    "$ai_evaluation_result": result,
+                    "$ai_evaluation_reasoning": reasoning,
+                },
+            )
+
+        coverage = fetch_coverage(self.team, end - timedelta(days=7), end)
+
+        assert [fix.problem for fix in coverage.fixes] == (["one_outcome"] if shared else [])

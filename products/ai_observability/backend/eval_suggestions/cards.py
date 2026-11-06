@@ -191,7 +191,11 @@ def fix_text(fix: EvalFix) -> CardText:
     if fix.problem == "one_outcome":
         return CardText(
             headline=f'Your "{name}" eval gives the same answer almost every time',
-            outcome=f"{fix.reason} Check that its prompt can tell a pass from a fail.",
+            outcome=(
+                "Check that its prompt can tell a pass from a fail."
+                if fix.evaluation_type == "llm_judge"
+                else "Check that its code can return both answers."
+            ),
             reason=fix.reason,
         )
     change = fix.filter_change

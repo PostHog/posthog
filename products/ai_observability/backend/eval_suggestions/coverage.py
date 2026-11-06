@@ -75,6 +75,7 @@ class FilterChange:
 class EvalFix:
     evaluation_id: str
     evaluation_name: str
+    evaluation_type: str
     problem: FixProblem
     reason: str
     # PATCH body for the evaluation, when the fix is a filter value that matches traffic again.
@@ -280,14 +281,13 @@ def _clean_conditions(conditions: Iterable[Mapping[str, Any]]) -> list[dict[str,
 
 def _count_matching(team: Team, conditions: list[dict[str, Any]], start: datetime, end: datetime) -> int:
     condition = build_condition_filter(conditions, team)
+    # The scheduler runs an evaluation with no condition sets on nothing.
+    if condition is None:
+        return 0
     rows = run_query(
         team,
         _MATCHING_GENERATIONS_SQL,
-        {
-            "start": ast.Constant(value=start),
-            "end": ast.Constant(value=end),
-            "condition": condition if condition is not None else ast.Constant(value=True),
-        },
+        {"start": ast.Constant(value=start), "end": ast.Constant(value=end), "condition": condition},
         "EvalSuggestionsConditionMatches",
     )
     return int(rows[0][0]) if rows else 0
@@ -300,34 +300,52 @@ class FilterFix:
     change: FilterChange
 
 
-def _filter_fix(team: Team, existing: ExistingEval, start: datetime, end: datetime) -> FilterFix | None:
-    """A patch that points a filter value nothing sends any more at the value traffic now carries."""
+def _filter_fix(
+    team: Team,
+    existing: ExistingEval,
+    start: datetime,
+    end: datetime,
+    values_by_key: dict[str, dict[str, int]],
+) -> FilterFix | None:
+    """A patch that points a filter value nothing sends any more at the value traffic now carries.
+
+    Only called for conditions that match nothing, and kept only when the patched conditions match traffic,
+    so a value missing from the top values because it is rare never counts as gone.
+    """
     conditions = _clean_conditions(existing.conditions)
     for condition in conditions:
         for prop in condition.get("properties") or []:
+            key = str(prop["key"])
             for old in _exact_values(prop):
-                rows = run_query(
-                    team,
-                    _PROPERTY_VALUES_SQL,
-                    {
-                        "property": ast.Field(chain=["properties", str(prop["key"])]),
-                        "start": ast.Constant(value=start),
-                        "end": ast.Constant(value=end),
-                    },
-                    "EvalSuggestionsPropertyValues",
-                )
-                values = {str(value): int(count) for value, count in rows}
+                if key not in values_by_key:
+                    rows = run_query(
+                        team,
+                        _PROPERTY_VALUES_SQL,
+                        {
+                            "property": ast.Field(chain=["properties", key]),
+                            "start": ast.Constant(value=start),
+                            "end": ast.Constant(value=end),
+                        },
+                        "EvalSuggestionsPropertyValues",
+                    )
+                    values_by_key[key] = {str(value): int(count) for value, count in rows}
+                values = values_by_key[key]
                 if old in values:
                     continue
                 new = best_replacement(old, values)
                 if new is None:
                     continue
                 value = prop["value"]
-                prop["value"] = [new if item == old else item for item in value] if isinstance(value, list) else new
+                prop["value"] = (
+                    [new if str(item) == old else item for item in value] if isinstance(value, list) else new
+                )
+                matching = _count_matching(team, conditions, start, end)
+                if matching == 0:
+                    return None
                 return FilterFix(
                     patch={"conditions": conditions},
-                    weekly_units=values[new],
-                    change=FilterChange(key=str(prop["key"]), old_value=old, new_value=new),
+                    weekly_units=matching,
+                    change=FilterChange(key=key, old_value=old, new_value=new),
                 )
     return None
 
@@ -348,18 +366,23 @@ def find_fixes(
         for row in run_query(team, _EVAL_RUNS_SQL, placeholders, "EvalSuggestionsEvaluationRuns")
     }
     fixes: list[EvalFix] = []
+    values_by_key: dict[str, dict[str, int]] = {}
     for evaluation_id, existing in enabled.items():
         if evaluation_id in runs:
             continue
         if now - existing.created_at < MIN_EVALUATION_AGE or now - existing.updated_at < MIN_QUIET_AFTER_EDIT:
             continue
-        fix = _filter_fix(team, existing, window_start, window_end)
+        # Conditions that match traffic mean the evaluation stopped for another reason, such as its key.
+        if _count_matching(team, _clean_conditions(existing.conditions), window_start, window_end) > 0:
+            continue
+        fix = _filter_fix(team, existing, window_start, window_end, values_by_key)
         if fix is not None:
             change = fix.change
             fixes.append(
                 EvalFix(
                     evaluation_id=evaluation_id,
                     evaluation_name=existing.name,
+                    evaluation_type=existing.evaluation_type,
                     problem="no_runs",
                     reason=(
                         f"It triggers on {change.key} = {change.old_value}. Your traffic now sends "
@@ -370,11 +393,12 @@ def find_fixes(
                     filter_change=change,
                 )
             )
-        elif _count_matching(team, _clean_conditions(existing.conditions), window_start, window_end) == 0:
+        else:
             fixes.append(
                 EvalFix(
                     evaluation_id=evaluation_id,
                     evaluation_name=existing.name,
+                    evaluation_type=existing.evaluation_type,
                     problem="no_runs",
                     reason="Its filters match none of your AI events from the last 7 days.",
                     patch=None,
@@ -405,9 +429,10 @@ def find_fixes(
                 EvalFix(
                     evaluation_id=evaluation_id,
                     evaluation_name=enabled[evaluation_id].name,
+                    evaluation_type=enabled[evaluation_id].evaluation_type,
                     problem="one_outcome",
                     reason=(
-                        f"It returned {outcome} on {max(true_runs, false_runs) / total:.0%} of {total} runs in 30 days, "
+                        f"It returned {outcome} on {max(true_runs, false_runs) / total:.0%} of {total:,} runs in 30 days, "
                         "and gives the same reasoning for both answers."
                     ),
                     patch=None,
