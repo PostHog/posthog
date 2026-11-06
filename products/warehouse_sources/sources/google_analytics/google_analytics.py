@@ -357,11 +357,15 @@ def _watermark_date(db_incremental_field_last_value: Any) -> dt.date | None:
 
 
 def _resolve_window(
-    today: dt.date, db_incremental_field_last_value: Any, history_days: int | None = None
+    today: dt.date,
+    db_incremental_field_last_value: Any,
+    history_days: int | None = None,
+    include_today: bool = False,
 ) -> _SyncWindow:
-    # End at yesterday: today's aggregates are still accruing and would land as
-    # permanently stale rows for schemas whose primary key is just `date`.
-    end_date = today - dt.timedelta(days=1)
+    # Today's aggregates are still accruing. An incremental or append sync ends at yesterday,
+    # because a partial row it writes for today can stay stale if a later run does not re-read it.
+    # A full refresh replaces the whole table on each run, so it can include today's partial data.
+    end_date = today if include_today else today - dt.timedelta(days=1)
     last = _watermark_date(db_incremental_field_last_value)
     if last is None:
         return _SyncWindow(start=_initial_start_date(today, history_days), end=end_date)
@@ -403,6 +407,7 @@ def google_analytics_source(
             today,
             db_incremental_field_last_value if should_use_incremental_field else None,
             config.history_days,
+            include_today=not should_use_incremental_field,
         )
         start_date = window.start
         end_date = window.end

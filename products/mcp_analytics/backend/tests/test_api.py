@@ -1,3 +1,4 @@
+import json
 import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -16,13 +17,13 @@ from posthog.schema import AnyPropertyFilterDiscriminated, EventPropertyFilter, 
 from posthog.hogql.database.database import Database
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 from posthog.utils import generate_cache_key
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 from products.mcp_analytics.backend import intent_generation, logic, mcp_harness
 from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness, MCPSession
@@ -1209,6 +1210,54 @@ class TestListMCPToolCalls(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
         )
 
         assert [c.tool_name for c in page.results] == expected
+
+    @parameterized.expand(
+        [
+            (
+                "captured_failure",
+                {
+                    "$mcp_is_error": True,
+                    "$mcp_parameters": {"query": "select 1", "limit": 5},
+                    "$mcp_error_type": "api_5xx",
+                    "$mcp_error_status": 503,
+                    "$mcp_response": {"content": [{"type": "text", "text": "upstream 503"}], "isError": True},
+                },
+                {"query": "select 1", "limit": 5},
+                ("api_5xx", "503"),
+            ),
+            ("string_argument", {"$mcp_parameters": 'say "hi"\nnow \\ done'}, 'say "hi"\nnow \\ done', ("", "")),
+            ("numeric_string_argument", {"$mcp_parameters": "123"}, "123", ("", "")),
+            (
+                "big_integer_argument",
+                {"$mcp_parameters": {"id": 1234567890123456789}},
+                {"id": 1234567890123456789},
+                ("", ""),
+            ),
+            ("nothing_captured", {}, None, ("", "")),
+        ]
+    )
+    def test_returns_captured_arguments_result_and_error_bucket(
+        self,
+        _name: str,
+        extra_properties: dict[str, Any],
+        expected_parameters: Any,
+        expected_bucket: tuple[str, str],
+    ) -> None:
+        session_id = str(uuid7())
+        start = datetime.now(tz=UTC) - timedelta(minutes=5)
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="seed",
+            timestamp=start,
+            properties={"$session_id": session_id, "$mcp_tool_name": "query_run", **extra_properties},
+        )
+
+        [call] = api.list_mcp_tool_calls(self.team, session_id=session_id, limit=50, offset=0, date_from=start).results
+
+        assert (json.loads(call.parameters) if call.parameters else None) == expected_parameters
+        assert (call.error_type, call.error_status) == expected_bucket
+        assert (json.loads(call.response) if call.response else None) == extra_properties.get("$mcp_response")
 
     def test_has_next_signals_more_pages(self) -> None:
         session_id = str(uuid7())

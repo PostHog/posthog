@@ -8,13 +8,13 @@ import { urls } from '~/toolbar/shared/urls'
 
 import { extensionPanelLogic } from '../../logics/panel/extensionPanelLogic'
 import type { ExtensionPanelState, UnsupportedPageReason } from '../../logics/panel/extensionPanelState'
+import { ExtensionAuthorizedUrlLinks } from './ExtensionAuthorizedUrlLinks'
 import { ExtensionPageToolbar } from './ExtensionPageToolbar'
 import { ExtensionPanelSettings } from './ExtensionPanelSettings'
 
 const UNSUPPORTED_PAGE_MESSAGES: Record<UnsupportedPageReason, string> = {
     'browser-page': "The toolbar can't run on this page. Open your website to use it.",
     'insecure-page': 'The toolbar needs a secure page. Open the https version of this site.',
-    'posthog-app': 'This is the PostHog app. Open your website to use the toolbar.',
     'extension-store': "Browsers don't let extensions run on this page. Open your website to use the toolbar.",
 }
 
@@ -33,7 +33,12 @@ function ExtensionPanelBody({ panelState }: { panelState: ExtensionPanelState })
                 </div>
             )
         case 'unsupported-page':
-            return <LemonBanner type="info">{UNSUPPORTED_PAGE_MESSAGES[panelState.reason]}</LemonBanner>
+            return (
+                <>
+                    <LemonBanner type="info">{UNSUPPORTED_PAGE_MESSAGES[panelState.reason]}</LemonBanner>
+                    <ExtensionAuthorizedUrlLinks />
+                </>
+            )
         case 'host-permission-needed':
             return (
                 <LemonBanner
@@ -69,16 +74,29 @@ function ExtensionPanelBody({ panelState }: { panelState: ExtensionPanelState })
             )
         case 'unauthorized-url':
             return (
-                <LemonBanner
-                    type="warning"
-                    action={{
-                        children: 'Open authorized URLs',
-                        onClick: () => openProjectPath(urls.settings('project-toolbar', 'authorized-urls')),
-                        'data-attr': 'toolbar-extension-authorized-urls',
-                    }}
-                >
-                    {panelState.origin} isn't an authorized URL for {projectName}. Add it to use the toolbar here.
-                </LemonBanner>
+                <>
+                    <LemonBanner
+                        type="warning"
+                        action={{
+                            children: 'Open authorized URLs',
+                            onClick: () => openProjectPath(urls.settings('project-toolbar', 'authorized-urls')),
+                            'data-attr': 'toolbar-extension-authorized-urls',
+                        }}
+                    >
+                        {panelState.origin} isn't an authorized URL for {projectName}. If you own and control this
+                        website, add it to use the toolbar here.
+                    </LemonBanner>
+                    <ExtensionAuthorizedUrlLinks />
+                </>
+            )
+        case 'posthog-app':
+            return (
+                <>
+                    <LemonBanner type="info">
+                        This is PostHog, not your website. Open your website to use the toolbar on it.
+                    </LemonBanner>
+                    <ExtensionAuthorizedUrlLinks />
+                </>
             )
         case 'error':
             return (

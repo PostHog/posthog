@@ -578,6 +578,14 @@ export interface MCPToolCallApi {
      * @nullable
      */
     readonly duration_ms: number | null
+    /** Arguments the client passed ($mcp_parameters) as JSON text, exactly as the SDK captured them after its redaction. Empty when not captured. */
+    readonly parameters: string
+    /** Result the MCP server returned ($mcp_response) as JSON text, exactly as the SDK captured it after its redaction and truncation. Empty when not captured. */
+    readonly response: string
+    /** Error category ($mcp_error_type) when the SDK classified the failure, otherwise empty. */
+    readonly error_type: string
+    /** HTTP status ($mcp_error_status) when the failure carried one, otherwise empty. */
+    readonly error_status: string
 }
 
 export interface PaginatedMCPToolCallListApi {
