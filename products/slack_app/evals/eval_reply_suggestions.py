@@ -16,9 +16,10 @@ from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.one_shot import OneShotEval
-from products.slack_app.backend.logic import reply_suggestions
+from products.slack_app.backend.logic.reply_suggestions import slack_reply_attribution
 from products.slack_app.evals.offline_config import offline_suite
 from products.slack_app.evals.scorers import REPLY_OFFER_KEY, NoUnaskedButtons, ReplyOfferMatch, SuggestedRepliesFit
+from products.tasks.backend.facade import reply_suggestions
 
 SUITE_KIND = SuiteKind.ONE_SHOT
 
@@ -192,7 +193,7 @@ async def eval_reply_suggestions(ctx: EvalContext) -> None:
             suggestions = await asyncio.to_thread(
                 reply_suggestions.request_reply_suggestions,
                 case.prompt,
-                reply_suggestions.ReplySuggestionAttribution(),
+                slack_reply_attribution(),
                 person_message,
             )
         except Exception as error:
