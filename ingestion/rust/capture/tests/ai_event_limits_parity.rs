@@ -1,4 +1,4 @@
-//! The limits file lives outside this workspace, so point the test at it with `AI_EVENT_LIMITS_JSON`.
+//! The limits file is a pinned copy under ingestion/pinned; point the test elsewhere with `AI_EVENT_LIMITS_JSON`.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -9,7 +9,7 @@ use capture::ai_event_limits::{
 use capture::config::Config;
 use envconfig::Envconfig;
 
-const RELATIVE_PATH: &str = "products/ai_observability/shared/crosslang/ai_event_limits.json";
+const RELATIVE_PATH: &str = "pinned/ai_event_limits.json";
 
 fn limits_json() -> PathBuf {
     if let Ok(path) = std::env::var("AI_EVENT_LIMITS_JSON") {

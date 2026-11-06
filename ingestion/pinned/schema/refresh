@@ -1,0 +1,24 @@
+#!/bin/bash
+# Refreshes the pinned Django schemas from the monorepo at the current commit. Run from the repository root with
+# the Django environment active (flox activate). Writes postgres.sql, clickhouse.sql and SOURCE.json.
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+here=ingestion/pinned/schema
+
+# The Postgres schema comes from the migrated-schema artifact CI publishes for every master commit; hogli
+# writes it to .postgres-backups/schema-latest.sql.gz.
+bin/hogli db:download-schema
+gunzip -c .postgres-backups/schema-latest.sql.gz > "$here/full-postgres.sql"
+python3 "$here/cut_postgres_schema.py" "$here/full-postgres.sql" "$here/postgres-tables.txt" > "$here/postgres.sql"
+rm -f "$here/full-postgres.sql"
+
+TEST=1 CLICKHOUSE_DATABASE=posthog_test python3 "$here/dump_clickhouse_schema.py" > "$here/clickhouse.sql"
+
+python3 - "$here" <<'PY'
+import hashlib, json, pathlib, subprocess, sys
+here = pathlib.Path(sys.argv[1])
+commit = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+files = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(here.iterdir()) if p.name in ("postgres.sql", "clickhouse.sql")}
+(here / "SOURCE.json").write_text(json.dumps({"repository": "PostHog/posthog", "path": "posthog/migrations, posthog/clickhouse/schema.py", "commits": {name: commit for name in files}, "files": files}, indent=4) + "\n")
+PY

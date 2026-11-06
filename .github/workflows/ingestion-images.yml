@@ -20,6 +20,8 @@ on:
     push:
         paths:
             - 'ingestion/rust/**'
+            - 'ingestion/node/**'
+            - 'ingestion/pinned/**'
             - 'ingestion/proto/**'
             - 'ingestion/ci/images.yml'
             - 'ingestion/ci/actions/compute-affected/**'
@@ -168,6 +170,9 @@ jobs:
                       values_key: image
                     - release: kafka-assigner
                       digest_key: kafka-assigner
+                      values_key: image
+                    - release: ingestion-node
+                      digest_key: ingestion-node
                       values_key: image
         steps:
             - name: check if image was built

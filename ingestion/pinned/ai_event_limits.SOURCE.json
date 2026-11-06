@@ -1,0 +1,8 @@
+{
+    "repository": "PostHog/posthog",
+    "path": "products/ai_observability/shared/crosslang/ai_event_limits.json",
+    "commit": "747dafb7851cb2832c54784d1293289d5bd05362",
+    "files": {
+        "ai_event_limits.json": "302de5a2ca320369aa5ed69f94947fef436bf85711aa00ad87c941d08e4d82f1"
+    }
+}

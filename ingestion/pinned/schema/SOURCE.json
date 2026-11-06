@@ -1,0 +1,12 @@
+{
+    "repository": "PostHog/posthog",
+    "path": "posthog/migrations, posthog/clickhouse/schema.py",
+    "files": {
+        "clickhouse.sql": "b5b128f7f0c50edc8e2c732449021ebf7dbffa2ddd8ba75c824e751dfd914e07",
+        "postgres.sql": "7c75e15a5154611df522ff1d500a5db451b1849dd2f9b594ad9f47dfaecc2578"
+    },
+    "commits": {
+        "postgres.sql": "e7a836278716",
+        "clickhouse.sql": "9fb4b3da8729"
+    }
+}

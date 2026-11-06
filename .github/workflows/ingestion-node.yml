@@ -1,0 +1,198 @@
+name: Ingestion Node CI
+
+# Every job here checks out ingestion/ and nothing else, so no change outside that tree can affect these
+# checks. The databases come from ingestion/pinned/schema and ingestion's own migrations; no Python runs.
+#
+# Until @posthog/hog-engine and the AI research native addons are published, the ingestion package links
+# them from the rest of the repository, and this workflow cannot install from the ingestion/ checkout alone.
+
+on:
+    workflow_dispatch:
+    push:
+        branches: [master]
+    pull_request:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    changes:
+        name: Determine need to run ingestion Node checks
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        if: github.repository == 'PostHog/posthog'
+        permissions:
+            contents: read
+            pull-requests: read
+        outputs:
+            node: ${{ steps.filter.outputs.node || 'true' }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+                  sparse-checkout: ingestion/ci/actions/paths-filter
+                  sparse-checkout-cone-mode: false
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: ./ingestion/ci/actions/paths-filter
+              id: filter
+              if: github.event_name != 'push'
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  filters: |
+                      node:
+                        - 'ingestion/node/**'
+                        - 'ingestion/proto/**'
+                        - 'ingestion/pinned/**'
+                        - 'ingestion/ci/**'
+                        - 'ingestion/rust/persons_migrations/**'
+                        - '.github/workflows/ingestion-node.yml'
+
+    check:
+        name: Typecheck, lint and format
+        needs: changes
+        if: needs.changes.outputs.node == 'true'
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 20
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: ingestion
+                  clean: false
+            - uses: ./ingestion/ci/actions/pnpm-install
+              with:
+                  install-command: pnpm --dir ingestion/node install --frozen-lockfile
+                  node-version-file: ingestion/node/.nvmrc
+            - name: Build the shared library
+              run: pnpm --dir ingestion/node/packages/common build
+            - name: Typecheck
+              run: pnpm --dir ingestion/node typescript:check
+            - name: Lint
+              run: pnpm --dir ingestion/node -r lint
+            - name: Check formatting
+              run: pnpm --dir ingestion/node -r format:check
+
+    test:
+        name: Test (${{ matrix.package }}, ${{ matrix.lane }} ${{ matrix.shard }}/${{ matrix.shard_count }})
+        needs: changes
+        if: needs.changes.outputs.node == 'true'
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 30
+        permissions:
+            contents: read
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - { package: common, lane: parallel, shard: 1, shard_count: 1 }
+                    - { package: ingestion, lane: parallel, shard: 1, shard_count: 3 }
+                    - { package: ingestion, lane: parallel, shard: 2, shard_count: 3 }
+                    - { package: ingestion, lane: parallel, shard: 3, shard_count: 3 }
+                    - { package: ingestion, lane: serial, shard: 1, shard_count: 2 }
+                    - { package: ingestion, lane: serial, shard: 2, shard_count: 2 }
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: ingestion
+                  clean: false
+            - name: Log in to Docker Hub
+              continue-on-error: true
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ vars.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+            - name: Start the services
+              working-directory: ingestion/ci
+              env:
+                  COMPOSE_FILE: ${{ github.workspace }}/ingestion/ci/docker-compose.yml
+                  WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 10
+              run: |
+                  bin/ci-wait-for-docker launch --down db kafka redis7 valkey-cluster clickhouse objectstorage seaweedfs dynamodb
+                  bin/ci-wait-for-docker wait --only db kafka redis7 valkey-cluster clickhouse objectstorage seaweedfs dynamodb
+                  docker compose up kafka-init
+                  echo "127.0.0.1 db redis7 kafka clickhouse objectstorage seaweedfs" | sudo tee -a /etc/hosts
+            - uses: ./ingestion/ci/actions/pnpm-install
+              with:
+                  install-command: pnpm --dir ingestion/node install --frozen-lockfile
+                  node-version-file: ingestion/node/.nvmrc
+            - uses: ./ingestion/ci/actions/setup-rust
+              with:
+                  toolchain: 1.91.1
+            - uses: ./ingestion/ci/actions/setup-sqlx-cli
+            # The Django tables the services read come from the pinned schema; the persons tables from ingestion's
+            # own migrations.
+            - name: Create the test databases
+              env:
+                  PGPASSWORD: posthog
+              run: |
+                  psql -h localhost -U posthog -d postgres -c 'CREATE DATABASE test_posthog'
+                  psql -h localhost -U posthog -d test_posthog -v ON_ERROR_STOP=1 -q -f ingestion/pinned/schema/postgres.sql
+                  DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_persons sqlx database create
+                  DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_persons sqlx migrate run --source ingestion/rust/persons_migrations/
+                  curl -fsS 'http://localhost:8123/' --data-binary 'CREATE DATABASE IF NOT EXISTS posthog_test'
+                  python3 ingestion/ci/bin/clickhouse_apply.py ingestion/pinned/schema/clickhouse.sql
+            - name: Download MaxMind database
+              run: ingestion/ci/bin/download-mmdb
+            - name: Build the shared library
+              run: pnpm --dir ingestion/node/packages/common build
+            - name: Test with Jest
+              id: run-tests
+              continue-on-error: true
+              env:
+                  SHARD_INDEX: ${{ matrix.shard }}
+                  SHARD_COUNT: ${{ matrix.shard_count }}
+                  JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/ingestion/node/junit
+                  JEST_JUNIT_OUTPUT_NAME: junit-${{ matrix.package }}-${{ matrix.lane }}-${{ matrix.shard }}.xml
+                  HOG_BYTECODE_CACHE_REQUIRED: 'true'
+                  HOG_BYTECODE_CACHE_DIR: ${{ github.workspace }}/ingestion/node/packages/ingestion/tests/fixtures/hog-bytecode
+              run: |
+                  if [ "${{ matrix.package }}" = "common" ]; then
+                      pnpm --dir ingestion/node/packages/common test
+                  else
+                      pnpm --dir ingestion/node/packages/ingestion test:${{ matrix.lane }}
+                  fi
+            - name: Quarantine gate
+              uses: ./ingestion/ci/actions/trunk-quarantine-gate
+              with:
+                  junit-paths: ingestion/node/junit/junit-*.xml
+                  previous-step-outcome: ${{ steps.run-tests.outcome }}
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+                  variant: ingestion-node
+
+    ingestion_node_tests:
+        name: Ingestion Node Tests Pass
+        needs: [changes, check, test]
+        if: ${{ !cancelled() }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions: {}
+        steps:
+            - name: Check all ingestion Node jobs
+              run: |
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                      echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
+                      exit 1
+                  fi
+                  if [[ "${{ needs.changes.outputs.node }}" != "true" ]]; then
+                      echo "Ingestion Node checks were skipped (no relevant changes)."
+                      exit 0
+                  fi
+                  if [[ "${{ needs.check.result }}" != "success" && "${{ needs.check.result }}" != "skipped" ]]; then
+                      echo "check did not pass (result: ${{ needs.check.result }})."
+                      exit 1
+                  fi
+                  if [[ "${{ needs.test.result }}" != "success" && "${{ needs.test.result }}" != "skipped" ]]; then
+                      echo "test did not pass (result: ${{ needs.test.result }})."
+                      exit 1
+                  fi

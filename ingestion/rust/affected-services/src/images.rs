@@ -4,14 +4,17 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use guppy::graph::PackageGraph;
 
-pub const NON_CRATE_IMAGE_TRIGGERS: &[(&str, &[&str])] = &[(
-    "persons-migrate",
-    &[
-        "ingestion/rust/persons_migrations/",
-        "ingestion/rust/bin/migrate-entry",
-        "ingestion/rust/Dockerfile.persons-migrate",
-    ],
-)];
+pub const NON_CRATE_IMAGE_TRIGGERS: &[(&str, &[&str])] = &[
+    (
+        "persons-migrate",
+        &[
+            "ingestion/rust/persons_migrations/",
+            "ingestion/rust/bin/migrate-entry",
+            "ingestion/rust/Dockerfile.persons-migrate",
+        ],
+    ),
+    ("ingestion-node", &["ingestion/node/", "ingestion/pinned/"]),
+];
 
 #[derive(Debug, Default)]
 pub struct ImageConfig {
