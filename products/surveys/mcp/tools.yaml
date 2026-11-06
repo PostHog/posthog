@@ -76,12 +76,13 @@ tools:
             schedule:
                 description: >
                     How often a person can see the survey. Omit this to use the default once behavior. Use recurring
-                    only when the user explicitly asks for a repeated schedule, and set iteration_frequency_days with it.
-                    Set iteration_count for a fixed number of repeats, or repeat_until_stopped=true to keep repeating
-                    (for example an ongoing NPS survey every 90 days). Use always when the user wants the survey to show every time its
-                    display conditions are met, also after the person responds or dismisses it. The survey editor calls
-                    this "Every time the display conditions are met". An always popover without display conditions or a
-                    wait period shows again and again, so suggest a URL condition or seenSurveyWaitPeriodInDays.
+                    only when the user explicitly asks for a repeated schedule, and set iteration_frequency_days with
+                    it. Set iteration_count for a fixed number of repeats, or repeat_until_stopped=true to keep
+                    repeating (for example an ongoing NPS survey every 90 days). Use always when the user wants the
+                    survey to show every time its display conditions are met, also after the person responds or
+                    dismisses it. The survey editor calls this "Every time the display conditions are met". An always
+                    popover without display conditions or a wait period shows again and again, so suggest a URL
+                    condition or seenSurveyWaitPeriodInDays.
             questions:
                 description: >
                     Complete survey question list. Prefer 1-3 questions unless the user explicitly asks for a longer
@@ -283,12 +284,12 @@ tools:
             schedule:
                 description: >
                     How often a person can see the survey: once, recurring, or always. Omit this to keep the current
-                    schedule. When setting recurring, also set iteration_frequency_days, plus either iteration_count
-                    for a fixed number of repeats or repeat_until_stopped=true to keep repeating. Use always
-                    when the user wants the survey to show every time its display conditions are met, also after the
-                    person responds or dismisses it. The survey editor calls this "Every time the display conditions are
-                    met". When you change away from recurring, the iteration fields are cleared. An always popover
-                    without display conditions or a wait period shows again and again, so suggest a URL condition or
+                    schedule. When setting recurring, also set iteration_frequency_days, plus either iteration_count for
+                    a fixed number of repeats or repeat_until_stopped=true to keep repeating. Use always when the user
+                    wants the survey to show every time its display conditions are met, also after the person responds
+                    or dismisses it. The survey editor calls this "Every time the display conditions are met". When you
+                    change away from recurring, the iteration fields are cleared. An always popover without display
+                    conditions or a wait period shows again and again, so suggest a URL condition or
                     seenSurveyWaitPeriodInDays.
             questions:
                 description: >

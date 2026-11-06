@@ -15970,6 +15970,7 @@ export namespace Schemas {
         responses_limit: number | null;
         iteration_count: number | null;
         iteration_frequency_days: number | null;
+        repeat_until_stopped: boolean | null;
         iteration_start_dates: Array<string | null> | null;
         current_iteration: number | null;
         current_iteration_start_date: string | null;
@@ -17156,6 +17157,10 @@ export namespace Schemas {
         /**
          * Mixin for serializers to add user access control fields
          */
+        repeat_until_stopped?: (boolean | null) | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
         iteration_start_dates?: (Array<string | null> | null) | undefined;
         /**
          * Mixin for serializers to add user access control fields
@@ -17463,6 +17468,7 @@ export namespace Schemas {
         responses_limit?: (number | null) | undefined;
         iteration_count?: (number | null) | undefined;
         iteration_frequency_days?: (number | null) | undefined;
+        repeat_until_stopped?: (boolean | null) | undefined;
         iteration_start_dates?: (Array<string | null> | null) | undefined;
         current_iteration?: (number | null) | undefined;
         current_iteration_start_date?: (string | null) | undefined;
@@ -17516,6 +17522,7 @@ export namespace Schemas {
         responses_limit?: (number | null) | undefined;
         iteration_count?: (number | null) | undefined;
         iteration_frequency_days?: (number | null) | undefined;
+        repeat_until_stopped?: (boolean | null) | undefined;
         iteration_start_dates?: (Array<string | null> | null) | undefined;
         current_iteration?: (number | null) | undefined;
         current_iteration_start_date?: (string | null) | undefined;

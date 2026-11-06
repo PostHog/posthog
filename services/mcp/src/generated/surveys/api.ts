@@ -1233,7 +1233,7 @@ export const SurveysCreateBody = () => zod.object({
         .max(surveysCreateBodyIterationCountMax)
         .nullish()
         .describe(
-            "For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Ignored when repeat_until_stopped is true."
+            "For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it."
         ),
     iteration_frequency_days: zod
         .number()
@@ -2493,7 +2493,7 @@ export const SurveysPartialUpdateBody = () => zod.object({
         .max(surveysPartialUpdateBodyIterationCountMax)
         .nullish()
         .describe(
-            "For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Ignored when repeat_until_stopped is true."
+            "For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it."
         ),
     iteration_frequency_days: zod
         .number()
