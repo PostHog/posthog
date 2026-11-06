@@ -216,16 +216,6 @@ class ActivityLog(UUIDTModel):
         ]
         indexes = [
             models.Index(fields=["team_id", "scope", "item_id"]),
-            models.Index(
-                fields=["organization_id", "scope", "-created_at"],
-                name="idx_alog_org_scope_created_at",
-                condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
-            ),
-            models.Index(
-                fields=["organization_id"],
-                name="idx_alog_org_detail_exists",
-                condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
-            ),
             # Serves whole-column containment (`detail @> ...`), the only detail lookup an index
             # can answer. Key-path lookups and the `detail::text` search are not GIN-servable
             # under any opclass. `jsonb_path_ops` stores one hash per root-to-leaf path, so it is
@@ -258,9 +248,10 @@ class ActivityLog(UUIDTModel):
             ),
             # Advanced activity logs default list ordering. The org- and team-scoped list
             # endpoints order by -created_at with no scope filter, so the scope-led indexes
-            # above can't serve the sort, and the org indexes above are partial on a detail
-            # predicate the list query never carries. These full indexes let the LIMITed
-            # ordered scan walk created_at directly instead of sorting the whole partition.
+            # above can't serve the sort. These full indexes let the LIMITed ordered scan walk
+            # created_at directly instead of sorting the whole partition. No index is partial on
+            # a `detail` predicate: no reader filters on `jsonb_typeof(detail)`, so the planner
+            # could never pick one, and each would only add write cost to every insert.
             models.Index(
                 fields=["organization_id", "-created_at"],
                 name="idx_alog_org_created_at",
