@@ -116,6 +116,8 @@ def test_access_denied_names_the_role_to_grant(resolvable_hosts: None, monkeypat
     valid, message = source.validate_credentials(source.parse_config(VALUES), 1)
 
     assert not valid
-    assert message is not None and "Storage Object Viewer" in message and "HMAC" in message
+    assert message is not None
+    assert "Storage Object Viewer" in message
+    assert "access key and secret" in message
     assert "customer_data" not in message
     assert source.get_non_retryable_errors()[ACCESS_DENIED_ERROR] == message

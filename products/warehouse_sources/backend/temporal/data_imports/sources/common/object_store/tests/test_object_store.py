@@ -1481,12 +1481,17 @@ class TestAccessDeniedMessage:
         ],
     )
     def test_a_provider_can_replace_the_access_denied_text(
-        self, denial: Exception, override: str | None, wizard_message: str, sync_message: str
+        self,
+        denial: Exception,
+        override: str | None,
+        wizard_message: str,
+        sync_message: str,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         store = MagicMock()
         store.list_objects.side_effect = denial
         source = _source_with_store(store)
-        source.access_denied_message = override
+        monkeypatch.setattr(FakeObjectStorageSource, "access_denied_message", override)
 
         valid, message = source.validate_credentials(BUCKET_ROOT_CONFIG, 1)
 
@@ -1494,11 +1499,13 @@ class TestAccessDeniedMessage:
         assert message == wizard_message
         assert source.get_non_retryable_errors()[ACCESS_DENIED_ERROR] == sync_message
 
-    def test_other_errors_keep_their_text_when_a_provider_overrides_the_access_denied_text(self) -> None:
+    def test_other_errors_keep_their_text_when_a_provider_overrides_the_access_denied_text(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         store = MagicMock()
         store.list_objects.side_effect = FileNotFoundError("The specified bucket does not exist")
         source = _source_with_store(store)
-        source.access_denied_message = self.PROVIDER_MESSAGE
+        monkeypatch.setattr(FakeObjectStorageSource, "access_denied_message", self.PROVIDER_MESSAGE)
 
         valid, message = source.validate_credentials(BUCKET_ROOT_CONFIG, 1)
 
