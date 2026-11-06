@@ -358,6 +358,36 @@ def secret_binding(
     return baseline, SecretBinding.KEPT if unchanged or sends_within else SecretBinding.REFUSED
 
 
+def _secret_baselines(
+    instance: Optional[HogFunction],
+    secret_keys: set[str],
+    stored_secrets: dict,
+    stored_inputs: dict,
+    derived: dict[str, SecretOrigins],
+    unchanged: bool,
+) -> dict[str, Optional[SecretOrigins]]:
+    """The origins each stored secret was bound to before this save, or None for a new secret. A
+    secret saved before its origins were recorded is checked against what its stored config sends."""
+    if instance is None:
+        return dict.fromkeys(secret_keys)
+    baselines: dict[str, Optional[SecretOrigins]] = {}
+    stored_derived: Optional[dict[str, SecretOrigins]] = None
+    for key in secret_keys:
+        # A secret saved before inputs were encrypted is still in plaintext `inputs`.
+        stored = stored_secrets.get(key) or (instance.inputs or {}).get(key)
+        baseline = parse_stored_origins(stored.get("allowed_origins")) if isinstance(stored, dict) else None
+        if isinstance(stored, dict) and baseline is None:
+            if unchanged:
+                baseline = derived[key]
+            else:
+                stored_derived = stored_derived or secret_origins(
+                    instance.hog or "", stored_inputs, mapping_inputs(instance.mappings), secret_keys
+                )
+                baseline = stored_derived[key]
+        baselines[key] = baseline
+    return baselines
+
+
 def draft_changed_fields(hog_function: HogFunction) -> list[str]:
     """Which config fields publishing this draft would change. Both sides are compared secret-free
     and without derived values, with staged secrets reported as an `inputs` change."""
@@ -661,6 +691,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # a config edit. It also means a form-encoded (immutable QueryDict) payload no longer 500s.
         data = {**data}
         self.initial_data = data
+        # Read before the stored inputs fill in what the request left out, so a secret counts as
+        # entered only when the caller sent it.
+        self.requested_inputs = data.get("inputs")
         team = self.context["get_team"]()
         is_create = self.context.get("is_create") or (
             self.context.get("view") and self.context["view"].action == "create"
@@ -956,58 +989,50 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             inputs[key] = dict(stored_secrets[key])
         attrs["inputs"] = inputs
 
-        hog = attrs.get("hog", instance.hog if instance else "")
+        hog = attrs.get("hog", instance.hog if instance else "") or ""
         mappings = attrs.get("mappings", instance.mappings if instance else None)
-        derived = secret_origins(hog or "", inputs, mapping_inputs(mappings), secret_keys)
-        entered = entered_secret_input_keys(self.initial_data.get("inputs"))
+        derived = secret_origins(hog, inputs, mapping_inputs(mappings), secret_keys)
         live_secrets = self.context.get("live_encrypted_inputs", stored_secrets)
         stored_inputs = {**((instance.inputs or {}) if instance else {}), **live_secrets}
-        stored_derived: Optional[dict[str, SecretOrigins]] = None
         unchanged = instance is not None and _analyzed_config(hog, inputs, mappings) == _analyzed_config(
             instance.hog, stored_inputs, instance.mappings
         )
+        baselines = _secret_baselines(instance, secret_keys, stored_secrets, stored_inputs, derived, unchanged)
+        entered = entered_secret_input_keys(getattr(self, "requested_inputs", None))
+        bindings = {key: secret_binding(derived[key], baselines[key], key in entered, unchanged) for key in secret_keys}
 
-        refused = []
-        outcomes = []
-        for key in secret_keys:
-            stored = stored_secrets.get(key)
-            baseline = None
-            if isinstance(stored, dict) and instance is not None:
-                baseline = parse_stored_origins(stored.get("allowed_origins"))
-                if baseline is None and unchanged:
-                    baseline = derived[key]
-                elif baseline is None:
-                    stored_derived = stored_derived or secret_origins(
-                        instance.hog or "", stored_inputs, mapping_inputs(instance.mappings), secret_keys
-                    )
-                    baseline = stored_derived[key]
-            origins, outcome = secret_binding(derived[key], baseline, key in entered, unchanged)
-            if outcome == SecretBinding.REFUSED:
-                refused.append(key)
+        refused = sorted(key for key, (_, outcome) in bindings.items() if outcome == SecretBinding.REFUSED)
+        enforce = bool(refused) and self._enforces_secret_binding(team)
+        stages_draft = bool(self.context.get("stages_draft"))
+        for key, (origins, outcome) in bindings.items():
+            if outcome == SecretBinding.REFUSED and not enforce:
+                outcome = SecretBinding.WOULD_REFUSE
+                # The save goes through, so store where the code now sends the secret. A staged edit
+                # keeps the old origins because publishing checks the move again.
+                origins = origins if stages_draft else derived[key]
             inputs[key]["allowed_origins"] = stored_origins(origins)
-            outcomes.append(outcome)
+            SECRET_HOST_BINDING_COUNTER.labels(outcome=outcome, surface=self._secret_binding_surface()).inc()
+        if enforce:
+            raise serializers.ValidationError(
+                {"inputs": dict.fromkeys(refused, SECRET_REENTRY_MESSAGE)}, code="secret_reentry_required"
+            )
 
-        view = self.context.get("view")
-        enforce = (
-            bool(refused)
-            and view is not None
-            and not self.context.get("stages_draft")
-            and posthoganalytics.feature_enabled(
+    def _enforces_secret_binding(self, team: Team) -> bool:
+        if self.context.get("view") is None or self.context.get("stages_draft"):
+            return False
+        return bool(
+            posthoganalytics.feature_enabled(
                 SECRET_HOST_BINDING_FLAG,
                 str(team.uuid),
                 groups={"organization": str(team.organization_id)},
                 send_feature_flag_events=False,
             )
         )
-        surface = "draft" if self.context.get("stages_draft") else getattr(view, "action", None) or "internal"
-        for outcome in outcomes:
-            if outcome == SecretBinding.REFUSED and not enforce:
-                outcome = SecretBinding.WOULD_REFUSE
-            SECRET_HOST_BINDING_COUNTER.labels(outcome=outcome, surface=surface).inc()
-        if enforce:
-            raise serializers.ValidationError(
-                {"inputs": dict.fromkeys(refused, SECRET_REENTRY_MESSAGE)}, code="secret_reentry_required"
-            )
+
+    def _secret_binding_surface(self) -> str:
+        if self.context.get("stages_draft"):
+            return "draft"
+        return getattr(self.context.get("view"), "action", None) or "internal"
 
     def to_representation(self, data):
         is_instance = isinstance(data, HogFunction)
@@ -1782,11 +1807,12 @@ class HogFunctionViewSet(
             # so a secret already staged in the draft has to win over that recovery — otherwise this
             # edit would silently revert it to the live value. Keys the draft no longer declares
             # secret drop out entirely.
-            supplied = entered_secret_input_keys(getattr(serializer, "initial_data", {}).get("inputs"))
+            raw_inputs = getattr(serializer, "initial_data", {}).get("inputs")
+            supplied = unmarked_input_keys(raw_inputs)
             draft_secrets = {
                 key: value if key in supplied or key not in staged else staged[key] for key, value in recovered.items()
             }
-            entered = supplied & draft_secrets.keys()
+            entered = entered_secret_input_keys(raw_inputs) & draft_secrets.keys()
             if entered:
                 draft_inputs = {**(draft.get("inputs") or {}), **(locked.encrypted_inputs or {}), **draft_secrets}
                 origins = secret_origins(

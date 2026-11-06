@@ -1471,7 +1471,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"inputs": sender_inputs(MOVED_URL)},
                 False,
                 status.HTTP_200_OK,
-                ["https://hooks.example.com"],
+                ["https://evil.example.com"],
             ),
             (
                 "new_host_with_the_secret_entered",
@@ -1529,23 +1529,33 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("known_origins_new_host", SENDER_HOG, {"inputs": sender_inputs(MOVED_URL)}, status.HTTP_400_BAD_REQUEST),
+            (
+                "known_origins_new_host",
+                SENDER_HOG,
+                {"inputs": sender_inputs(MOVED_URL)},
+                False,
+                status.HTTP_400_BAD_REQUEST,
+            ),
             (
                 "unknown_origins_rename",
                 "fetch(event.properties.url, {'body': inputs.token});",
                 {"name": "Renamed"},
+                False,
                 status.HTTP_200_OK,
             ),
             (
                 "unknown_origins_any_config_change",
                 "fetch(event.properties.url, {'body': inputs.token});",
                 {"inputs": sender_inputs("https://hooks.example.com/b")},
+                False,
                 status.HTTP_400_BAD_REQUEST,
             ),
+            ("plaintext_secret_rename", SENDER_HOG, {"name": "Renamed"}, True, status.HTTP_200_OK),
+            ("plaintext_secret_code_change", SENDER_HOG, {"hog": MOVED_SENDER_HOG}, True, status.HTTP_400_BAD_REQUEST),
         ]
     )
     def test_secret_saved_before_origins_were_bound_is_checked_against_its_stored_config(
-        self, _name: str, hog: str, change: dict, expected_status: int
+        self, _name: str, hog: str, change: dict, stored_in_plaintext: bool, expected_status: int
     ) -> None:
         function = HogFunction.objects.create(
             team=self.team,
@@ -1556,6 +1566,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             inputs={"url": {"value": SENDER_URL}},
             encrypted_inputs={"token": {"value": "I AM SECRET"}},
         )
+        if stored_in_plaintext:
+            HogFunction.objects.filter(id=function.id).update(
+                inputs={"url": {"value": SENDER_URL}, "token": {"value": "I AM SECRET"}}, encrypted_inputs=None
+            )
 
         with secret_host_binding_flag(True):
             res = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{function.id}", data=change)

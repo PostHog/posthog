@@ -322,6 +322,28 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert function.draft_encrypted_inputs["token"]["value"] == "new"
         assert function.encrypted_inputs["token"]["value"] == "live-token"
 
+    def test_a_later_draft_edit_adds_an_entry_to_a_staged_dictionary_secret(self):
+        function_id = self._create(
+            inputs_schema=[
+                BASE_FUNCTION["inputs_schema"][0],
+                {"key": "secret_headers", "type": "dictionary", "label": "Secret headers", "secret": True},
+            ],
+            inputs={
+                "url": {"value": "https://example.com/live"},
+                "secret_headers": {"value": {"Authorization": "live"}},
+            },
+        )
+        url = {"value": "https://example.com/live"}
+        self._stage(function_id, {"inputs": {"url": url, "secret_headers": {"value": {"Authorization": "staged"}}}})
+
+        self._stage(
+            function_id,
+            {"inputs": {"url": url, "secret_headers": {"value": {"Authorization": "********", "X-New": "typed"}}}},
+        )
+
+        staged = HogFunction.objects.get(id=function_id).draft_encrypted_inputs["secret_headers"]["value"]
+        assert staged["X-New"] == "typed"
+
     def test_publishing_promotes_the_staged_secret(self):
         function_id = self._create()
         self._stage(function_id, {"inputs": {"url": {"value": "https://example.com/live"}, "token": {"value": "new"}}})
