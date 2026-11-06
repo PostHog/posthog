@@ -15,9 +15,10 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 export function WebAnalyticsScene(): JSX.Element {
+    const { showFocusMode, isAiVisibilityPage } = useValues(webAnalyticsLogic)
     useMaxTool({
         identifier: 'web_analytics_doctor',
-        active: true,
+        active: !isAiVisibilityPage,
         context: {},
         suggestions: [
             'Is my web analytics set up correctly?',
@@ -27,7 +28,7 @@ export function WebAnalyticsScene(): JSX.Element {
     })
     useMaxTool({
         identifier: 'assess_heatmap',
-        active: true,
+        active: !isAiVisibilityPage,
         context: {},
         suggestions: [
             'Assess the heatmap for my pricing page',
@@ -37,7 +38,7 @@ export function WebAnalyticsScene(): JSX.Element {
     })
     useMaxTool({
         identifier: 'summarize_website_interactions',
-        active: true,
+        active: !isAiVisibilityPage,
         context: {},
         suggestions: [
             'Summarize how users interact with my pricing page',
@@ -45,14 +46,9 @@ export function WebAnalyticsScene(): JSX.Element {
             'How do users experience my signup page?',
         ],
     })
-    const { showFocusMode, isAiVisibilityPage } = useValues(webAnalyticsLogic)
 
     if (isAiVisibilityPage) {
-        return (
-            <SceneContent>
-                <WebAnalyticsDashboard />
-            </SceneContent>
-        )
+        return <WebAnalyticsDashboard />
     }
 
     return (

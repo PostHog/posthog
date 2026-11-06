@@ -2486,9 +2486,10 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.aiVisibility(),
         flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
         tags: ['alpha'],
+        sceneKey: 'WebAnalytics',
+        sceneKeys: ['WebAnalytics'],
         searchKeywords: ['aeo', 'geo', 'llm', 'chatgpt', 'citations', 'prompts', 'ai search', 'crawlers'],
         searchTabs: [{ name: 'Bots', href: urls.aiVisibilityBots() }],
-        sceneKeys: ['Heatmaps', 'Heatmap', 'HeatmapNew', 'HeatmapRecording'],
     },
     {
         path: 'Application observability',
@@ -3478,16 +3479,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Page reports', href: urls.webAnalyticsPageReports() },
             { name: 'Live', href: urls.webAnalyticsLive() },
             { name: 'Installation health', href: urls.webAnalyticsHealth() },
-            {
-                name: 'AI visibility',
-                href: urls.webAnalyticsContentAutopilot(),
-                flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
-            },
-            {
-                name: 'Bots',
-                href: urls.webAnalyticsBotAnalytics(),
-                flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
-            },
             {
                 name: 'Search & AI',
                 href: urls.webAnalyticsPagePerformance(),

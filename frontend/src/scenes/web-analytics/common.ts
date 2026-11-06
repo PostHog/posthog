@@ -535,7 +535,6 @@ export const INITIAL_DATE_FROM = '-7d' as string | null
 export const INITIAL_DATE_TO = null as string | null
 export const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
 
-/** Events included in bot analytics queries — crawlers don't execute JS so $http_log captures most real bot traffic */
 const AI_VISIBILITY_PATH = '/ai-visibility'
 
 /** The standalone AI visibility page shows the same tabs as Web analytics, without the Web analytics header and tabs. */
@@ -556,6 +555,7 @@ export const aiVisibilityTabUrl = (
     return standalone ? AI_VISIBILITY_PATH : '/web/content-autopilot'
 }
 
+/** Events included in bot analytics queries — crawlers don't execute JS so $http_log captures most real bot traffic */
 export const BOT_ANALYTICS_EVENTS = ['$pageview', '$screen', '$http_log']
 
 export const WEB_ANALYTICS_DEFAULT_QUERY_TAGS: QueryLogTags = {

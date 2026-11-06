@@ -879,13 +879,15 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
     const { currentTeamId } = useValues(teamLogic)
     const { isAiVisibilityPage } = useValues(webAnalyticsLogic)
     useOnMountEffect(() => {
-        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewWebAnalyticsDashboard)
+        if (!isAiVisibilityPage) {
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewWebAnalyticsDashboard)
+        }
     })
 
     return (
         <BindLogic logic={webAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-                <WebAnalyticsLoadTimeTracker />
+                {isAiVisibilityPage ? null : <WebAnalyticsLoadTimeTracker />}
                 <WebAnalyticsModal />
                 <WebAnalyticsAchievementsModal />
                 <WebAnalyticsSurveyModal />

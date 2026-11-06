@@ -20,6 +20,8 @@ const descriptions: Record<string, string> = {
         'Compare product changes with a controlled test. Measure their effect on the metrics you care about before deciding what to ship.',
     'Web analytics':
         'Understand who visits your website, where they come from, and which pages lead to conversions. Start with traffic, then explore what drives it.',
+    'AI visibility':
+        'See whether AI assistants mention and cite your site when people ask about your space. Track the prompts that matter and draft content to close the gaps.',
     'Error tracking':
         'Turn exceptions into issues you can investigate. See who was affected and connect errors with the context you need to find the cause.',
     Surveys:
@@ -93,6 +95,7 @@ const examples: Record<string, string> = {
     'Feature flags': 'Try a new navigation with your team before rolling it out to everyone.',
     Experiments: 'Test whether a shorter signup flow improves activation.',
     'Web analytics': 'Find which referral sources bring visitors who sign up.',
+    'AI visibility': 'Check whether ChatGPT cites your docs when someone asks for a tool like yours.',
     'Error tracking': 'Investigate an exception that appeared after a release.',
     Surveys: 'Ask people who abandon a flow what they were trying to do.',
     Heatmaps: 'Check whether visitors reach your pricing call to action.',

@@ -84,16 +84,6 @@ export const manifest: ProductManifest = {
                 { name: 'Live', href: urls.webAnalyticsLive() },
                 { name: 'Installation health', href: urls.webAnalyticsHealth() },
                 {
-                    name: 'AI visibility',
-                    href: urls.webAnalyticsContentAutopilot(),
-                    flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
-                },
-                {
-                    name: 'Bots',
-                    href: urls.webAnalyticsBotAnalytics(),
-                    flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
-                },
-                {
                     name: 'Search & AI',
                     href: urls.webAnalyticsPagePerformance(),
                     flag: FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE,
@@ -112,6 +102,8 @@ export const manifest: ProductManifest = {
             href: urls.aiVisibility(),
             flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
             tags: ['alpha'],
+            sceneKey: 'WebAnalytics',
+            sceneKeys: ['WebAnalytics'],
             searchKeywords: ['aeo', 'geo', 'llm', 'chatgpt', 'citations', 'prompts', 'ai search', 'crawlers'],
             searchTabs: [{ name: 'Bots', href: urls.aiVisibilityBots() }],
         },
