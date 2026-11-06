@@ -62,6 +62,10 @@ POSTHOG_CIMD_DOCUMENTS: list[dict[str, object]] = [
 ]
 
 
+# Staff turn on step-up per app in the admin. These apps handle an `insufficient_scope` challenge.
+STEP_UP_CLIENT_IDS = frozenset({"https://posthog.com/.well-known/oauth/hog/client-metadata.json"})
+
+
 class Command(BaseCommand):
     help = "Create PostHog's own CIMD client applications, verified, for a local stack"
 
@@ -89,3 +93,7 @@ class Command(BaseCommand):
                 app.is_verified = True
                 app.save(update_fields=["is_verified"])
                 self.stdout.write(self.style.SUCCESS(f"Verified CIMD app '{app.name}'"))
+            if client_id in STEP_UP_CLIENT_IDS and not app.supports_step_up:
+                app.supports_step_up = True
+                app.save(update_fields=["supports_step_up"])
+                self.stdout.write(self.style.SUCCESS(f"Turned on step-up for CIMD app '{app.name}'"))

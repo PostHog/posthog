@@ -116,6 +116,7 @@ export interface oauthDeviceAuthorizeLogicValues {
     projectsLoading: boolean
     requiredScopeLevels: Map<string, RequiredLevel>
     requiredScopeRows: OAuthScopeRow[]
+    requiredScopesNote: string | null
     scopeAccessSelections: ScopeAccessSelections
     scopeGroups: OAuthScopeGroup[] | null
     scopeRows: OAuthScopeRow[]
@@ -232,6 +233,11 @@ export interface oauthDeviceAuthorizeLogicMeta {
         adjustableScopeRows: (scopeRows: OAuthScopeRow[]) => OAuthScopeRow[]
         scopeGroups: (adjustableScopeRows: OAuthScopeRow[]) => OAuthScopeGroup[] | null
         allScopesRequired: (scopeRows: OAuthScopeRow[]) => boolean
+        requiredScopesNote: (
+            requiredScopeRows: OAuthScopeRow[],
+            allScopesRequired: boolean,
+            deviceGrant: DeviceGrantDetailsApi | null
+        ) => string | null
         scopeSummary: (scopeRows: OAuthScopeRow[], deviceGrant: DeviceGrantDetailsApi | null) => string
         keptScopes: (deviceGrant: DeviceGrantDetailsApi | null, scopeRows: OAuthScopeRow[]) => string[]
     }
@@ -435,6 +441,21 @@ export const oauthDeviceAuthorizeLogic = kea<oauthDeviceAuthorizeLogicType>([
         allScopesRequired: [
             (s) => [s.scopeRows],
             (scopeRows: OAuthScopeRow[]): boolean => scopeRows.length > 0 && scopeRows.every((row) => row.locked),
+        ],
+        // Why some rows can't be changed, such as the scopes a step-up adds.
+        requiredScopesNote: [
+            (s) => [s.requiredScopeRows, s.allScopesRequired, s.deviceGrant],
+            (
+                requiredScopeRows: OAuthScopeRow[],
+                allScopesRequired: boolean,
+                deviceGrant: DeviceGrantDetailsApi | null
+            ): string | null => {
+                if (!deviceGrant || requiredScopeRows.length === 0) {
+                    return null
+                }
+                const which = allScopesRequired ? 'all of these permissions' : 'the permissions marked Required'
+                return `${deviceGrant.client_name} needs ${which}, so you can't remove them. To refuse them, deny the login.`
+            },
         ],
         scopeSummary: [
             (s) => [s.scopeRows, s.deviceGrant],
