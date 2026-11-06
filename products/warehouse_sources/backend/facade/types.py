@@ -59,8 +59,6 @@ class IncrementalField(typing.TypedDict, total=False):
     # Used to warn users picking an incremental field that would force a full scan
     # on every sync. Defaults to True when omitted so missing detection never warns.
     is_indexed: bool
-    # Set by `rank_incremental_fields` for sources with user-defined columns. Only the first
-    # ranked field is recommended; `notes` explain the trade-offs of picking each field.
     recommended: bool
     notes: list[str]
 
