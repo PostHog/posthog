@@ -27,6 +27,22 @@ class MovedToConsole:
         return view
 
     @staticmethod
+    def team_redirect(target: str) -> Callable[[HttpRequest, int], HttpResponse]:
+        """A view for the old URL of a team action that moved. `target` is relative to the console team page."""
+
+        def view(request: HttpRequest, team_id: int) -> HttpResponse:
+            messages.info(request, "This action moved to PostHog Admin. Update your bookmark to this page.")
+            page, _, anchor = target.partition("#")
+            query = request.META.get("QUERY_STRING", "")
+            return HttpResponseRedirect(
+                f"/admin/console/teams/{team_id}/{page}"
+                + (f"?{query}" if query else "")
+                + (f"#{anchor}" if anchor else "")
+            )
+
+        return view
+
+    @staticmethod
     def team_action(team: Team, panel_key: str, action: str) -> SafeString:
         url = reverse("admin_console_team", kwargs={"team_id": team.pk})
         return format_html(

@@ -35,6 +35,9 @@ export interface runnerPanelLogicActions {
     goBack: () => {
         value: true
     }
+    handOffToClassic: (prompt: string) => {
+        prompt: string
+    }
     setActiveCreation: (creation: ActiveCreation) => {
         creation: ActiveCreation
     }
@@ -82,6 +85,9 @@ export const runnerPanelLogic = kea<runnerPanelLogicType>([
         setHistoryExpanded: (expanded: boolean) => ({ expanded }),
         goBack: true,
         setCameFromHistory: (cameFromHistory: boolean) => ({ cameFromHistory }),
+        // The server refused a 2.0 send, and the host is about to swap this panel to classic PostHog AI.
+        // The host gives the prompt to classic as its draft.
+        handOffToClassic: (prompt: string) => ({ prompt }),
     }),
 
     reducers({

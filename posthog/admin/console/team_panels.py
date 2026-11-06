@@ -1,15 +1,18 @@
-from decimal import Decimal
+from typing import cast
 
 from django import forms
+from django.contrib import messages
+from django.db import IntegrityError, transaction
 from django.db.models import Model
+from django.http import HttpRequest, HttpResponse
 
-from posthog.admin.admins.team_admin import TeamAdmin
-from posthog.admin.console.bridge import AdminViewBridge
-from posthog.admin.console.panels import Fact, Operation, Owner, Panel, ReasonForm, Tone
+from posthog.admin.console.panels import Fact, Operation, Owner, Panel, Tone
 from posthog.admin.console.registry import console
-from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models.organization import OrganizationMembership
+from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 # The console shell owns the core panels until a team claims one.
 DEV_EXPERIENCE = Owner(name="Dev experience", crest="dev-experience")
@@ -65,18 +68,10 @@ class RemoteConfigPanel(Panel):
             Operation(
                 key="rebuild",
                 label="Rebuild cache",
-                handler=AdminViewBridge(Team, TeamAdmin.rebuild_cache),
+                handler=rebuild_remote_config_cache,
                 description="Recomputes the remote config for this team and writes it to Redis and S3.",
             )
         ]
-
-
-AI_GATEWAY = Owner(name="AI gateway", crest="ai-gateway")
-
-
-class AddCreditForm(forms.Form):
-    amount_usd = forms.DecimalField(label="Amount (USD)", min_value=Decimal("0.01"), decimal_places=2)
-    reason = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), help_text="Shown in the top-up history.")
 
 
 class SetApiTokenForm(forms.Form):
@@ -84,86 +79,30 @@ class SetApiTokenForm(forms.Form):
     reason = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), help_text="Goes into the audit log.")
 
 
-RECENT_TOP_UPS = 3
+def rebuild_remote_config_cache(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
+    assert isinstance(obj, Team)
+    RemoteConfig.rebuild_cache_for_team(obj)
+    messages.success(request, f"Cache rebuilt for team '{obj.name}' (token: {obj.api_token}).")
+    return None
 
 
-@console.register_panel
-class AIGatewayPanel(Panel):
-    record = "team"
-    key = "ai-gateway"
-    title = "AI gateway"
-    owner = AI_GATEWAY
-
-    def facts(self, obj: Model) -> list[Fact]:
-        assert isinstance(obj, Team)
-        if obj.llm_gateway_revoked_at:
-            access = Fact(label="Access", value="Revoked", tone=Tone.DESTRUCTIVE)
-        elif obj.llm_gateway_enabled_at:
-            access = Fact(label="Access", value="Enrolled", tone=Tone.SUCCESS)
-        else:
-            access = Fact(label="Access", value="Not enrolled", tone=Tone.DEFAULT)
-        facts = [access]
-        if obj.llm_gateway_enabled_at:
-            facts.append(Fact(label="Enrolled since", value=obj.llm_gateway_enabled_at.strftime("%b %-d, %Y")))
-        # The wallet balance is a blocking call to the gateway, so the page shows the local top-up log instead.
-        top_ups = (
-            ActivityLog.objects.filter(scope="AIGatewayCredit", team_id=obj.pk, activity="credit_added")
-            .select_related("user")
-            .order_by("-created_at")[:RECENT_TOP_UPS]
-        )
-        for entry in top_ups:
-            context = (entry.detail or {}).get("context", {})
-            who = entry.user.email if entry.user else "unknown"
-            facts.append(
-                Fact(
-                    label=f"Top-up {entry.created_at.strftime('%b %-d')}",
-                    value=f"${context.get('amount_usd', '?')} by {who}: {context.get('reason', '')}",
-                )
+def set_api_token(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
+    assert isinstance(obj, Team) and form is not None
+    try:
+        with transaction.atomic():
+            obj.set_token_and_save(
+                new_token=form.cleaned_data["new_token"],
+                user=cast(User, request.user),
+                is_impersonated_session=is_impersonated(request),
             )
-        return facts
-
-    def operations(self, obj: Model) -> list[Operation]:
-        assert isinstance(obj, Team)
-        operations = [
-            Operation(
-                key="add-credit",
-                label="Add credit",
-                handler=AdminViewBridge(Team, TeamAdmin.add_ai_gateway_credit_view),
-                description="Adds USD credit to the team's gateway wallet.",
-                form_class=AddCreditForm,
-            )
-        ]
-        if obj.llm_gateway_enabled_at is None:
-            operations.append(
-                Operation(
-                    key="enable",
-                    label="Enable access",
-                    handler=AdminViewBridge(Team, TeamAdmin.enable_ai_gateway_view),
-                    description="Lets the team send requests through the AI gateway.",
-                )
-            )
-        if obj.llm_gateway_revoked_at is None:
-            operations.append(
-                Operation(
-                    key="revoke",
-                    label="Revoke access",
-                    handler=AdminViewBridge(Team, TeamAdmin.revoke_ai_gateway_view),
-                    danger=True,
-                    description="Blocks the team's gateway requests until the revoke is cleared.",
-                    form_class=ReasonForm,
-                    undo_hint="To undo, use Clear revoke in the AI gateway panel.",
-                )
-            )
-        else:
-            operations.append(
-                Operation(
-                    key="clear-revoke",
-                    label="Clear revoke",
-                    handler=AdminViewBridge(Team, TeamAdmin.clear_ai_gateway_revoke_view),
-                    description="Lets the team's gateway requests through again.",
-                )
-            )
-        return operations
+    except ValueError as error:
+        messages.error(request, str(error))
+        return HttpResponse(status=400)
+    except IntegrityError:
+        messages.error(request, "Another team already owns this API token. Pick a different value.")
+        return HttpResponse(status=400)
+    messages.success(request, f"API token updated for team '{obj.name}'.")
+    return None
 
 
 @console.register_panel
@@ -183,7 +122,7 @@ class ApiTokenPanel(Panel):
             Operation(
                 key="set",
                 label="Set API token",
-                handler=AdminViewBridge(Team, TeamAdmin.set_api_token_view),
+                handler=set_api_token,
                 danger=True,
                 description="SDKs that still send the old token stop reaching this team.",
                 form_class=SetApiTokenForm,

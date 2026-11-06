@@ -253,31 +253,6 @@ export class InsightPage {
             .catch(() => undefined)
     }
 
-    async clickDeleteInsight(): Promise<void> {
-        // The delete button is rendered via createPortal into scenePanelElement.
-        // There are two portal targets: a hidden inline panel (Navigation.tsx,
-        // display: none for insights) and the visible side panel (SidePanelInfo).
-        // After opening the Info tab the portal content moves from the inline
-        // panel to the side panel via useEffect. Scope the locator to #side-panel
-        // so we wait for the button in the visible container, not the hidden one.
-        const deleteButton = this.page.locator('#side-panel').getByTestId('insight-delete')
-        await deleteButton.waitFor({ state: 'visible' })
-        await deleteButton.click()
-    }
-
-    async confirmDeleteDialog(): Promise<void> {
-        const dialog = this.page.locator('.LemonModal').filter({ hasText: 'Delete insight?' })
-        await expect(dialog).toBeVisible()
-        await dialog.getByRole('button', { name: 'Delete' }).click()
-    }
-
-    async cancelDeleteDialog(): Promise<void> {
-        const dialog = this.page.locator('.LemonModal').filter({ hasText: 'Delete insight?' })
-        await expect(dialog).toBeVisible()
-        await dialog.getByRole('button', { name: 'Cancel' }).click()
-        await expect(dialog).not.toBeVisible()
-    }
-
     async saveAsNew(name: string): Promise<void> {
         const originalUrl = this.page.url()
         await this.page.locator('[data-attr="insight-save-dropdown"]').click()
