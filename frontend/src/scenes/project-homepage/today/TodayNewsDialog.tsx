@@ -2,7 +2,16 @@ import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { IconTelescope } from '@posthog/icons'
-import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogTitle } from '@posthog/quill'
+import {
+    Button,
+    CardGroup,
+    Dialog,
+    DialogBody,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -41,37 +50,34 @@ export function TodayNewsDialog(): JSX.Element | null {
                 className="sm:max-w-4xl"
                 data-attr="today-news-dialog"
             >
+                <DialogHeader>
+                    <DialogTitle className="text-2xl tracking-tight">Today</DialogTitle>
+                    <DialogDescription className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                        <span>{currentTeam?.name ?? 'Your project'}</span>
+                        <span aria-hidden>·</span>
+                        <span translate="no">{today}</span>
+                        <span aria-hidden>·</span>
+                        <IconTelescope className="size-3.5 shrink-0" />
+                        <span>Edited by a scout.</span>
+                        <Button
+                            variant="link"
+                            size="inline"
+                            nativeButton={false}
+                            render={<LinkPrimitive to={urls.inbox('scouts')} />}
+                            onClick={closeNews}
+                            data-attr="today-news-create-scout"
+                        >
+                            Hire your own
+                        </Button>
+                    </DialogDescription>
+                </DialogHeader>
                 <DialogBody>
-                    <div className="@container flex flex-col gap-6 px-2 pt-2 pb-2">
-                        <header className="flex flex-col gap-2 border-b-4 border-double border-foreground pb-2">
-                            <DialogTitle className="m-0 text-center text-[3.5rem] leading-none font-bold tracking-tighter">
-                                Today
-                            </DialogTitle>
-                            <DialogDescription className="grid grid-cols-1 items-center gap-x-4 gap-y-1 font-mono text-xs tracking-wide uppercase @2xl:grid-cols-[1fr_auto_1fr]">
-                                <span className="truncate">{currentTeam?.name ?? 'Your project'}</span>
-                                <span className="flex items-center gap-1.5 @2xl:justify-center">
-                                    <IconTelescope className="size-3.5 shrink-0 text-foreground" />
-                                    <span>Editor in chief: a scout</span>
-                                    <span aria-hidden>·</span>
-                                    <Button
-                                        variant="link-foreground"
-                                        size="inline"
-                                        nativeButton={false}
-                                        render={<LinkPrimitive to={urls.inbox('scouts')} />}
-                                        onClick={closeNews}
-                                        data-attr="today-news-create-scout"
-                                    >
-                                        Hire your own
-                                    </Button>
-                                </span>
-                                <span translate="no" className="@2xl:text-right">
-                                    {today}
-                                </span>
-                            </DialogDescription>
-                        </header>
-                        <div className="grid gap-6 @3xl:grid-cols-[5fr_3fr]">
-                            <TodayNewsLead story={edition.lead} onDiveIn={() => diveIn(edition.lead, 0)} />
-                            <ul className="m-0 flex list-none flex-col p-0 @3xl:border-l @3xl:pl-6">
+                    <div className="@container flex flex-col gap-4">
+                        <div className="grid gap-4 @3xl:grid-cols-5">
+                            <div className="@3xl:col-span-3">
+                                <TodayNewsLead story={edition.lead} onDiveIn={() => diveIn(edition.lead, 0)} />
+                            </div>
+                            <CardGroup className="flex flex-col self-start @3xl:col-span-2">
                                 {edition.stories.map((story, index) => (
                                     <TodayNewsStoryRow
                                         key={story.id}
@@ -79,7 +85,7 @@ export function TodayNewsDialog(): JSX.Element | null {
                                         onDiveIn={() => diveIn(story, index + 1)}
                                     />
                                 ))}
-                            </ul>
+                            </CardGroup>
                         </div>
                         {edition.briefs.length > 0 ? <TodayNewsBriefs briefs={edition.briefs} /> : null}
                     </div>

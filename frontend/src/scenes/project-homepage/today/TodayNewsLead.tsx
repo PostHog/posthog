@@ -1,12 +1,12 @@
 import { Suspense, lazy } from 'react'
 
-import { Skeleton, cn } from '@posthog/quill'
+import { IconArrowRight } from '@posthog/icons'
+import { Heading, Skeleton, Text } from '@posthog/quill'
 
 import { retryImport } from 'lib/utils/retryImport'
 
 import type { NewsLeadStoryApi } from 'products/today/frontend/generated/api.schemas'
 
-import { TodayChange } from './TodayChange'
 import { TodayNewsKicker } from './TodayNewsKicker'
 
 const TodaySparkline = lazy(() =>
@@ -14,36 +14,35 @@ const TodaySparkline = lazy(() =>
 )
 
 export function TodayNewsLead({ story, onDiveIn }: { story: NewsLeadStoryApi; onDiveIn: () => void }): JSX.Element {
-    const hasChart = story.series.length > 1
-
     return (
         <button
             type="button"
             onClick={onDiveIn}
             aria-label={`Dive in: ${story.title}`}
-            className="group/story flex h-full w-full cursor-pointer flex-col gap-3 rounded-sm text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+            className="group/story -m-2 flex cursor-pointer flex-col gap-2 rounded-md p-2 text-start hover:bg-fill-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
             data-attr="today-news-dive-in"
         >
-            <TodayNewsKicker story={story} showChange={false} />
-            <h3 className="m-0 text-3xl leading-[1.1] font-bold tracking-tighter text-balance decoration-2 underline-offset-4 group-hover/story:underline">
+            <TodayNewsKicker story={story} />
+            <Heading size="xl" render={<h3 />} className="m-0">
                 {story.title}
-            </h3>
-            <p className="m-0 text-base text-pretty text-muted-foreground">{story.summary}</p>
-            <figure className={cn('m-0 mt-3 flex flex-col gap-3', hasChart && 'min-h-40 flex-1')}>
-                <figcaption className="flex items-baseline justify-between gap-4 border-t pt-2 font-mono text-xs tracking-wide text-muted-foreground uppercase">
-                    <span className="flex items-baseline gap-2">
-                        {story.metric_label ? <span>{story.metric_label}</span> : null}
+            </Heading>
+            <Text size="sm" variant="muted" render={<p />} className="m-0 text-pretty">
+                {story.summary}
+            </Text>
+            {story.series.length > 1 ? (
+                <span className="mt-2 flex flex-col gap-1">
+                    <Text size="xs" variant="muted" render={<span />}>
+                        {story.metric_label}
                         {story.metric_value ? (
-                            <span className="text-foreground" translate="no">
-                                {story.metric_value}
-                            </span>
+                            <>
+                                {' · '}
+                                <span className="font-medium text-foreground" translate="no">
+                                    {story.metric_value}
+                                </span>
+                            </>
                         ) : null}
-                        <TodayChange change={story.change} tone={story.tone} />
-                    </span>
-                    <span className="text-foreground group-hover/story:underline">Dive in</span>
-                </figcaption>
-                {hasChart ? (
-                    <span className="min-h-28 flex-1 border-b border-foreground">
+                    </Text>
+                    <span className="h-24">
                         <Suspense fallback={<Skeleton className="h-full w-full" />}>
                             <TodaySparkline
                                 values={story.series}
@@ -54,8 +53,12 @@ export function TodayNewsLead({ story, onDiveIn }: { story: NewsLeadStoryApi; on
                             />
                         </Suspense>
                     </span>
-                ) : null}
-            </figure>
+                </span>
+            ) : null}
+            <Text size="xs" render={<span />} className="mt-1 flex items-center gap-1 font-medium">
+                Dive in
+                <IconArrowRight className="size-3.5 transition-transform group-hover/story:translate-x-0.5 motion-reduce:transition-none" />
+            </Text>
         </button>
     )
 }
