@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from posthog.schema import AlertCondition, InsightThreshold
 
 from products.alerts.backend.facade.contracts import INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION
-from products.alerts.backend.platform_ownership import mirror_platform_edit
+from products.alerts.backend.platform_ownership import admit_platform_write, mirror_platform_edit
 from products.alerts_platform.backend.facade.contracts import (
     GroupingMode,
     InvalidPlatformAlertEdit,
@@ -63,6 +63,7 @@ def validate_insight_edit(edit: PlatformAlertConfigurationEdit) -> None:
 INSIGHT_SOURCE_CONFIG = SourceConfigSpec(
     model=InsightPlatformAlertSourceConfig,
     validate=validate_insight_edit,
+    admit=admit_platform_write,
     mirror=mirror_platform_edit,
     incident_event_ids=INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION,
 )

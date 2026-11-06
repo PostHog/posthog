@@ -259,8 +259,8 @@ class TestAcceptSuggestion(APIBaseTest):
         draft = make_draft(fingerprint="materialize:orders", subject_id=self.view.id)
         return ingest_surfaced(self.team.id, replace(draft, kind=WarehouseSuggestionKind.MATERIALIZE, payload=payload))
 
-    def _accept(self, suggestion_id: UUID, body: dict | None = None) -> dict:
-        response = self.client.post(f"{self.url}/{suggestion_id}/accept/", body or {})
+    def _accept(self, suggestion_id: UUID, body: dict | None = None, query: str = "") -> dict:
+        response = self.client.post(f"{self.url}/{suggestion_id}/accept/{query}", body or {})
         return {**response.json(), "http_status": response.status_code}
 
     def _certification_status(self) -> str | None:
@@ -292,10 +292,12 @@ class TestAcceptSuggestion(APIBaseTest):
         suggestion = self._suggest(WarehouseSuggestionKind.CERTIFY)
 
         with patch(REPORT) as report:
-            self._accept(suggestion.id)
+            self._accept(suggestion.id, query="?surface=models")
             self._accept(suggestion.id)
 
-        assert [call.args[0] for call in report.call_args_list] == ["warehouse suggestion accepted"]
+        assert [(call.args[0], call.args[1]["surface"]) for call in report.call_args_list] == [
+            ("warehouse suggestion accepted", "models")
+        ]
 
     @parameterized.expand(
         [
@@ -465,6 +467,31 @@ class TestAcceptSuggestion(APIBaseTest):
             if deleted
             else None
         )
+
+    @parameterized.expand(
+        [
+            ("mark_deprecated", {}, status.HTTP_403_FORBIDDEN),
+            ("delete", {"delete_view": True}, status.HTTP_200_OK),
+        ]
+    )
+    def test_a_catalog_viewer_can_delete_an_unused_view_but_not_mark_it_deprecated(
+        self, _name: str, body: dict, expected_http_status: int
+    ) -> None:
+        suggestion = self._suggest_deprecate()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        create_access_control(
+            team_id=self.team.id,
+            resource="data_catalog",
+            access_level="viewer",
+            organization_member_id=self.organization_membership.id,
+        )
+
+        accepted = self._accept(suggestion.id, body)
+
+        assert accepted["http_status"] == expected_http_status, accepted
 
     def test_a_second_accept_cannot_turn_a_deprecation_into_a_delete(self) -> None:
         suggestion = self._suggest_deprecate()
