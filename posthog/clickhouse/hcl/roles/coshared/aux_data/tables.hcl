@@ -117,6 +117,9 @@ database "posthog" {
     column "sending_domain" {
       type = "LowCardinality(String)"
     }
+    column "provider_message_id" {
+      type = "String"
+    }
   }
   table "_experiment_metric_events_preaggregated_columns" {
     abstract = true

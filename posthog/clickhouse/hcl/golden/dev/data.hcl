@@ -1283,6 +1283,9 @@ database "posthog" {
     column "sending_domain" {
       type = "LowCardinality(String)"
     }
+    column "provider_message_id" {
+      type = "String"
+    }
     column "_timestamp" {
       type = "DateTime"
     }

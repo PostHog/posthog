@@ -9,6 +9,7 @@ SELECT
   recipient,
   function_id,
   sending_domain,
+  provider_message_id,
   _timestamp,
   _offset,
   _partition
