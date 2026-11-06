@@ -8,7 +8,6 @@ export const GITHUB_ACTIONS: WorkloadProvider = {
     name: NAME,
     issuer: 'https://token.actions.githubusercontent.com',
     docsUrl: 'https://posthog.com/docs/api/workload-identity/github-actions',
-    // Depot CI sets GITHUB_ACTIONS too, and its token comes from another issuer.
     detect: (env) => env.GITHUB_ACTIONS === 'true' && !env.DEPOT_JOB_URL,
     fetchToken: (runtime, audience) => fetchActionsIdToken(runtime, audience, NAME),
     missingTokenHint:

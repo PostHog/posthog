@@ -82,8 +82,7 @@ class WorkloadProvider:
     # when the provider has no API PostHog can ask.
     resolve_subject: SubjectResolver | None = None
     condition_presets: tuple[ConditionPreset, ...] = ()
-    # The CI config that gives a job its OIDC token and points hog at the project, with SNIPPET_HOST and
-    # SNIPPET_PROJECT_ID where the values go.
+    # The CI config a job needs, with SNIPPET_HOST and SNIPPET_PROJECT_ID where the values go.
     setup_snippet: str = ""
 
     def setup_snippet_for(self, *, host: str, project_id: int) -> str:

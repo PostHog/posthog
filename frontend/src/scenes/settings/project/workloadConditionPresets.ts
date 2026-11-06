@@ -15,36 +15,35 @@ export interface WorkloadConditionRow {
 
 export interface WorkloadConditionsResult {
     conditions: Record<string, string>
-    /** Set when two rows ask for different values of one claim, so the policy could never match. */
     conflict?: string
+}
+
+// The claims a row sets. A row whose field is still empty sets none, and the backend drops empty values anyway.
+function rowConditions(row: WorkloadConditionRow, provider: WorkloadProviderApi | null): [string, string][] {
+    const value = row.value.trim()
+    const preset = provider?.condition_presets.find((candidate) => candidate.key === row.preset)
+    if (preset) {
+        return preset.takes_value && !value
+            ? []
+            : Object.entries(preset.conditions).map(([claim, template]) => [
+                  claim,
+                  template.replace(PRESET_VALUE, () => value),
+              ])
+    }
+    return row.claim && value ? [[row.claim, value]] : []
 }
 
 export function conditionsFromRows(
     rows: WorkloadConditionRow[],
     provider: WorkloadProviderApi | null
 ): WorkloadConditionsResult {
-    const labels = Object.fromEntries((provider?.condition_claims ?? []).map((claim) => [claim.name, claim.label]))
     const conditions: Record<string, string> = {}
-    for (const row of rows) {
-        const preset = provider?.condition_presets.find((candidate) => candidate.key === row.preset)
-        const entries: [string, string][] = preset
-            ? Object.entries(preset.conditions).map(([claim, template]) => [
-                  claim,
-                  template.replace(PRESET_VALUE, () => row.value.trim()),
-              ])
-            : row.claim
-              ? [[row.claim, row.value.trim()]]
-              : []
-        for (const [claim, value] of entries) {
-            // An empty value means the row isn't filled in yet, and the backend drops empty conditions.
-            if (!value || (preset?.takes_value && !row.value.trim())) {
-                continue
-            }
-            if (claim in conditions && conditions[claim] !== value) {
-                return { conditions, conflict: `Two conditions ask for different values of ${labels[claim] ?? claim}.` }
-            }
-            conditions[claim] = value
+    for (const [claim, value] of rows.flatMap((row) => rowConditions(row, provider))) {
+        if (claim in conditions && conditions[claim] !== value) {
+            const label = provider?.condition_claims.find((candidate) => candidate.name === claim)?.label ?? claim
+            return { conditions, conflict: `Two conditions ask for different values of ${label}.` }
         }
+        conditions[claim] = value
     }
     return { conditions }
 }
