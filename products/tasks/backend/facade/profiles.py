@@ -22,12 +22,6 @@ class DrivePolicy(StrEnum):
     NONE = "none"
 
 
-class AccessGate(StrEnum):
-    DESKTOP_CODE = "desktop_code"
-    INBOX = "inbox"
-    NONE = "none"
-
-
 class GithubResolution(StrEnum):
     ALWAYS = "always"
     WITH_REPOSITORY = "with_repository"
@@ -48,6 +42,7 @@ class PrAuthorship(StrEnum):
 class WarmQuota(StrEnum):
     NONE = "none"
     AI_CREDITS = "ai_credits"
+    POSTHOG_AI = "posthog_ai"
 
 
 class GithubAccess(StrEnum):
@@ -148,9 +143,6 @@ class TaskProfile:
     # AUDIENCE means anyone who can read the task, such as the people in a Slack thread.
     # NONE means nobody, for tasks that finish on their own.
     drive: DrivePolicy
-    # A check on the person that runs at create and again on every wake. DESKTOP_CODE requires
-    # PostHog Code access in the organization. INBOX requires inbox access. NONE runs no check.
-    access_gate: AccessGate
     # The most queued or running tasks one person may have on this profile at once. Create and
     # wake refuse at the cap. None means no cap.
     max_live_per_user: int | None
@@ -311,7 +303,6 @@ _ORIGIN_SCOPED_FIELDS = (
     "read_without_channel",
     "drive",
     "api_visible",
-    "access_gate",
     "idle_minutes",
     "max_wake_minutes",
     "warm",

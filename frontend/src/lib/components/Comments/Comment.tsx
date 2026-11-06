@@ -187,7 +187,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
 }
 
 const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
-    const { disabledReasonFor } = useValues(commentsLogic)
+    const { disabledReasonFor, sendToSlackDisabledReasonFor } = useValues(commentsLogic)
     const { deleteComment, setEditingComment, sendEmojiReaction, setReplyingComment } = useActions(commentsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openModal } = useActions(sendCommentToSlackLogic)
@@ -261,6 +261,7 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
                                       icon: <IconSlack />,
                                       label: 'Send to Slack',
                                       onClick: () => openModal(comment),
+                                      disabledReason: sendToSlackDisabledReasonFor(comment),
                                   },
                               ]
                             : []),

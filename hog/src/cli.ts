@@ -224,7 +224,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
             if (render && !globals.raw) {
                 render({ result, out, args, options })
             } else if (result !== undefined) {
-                out.json(result)
+                out.json(globals.raw && node.raw ? node.raw(result) : result)
             }
             state.exitCode = node.exitCode?.(result) ?? 0
             state.properties = {

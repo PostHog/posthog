@@ -24,6 +24,7 @@ from posthog.api.event_definition_generators.base import EventDefinitionGenerato
 from posthog.api.event_definition_generators.golang import GolangGenerator
 from posthog.api.event_definition_generators.python import PythonGenerator
 from posthog.api.event_definition_generators.typescript import TypeScriptGenerator
+from posthog.api.object_media_preview import visible_previews, with_preview_media
 from posthog.api.pagination import CappedCountLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -44,7 +45,7 @@ from posthog.constants import EventDefinitionType
 from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import EventDefinition, ObjectMediaPreview, TaggedItem, Team
+from posthog.models import ObjectMediaPreview, TaggedItem, Team
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
 from posthog.models.tagged_item_registry import content_type_for
 from posthog.models.user import User
@@ -67,6 +68,7 @@ from posthog.taxonomy.scout_writes import check_scout_event_definition_write
 from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
+from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
@@ -782,12 +784,10 @@ class EventDefinitionViewSet(
             event_ids = [obj.id for obj in objects]
             media_map: dict[str, list[str]] = defaultdict(list)
             if event_ids:
-                previews = (
+                previews = with_preview_media(
                     ObjectMediaPreview.objects.filter(event_definition_id__in=event_ids)
-                    .select_related("uploaded_media", "exported_asset")
-                    .order_by("-updated_at")
-                )
-                for p in previews:
+                ).order_by("-updated_at")
+                for p in visible_previews(previews, self):
                     if p.media_url:
                         media_map[str(p.event_definition_id)].append(p.media_url)
 
