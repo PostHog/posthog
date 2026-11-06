@@ -43,8 +43,8 @@ export interface SandboxEmailSenderConfig {
     tenantName: string
     configurationSetName: string
     fromAddress: string
-    dailyTeamCap: string
-    dailyRecipientCap: string
+    dailyTeamCap: number
+    dailyRecipientCap: number
 }
 
 const ROUTE_SETTING_NAMES = {
@@ -85,9 +85,8 @@ function dailyBucket(key: string, requested: number, capacity: number): ClaimReq
     return { key, requested, capacity, refillPerSecond: capacity / SECONDS_PER_DAY, ttlSeconds: DAILY_CAP_TTL_SECONDS }
 }
 
-function parseDailyCap(value: string): number | null {
-    const cap = /^\d+$/.test(value) ? Number(value) : null
-    return cap !== null && Number.isSafeInteger(cap) && cap > 0 ? cap : null
+function validDailyCap(cap: number): number | null {
+    return Number.isSafeInteger(cap) && cap > 0 ? cap : null
 }
 
 function dailyCapKeyPrefix(organizationId: string): string {
@@ -578,7 +577,7 @@ export function sandboxBlockedEventRedisConfig(connection: RedisConnectionConfig
 
 export class SandboxEmailSender {
     public readonly canSend: boolean
-    private dailyCaps: { team: number; recipient: number } | null
+    private readonly dailyCaps: { team: number; recipient: number } | null
 
     constructor(
         public readonly config: SandboxEmailSenderConfig,
@@ -599,16 +598,20 @@ export class SandboxEmailSender {
             })
         }
         this.canSend = this.config.enabled && !emptySettings.length
-        const team = parseDailyCap(config.dailyTeamCap)
-        const recipient = parseDailyCap(config.dailyRecipientCap)
-        this.dailyCaps = dailyCapLimiter && team !== null && recipient !== null ? { team, recipient } : null
+        const team = validDailyCap(config.dailyTeamCap)
+        const recipient = validDailyCap(config.dailyRecipientCap)
+        this.dailyCaps = team !== null && recipient !== null ? { team, recipient } : null
         if (this.config.enabled && !this.dailyCaps) {
             logger.error('Sandbox email daily caps are not configured correctly, so every cap check fails')
         }
     }
 
     public async claimDailyCaps(teamId: number, recipients: string[]): Promise<SandboxDailyCapClaim> {
-        if (!this.dailyCapLimiter || !this.dailyCaps) {
+        if (!this.dailyCapLimiter) {
+            logger.warn('Sandbox email daily caps have no Valkey pool on this consumer, so the cap check fails')
+            return { type: 'check_failed' }
+        }
+        if (!this.dailyCaps) {
             return { type: 'check_failed' }
         }
         const { team: dailyTeamCap, recipient: dailyRecipientCap } = this.dailyCaps

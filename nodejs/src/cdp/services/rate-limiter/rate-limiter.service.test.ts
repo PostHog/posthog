@@ -8,9 +8,8 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { TeamManager } from '~/common/utils/team-manager'
 import { Hub } from '~/types'
 
-import { createSandboxDailyCapLimiter } from '../../cdp-services'
 import { getDefaultCdpConfig } from '../../config'
-import { createEmailActionValkeys } from '../../email-action-valkeys'
+import { createSandboxEmailCapValkey } from '../../email-action-valkeys'
 import { SandboxEmailSender } from '../messaging/sandbox-email-sender'
 import { createSesRateLimiterValkeyPool } from './rate-limiter-valkey-pool'
 import { ClaimRequest, IssuedClaim, RateLimiterService } from './rate-limiter.service'
@@ -381,8 +380,8 @@ describe('RateLimiterService', () => {
                 tenantName: 'sandbox',
                 configurationSetName: 'sandbox',
                 fromAddress: 'sender@example.com',
-                dailyTeamCap: '1',
-                dailyRecipientCap: '1',
+                dailyTeamCap: 1,
+                dailyRecipientCap: 1,
             },
             teamManager,
             redis,
@@ -411,8 +410,8 @@ describe('RateLimiterService', () => {
                     tenantName: 'sandbox',
                     configurationSetName: 'sandbox',
                     fromAddress: 'sender@example.com',
-                    dailyTeamCap: '3',
-                    dailyRecipientCap: '1',
+                    dailyTeamCap: 3,
+                    dailyRecipientCap: 1,
                 },
                 teamManager,
                 redis,
@@ -591,71 +590,62 @@ describe('RateLimiterService', () => {
             }
         })
 
-        it.each([
-            ['the email worker wiring', {}],
-            ['the email worker wiring without the bounded cap pool', { sandboxEmailCapValkey: undefined }],
-        ])(
-            'fails a sandbox cap claim closed and returns its claim when Valkey stops answering scripts, through %s',
-            async (_case, override) => {
-                const stalledValkey: Server = createServer((socket) =>
-                    socket.on('data', (data) => {
-                        if (!/eval/i.test(data.toString())) {
-                            socket.write('$0\r\n\r\n'.repeat(data.toString().match(/^\*\d+\r$/gm)?.length ?? 1))
-                        }
-                    })
-                )
-                await new Promise<void>((resolve) => stalledValkey.listen(0, '127.0.0.1', resolve))
-                const workerValkeys = createEmailActionValkeys({
-                    ...getDefaultCdpConfig(),
-                    SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
-                    SES_RATE_LIMITER_VALKEY_PORT: (stalledValkey.address() as AddressInfo).port,
-                    SES_RATE_LIMITER_VALKEY_PASSWORD: '',
-                    SES_RATE_LIMITER_VALKEY_TLS: false,
-                    CDP_FREQUENCY_CAP_VALKEY_HOST: '',
-                    REDIS_POOL_MIN_SIZE: 0,
-                    REDIS_POOL_MAX_SIZE: 1,
-                    WORKFLOWS_SANDBOX_SENDER_ENABLED: true,
+        it('fails a sandbox cap claim closed and returns its claim when Valkey stops answering scripts', async () => {
+            const stalledValkey: Server = createServer((socket) =>
+                socket.on('data', (data) => {
+                    if (!/eval/i.test(data.toString())) {
+                        socket.write('$0\r\n\r\n'.repeat(data.toString().match(/^\*\d+\r$/gm)?.length ?? 1))
+                    }
                 })
-                const teamManager = {
-                    getTeam: () => Promise.resolve({ organization_id: randomUUID() }),
-                } as unknown as TeamManager
-                const { sandboxEmailCapValkey } = { ...workerValkeys, ...override }
-                const sender = new SandboxEmailSender(
-                    {
-                        enabled: true,
-                        tenantName: 'sandbox',
-                        configurationSetName: 'sandbox',
-                        fromAddress: 'sender@example.com',
-                        dailyTeamCap: '1',
-                        dailyRecipientCap: '1',
-                    },
-                    teamManager,
-                    redis,
-                    createSandboxDailyCapLimiter({ sandboxEmailCapValkey })
+            )
+            await new Promise<void>((resolve) => stalledValkey.listen(0, '127.0.0.1', resolve))
+            const { sandboxEmailCapValkey } = createSandboxEmailCapValkey({
+                ...getDefaultCdpConfig(),
+                SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
+                SES_RATE_LIMITER_VALKEY_PORT: (stalledValkey.address() as AddressInfo).port,
+                SES_RATE_LIMITER_VALKEY_PASSWORD: '',
+                SES_RATE_LIMITER_VALKEY_TLS: false,
+                REDIS_POOL_MIN_SIZE: 0,
+                REDIS_POOL_MAX_SIZE: 1,
+                WORKFLOWS_SANDBOX_SENDER_ENABLED: true,
+            })
+            const teamManager = {
+                getTeam: () => Promise.resolve({ organization_id: randomUUID() }),
+            } as unknown as TeamManager
+            const sender = new SandboxEmailSender(
+                {
+                    enabled: true,
+                    tenantName: 'sandbox',
+                    configurationSetName: 'sandbox',
+                    fromAddress: 'sender@example.com',
+                    dailyTeamCap: 1,
+                    dailyRecipientCap: 1,
+                },
+                teamManager,
+                redis,
+                new RateLimiterService(sandboxEmailCapValkey!, { name: 'sandbox-email' })
+            )
+            const bucket = { key: `${KEY}/stalled`, requested: 1, capacity: 1, refillPerSecond: 0 }
+            try {
+                expect(await sender.claimDailyCaps(1, ['member@example.com'])).toEqual({ type: 'check_failed' })
+                await expect(
+                    sender.returnDailyCaps({
+                        type: 'granted',
+                        claim: {
+                            granted: true,
+                            claimId: 'stalled-claim',
+                            returnBy: Date.now() + 60_000,
+                            buckets: [bucket],
+                        },
+                    })
+                ).resolves.toBeUndefined()
+            } finally {
+                await sandboxEmailCapValkey!.useClient({ name: 'test:close-stalled-valkey' }, (client) =>
+                    Promise.resolve(client.disconnect())
                 )
-                const bucket = { key: `${KEY}/stalled`, requested: 1, capacity: 1, refillPerSecond: 0 }
-                try {
-                    expect(await sender.claimDailyCaps(1, ['member@example.com'])).toEqual({ type: 'check_failed' })
-                    await expect(
-                        sender.returnDailyCaps({
-                            type: 'granted',
-                            claim: {
-                                granted: true,
-                                claimId: 'stalled-claim',
-                                returnBy: Date.now() + 60_000,
-                                buckets: [bucket],
-                            },
-                        })
-                    ).resolves.toBeUndefined()
-                } finally {
-                    await sandboxEmailCapValkey?.useClient({ name: 'test:close-stalled-valkey' }, (client) =>
-                        Promise.resolve(client.disconnect())
-                    )
-                    await new Promise<void>((resolve) => stalledValkey.close(() => resolve()))
-                }
-            },
-            10_000
-        )
+                await new Promise<void>((resolve) => stalledValkey.close(() => resolve()))
+            }
+        }, 10_000)
 
         it('stops sending commands to a connected Valkey that no longer replies once one command times out', async () => {
             const valkey = stallingValkey()

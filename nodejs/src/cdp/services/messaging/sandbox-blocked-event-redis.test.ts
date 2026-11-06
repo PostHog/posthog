@@ -81,8 +81,8 @@ function senderOn(
             tenantName: 'sandbox',
             configurationSetName: 'sandbox',
             fromAddress: 'sender@example.com',
-            dailyTeamCap: '1',
-            dailyRecipientCap: '1',
+            dailyTeamCap: 1,
+            dailyRecipientCap: 1,
         },
         { getTeam } as unknown as TeamManager,
         createRedisV2PoolFromConfig(
