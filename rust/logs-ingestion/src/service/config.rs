@@ -21,7 +21,8 @@ pub const NODE_DEFAULT_CONFIG_CONSUMER_KEYS: &[&str] = &[];
 pub const SHADOW_MODE_KEY: &str = "LOGS_RUST_SHADOW_MODE";
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(60);
 
-const PRODUCER_KEYS: &[(&str, &str)] = &[
+/// The rdkafka key and env suffix of each `*_PRODUCER_CONFIG_MAP` entry.
+pub const PRODUCER_KEYS: &[(&str, &str)] = &[
     ("client.id", "CLIENT_ID"),
     ("metadata.broker.list", "METADATA_BROKER_LIST"),
     ("security.protocol", "SECURITY_PROTOCOL"),
