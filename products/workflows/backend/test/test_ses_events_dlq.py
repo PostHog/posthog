@@ -24,6 +24,7 @@ from products.workflows.backend.services.ses_events_dlq import (
 )
 
 QUEUE = DlqQueue(url="https://sqs.eu-central-1.amazonaws.com/000000000000/ses-events-posthog-messaging-dlq")
+WEBHOOK_URL = "http://cdp-api-webhooks.cdp-api-webhooks.svc.cluster.local/public/m/ses_webhook"
 
 
 def tracking_code(team_id: int) -> str:
@@ -368,19 +369,25 @@ class TestReplaySesEventsDlq(SimpleTestCase):
 
 
 class TestPostToWebhook(SimpleTestCase):
-    @override_settings(
-        SES_EVENTS_REPLAY_WEBHOOK_URL="http://cdp-api-webhooks.cdp-api-webhooks.svc.cluster.local/public/m/ses_webhook"
-    )
-    def test_posts_without_the_egress_proxy(self) -> None:
+    @override_settings(SES_EVENTS_REPLAY_WEBHOOK_URL=WEBHOOK_URL)
+    def test_posts_the_unchanged_body_as_text_without_the_egress_proxy(self) -> None:
         # Django pods get Smokescreen in HTTP_PROXY, and Smokescreen refuses cluster-local hosts.
+        # The webhook reads the body with express.text() and checks the SNS signature over it, so a
+        # JSON body or a re-serialized envelope breaks every replay.
+        body = sns_message("a")["Body"]
         response = requests.Response()
         response.status_code = 200
         with patch.object(ses_events_dlq.internal_requests, "post", return_value=response) as post:
-            status = ses_events_dlq.post_to_webhook("{}")
+            status = ses_events_dlq.post_to_webhook(body)
 
         assert status == 200
         assert ses_events_dlq.internal_requests.trust_env is False
-        post.assert_called_once()
+        post.assert_called_once_with(
+            WEBHOOK_URL,
+            data=body.encode(),
+            headers={"Content-Type": "text/plain; charset=UTF-8", "x-amz-sns-message-type": "Notification"},
+            timeout=ses_events_dlq.WEBHOOK_TIMEOUT_SECONDS,
+        )
 
 
 class TestSummarizeDlqMessage(SimpleTestCase):
