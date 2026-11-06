@@ -459,13 +459,14 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
     @parameterized.expand(
         [
             (operation, scope, selected_blocked, allowed_ip)
-            for operation in ("create", "roll", "rescope", "partial_rescope")
+            for operation in ("create", "roll", "rescope", "partial_rescope", "expiry")
             for scope in ("organization", "team", "mixed", "unscoped", "unrelated", "legacy_unscoped", "narrow")
             for selected_blocked in (False, True)
             for allowed_ip in (False, True)
             if scope != "legacy_unscoped" or operation == "roll"
             if scope != "narrow" or (operation == "rescope" and not allowed_ip)
             if operation != "partial_rescope" or (scope == "organization" and not selected_blocked)
+            if operation != "expiry" or (scope == "organization" and not selected_blocked)
         ]
     )
     @override_settings(IS_BEHIND_PROXY=False, TRUST_ALL_PROXIES=False)
@@ -494,22 +495,24 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             secure_value=hash_key_value(value),
             mask_value=mask_key_value(value),
             scopes=["insight:read"],
+            expires_at=timezone.now() - timedelta(hours=1) if operation == "expiry" else None,
             scoped_organizations=None
             if scope == "legacy_unscoped"
             else [str(restricted_org.id)]
-            if operation == "partial_rescope" or scope == "narrow"
+            if operation in ("partial_rescope", "expiry") or scope == "narrow"
             else [str(self.organization.id)]
             if operation != "roll"
             else organization_ids,
             scoped_teams=None if scope == "legacy_unscoped" else [] if operation != "roll" else team_ids,
         )
         original_hash = key.secure_value
+        original_expiry = key.expires_at
         original_organizations = key.scoped_organizations
         original_teams = key.scoped_teams
         original_count = PersonalAPIKey.objects.count()
         ip = "203.0.113.7" if allowed_ip else "198.51.100.7"
-        payload: dict[str, object] = {"scopes": ["insight:read"]}
-        if operation != "partial_rescope":
+        payload: dict[str, object] = {"expires_at": None} if operation == "expiry" else {"scopes": ["insight:read"]}
+        if operation not in ("partial_rescope", "expiry"):
             payload.update(scoped_organizations=organization_ids, scoped_teams=team_ids)
         if operation == "create":
             response = self.client.post(
@@ -530,6 +533,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             self.assertNotIn("value", response.json())
             self.assertEqual(PersonalAPIKey.objects.count(), original_count)
             self.assertEqual(key.secure_value, original_hash)
+            self.assertEqual(key.expires_at, original_expiry)
             self.assertIsNone(key.last_rolled_at)
             self.assertEqual(key.scoped_organizations, original_organizations)
             self.assertEqual(key.scoped_teams, original_teams)
@@ -542,6 +546,9 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         else:
             self.assertEqual(key.scoped_organizations, organization_ids)
             self.assertEqual(key.scoped_teams, team_ids)
+            if operation == "expiry":
+                self.assertIsNone(key.expires_at)
+                self.assertEqual(key.secure_value, original_hash)
 
     @parameterized.expand(
         [

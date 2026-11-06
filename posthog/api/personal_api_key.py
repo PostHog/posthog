@@ -267,7 +267,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         return personal_api_key
 
     def update(self, instance: PersonalAPIKey, validated_data: dict) -> PersonalAPIKey:
-        if {"scopes", "scoped_teams", "scoped_organizations"}.intersection(validated_data):
+        if {"scopes", "scoped_teams", "scoped_organizations", "expires_at"}.intersection(validated_data):
             enforce_credential_ip_restrictions(
                 self.context["request"],
                 validated_data.get("scoped_organizations", instance.scoped_organizations),
