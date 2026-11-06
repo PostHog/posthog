@@ -434,8 +434,11 @@ def enforce_credential_ip_restrictions(
         )
     if not scoped_organization_ids and not scoped_team_ids:
         organization_ids = {str(org_id) for org_id in user.organizations.values_list("id", flat=True)}
-    for organization_id in organization_ids:
-        enforce_ip_restrictions(request, user, request.successful_authenticator, organization_id=organization_id)
+    blocked_organizations = organization_ids & get_ip_blocked_organization_ids(request)
+    if blocked_organizations:
+        enforce_ip_restrictions(
+            request, user, request.successful_authenticator, organization_id=next(iter(blocked_organizations))
+        )
 
 
 def enforce_ip_restrictions(

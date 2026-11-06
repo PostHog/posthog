@@ -217,6 +217,14 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
         return scoped_organizations
 
+    def validate(self, attrs: dict) -> dict:
+        enforce_credential_ip_restrictions(
+            self.context["request"],
+            attrs.get("scoped_organizations", getattr(self.instance, "scoped_organizations", None)),
+            attrs.get("scoped_teams", getattr(self.instance, "scoped_teams", None)),
+        )
+        return attrs
+
     def create(self, validated_data: dict, **kwargs) -> PersonalAPIKey:
         request = self.context["request"]
         user = request.user
