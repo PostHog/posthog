@@ -69,6 +69,13 @@ class TestSurveyCreatorTool(BaseTest):
         assert "default_settings" in config
         assert config["default_settings"]["type"] == "popover"
 
+    def test_build_appearance_sanitizes_team_html(self):
+        from products.surveys.backend.max_tools import _build_appearance
+
+        self.team.survey_config = {"appearance": {"thankYouMessageHeader": "<script>alert(1)</script>Thanks"}}
+
+        assert _build_appearance(self.team)["thankYouMessageHeader"] == "Thanks"
+
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_arun_impl_success(self):

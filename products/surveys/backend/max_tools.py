@@ -22,7 +22,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
 from products.approvals.backend.exceptions import ApprovalRequired
-from products.surveys.backend.api.survey import SurveySerializerCreateUpdateOnly
+from products.surveys.backend.api.survey import SurveySerializerCreateUpdateOnly, sanitize_survey_appearance
 from products.surveys.backend.models import MAX_ITERATION_COUNT, MAX_ITERATION_FREQUENCY_DAYS, Survey
 from products.surveys.backend.summarization.fetch import fetch_responses
 
@@ -236,7 +236,7 @@ def _build_appearance(team: Team) -> dict[str, Any]:
     if not team.organization.is_feature_available(AvailableFeature.WHITE_LABELLING):
         # A default saved while the organization had white labelling would fail every create
         appearance.pop("whiteLabel", None)
-    return appearance
+    return sanitize_survey_appearance(appearance)
 
 
 URL_MATCH_ALIASES: dict[str, str] = {
