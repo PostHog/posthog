@@ -9665,6 +9665,11 @@ export interface UserUIConfiguration {
     sql_editor?: SQLEditorConfiguration
     analytics_list?: AnalyticsListDisplayConfiguration
     ticket_sidebar?: TicketSidebarConfiguration
+    /**
+     * The query in the ticket sidebar's SQL editor. An absent value means the default query.
+     * @maxLength 10000
+     */
+    ticket_sidebar_sql_query?: string
     [key: string]: unknown
 }
 

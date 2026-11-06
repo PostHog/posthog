@@ -18,6 +18,7 @@ import { TicketActivityPanel } from '../../scenes/ticket/TicketActivityPanel'
 import { TicketAiTracesPanel } from '../TicketAiTracesPanel/TicketAiTracesPanel'
 import { TicketSidebarWidgetSlot, TicketSidebarWidgetSlots } from '../TicketSidebarWidgets/ticketSidebarLayout'
 import { TicketSidebarWidgets } from '../TicketSidebarWidgets/TicketSidebarWidgets'
+import { TicketSqlEditorPanel } from '../TicketSqlEditorPanel/TicketSqlEditorPanel'
 
 const WIDGET_TICKET_ONLY = 'Only shows on tickets from the in-app widget.'
 
@@ -79,6 +80,13 @@ export function SupportTicketSidebarWidgets({ ticketId }: { ticketId: string }):
                   },
               }
             : {}),
+        sql_editor: {
+            content:
+                person?.uuid && ticket?.distinct_id ? (
+                    <TicketSqlEditorPanel personId={person.uuid} distinctId={ticket.distinct_id} />
+                ) : null,
+            unavailableReason: 'This ticket has no linked person.',
+        },
         previous_tickets: widgetTicketOnlySlot(
             isWidgetTicket,
             <PreviousTicketsPanel

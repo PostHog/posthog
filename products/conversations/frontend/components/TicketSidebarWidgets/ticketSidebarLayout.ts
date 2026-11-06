@@ -9,6 +9,7 @@ export type TicketSidebarWidgetKey =
     | 'recent_events'
     | 'exceptions'
     | 'ai_traces'
+    | 'sql_editor'
     | 'previous_tickets'
     | 'activity'
 
@@ -54,6 +55,11 @@ export const TICKET_SIDEBAR_WIDGETS: TicketSidebarWidgetDefinition[] = [
         key: 'ai_traces',
         title: 'AI traces',
         description: "The customer's AI traces from the last 30 days.",
+    },
+    {
+        key: 'sql_editor',
+        title: 'SQL editor',
+        description: "Run a SQL query about the ticket's customer.",
     },
     {
         key: 'previous_tickets',

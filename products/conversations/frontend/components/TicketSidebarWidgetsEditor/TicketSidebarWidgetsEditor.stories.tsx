@@ -22,6 +22,7 @@ const slots: TicketSidebarWidgetSlots = {
     recent_events: { content: placeholder },
     exceptions: { content: placeholder },
     ai_traces: { content: placeholder },
+    sql_editor: { content: placeholder },
     previous_tickets: { content: placeholder },
     activity: { content: placeholder },
 }

@@ -58270,6 +58270,11 @@
                 "ticket_sidebar": {
                     "$ref": "#/definitions/TicketSidebarConfiguration"
                 },
+                "ticket_sidebar_sql_query": {
+                    "description": "The query in the ticket sidebar's SQL editor. An absent value means the default query.",
+                    "maxLength": 10000,
+                    "type": "string"
+                },
                 "version": {
                     "description": "Schema version of this configuration blob, for future format migrations.",
                     "type": "integer"
