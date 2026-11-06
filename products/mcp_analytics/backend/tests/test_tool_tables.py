@@ -715,7 +715,7 @@ class TestMCPToolNeighborsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhou
         self, _name: str, direction: NeighborDirection, expected: dict[str, int]
     ) -> None:
         now = datetime.now(tz=UTC)
-        conversations = {
+        conversations: dict[str, list[str | None]] = {
             # The target repeats, back to back and again at the end: each occurrence counts, but
             # never as its own neighbor.
             "conv1": ["tool_a", "query_run", "query_run", "tool_b", "query_run"],

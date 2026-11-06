@@ -107,6 +107,7 @@ _ToolDetailQuery = (
     | MCPToolDescriptionsQuery
     | MCPToolFailureOccurrencesQuery
     | MCPToolFailuresQuery
+    | MCPToolNeighborsQuery
     | MCPToolSampleIntentsQuery
     | MCPToolStatsQuery
     | MCPToolTopUsersQuery
