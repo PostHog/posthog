@@ -193,11 +193,9 @@ def list_configurations(
     offset: int,
     legacy_configuration_id: UUID | None = None,
     configuration_ids: Collection[UUID] | None = None,
-    native_only: bool = False,
 ) -> PlatformAlertConfigurationPage:
     """One page of configurations a caller may read, with the total behind it. With a
-    `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those.
-    With `native_only`, only the ones with no source row."""
+    `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those."""
     return platform_reads.list_configurations(
         team_id=team_id,
         source_kinds=source_kinds,
@@ -205,7 +203,16 @@ def list_configurations(
         offset=offset,
         legacy_configuration_id=legacy_configuration_id,
         configuration_ids=configuration_ids,
-        native_only=native_only,
+    )
+
+
+def list_native_configurations(
+    *, team_id: int, source_kind: SourceKind, created_by_uuid: UUID | None = None
+) -> tuple[PlatformAlertConfigurationView, ...]:
+    """Every alert of a kind with no source row, newest first. A source that keeps rows for its other
+    alerts lists these beside them. With `created_by_uuid`, only the ones that user created."""
+    return platform_reads.list_native_configurations(
+        team_id=team_id, source_kind=source_kind.value, created_by_uuid=created_by_uuid
     )
 
 
