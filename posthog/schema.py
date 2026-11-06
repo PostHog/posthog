@@ -3624,6 +3624,10 @@ class UserUIConfiguration(BaseModel):
     analytics_list: AnalyticsListDisplayConfiguration | None = None
     sql_editor: SQLEditorConfiguration | None = None
     ticket_sidebar: TicketSidebarConfiguration | None = None
+    ticket_sidebar_sql_query: constr(max_length=10000) | None = Field(
+        default=None,
+        description=("The query in the ticket sidebar's SQL editor. An absent value means the default query."),
+    )
     version: int = Field(
         ...,
         description=("Schema version of this configuration blob, for future format migrations."),

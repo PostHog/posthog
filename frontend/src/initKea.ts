@@ -148,6 +148,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     requestSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     loadTracePullRequest: 'products.ai_observability.frontend.redesign.trace.traceGitPullRequestLogic', // The trace view's git chip stays plain when the read fails
     loadResult: 'products.conversations.frontend.components.TicketAiTracesPanel.ticketAiTracesLogic', // The AI traces widget shows its own retry
+    runQuery: 'products.conversations.frontend.components.TicketSqlEditorPanel.ticketSqlEditorLogic', // The SQL editor widget shows the error under the editor
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.
