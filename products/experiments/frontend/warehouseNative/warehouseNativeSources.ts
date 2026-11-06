@@ -58,23 +58,50 @@ export function getWarehouseNativeBinding(metric: ExperimentMetric): WarehouseNa
     return source ? { connection_id: source.connection_id, unit: source.unit } : EMPTY_WAREHOUSE_NATIVE_BINDING
 }
 
+export type MetricDataSources = { warehouseNative: boolean; posthog: boolean }
+
+/** Which data sources the metric queries read. A query of another kind than `ExperimentMetric` reads PostHog data. */
+export function getMetricDataSources(queries: ({ kind: NodeKind } | null | undefined)[]): MetricDataSources {
+    const present = queries.filter((query): query is { kind: NodeKind } => !!query)
+    const warehouseNative = present.filter(
+        (query) =>
+            query.kind === NodeKind.ExperimentMetric && metricUsesWarehouseNativeSource(query as ExperimentMetric)
+    )
+    return { warehouseNative: warehouseNative.length > 0, posthog: warehouseNative.length < present.length }
+}
+
 /**
  * Which data sources the metrics of the experiment read, shared metrics included. The API accepts
  * warehouse-native metrics only under a warehouse-native exposure, and no other metric under one.
  */
 export function getExperimentMetricDataSources(
     experiment: Pick<Experiment, 'metrics' | 'metrics_secondary' | 'saved_metrics'>
-): { warehouseNative: boolean; posthog: boolean } {
-    const queries = [
+): MetricDataSources {
+    return getMetricDataSources([
         ...(experiment.metrics ?? []),
         ...(experiment.metrics_secondary ?? []),
         ...(experiment.saved_metrics ?? []).map((savedMetric) => savedMetric?.query),
-    ].filter(Boolean)
-    const warehouseNative = queries.filter(
-        (query) =>
-            query.kind === NodeKind.ExperimentMetric && metricUsesWarehouseNativeSource(query as ExperimentMetric)
-    )
-    return { warehouseNative: warehouseNative.length > 0, posthog: warehouseNative.length < queries.length }
+    ])
+}
+
+/**
+ * Why the exposure cannot change to the other data source. The API rejects an exposure that reads
+ * another data source than the metrics, so the metrics must go first.
+ */
+export function getExposureSourceBlockedReasons(
+    exposureIsWarehouseNative: boolean,
+    metricDataSources: MetricDataSources
+): { warehouseNative?: string; posthog?: string } {
+    return {
+        warehouseNative:
+            !exposureIsWarehouseNative && metricDataSources.posthog
+                ? "Remove this experiment's metrics first. A warehouse-native exposure only works with warehouse-native metrics."
+                : undefined,
+        posthog:
+            exposureIsWarehouseNative && metricDataSources.warehouseNative
+                ? "Remove this experiment's metrics first. Warehouse-native metrics only work with a warehouse-native exposure."
+                : undefined,
+    }
 }
 
 export function experimentUsesWarehouseNativeSources(
@@ -131,6 +158,14 @@ export function toWarehouseNativeMetric(
     }
 }
 
+const metricMatchesBinding = (metric: ExperimentMetric, binding: WarehouseNativeBinding): boolean =>
+    getWarehouseNativeSources(metric).every(
+        (source) =>
+            source.connection_id === binding.connection_id &&
+            source.unit.unit_type === binding.unit.unit_type &&
+            source.unit.id_namespace === binding.unit.id_namespace
+    )
+
 /**
  * Copies the exposure's connection and unit onto the warehouse-native metrics. The API rejects an
  * exposure that differs from the metrics, so a changed exposure must save together with them.
@@ -145,14 +180,36 @@ export function alignMetricsWithExposure<T extends { kind: NodeKind }>(
             return metric
         }
         const experimentMetric = metric as unknown as ExperimentMetric
-        const aligned = getWarehouseNativeSources(experimentMetric).every(
-            (source) =>
-                source.connection_id === exposure.connection_id &&
-                source.unit.unit_type === exposure.unit.unit_type &&
-                source.unit.id_namespace === exposure.unit.id_namespace
-        )
-        return aligned ? metric : (toWarehouseNativeMetric(experimentMetric, exposure) as unknown as T)
+        return metricMatchesBinding(experimentMetric, exposure)
+            ? metric
+            : (toWarehouseNativeMetric(experimentMetric, exposure) as unknown as T)
     })
+}
+
+/**
+ * Why the API would reject the exposure together with the metrics, or null. A shared metric keeps
+ * its own connection and unit, so `alignMetricsWithExposure` cannot move it to a changed exposure.
+ */
+export function getWarehouseNativeMismatchError(
+    exposure: ExperimentWarehouseNativeExposureConfig | null,
+    metricDataSources: MetricDataSources,
+    sharedMetricQueries: ({ kind: NodeKind } | null | undefined)[]
+): string | null {
+    if (!exposure) {
+        return metricDataSources.warehouseNative
+            ? 'Warehouse-native metrics need a warehouse-native exposure. Remove them, or change the exposure.'
+            : null
+    }
+    if (metricDataSources.posthog) {
+        return 'A warehouse-native exposure only works with warehouse-native metrics. Remove the other metrics, or change the exposure.'
+    }
+    const sharedMetricDiffers = sharedMetricQueries.some(
+        (query) =>
+            query?.kind === NodeKind.ExperimentMetric && !metricMatchesBinding(query as ExperimentMetric, exposure)
+    )
+    return sharedMetricDiffers
+        ? 'A shared metric uses another connection, unit or ID type than the exposure. Remove it, or match the exposure to it.'
+        : null
 }
 
 const getBindingError = (binding: WarehouseNativeBinding): string | null => {
