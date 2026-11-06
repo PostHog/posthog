@@ -24,14 +24,10 @@ import {
     KafkaSessionreplayProducerEnvConfig,
     getDefaultKafkaSessionreplayProducerEnvConfig,
 } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
-import {
-    INTERNAL_LOGS_DRAIN_TIMEOUT_MS,
-    InternalLogsProducer,
-    InternalLogsProducerConfig,
-    parseInternalLogsSources,
-} from '~/logs/internal-logs-producer'
+import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/internal-logs-producer'
 
 import { CdpConfig } from '../cdp/config'
+import { parseInternalLogsSources } from '../cdp/services/monitoring/hog-function-monitoring.service'
 import { CommonConfig } from '../common/config'
 import { KafkaBrokerConfig, RedisConnectionsConfig, getDefaultIngestionConsumerConfig } from '../ingestion/config'
 import { RedisPool } from '../types'
@@ -123,6 +119,9 @@ export function buildSessionReplayRedisPools(
     return { redisPool, restrictionRedisPool }
 }
 
+// Bounded so that shutdown still fits inside the pod's termination grace period.
+const INTERNAL_LOGS_DRAIN_TIMEOUT_MS = 10_000
+
 export class IngestionSessionReplayServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
     private config: IngestionSessionReplayServerConfig
@@ -172,8 +171,9 @@ export class IngestionSessionReplayServer implements NodeServer {
         this.redisPool = pools.redisPool
         this.restrictionRedisPool = pools.restrictionRedisPool
 
-        const sendsInternalLogs = parseInternalLogsSources(this.config.CDP_INTERNAL_LOGS_SOURCES).has('session_replay')
-        const internalLogsProducer = sendsInternalLogs
+        const internalLogsProducer = parseInternalLogsSources(this.config.CDP_INTERNAL_LOGS_SOURCES).has(
+            'session_replay'
+        )
             ? new InternalLogsProducer(this.config, new TeamManager(this.postgres))
             : undefined
 
