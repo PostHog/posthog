@@ -93,7 +93,8 @@ _EVENTS_FIELDS = frozenset(EventsTable().fields)
 # The value the flag-call finder gives a CTE whose value is not a constant or a list of constants. Such a value can
 # read a name that binds in the scope around the WITH, which the finder does not track, or compute
 # `$feature_flag_called`. So the finder treats the CTE as one that names flag calls. A scan that the union can read
-# then costs a second table read. On mode 2, a scan that the union refuses then fails the query.
+# then costs a second table read. On mode 2, a scan that the union refuses then fails the query. `_swap_applies` skips
+# a top-level query that holds no `$feature_flag_called` constant, so such a query never reaches this finder.
 _MAY_NAME_FLAG_CALLS = ast.Constant(value=FLAG_CALLED_EVENT)
 
 # The value the flag-call finder gives a read of a lambda argument. It is not a field, so the finder never reads the
@@ -678,7 +679,7 @@ class _WithValues:
         self._by_value: dict[int, _WithValue] = {}
         # Whether a column CTE in scope can name `$feature_flag_called`. The renamer sets it for each SELECT from the
         # SELECT's own WITH, so a CTE body also counts the later CTEs of its WITH.
-        self.in_scope_name_flag_calls = False
+        self.cte_in_scope_names_flag_calls = False
 
     def of(self, cte: ast.CTE) -> ast.Expr:
         return self._entry(cte).value
@@ -876,9 +877,10 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         self.aliases = aliases
         self.ctes = ctes
         self.with_values = with_values
-        # The names that the enclosing lambdas bind, or None outside a lambda. A lambda argument maps to None. An alias
-        # inside a lambda maps to the expression that it names. Each lambda adds a layer, so entering one copies nothing.
-        self.lambda_names: ChainMap[str, ast.Expr | None] | None = None
+        # The names that the enclosing lambdas bind, or None outside a lambda. A lambda argument maps to
+        # `_LAMBDA_ARGUMENT`. An alias inside a lambda maps to the expression that it names. Each lambda adds a layer, so
+        # entering one copies nothing.
+        self.lambda_names: ChainMap[str, ast.Expr] | None = None
         self.values_left = _COMPARED_VALUES_BUDGET
         self.literals: list[ast.Constant] = []
         # A CTE's list can be read by many scans, so each finder keeps the cached value, not a copy of its literals.
@@ -894,7 +896,8 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         # `$feature_flag_called` constant cannot compare `event` with one, so only a query with one counts. A column CTE
         # in scope can hold that constant outside the query.
         return self.found_literal or (
-            self.values_left < 0 and (names_flag_called_event(self.root) or self.with_values.in_scope_name_flag_calls)
+            self.values_left < 0
+            and (names_flag_called_event(self.root) or self.with_values.cte_in_scope_names_flag_calls)
         )
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
@@ -903,7 +906,9 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
 
     def visit_lambda(self, node: ast.Lambda) -> None:
         outer = self.lambda_names
-        self.lambda_names = (outer if outer is not None else ChainMap()).new_child(dict.fromkeys(node.args))
+        self.lambda_names = (outer if outer is not None else ChainMap()).new_child(
+            dict.fromkeys(node.args, _LAMBDA_ARGUMENT)
+        )
         super().visit_lambda(node)
         self.lambda_names = outer
 
@@ -930,11 +935,10 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         read = unwrap_alias(read)
         names = self.lambda_names
         if names is not None and isinstance(read, ast.Field) and len(read.chain) == 1 and str(read.chain[0]) in names:
-            named = names[str(read.chain[0])]
-            return _LAMBDA_ARGUMENT if named is None else named
-        return self._with_value(self.aliases.target(read))
+            return names[str(read.chain[0])]
+        return self._cte_value(self.aliases.target(read))
 
-    def _with_value(self, expr: ast.Expr) -> ast.Expr:
+    def _cte_value(self, expr: ast.Expr) -> ast.Expr:
         """The value of the column CTE that `expr` names, or `expr` when it names none.
 
         The caller has already read `expr` as a lambda's name and a select alias. The resolver also reads a name as a
@@ -1005,13 +1009,13 @@ class _UnionRenamer(ScanVisitor):
 
     @contextmanager
     def _with_scope(self, ctes: Mapping[str, ast.CTE] | None) -> Iterator[None]:
-        outer = self.with_values.in_scope_name_flag_calls
+        outer = self.with_values.cte_in_scope_names_flag_calls
         if ctes:
-            self.with_values.in_scope_name_flag_calls = outer or self.with_values.any_name_flag_calls(ctes)
+            self.with_values.cte_in_scope_names_flag_calls = outer or self.with_values.any_name_flag_calls(ctes)
         try:
             yield
         finally:
-            self.with_values.in_scope_name_flag_calls = outer
+            self.with_values.cte_in_scope_names_flag_calls = outer
 
     def visit_scan_query(self, node: ast.SelectQuery) -> None:
         aliases = _Aliases(node)
