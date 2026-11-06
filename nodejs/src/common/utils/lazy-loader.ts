@@ -127,10 +127,18 @@ type CacheEntry<T> = {
     loadNumber: number
 }
 
+interface PendingReload {
+    load: Promise<void>
+    /** The buffer the reload joined. While it is still `this.buffer`, the reload's query has not started. */
+    buffer: object | undefined
+    /** One reload shared by the callers that arrive after the running reload's query started. */
+    next?: Promise<void>
+}
+
 export class LazyLoader<T> {
     private cache: Record<string, CacheEntry<T> | undefined>
     private pendingLoads: Record<string, Promise<void> | undefined>
-    private pendingReloads: Record<string, Promise<void> | undefined>
+    private pendingReloads: Record<string, PendingReload | undefined>
 
     private refreshAgeMs: number
     private refreshNullAgeMs: number
@@ -189,21 +197,37 @@ export class LazyLoader<T> {
     }
 
     /**
-     * Joins a reload of the key already in flight, so concurrent reloads share one load. Otherwise
-     * starts a load after this call, so a value written before the first reload is seen.
+     * Loads the key with a query that starts after this call, so a value written before the call is
+     * seen. A key has at most one running reload and one queued reload, which the callers that
+     * arrive while the running query is in flight share.
      */
     public async reload(key: string): Promise<void> {
-        const inFlight = this.pendingReloads[key]
-        if (inFlight) {
-            return await inFlight
+        const pending = this.pendingReloads[key]
+        if (!pending) {
+            return await this.startReload(key)
         }
-        const reloadLoad: Promise<void> = this.load([key], { startAfterNow: true }).finally(() => {
-            if (this.pendingReloads[key] === reloadLoad) {
-                delete this.pendingReloads[key]
-            }
-        })
-        this.pendingReloads[key] = reloadLoad
-        await reloadLoad
+        if (pending.buffer && pending.buffer === this.buffer) {
+            return await pending.load
+        }
+        pending.next ??= pending.load.then(
+            () => this.startReload(key),
+            () => this.startReload(key)
+        )
+        return await pending.next
+    }
+
+    private startReload(key: string): Promise<void> {
+        const load = this.load([key], { startAfterNow: true })
+        const pending: PendingReload = {
+            buffer: this.buffer,
+            load: load.finally(() => {
+                if (this.pendingReloads[key] === pending && !pending.next) {
+                    delete this.pendingReloads[key]
+                }
+            }),
+        }
+        this.pendingReloads[key] = pending
+        return pending.load
     }
 
     public markForRefresh(key: string | string[]): void {
