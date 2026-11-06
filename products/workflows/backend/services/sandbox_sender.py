@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal
 
 from django.conf import settings
@@ -78,7 +79,7 @@ def sandbox_email_sender_for_reads(
     team: Team,
     *,
     user: User | AnonymousUser,
-    analytics_props: "AnalyticsProps",
+    analytics_props: Callable[[], "AnalyticsProps"],
     provisioned_by: SandboxSenderRead,
 ) -> SandboxEmailSender | None:
     if not _sandbox_sender_configured():
@@ -109,7 +110,10 @@ def has_sandbox_email_sender(team: Team) -> bool:
 
 
 def _report_provisioned_on_read(
-    user: User | AnonymousUser, analytics_props: "AnalyticsProps", team: Team, provisioned_by: SandboxSenderRead
+    user: User | AnonymousUser,
+    analytics_props: Callable[[], "AnalyticsProps"],
+    team: Team,
+    provisioned_by: SandboxSenderRead,
 ) -> None:
     from posthog.event_usage import report_user_action  # noqa: PLC0415
 
@@ -118,7 +122,7 @@ def _report_provisioned_on_read(
         SANDBOX_SENDER_PROVISIONED_EVENT,
         {"provisioned_by": provisioned_by},
         team=team,
-        analytics_props=analytics_props,
+        analytics_props=analytics_props(),
     )
 
 

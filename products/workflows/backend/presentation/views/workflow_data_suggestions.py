@@ -298,7 +298,7 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             and sandbox_email_sender_for_reads(
                 self.team,
                 user=self.request.user,
-                analytics_props=get_request_analytics_properties(self.request),
+                analytics_props=lambda: get_request_analytics_properties(self.request),
                 provisioned_by="data_suggestions",
             )
             is not None

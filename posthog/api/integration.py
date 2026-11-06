@@ -3184,7 +3184,7 @@ class IntegrationViewSet(
             sandbox_email_sender_for_reads(
                 self.team,
                 user=request.user,
-                analytics_props=get_request_analytics_properties(request),
+                analytics_props=lambda: get_request_analytics_properties(request),
                 provisioned_by="integrations_list",
             )
         # A GitHub row connected while GitHub was flaky may still carry the numeric installation id
