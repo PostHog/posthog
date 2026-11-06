@@ -31,7 +31,10 @@ export type SecretOriginCheck = {
 
 type CarriedSecret = { inputKey: string; origin: string; outcome: SecretOriginOutcome }
 
-type CheckedHogFunction = Pick<HogFunctionType, 'id' | 'team_id' | 'template_id' | 'inputs' | 'encrypted_inputs'>
+type CheckedHogFunction = Pick<
+    HogFunctionType,
+    'id' | 'team_id' | 'template_id' | 'bytecode' | 'inputs' | 'mappings' | 'encrypted_inputs'
+>
 
 // A shorter value matches too much unrelated text in a URL, header or body, such as a JSON key or a path segment.
 const MIN_SCANNED_SECRET_LENGTH = 8
@@ -92,8 +95,17 @@ function textLeaves(value: unknown): string[] {
     return isRecord(value) ? Object.values(value).flatMap(textLeaves) : []
 }
 
-function plainInputTexts(inputs: CheckedHogFunction['inputs']): Set<string> {
-    return new Set(Object.values(inputs ?? {}).flatMap((input) => textLeaves(isRecord(input) ? input.value : null)))
+function inputTexts(inputs: Record<string, unknown> | null | undefined): string[] {
+    return Object.values(inputs ?? {}).flatMap((input) => textLeaves(isRecord(input) ? input.value : null))
+}
+
+// The bytecode holds every string literal of the hog code, and the source is not loaded for a destination.
+function publicTexts(hogFunction: CheckedHogFunction): Set<string> {
+    return new Set([
+        ...textLeaves(hogFunction.bytecode),
+        ...inputTexts(hogFunction.inputs),
+        ...(hogFunction.mappings ?? []).flatMap((mapping) => inputTexts(mapping.inputs)),
+    ])
 }
 
 function originOutcome(allowedOrigins: unknown, origin: string): SecretOriginOutcome {
@@ -122,13 +134,14 @@ function carriedSecrets(hogFunction: CheckedHogFunction, request: SecretOriginRe
     }
 
     const named = namedSecretInputs(request.params)
-    // A value the function also holds in a plain input, such as `application/json` in both the plain and the
-    // secret headers, is not secret, and sending it to another origin leaks nothing.
-    const plainTexts = plainInputTexts(hogFunction.inputs)
+    // A value the function also holds in its hog code or in a plain input of the function or of a mapping, such as
+    // `application/json` in both the plain and the secret headers, is not secret, and sending it to another origin
+    // leaks nothing. Without this, an enforced team could not send such a value to a second origin at all.
+    const knownTexts = publicTexts(hogFunction)
     const sentTexts = [request.url, ...Object.values(request.headers), request.body ?? '']
     const isSent = (secret: string): boolean =>
         secret.length >= MIN_SCANNED_SECRET_LENGTH &&
-        !plainTexts.has(secret) &&
+        !knownTexts.has(secret) &&
         sentTexts.some((text) => typeof text === 'string' && text.includes(secret))
 
     const carried: CarriedSecret[] = []
@@ -143,6 +156,8 @@ function carriedSecrets(hogFunction: CheckedHogFunction, request: SecretOriginRe
     return carried
 }
 
+const UNCHECKED: SecretOriginCheck = { mode: 'observe', outcomes: [], refusal: null }
+
 // Fails open on an internal error, because a refused request is a lost delivery.
 export class SecretOriginGuard {
     private readonly observedForTeam: (teamId: number) => boolean
@@ -155,16 +170,12 @@ export class SecretOriginGuard {
         this.enforcedForTeam = buildIntegerMatcher(enforceTeams.trim(), true)
     }
 
-    check(
-        hogFunction: CheckedHogFunction,
-        request: SecretOriginRequest,
-        { mayEnforce }: { mayEnforce: boolean }
-    ): SecretOriginCheck | null {
+    check(hogFunction: CheckedHogFunction, request: SecretOriginRequest): SecretOriginCheck {
         const enforced = this.enforcedForTeam(hogFunction.team_id)
         if (!enforced && !this.observedForTeam(hogFunction.team_id)) {
-            return null
+            return UNCHECKED
         }
-        const mode = enforced && mayEnforce ? 'enforce' : 'observe'
+        const mode = enforced ? 'enforce' : 'observe'
         try {
             const carried = carriedSecrets(hogFunction, request)
             const mismatches = carried.filter(({ outcome }) => outcome === 'mismatch')

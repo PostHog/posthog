@@ -13,16 +13,16 @@ describe('secret origins', () => {
     const SECRET = 'sk_test_origin_0000000000'
     const guard = new SecretOriginGuard({ observeTeams: '', enforceTeams: ' * ' })
 
-    const refusal = (url: string, allowedOrigins: string | string[]): SecretOriginRefusal | null | undefined =>
+    const refusal = (url: string, allowedOrigins: string | string[]): SecretOriginRefusal | null =>
         guard.check(
             {
                 id: 'fn',
                 team_id: 1,
+                bytecode: [],
                 encrypted_inputs: { api_key: { value: SECRET, allowed_origins: allowedOrigins } } as any,
             },
-            { url, headers: {}, body: JSON.stringify({ key: SECRET }), params: {} },
-            { mayEnforce: true }
-        )?.refusal
+            { url, headers: {}, body: JSON.stringify({ key: SECRET }), params: {} }
+        ).refusal
 
     it.each(ORIGIN_CASES.filter((c) => c.origin !== null))(
         'resolves $url to the origin Python stores',
