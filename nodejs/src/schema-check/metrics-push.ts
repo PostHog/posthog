@@ -9,11 +9,12 @@ export interface PushTarget {
 
 export type FetchFunction = (url: string, init: RequestInit) => Promise<Response>
 
-// The alert rules in the charts repo read these names. A skipped database gets no sample, so a
-// database the app does not use never looks satisfied.
+// The alert rules in the charts repo read these names. Only a satisfied or missing result gets a
+// sample. A skipped database is not used, and an error or dirty result proves nothing, so neither
+// may replace an earlier "missing" with 0.
 export function renderMetrics(djangoExitCode: number, sqlx: SqlxShadowResult[], nowSeconds: number): string {
     const sqlxSamples = sqlx
-        .filter((result) => result.status !== 'skipped')
+        .filter((result) => result.status === 'satisfied' || result.status === 'missing')
         .map(
             (result) =>
                 `node_schema_check_sqlx_missing{database="${result.requirement.database}"} ${result.status === 'missing' ? 1 : 0}`

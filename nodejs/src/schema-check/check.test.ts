@@ -128,10 +128,10 @@ describe('schema check', () => {
                 ['node_schema_check_sqlx_missing{database="cyclotron-node"} 1'],
             ],
             [
-                'skipped database omitted',
+                'skipped, errored and dirty databases omitted',
                 1,
-                [sqlxResult(PERSONS, 'skipped'), sqlxResult(CYCLOTRON, 'error')],
-                ['node_schema_check_sqlx_missing{database="cyclotron-node"} 0'],
+                [sqlxResult(PERSONS, 'skipped'), sqlxResult(CYCLOTRON, 'error'), sqlxResult(PERSONS, 'dirty')],
+                [],
             ],
             ['no sqlx database checked', 2, [sqlxResult(PERSONS, 'skipped')], []],
         ])('%s', (_case, djangoExitCode, sqlx, expectedSqlxSamples) => {
