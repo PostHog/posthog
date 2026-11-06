@@ -184,7 +184,7 @@ class TestTemplateUpload(APIBaseTest):
         assert self._sent_email(first["transactional_hog_flow_id"])["html"] == WELCOME["html"]
         assert self._sent_email(first["transactional_hog_flow_id"])["to"]["email"] == "{{ event.properties.to | raw }}"
 
-    @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_a_changed_upload_is_what_the_next_send_delivers(self, _reload, post: MagicMock, _flag, _capture):
         first = self._upload(WELCOME)
         post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
