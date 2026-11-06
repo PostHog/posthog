@@ -71,6 +71,13 @@ Get these right in the code you write:
 - **Errors:** Let the SDK's error reach the caller, or branch on its `code`, such as `recipient_suppressed` or `quota_limited`. Don't wrap it in a generic error or match on the message. The docs list every code.
 - **Uncertain outcomes:** After a `network_error` or a `503`, PostHog might have queued the email. Retry with the same idempotency key. Never fall back to another provider for that email, because the recipient can get it twice.
 
+## Send from a tool that only speaks SMTP
+
+When the feature flag `workflows-smtp-relay` is on, a tool that can only send over SMTP can send through PostHog with no code change.
+Point it at the host on the **SMTP** tab in **Transactional**, port `465` or `587`, username `posthog`, and a project secret key with `transactional_email:write` as the password.
+Prefer the API for your own code: it returns the message ID and reports fields it refuses more precisely.
+See [Send email over SMTP](https://posthog.com/docs/workflows/smtp) for headers and reply codes.
+
 ## Check what happened to an email
 
 A send returns a message ID. Read its status with `posthog.emails.get(id)` in the SDKs, or `GET /api/projects/@current/messaging/emails/<message_id>/`. The status is `queued`, `sent`, `failed`, `delivered`, `bounced`, or `complained`, with a `reason` for a failed or bounced email.

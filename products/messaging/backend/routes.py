@@ -8,6 +8,7 @@ from products.messaging.backend.presentation.views.message_suppression import Me
 from products.messaging.backend.presentation.views.message_templates import (
     MessageTemplatesViewSet,
     MessagingSendViewSet,
+    MessagingSmtpViewSet,
 )
 from products.messaging.backend.presentation.views.provider_imports import ProviderImportViewSet
 from products.messaging.backend.presentation.views.supabase_auth_emails import (
@@ -42,6 +43,7 @@ def register_routes(routers: RouterRegistry) -> None:
         r"messaging_suppressions", MessageSuppressionViewSet, "project_messaging_suppressions", ["team_id"]
     )
     routers.projects.register(r"messaging/send", MessagingSendViewSet, "project_messaging_send", ["team_id"])
+    routers.projects.register(r"messaging/smtp", MessagingSmtpViewSet, "project_messaging_smtp", ["team_id"])
     routers.projects.register(
         r"messaging_provider_imports", ProviderImportViewSet, "project_messaging_provider_imports", ["team_id"]
     )

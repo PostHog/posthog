@@ -45,6 +45,9 @@ import type {
     SendTransactionalEmailResponseApi,
     SetPreferencesApi,
     SmtpCheckResponseApi,
+    SmtpSetupApi,
+    SmtpTestRequestApi,
+    SmtpTestResponseApi,
     StartProviderImportApi,
     SupabaseAuthEmailSettingsApi,
     TopicPreferencesApi,
@@ -153,6 +156,42 @@ export const messagingSendSmtpCheckCreate = async (
     return apiMutator<SmtpCheckResponseApi>(getMessagingSendSmtpCheckCreateUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getMessagingSmtpSetupRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/smtp/setup/`
+}
+
+/**
+ * The connection details for sending through the PostHog SMTP relay, and what it recently refused.
+ * @summary Get SMTP setup details
+ */
+export const messagingSmtpSetupRetrieve = async (projectId: string, options?: RequestInit): Promise<SmtpSetupApi> => {
+    return apiMutator<SmtpSetupApi>(getMessagingSmtpSetupRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingSmtpTestCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/smtp/test/`
+}
+
+/**
+ * Connects to the SMTP relay as an app would, with the key in `password`, and sends one test email.
+ * @summary Send a test email through the SMTP relay
+ */
+export const messagingSmtpTestCreate = async (
+    projectId: string,
+    smtpTestRequestApi: SmtpTestRequestApi,
+    options?: RequestInit
+): Promise<SmtpTestResponseApi> => {
+    return apiMutator<SmtpTestResponseApi>(getMessagingSmtpTestCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(smtpTestRequestApi),
     })
 }
 

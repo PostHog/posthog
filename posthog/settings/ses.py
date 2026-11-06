@@ -130,3 +130,8 @@ SES_ISP_DIMENSIONS: list[str] = [
     "Gmx",
     "Tencent",
 ]
+
+# Where customers connect to send over SMTP. Empty means this instance runs no relay, and the setup page says so.
+SMTP_RELAY_HOST: str = os.getenv("SMTP_RELAY_HOST", "")
+# The port the setup page's test send connects on, with STARTTLS.
+SMTP_RELAY_CONNECT_PORT: int = int(os.getenv("SMTP_RELAY_CONNECT_PORT", "587"))

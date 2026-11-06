@@ -23,6 +23,7 @@ import { MessagingTabActions } from '../MessagingTabActions'
 import { MESSAGING_TAB_CONTENT, isMessagingSetupTab } from '../messagingTabs'
 import { TransactionalEmailLog } from './log/TransactionalEmailLog'
 import { TransactionalEmailMetrics } from './metrics/TransactionalEmailMetrics'
+import { SmtpSetup } from './smtp/SmtpSetup'
 import { TransactionalEmailsTable } from './TransactionalEmailsTable'
 import { TransactionalRoute, TransactionalTab, transactionalRouteFor } from './transactionalRoute'
 import { TransactionalEmailWizard } from './wizard/TransactionalEmailWizard'
@@ -35,13 +36,15 @@ export const scene: SceneExport = {
 export function TransactionalScene(): JSX.Element {
     const { location } = useValues(router)
     const showTransactional = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
+    const showSmtp = useFeatureFlag('WORKFLOWS_SMTP_RELAY')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     // Leaving for another scene changes the URL before that scene has loaded, so this one keeps showing its last view.
     const route = transactionalRouteFor(location.pathname)
     const lastRoute = useRef<TransactionalRoute>(route ?? 'transactional')
     lastRoute.current = route ?? lastRoute.current
     const currentTab = lastRoute.current
-    const isTransactionalTab = currentTab === 'transactional' || currentTab === 'log' || currentTab === 'metrics'
+    const isTransactionalTab =
+        currentTab === 'transactional' || currentTab === 'log' || currentTab === 'metrics' || currentTab === 'smtp'
 
     if (!showTransactional) {
         return <NotFound object="page" />
@@ -109,6 +112,16 @@ export function TransactionalScene(): JSX.Element {
                         link: urls.transactionalMetrics(),
                         content: <TransactionalEmailMetrics />,
                     },
+                    ...(showSmtp
+                        ? [
+                              {
+                                  label: 'SMTP',
+                                  key: 'smtp' as const,
+                                  link: urls.transactionalSmtp(),
+                                  content: <SmtpSetup />,
+                              },
+                          ]
+                        : []),
                     {
                         label: 'Templates',
                         key: 'library',

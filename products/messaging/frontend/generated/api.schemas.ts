@@ -183,6 +183,99 @@ export interface SmtpCheckResponseApi {
 }
 
 /**
+ * * `tls` - TLS
+ * * `starttls` - STARTTLS
+ */
+export type SecurityEnumApi = (typeof SecurityEnumApi)[keyof typeof SecurityEnumApi]
+
+export const SecurityEnumApi = {
+    Tls: 'tls',
+    Starttls: 'starttls',
+} as const
+
+export interface SmtpPortApi {
+    /** Port number. */
+    port: number
+    /** The setting most tools expect on this port.
+     *
+     * * `tls` - TLS
+     * * `starttls` - STARTTLS */
+    security: SecurityEnumApi
+    /** True for a port meant for hosts that block the usual ones. */
+    alternate: boolean
+}
+
+export interface SmtpActivityEntryApi {
+    /** `refused` or `dropped_headers`, what happened to the message.
+     *
+     * * `refused` - Refused
+     * * `dropped_headers` - Dropped headers */
+    kind: SmtpActivityKindEnumApi
+    /**
+     * The reply line the SMTP client got.
+     * @maxLength 512
+     */
+    reply?: string
+    /**
+     * The envelope recipients of the message, up to 20.
+     * @maxItems 20
+     * @items.maxLength 320
+     */
+    to?: string[]
+    /**
+     * ID of the queued send, when one was queued.
+     * @maxLength 128
+     */
+    message_id?: string
+    /**
+     * Names of the headers PostHog could not forward, up to 20.
+     * @maxItems 20
+     * @items.maxLength 128
+     */
+    dropped_headers?: string[]
+    /** When it happened, as Unix seconds. */
+    at: number
+    /**
+     * The envelope sender of the message.
+     * @maxLength 320
+     */
+    from?: string
+}
+
+export interface SmtpSetupApi {
+    /** Host name to connect to. Empty when this instance runs no SMTP relay. */
+    host: string
+    /** Ports to connect on. */
+    ports: SmtpPortApi[]
+    /** Username to show in setup. Any username works. */
+    username: string
+    /** Up to 50 recent refused messages and dropped headers, newest first. */
+    activity: SmtpActivityEntryApi[]
+}
+
+export interface SmtpTestRequestApi {
+    /**
+     * Project secret key to log in with. PostHog doesn't store it.
+     * @maxLength 512
+     */
+    password: string
+    /** Who gets the test email. */
+    to: string
+    /**
+     * From address of the test email, on a verified domain.
+     * @maxLength 320
+     */
+    from: string
+}
+
+export interface SmtpTestResponseApi {
+    /** True when the relay accepted the test email. */
+    ok: boolean
+    /** What the relay answered, or why PostHog couldn't reach it. */
+    reply: string
+}
+
+/**
  * * `marketing` - Marketing
  * * `transactional` - Transactional
  */

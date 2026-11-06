@@ -101,6 +101,7 @@ export const manifest: ProductManifest = {
         '/transactional/new': ['Transactional', 'transactional'],
         '/transactional/log': ['Transactional', 'transactional'],
         '/transactional/metrics': ['Transactional', 'transactional'],
+        '/transactional/smtp': ['Transactional', 'transactional'],
         '/transactional/log/:id': ['TransactionalEmailLogEntry', 'transactionalEmailLogEntry'],
         // A template opened from a section's Templates tab stays in that section.
         '/transactional/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
@@ -126,6 +127,7 @@ export const manifest: ProductManifest = {
         transactionalNew: (): string => '/transactional/new',
         transactionalLog: (): string => '/transactional/log',
         transactionalMetrics: (): string => '/transactional/metrics',
+        transactionalSmtp: (): string => '/transactional/smtp',
         transactionalEmailLogEntry: (messageId: string): string => `/transactional/log/${messageId}`,
         transactionalTemplate: (id: string): string => `/transactional/library/templates/${id}`,
         broadcastsTemplate: (id: string): string => `/broadcasts/library/templates/${id}`,

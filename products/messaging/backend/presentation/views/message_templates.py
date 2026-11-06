@@ -26,7 +26,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import BaseThrottle
+from rest_framework.throttling import BaseThrottle, UserRateThrottle
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ResponseDeclaration, validated_request
@@ -97,6 +97,9 @@ from products.messaging.backend.presentation.views.code_send_fields import (
     with_code_send_reason,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
+from products.messaging.backend.presentation.views.smtp_activity import SmtpActivitySerializer
+from products.messaging.backend.services.smtp_activity import recent_smtp_activity
+from products.messaging.backend.services.smtp_relay import send_smtp_test, smtp_relay_host
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound
 from products.workflows.backend.facade.transactional_emails import EMAIL_FROM_CODE_FLAG
@@ -1276,6 +1279,112 @@ class SmtpRelayCallThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
 
 class SmtpCheckResponseSerializer(serializers.Serializer):
     team_id = serializers.IntegerField(help_text="ID of the project the key sends for.")
+
+
+class SmtpActivityEntrySerializer(SmtpActivitySerializer):
+    at = serializers.FloatField(help_text="When it happened, as Unix seconds.")
+
+
+class SmtpPortSerializer(serializers.Serializer):
+    port = serializers.IntegerField(help_text="Port number.")
+    security = serializers.ChoiceField(
+        choices=[("tls", "TLS"), ("starttls", "STARTTLS")], help_text="The setting most tools expect on this port."
+    )
+    alternate = serializers.BooleanField(help_text="True for a port meant for hosts that block the usual ones.")
+
+
+class SmtpSetupSerializer(serializers.Serializer):
+    host = serializers.CharField(help_text="Host name to connect to. Empty when this instance runs no SMTP relay.")
+    ports = SmtpPortSerializer(many=True, help_text="Ports to connect on.")
+    username = serializers.CharField(help_text="Username to show in setup. Any username works.")
+    activity = SmtpActivityEntrySerializer(
+        many=True, help_text="Up to 50 recent refused messages and dropped headers, newest first."
+    )
+
+
+def _validate_no_control_characters(value: str) -> None:
+    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+        raise serializers.ValidationError("Remove line breaks and other control characters.")
+
+
+def _validate_smtp_password(value: str) -> None:
+    if not value.isascii() or not value.isprintable():
+        raise serializers.ValidationError("This isn't a project secret key. Copy the whole key and try again.")
+
+
+class SmtpTestRequestSerializer(serializers.Serializer):
+    password = serializers.CharField(
+        trim_whitespace=True,
+        max_length=512,
+        validators=[_validate_smtp_password],
+        help_text="Project secret key to log in with. PostHog doesn't store it.",
+    )
+    sender = serializers.CharField(
+        max_length=320,
+        validators=[_validate_no_control_characters],
+        help_text="From address of the test email, on a verified domain.",
+    )
+    to = serializers.EmailField(validators=[validate_pipeline_address], help_text="Who gets the test email.")
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        fields["from"] = fields.pop("sender")
+        return fields
+
+
+class SmtpTestResponseSerializer(serializers.Serializer):
+    ok = serializers.BooleanField(help_text="True when the relay accepted the test email.")
+    reply = serializers.CharField(help_text="What the relay answered, or why PostHog couldn't reach it.")
+
+
+class SmtpTestThrottle(UserRateThrottle):
+    scope = "transactional_email_smtp_test"
+    rate = "20/minute"
+
+
+class MessagingSmtpViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    scope_object = "hog_flow"
+    scope_object_read_actions = ["setup"]
+    scope_object_write_actions = ["test"]
+    records_have_object_access_rules = False
+
+    def get_throttles(self):
+        return [SmtpTestThrottle()] if self.action == "test" else super().get_throttles()
+
+    @extend_schema(
+        responses={200: SmtpSetupSerializer},
+        summary="Get SMTP setup details",
+        description="The connection details for sending through the PostHog SMTP relay, and what it recently refused.",
+    )
+    @action(detail=False, methods=["GET"])
+    def setup(self, request: Any, *args: Any, **kwargs: Any) -> Response:
+        _require_flag(self.team, SMTP_RELAY_FLAG)
+        return Response(
+            {
+                "host": smtp_relay_host(),
+                "ports": [
+                    {"port": 465, "security": "tls", "alternate": False},
+                    {"port": 587, "security": "starttls", "alternate": False},
+                    {"port": 2465, "security": "tls", "alternate": True},
+                    {"port": 2587, "security": "starttls", "alternate": True},
+                ],
+                "username": "posthog",
+                "activity": recent_smtp_activity(self.team_id),
+            }
+        )
+
+    @validated_request(
+        SmtpTestRequestSerializer,
+        responses={200: OpenApiResponse(response=SmtpTestResponseSerializer, description="The result of the test")},
+        summary="Send a test email through the SMTP relay",
+        description="Connects to the SMTP relay as an app would, with the key in `password`, and sends one test email.",
+    )
+    @action(detail=False, methods=["POST"])
+    def test(self, request: Any, *args: Any, **kwargs: Any) -> Response:
+        _require_flag(self.team, SMTP_RELAY_FLAG)
+        data = request.validated_data
+        result = send_smtp_test(password=data["password"], sender=data["from"], to=data["to"])
+        return Response({"ok": result.ok, "reply": result.reply})
 
 
 class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
