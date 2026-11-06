@@ -8254,6 +8254,10 @@ snapshots:
         hash: v1.k794b7964.5590e8e6497de2fefefa74cf07edd5f814a798deb8f7e5f0102a383f5e8ac6c8.ZvuooUS3qT6kDX8yW2_oQ1iDgO1DwVFMAWM517bhCHw
     products-tracing-virtualizedspanlist--empty--light:
         hash: v1.k794b7964.72ff685c9162da170263d416510a2cc5229c999691288c0b8038143000a40f15.ebvPm2A_7cN8QvjEaroudYEO1lp9qFUooW98MMcDBwY
+    products-tracing-virtualizedspanlist--loading--dark:
+        hash: v1.k794b7964.958c5edd623692564679c0a83cd4a02214e32a703b37bcd8c2c24a48adf240ea.GkvtNHwv1mqp7ioLUX1Ya3YT76DUe1aCRfgIA5njp4c
+    products-tracing-virtualizedspanlist--loading--light:
+        hash: v1.k794b7964.cf2797ca21ae9dee2d38e00dff5787a7de72fc93d38316d30c21e348613e2390.9aYX1jMAp_yKj1oJCZ7Ucez3Mp0RtFei5Pa5GGEpSqU
     products-tracing-virtualizedspanlist--spans-view--dark:
         hash: v1.k794b7964.d6cf5ccbc379f67404b237b878878ce7e60512d45869c05c24dfab7784335406.OfSo7jy1Oxb3_DY3IE02sphHajUZ8P1sJdfc_vZWjH0
     products-tracing-virtualizedspanlist--spans-view--light:
