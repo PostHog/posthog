@@ -59,30 +59,30 @@ export function refineCurrentDraft(scanner: ScannerFormValues): RefineScannerDra
     } as RefineScannerDraftCurrentApi
 }
 
-/** The form with only the refine's changed fields applied, so a manual edit to any other field survives. */
-export function refinedFormValues(
-    scanner: ScannerFormValues,
-    refined: RefineScannerDraftResponseApi
-): ScannerFormValues {
-    const changed = new Set<string>(refined.changed_fields)
+/** Applies the type and config a refine changed. A new type replaces the whole config, so no setting of the old type is left behind. */
+function applyRefinedConfig(
+    next: ScannerFormValues,
+    refined: RefineScannerDraftResponseApi,
+    changed: Set<string>
+): void {
     const refinedConfig = refined.scanner_config as ScannerConfig
-    const next: ScannerFormValues = { ...scanner }
-    if (changed.has('name')) {
-        next.name = refined.name
-    }
-    if (changed.has('description')) {
-        next.description = refined.description
-    }
     if (changed.has('scanner_type') || changed.has('type_config')) {
-        // A new type replaces the whole config, so no setting of the old type is left behind.
         next.scanner_type = refined.scanner_type as ScannerFormValues['scanner_type']
         next.scanner_config = {
             ...refinedConfig,
-            prompt: changed.has('prompt') ? refinedConfig.prompt : scanner.scanner_config.prompt,
+            prompt: changed.has('prompt') ? refinedConfig.prompt : next.scanner_config.prompt,
         } as ScannerConfig
     } else if (changed.has('prompt')) {
-        next.scanner_config = { ...scanner.scanner_config, prompt: refinedConfig.prompt } as ScannerConfig
+        next.scanner_config = { ...next.scanner_config, prompt: refinedConfig.prompt } as ScannerConfig
     }
+}
+
+/** Applies the recordings, sampling and model a refine changed. */
+function applyRefinedDials(
+    next: ScannerFormValues,
+    refined: RefineScannerDraftResponseApi,
+    changed: Set<string>
+): void {
     if (changed.has('query') && refined.query) {
         next.query = refined.query as ScannerFormValues['query']
     }
@@ -93,6 +93,23 @@ export function refinedFormValues(
     if (changed.has('model') && refined.model) {
         next.model = refined.model as ScannerFormValues['model']
     }
+}
+
+/** The form with only the refine's changed fields applied, so a manual edit to any other field survives. */
+export function refinedFormValues(
+    scanner: ScannerFormValues,
+    refined: RefineScannerDraftResponseApi
+): ScannerFormValues {
+    const changed = new Set<string>(refined.changed_fields)
+    const next: ScannerFormValues = { ...scanner }
+    if (changed.has('name')) {
+        next.name = refined.name
+    }
+    if (changed.has('description')) {
+        next.description = refined.description
+    }
+    applyRefinedConfig(next, refined, changed)
+    applyRefinedDials(next, refined, changed)
     if (changed.has('budget')) {
         next.free_only = refined.free_only
         next.credit_limit = refined.credit_limit ?? null

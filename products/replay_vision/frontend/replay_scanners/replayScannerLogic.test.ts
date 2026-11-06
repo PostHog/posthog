@@ -15,6 +15,8 @@ import { useMocks } from '~/mocks/jest'
 import { NodeKind, type RecordingsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
+
 import { ScannerModelEnumApi } from '../generated/api.schemas'
 import { parseCsvParam, parseNumericParam, parseSortParam } from '../utils/urlParams'
 import { newScanner } from './newScanner'
@@ -2269,6 +2271,57 @@ describe('replayScannerLogic', () => {
                 }
             }
         )
+
+        it('drops a refine that lands after the person started over', async () => {
+            let land: (response: unknown) => void = () => {}
+            const landed = new Promise((resolve) => {
+                land = resolve
+            })
+            refineSpy.mockImplementation(() => landed)
+
+            logic.actions.refineScannerDraft({ instruction: 'rename it' })
+            logic.actions.startFromScratch()
+            land([200, refined({ name: 'A late name', changed_fields: ['name'] })])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.scanner.name).not.toEqual('A late name')
+            expect(logic.values.refinementCount).toEqual(0)
+        })
+
+        it('a refine that moves the draft onto an experiment loads that experiment', async () => {
+            useMocks({
+                get: { '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }] },
+            })
+            refineSpy.mockReturnValue([
+                200,
+                refined({
+                    scanner_type: 'experiment',
+                    scanner_config: { prompt: PROMPT, experiment_id: 7, variants: null, balance_variants: true },
+                    changed_fields: ['scanner_type', 'type_config'],
+                }),
+            ])
+
+            await expectLogic(logic, () =>
+                logic.actions.refineScannerDraft({ instruction: 'watch the checkout redesign test' })
+            ).toFinishAllListeners()
+
+            expect(logic.values.experimentContext?.experiment).toMatchObject({ id: 7, name: 'Checkout redesign' })
+        })
+
+        it('a resumed draft keeps the experiment and recordings it was drafted against', async () => {
+            const query: RecordingsQuery = { kind: NodeKind.RecordingsQuery, filter_test_accounts: false }
+            logic.actions.setGoalDraftQuery(query)
+            logic.actions.setGoalExperiment({ id: 7, name: 'Checkout redesign' } as ExperimentBasicApi)
+            logic.actions.setScannerValues({ name: 'My own name' })
+            logic.actions.setGoalDraftQuery(null)
+            logic.actions.setGoalExperiment(null)
+
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+
+            expect(logic.values.scanner.name).toEqual('My own name')
+            expect(logic.values.goalDraftQuery).toEqual(query)
+            expect(logic.values.goalExperiment?.id).toEqual(7)
+        })
 
         it('a failed refine leaves the form as it was and says so', async () => {
             const error = jest.spyOn(lemonToast, 'error')

@@ -1438,7 +1438,7 @@ export const VisionScannersDraftCreateBody = /* @__PURE__ */ zod
  */
 export const visionScannersDraftRefineCreateBodyGoalMax = 2000
 
-export const visionScannersDraftRefineCreateBodyMonthlyCreditBudgetMax = 100000000
+export const visionScannersDraftRefineCreateBodyMonthlyCreditBudgetMax = 2147483647
 
 export const visionScannersDraftRefineCreateBodyFreeOnlyDefault = false
 export const visionScannersDraftRefineCreateBodyExperimentIdMax = 2147483647
@@ -1473,7 +1473,7 @@ export const VisionScannersDraftRefineCreateBody = /* @__PURE__ */ zod
             .max(visionScannersDraftRefineCreateBodyMonthlyCreditBudgetMax)
             .optional()
             .describe(
-                'Credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Ask the person for it rather than guessing. Required unless `free_only` is true, and not allowed with it.'
+                "The current draft's monthly credit budget, which sizes the dials when the change needs a re-solve. Takes any value `credit_limit` takes. Required unless `free_only` is true, and not allowed with it."
             ),
         free_only: zod
             .boolean()

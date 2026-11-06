@@ -574,6 +574,7 @@ export interface replayScannerLogicValues {
     creationMethod: ScannerCreationMethodEnumApi
     creditLimitState: CreditLimitState
     creditLimitUnit: CreditLimitUnit
+    draftGeneration: number
     durationValidationError: string | null
     entryPoint: string | null
     estimateRequestVersion: number
@@ -1421,7 +1422,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     if (!teamId || !scanner || !instruction.trim() || !goal) {
                         return null
                     }
-                    return await visionScannersDraftRefineCreate(String(teamId), {
+                    const generation = values.draftGeneration
+                    const refinement = await visionScannersDraftRefineCreate(String(teamId), {
                         goal,
                         ...refineSpend(
                             scanner,
@@ -1438,6 +1440,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         refinement_index: values.refinementCount + 1,
                         chip: chip ?? null,
                     })
+                    // A refine of a draft the person has since replaced must not land on the new one.
+                    return values.draftGeneration === generation ? refinement : null
                 },
             },
         ],
@@ -1531,6 +1535,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 startFromScratch: () => null,
                 discardScannerDraft: () => null,
                 scannerSaved: () => null,
+            },
+        ],
+        // Bumped whenever the draft in front of the person is replaced, so a refine still in flight can tell.
+        draftGeneration: [
+            0,
+            {
+                draftScannerFromGoal: (generation) => generation + 1,
+                startFromScratch: (generation) => generation + 1,
+                discardScannerDraft: (generation) => generation + 1,
+                scannerSaved: (generation) => generation + 1,
             },
         ],
         // How many refines the draft standing in front of the user went through, reported with its save.
@@ -2167,7 +2181,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 teamId,
                 values.scanner,
                 typeof linkedExperimentId === 'number' ? linkedExperimentId : null,
-                { creationMethod: values.creationMethod, goalDraftBaseline: values.goalDraftBaseline }
+                {
+                    creationMethod: values.creationMethod,
+                    goalDraftBaseline: values.goalDraftBaseline,
+                    goalExperiment: values.goalExperiment,
+                    goalDraftQuery: values.goalDraftQuery,
+                }
             )
             if (savedAt === null) {
                 // A failed write leaves any older draft behind; drop it so it can't resurrect stale edits.
@@ -2353,6 +2372,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             if (draft.provenance) {
                                 actions.setCreationMethod(draft.provenance.creationMethod)
                                 actions.setGoalDraftBaseline(draft.provenance.goalDraftBaseline)
+                                // The pins the draft was made with, so a refine of the resumed draft still holds them.
+                                actions.setGoalExperiment(draft.provenance.goalExperiment)
+                                actions.setGoalDraftQuery(draft.provenance.goalDraftQuery)
                             }
                             // A draft made from an experiment prefill carries targeting the
                             // loadScannerSuccess above (a bare newScanner) didn't see. A draft started
@@ -2649,6 +2671,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (changed.size > 0) {
                     actions.resetScanner(refined)
                     persistDraft()
+                }
+                if (scopeChanged) {
+                    // The card names the old experiment and locks its variants, so drop it and load the new one.
+                    if (values.experimentContext) {
+                        actions.setExperimentContext(null)
+                    }
+                    actions.rebuildExperimentContext()
                 }
                 if (goalRefinement.rationale.trim()) {
                     actions.setGoalDraftRationale(goalRefinement.rationale)
