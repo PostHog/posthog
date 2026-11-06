@@ -1,6 +1,7 @@
 import { objectsEqual } from 'lib/utils/objects'
 
-import type { ScannerFormValues } from './types'
+import type { RefineScannerDraftCurrentApi, RefineScannerDraftResponseApi } from '../generated/api.schemas'
+import type { ScannerConfig, ScannerFormValues } from './types'
 
 export type DraftChangedField =
     | 'name'
@@ -40,4 +41,62 @@ export function draftChanges(drafted: ScannerFormValues, saved: ScannerFormValue
             (drafted.credit_limit ?? null) !== (saved.credit_limit ?? null),
     }
     return (Object.keys(changed) as DraftChangedField[]).filter((field) => changed[field])
+}
+
+/** The form as the refine endpoint reads it: the create body's shape, with the limit only when it is on. */
+export function refineCurrentDraft(scanner: ScannerFormValues): RefineScannerDraftCurrentApi {
+    return {
+        name: scanner.name,
+        description: scanner.description ?? '',
+        scanner_type: scanner.scanner_type,
+        scanner_config: scanner.scanner_config,
+        query: scanner.query ?? null,
+        sampling_mode: scanner.sampling_mode,
+        sampling_rate: scanner.sampling_rate,
+        model: scanner.model,
+        credit_limit: scanner.credit_limit_enabled ? (scanner.credit_limit ?? null) : null,
+        free_only: !!scanner.free_only,
+    } as RefineScannerDraftCurrentApi
+}
+
+/** The form with only the refine's changed fields applied, so a manual edit to any other field survives. */
+export function refinedFormValues(
+    scanner: ScannerFormValues,
+    refined: RefineScannerDraftResponseApi
+): ScannerFormValues {
+    const changed = new Set<string>(refined.changed_fields)
+    const refinedConfig = refined.scanner_config as ScannerConfig
+    const next: ScannerFormValues = { ...scanner }
+    if (changed.has('name')) {
+        next.name = refined.name
+    }
+    if (changed.has('description')) {
+        next.description = refined.description
+    }
+    if (changed.has('scanner_type') || changed.has('type_config')) {
+        // A new type replaces the whole config, so no setting of the old type is left behind.
+        next.scanner_type = refined.scanner_type as ScannerFormValues['scanner_type']
+        next.scanner_config = {
+            ...refinedConfig,
+            prompt: changed.has('prompt') ? refinedConfig.prompt : scanner.scanner_config.prompt,
+        } as ScannerConfig
+    } else if (changed.has('prompt')) {
+        next.scanner_config = { ...scanner.scanner_config, prompt: refinedConfig.prompt } as ScannerConfig
+    }
+    if (changed.has('query') && refined.query) {
+        next.query = refined.query as ScannerFormValues['query']
+    }
+    if (changed.has('sampling') && refined.sampling_mode && refined.sampling_rate != null) {
+        next.sampling_mode = refined.sampling_mode as ScannerFormValues['sampling_mode']
+        next.sampling_rate = refined.sampling_rate
+    }
+    if (changed.has('model') && refined.model) {
+        next.model = refined.model as ScannerFormValues['model']
+    }
+    if (changed.has('budget')) {
+        next.free_only = refined.free_only
+        next.credit_limit = refined.credit_limit ?? null
+        next.credit_limit_enabled = refined.credit_limit != null
+    }
+    return next
 }
