@@ -312,7 +312,7 @@ export function seriesToMetricSource(series: SeriesNode[]): PickedMetricSource |
     return source
 }
 
-const PERCENTILE_PROPERTY_TYPES: (string | undefined)[] = [
+const QUANTILE_PROPERTY_TYPES: (string | undefined)[] = [
     undefined,
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.NumericalEventProperties,
@@ -322,12 +322,12 @@ const PERCENTILE_PROPERTY_TYPES: (string | undefined)[] = [
  * The source of a percentile metric made from another metric's source, or null when the source can't carry over.
  * The percentile query reads `properties.<name>` from each event, so a session or person property is dropped.
  */
-export function toPercentileSource(source: ExperimentMetricSource): ExperimentQuantileMetricSource | null {
+export function toQuantileSource(source: ExperimentMetricSource): ExperimentQuantileMetricSource | null {
     if (source.kind !== NodeKind.EventsNode && source.kind !== NodeKind.ActionsNode) {
         return null
     }
     const isEventProperty =
-        source.math_property !== '$session_duration' && PERCENTILE_PROPERTY_TYPES.includes(source.math_property_type)
+        source.math_property !== '$session_duration' && QUANTILE_PROPERTY_TYPES.includes(source.math_property_type)
     return {
         ...source,
         math: undefined,

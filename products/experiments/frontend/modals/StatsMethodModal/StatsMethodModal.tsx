@@ -9,7 +9,7 @@ import {
     MAX_SEQUENTIAL_TUNING_PARAMETER,
     SequentialSelection,
     getSequentialSelection,
-    percentileSequentialBlocks,
+    quantileSequentialBlocks,
     resolveSequentialTuningParameter,
 } from 'scenes/experiments/ExperimentView/sequential'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
@@ -75,7 +75,7 @@ export function StatsMethodModal(): JSX.Element {
         DEFAULT_SEQUENTIAL_TUNING_PARAMETER
     )
 
-    const sequentialBlocks = percentileSequentialBlocks(
+    const sequentialBlocks = quantileSequentialBlocks(
         experimentHasQuantileMetric(experiment),
         experiment.stats_config,
         teamDefaultSequentialEnabled

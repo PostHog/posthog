@@ -4,7 +4,7 @@ import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, Link } fr
 
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { pluralize } from 'lib/utils/strings'
-import { percentileMetricSequentialReason } from 'scenes/experiments/ExperimentView/sequential'
+import { quantileMetricSequentialReason } from 'scenes/experiments/ExperimentView/sequential'
 import { formatMetricTypeName } from 'scenes/experiments/MetricsView/shared/utils'
 import { InlineTagEditor } from 'scenes/experiments/SharedMetrics/InlineTagEditor'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
@@ -61,7 +61,7 @@ export function SharedMetricModal({
         if (selectedMetricIds.length === 0) {
             return 'Please select at least one metric'
         }
-        return percentileMetricSequentialReason(
+        return quantileMetricSequentialReason(
             compatibleSharedMetrics.some(
                 (metric) =>
                     selectedMetricIds.includes(metric.id) && metric.query.metric_type === ExperimentMetricType.QUANTILE

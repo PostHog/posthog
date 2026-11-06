@@ -63,12 +63,7 @@ import {
 } from './ExperimentMetricOutlierHandling'
 import { ExperimentMetricThreshold, isThresholdAvailableForMath } from './ExperimentMetricThreshold'
 import { EXPOSURE_DEFAULT_EVENT, getActivationConfig, isDefaultExposureConfig } from './exposureContract'
-import {
-    metricSourcesToSeries,
-    seriesToMetricConfig,
-    seriesToMetricSource,
-    toPercentileSource,
-} from './metricQueryUtils'
+import { metricSourcesToSeries, seriesToMetricConfig, seriesToMetricSource, toQuantileSource } from './metricQueryUtils'
 import { commonActionFilterProps } from './Metrics/Selectors'
 import {
     getAllowedMathTypes,
@@ -259,7 +254,7 @@ export function ExperimentMetricForm({
                     newMetric.completion_event = sources[1]
                 }
             } else if (newMetricType === ExperimentMetricType.QUANTILE && isExperimentQuantileMetric(newMetric)) {
-                newMetric.source = toPercentileSource(sources[0]) ?? newMetric.source
+                newMetric.source = toQuantileSource(sources[0]) ?? newMetric.source
             }
         }
 
