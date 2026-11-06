@@ -684,8 +684,18 @@ describe('SesWebhookHandler', () => {
             { mail, ...buildEvent(['TO@example.com', 'not-sent-to@example.org']) },
             { mail, ...buildEvent(['not-sent-to@example.org']) },
         ]
+        // The counter is the post-deploy signal for a filter that drops real recipients. Read it as a delta,
+        // because other tests in the process add to it.
+        const notSentToCount = async (): Promise<number> => {
+            const metric = await register.getSingleMetric('email_tracking_recipients_not_sent_to_total')!.get()
+            return metric.values.find((v) => v.labels.event_type === buildEvent([]).eventType)?.value ?? 0
+        }
+        const countBefore = await notSentToCount()
+
         const result = await handler.handleWebhook({ body, headers: {} })
+
         expect(result[arrayKey]).toEqual([expect.objectContaining({ teamId: '1', emailAddresses: ['TO@example.com'] })])
+        expect((await notSentToCount()) - countBefore).toBe(2)
     })
 
     it('returns 200, no metrics and no logged payload if tracking code is missing from both carriers', async () => {
