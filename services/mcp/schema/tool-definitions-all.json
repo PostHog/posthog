@@ -14790,7 +14790,7 @@
         "feature_flag": "stamphog"
     },
     "stamphog-pull-requests-get": {
-        "description": "Get one pull request record from stamphog (PostHog's automated PR review and merged-PR digest) by its internal UUID — the `id` returned by `stamphog-pull-requests-list`, not the GitHub PR number. Returns the repository, title, author, head branch, and merge details. To look a PR up by its GitHub number, use `stamphog-pull-requests-list` with `pr_number`. For CI status or merge-timing analytics on a PR, use the engineering analytics `pull-requests` or `pr-lifecycle` tools instead.",
+        "description": "Get one pull request record from stamphog (PostHog's automated PR review and merged-PR digest) by its internal UUID — the `id` returned by `stamphog-pull-requests-list`, not the GitHub PR number. Returns the repository, title, author, head branch, and merge details. To look a PR up by its GitHub number, use `stamphog-pull-requests-list` with `pr_number`. `routing_mode` is the repository's reviewer routing mode now, and `routing` is the latest routing record (phase, head, trigger, timestamps), null when routing never wrote one. For CI status or merge-timing analytics on a PR, use the engineering analytics `pull-requests` or `pr-lifecycle` tools instead.",
         "category": "Stamphog",
         "feature": "stamphog",
         "summary": "Get stamphog pull request",
@@ -14806,7 +14806,7 @@
         "feature_flag": "stamphog"
     },
     "stamphog-pull-requests-list": {
-        "description": "List pull requests stamphog has seen in this project, newest first. Filter by `pr_number` for a specific PR, or by `merged` (true/false) to separate open work from merged history. Each entry includes the repository, author, head branch, merge state, and diff size (additions/deletions/changed_files) once merged.",
+        "description": "List pull requests stamphog has seen in this project, newest first. Filter by `pr_number` for a specific PR, or by `merged` (true/false) to separate open work from merged history. Each entry includes the repository, author, head branch, merge state, diff size (additions/deletions/changed_files) once merged, and the reviewer routing state: `routing_mode` now and the latest `routing` record.",
         "category": "Stamphog",
         "feature": "stamphog",
         "summary": "List stamphog pull requests",
@@ -14918,7 +14918,7 @@
         "feature_flag": "stamphog"
     },
     "stamphog-routing-runs-get": {
-        "description": "Get one reviewer routing run by id, with the same owner decisions as the list plus `files` for every owner: each changed file the owner owns (path, previous path, status, additions, deletions), which is what made them a candidate. `owners_sha` names the default-branch commit whose owners.yaml files decided the owners. Patches are not kept.",
+        "description": "Get one reviewer routing run by id, with the same owner decisions as the list plus `files` for every owner: each changed file the owner owns (path, previous path, status, additions, deletions), which is what made them a candidate, and `owners_source`, the ownership file at `owners_sha` whose `owners` list names the owner for that file (null when only an additions declaration made the owner a candidate, or the run is older than the field). Patches are not kept.",
         "category": "Stamphog",
         "feature": "stamphog",
         "summary": "Get stamphog reviewer routing run",
@@ -14934,7 +14934,7 @@
         "feature_flag": "stamphog"
     },
     "stamphog-routing-runs-list": {
-        "description": "List stamphog's reviewer routing runs, newest first. Each run is one round of review requests on a pull request, with the run's decision for every owner of the changed code from owners.yaml: an `outcome` and the `reason` behind it, and the model's one-line `model_reason` when it proposed a cut. To answer \"why was my team not asked to review\", filter by `owner` (a team slug such as `team-devex`, or a GitHub login such as `@octocat`), optionally with `repository` and `pr_number`. Add `outcome` (for example `cut`) or `reason` to keep only the runs where that owner got it, and `created_after` or `created_before` to set a time window. `head_sha` finds the run for one commit. An owner missing from a run was not a candidate: it owns none of the changed files that routing reads (generated, vendored and lock files are skipped), or GitHub listed fewer files than the pull request changes (`files_truncated`). No runs for a pull request means no run was recorded: routing is off for the repository, it still waits for stamphog's verdict, or the log write failed. Use `stamphog-routing-runs-get` for the files each owner owns.",
+        "description": "List stamphog's reviewer routing runs, newest first. Each run is one round of review requests on a pull request, with the run's decision for every owner of the changed code from owners.yaml: an `outcome` and the `reason` behind it, and the model's one-line `model_reason` when it proposed a cut. To answer \"why was my team not asked to review\", filter by `owner` (a team slug such as `team-devex`, or a GitHub login such as `@octocat`), optionally with `repository` and `pr_number`. Add `outcome` (for example `cut`) or `reason` to keep only the runs where that owner got it, and `created_after` or `created_before` to set a time window. `head_sha` finds the run for one commit. An owner missing from a run was not a candidate: it owns none of the changed files that routing reads (generated, vendored and lock files are skipped), or GitHub listed fewer files than the pull request changes (`files_truncated`). An empty result with `owner`, `outcome`, `reason` or a time window can mean only that the owner was not a candidate, so drop those filters first. No runs at all for a pull request means no run was recorded: read `routing` and `routing_mode` on `stamphog-pull-requests-list` with `pr_number` to see whether routing is off, waiting for stamphog's verdict, or still running. A `done` record whose head has no run means the log has no entry for it, most often because the log write failed. Use `stamphog-routing-runs-get` for the files each owner owns and the ownership file that decided each one.",
         "category": "Stamphog",
         "feature": "stamphog",
         "summary": "List stamphog reviewer routing runs",
