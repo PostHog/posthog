@@ -165,12 +165,17 @@ class ErrorTrackingIssueAssignmentNotification:
     role_member_user_ids: list[int] = field(default_factory=list)
 
 
+AUTO_RESOLVE_MIN_DAYS = 1
+AUTO_RESOLVE_MAX_DAYS = 365
+
+
 @dataclass(frozen=True)
 class ErrorTrackingSettings:
     project_rate_limit_value: int | None
     project_rate_limit_bucket_size_minutes: int | None
     per_issue_rate_limit_value: int | None
     per_issue_rate_limit_bucket_size_minutes: int | None
+    auto_resolve_after_days: int | None
 
 
 @dataclass(frozen=True)

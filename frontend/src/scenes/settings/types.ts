@@ -184,6 +184,7 @@ export type SettingId =
     | 'error-tracking-ingestion-controls'
     | 'error-tracking-integrations'
     | 'error-tracking-rate-limits'
+    | 'error-tracking-auto-resolve'
     | 'error-tracking-releases'
     | 'error-tracking-severity-rules'
     | 'error-tracking-spike-detection'

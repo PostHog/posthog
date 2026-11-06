@@ -1080,6 +1080,8 @@ export const ErrorTrackingReleasesPartialUpdateBody = /* @__PURE__ */ zod.object
         .describe('Free-form metadata object. Omit to preserve the current value.'),
 })
 
+export const errorTrackingSettingsUpdateSettingsPartialUpdateBodyAutoResolveAfterDaysMax = 365
+
 export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
     project_rate_limit_value: zod
         .number()
@@ -1105,6 +1107,14 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = /* @__PURE__
         .min(1)
         .nullish()
         .describe('Bucket window over which the per-issue rate limit applies, in minutes.'),
+    auto_resolve_after_days: zod
+        .number()
+        .min(1)
+        .max(errorTrackingSettingsUpdateSettingsPartialUpdateBodyAutoResolveAfterDaysMax)
+        .nullish()
+        .describe(
+            'Resolve active issues automatically once they have had no exceptions for this many days, from 1 to 365. A daily run resolves them. Null turns auto-resolve off.'
+        ),
 })
 
 export const errorTrackingSeverityRulesCreateBodyOrderKeyDefault = 0

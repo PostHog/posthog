@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AutoResolvePreviewApi,
     ErrorTrackingAlertApi,
     ErrorTrackingAlertCreateRequestApi,
     ErrorTrackingAlertPutRequestApi,
@@ -67,6 +68,7 @@ import type {
     ErrorTrackingReleaseUpdateRequestApi,
     ErrorTrackingReleasesListParams,
     ErrorTrackingSettingsApi,
+    ErrorTrackingSettingsAutoResolvePreviewRetrieveParams,
     ErrorTrackingSeverityRuleApi,
     ErrorTrackingSeverityRuleCreateRequestApi,
     ErrorTrackingSeverityRuleListResponseApi,
@@ -1560,6 +1562,36 @@ export const errorTrackingReleasesHashRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getErrorTrackingReleasesHashRetrieveUrl(projectId, hashId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingSettingsAutoResolvePreviewRetrieveUrl = (
+    projectId: string,
+    params: ErrorTrackingSettingsAutoResolvePreviewRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/error_tracking/settings/auto_resolve_preview/?${stringifiedParams}`
+        : `/api/projects/${projectId}/error_tracking/settings/auto_resolve_preview/`
+}
+
+export const errorTrackingSettingsAutoResolvePreviewRetrieve = async (
+    projectId: string,
+    params: ErrorTrackingSettingsAutoResolvePreviewRetrieveParams,
+    options?: RequestInit
+): Promise<AutoResolvePreviewApi> => {
+    return apiMutator<AutoResolvePreviewApi>(getErrorTrackingSettingsAutoResolvePreviewRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

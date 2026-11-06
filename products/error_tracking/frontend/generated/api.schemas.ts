@@ -2179,6 +2179,11 @@ export interface PatchedErrorTrackingReleaseUpdateRequestApi {
     metadata?: PatchedErrorTrackingReleaseUpdateRequestApiMetadata
 }
 
+export interface AutoResolvePreviewApi {
+    /** Number of active issues the next auto-resolve run would resolve with this number of days. */
+    count: number
+}
+
 export interface ErrorTrackingSettingsApi {
     /**
      * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
@@ -2204,6 +2209,13 @@ export interface ErrorTrackingSettingsApi {
      * @nullable
      */
     per_issue_rate_limit_bucket_size_minutes?: number | null
+    /**
+     * Resolve active issues automatically once they have had no exceptions for this many days, from 1 to 365. A daily run resolves them. Null turns auto-resolve off.
+     * @minimum 1
+     * @maximum 365
+     * @nullable
+     */
+    auto_resolve_after_days?: number | null
 }
 
 export interface PatchedErrorTrackingSettingsApi {
@@ -2231,6 +2243,13 @@ export interface PatchedErrorTrackingSettingsApi {
      * @nullable
      */
     per_issue_rate_limit_bucket_size_minutes?: number | null
+    /**
+     * Resolve active issues automatically once they have had no exceptions for this many days, from 1 to 365. A daily run resolves them. Null turns auto-resolve off.
+     * @minimum 1
+     * @maximum 365
+     * @nullable
+     */
+    auto_resolve_after_days?: number | null
 }
 
 /**
@@ -2855,6 +2874,15 @@ export type ErrorTrackingReleasesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type ErrorTrackingSettingsAutoResolvePreviewRetrieveParams = {
+    /**
+     * Number of days without exceptions after which an active issue counts as quiet, from 1 to 365.
+     * @minimum 1
+     * @maximum 365
+     */
+    days: number
 }
 
 export type ErrorTrackingSpikeEventsListParams = {
