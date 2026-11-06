@@ -12,6 +12,7 @@ from posthog.constants import AvailableFeature
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.surveys.backend.models import Survey
 from products.surveys.backend.site_snapshot import (
@@ -157,6 +158,17 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
 
         assert snapshot == SiteSnapshot(status=SnapshotStatus.UNAVAILABLE)
         assert ExportedAsset.objects.count() == 1
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_renders_again_when_a_render_was_abandoned(self, _async_connect: AsyncMock) -> None:
+        survey = self._survey(None)
+        get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+        ExportedAsset.objects.update(created_at=timezone.now() - EXPORT_WORKFLOW_TIMEOUT - timedelta(minutes=1))
+
+        snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert snapshot.status == SnapshotStatus.RENDERING
+        assert ExportedAsset.objects.count() == 2
 
     @parameterized.expand(
         [
