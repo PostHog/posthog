@@ -20,6 +20,11 @@ export namespace Schemas {
       cited: boolean;
       /** The engine did not answer. When true, 'cited' is false and says nothing about citations. */
       check_failed: boolean;
+      /**
+         * 1-based rank of the first target-domain URL among the answer's cited URLs. Null when the answer did not cite one.
+         * @nullable
+         */
+      target_best_position: number | null;
       /** When the check ran. */
       checked_at: string;
     }
@@ -188,6 +193,11 @@ export namespace Schemas {
       mentioned: number;
       /** Checks that day where the engine did not answer. */
       failed: number;
+      /**
+         * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+         * @nullable
+         */
+      avg_position: number | null;
     }
 
     export interface AEOPromptEngineDomainShare {
@@ -235,6 +245,11 @@ export namespace Schemas {
       mentioned: number;
       /** Checks where the engine did not answer. */
       failed: number;
+      /**
+         * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+         * @nullable
+         */
+      avg_position: number | null;
       /** When the engine first ran the prompt. */
       first_checked_at: string;
       /** When the engine last ran the prompt. */
@@ -280,6 +295,11 @@ export namespace Schemas {
       prompts: number;
       /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
       prompts_cited: number;
+      /**
+         * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+         * @nullable
+         */
+      avg_position: number | null;
     }
 
     export interface AEOPromptSetDomain {
@@ -316,6 +336,11 @@ export namespace Schemas {
       prompts: number;
       /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
       prompts_cited: number;
+      /**
+         * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+         * @nullable
+         */
+      avg_position: number | null;
       /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
       engine: string;
     }
@@ -343,6 +368,11 @@ export namespace Schemas {
       prompts: number;
       /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
       prompts_cited: number;
+      /**
+         * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+         * @nullable
+         */
+      avg_position: number | null;
       /** Topic the checks ran with. Empty for prompts that have no topic. A prompt moved to another topic keeps its past checks under the old one. */
       topic: string;
       /** Prompts that are on, not archived, and have this topic now. */
@@ -123274,6 +123304,7 @@ export namespace Schemas {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `OrganizationIPRestrictions` - OrganizationIPRestrictions
      * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
@@ -123396,6 +123427,7 @@ export namespace Schemas {
       LegalDocument: 'LegalDocument',
       Organization: 'Organization',
       OrganizationDomain: 'OrganizationDomain',
+      OrganizationIPRestrictions: 'OrganizationIPRestrictions',
       IdentityProviderConfig: 'IdentityProviderConfig',
       OrganizationMembership: 'OrganizationMembership',
       Role: 'Role',
@@ -123504,6 +123536,7 @@ export namespace Schemas {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `OrganizationIPRestrictions` - OrganizationIPRestrictions
      * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
@@ -123614,6 +123647,7 @@ export namespace Schemas {
       LegalDocument: 'LegalDocument',
       Organization: 'Organization',
       OrganizationDomain: 'OrganizationDomain',
+      OrganizationIPRestrictions: 'OrganizationIPRestrictions',
       IdentityProviderConfig: 'IdentityProviderConfig',
       OrganizationMembership: 'OrganizationMembership',
       Role: 'Role',
