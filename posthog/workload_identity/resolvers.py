@@ -136,7 +136,9 @@ def _gitlab_project(token: str | None, path: str) -> requests.Response:
     )
 
 
-def _gitlab_subject(response: requests.Response, found_via: str) -> ResolvedWorkloadSubject | None:
+def _gitlab_subject(
+    response: requests.Response, found_via: str, *, require_public: bool
+) -> ResolvedWorkloadSubject | None:
     try:
         body = response.json()
     except ValueError:
@@ -146,7 +148,7 @@ def _gitlab_subject(response: requests.Response, found_via: str) -> ResolvedWork
     path = body.get("path_with_namespace")
     # PostHog's token may see projects that aren't public, and only a team's own integration may tell a
     # team about those. An anonymous request only ever sees public ones.
-    if not isinstance(path, str) or (found_via == "GitLab" and body.get("visibility") != "public"):
+    if not isinstance(path, str) or (require_public and body.get("visibility") != "public"):
         return None
     return ResolvedWorkloadSubject(subject=str(body["id"]), subject_name=path, found_via=found_via)
 
@@ -164,7 +166,9 @@ def _gitlab_through_integration(team_id: int, path: str) -> tuple[ResolvedWorklo
         except requests.RequestException:
             unavailable = True
             continue
-        if response.status_code == 200 and (found := _gitlab_subject(response, "your GitLab integration")):
+        if response.status_code == 200 and (
+            found := _gitlab_subject(response, "your GitLab integration", require_public=False)
+        ):
             return found, unavailable
         unavailable = unavailable or response.status_code not in (200, 404)
     return None, unavailable
@@ -181,7 +185,7 @@ def resolve_gitlab_project(team_id: int, name: str) -> ResolvedWorkloadSubject:
         response = _gitlab_project(settings.GITLAB_TOKEN or None, path)
     except requests.RequestException:
         raise WorkloadSubjectLookupUnavailable(GITLAB_UNAVAILABLE)
-    if response.status_code == 200 and (found := _gitlab_subject(response, "GitLab")):
+    if response.status_code == 200 and (found := _gitlab_subject(response, "GitLab", require_public=True)):
         return found
     if unavailable or response.status_code not in (200, 401, 404):
         logger.info("workload_gitlab_project_lookup_failed", status_code=response.status_code)

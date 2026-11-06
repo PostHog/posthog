@@ -110,6 +110,7 @@ class WorkloadExchangeError(Exception):
             "error_code": self.code.value,
             "error_uri": f"{WORKLOAD_IDENTITY_DOCS_URL}#{self.code.value}",
             **self.details,
+            **({} if self.retry_after is None else {"retry_after": self.retry_after}),
         }
 
 
@@ -322,7 +323,6 @@ def _charge_exchange(provider: WorkloadProvider, workload: VerifiedWorkload) -> 
                 f"This workload exchanged too many tokens. Try again in {decision.retry_after} seconds.",
                 oauth_error="temporarily_unavailable",
                 http_status=status.HTTP_429_TOO_MANY_REQUESTS,
-                details={"retry_after": decision.retry_after},
                 retry_after=decision.retry_after,
             )
 
