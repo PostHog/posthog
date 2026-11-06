@@ -1,5 +1,5 @@
 rules:
-    # INFO keeps this migration report out of the blocking WARNING and ERROR passes.
+    # WARNING grandfathers the existing direct v1 callers and blocks new ones on PRs.
     - id: authorization-through-sdk
       message: |
           Make authorization decisions through products.authorization.backend.facade.api.
@@ -7,10 +7,10 @@ rules:
           presentation adapter for QuerySet filters. Build object resources with
           products.authorization.backend.presentation.resources.resource_for_object so
           creator and fallback-parent access are preserved. Background work must pass
-          an explicit subject. This migration report is informational until the direct
-          v1 callers have moved to the SDK.
+          an explicit subject. Existing direct v1 callers are grandfathered until they
+          move to the SDK, but new ones fail CI.
       languages: [python]
-      severity: INFO
+      severity: WARNING
       paths:
           include:
               - /common/**/*.py
