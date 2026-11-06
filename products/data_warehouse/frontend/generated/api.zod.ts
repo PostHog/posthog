@@ -1596,17 +1596,17 @@ export const WarehouseTablesUpdateSchemaCreateBody = /* @__PURE__ */ zod
     .describe('Mixin for serializers to add user access control fields')
 
 /**
- * Turn a previously uploaded file into a self-managed warehouse table.
+ * Turn a previously uploaded file into a warehouse table with a FileUpload source.
  *
  * The file already sits in PostHog's own bucket (see `upload_file`), so the table points straight
- * at it and is read in place — no import pipeline and no recurring sync, the same shape as a linked
- * S3/GCS bucket. The read location is always derived from the caller's own team, so a client-supplied
+ * at it for the initial direct read. The source imports it on its first sync. The read location
+ * is always derived from the caller's own team, so a client-supplied
  * `upload_id` can only resolve inside that team's folder, and the table carries no credential (reads
  * fall back to the node role, never a user-supplied key).
  *
  * For a team with object storage sources, the table also gets a file upload source. Its first
  * sync imports the file and turns the same table row into a managed table.
- * @summary Create a self-managed warehouse table from an uploaded file
+ * @summary Create a warehouse table and FileUpload source from an uploaded file
  */
 export const WarehouseTablesCreateFromUploadCreateBody = /* @__PURE__ */ zod.object({
     upload_id: zod.uuid().describe('Id returned by upload_file for the stored file.'),
@@ -1723,12 +1723,12 @@ export const WarehouseTablesFileCreateBody = /* @__PURE__ */ zod
     .describe('Mixin for serializers to add user access control fields')
 
 /**
- * Store an uploaded file in object storage so a self-managed table can be created from it.
+ * Store an uploaded file for a new warehouse table and FileUpload source.
  *
  * Uploading is a separate first step from `create_from_upload` so the create call stays JSON-only:
  * this returns an `upload_id` the caller passes back to build the table. The file is written under
  * a team-scoped prefix, so a table can only ever read back its own team's uploads.
- * @summary Upload a file for a new self-managed warehouse table
+ * @summary Upload a file for a new warehouse table and FileUpload source
  */
 export const WarehouseTablesUploadFileCreateBody = /* @__PURE__ */ zod.object({
     file: zod.instanceof(File).describe('The file to upload.'),

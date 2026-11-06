@@ -543,7 +543,7 @@ class BasePrinter(Visitor[str]):
         table_type: ast.TableType | ast.LazyTableType,
         node_type: ast.TableOrSelectType | None,
     ) -> ast.Expr | None:
-        """Floor events-table scans to the team's retention window. Overridden by the ClickHouse dialect;
+        """Floor scans of events and events-derived tables to the team's retention window. Overridden by the ClickHouse dialect;
         default no-op — the HogQL and warehouse dialects don't enforce events retention."""
         return None
 

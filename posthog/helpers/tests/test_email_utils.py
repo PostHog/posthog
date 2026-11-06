@@ -230,9 +230,15 @@ class TestStripEmailAlias(SimpleTestCase):
 
 
 class TestRejectPlusAddressedEmail(SimpleTestCase):
-    def test_rejects_plus_in_local_part(self):
+    @parameterized.expand(
+        [
+            ("plain", "someuser+alias@domain.com"),
+            ("quoted_local_part_holding_an_at", '"some@user+alias"@domain.com'),
+        ]
+    )
+    def test_rejects_plus_in_local_part(self, _name: str, email: str) -> None:
         with self.assertRaises(serializers.ValidationError) as ctx:
-            reject_plus_addressed_email("someuser+alias@domain.com")
+            reject_plus_addressed_email(email)
         self.assertEqual(ctx.exception.get_codes(), ["plus_addressing_not_allowed"])
 
     def test_allows_email_without_plus(self):
