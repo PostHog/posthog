@@ -7,9 +7,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { ManualLinkSourceType } from '~/types'
 
-import { describeStorageProviderMismatch, storageProviderFromUrl } from '../../../shared/storageProvider'
+import { storageProviderFromUrl } from '../../../shared/storageProvider'
 import { selfManagedSourceLogic } from '../selfManagedSourceLogic'
-import { sourceWizardLogic } from '../sourceWizardLogic'
 
 const ProviderMappings: Record<
     ManualLinkSourceType,
@@ -51,17 +50,15 @@ const ProviderMappings: Record<
 }
 
 interface Props {
-    onUpdate?: () => void
+    onUpdate: () => void
 }
 
 export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
-    const { manualLinkingProvider } = useValues(sourceWizardLogic)
     const { table } = useValues(selfManagedSourceLogic)
 
-    // A saved table stores no provider: the backend reads it from the URL host, so the edit form does too.
-    const provider = (onUpdate ? storageProviderFromUrl(table?.url_pattern) : manualLinkingProvider) ?? 'aws'
+    // A saved table stores no provider: the backend reads it from the URL host, so the form does too.
+    const provider = storageProviderFromUrl(table?.url_pattern) ?? 'aws'
     const isCsvFormat = table?.format === 'CSV' || table?.format === 'CSVWithNames'
-    const providerMismatch = describeStorageProviderMismatch(table?.url_pattern, provider)
 
     return (
         <Form
@@ -109,7 +106,6 @@ export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
                 <div className="mb-4 text-xs text-secondary">
                     You can use <strong>*</strong> to select multiple files.
                 </div>
-                {providerMismatch && <div className="mb-4 text-xs text-warning">{providerMismatch}</div>}
                 <LemonField name="format" label="File format" className="mb-4 w-max">
                     {({ value = '', onChange }) => (
                         <LemonSelect
@@ -198,13 +194,11 @@ export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
                     </div>
                 )}
             </div>
-            {!!onUpdate && (
-                <div className="flex justify-end">
-                    <LemonButton type="primary" onClick={onUpdate}>
-                        Save
-                    </LemonButton>
-                </div>
-            )}
+            <div className="flex justify-end">
+                <LemonButton type="primary" onClick={onUpdate}>
+                    Save
+                </LemonButton>
+            </div>
         </Form>
     )
 }

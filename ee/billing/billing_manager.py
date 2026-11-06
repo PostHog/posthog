@@ -41,7 +41,7 @@ from posthog.models.user import User
 from ee.billing.access_token import mint_billing_access_token
 from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo
 from ee.billing.grants import EffectiveBillingGrants
-from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
+from ee.billing.quota_limiting import BILLING_STATUS_STAMP_KEYS, set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
@@ -133,6 +133,11 @@ def _has_quota_limiting_markers(usage: dict | None) -> bool:
             return True
 
     return False
+
+
+def _is_older_than_applied_billing_status(organization: Organization, computed_at: datetime) -> bool:
+    applied_at = parse_datetime((organization.usage or {}).get("billing_status_computed_at") or "")
+    return applied_at is not None and computed_at < applied_at
 
 
 def _free_trial_active(customer: CustomerInfo) -> bool:
@@ -757,6 +762,15 @@ class BillingManager:
         """
         Ensure the relevant organization details are up-to-date locally
         """
+        computed_at = parse_datetime(billing_status.get("computed_at") or "")
+        if computed_at is not None and _is_older_than_applied_billing_status(organization, computed_at):
+            logger.info(
+                "billing_status_out_of_order_skipped",
+                organization_id=str(organization.id),
+                computed_at=computed_at.isoformat(),
+            )
+            return organization
+
         org_modified = False
 
         data = billing_status["customer"]
@@ -783,6 +797,7 @@ class BillingManager:
                 mcp_events=usage_summary.get("mcp_events", {}),
                 ai_credits=usage_summary.get("ai_credits", {}),
                 signals_credits=usage_summary.get("signals_credits", {}),
+                signals_spend_credits=usage_summary.get("signals_spend_credits", {}),
                 posthog_code_credits=usage_summary.get("posthog_code_credits", {}),
                 posthog_code_token_credits=usage_summary.get("posthog_code_token_credits", {}),
                 sandbox_compute_credits=usage_summary.get("sandbox_compute_credits", {}),
@@ -801,6 +816,10 @@ class BillingManager:
 
             had_quota_limiting_markers = _has_quota_limiting_markers(organization.usage)
             usage_changed = set_org_usage_summary(organization, new_usage=usage_info)
+            if usage_changed and computed_at is None and organization.usage is not None:
+                # The stored stamps describe an older total, so the quota check must not pair them with this one.
+                for key in BILLING_STATUS_STAMP_KEYS:
+                    cast(dict, organization.usage).pop(key, None)
 
             if usage_changed:
                 org_modified = True
@@ -864,6 +883,13 @@ class BillingManager:
             if updated_customer_trust_scores != current_customer_trust_scores:
                 organization.customer_trust_scores = updated_customer_trust_scores
                 org_modified = True
+
+        # The stamp goes out only with a save that a change already needs. A save for the stamp
+        # alone writes this in-memory copy back over counters and quota markers that the quota
+        # run wrote in the meantime.
+        if org_modified and computed_at is not None and organization.usage is not None:
+            organization.usage["billing_status_computed_at"] = computed_at.isoformat()
+            organization.usage["billing_latest_usage_report_date"] = billing_status.get("latest_usage_report_date")
 
         if org_modified:
             organization.save()
@@ -1094,6 +1120,23 @@ class BillingManager:
 
         return res.json()
 
+    def record_rated_usage(self, organization: Organization, items: list[dict[str, str | int]]) -> None:
+        res = http_session.post(
+            f"{BILLING_SERVICE_URL}/api/rated-usage",
+            headers=self.get_auth_headers(organization, service_action="rated_usage"),
+            json={"items": items},
+            timeout=30,
+        )
+        handle_billing_service_error(res, valid_codes=(200,))
+        body = res.json()
+        results = body.get("results") if isinstance(body, dict) else None
+        if (
+            not isinstance(results, list)
+            or len(results) != len(items)
+            or any(result not in ("created", "replayed") for result in results)
+        ):
+            raise ValueError("Billing did not accept every rated usage item")
+
     def _system_auth_headers(self, service_action: str) -> dict[str, str]:
         if not self.license:  # mypy
             raise Exception("No license found")
@@ -1138,7 +1181,8 @@ class BillingManager:
 
         handle_billing_service_error(res)
 
-        self.update_available_product_features(organization)
+        # A full status carries `computed_at`, so a status queued before the trial change can't roll it back.
+        self.get_billing(organization)
 
         return res.json()
 
@@ -1151,7 +1195,8 @@ class BillingManager:
 
         handle_billing_service_error(res)
 
-        self.update_available_product_features(organization)
+        # A full status carries `computed_at`, so a status queued before the trial change can't roll it back.
+        self.get_billing(organization)
 
     def authorize(self, organization: Organization, billing_provider: BillingProvider | None = None):
         """
@@ -1256,7 +1301,8 @@ class BillingManager:
         )
 
         handle_billing_service_error(res)
-        self.update_available_product_features(organization)
+        # A full status carries `computed_at`, so a status queued before the plan switch can't roll it back.
+        self.get_billing(organization)
 
         return res.json()
 

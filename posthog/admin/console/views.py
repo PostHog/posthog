@@ -195,7 +195,7 @@ def run_team_operation(request: HttpRequest, team_id: int, panel_key: str, opera
 
     form = None
     if operation.form_class is not None:
-        form = operation.form_class(request.POST if request.method == "POST" else None)
+        form = operation.form_class(request.POST if request.method == "POST" else None, initial=operation.form_initial)
     context = {
         **ConsoleEnvironment.context(),
         "team": team,

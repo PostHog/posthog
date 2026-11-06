@@ -22,6 +22,9 @@ describe('deepLinkKind', () => {
     })
 
     test.each<[string, string | null]>([
+        ['https://us.posthog.com/project/2/error_tracking', '/(stack)/errors'],
+        ['https://us.posthog.com/project/2/replay', '/(stack)/replay'],
+        ['https://us.posthog.com/project/2/replay/home', '/(stack)/replay'],
         ['https://us.posthog.com/project/2/error_tracking/0192-abc?fingerprint=x', '/errors/0192-abc?from=link'],
         ['https://us.posthog.com/project/2/error-tracking/0192-abc', '/errors/0192-abc?from=link'],
         ['https://us.posthog.com/project/2/error_tracking/configuration', null],

@@ -15,7 +15,7 @@ from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
 from posthog.constants import AvailableFeature
 from posthog.credentials import AWSKeyPair
-from posthog.models import OrganizationMembership, PropertyDefinition, User
+from posthog.models import OrganizationMembership, User
 from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
@@ -45,6 +45,7 @@ from products.batch_exports.backend.temporal.record_batch_model import (
 from products.batch_exports.backend.temporal.sql.sessions import SESSIONS_LOOKBACK_DAYS
 from products.batch_exports.backend.tests.temporal.utils.clickhouse import truncate_events, truncate_sessions
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.event_definitions.backend.models import PropertyDefinition
 
 if TYPE_CHECKING:
     from posthog.models import Organization, Team
