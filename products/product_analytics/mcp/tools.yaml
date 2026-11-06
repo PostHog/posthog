@@ -98,18 +98,21 @@ tools:
 
             Events in this project that are older than the new period will be deleted, and deleted events can't be
             restored. A longer period doesn't bring back events that were already deleted. Deletion isn't instant. A
-            cleanup runs once a month, on `next_monthly_cleanup_on`, and deletes whole months of events, so some events
-            are kept up to about a month past the period.
+            period set for the project or the organization is applied by a cleanup that runs once a month, on
+            `next_monthly_cleanup_on`. It deletes whole months of events, so some events are kept up to about a month
+            past the period.
 
 
             Null makes the project use the organization's period, which the monthly cleanup applies. When the
-            organization has no period either, the project uses the default period.
+            organization has no period either, the project uses the default period. Don't give the user a date or a
+            count for deleting events past the default period.
 
 
             Before you prepare the change, call events-retention-get and tell the user the current and new period. If
-            the new period is shorter, call events-retention-deletion-count and tell the user how many events are
-            deleted and when. If the current period isn't one of `retention_months_choices`, PostHog support set it.
-            Tell the user that they need to contact support to get that period back after they change it.
+            the new period is shorter and isn't the default period, call events-retention-deletion-count and tell the
+            user how many events are deleted and when. If the current period isn't one of `retention_months_choices`,
+            PostHog support set it. Tell the user that they need to contact support to get that period back after they
+            change it.
         param_overrides:
             retention_months:
                 description: >
@@ -575,18 +578,20 @@ tools:
 
             Events in projects without their own period that are older than the new period will be deleted, and deleted
             events can't be restored. A longer period doesn't bring back events that were already deleted. Deletion
-            isn't instant. A cleanup runs once a month, on `next_monthly_cleanup_on`, and deletes whole months of
-            events, so some events are kept up to about a month past the period.
+            isn't instant. The organization's period is applied by a cleanup that runs once a month, on
+            `next_monthly_cleanup_on`. It deletes whole months of events, so some events are kept up to about a month
+            past the period.
 
 
-            Null makes projects without their own period use the default period.
+            Null makes projects without their own period use the default period. Don't give the user a date or a count
+            for deleting events past the default period.
 
 
             Before you prepare the change, call organization-events-retention-get and tell the user the current and new
-            period. If the new period is shorter, call organization-events-retention-deletion-count and tell the user
-            how many events are deleted and when. If the current period isn't one of `retention_months_choices`, PostHog
-            support set it. Tell the user that they need to contact support to get that period back after they change
-            it.
+            period. If the new period is shorter and isn't the default period, call
+            organization-events-retention-deletion-count and tell the user how many events are deleted and when. If the
+            current period isn't one of `retention_months_choices`, PostHog support set it. Tell the user that they need
+            to contact support to get that period back after they change it.
         param_overrides:
             retention_months:
                 description: >
