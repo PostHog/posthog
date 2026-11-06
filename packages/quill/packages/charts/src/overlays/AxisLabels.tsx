@@ -48,56 +48,33 @@ function truncateWithTitle(fullText: string, maxCategoryLabelWidth: number): { t
     return { text, title: text === fullText ? undefined : fullText }
 }
 
-interface LabelExtent<T> {
-    label: T
-    left: number
-    right: number
-}
+/** Greedily keep entries left→right. Horizontal labels use their measured text boxes; rotated
+ *  labels use the minimum perpendicular separation between parallel lines of text. */
+function dropOverlappingLabels<T extends { text: string; x: number }>(candidates: T[], padding: number): T[] {
+    if (candidates.length === 0) {
+        return []
+    }
 
-function measureExtents<T extends { text: string; x: number }>(candidates: T[]): LabelExtent<T>[] | null {
     const ctx = getTextMeasureCtx()
     if (!ctx) {
-        return null
-    }
-    ctx.font = AXIS_LABEL_FONT
-    return candidates.map((label) => {
-        const halfWidth = ctx.measureText(label.text).width / 2
-        return { label, left: label.x - halfWidth, right: label.x + halfWidth }
-    })
-}
-
-function dropOverlappingLabels<T extends { text: string; x: number }>(candidates: T[], padding: number): T[] {
-    const extents = measureExtents(candidates)
-    if (!extents) {
         return candidates
     }
+    ctx.font = AXIS_LABEL_FONT
 
     const visible: T[] = []
     let lastRightEdge = -Infinity
-    for (const { label, left, right } of extents) {
-        if (left >= lastRightEdge + padding) {
-            visible.push(label)
-            lastRightEdge = right
-        }
-    }
-    return visible
-}
 
-// Counts back from the last label so a date axis always labels its latest period.
-function keepEvenlySpacedLabels<T>(extents: LabelExtent<T>[], padding: number): T[] {
-    for (let stride = 1; stride < extents.length; stride++) {
-        const kept: LabelExtent<T>[] = []
-        let fits = true
-        for (let i = extents.length - 1; i >= 0 && fits; i -= stride) {
-            const next = kept[kept.length - 1]
-            fits = !next || extents[i].right + padding <= next.left
-            kept.push(extents[i])
-        }
-        if (fits) {
-            return kept.reverse().map((extent) => extent.label)
+    for (const candidate of candidates) {
+        const halfWidth = ctx.measureText(candidate.text).width / 2
+        const leftEdge = candidate.x - halfWidth
+
+        if (leftEdge >= lastRightEdge + padding) {
+            visible.push(candidate)
+            lastRightEdge = candidate.x + halfWidth
         }
     }
-    return extents.slice(-1).map((extent) => extent.label)
+
+    return visible
 }
 
 export function computeVisibleXLabels(
@@ -109,6 +86,8 @@ export function computeVisibleXLabels(
 ): XLabelCandidate[] {
     const candidates: XLabelCandidate[] = []
     const rotation = normalizeTickLabelRotation(tickLabelRotation)
+    const minimumGap = rotation === 0 ? 0 : Math.max(minimumRotatedTickLabelGap(rotation), CATEGORY_LABEL_PADDING)
+    let lastX = -Infinity
 
     for (let i = 0; i < labels.length; i++) {
         const x = xScale(labels[i])
@@ -116,22 +95,17 @@ export function computeVisibleXLabels(
             continue
         }
         const fullText = formatter ? formatter(labels[i], i) : labels[i]
-        if (fullText === null) {
+        if (fullText === null || (rotation !== 0 && x < lastX + minimumGap)) {
             continue
         }
         const { text, title } = truncateWithTitle(fullText, maxCategoryLabelWidth)
         candidates.push({ index: i, text, title, x })
+        if (rotation !== 0) {
+            lastX = x
+        }
     }
 
-    if (rotation !== 0) {
-        const minimumGap = Math.max(minimumRotatedTickLabelGap(rotation), CATEGORY_LABEL_PADDING)
-        return keepEvenlySpacedLabels(
-            candidates.map((label) => ({ label, left: label.x, right: label.x })),
-            minimumGap
-        )
-    }
-    const extents = measureExtents(candidates)
-    return extents ? keepEvenlySpacedLabels(extents, CATEGORY_LABEL_PADDING) : candidates
+    return rotation === 0 ? dropOverlappingLabels(candidates, CATEGORY_LABEL_PADDING) : candidates
 }
 
 interface ValueTickCandidate {
@@ -142,7 +116,8 @@ interface ValueTickCandidate {
 
 /** Value-axis ticks for a horizontal bar chart map onto the x-axis, where wide numeric labels
  *  (e.g. "450,000") collide far more readily than stacked y-axis labels do. Greedily drop the
- *  ones that would overlap so the axis stays legible. Ticks arrive value-sorted, so ascending value
+ *  ones that would overlap so the axis stays legible — the same pass `computeVisibleXLabels`
+ *  applies to a vertical chart's category axis. Ticks arrive value-sorted, so ascending value
  *  maps to ascending x for an increasing value scale. */
 export function computeVisibleValueTicks(
     ticks: number[],

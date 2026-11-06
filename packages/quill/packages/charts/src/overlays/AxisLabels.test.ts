@@ -51,22 +51,6 @@ describe('computeVisibleXLabels', () => {
         expect(horizontal.length).toBeLessThan(labels.length)
         expect(rotated.map((label) => label.text)).toEqual(labels)
     })
-
-    it.each([
-        { description: 'horizontal', rotation: 0, spacing: 15 },
-        { description: 'rotated', rotation: -45, spacing: 12 },
-    ])('keeps the last label and evenly spaced ones on a crowded $description axis', ({ rotation, spacing }) => {
-        const labels = Array.from({ length: 12 }, (_, i) => `Month ${i}`)
-        const scale = (label: string): number => labels.indexOf(label) * spacing
-
-        const indices = computeVisibleXLabels(labels, scale, undefined, 0, rotation).map((v) => v.index)
-        const gaps = indices.slice(1).map((index, i) => index - indices[i])
-
-        expect(indices.length).toBeGreaterThan(1)
-        expect(indices.length).toBeLessThan(labels.length)
-        expect(indices[indices.length - 1]).toBe(labels.length - 1)
-        expect(new Set(gaps).size).toBe(1)
-    })
 })
 
 describe('computeVisibleValueTicks', () => {

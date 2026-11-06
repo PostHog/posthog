@@ -273,7 +273,6 @@ function buildVisibleBoundaries(parsedDates: Dayjs[]): Set<number> {
         }
     }
 
-    // The latest month always keeps its label; the axis overlap pass thins the rest.
     const visible = new Set(boundaries)
     const minGap = Math.max(3, Math.floor(parsedDates.length / 10))
 
