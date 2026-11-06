@@ -22,6 +22,9 @@ from .enums import (
     HighlightUnit,
     ImpactNumberKey,
     KeyClauseRole,
+    NewsSkipReason,
+    NewsStatus,
+    NewsTone,
     PulseSlotStatus,
 )
 
@@ -311,6 +314,41 @@ class HighlightContext(Protocol):
 
 
 @frozen
+class NewsFact:
+    key: str
+    kind: str
+    title: str
+    importance: float
+    magnitude: float
+    breadth: float
+    at: datetime
+    tone: NewsTone
+    resource: str
+    scopes: tuple[str, ...]
+    object_id: str | None = None
+    numbers: dict[str, float | int | str] = field(default_factory=dict)
+    change: float | None = None
+    metric_label: str | None = None
+    metric_value: str | None = None
+    series: tuple[float, ...] = ()
+    series_labels: tuple[str, ...] = ()
+    url: str | None = None
+    product: str = ""
+
+
+class NewsContext(Protocol):
+    team: "Team"
+    start: datetime
+    end: datetime
+
+    def shared(self, resource: str) -> bool: ...
+
+    def withheld(self, resource: str) -> frozenset[str]: ...
+
+    def guard(self, name: str, provider: Callable[[], T], default: T) -> T: ...
+
+
+@frozen
 class HighlightSource:
     """A product's contribution to "For you today".
 
@@ -324,3 +362,51 @@ class HighlightSource:
     # Today skips the source when the viewer's API scopes or access controls do not cover these.
     scopes: tuple[str, ...] = ()
     pulse_order: int = 0
+    news: Callable[[NewsContext], tuple[NewsFact, ...]] | None = None
+
+
+@dataclass(frozen=True)
+class NewsStory:
+    id: str
+    product: str
+    product_label: str
+    title: str
+    summary: str
+    change: float | None
+    tone: NewsTone
+    dive_prompt: str
+    url: str | None = None
+
+
+@dataclass(frozen=True)
+class NewsLeadStory:
+    id: str
+    product: str
+    product_label: str
+    title: str
+    summary: str
+    change: float | None
+    tone: NewsTone
+    dive_prompt: str
+    metric_label: str
+    metric_value: str
+    series: list[float]
+    series_labels: list[str]
+    url: str | None = None
+
+
+@dataclass(frozen=True)
+class NewsEdition:
+    id: str
+    is_sample: bool
+    period_start: date
+    lead: NewsLeadStory
+    stories: list[NewsStory]
+    briefs: list[str]
+
+
+@dataclass(frozen=True)
+class TodayNews:
+    status: NewsStatus
+    skip_reason: NewsSkipReason | None
+    edition: NewsEdition | None

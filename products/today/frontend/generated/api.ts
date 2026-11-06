@@ -17,6 +17,7 @@ import type {
     ReportKeyClausesApi,
     ReportPageApi,
     TodayHighlightsRetrieveParams,
+    TodayNewsApi,
     TodayReportsKeyClausesRetrieveParams,
 } from './api.schemas'
 
@@ -67,6 +68,21 @@ export const todayHighlightsRetrieve = async (
     options?: RequestInit
 ): Promise<HighlightsApi> => {
     return apiMutator<HighlightsApi>(getTodayHighlightsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTodayNewsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/today/news/`
+}
+
+/**
+ * This week's news edition for the whole project: a lead story, up to 3 more stories and up to 4 briefs. Queries collect the facts and AI ranks them and writes the text. Every number, link and tone comes from the facts. One edition is generated per project and week, the first time someone opens Today that week. The call never waits: while the edition is generated it returns `computing`, so poll every 3 seconds. Stories about objects the person cannot see are left out. `skipped` with a reason when the week was quiet, AI data processing is off, fewer than 2 people use Today, or the daily limit is reached. 404 when the person does not have the news.
+ * @summary Get this week's project news
+ */
+export const todayNewsRetrieve = async (projectId: string, options?: RequestInit): Promise<TodayNewsApi> => {
+    return apiMutator<TodayNewsApi>(getTodayNewsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

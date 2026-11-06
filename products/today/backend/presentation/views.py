@@ -34,6 +34,7 @@ from .serializers import (
     PulsePinsSerializer,
     ReportKeyClausesSerializer,
     ReportPageSerializer,
+    TodayNewsSerializer,
 )
 
 logger = structlog.get_logger(__name__)
@@ -86,7 +87,7 @@ def _jev_errors_as_responses(team_id: int) -> Iterator[None]:
 
 class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "today"
-    scope_object_read_actions = ["excerpt_choice", "highlights", "pulse_pins"]
+    scope_object_read_actions = ["excerpt_choice", "highlights", "news", "pulse_pins"]
     scope_object_write_actions = ["set_pulse_pins"]
 
     def get_throttles(self) -> list[BaseThrottle]:
@@ -123,6 +124,20 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             refresh=request.validated_query_data["refresh"],
         )
         return Response(HighlightsSerializer(found).data)
+
+    @validated_request(
+        responses={200: OpenApiResponse(response=TodayNewsSerializer)},
+        summary="Get this week's project news",
+        description="This week's news edition for the whole project: a lead story, up to 3 more stories and up to 4 briefs. Queries collect the facts and AI ranks them and writes the text. Every number, link and tone comes from the facts. One edition is generated per project and week, the first time someone opens Today that week. The call never waits: while the edition is generated it returns `computing`, so poll every 3 seconds. Stories about objects the person cannot see are left out. `skipped` with a reason when the week was quiet, AI data processing is off, fewer than 2 people use Today, or the daily limit is reached. 404 when the person does not have the news.",
+    )
+    @action(detail=False, methods=["get"], url_path="news")
+    def news(self, request: Request, **kwargs) -> Response:
+        user = cast(User, request.user)
+        if not api.news_enabled_for(user, self.team):
+            raise NotFound()
+        scopes = get_authenticator_scopes(request.successful_authenticator)
+        found = api.get_news(team=self.team, user=user, scopes=None if scopes is None else frozenset(scopes))
+        return Response(TodayNewsSerializer(found).data)
 
     @validated_request(
         responses={200: OpenApiResponse(response=PulsePinsSerializer)},

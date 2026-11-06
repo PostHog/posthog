@@ -67996,6 +67996,139 @@ export namespace Schemas {
       value: unknown;
     }
 
+    /**
+     * * `risk` - Risk
+     * * `good` - Good
+     * * `neutral` - Neutral
+     */
+    export type NewsToneEnum = typeof NewsToneEnum[keyof typeof NewsToneEnum];
+
+
+    export const NewsToneEnum = {
+      Risk: 'risk',
+      Good: 'good',
+      Neutral: 'neutral',
+    } as const;
+
+    export interface NewsLeadStory {
+      /** Stable id of the fact behind the story, for example alert:<id>. */
+      id: string;
+      /** Product the story is about, for example feature_flags. */
+      product: string;
+      /** Display name of the product. */
+      product_label: string;
+      /** One sentence headline. AI writes it from the facts. */
+      title: string;
+      /** One or two short sentences. AI writes them from the facts. */
+      summary: string;
+      /**
+         * Change in percent from the stored fact. Null when the fact has no comparison.
+         * @nullable
+         */
+      change: number | null;
+      /** `risk` when something got worse, `good` when it got better, `neutral` otherwise. It comes from the fact, not the AI.
+       *
+       * * `risk` - Risk
+       * * `good` - Good
+       * * `neutral` - Neutral */
+      tone: NewsToneEnum;
+      /** A neutral question about the story to prefill in the task composer. The person reads it before sending. */
+      dive_prompt: string;
+      /**
+         * Path in the app to the object, relative to the project.
+         * @nullable
+         */
+      url?: string | null;
+      /** Label of the number on the lead chart. Empty when the lead fact has no number. */
+      metric_label: string;
+      /** Formatted number on the lead chart. Empty when the lead fact has no number. */
+      metric_value: string;
+      /** Values for the lead chart, oldest first. Empty when there is no chart. */
+      series: number[];
+      /** One label per value in `series`, oldest first. */
+      series_labels: string[];
+    }
+
+    export interface NewsStory {
+      /** Stable id of the fact behind the story, for example alert:<id>. */
+      id: string;
+      /** Product the story is about, for example feature_flags. */
+      product: string;
+      /** Display name of the product. */
+      product_label: string;
+      /** One sentence headline. AI writes it from the facts. */
+      title: string;
+      /** One or two short sentences. AI writes them from the facts. */
+      summary: string;
+      /**
+         * Change in percent from the stored fact. Null when the fact has no comparison.
+         * @nullable
+         */
+      change: number | null;
+      /** `risk` when something got worse, `good` when it got better, `neutral` otherwise. It comes from the fact, not the AI.
+       *
+       * * `risk` - Risk
+       * * `good` - Good
+       * * `neutral` - Neutral */
+      tone: NewsToneEnum;
+      /** A neutral question about the story to prefill in the task composer. The person reads it before sending. */
+      dive_prompt: string;
+      /**
+         * Path in the app to the object, relative to the project.
+         * @nullable
+         */
+      url?: string | null;
+    }
+
+    export interface NewsEdition {
+      /** Id of the edition. Store it to know which edition the person read. */
+      id: string;
+      /** Always false for a generated edition. */
+      is_sample: boolean;
+      /** Monday of the week the edition is for, in the project's timezone. */
+      period_start: string;
+      /** The most important story of the week. */
+      lead: NewsLeadStory;
+      /** Up to 3 more stories, most important first. */
+      stories: NewsStory[];
+      /** Up to 4 one-sentence notes about smaller changes. */
+      briefs: string[];
+    }
+
+    /**
+     * * `quiet` - Not enough news this week
+     * * `ai_not_approved` - AI data processing is off
+     * * `few_people` - Fewer than 2 people use Today
+     * * `budget` - Daily generation limit reached
+     * * `no_access` - No story the viewer can see
+     */
+    export type NewsSkipReasonEnum = typeof NewsSkipReasonEnum[keyof typeof NewsSkipReasonEnum];
+
+
+    export const NewsSkipReasonEnum = {
+      Quiet: 'quiet',
+      AiNotApproved: 'ai_not_approved',
+      FewPeople: 'few_people',
+      Budget: 'budget',
+      NoAccess: 'no_access',
+    } as const;
+
+    /**
+     * * `computing` - Computing
+     * * `ready` - Ready
+     * * `skipped` - Skipped
+     * * `failed` - Failed
+     */
+    export type NewsStatusEnum = typeof NewsStatusEnum[keyof typeof NewsStatusEnum];
+
+
+    export const NewsStatusEnum = {
+      Computing: 'computing',
+      Ready: 'ready',
+      Skipped: 'skipped',
+      Failed: 'failed',
+    } as const;
+
     export interface NoMatchMetadata {
       /** Why no existing report matched. */
       reason: string;
@@ -113949,6 +114082,26 @@ export namespace Schemas {
       snoozed_until?: string | null;
       /** Tag names to set on the ticket. */
       tags?: string[];
+    }
+
+    export interface TodayNews {
+      /** `ready` when `edition` is set. `computing` while the edition is generated: poll again every 3 seconds. `skipped` when there is no edition this week, see `skip_reason`. `failed` when generation failed: it is tried again after an hour.
+       *
+       * * `computing` - Computing
+       * * `ready` - Ready
+       * * `skipped` - Skipped
+       * * `failed` - Failed */
+      status: NewsStatusEnum;
+      /** Why there is no edition when the status is `skipped`. Null otherwise.
+       *
+       * * `quiet` - Not enough news this week
+       * * `ai_not_approved` - AI data processing is off
+       * * `few_people` - Fewer than 2 people use Today
+       * * `budget` - Daily generation limit reached
+       * * `no_access` - No story the viewer can see */
+      skip_reason: NewsSkipReasonEnum | null;
+      /** The edition. Null unless the status is `ready`. */
+      edition: NewsEdition | null;
     }
 
     export interface TolerationPileupEntry {

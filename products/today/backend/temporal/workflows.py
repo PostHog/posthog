@@ -10,11 +10,21 @@ from temporalio.exceptions import ActivityError
 from posthog.temporal.common.base import PostHogWorkflow
 
 with temporalio.workflow.unsafe.imports_passed_through():
-    from .activities import finalize_highlights_activity, resolve_pins_activity, run_highlight_source_activity
+    from .activities import (
+        collect_news_facts_activity,
+        fail_news_activity,
+        finalize_highlights_activity,
+        resolve_pins_activity,
+        run_highlight_source_activity,
+        write_news_activity,
+    )
     from .inputs import (
         HIGHLIGHTS_WORKFLOW_NAME,
+        NEWS_WORKFLOW_NAME,
         ComputeHighlightsInputs,
+        FailNewsInputs,
         FinalizeHighlightsInputs,
+        GenerateNewsInputs,
         HighlightSourceInputs,
         HighlightSourceResult,
         ResolvePinsInputs,
@@ -25,6 +35,10 @@ HIGHLIGHT_SOURCE_TIMEOUT = timedelta(seconds=180)
 HIGHLIGHT_SOURCE_TOTAL_TIMEOUT = timedelta(seconds=240)
 FINALIZE_HIGHLIGHTS_TIMEOUT = timedelta(seconds=30)
 PINNED_NUMBERS_PATCH = "today-pinned-numbers"
+COLLECT_NEWS_TIMEOUT = timedelta(seconds=180)
+WRITE_NEWS_TIMEOUT = timedelta(minutes=2)
+FAIL_NEWS_TIMEOUT = timedelta(seconds=30)
+MAX_NEWS_ERROR_LENGTH = 2000
 
 
 @temporalio.workflow.defn(name=HIGHLIGHTS_WORKFLOW_NAME)
@@ -93,3 +107,36 @@ async def _resolve_pins(inputs: ComputeHighlightsInputs) -> ResolvePinsResult:
     except ActivityError:
         return ResolvePinsResult(found="[]", failed=True)
     return result
+
+
+@temporalio.workflow.defn(name=NEWS_WORKFLOW_NAME)
+class GenerateTodayNewsWorkflow(PostHogWorkflow):
+    inputs_cls = GenerateNewsInputs
+
+    @temporalio.workflow.run
+    async def run(self, inputs: GenerateNewsInputs) -> None:
+        try:
+            proceed = await temporalio.workflow.execute_activity(
+                collect_news_facts_activity,
+                inputs,
+                start_to_close_timeout=COLLECT_NEWS_TIMEOUT,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
+            )
+            if proceed:
+                await temporalio.workflow.execute_activity(
+                    write_news_activity,
+                    inputs,
+                    start_to_close_timeout=WRITE_NEWS_TIMEOUT,
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+                )
+        except ActivityError as error:
+            await temporalio.workflow.execute_activity(
+                fail_news_activity,
+                FailNewsInputs(
+                    team_id=inputs.team_id,
+                    edition_id=inputs.edition_id,
+                    error=str(error.cause or error)[:MAX_NEWS_ERROR_LENGTH],
+                ),
+                start_to_close_timeout=FAIL_NEWS_TIMEOUT,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+            )

@@ -18,6 +18,9 @@ from ..facade.contracts import (
     ImpactNumber,
     ImpactWorking,
     KeyClause,
+    NewsEdition,
+    NewsLeadStory,
+    NewsStory,
     PageLink,
     PreviewLine,
     PullRequestLink,
@@ -29,6 +32,7 @@ from ..facade.contracts import (
     ReportPage,
     SignalPreview,
     SignalView,
+    TodayNews,
 )
 from ..facade.enums import (
     CitedSource,
@@ -43,6 +47,9 @@ from ..facade.enums import (
     HighlightUnit,
     ImpactNumberKey,
     KeyClauseRole,
+    NewsSkipReason,
+    NewsStatus,
+    NewsTone,
     PulseSlotStatus,
 )
 
@@ -497,3 +504,76 @@ class HighlightsSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = Highlights
+
+
+class NewsStorySerializer(DataclassSerializer):
+    id = serializers.CharField(help_text="Stable id of the fact behind the story, for example alert:<id>.")
+    product = serializers.CharField(help_text="Product the story is about, for example feature_flags.")
+    product_label = serializers.CharField(help_text="Display name of the product.")
+    title = serializers.CharField(help_text="One sentence headline. AI writes it from the facts.")
+    summary = serializers.CharField(help_text="One or two short sentences. AI writes them from the facts.")
+    change = serializers.FloatField(
+        allow_null=True, help_text="Change in percent from the stored fact. Null when the fact has no comparison."
+    )
+    tone = serializers.ChoiceField(
+        choices=NewsTone.choices,
+        help_text="`risk` when something got worse, `good` when it got better, `neutral` otherwise. It comes from the fact, not the AI.",
+    )
+    dive_prompt = serializers.CharField(
+        help_text="A neutral question about the story to prefill in the task composer. The person reads it before sending."
+    )
+    url = serializers.CharField(
+        allow_null=True, required=False, help_text="Path in the app to the object, relative to the project."
+    )
+
+    class Meta:
+        dataclass = NewsStory
+
+
+class NewsLeadStorySerializer(NewsStorySerializer):
+    metric_label = serializers.CharField(
+        allow_blank=True, help_text="Label of the number on the lead chart. Empty when the lead fact has no number."
+    )
+    metric_value = serializers.CharField(
+        allow_blank=True, help_text="Formatted number on the lead chart. Empty when the lead fact has no number."
+    )
+    series = serializers.ListField(
+        child=serializers.FloatField(),
+        help_text="Values for the lead chart, oldest first. Empty when there is no chart.",
+    )
+    series_labels = serializers.ListField(
+        child=serializers.CharField(), help_text="One label per value in `series`, oldest first."
+    )
+
+    class Meta:
+        dataclass = NewsLeadStory
+
+
+class NewsEditionSerializer(DataclassSerializer):
+    id = serializers.CharField(help_text="Id of the edition. Store it to know which edition the person read.")
+    is_sample = serializers.BooleanField(help_text="Always false for a generated edition.")
+    period_start = serializers.DateField(help_text="Monday of the week the edition is for, in the project's timezone.")
+    lead = NewsLeadStorySerializer(help_text="The most important story of the week.")
+    stories = NewsStorySerializer(many=True, help_text="Up to 3 more stories, most important first.")
+    briefs = serializers.ListField(
+        child=serializers.CharField(), help_text="Up to 4 one-sentence notes about smaller changes."
+    )
+
+    class Meta:
+        dataclass = NewsEdition
+
+
+class TodayNewsSerializer(DataclassSerializer):
+    status = serializers.ChoiceField(
+        choices=NewsStatus.choices,
+        help_text="`ready` when `edition` is set. `computing` while the edition is generated: poll again every 3 seconds. `skipped` when there is no edition this week, see `skip_reason`. `failed` when generation failed: it is tried again after an hour.",
+    )
+    skip_reason = serializers.ChoiceField(
+        choices=NewsSkipReason.choices,
+        allow_null=True,
+        help_text="Why there is no edition when the status is `skipped`. Null otherwise.",
+    )
+    edition = NewsEditionSerializer(allow_null=True, help_text="The edition. Null unless the status is `ready`.")
+
+    class Meta:
+        dataclass = TodayNews
