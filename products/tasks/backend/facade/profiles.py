@@ -22,12 +22,6 @@ class DrivePolicy(StrEnum):
     NONE = "none"
 
 
-class AccessGate(StrEnum):
-    DESKTOP_CODE = "desktop_code"
-    INBOX = "inbox"
-    NONE = "none"
-
-
 class GithubResolution(StrEnum):
     ALWAYS = "always"
     WITH_REPOSITORY = "with_repository"
@@ -48,6 +42,7 @@ class PrAuthorship(StrEnum):
 class WarmQuota(StrEnum):
     NONE = "none"
     AI_CREDITS = "ai_credits"
+    POSTHOG_AI = "posthog_ai"
 
 
 class GithubAccess(StrEnum):
@@ -62,9 +57,20 @@ class NetworkAccess(StrEnum):
     CUSTOM = "custom"
 
 
+class ContractCheck(StrEnum):
+    PUBLIC_OPTIONS = "public_options"
+    RUNTIMES = "runtimes"
+    SANDBOX_TEMPLATES = "sandbox_templates"
+    MCP_SCOPES = "mcp_scopes"
+    GITHUB_ACCESS = "github_access"
+    IDLE_MINUTES = "idle_minutes"
+    DRIVE = "drive"
+
+
 class SourceKind(StrEnum):
     SIGNAL_REPORT = "signal_report"
     HOG_FLOW = "hog_flow"
+    LOOP = "loop"
 
 
 @frozen
@@ -137,9 +143,6 @@ class TaskProfile:
     # AUDIENCE means anyone who can read the task, such as the people in a Slack thread.
     # NONE means nobody, for tasks that finish on their own.
     drive: DrivePolicy
-    # A check on the person that runs at create and again on every wake. DESKTOP_CODE requires
-    # PostHog Code access in the organization. INBOX requires inbox access. NONE runs no check.
-    access_gate: AccessGate
     # The most queued or running tasks one person may have on this profile at once. Create and
     # wake refuse at the cap. None means no cap.
     max_live_per_user: int | None
@@ -167,6 +170,7 @@ class TaskProfile:
     # True installs the team's MCP store servers in the sandbox. False installs none, personal
     # servers included.
     mcp_store_servers: bool
+    mcp_exclude_tools: tuple[str, ...]
     # The OAuth application that mints the sandbox's PostHog tokens. The LLM gateway pins billing
     # products per application, so a token from a shared application is valid for every product on
     # it. A product with its own billing needs its own application.
@@ -175,6 +179,7 @@ class TaskProfile:
     # attaches it only when the task has a repository. NEVER attaches none. Use NEVER for tasks
     # that read text members wrote, because a token there turns planted text into repository access.
     github_resolution: GithubResolution
+    github_access: GithubAccess
     # True lets runs open pull requests as the creator through their personal GitHub installation.
     # A creator without a usable installation falls back to the bot. False always uses the bot.
     user_authorable_prs: bool
@@ -215,6 +220,8 @@ class TaskProfile:
     # True lets a running wake finish when the organization runs out of credit. False stops the
     # wake and snapshots the task.
     finish_in_flight: bool
+
+    enforced_checks: frozenset[ContractCheck] = frozenset()
 
 
 @frozen
@@ -296,19 +303,26 @@ _ORIGIN_SCOPED_FIELDS = (
     "read_without_channel",
     "drive",
     "api_visible",
-    "access_gate",
     "idle_minutes",
     "max_wake_minutes",
     "warm",
 )
 
+MAX_MCP_EXCLUDE_TOOLS = 32
+
 _profiles: dict[str, TaskProfile] = {}
 
 
 def register_task_profile(profile: TaskProfile) -> None:
+    if len(profile.mcp_exclude_tools) > MAX_MCP_EXCLUDE_TOOLS:
+        raise TaskProfileError(f"Task profile {profile.key!r} hides more than {MAX_MCP_EXCLUDE_TOOLS} MCP tools")
     existing = _profiles.get(profile.key)
     if existing is not None and existing != profile:
         raise TaskProfileError(f"Task profile {profile.key!r} is already registered with different values")
+    if (profile.github_access == GithubAccess.NONE) != (profile.github_resolution == GithubResolution.NEVER):
+        raise TaskProfileError(
+            f"Task profile {profile.key!r} must set github_access to none exactly when github_resolution is never"
+        )
     for other in _profiles.values():
         if other.key == profile.key or other.origin_product != profile.origin_product:
             continue
@@ -331,6 +345,10 @@ def get_task_profile(key: str) -> TaskProfile:
         return _profiles[key]
     except KeyError:
         raise TaskProfileError(f"Unknown task profile {key!r}") from None
+
+
+def find_task_profile(key: str | None) -> TaskProfile | None:
+    return _profiles.get(key) if key else None
 
 
 def task_profiles() -> tuple[TaskProfile, ...]:

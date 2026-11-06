@@ -1,6 +1,6 @@
 import { type QueryClient, type QueryKey, useQuery } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ViewToken } from 'react-native'
+import type { ListViewToken } from 'react-native'
 import { useShallow } from 'zustand/react/shallow'
 import { fetchRecentDashboards } from '@/api/dashboards'
 import type { PaginatedApi, ProjectScope } from '@/api/reports'
@@ -8,7 +8,7 @@ import {
     createShortcut,
     deleteShortcut,
     type FileSystemShortcutApi,
-    fetchShortcuts,
+    isCompleteShortcutPage,
     SHORTCUT_PAGE_SIZE,
 } from '@/api/shortcuts'
 import { useAuthStore } from '@/auth/authStore'
@@ -40,7 +40,7 @@ import {
 } from './analytics'
 import { cacheTargetPassed, hasGoodValue, isDue, READ_FLOOR_MS } from './freshness'
 import { type InsightTarget, insightItem, insightItemKey, insightQueryKey, pinTarget } from './items'
-import { listRead, retryListRead } from './listReads'
+import { listRead, readShortcuts, retryListRead } from './listReads'
 import { movedOrder, usePinPrefs, useProjectPinPrefs } from './pinPrefsStore'
 import { useDeviceRecent } from './recentStore'
 import { viewsQueue } from './refreshQueue'
@@ -57,13 +57,6 @@ type ShortcutPage = PaginatedApi<FileSystemShortcutApi>
 
 const EMPTY_ROWS: FileSystemShortcutApi[] = []
 const EMPTY_RECENT: DeviceRecentEntry[] = []
-
-function readShortcuts(signal?: AbortSignal, beforeRead?: () => void): Promise<ShortcutPage> {
-    return listRead('dashboards', signal, () => {
-        beforeRead?.()
-        return fetchShortcuts(signal)
-    })
-}
 
 function projectKey(scope: ProjectScope): string {
     return `${scope.host}|${scope.projectId}`
@@ -111,11 +104,10 @@ export function usePins({ refetchOnMount = false }: { refetchOnMount?: boolean }
         if (!page || demo || !prefsKey) {
             return
         }
-        const complete = !page.next && page.results.length < SHORTCUT_PAGE_SIZE
         usePinPrefs.getState().prune(
             prefsKey,
             page.results.map((row) => row.id),
-            complete
+            isCompleteShortcutPage(page)
         )
     }, [page, demo, prefsKey])
 
@@ -536,14 +528,14 @@ export interface Visibility {
     /** Undefined until the list reports what it shows. */
     visibleKeys: ReadonlySet<string> | undefined
     /** A stable callback for `FlatList` / `SectionList`. */
-    onViewableItemsChanged: (info: { viewableItems: ViewToken[] }) => void
+    onViewableItemsChanged: (info: { viewableItems: ListViewToken[] }) => void
     viewabilityConfig: typeof VIEWABILITY_CONFIG
 }
 
 /** Tracks which list rows are on screen. `keyOf` maps a row's item to its freshness key, or null. */
 export function useVisibility(keyOf: (item: unknown) => string | null): Visibility {
     const [visibleItems, setVisibleItems] = useState<readonly unknown[] | undefined>(undefined)
-    const onViewableItemsChanged = useRef((info: { viewableItems: ViewToken[] }) => {
+    const onViewableItemsChanged = useRef((info: { viewableItems: ListViewToken[] }) => {
         setVisibleItems(info.viewableItems.map((token) => token.item))
     }).current
     // A resolved display can give a visible Row pin a freshness key without another viewability callback.
