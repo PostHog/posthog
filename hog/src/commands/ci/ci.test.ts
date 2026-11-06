@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, mock, test } from 'bun:test'
 import { z } from 'zod'
 
-import * as providers from '@/ci/providers'
+import * as providers from '@/ci/providers/registry'
 import { FAKE_WORKLOAD_PROVIDER, readJson, runHog, TEST_CREDENTIALS, type FakeRuntimeOptions } from '@/testing'
 
 const FAKE_ORG_PROVIDER = {
@@ -15,12 +15,12 @@ const FAKE_ORG_PROVIDER = {
     canLookUpSubject: (conditions: Record<string, string>) => conditions.forge === 'github',
 }
 
-mock.module('@/ci/providers', () => ({
+mock.module('@/ci/providers/registry', () => ({
     ...providers,
     WORKLOAD_PROVIDERS: [FAKE_WORKLOAD_PROVIDER, FAKE_ORG_PROVIDER],
 }))
 afterAll(() => {
-    mock.module('@/ci/providers', () => providers)
+    mock.module('@/ci/providers/registry', () => providers)
 })
 
 const HOST = TEST_CREDENTIALS.HOG_HOST
@@ -65,9 +65,12 @@ function setup(args: string[], options: FakeRuntimeOptions): ReturnType<typeof r
 
 describe('hog ci setup', () => {
     test('asks for a policy for the repository it runs in, and hands an agent the link and the snippet', async () => {
-        const run = await setup(['--branch', 'main', '--scope', 'query:read', '--scope', 'error_tracking:write'], {
-            respond: policyApi(),
-        })
+        const run = await setup(
+            ['--branch', 'main', '--scope', 'query:read,error_tracking:write', '--scope', 'query:read'],
+            {
+                respond: policyApi(),
+            }
+        )
 
         expect(run.exitCode).toBe(0)
         expect(run.requests.find((request) => request.url === REQUESTS)?.body).toEqual({
@@ -85,7 +88,8 @@ describe('hog ci setup', () => {
             approverNames: ['Olive Owner'],
             instructions: expect.not.stringContaining('Olive'),
             next: 'hog ci setup --wait',
-            snippet: expect.stringContaining(`HOG_PROJECT_ID: 7`),
+            posthogJson: { projectId: 7 },
+            env: { HOG_HOST: HOST, HOG_PROJECT_ID: '7' },
         })
         expect(readJson(run.files[PENDING_FILE] ?? '{}')).toMatchObject({ requestId: 'req-1', provider: 'fake_ci' })
     })
@@ -106,7 +110,7 @@ describe('hog ci setup', () => {
 
         expect(run.exitCode).toBe(0)
         expect(run.stdout).toContain(shown)
-        expect(run.stdout).toContain('HOG_HOST: https://ph.example.com')
+        expect(run.stdout).toContain('the job also needs HOG_HOST=https://ph.example.com')
         expect(run.requests.filter((request) => request.url === `${REQUESTS}req-1/`)).toHaveLength(polls)
         expect(PENDING_FILE in run.files).toBe(!canApprove)
     })

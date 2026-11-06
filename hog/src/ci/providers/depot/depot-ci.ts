@@ -1,6 +1,6 @@
-import { fetchActionsIdToken } from './actions-id-token'
-import { GITHUB_ACTIONS } from './github-actions'
-import type { WorkloadProvider } from './providers'
+import { fetchActionsIdToken } from '../actions-id-token'
+import { GITHUB_ACTIONS } from '../github-actions/github-actions'
+import type { WorkloadProvider } from '../registry'
 
 const NAME = 'Depot CI'
 

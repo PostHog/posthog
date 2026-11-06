@@ -3,9 +3,9 @@ import type { Host } from '@/posthog/host'
 import type { ProjectId } from '@/posthog/ids'
 import type { ProviderIdToken } from '@/posthog/tokens'
 
-import { DEPOT_CI } from './depot-ci'
-import { GITHUB_ACTIONS } from './github-actions'
-import { GITLAB } from './gitlab'
+import { DEPOT_CI } from './depot/depot-ci'
+import { GITHUB_ACTIONS } from './github-actions/github-actions'
+import { GITLAB } from './gitlab/gitlab'
 
 export type WorkloadConditions = Record<string, string>
 

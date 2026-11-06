@@ -5901,6 +5901,19 @@ export interface PatchedWorkloadTrustPolicyApi {
  */
 export type WorkloadProvidersResponseApiRiskyScopes = { [key: string]: string }
 
+/**
+ * * `github_actions` - GitHub Actions
+ * * `gitlab` - GitLab
+ * * `depot_ci` - Depot CI
+ */
+export type WorkloadProviderKeyEnumApi = (typeof WorkloadProviderKeyEnumApi)[keyof typeof WorkloadProviderKeyEnumApi]
+
+export const WorkloadProviderKeyEnumApi = {
+    GithubActions: 'github_actions',
+    Gitlab: 'gitlab',
+    DepotCi: 'depot_ci',
+} as const
+
 export interface WorkloadClaimApi {
     /** The claim's name in the provider's OIDC token. */
     name: string
@@ -5949,8 +5962,12 @@ export interface ConditionCompanionsApi {
 export type WorkloadProviderApiSubjectLookupConditions = { [key: string]: string }
 
 export interface WorkloadProviderApi {
-    /** Stable identifier of the provider. */
-    key: string
+    /** Stable identifier of the provider.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `gitlab` - GitLab
+     * * `depot_ci` - Depot CI */
+    key: WorkloadProviderKeyEnumApi
     /** Display name of the provider. */
     name: string
     /** OIDC issuer a policy for this provider uses. */
@@ -5977,9 +5994,22 @@ export interface WorkloadProviderApi {
     readonly setup_snippet: string
 }
 
+export interface WorkloadJobSettingsApi {
+    /** The PostHog address a job sends its token to, which is its audience. */
+    host: string
+    /** The project a job's token works in. */
+    project_id: number
+    /** Whether hog reads the host from posthog.json. It does only for PostHog Cloud, so other hosts need HOG_HOST. */
+    host_in_posthog_json: boolean
+    /** The posthog.json keys a job needs, as JSON. */
+    posthog_json: string
+}
+
 export interface WorkloadProvidersResponseApi {
     /** Providers a policy can trust. */
     supported: WorkloadProviderApi[]
+    /** Where a job's host and project come from: posthog.json first, or HOG_HOST and HOG_PROJECT_ID. */
+    job_settings: WorkloadJobSettingsApi
     /** Every scope a policy's ceiling may hold. */
     grantable_scopes: string[]
     /** What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care. */

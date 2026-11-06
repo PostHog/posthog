@@ -7,6 +7,9 @@ import { sendRequest } from '@/posthog/api'
 import type { Host } from '@/posthog/host'
 import { ProviderIdTokenSchema, type ProviderIdToken } from '@/posthog/tokens'
 
+// The OIDC token request GitHub Actions defines. CI services that run Actions workflows reuse it, so
+// their providers share this module.
+
 const REQUEST_TIMEOUT_MS = 30_000
 
 // GitHub Actions and Depot CI set both only for a job with `permissions: id-token: write`.

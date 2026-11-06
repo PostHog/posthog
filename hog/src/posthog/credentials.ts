@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 
-import { detectWorkloadProvider, type WorkloadProvider } from '@/ci/providers'
+import { detectWorkloadProvider, type WorkloadProvider } from '@/ci/providers/registry'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { Env, Runtime } from '@/core/runtime'
 import type { StoreChoice } from '@/posthog/credential-store/types'
@@ -182,7 +182,7 @@ export async function resolveCredentials(
     const workloadProjectId = runtime.env.HOG_PROJECT_ID || options.configProjectId
     if (!options.envOnly && workloadProvider && workloadProjectId) {
         const key = await exchangeWorkloadToken(runtime, {
-            host: options.host ?? cloudRegion(options.configHost) ?? REGIONS.us,
+            host: workloadHost(options),
             projectId: parseProjectId(workloadProjectId, { code: 'invalid_credentials' }),
             provider: workloadProvider,
         })
@@ -232,6 +232,23 @@ export async function resolveCredentials(
         "hog couldn't find PostHog credentials.",
         notAuthenticatedHint(workloadProvider, workloadProjectId)
     )
+}
+
+// posthog.json comes with the repository, so a host in it outside PostHog Cloud could send a job's token
+// to a server that replays it at PostHog. Such a host needs HOG_HOST or --host.
+function workloadHost(options: { host?: Host; configHost?: Host }): Host {
+    if (options.host !== undefined) {
+        return options.host
+    }
+    if (options.configHost !== undefined && cloudRegion(options.configHost) === undefined) {
+        throw new HogError(
+            'workload_host_not_allowed',
+            `posthog.json names ${options.configHost}, and a CI job sends its token only to PostHog Cloud from posthog.json.`,
+            `Set HOG_HOST to ${options.configHost} in the job to send its token there.`,
+            EXIT_USAGE
+        )
+    }
+    return cloudRegion(options.configHost) ?? REGIONS.us
 }
 
 function notAuthenticatedHint(workloadProvider: WorkloadProvider | undefined, projectId: string | undefined): string {

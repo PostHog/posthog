@@ -57,6 +57,7 @@ from posthog.tasks.email import WorkloadTrustPolicyChange, send_workload_trust_p
 from posthog.workload_identity.providers import (
     ConditionPreset,
     WorkloadProvider,
+    WorkloadProviderKey,
     get_supported_workload_providers,
     get_workload_provider_by_issuer,
     normalize_issuer,
@@ -363,7 +364,7 @@ class ConditionPresetSerializer(serializers.Serializer):
 
 
 class WorkloadProviderSerializer(serializers.Serializer):
-    key = serializers.CharField(help_text="Stable identifier of the provider.")
+    key = serializers.ChoiceField(choices=WorkloadProviderKey.choices, help_text="Stable identifier of the provider.")
     name = serializers.CharField(help_text="Display name of the provider.")
     issuer = serializers.CharField(help_text="OIDC issuer a policy for this provider uses.")
     docs_url = serializers.CharField(help_text="Where to read how to set the provider up.")
@@ -405,8 +406,20 @@ class WorkloadProviderSerializer(serializers.Serializer):
         )
 
 
+class WorkloadJobSettingsSerializer(serializers.Serializer):
+    host = serializers.CharField(help_text="The PostHog address a job sends its token to, which is its audience.")
+    project_id = serializers.IntegerField(help_text="The project a job's token works in.")
+    host_in_posthog_json = serializers.BooleanField(
+        help_text="Whether hog reads the host from posthog.json. It does only for PostHog Cloud, so other hosts need HOG_HOST."
+    )
+    posthog_json = serializers.CharField(help_text="The posthog.json keys a job needs, as JSON.")
+
+
 class WorkloadProvidersResponseSerializer(serializers.Serializer):
     supported = WorkloadProviderSerializer(many=True, help_text="Providers a policy can trust.")
+    job_settings = WorkloadJobSettingsSerializer(
+        help_text="Where a job's host and project come from: posthog.json first, or HOG_HOST and HOG_PROJECT_ID."
+    )
     grantable_scopes = serializers.ListField(
         child=serializers.CharField(), help_text="Every scope a policy's ceiling may hold."
     )
@@ -414,6 +427,22 @@ class WorkloadProvidersResponseSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care.",
     )
+
+
+# hog reads a host from posthog.json only for these, because the file comes with the repository.
+POSTHOG_JSON_HOSTS = ("https://us.posthog.com", "https://eu.posthog.com")
+
+
+def workload_job_settings(project_id: int) -> dict[str, Any]:
+    host = (settings.SITE_URL or "").rstrip("/")
+    in_file = host in POSTHOG_JSON_HOSTS
+    posthog_json = {**({"host": host} if in_file else {}), "projectId": project_id}
+    return {
+        "host": host,
+        "project_id": project_id,
+        "host_in_posthog_json": in_file,
+        "posthog_json": json.dumps(posthog_json, indent=4),
+    }
 
 
 def notify_admins_of_policy_change(
@@ -494,6 +523,7 @@ class WorkloadTrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         grantable = workload_trust_policy_grantable_scopes()
         payload = {
             "supported": get_supported_workload_providers(),
+            "job_settings": workload_job_settings(self.team.project_id),
             "grantable_scopes": sorted(grantable),
             "risky_scopes": {scope: warning for scope, warning in RISKY_SCOPE_WARNINGS.items() if scope in grantable},
         }

@@ -10,6 +10,8 @@ from __future__ import annotations
 import string
 from enum import StrEnum
 
+from django.db import models
+
 from posthog.dataclasses import frozen
 from posthog.workload_identity.resolvers import resolve_github_repository, resolve_gitlab_project
 from posthog.workload_identity.subjects import SubjectResolver
@@ -64,6 +66,12 @@ class ConditionPreset:
         return any(PRESET_VALUE in value for _, value in self.conditions)
 
 
+class WorkloadProviderKey(models.TextChoices):
+    GITHUB_ACTIONS = "github_actions", "GitHub Actions"
+    GITLAB = "gitlab", "GitLab"
+    DEPOT_CI = "depot_ci", "Depot CI"
+
+
 @frozen
 class WorkloadProvider:
     key: str
@@ -100,7 +108,7 @@ class WorkloadProvider:
     jwks_max_keys: int | None = None
     claims_equal_to_subject: tuple[str, ...] = ()
     condition_companions: tuple[ConditionCompanions, ...] = ()
-    # The CI config a job needs, with SNIPPET_HOST and SNIPPET_PROJECT_ID where the values go.
+    # The CI config that gives a job an OIDC token, with SNIPPET_HOST and SNIPPET_PROJECT_ID where the values go.
     setup_snippet: str = ""
 
     def setup_snippet_for(self, *, host: str, project_id: int) -> str:
@@ -138,16 +146,13 @@ class WorkloadProvider:
                 raise ValueError(f"{self.key}: preset {preset.key} can use {PRESET_VALUE} once per value.")
 
 
-_ACTIONS_JOB_SNIPPET = f"""permissions:
+_ACTIONS_JOB_SNIPPET = """permissions:
   id-token: write # lets hog get an OIDC token for PostHog
   contents: read
-env:
-  HOG_HOST: {SNIPPET_HOST}
-  HOG_PROJECT_ID: "{SNIPPET_PROJECT_ID}"
 """
 
 GITHUB_ACTIONS = WorkloadProvider(
-    key="github_actions",
+    key=WorkloadProviderKey.GITHUB_ACTIONS,
     name="GitHub Actions",
     issuer="https://token.actions.githubusercontent.com",
     jwks_url="https://token.actions.githubusercontent.com/.well-known/jwks",
@@ -254,7 +259,7 @@ GITHUB_ACTIONS = WorkloadProvider(
 )
 
 GITLAB = WorkloadProvider(
-    key="gitlab",
+    key=WorkloadProviderKey.GITLAB,
     name="GitLab",
     issuer="https://gitlab.com",
     jwks_url="https://gitlab.com/oauth/discovery/keys",
@@ -375,14 +380,11 @@ GITLAB = WorkloadProvider(
   id_tokens:
     HOG_ID_TOKEN: # lets hog get a PostHog token
       aud: {SNIPPET_HOST}
-  variables:
-    HOG_HOST: {SNIPPET_HOST}
-    HOG_PROJECT_ID: "{SNIPPET_PROJECT_ID}"
 """,
 )
 
 DEPOT_CI = WorkloadProvider(
-    key="depot_ci",
+    key=WorkloadProviderKey.DEPOT_CI,
     name="Depot CI",
     issuer="https://identity.depot.dev",
     jwks_url="https://identity.depot.dev/keys",
@@ -430,6 +432,12 @@ DEPOT_CI = WorkloadProvider(
             help_text="The workflow file and its ref.",
             placeholder="owner/repo/ci.yaml@refs/heads/main",
         ),
+        WorkloadClaim(
+            name="repository_owner_id",
+            label="Repository owner ID",
+            help_text="The forge's number for the account that owns the repository. It survives renames.",
+            placeholder="123456",
+        ),
     ),
     # A repository ID is unique only within one forge, and only the organization pins the job to your Depot account.
     required_condition_claims=("org_id", "forge"),
@@ -448,6 +456,13 @@ DEPOT_CI = WorkloadProvider(
     # The lookup asks GitHub, which knows nothing about another forge's repository IDs.
     subject_lookup_conditions=(("forge", "github"),),
     jwks_max_keys=32,
+    condition_companions=(
+        ConditionCompanions(
+            claims=("ref", "workflow_ref"),
+            companions=("event_name",),
+            reason="Pull request runs and runs started with depot ci run carry a branch's ref and workflow too, so without an event the policy can trust code nobody pushed.",
+        ),
+    ),
     condition_presets=(
         ConditionPreset(
             key="organization",
@@ -459,7 +474,7 @@ DEPOT_CI = WorkloadProvider(
         ConditionPreset(
             key="branch_push",
             label="Pushes to a branch",
-            help_text="Runs for commits pushed to this branch.",
+            help_text="Runs for commits pushed to this branch. Runs started with depot ci run have the event api, so they don't match.",
             conditions=(("ref", f"refs/heads/{PRESET_VALUE}"), ("event_name", "push")),
             placeholder="main",
             default_value="main",

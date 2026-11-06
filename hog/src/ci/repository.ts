@@ -3,7 +3,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
 
-import { WORKLOAD_PROVIDERS, type WorkloadProvider } from './providers'
+import { WORKLOAD_PROVIDERS, type WorkloadProvider } from './providers/registry'
 
 export interface Repository {
     root: string

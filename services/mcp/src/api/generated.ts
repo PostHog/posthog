@@ -118337,14 +118337,43 @@ export namespace Schemas {
       placeholder: string;
     }
 
+    export interface WorkloadJobSettings {
+      /** The PostHog address a job sends its token to, which is its audience. */
+      host: string;
+      /** The project a job's token works in. */
+      project_id: number;
+      /** Whether hog reads the host from posthog.json. It does only for PostHog Cloud, so other hosts need HOG_HOST. */
+      host_in_posthog_json: boolean;
+      /** The posthog.json keys a job needs, as JSON. */
+      posthog_json: string;
+    }
+
     /**
      * Condition values a policy must have for resolve_subject to find its subject. Empty when any policy works.
      */
     export type WorkloadProviderSubjectLookupConditions = {[key: string]: string};
 
+    /**
+     * * `github_actions` - GitHub Actions
+     * * `gitlab` - GitLab
+     * * `depot_ci` - Depot CI
+     */
+    export type WorkloadProviderKeyEnum = typeof WorkloadProviderKeyEnum[keyof typeof WorkloadProviderKeyEnum];
+
+
+    export const WorkloadProviderKeyEnum = {
+      GithubActions: 'github_actions',
+      Gitlab: 'gitlab',
+      DepotCi: 'depot_ci',
+    } as const;
+
     export interface WorkloadProvider {
-      /** Stable identifier of the provider. */
-      key: string;
+      /** Stable identifier of the provider.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `gitlab` - GitLab
+       * * `depot_ci` - Depot CI */
+      key: WorkloadProviderKeyEnum;
       /** Display name of the provider. */
       name: string;
       /** OIDC issuer a policy for this provider uses. */
@@ -118379,6 +118408,8 @@ export namespace Schemas {
     export interface WorkloadProvidersResponse {
       /** Providers a policy can trust. */
       supported: WorkloadProvider[];
+      /** Where a job's host and project come from: posthog.json first, or HOG_HOST and HOG_PROJECT_ID. */
+      job_settings: WorkloadJobSettings;
       /** Every scope a policy's ceiling may hold. */
       grantable_scopes: string[];
       /** What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care. */

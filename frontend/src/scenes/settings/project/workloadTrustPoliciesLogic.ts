@@ -23,6 +23,7 @@ import {
 import type {
     ResolvedWorkloadSubjectApi,
     WorkloadProviderApi,
+    WorkloadJobSettingsApi,
     WorkloadProvidersResponseApi,
     WorkloadTrustPolicyApi,
 } from '~/generated/core/api.schemas'
@@ -95,6 +96,7 @@ export interface workloadTrustPoliciesLogicValues {
     scopeSearchTerm: string
     setupSnippet: {
         docsUrl: string
+        jobSettings: WorkloadJobSettingsApi
         providerName: string
         snippet: string
     } | null
@@ -262,9 +264,11 @@ export interface workloadTrustPoliciesLogicMeta {
         ) => string | undefined
         setupSnippet: (
             showingSetup: boolean,
-            editingProvider: WorkloadProviderApi | null
+            editingProvider: WorkloadProviderApi | null,
+            providers: WorkloadProvidersResponseApi | null
         ) => {
             docsUrl: string
+            jobSettings: WorkloadJobSettingsApi
             providerName: string
             snippet: string
         } | null
@@ -503,13 +507,19 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
                 conditionsFromRows(rows, editingProvider).conflict,
         ],
         setupSnippet: [
-            (s) => [s.showingSetup, s.editingProvider],
+            (s) => [s.showingSetup, s.editingProvider, s.providers],
             (
                 showingSetup: boolean,
-                provider: WorkloadProviderApi | null
-            ): { snippet: string; providerName: string; docsUrl: string } | null =>
-                showingSetup && provider?.setup_snippet
-                    ? { snippet: provider.setup_snippet, providerName: provider.name, docsUrl: provider.docs_url }
+                provider: WorkloadProviderApi | null,
+                providers: WorkloadProvidersResponseApi | null
+            ): { snippet: string; providerName: string; docsUrl: string; jobSettings: WorkloadJobSettingsApi } | null =>
+                showingSetup && provider?.setup_snippet && providers
+                    ? {
+                          snippet: provider.setup_snippet,
+                          providerName: provider.name,
+                          docsUrl: provider.docs_url,
+                          jobSettings: providers.job_settings,
+                      }
                     : null,
         ],
         claimLabels: [
