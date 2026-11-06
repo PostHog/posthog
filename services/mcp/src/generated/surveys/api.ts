@@ -2638,8 +2638,8 @@ export const SurveysResponsesListQueryParams = () => zod.object({
  * Get survey response statistics for a specific survey.
  *
  * Args:
- *     date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
- *     date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+ *     date_from: Optional ISO timestamp (e.g. 2024-01-01T00:00:00Z) or relative date (e.g. -7d) for start date
+ *     date_to: Optional ISO timestamp (e.g. 2024-01-31T23:59:59Z) or relative date for end date
  *     exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
  *     include_per_question_stats: Optional boolean to include per-question response counts and distributions
  *
@@ -2656,14 +2656,18 @@ export const SurveysStatsRetrieveParams = () => zod.object({
 })
 
 export const SurveysStatsRetrieveQueryParams = () => zod.object({
-    date_from: zod.iso
-        .datetime({ offset: true })
+    date_from: zod
+        .string()
         .optional()
-        .describe('Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)'),
-    date_to: zod.iso
-        .datetime({ offset: true })
+        .describe(
+            'Optional start date: an ISO 8601 timestamp (e.g. 2024-01-01T00:00:00Z) or a relative date such as -7d, -24h or -1m'
+        ),
+    date_to: zod
+        .string()
         .optional()
-        .describe('Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)'),
+        .describe(
+            'Optional end date: an ISO 8601 timestamp (e.g. 2024-01-31T23:59:59Z) or a relative date such as -1d'
+        ),
     include_per_question_stats: zod
         .boolean()
         .optional()
@@ -2720,8 +2724,8 @@ export const SurveysSummarizeResponsesCreateBody = () => zod.object({
  * Get aggregated response statistics across all surveys.
  *
  * Args:
- *     date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
- *     date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+ *     date_from: Optional ISO timestamp (e.g. 2024-01-01T00:00:00Z) or relative date (e.g. -7d) for start date
+ *     date_to: Optional ISO timestamp (e.g. 2024-01-31T23:59:59Z) or relative date for end date
  *
  * Returns:
  *     Aggregated statistics across all surveys including total counts and rates
@@ -2735,12 +2739,16 @@ export const SurveysGlobalStatsRetrieveParams = () => zod.object({
 })
 
 export const SurveysGlobalStatsRetrieveQueryParams = () => zod.object({
-    date_from: zod.iso
-        .datetime({ offset: true })
+    date_from: zod
+        .string()
         .optional()
-        .describe('Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)'),
-    date_to: zod.iso
-        .datetime({ offset: true })
+        .describe(
+            'Optional start date: an ISO 8601 timestamp (e.g. 2024-01-01T00:00:00Z) or a relative date such as -7d, -24h or -1m'
+        ),
+    date_to: zod
+        .string()
         .optional()
-        .describe('Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)'),
+        .describe(
+            'Optional end date: an ISO 8601 timestamp (e.g. 2024-01-31T23:59:59Z) or a relative date such as -1d'
+        ),
 })

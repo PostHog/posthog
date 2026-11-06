@@ -473,6 +473,9 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # A GitHubRateLimitError that survives _fetch_page's own rate-limit-aware tenacity retry
         # still gets picked up by Temporal's activity retry; classify it as retryable so it's
         # logged as a warning rather than tracked as an exception. Mirrors Stripe's equivalent case.
+        # GraphQL's own primary rate limit (_raise_if_graphql_rate_limited, hit while backfilling
+        # pull_requests.merge_commit_sha) raises the same exception type with different wording, so
+        # it needs its own entry here rather than falling through to the generic exception path.
         #
         # A GithubRetryableError (any transient upstream 5xx) that survives the same tenacity retry
         # gets the same treatment — a GitHub-side outage, not something reconnecting or reconfiguring
@@ -493,6 +496,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # self-healing condition at the top of the pipeline-error groups.
         return {
             "GitHub API rate limit exceeded",
+            "GraphQL rate limit exceeded",
             "GitHub egress budget exhausted",
             "Github API error (retryable)",
             "UNEXPECTED_EOF_WHILE_READING",
@@ -506,6 +510,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         return {
             "GitHub egress budget exhausted": RATE_LIMITED_MESSAGE,
             "GitHub API rate limit exceeded": RATE_LIMITED_MESSAGE,
+            "GraphQL rate limit exceeded": RATE_LIMITED_MESSAGE,
         }
 
     def get_oauth_accounts(

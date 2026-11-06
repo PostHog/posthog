@@ -2,15 +2,15 @@ import { useActions, useValues } from 'kea'
 
 import { TodayAccountMenu } from './TodayAccountMenu'
 import { TodayMoreMenu } from './TodayMoreMenu'
-import { TODAY_PANES, TODAY_RAIL_FOOTER_PANES, TODAY_RAIL_PANES } from './todayRailItems'
+import { TODAY_PANES, TODAY_RAIL_FOOTER_PANES } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
-import { TODAY_RAIL_WIDTH, TodayRailPane, railPaneHref, todayShellLogic } from './todayShellLogic'
+import { TODAY_RAIL_PANES, TODAY_RAIL_WIDTH, TodayRailPane, railPaneHref, todayShellLogic } from './todayShellLogic'
 
 // pinned: autocapture data-attr. The Settings tile kept the attribute of the gear button it replaced.
 const RAIL_DATA_ATTRS: Partial<Record<TodayRailPane, string>> = { settings: 'today-settings' }
 
 export function TodayRail(): JSX.Element {
-    const { activePane, effectivePhaiView } = useValues(todayShellLogic)
+    const { activePane, effectivePhaiView, featureFlags } = useValues(todayShellLogic)
     const { clickRailPane } = useActions(todayShellLogic)
 
     const renderTile = (pane: TodayRailPane): JSX.Element => (
@@ -19,7 +19,7 @@ export function TodayRail(): JSX.Element {
             label={TODAY_PANES[pane].label}
             icon={TODAY_PANES[pane].icon}
             active={activePane === pane}
-            to={railPaneHref(pane, effectivePhaiView)}
+            to={railPaneHref(pane, effectivePhaiView, featureFlags)}
             onClick={() => clickRailPane(pane)}
             dataAttr={RAIL_DATA_ATTRS[pane] ?? `today-rail-${pane}`}
         />

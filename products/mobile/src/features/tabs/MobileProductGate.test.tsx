@@ -2,12 +2,12 @@ import { renderRouter } from 'expo-router/testing-library'
 import type { ComponentType, ReactElement } from 'react'
 import { View } from 'react-native'
 import { FEATURE_FLAGS, type FeatureFlagKey, setFeatureFlags } from '@/lib/featureFlags'
+import ErrorsRoute from '../../../app/(stack)/errors/index'
+import ReplayRoute from '../../../app/(stack)/replay/index'
 import ErrorsTab from '../../../app/(tabs)/errors/index'
 import ReplayTab from '../../../app/(tabs)/replay/index'
 import IssueRoute from '../../../app/errors/[id]'
-import ErrorsRoute from '../../../app/errors/index'
 import SessionRoute from '../../../app/replay/[sessionId]'
-import ReplayRoute from '../../../app/replay/index'
 
 jest.mock('./TabScene', () => ({ TabScene: ({ children }: { children: React.ReactNode }) => children }))
 
@@ -22,9 +22,9 @@ function Inbox(): ReactElement {
 }
 
 const ROUTES: { path: string; url: string; component: ComponentType; flag: FeatureFlagKey }[] = [
-    { path: 'errors/index', url: '/errors', component: ErrorsRoute, flag: FEATURE_FLAGS.errorTracking },
+    { path: '(stack)/errors/index', url: '/errors', component: ErrorsRoute, flag: FEATURE_FLAGS.errorTracking },
     { path: 'errors/[id]', url: '/errors/example-issue', component: IssueRoute, flag: FEATURE_FLAGS.errorTracking },
-    { path: 'replay/index', url: '/replay', component: ReplayRoute, flag: FEATURE_FLAGS.sessionReplay },
+    { path: '(stack)/replay/index', url: '/replay', component: ReplayRoute, flag: FEATURE_FLAGS.sessionReplay },
     {
         path: 'replay/[sessionId]',
         url: '/replay/example-session',

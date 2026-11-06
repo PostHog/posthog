@@ -11,7 +11,7 @@ requires-python = "==3.14.7" # Pin full version to control Python upgrades expli
 #
 dependencies = [
     "aioboto3==15.5.0",
-    "aiohttp==3.14.5",
+    "aiohttp==3.13.5",
     "aiokafka~=0.13.0",
     "anthropic==0.80.0",
     "asyncstdlib==3.14.0",
@@ -53,7 +53,7 @@ dependencies = [
     "djangorestframework-csv~=3.0.2",
     "djangorestframework-dataclasses~=1.4.0",
     "dlt==1.18.2",
-    "dnspython==2.9.0",
+    "dnspython==2.8.0",
     "drf-exceptions-hog==0.4.0",
     "drf-spectacular~=0.30.0",
     "drf-spectacular-sidecar~=2026.10.1",
@@ -104,7 +104,7 @@ dependencies = [
     "paramiko~=3.5.1",
     "pillow==12.3.0",
     "protobuf~=6.33.6",
-    "posthoganalytics==7.84.0",
+    "posthoganalytics==7.84.1",
     "polars==1.37.1",
     "psycopg2-binary==2.9.13",
     "psycopg[binary]==3.2.13",
@@ -117,7 +117,7 @@ dependencies = [
     "pymysql==1.1.1",
     "pymongo==4.15.2",
     "pyroscope-io~=1.2.5",
-    "croniter~=6.2.4",
+    "croniter~=6.0.0",
     "python-dateutil~=2.9.0",
     "python-docx==1.2.0",
     "python-snappy~=0.7.3",
@@ -127,7 +127,7 @@ dependencies = [
     "pytz==2026.4",
     "rapidfuzz==3.14.6",
     "redis==5.3.1",
-    "requests~=2.34.2",
+    "requests~=2.33.1",
     "retry==0.9.2",
     "s3fs==2025.9.0",
     "scikit-learn~=1.7.0",
@@ -137,7 +137,7 @@ dependencies = [
     "slack-sdk==3.45.0",
     "snowflake-connector-python==4.7.5",
     "social-auth-app-django~=5.9.0",
-    "social-auth-core~=4.9.1",
+    "social-auth-core~=4.9.0",
     "django-scim2==0.23.0",
     "sqlparse==0.5.4",
     "sshtunnel==0.4.0",
@@ -180,8 +180,10 @@ dependencies = [
     "opentelemetry-instrumentation-aiokafka==0.56b0",
     "opentelemetry-instrumentation-aiohttp-client==0.56b0",
     "opentelemetry-instrumentation-asgi==0.56b0",
+    "opentelemetry-instrumentation-botocore==0.56b0",
     "opentelemetry-instrumentation-celery==0.56b0",
     "opentelemetry-instrumentation-django==0.56b0",
+    "opentelemetry-instrumentation-httpx==0.56b0",
     "opentelemetry-instrumentation-kafka-python==0.56b0",
     "opentelemetry-instrumentation-psycopg==0.56b0",
     "opentelemetry-instrumentation-redis==0.56b0",
@@ -198,7 +200,7 @@ dependencies = [
     "modal[api-proxy-support]~=1.5.4",
     "databricks-sql-connector~=4.3.0",
     "databricks-sdk~=0.118.0",
-    "free-email-domains~=1.0.2",
+    "free-email-domains~=1.0.1",
     "disposable-email-domains~=0.0.287",
     "pymediainfo~=7.0.1",
     "cachetools~=5.5.2",
@@ -601,7 +603,7 @@ exclude = [
 # Complements tach (inter-module boundaries) with intra-product enforcement.
 
 [tool.importlinter]
-root_packages = ["products", "owners_yaml"]
+root_packages = ["products", "owners_yaml", "personhog"]
 include_external_packages = true
 
 # A Python distribution under packages/ is a leaf: it must install and run outside the
@@ -612,6 +614,12 @@ include_external_packages = true
 name = "packages/owners-yaml is a leaf"
 type = "forbidden"
 source_modules = ["owners_yaml"]
+forbidden_modules = ["posthog", "ee", "products", "common", "django", "rest_framework"]
+
+[[tool.importlinter.contracts]]
+name = "packages/personhog-proto is a leaf"
+type = "forbidden"
+source_modules = ["personhog"]
 forbidden_modules = ["posthog", "ee", "products", "common", "django", "rest_framework"]
 
 # A vendor directory under products/warehouse_sources/sources/ imports shared code only from its
@@ -818,14 +826,6 @@ ignore_imports = [
     "products.actions.backend.presentation.views.action -> products.actions.backend.models.selector_match_change",
     "products.actions.backend.presentation.views.action -> products.cdp.backend.models.hog_functions.hog_function",
     "products.actions.backend.presentation.views.action -> products.cohorts.backend.models.cohort",
-    # TODO: signals presentation wave. The activity summary viewset reads its modes, limits and
-    # render types from backend/activity_summary/ directly. That directory has no __init__.py, so
-    # grimp cannot see these edges and only the AST surface check in `hogli product:lint` holds
-    # them. Expose what the view needs through the facade and delete each entry.
-    "products.signals.backend.presentation.activity_summary -> products.signals.backend.activity_summary.prompt",
-    "products.signals.backend.presentation.activity_summary -> products.signals.backend.activity_summary.read",
-    "products.signals.backend.presentation.activity_summary -> products.signals.backend.activity_summary.render",
-    "products.signals.backend.presentation.activity_summary -> products.signals.backend.activity_summary.search",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the
