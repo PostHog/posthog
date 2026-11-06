@@ -93,6 +93,10 @@ def usage_snapshot_window(team_id: int, snapshot_id: UUID) -> UsageWindow:
     return UsageWindow(start=row.window_start, end=row.window_end)
 
 
+def read_payload(team_id: int, snapshot_id: UUID) -> UsageSnapshotPayload:
+    return payload_from_json(UsageSnapshot.objects.for_team(team_id).only("payload").get(id=snapshot_id).payload)
+
+
 def write_payload_sections(team_id: int, snapshot_id: UUID, **sections: Any) -> None:
     """Replace the named payload sections and keep every other section.
 
@@ -104,6 +108,25 @@ def write_payload_sections(team_id: int, snapshot_id: UUID, **sections: Any) -> 
         payload = dataclasses.replace(payload_from_json(row.payload), **sections)
         row.payload = payload_to_json(payload)
         row.save(update_fields=["payload"])
+
+
+@frozen
+class TopicDefinition:
+    title: str
+    description: str
+
+
+def previous_topic_list(team_id: int, snapshot_id: UUID) -> list[TopicDefinition]:
+    """The topics of the newest finished scan that has topics, other than this one."""
+    topics = (
+        UsageSnapshot.objects.for_team(team_id)
+        .filter(status=UsageSnapshotStatus.DONE.value, payload__topics__0__isnull=False)
+        .exclude(id=snapshot_id)
+        .order_by("-computed_at")
+        .values_list("payload__topics", flat=True)
+        .first()
+    )
+    return [TopicDefinition(title=topic["title"], description=topic.get("description", "")) for topic in topics or []]
 
 
 def _latest_done(team_id: int) -> UsageSnapshot | None:
