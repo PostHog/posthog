@@ -37,6 +37,12 @@ A team that wrote no steering gets no LLM call and no change in behavior.
 A team that wrote steering is filtered by that text alone, because the prompt there carries no actionability criteria of its own, unlike the record-shaped prompts in `_prompts.py`.
 The gate fails open, and reports a dropped signal as `signal_data_source_filtered` with `steering_applied`, the same stage event the pipeline fires.
 
+Error tracking also has a deterministic issue filter, which runs before `emit_signal` and so before the steering gate.
+The filter is a compiled property filter in the `issue_filters` key (`contracts.ISSUE_FILTERS_KEY`) of each error tracking row.
+`emit_issue_lifecycle_signal` in `products/error_tracking/backend/temporal/lifecycle/side_effects.py` evaluates it with the alert filter evaluator, and the backfill evaluates it against the stored issue.
+A filter that cannot be evaluated drops the signal.
+A dropped signal reports itself as `signal_source_filter_dropped` with a `filter_reason`, and never fires `signal_emission_started`.
+
 A pair listed in `DIRECT_STEERABLE_SOURCES` that the registry also serves would have every record judged twice, so the two sets must stay disjoint (`tests/test_direct_gate.py` holds that).
 The roster's `steerable` flags in `products/signals/frontend/inbox/components/config/agentRosterMeta.ts` mirror the same set: a source that offers the steering form without a gate behind it stores text nothing reads.
 

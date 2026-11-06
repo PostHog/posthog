@@ -32,6 +32,8 @@ PERSON_TABLE_NAME: str = os.getenv("PERSON_TABLE_NAME", "posthog_person")
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
+POSTGRES_ENGINE = "posthog.db_backends.postgresql"
+
 
 def postgres_config(host: str) -> dict:
     """Generate the config map we need for a postgres database.
@@ -46,7 +48,7 @@ def postgres_config(host: str) -> dict:
     """
 
     return {
-        "ENGINE": "django.db.backends.postgresql_psycopg2",
+        "ENGINE": POSTGRES_ENGINE,
         "NAME": get_from_env("POSTHOG_DB_NAME"),
         "USER": os.getenv("POSTHOG_DB_USER", "postgres"),
         "PASSWORD": os.getenv("POSTHOG_DB_PASSWORD", ""),
@@ -85,7 +87,7 @@ else:
 
 if DATABASE_URL:
     DATABASES: dict[str, dict[str, Any]] = {
-        "default": dict(dj_database_url.config(default=DATABASE_URL, conn_max_age=0))
+        "default": dict(dj_database_url.config(default=DATABASE_URL, engine=POSTGRES_ENGINE, conn_max_age=0))
     }
 
     if DISABLE_SERVER_SIDE_CURSORS:
@@ -771,6 +773,13 @@ CACHES["task_artifact_preview"] = {
     "LOCATION": REDIS_URL,
 }
 
+# The signup throttle reads its per-IP history, changes it and writes it back under a lock. A lagging
+# replica would hand it a stale history, and the write-back would erase another request's reservation.
+CACHES["signup_throttle"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Metrics dashboard tiles wait for one loader to write the variable options and hold a lock while it runs.
 # A replica that lags would hide the result and the lock, so another tile would run the same query again.
 CACHES["metrics_variable_options"] = {
@@ -781,6 +790,13 @@ CACHES["metrics_variable_options"] = {
 # Warehouse destination connect tokens are polled right after they are written, and completion claims a
 # token with SETNX. A lagging replica would report a fresh token as expired, so read from the writer.
 CACHES["warehouse_destination_connect"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
+# AEO prompt suggestion jobs are polled right after the job is created. A lagging replica would report a new
+# job as unknown, and the client treats that as expired, so read from the writer.
+CACHES["aeo_prompt_suggestions"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,
 }
@@ -853,6 +869,8 @@ if TEST:
     CACHES["task_artifact_preview"] = CACHES["default"]
     CACHES["metrics_variable_options"] = CACHES["default"]
     CACHES["warehouse_destination_connect"] = CACHES["default"]
+    CACHES["aeo_prompt_suggestions"] = CACHES["default"]
+    CACHES["signup_throttle"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)
