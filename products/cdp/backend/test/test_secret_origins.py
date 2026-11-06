@@ -1,5 +1,7 @@
+import sys
 import json
-from contextlib import nullcontext
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +59,21 @@ def _inputs(**values: Any) -> dict[str, dict[str, Any]]:
 
 def _origins(*origins: str) -> frozenset[str]:
     return frozenset(origins)
+
+
+# Nesting deep enough to pass the default recursion limit can also pass a parser's own nesting limit,
+# which reports the code as unparseable instead. A lower limit keeps the nesting shallow.
+@contextmanager
+def _recursion_limit_above_here(frames: int) -> Iterator[None]:
+    depth, frame = 0, sys._getframe()
+    while frame.f_back is not None:
+        depth, frame = depth + 1, frame.f_back
+    previous = sys.getrecursionlimit()
+    sys.setrecursionlimit(depth + frames)
+    try:
+        yield
+    finally:
+        sys.setrecursionlimit(previous)
 
 
 class TestSecretHosts(SimpleTestCase):
@@ -564,24 +581,38 @@ class TestSecretHosts(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("unsupported_code", f"let fetch := print\n{SENDS_TOKEN_TO_URL}", {}, None),
-            ("input_cycle", SENDS_TOKEN_TO_URL, {"url": "{inputs.next}", "next": "{inputs.url}"}, None),
-            ("iterations", f"let u := inputs.url\n{SENDS_TOKEN_TO_URL}", {}, ("_MAX_ITERATIONS", 1)),
-            ("budget", SENDS_TOKEN_TO_URL, {}, ("_MAX_EVALUATIONS", 1)),
-            ("unparseable", "fetch(inputs.url, {", {}, None),
+            ("unsupported_code", f"let fetch := print\n{SENDS_TOKEN_TO_URL}", {}, nullcontext),
+            ("input_cycle", SENDS_TOKEN_TO_URL, {"url": "{inputs.next}", "next": "{inputs.url}"}, nullcontext),
+            (
+                "iterations",
+                f"let u := inputs.url\n{SENDS_TOKEN_TO_URL}",
+                {},
+                lambda: patch("products.cdp.backend.secret_origins._MAX_ITERATIONS", 1),
+            ),
+            (
+                "budget",
+                SENDS_TOKEN_TO_URL,
+                {},
+                lambda: patch("products.cdp.backend.secret_origins._MAX_EVALUATIONS", 1),
+            ),
+            ("unparseable", "fetch(inputs.url, {", {}, nullcontext),
             (
                 "too_deep",
-                f"fetch('https://hooks.example.com', {{'body': {'concat(' * 400}inputs.token{')' * 400}}})",
+                f"fetch('https://hooks.example.com', {{'body': {'concat(' * 60}inputs.token{')' * 60}}})",
                 {},
-                None,
+                lambda: _recursion_limit_above_here(40),
             ),
         ]
     )
     def test_code_it_cannot_analyze_leaves_its_secrets_unbound(
-        self, reason: UnanalyzableReason, hog: str, inputs: dict[str, str], limit: tuple[str, int] | None
+        self,
+        reason: UnanalyzableReason,
+        hog: str,
+        inputs: dict[str, str],
+        limit: Callable[[], AbstractContextManager[Any]],
     ) -> None:
         all_inputs = _inputs(**{"url": "https://hooks.example.com", "token": "t", **inputs})
-        with patch(f"products.cdp.backend.secret_origins.{limit[0]}", limit[1]) if limit else nullcontext():
+        with limit():
             analysis = analyze_secret_origins(hog, all_inputs, [], {"token"})
 
         assert analysis == SecretOriginsAnalysis(origins={"token": UNBOUND}, unanalyzable=reason)
