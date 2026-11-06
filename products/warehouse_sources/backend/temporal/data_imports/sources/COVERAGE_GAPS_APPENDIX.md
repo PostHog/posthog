@@ -11010,14 +11010,14 @@ Marketplaces remains v1-only because the v2 specification has no equivalent endp
 
 ## ShopWired — **thin**
 
-Today (8): `brands`, `categories`, `customers`, `order_statuses`, `orders`, `products`, `tags`, `vouchers`
+Today (12): `brands`, `categories`, `customers`, `incomplete_orders`, `order_statuses`, `orders`, `payouts`, `product_variations`, `products`, `tags`, `transactions`, `vouchers`
 
 Diffed against: <https://help.shopwired.co.uk/api>
 
-- [ ] `transactions (GET /transactions, listtransactions)` — payment transactions per order — required to reconcile gross revenue against captured payments (high)
-- [ ] `product-variations (GET /products/{id}/variations, listproductvariations)` — SKU-level rows that order line items reference; without it product-level revenue can't be split by variant (high)
-- [ ] `incomplete-orders (GET /incomplete-orders, listincompleteorders)` — abandoned carts — the denominator for any checkout conversion funnel (high)
-- [ ] `payouts (GET /payouts, listpayouts)` — settlement records for reconciling store revenue to money actually received (high)
+- [x] `transactions (GET /shopwired-payments/transactions, listtransactions)` - successful transactions through ShopWired Payments ([reference](https://shopwired.readme.io/reference/listtransactions))
+- [x] `product_variations (GET /products/{product_id}/variations, listproductvariations)` - variations with parent product IDs ([reference](https://shopwired.readme.io/reference/listproductvariations))
+- [x] `incomplete_orders (GET /incomplete-orders, listincompleteorders)` - incomplete orders with optional incremental sync on `created` ([reference](https://shopwired.readme.io/reference/listincompleteorders))
+- [x] `payouts (GET /shopwired-payments/payouts, listpayouts)` - payouts through ShopWired Payments ([reference](https://shopwired.readme.io/reference/listpayouts))
 - [ ] `disputes (GET /disputes, listdisputes)` — chargebacks and their outcomes, a direct revenue leak metric (medium)
 - [ ] `payment-methods (GET /payment-methods, listpaymentmethods)` — lookup table resolving the payment method referenced on synced orders (medium)
 - [ ] `sales (GET /sales, listsales)` — discount campaigns; lookup that explains discounted line prices on synced orders (medium)
@@ -11027,7 +11027,7 @@ Diffed against: <https://help.shopwired.co.uk/api>
 - [ ] `wishlists (GET /wishlists, get_wishlists)` — purchase-intent signal joinable to customers and products already synced (medium)
 - [ ] `newsletter-subscribers (GET /newsletter-subscribers, listnewslettersubscribers)` — marketing list membership joined to customers (medium)
 
-Note: No dynamic table discovery — products/warehouse_sources/sources/shopwired/settings.py hardcodes 8 static paths. The ShopWired ReadMe reference exposes ~45 list/collection endpoints, so PostHog covers roughly a sixth of the API. `tags` maps to /tags (product tags); the separate blog tag/category/post endpoints are unsynced too but are low-value content objects.
+Verified the four completed entries against the official V1 reference on 2026-11-06. Other entries still need verification. Transactions and payouts support full refresh. Product variations use an unpaginated request per product, with resumable pagination of the product list. The table catalog is static. `tags` maps to `/tags`; blog tags, categories, and posts remain unsynced.
 
 ## Shortcut — gaps
 
