@@ -1,5 +1,6 @@
 from django.conf import settings
 
+from posthog.exceptions_capture import capture_exception
 from posthog.integrations import IntegrationManager
 from posthog.models.integration import SANDBOX_EMAIL_INTEGRATION_ID, SANDBOX_EMAIL_PROVIDER, is_sandbox_sender_domain
 from posthog.models.team import Team
@@ -11,6 +12,14 @@ SANDBOX_SENDER_FLAG = "workflows-sandbox-sender"
 SANDBOX_SENDER_FALLBACK_NAME = "PostHog sandbox"
 SANDBOX_SENDER_NAME_MAX_LENGTH = 40
 _SANDBOX_SENDER_NAME_PUNCTUATION = frozenset(" .,&'-")
+
+
+class SandboxSenderMisconfigured(Exception):
+    def __init__(self) -> None:
+        super().__init__(
+            "workflows-sandbox-sender is on, but the sandbox settings are incomplete or "
+            "SES_SANDBOX_FROM_ADDRESS is not an address on WORKFLOWS_SANDBOX_SENDER_DOMAIN"
+        )
 
 
 def _sandbox_sender_display_name(organization_name: str) -> str:
@@ -29,11 +38,13 @@ def _sandbox_sender_config(organization_name: str) -> dict[str, str | bool]:
     }
 
 
+def _from_address_on_sandbox_domain() -> bool:
+    local_part, _, domain = settings.SES_SANDBOX_FROM_ADDRESS.rpartition("@")
+    return bool(local_part) and is_sandbox_sender_domain(domain)
+
+
 def _sandbox_sender_configured() -> bool:
-    # The domain guard only covers WORKFLOWS_SANDBOX_SENDER_DOMAIN, so a from address elsewhere would
-    # send from a domain that teams can still claim as their own sender.
-    from_domain = settings.SES_SANDBOX_FROM_ADDRESS.rpartition("@")[2]
-    return bool(settings.SES_SANDBOX_TENANT_NAME) and is_sandbox_sender_domain(from_domain)
+    return bool(settings.SES_SANDBOX_TENANT_NAME) and _from_address_on_sandbox_domain()
 
 
 def _sandbox_sender_enabled(team: Team) -> bool:
@@ -51,7 +62,10 @@ def _sandbox_sender_enabled(team: Team) -> bool:
 
 def ensure_sandbox_email_sender(team_id: int) -> SandboxEmailSender:
     team = Team.objects.select_related("organization").get(id=team_id)
-    if not _sandbox_sender_configured() or not _sandbox_sender_enabled(team):
+    if not _sandbox_sender_enabled(team):
+        raise SandboxSenderUnavailable()
+    if not _sandbox_sender_configured():
+        capture_exception(SandboxSenderMisconfigured())
         raise SandboxSenderUnavailable()
 
     config = _sandbox_sender_config(team.organization.name)
