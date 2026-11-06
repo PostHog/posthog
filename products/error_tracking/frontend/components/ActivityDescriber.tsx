@@ -15,6 +15,7 @@ import {
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { objectsEqual } from 'lib/utils/objects'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { ErrorTrackingIssue, ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
@@ -49,6 +50,11 @@ function relatedIssueIdsForLogItem(logItem: ActivityLogItem): string[] {
         (candidate) => candidate.field === 'merged_issue_ids' || candidate.field === 'split_issue_ids'
     )
     return Array.isArray(change?.after) ? change.after.map(String) : []
+}
+
+function autoResolveDaysForLogItem(logItem?: ActivityLogItem): number | null {
+    const reason = logItem?.detail.context?.reason
+    return reason?.kind === 'auto_resolve' && typeof reason.after_days === 'number' ? reason.after_days : null
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
@@ -129,6 +135,18 @@ const errorTrackingIssueActionsMapping: Record<
         const { before, after } = change || {}
         if (!before || !after) {
             return null
+        }
+        const autoResolveDays = autoResolveDaysForLogItem(logItem)
+        if (autoResolveDays !== null) {
+            const quietPeriod = `automatically after ${pluralize(autoResolveDays, 'day')} without exceptions`
+            return {
+                summary: [<>Resolved {quietPeriod}</>],
+                description: [
+                    <>
+                        resolved {nameAndLink(logItem)} {quietPeriod}
+                    </>,
+                ],
+            }
         }
         return {
             summary: [
