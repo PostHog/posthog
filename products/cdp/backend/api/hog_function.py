@@ -1422,7 +1422,15 @@ class HogFunctionViewSet(
             if self._should_route_to_draft(args[0]):
                 # A staged edit validates against the live config rather than the draft it lands in,
                 # so its secrets are bound by `_write_draft` and checked when the draft is published.
-                kwargs["context"] = {**self.get_serializer_context(), "stages_draft": True}
+                # Masked entries are recovered from the staged secrets first, so that an entry the
+                # draft already changed keeps its staged value instead of the live one.
+                live_secrets = args[0].encrypted_inputs or {}
+                kwargs["context"] = {
+                    **self.get_serializer_context(),
+                    "stages_draft": True,
+                    "live_encrypted_inputs": live_secrets,
+                    "secrets_to_recover": {**live_secrets, **(args[0].draft_encrypted_inputs or {})},
+                }
         return super().get_serializer(*args, **kwargs)
 
     @staticmethod
