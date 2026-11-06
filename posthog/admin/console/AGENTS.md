@@ -18,7 +18,7 @@ Before you add or change a panel, operation or tool, invoke `/extending-the-admi
 
 ## Add a panel
 
-1. In `products/<product>/backend/console.py`, subclass `Panel` and decorate it with `@console.register_panel`. Set `record` to a key from `RECORD_TYPES` in `records.py` (`team` or `organization`). Import only your product's `facade/`, `posthog.admin.console`, and, for a bridge, the `ModelAdmin` that still holds the view. `products/workflows/backend/console.py` is the reference.
+1. In `products/<product>/backend/console.py`, subclass `Panel` and decorate it with `@console.register_panel`. Set `record` to a key from `RECORD_TYPES` in `records.py` (`team`, `organization` or `deletion-request`). Import only your product's `facade/`, `posthog.admin.console`, and, for a bridge, the `ModelAdmin` that still holds the view. `products/workflows/backend/console.py` is the reference.
 2. Set `owner = Owner(name=..., crest=...)`. The crest is a mini crest slug from `@posthog/brand`, for example `workflows`.
 3. For each action, return an `Operation`. Put its inputs in a Django `forms.Form` (`form_class`); the console renders and validates it. Its `handler(request, obj, form)` returns `None` when done. The handler is a service function, or `AdminViewBridge(Model, SomeAdmin.view_method)` while the logic still lives in a `ModelAdmin`. A bridged view must take a POST and answer with a redirect. Later, replace the bridge with a service function; the panel stays as it is.
 4. Run `pnpm --filter=@posthog/frontend build:admin-console` when you add an owner crest or change a template. `posthog/admin/test_admin_console.py` fails when a template class, a linked asset or an owner crest is missing from the build output.
@@ -37,7 +37,7 @@ A tool is a page that is not about one record, for example a report across all t
 ## Move a Django admin action
 
 Replace the old button with `MovedToConsole.action(record, obj, panel_key, label)` from `moved.py`. It links to the panel on the console record page, so staff who look in the usual place find the new one. When a whole page moves, route its old URL to `MovedToConsole.page_redirect(title, url)`, which tells staff the page moved.
-Old URLs never break, because staff keep bookmarks to them, query parameters included. When a record action's view is deleted, its old path goes into `MOVED_TEAM_ACTIONS` or `MOVED_ORGANIZATION_ACTIONS` in `urls.py`, which redirects to the console form or panel.
+Old URLs never break, because staff keep bookmarks to them, query parameters included. When a record action's view is deleted, its old path goes into the `MOVED_*_ACTIONS` map of its record type in `urls.py`, which redirects to the console form or panel.
 
 ## Read when needed
 

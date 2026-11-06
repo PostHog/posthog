@@ -4,6 +4,7 @@ from django.db.models import Model, QuerySet
 from django.urls import reverse
 
 from posthog.dataclasses import frozen
+from posthog.models.data_deletion_request import DataDeletionRequest
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
@@ -113,4 +114,47 @@ class OrganizationRecord(RecordType):
         ]
 
 
-RECORD_TYPES: dict[str, RecordType] = {record.key: record for record in (TeamRecord(), OrganizationRecord())}
+def request_type_label(obj: DataDeletionRequest) -> str:
+    """The request type in sentence case. The model's choice labels are title case, such as "Event Removal"."""
+    label = obj.get_request_type_display()
+    return label if label.startswith("HogQL") else label.capitalize()
+
+
+class DeletionRequestRecord(RecordType):
+    key = "deletion-request"
+    plural = "deletion-requests"
+    label = "Deletion request"
+    pk_converter = "uuid"
+
+    def queryset(self) -> QuerySet:
+        return DataDeletionRequest.objects.select_related("approved_by")
+
+    def title(self, obj: Model) -> str:
+        assert isinstance(obj, DataDeletionRequest)
+        return f"{request_type_label(obj)} request"
+
+    def subtitle(self, obj: Model) -> str:
+        assert isinstance(obj, DataDeletionRequest)
+        return f"Team {obj.team_id}"
+
+    def parents(self, obj: Model) -> list[RecordLink]:
+        assert isinstance(obj, DataDeletionRequest)
+        # The request keeps a bare team ID, and the team may be gone by now.
+        team = Team.objects.select_related("organization").filter(pk=obj.team_id).first()
+        if team is None:
+            return []
+        return [*TeamRecord().parents(team), RecordLink(label=team.name, href=TeamRecord().url(team))]
+
+    def links(self, obj: Model) -> list[RecordLink]:
+        return [
+            RecordLink(
+                label="Edit in Django admin",
+                href=reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]),
+                title="The raw request, where its criteria are edited",
+            ),
+        ]
+
+
+RECORD_TYPES: dict[str, RecordType] = {
+    record.key: record for record in (TeamRecord(), OrganizationRecord(), DeletionRequestRecord())
+}

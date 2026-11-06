@@ -23,6 +23,16 @@ MOVED_ORGANIZATION_ACTIONS = {
     "sync-to-billing": "#panel-billing",
 }
 
+MOVED_DELETION_REQUEST_ACTIONS = {
+    "submit": "workflow/submit/",
+    "approve": "workflow/approve/",
+    "retry": "workflow/retry/",
+    "revert-to-draft": "#panel-workflow",
+    "verify": "#panel-workflow",
+    "fetch-stats": "#panel-stats",
+    "preview-stats": "#panel-stats",
+}
+
 # Every route sits under /admin/, so AdminOAuth2Middleware adds its Google step-up, and admin_view
 # adds the staff check, the login redirect and CSRF protection. The console needs no auth of its own.
 urlpatterns = [
@@ -73,6 +83,13 @@ urlpatterns = [
             admin.site.admin_view(MovedToConsole.record_redirect("organizations", target)),
         )
         for old, target in MOVED_ORGANIZATION_ACTIONS.items()
+    ],
+    *[
+        path(
+            f"admin/posthog/datadeletionrequest/<uuid:pk>/{old}/",
+            admin.site.admin_view(MovedToConsole.record_redirect("deletion-requests", target)),
+        )
+        for old, target in MOVED_DELETION_REQUEST_ACTIONS.items()
     ],
     path(
         "admin/posthog/organization/bulk-deactivate/",
