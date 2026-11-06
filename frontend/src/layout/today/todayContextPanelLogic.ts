@@ -146,11 +146,7 @@ export interface todayContextPanelLogicMeta {
         floatingActiveTab: (floatingTab: SidePanelTab, enabledTabs: SidePanelTab[]) => SidePanelTab
         canUndock: (activeTab: SidePanelTab, onAiPage: boolean) => boolean
         activeTab: (docked: boolean, selectedTab: SidePanelTab | null, floatingActiveTab: SidePanelTab) => SidePanelTab
-        fullScreenUrl: (
-            activeTab: SidePanelTab,
-            canAccessTickets: boolean,
-            myTicketsUrl: string
-        ) => string | null
+        fullScreenUrl: (activeTab: SidePanelTab, canAccessTickets: boolean, myTicketsUrl: string) => string | null
     }
 }
 
@@ -313,8 +309,7 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
         fullScreenUrl: [
             // PostHog AI's URL comes from the chat logic, which the header reads only while the panel is open.
             (s) => [s.activeTab, s.canAccessTickets, s.myTicketsUrl],
-            (activeTab: SidePanelTab, canAccessTickets: boolean, myTicketsUrl: string
-            ): string | null => {
+            (activeTab: SidePanelTab, canAccessTickets: boolean, myTicketsUrl: string): string | null => {
                 switch (activeTab) {
                     case SidePanelTab.Activity:
                         return urls.advancedActivityLogs()

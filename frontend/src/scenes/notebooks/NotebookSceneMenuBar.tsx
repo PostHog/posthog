@@ -150,15 +150,20 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
                         Jupyter mode
                     </SceneMenuBarCheckboxItem>
                 )}
-                <SceneMenuBarSeparator />
-                <SceneMenuBarItem
-                    opensFloatingUi
-                    onClick={() => selectNotebook(shortId)}
-                    data-attr={`${RESOURCE_TYPE}-menubar-open-in-panel`}
-                >
-                    <IconOpenSidebar />
-                    Open in context panel
-                </SceneMenuBarItem>
+                {/* The Today layout has no notebook side panel */}
+                {!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] && (
+                    <>
+                        <SceneMenuBarSeparator />
+                        <SceneMenuBarItem
+                            opensFloatingUi
+                            onClick={() => selectNotebook(shortId)}
+                            data-attr={`${RESOURCE_TYPE}-menubar-open-in-panel`}
+                        >
+                            <IconOpenSidebar />
+                            Open in context panel
+                        </SceneMenuBarItem>
+                    </>
+                )}
             </SceneMenuBarMenu>
         </SceneMenuBar>
     )

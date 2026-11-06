@@ -176,7 +176,7 @@ export function NotebookScene(): JSX.Element {
                         </BindLogic>
                     )}
                     {!sceneMenuBarEnabled && <NotebookExpandButton type="secondary" size="small" inPanel={false} />}
-                    {!sceneMenuBarEnabled && (
+                    {!sceneMenuBarEnabled && !todayRailEnabled && (
                         <LemonButton
                             type="secondary"
                             size="small"

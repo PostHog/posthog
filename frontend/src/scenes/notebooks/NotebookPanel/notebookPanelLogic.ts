@@ -135,9 +135,6 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
             actions.openSidePanel(SidePanelTab.Notebooks)
         },
         toggleVisibility: () => {
-            if (values.featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
-                return
-            }
             if (values.visibility === 'hidden') {
                 actions.openSidePanel(SidePanelTab.Notebooks)
             } else {
