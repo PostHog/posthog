@@ -176,7 +176,6 @@ impl MetricsRateLimiter {
         &self,
         messages: &[&MetricsIngestionMessage],
     ) -> anyhow::Result<Vec<bool>> {
-        // Vectors keep the insertion order of Node's `Map`s.
         let mut team_costs: Vec<(i64, f64)> = Vec::new();
         let mut team_span: Vec<(i64, f64, f64)> = Vec::new();
         for message in messages {

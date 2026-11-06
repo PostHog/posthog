@@ -50,7 +50,6 @@ pub fn parse_size_header(value: Option<&str>) -> Option<u64> {
     (parsed <= MAX_SAFE_INTEGER).then_some(parsed as u64)
 }
 
-/// `parseMetricsHeadersStep`.
 pub fn parse_metrics_headers(
     message: &KafkaMessage,
 ) -> Result<(Headers, String, MetricsSizes), &'static str> {

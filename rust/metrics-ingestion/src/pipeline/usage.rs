@@ -144,7 +144,6 @@ fn increment_usage_counters(usage: &MetricsUsageAccumulator) {
         .increment(totals.records_allowed as u64);
 }
 
-/// `USAGE_RECORD_KEYS`.
 pub fn add_metrics_usage_records(
     usage_batch: &dyn UsageRecordBatch,
     usage: &MetricsUsageAccumulator,
