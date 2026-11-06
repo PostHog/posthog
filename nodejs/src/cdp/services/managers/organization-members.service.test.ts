@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events'
+import { PoolClient } from 'pg'
 
-import { closeHub, createHub } from '~/common/utils/db/hub'
+import { defaultConfig } from '~/common/config/config'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
 import {
@@ -9,21 +10,21 @@ import {
     createTestTeamFixture,
     createUser,
 } from '~/tests/helpers/sql'
-import { Hub, Team } from '~/types'
+import { Team } from '~/types'
 
 import { OrganizationMembersService } from './organization-members.service'
 
 describe('OrganizationMembersService', () => {
-    let hub: Hub
+    let postgres: PostgresRouter
     let service: OrganizationMembersService
     let team: Team
     let organizationId: string
     let memberEmail: string
 
     const createMember = async (email: string, inOrganization: string, verified: boolean | null): Promise<number> => {
-        const userId = await createUser(hub.postgres, new UUIDT().toString())
-        await createOrganizationMembership(hub.postgres, inOrganization, userId)
-        await hub.postgres.query(
+        const userId = await createUser(postgres, new UUIDT().toString())
+        await createOrganizationMembership(postgres, inOrganization, userId)
+        await postgres.query(
             PostgresUse.COMMON_WRITE,
             'UPDATE posthog_user SET email = $1, is_active = true, is_email_verified = $2 WHERE id = $3',
             [email, verified, userId],
@@ -33,25 +34,25 @@ describe('OrganizationMembersService', () => {
     }
 
     beforeEach(async () => {
-        hub = await createHub()
-        service = new OrganizationMembersService(hub.postgres)
-        ;({ team, organizationId } = await createTestTeamFixture(hub.postgres))
+        postgres = new PostgresRouter(defaultConfig)
+        service = new OrganizationMembersService(postgres)
+        ;({ team, organizationId } = await createTestTeamFixture(postgres))
         memberEmail = `member-${team.id}@example.com`
     })
 
     afterEach(async () => {
-        await closeHub(hub)
+        await postgres.end()
     })
 
     it.each([
         ['allows a verified member, whatever the case and padding', true, () => Promise.resolve(), 'allowed'],
         ['flags an unverified member', false, () => Promise.resolve(), 'unverified'],
-        ['flags a member with no recorded verification as unverified', null, () => Promise.resolve(), 'unverified'],
+        ['allows a member with no recorded verification', null, () => Promise.resolve(), 'allowed'],
         [
             'blocks a removed member',
             true,
             (userId: number) =>
-                hub.postgres.query(
+                postgres.query(
                     PostgresUse.COMMON_WRITE,
                     'DELETE FROM posthog_organizationmembership WHERE user_id = $1',
                     [userId],
@@ -63,7 +64,7 @@ describe('OrganizationMembersService', () => {
             'blocks an inactive member',
             true,
             (userId: number) =>
-                hub.postgres.query(
+                postgres.query(
                     PostgresUse.COMMON_WRITE,
                     'UPDATE posthog_user SET is_active = false WHERE id = $1',
                     [userId],
@@ -75,7 +76,7 @@ describe('OrganizationMembersService', () => {
             'blocks every member of an inactive organization',
             true,
             () =>
-                hub.postgres.query(
+                postgres.query(
                     PostgresUse.COMMON_WRITE,
                     'UPDATE posthog_organization SET is_active = false WHERE id = $1',
                     [organizationId],
@@ -96,7 +97,7 @@ describe('OrganizationMembersService', () => {
     })
 
     it('blocks a verified member of another organization', async () => {
-        const otherOrganizationId = await createOrganization(hub.postgres)
+        const otherOrganizationId = await createOrganization(postgres)
         const outsider = `outsider-${team.id}@example.com`
         await createMember(outsider, otherOrganizationId, true)
         await createMember(memberEmail, organizationId, true)
@@ -121,9 +122,9 @@ describe('OrganizationMembersService', () => {
             let handOver: () => void = () => undefined
             const connected = connectsLate ? new Promise<void>((resolve) => (handOver = resolve)) : Promise.resolve()
             const router = new PostgresRouter({ DATABASE_URL: 'postgres://fake', POSTGRES_CONNECTION_POOL_SIZE: 1 })
-            ;(router as any).pools = new Map([
-                [PostgresUse.COMMON_WRITE, { connect: () => connected.then(() => client) }],
-            ])
+            jest.spyOn(router, 'connect').mockImplementation(() =>
+                connected.then(() => client as unknown as PoolClient)
+            )
             const stalledService = new OrganizationMembersService(router)
 
             const check = stalledService.getBlockedRecipients(team.id, [memberEmail])

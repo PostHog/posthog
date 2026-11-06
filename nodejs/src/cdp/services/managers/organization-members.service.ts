@@ -9,7 +9,7 @@ export type BlockedRecipient = { readonly address: string; readonly unverifiedMe
 // a pooled connection too; the statement timeout also stops the query on the server.
 const LOOKUP_TIMEOUT_MS = 3_000
 
-type MemberRow = { team_id: number; email: string; is_email_verified: boolean }
+type MemberRow = { team_id: number; email: string; is_email_verified: boolean | null }
 
 const normalizeEmail = (email: string): string => email.trim().toLowerCase()
 
@@ -23,7 +23,9 @@ export class OrganizationMembersService {
         const verifiedEmails = new Set<string>()
         const unverifiedEmails = new Set<string>()
         for (const row of rows) {
-            ;(row.is_email_verified === true ? verifiedEmails : unverifiedEmails).add(normalizeEmail(row.email))
+            // Null marks an account from before email verification existed. Like the web app's login and
+            // email-change flows, only an explicit false counts as unverified.
+            ;(row.is_email_verified !== false ? verifiedEmails : unverifiedEmails).add(normalizeEmail(row.email))
         }
         return recipients
             .filter((email) => !verifiedEmails.has(normalizeEmail(email)))
@@ -63,8 +65,6 @@ export class OrganizationMembersService {
                 return result.rows
             }
         )
-        // A lookup that loses the race can still fail later, after nobody waits for it.
-        lookup.catch(() => undefined)
         try {
             return await Promise.race([lookup, deadline])
         } finally {

@@ -432,10 +432,12 @@ export function parseAddressList(value?: string): string[] | undefined {
     return result.length > 0 ? result : undefined
 }
 
+// CC and BCC belong to the route because a route builder may parse them its own way, and SES must
+// deliver to exactly the list that builder checked.
 type SesRoute = {
     tenantName: string
     configurationSetName: string
-    unsubscribeHeaders: boolean
+    unsubscribeHeaders: MessageHeader[]
     ccAddresses?: string[]
     bccAddresses?: string[]
 }
@@ -1098,7 +1100,13 @@ export class EmailService {
             // posthog/management/commands/migrate_ses_tenants.py).
             tenantName: `team-${invocation.teamId}`,
             configurationSetName: this.resolveConfigurationSetName(trackingEnabled, invocation),
-            unsubscribeHeaders: true,
+            unsubscribeHeaders:
+                invocation.hogFunction?.metadata?.message_category_type === 'transactional'
+                    ? []
+                    : this.generateUnsubscribeHeaders(
+                          { team_id: invocation.teamId, identifier: unquoteMailbox(params.to.email) },
+                          preferencesTokenSourceForInvocation(invocation)
+                      ),
             ccAddresses: parseAddressList(params.cc),
             bccAddresses: parseAddressList(params.bcc),
         }
@@ -1286,11 +1294,12 @@ export class EmailService {
         isTest = false,
         queueWait?: EmailQueueWait,
         files: DecodedAttachment[] = [],
-        route: SesRoute = this.teamSesRoute(result.invocation, trackingEnabled, params)
+        customRoute?: SesRoute
     ): Promise<void> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
+        const route = customRoute ?? this.teamSesRoute(result.invocation, trackingEnabled, params)
         const distinctId = resolveEmailTrackingDistinctId(result.invocation)
         // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
         // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
@@ -1370,16 +1379,12 @@ export class EmailService {
         // `IncludeOriginalHeaders: true` for the webhook to surface this header.
         const trackingHeader: MessageHeader = { Name: TRACKING_CODE_HEADER_NAME, Value: trackingCode }
 
-        const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
         if (sendEmailParams.Content?.Simple) {
-            const unsubscribeHeaders =
-                route.unsubscribeHeaders && !isTransactionalEmail
-                    ? this.generateUnsubscribeHeaders(
-                          { team_id: result.invocation.teamId, identifier: unquoteMailbox(params.to.email) },
-                          preferencesTokenSourceForInvocation(result.invocation)
-                      )
-                    : []
-            sendEmailParams.Content.Simple.Headers = [...unsubscribeHeaders, trackingHeader, AUTO_SUBMITTED_HEADER]
+            sendEmailParams.Content.Simple.Headers = [
+                ...route.unsubscribeHeaders,
+                trackingHeader,
+                AUTO_SUBMITTED_HEADER,
+            ]
             if (files.length) {
                 sendEmailParams.Content.Simple.Attachments = files.map((file) => ({
                     RawContent: file.content,
