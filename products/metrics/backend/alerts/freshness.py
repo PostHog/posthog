@@ -77,8 +77,8 @@ def _bounded_logs_client(send_receive_timeout: int) -> AbstractContextManager:
     Mirrors the file-backed branch of `get_pool`, so a token-authenticated user stays token-aware.
     `make_ch_pool` is cached on its arguments, so every call reuses one pool.
     """
-    kwargs = get_kwargs_for_client(workload=Workload.LOGS, ch_user=ClickHouseUser.DEFAULT)
-    creds = connection_creds(Workload.LOGS, ClickHouseUser.DEFAULT)
+    kwargs = get_kwargs_for_client(workload=Workload.LOGS, ch_user=ClickHouseUser.ALERTS_PLATFORM_METRICS)
+    creds = connection_creds(Workload.LOGS, ClickHouseUser.ALERTS_PLATFORM_METRICS)
     if creds is not None and is_file_backed_user(creds, kwargs.get("user")):
         kwargs.pop("password", None)
         pool = make_ch_pool(
