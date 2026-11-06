@@ -234,7 +234,7 @@ class TestDispatchCommentCommand(BaseTest):
         github = FakeGitHub()
 
         with (
-            patch("products.commands.backend.logic.identity.access_refused", return_value=True),
+            patch("posthog.github.requesters.access_refused", return_value=True),
             patch(REQUEST_STAMPHOG_REVIEW) as request_review,
         ):
             outcome = dispatch_comment_command(self._request(), github=github)
@@ -280,7 +280,7 @@ class TestDispatchCommentCommand(BaseTest):
 
         with (
             patch(
-                "products.commands.backend.logic.identity.access_refused",
+                "posthog.github.requesters.access_refused",
                 side_effect=lambda subject, *_args, **_kwargs: second_refused and subject.email == second_user.email,
             ),
             patch(OWNING_TEAM_ID, return_value=owner_team.id),

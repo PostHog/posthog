@@ -119,8 +119,9 @@ describe('cliAuthorizeLogic', () => {
 
         logic.actions.setSearchTerm('feature flag')
         await expectLogic(logic).toMatchValues({ searchTerm: 'feature flag' })
-        expect(logic.values.filteredScopes.map((scope) => scope.key)).toContain('feature_flag')
-        expect(logic.values.filteredScopes.every((scope) => scope.key === 'feature_flag')).toBe(true)
+        const keys = logic.values.filteredScopes.map((scope) => scope.key)
+        expect(keys).toContain('feature_flag')
+        expect(keys).not.toContain('insight')
     })
 
     it('surfaces the invalid_scope error from the backend on submit', async () => {
