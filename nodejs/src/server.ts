@@ -52,7 +52,10 @@ import { CyclotronJobQueueRateLimitedPostgresV2 } from './cdp/services/job-queue
 import { createFrequencyCapValkeyPool } from './cdp/services/messaging/frequency-cap-valkey-pool'
 import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-code'
 import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
-import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
+import {
+    createSandboxEmailCapValkey,
+    createSesRateLimiterValkeyPool,
+} from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
 import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
@@ -155,6 +158,7 @@ export class PluginServer implements NodeServer {
                   quotaLimiting: cdpQuotaServices!.quotaLimiting,
                   emailValidationValkey: null,
                   frequencyCapValkey: null,
+                  sandboxEmailCapValkey: null,
               }
             : undefined
 
@@ -248,6 +252,7 @@ export class PluginServer implements NodeServer {
                     this.config,
                     {
                         ...cdpDeps!,
+                        sandboxEmailCapValkey: createSandboxEmailCapValkey(this.config),
                         idempotencyValkey: createIdempotencyValkeyPool(this.config),
                         emailValidationValkey: createSesRateLimiterValkeyPool(this.config, 'email-mx-validation', {
                             mode: 'optional',
@@ -477,6 +482,7 @@ export class PluginServer implements NodeServer {
             ...deps,
             emailValidationValkey: createSesRateLimiterValkeyPool(this.config, 'email-mx-validation'),
             frequencyCapValkey: createFrequencyCapValkeyPool(this.config),
+            sandboxEmailCapValkey: createSandboxEmailCapValkey(this.config),
         }
     }
 

@@ -5,9 +5,12 @@ import { register } from 'prom-client'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisClient, RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { TeamManager } from '~/common/utils/team-manager'
 import { Hub } from '~/types'
 
-import { createSesRateLimiterValkeyPool } from './rate-limiter-valkey-pool'
+import { getDefaultCdpConfig } from '../../config'
+import { SandboxEmailSender } from '../messaging/sandbox-email-sender'
+import { createSandboxEmailCapValkey, createSesRateLimiterValkeyPool } from './rate-limiter-valkey-pool'
 import { ClaimRequest, IssuedClaim, RateLimiterService } from './rate-limiter.service'
 
 const KEY = `@posthog-test/ses-rate-limiter/{${randomUUID()}}/bucket`
@@ -360,6 +363,70 @@ describe('RateLimiterService', () => {
         })
     })
 
+    it('shares recipient allowances across projects in an organization while keeping project allowances separate', async () => {
+        const organizations = { 1: randomUUID(), 3: randomUUID(), 4: randomUUID(), 6: randomUUID() }
+        const teamManager = {
+            getTeam: (id: number) =>
+                id === 5
+                    ? Promise.reject(new Error('Postgres is unreachable'))
+                    : Promise.resolve({
+                          organization_id: id in organizations ? organizations[id as 3 | 4 | 6] : organizations[1],
+                      }),
+        } as unknown as TeamManager
+        const sender = new SandboxEmailSender(
+            {
+                enabled: true,
+                tenantName: 'sandbox',
+                configurationSetName: 'sandbox',
+                fromAddress: 'sender@example.com',
+                dailyTeamCap: 1,
+                dailyRecipientCap: 1,
+            },
+            teamManager,
+            redis,
+            limiter
+        )
+
+        try {
+            expect(await sender.claimDailyCaps(1, ['member@example.com'])).toMatchObject({ type: 'granted' })
+            expect(await sender.claimDailyCaps(2, ['member@example.com'])).toEqual({
+                type: 'recipient_cap_reached',
+                addresses: ['member@example.com'],
+            })
+            expect(await sender.claimDailyCaps(2, ['other@example.com'])).toMatchObject({ type: 'granted' })
+            expect(await sender.claimDailyCaps(3, ['member@example.com'])).toMatchObject({ type: 'granted' })
+            expect(await sender.claimDailyCaps(2, ['third@example.com'])).toEqual({ type: 'project_cap_reached' })
+            expect(await sender.claimDailyCaps(4, ['twice@example.com', ' twice@example.com'])).toEqual({
+                type: 'project_cap_reached',
+            })
+            expect(await sender.claimDailyCaps(6, ['Member@example.com', 'member@example.com'])).toEqual({
+                type: 'project_cap_reached',
+            })
+            expect(await sender.claimDailyCaps(5, ['member@example.com'])).toEqual({ type: 'check_failed' })
+            const roomyProjectSender = new SandboxEmailSender(
+                {
+                    enabled: true,
+                    tenantName: 'sandbox',
+                    configurationSetName: 'sandbox',
+                    fromAddress: 'sender@example.com',
+                    dailyTeamCap: 3,
+                    dailyRecipientCap: 1,
+                },
+                teamManager,
+                redis,
+                limiter
+            )
+            expect(await roomyProjectSender.claimDailyCaps(7, ['copy@example.com', 'Copy@example.com'])).toEqual({
+                type: 'recipient_cap_reached',
+                addresses: ['copy@example.com'],
+            })
+        } finally {
+            for (const organizationId of Object.values(organizations)) {
+                await deleteKeysWithPrefix(redis, `@posthog/workflows-sandbox-daily/{${organizationId}}`)
+            }
+        }
+    })
+
     describe('claimRefundable', () => {
         it('spends an unanswered claim once when the same EVAL is replayed', async () => {
             const bucket = { key: `${KEY}/claim-replay`, requested: 1, capacity: 2, refillPerSecond: 0 }
@@ -534,6 +601,63 @@ describe('RateLimiterService', () => {
                 await new Promise<void>((resolve) => valkey.server.close(() => resolve()))
             }
         })
+
+        it('fails a sandbox cap claim closed and returns its claim when Valkey stops answering scripts', async () => {
+            const stalledValkey: Server = createServer((socket) =>
+                socket.on('data', (data) => {
+                    if (!/eval/i.test(data.toString())) {
+                        socket.write('$0\r\n\r\n'.repeat(data.toString().match(/^\*\d+\r$/gm)?.length ?? 1))
+                    }
+                })
+            )
+            await new Promise<void>((resolve) => stalledValkey.listen(0, '127.0.0.1', resolve))
+            const sandboxEmailCapValkey = createSandboxEmailCapValkey({
+                ...getDefaultCdpConfig(),
+                SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
+                SES_RATE_LIMITER_VALKEY_PORT: (stalledValkey.address() as AddressInfo).port,
+                SES_RATE_LIMITER_VALKEY_PASSWORD: '',
+                SES_RATE_LIMITER_VALKEY_TLS: false,
+                REDIS_POOL_MIN_SIZE: 0,
+                REDIS_POOL_MAX_SIZE: 1,
+                WORKFLOWS_SANDBOX_SENDER_ENABLED: true,
+            })
+            const teamManager = {
+                getTeam: () => Promise.resolve({ organization_id: randomUUID() }),
+            } as unknown as TeamManager
+            const sender = new SandboxEmailSender(
+                {
+                    enabled: true,
+                    tenantName: 'sandbox',
+                    configurationSetName: 'sandbox',
+                    fromAddress: 'sender@example.com',
+                    dailyTeamCap: 1,
+                    dailyRecipientCap: 1,
+                },
+                teamManager,
+                redis,
+                new RateLimiterService(sandboxEmailCapValkey!, { name: 'sandbox-email' })
+            )
+            const bucket = { key: `${KEY}/stalled`, requested: 1, capacity: 1, refillPerSecond: 0 }
+            try {
+                expect(await sender.claimDailyCaps(1, ['member@example.com'])).toEqual({ type: 'check_failed' })
+                await expect(
+                    sender.returnDailyCaps({
+                        type: 'granted',
+                        claim: {
+                            granted: true,
+                            claimId: 'stalled-claim',
+                            returnBy: Date.now() + 60_000,
+                            buckets: [bucket],
+                        },
+                    })
+                ).resolves.toBeUndefined()
+            } finally {
+                await sandboxEmailCapValkey!.useClient({ name: 'test:close-stalled-valkey' }, (client) =>
+                    Promise.resolve(client.disconnect())
+                )
+                await new Promise<void>((resolve) => stalledValkey.close(() => resolve()))
+            }
+        }, 10_000)
 
         it('stops sending commands to a connected Valkey that no longer replies once one command times out', async () => {
             const valkey = stallingValkey()

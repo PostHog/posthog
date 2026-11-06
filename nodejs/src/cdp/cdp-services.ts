@@ -189,6 +189,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_SANDBOX_TENANT_NAME'
         | 'SES_SANDBOX_CONFIGURATION_SET'
         | 'SES_SANDBOX_FROM_ADDRESS'
+        | 'WORKFLOWS_SANDBOX_DAILY_TEAM_CAP'
+        | 'WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP'
         | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
         | 'EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE'
         | 'EMAIL_TEAM_SENDING_CAP_MODE'
@@ -245,6 +247,7 @@ export interface CdpCoreServicesDeps {
      * `null` elsewhere, and when no host is configured, which turns the cap off.
      */
     frequencyCapValkey: RedisV2 | null
+    sandboxEmailCapValkey: RedisV2 | null
 }
 
 /**
@@ -491,6 +494,9 @@ export function createCdpCoreServices(
     const teamEmailRateLimiter = deps.emailValidationValkey
         ? new RateLimiterService(deps.emailValidationValkey, { name: 'team-email' })
         : null
+    const sandboxEmailRateLimiter = deps.sandboxEmailCapValkey
+        ? new RateLimiterService(deps.sandboxEmailCapValkey, { name: 'sandbox-email' })
+        : null
     const emailAttachmentsService = new EmailAttachmentsService(
         config.CYCLOTRON_NODE_DATABASE_URL,
         EMAIL_ATTACHMENTS_MAX_CONNECTIONS
@@ -526,9 +532,12 @@ export function createCdpCoreServices(
                 tenantName: config.SES_SANDBOX_TENANT_NAME,
                 configurationSetName: config.SES_SANDBOX_CONFIGURATION_SET,
                 fromAddress: config.SES_SANDBOX_FROM_ADDRESS,
+                dailyTeamCap: config.WORKFLOWS_SANDBOX_DAILY_TEAM_CAP,
+                dailyRecipientCap: config.WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP,
             },
             deps.teamManager,
-            sandboxBlockedEventRedis
+            sandboxBlockedEventRedis,
+            sandboxEmailRateLimiter
         ),
         new OrganizationMembersService(deps.postgres)
     )

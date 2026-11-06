@@ -1,8 +1,10 @@
 import { type DefaultTreeAdapterMap, defaultTreeAdapter, parse } from 'parse5'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
+import { logger } from '~/common/utils/logger'
 import { TeamManager } from '~/common/utils/team-manager'
 
+import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { AttributeBoundedParser, SandboxEmailSender } from './sandbox-email-sender'
 
 const footer =
@@ -17,9 +19,12 @@ const sender = new SandboxEmailSender(
         tenantName: 'sandbox-tenant',
         configurationSetName: 'sandbox-email',
         fromAddress: 'fixed-sandbox@example.com',
+        dailyTeamCap: 25,
+        dailyRecipientCap: 5,
     },
     teamManager,
-    blockedEventRedis
+    blockedEventRedis,
+    null
 )
 const manyAttributes = (count: number, prefix = 'a'): string =>
     Array.from({ length: count }, (_, index) => `${prefix}${index}`).join(' ')
@@ -77,7 +82,8 @@ describe('sandbox email content', () => {
                 fromAddress: ' fixed-sandbox@example.com ',
             },
             teamManager,
-            blockedEventRedis
+            blockedEventRedis,
+            null
         )
         const result = await paddedSender.buildSandboxMessage(
             params('<p>Hello</p>'),
@@ -94,9 +100,21 @@ describe('sandbox email content', () => {
         ['switched on with an empty route setting', { enabled: true, configurationSetName: '  ' }],
         ['switched off', { enabled: false }],
     ])('cannot send when %s', (_case, overrides) => {
-        expect(new SandboxEmailSender({ ...sender.config, ...overrides }, teamManager, blockedEventRedis).canSend).toBe(
-            false
-        )
+        expect(
+            new SandboxEmailSender({ ...sender.config, ...overrides }, teamManager, blockedEventRedis, null).canSend
+        ).toBe(false)
+    })
+    it.each([
+        ['logs nothing on a consumer that has no daily cap pool', null, 25, 0],
+        ['logs an error when a daily cap is unusable', {} as RateLimiterService, 0, 1],
+    ])('%s', (_case, dailyCapLimiter, dailyTeamCap, errors) => {
+        const error = jest.spyOn(logger, 'error').mockImplementation(() => undefined)
+        try {
+            new SandboxEmailSender({ ...sender.config, dailyTeamCap }, teamManager, blockedEventRedis, dailyCapLimiter)
+            expect(error).toHaveBeenCalledTimes(errors)
+        } finally {
+            error.mockRestore()
+        }
     })
     it('sends from the fixed address, drops the reply-to and adds the footer to the text part', async () => {
         const result = await sender.buildSandboxMessage(

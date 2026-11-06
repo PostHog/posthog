@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import {
     type DefaultTreeAdapterMap,
     Parser,
@@ -18,8 +18,11 @@ import { logger } from '~/common/utils/logger'
 import { captureTeamEvent } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
 
+import { ClaimOutcome, ClaimRequest, IssuedClaim, RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { preheaderSpan } from './helpers/preheader'
 
+const SECONDS_PER_DAY = 86400
+const DAILY_CAP_TTL_SECONDS = 2 * SECONDS_PER_DAY
 const MAX_TEMPLATE_HTML_BYTES = 75_000
 const MAX_ELEMENT_DEPTH = 256
 const MAX_ATTRIBUTES_PER_TAG = 64
@@ -41,6 +44,8 @@ export interface SandboxEmailSenderConfig {
     tenantName: string
     configurationSetName: string
     fromAddress: string
+    dailyTeamCap: number
+    dailyRecipientCap: number
 }
 
 const ROUTE_SETTING_NAMES = {
@@ -67,6 +72,44 @@ const sandboxEmailBlockedTotal = new Counter({
     help: 'Sandbox sender sends skipped before delivery, by block reason and by whether the send was a test send.',
     labelNames: ['reason', 'is_test'],
 })
+
+export type SandboxDailyCapGrant = { type: 'granted'; claim: IssuedClaim }
+
+export type SandboxDailyCapClaim =
+    | SandboxDailyCapGrant
+    | { type: 'project_cap_reached' }
+    | { type: 'recipient_cap_reached'; addresses: string[] }
+    | { type: 'check_failed' }
+
+function dailyBucket(key: string, requested: number, capacity: number): ClaimRequest {
+    return { key, requested, capacity, refillPerSecond: capacity / SECONDS_PER_DAY, ttlSeconds: DAILY_CAP_TTL_SECONDS }
+}
+
+function validDailyCap(cap: number): number | null {
+    return Number.isSafeInteger(cap) && cap > 0 ? cap : null
+}
+
+function dailyCapKeyPrefix(organizationId: string): string {
+    return `@posthog/workflows-sandbox-daily/{${organizationId}}`
+}
+
+function addressDigest(address: string): string {
+    return createHash('sha256').update(address.toLowerCase()).digest('hex')
+}
+
+function deliveredCopiesByAddress(recipients: string[]): { address: string; copies: number }[] {
+    const addresses = new Map<string, { address: string; copies: number }>()
+    for (const recipient of recipients) {
+        const address = recipient.trim()
+        const entry = addresses.get(address.toLowerCase())
+        if (entry) {
+            entry.copies += 1
+        } else {
+            addresses.set(address.toLowerCase(), { address, copies: 1 })
+        }
+    }
+    return [...addresses.values()]
+}
 
 const BLOCKED_EVENT_WINDOW_SECONDS = 3600
 const EVENT_CAPTURE_TIMEOUT_MS = 1000
@@ -552,11 +595,13 @@ export function sandboxBlockedEventRedisConfig(connection: RedisConnectionConfig
 
 export class SandboxEmailSender {
     public readonly canSend: boolean
+    private readonly dailyCaps: { team: number; recipient: number } | null
 
     constructor(
         public readonly config: SandboxEmailSenderConfig,
         private teamManager: TeamManager,
-        private blockedEventRedis: Pick<RedisV2, 'useClient'>
+        private blockedEventRedis: Pick<RedisV2, 'useClient'>,
+        private dailyCapLimiter: RateLimiterService | null
     ) {
         this.config = {
             ...config,
@@ -571,6 +616,58 @@ export class SandboxEmailSender {
             })
         }
         this.canSend = this.config.enabled && !emptySettings.length
+        const team = validDailyCap(config.dailyTeamCap)
+        const recipient = validDailyCap(config.dailyRecipientCap)
+        this.dailyCaps = team !== null && recipient !== null ? { team, recipient } : null
+        if (this.config.enabled && !this.dailyCaps) {
+            logger.error('Sandbox email daily caps are not configured correctly, so every cap check fails')
+        }
+    }
+
+    public async claimDailyCaps(teamId: number, recipients: string[]): Promise<SandboxDailyCapClaim> {
+        if (!this.dailyCapLimiter) {
+            logger.warn('Sandbox email daily caps have no Valkey pool on this consumer, so the cap check fails')
+            return { type: 'check_failed' }
+        }
+        if (!this.dailyCaps) {
+            return { type: 'check_failed' }
+        }
+        const { team: dailyTeamCap, recipient: dailyRecipientCap } = this.dailyCaps
+        const addresses = deliveredCopiesByAddress(recipients)
+        let claim: ClaimOutcome
+        try {
+            const team = await this.teamManager.getTeam(teamId)
+            if (!team) {
+                return { type: 'check_failed' }
+            }
+            const prefix = dailyCapKeyPrefix(team.organization_id)
+            claim = await this.dailyCapLimiter.claimRefundable([
+                dailyBucket(`${prefix}/project/${teamId}`, recipients.length, dailyTeamCap),
+                ...addresses.map(({ address, copies }) =>
+                    dailyBucket(`${prefix}/recipient/${addressDigest(address)}`, copies, dailyRecipientCap)
+                ),
+            ])
+        } catch (error) {
+            logger.warn('Could not check sandbox email daily caps', { teamId, error: String(error) })
+            return { type: 'check_failed' }
+        }
+        if (claim.granted) {
+            return { type: 'granted', claim }
+        }
+        if (claim.deniedIndexes === null) {
+            return { type: 'check_failed' }
+        }
+        if (claim.deniedIndexes.includes(0)) {
+            return { type: 'project_cap_reached' }
+        }
+        return {
+            type: 'recipient_cap_reached',
+            addresses: claim.deniedIndexes.map((index) => addresses[index - 1].address),
+        }
+    }
+
+    public async returnDailyCaps(grant: SandboxDailyCapGrant): Promise<void> {
+        await this.dailyCapLimiter?.returnClaim(grant.claim)
     }
 
     public async buildSandboxMessage(

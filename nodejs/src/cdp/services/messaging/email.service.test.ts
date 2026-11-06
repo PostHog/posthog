@@ -21,7 +21,8 @@ import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensi
 import { attachmentMetadata, decodeAttachments } from '~/cdp/services/hogflows/transactional-email'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '~/cdp/types'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { RedisClient, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
+import { RedisClient, RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -323,13 +324,34 @@ describe('EmailService', () => {
                 )
                 return id
             }
+            const sandboxRedis: RedisV2 = {
+                useClient: async (_options, callback) => {
+                    const client = await hub.redisPool.acquire()
+                    try {
+                        return await callback(client as unknown as RedisClient)
+                    } finally {
+                        await hub.redisPool.release(client)
+                    }
+                },
+                usePipeline: () => Promise.reject(new Error('The sandbox tests do not use pipelines')),
+            }
             const createSandboxService = (
                 enabled: boolean,
-                membersPostgres: PostgresRouter = hub.postgres,
-                routeSettings: Partial<SandboxEmailSenderConfig> = {},
-                teamEmailRateLimiter: RateLimiterService | null = null,
-                messageAssetsService?: MessageAssetsService,
-                blockedEventRedis?: ConstructorParameters<typeof SandboxEmailSender>[2]
+                {
+                    membersPostgres = hub.postgres,
+                    senderSettings = {},
+                    teamEmailRateLimiter = null,
+                    messageAssetsService,
+                    dailyCapLimiter = new RateLimiterService(sandboxRedis, { name: 'sandbox-email' }),
+                    blockedEventRedis = sandboxRedis,
+                }: {
+                    membersPostgres?: PostgresRouter
+                    senderSettings?: Partial<SandboxEmailSenderConfig>
+                    teamEmailRateLimiter?: RateLimiterService | null
+                    messageAssetsService?: MessageAssetsService
+                    dailyCapLimiter?: RateLimiterService | null
+                    blockedEventRedis?: ConstructorParameters<typeof SandboxEmailSender>[2]
+                } = {}
             ): EmailService => {
                 const workflowsConfig = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
                 jest.spyOn(workflowsConfig, 'getEmailSendingTier').mockResolvedValue(0)
@@ -363,19 +385,13 @@ describe('EmailService', () => {
                             tenantName: 'sandbox-tenant',
                             configurationSetName: 'sandbox-email',
                             fromAddress: 'fixed-sandbox@example.com',
-                            ...routeSettings,
+                            dailyTeamCap: 100,
+                            dailyRecipientCap: 100,
+                            ...senderSettings,
                         },
                         hub.teamManager,
-                        blockedEventRedis ?? {
-                            useClient: async (_options, callback) => {
-                                const client = await hub.redisPool.acquire()
-                                try {
-                                    return await callback(client as unknown as RedisClient)
-                                } finally {
-                                    await hub.redisPool.release(client)
-                                }
-                            },
-                        }
+                        blockedEventRedis,
+                        dailyCapLimiter
                     ),
                     new OrganizationMembersService(membersPostgres)
                 )
@@ -439,15 +455,8 @@ describe('EmailService', () => {
                     [extraOrganizationIds],
                     'test:delete-sandbox-organizations'
                 )
-                const client = await hub.redisPool.acquire()
-                try {
-                    const keys = await client.keys(`@posthog/workflows-sandbox-blocked/${team.id}/*`)
-                    if (keys.length) {
-                        await client.del(...keys)
-                    }
-                } finally {
-                    await hub.redisPool.release(client)
-                }
+                await deleteKeysWithPrefix(sandboxRedis, `@posthog/workflows-sandbox-blocked/${team.id}/`)
+                await deleteKeysWithPrefix(sandboxRedis, `@posthog/workflows-sandbox-daily/{${team.organization_id}}`)
                 capture.mockRestore()
             })
 
@@ -466,7 +475,7 @@ describe('EmailService', () => {
             ] as const)(
                 'skips when the sandbox sender is switched off because %s (isTest=%s)',
                 async (_reason, isTest, enabled, sentFrom, routeSettings: Partial<SandboxEmailSenderConfig>) => {
-                    service = createSandboxService(enabled, hub.postgres, routeSettings)
+                    service = createSandboxService(enabled, { senderSettings: routeSettings })
                     Object.assign(invocation, sentFrom())
 
                     const result = await service.executeSendEmail(invocation, isTest)
@@ -483,7 +492,7 @@ describe('EmailService', () => {
                 'sends own-domain email on the team route without member checks (switch on=%s)',
                 async (enabled) => {
                     const membersPostgres = { connect: jest.fn() } as unknown as PostgresRouter
-                    service = createSandboxService(enabled, membersPostgres)
+                    service = createSandboxService(enabled, { membersPostgres })
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 1 },
                         to: { email: 'outside@example.com', name: 'Outside' },
@@ -551,7 +560,7 @@ describe('EmailService', () => {
                     const outputs = {
                         produce: jest.fn().mockResolvedValue(undefined),
                     } as unknown as IngestionOutputs<'message_assets'>
-                    service = createSandboxService(true, hub.postgres, {}, null, new MessageAssetsService(outputs))
+                    service = createSandboxService(true, { messageAssetsService: new MessageAssetsService(outputs) })
                     invocation.state.actionId = 'send-email'
                     invocation.queueParameters = createSandboxParams({
                         from: { integrationId: 4, email: 'override@example.com', name: 'Custom sender' },
@@ -624,10 +633,9 @@ describe('EmailService', () => {
                     .fn()
                     .mockResolvedValue({ granted: false, retryAfterMs: 60_000, reserved: false })
                 const claimUpTo = jest.fn().mockResolvedValue(0)
-                service = createSandboxService(true, hub.postgres, {}, {
-                    claimAllOrNothing,
-                    claimUpTo,
-                } as unknown as RateLimiterService)
+                service = createSandboxService(true, {
+                    teamEmailRateLimiter: { claimAllOrNothing, claimUpTo } as unknown as RateLimiterService,
+                })
 
                 const result = await service.executeSendEmail(invocation)
 
@@ -823,7 +831,7 @@ describe('EmailService', () => {
                 const stalledPostgres = {
                     connect: jest.fn(() => new Promise(() => {})),
                 } as unknown as PostgresRouter
-                service = createSandboxService(true, stalledPostgres)
+                service = createSandboxService(true, { membersPostgres: stalledPostgres })
 
                 const result = await service.executeSendEmail(invocation)
 
@@ -832,9 +840,7 @@ describe('EmailService', () => {
             }, 15_000)
 
             it('finishes a blocked send when the blocked-event store stalls', async () => {
-                service = createSandboxService(true, hub.postgres, {}, null, undefined, {
-                    useClient: () => new Promise(() => {}),
-                })
+                service = createSandboxService(true, { blockedEventRedis: { useClient: () => new Promise(() => {}) } })
                 invocation.queueParameters = createSandboxParams({ to: { email: 'outsider@example.com', name: '' } })
 
                 const result = await service.executeSendEmail(invocation)
@@ -846,7 +852,7 @@ describe('EmailService', () => {
             it('fails closed when the member check fails', async () => {
                 const membersPostgres = new PostgresRouter(hub)
                 await membersPostgres.end()
-                service = createSandboxService(true, membersPostgres)
+                service = createSandboxService(true, { membersPostgres })
                 invocation.queueParameters = createSandboxParams({ cc: memberEmail('cc') })
 
                 const result = await service.executeSendEmail(invocation)

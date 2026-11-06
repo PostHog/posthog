@@ -76,7 +76,14 @@ function senderOn(
     retryStrategy: NonNullable<RedisConnectionConfig['options']>['retryStrategy'] = () => null
 ): SandboxEmailSender {
     return new SandboxEmailSender(
-        { enabled: true, tenantName: 'sandbox', configurationSetName: 'sandbox', fromAddress: 'sender@example.com' },
+        {
+            enabled: true,
+            tenantName: 'sandbox',
+            configurationSetName: 'sandbox',
+            fromAddress: 'sender@example.com',
+            dailyTeamCap: 1,
+            dailyRecipientCap: 1,
+        },
         { getTeam } as unknown as TeamManager,
         createRedisV2PoolFromConfig(
             sandboxBlockedEventRedisConfig({
@@ -84,7 +91,8 @@ function senderOn(
                 options: { port, retryStrategy },
                 name: 'sandbox-blocked-event-store-test',
             })
-        )
+        ),
+        null
     )
 }
 
