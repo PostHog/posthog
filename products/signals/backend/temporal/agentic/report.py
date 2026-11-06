@@ -91,6 +91,7 @@ from products.signals.backend.startup_failure import (
     startup_failure_message,
 )
 from products.signals.backend.supersession import research_implementation_context
+from products.signals.backend.task_profiles import RESEARCH
 from products.signals.backend.temporal import report_safety_judge
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
@@ -1206,7 +1207,7 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
             if user_id is None:
                 raise ValueError("No active project member can run report research")
             sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
-                input.team_id, SIGNALS_REPORT_RESEARCH_ENV_NAME, tasks_facade.SandboxNetworkAccessLevel.TRUSTED
+                input.team_id, SIGNALS_REPORT_RESEARCH_ENV_NAME, RESEARCH
             )
             agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(
                 input.team_id, STEP_RESEARCH

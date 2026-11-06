@@ -374,6 +374,13 @@ export namespace Schemas {
         table_name: string;
         type?: string | undefined;
     };
+    export type BreakdownNotAppliedWarning = {
+        /**
+         * Human-readable warning shown to the user
+         */
+        message: string;
+        type?: string | undefined;
+    };
     export type ActorsQueryResponse = {
         columns: Array<unknown>;
         error?: (string | null) | undefined;
@@ -399,7 +406,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -446,7 +455,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -714,7 +725,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -2038,7 +2051,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -2659,7 +2674,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -2835,7 +2852,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -3028,7 +3047,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -3198,7 +3219,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -3259,7 +3282,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -3366,7 +3391,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -3598,7 +3625,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -3689,7 +3718,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -4409,6 +4440,7 @@ export namespace Schemas {
         kind?: string | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         name?: (string | null) | undefined;
+        offset?: (number | null) | undefined;
         query: string;
         response?: (HogQLQueryResponse | null) | undefined;
         sendRawQuery?: (boolean | null) | undefined;
@@ -6833,7 +6865,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -6862,7 +6896,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -6891,7 +6927,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -6950,7 +6988,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -6982,7 +7022,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7008,7 +7050,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7033,7 +7077,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7065,7 +7111,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7100,7 +7148,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7125,7 +7175,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7153,7 +7205,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7191,7 +7245,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7215,7 +7271,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7355,7 +7413,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7403,7 +7463,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7475,7 +7537,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7500,7 +7564,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7530,7 +7596,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7571,7 +7639,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7704,7 +7774,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7881,7 +7953,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7923,7 +7997,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7984,7 +8060,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8051,7 +8129,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8157,7 +8237,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8231,7 +8313,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8270,7 +8354,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8423,7 +8509,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8491,7 +8579,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8576,7 +8666,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8637,7 +8729,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8671,7 +8765,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8740,7 +8836,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8802,7 +8900,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8852,7 +8952,9 @@ export namespace Schemas {
             | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -11355,6 +11457,23 @@ export namespace Schemas {
             name: string;
             data_type?: string | undefined;
             is_nullable?: boolean | undefined;
+            sensitivity?:
+                | (
+                      | (
+                            | "email"
+                            | "phone"
+                            | "name"
+                            | "address"
+                            | "date_of_birth"
+                            | "ip_address"
+                            | "token"
+                            | "secret"
+                            | "card_number"
+                            | "null"
+                        )
+                      | null
+                  )
+                | undefined;
         }>;
         /**
          * Whether exact source-side column metadata is available for safe source-query projection.
@@ -11364,6 +11483,14 @@ export namespace Schemas {
          * Name of the history table that keeps every version of each row, or `null` when the table keeps no history. A history table created before `_history` names existed keeps its `_cdc` name.
          */
         history_table_name: string | null;
+        /**
+         * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+         */
+        drop_history_table?: boolean | undefined;
+        /**
+         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table`, a name means the history table was kept, for example because a sync started meanwhile.
+         */
+        registered_history_table_name: string | null;
         /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          */
@@ -12419,7 +12546,9 @@ export namespace Schemas {
      * Warnings attached to the query response that produced an insight's results.
      */
     export type _InsightResultWarnings = Array<
-        DataWarehouseSyncWarning | AccessControlFilterWarning
+        | DataWarehouseSyncWarning
+        | AccessControlFilterWarning
+        | BreakdownNotAppliedWarning
     >;
     export type TileFilters = Partial<{
         breakdown_filter: BreakdownFilter | null;
@@ -15970,6 +16099,7 @@ export namespace Schemas {
         responses_limit: number | null;
         iteration_count: number | null;
         iteration_frequency_days: number | null;
+        repeat_until_stopped: boolean | null;
         iteration_start_dates: Array<string | null> | null;
         current_iteration: number | null;
         current_iteration_start_date: string | null;
@@ -16963,6 +17093,11 @@ export namespace Schemas {
         values: Array<PropertyItem>;
     };
     /**
+     * * `signal_report` - Signal Report
+     * * `hog_flow` - Hog Flow
+     */
+    export type PublicTaskSourceKindEnum = "signal_report" | "hog_flow";
+    /**
      * One desktop-only MCP server relayed into the run — a name only, never configuration.
      */
     export type RelayedMcpServer = { name: string };
@@ -17153,6 +17288,10 @@ export namespace Schemas {
          * Mixin for serializers to add user access control fields
          */
         iteration_frequency_days?: (number | null) | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        repeat_until_stopped?: (boolean | null) | undefined;
         /**
          * Mixin for serializers to add user access control fields
          */
@@ -17463,6 +17602,7 @@ export namespace Schemas {
         responses_limit?: (number | null) | undefined;
         iteration_count?: (number | null) | undefined;
         iteration_frequency_days?: (number | null) | undefined;
+        repeat_until_stopped?: (boolean | null) | undefined;
         iteration_start_dates?: (Array<string | null> | null) | undefined;
         current_iteration?: (number | null) | undefined;
         current_iteration_start_date?: (string | null) | undefined;
@@ -17516,6 +17656,7 @@ export namespace Schemas {
         responses_limit?: (number | null) | undefined;
         iteration_count?: (number | null) | undefined;
         iteration_frequency_days?: (number | null) | undefined;
+        repeat_until_stopped?: (boolean | null) | undefined;
         iteration_start_dates?: (Array<string | null> | null) | undefined;
         current_iteration?: (number | null) | undefined;
         current_iteration_start_date?: (string | null) | undefined;
@@ -17556,6 +17697,36 @@ export namespace Schemas {
         rates: Record<string, unknown>;
         per_question_stats?: Array<unknown> | undefined;
     };
+    export type TaskRunOptionsRepository = {
+        /**
+         * GitHub repository in `organization/repo` format.
+         */
+        name: string;
+        initial_branch?: (string | null) | undefined;
+    };
+    export type TaskRunOptionsRequest = Partial<{
+        runtime: TaskRuntimeEnum;
+        adapter: RuntimeAdapterEnum;
+        model: string;
+        reasoning_effort: ReasoningEffortEnum;
+        repositories: Array<TaskRunOptionsRepository>;
+        output_schema: Record<string, unknown>;
+        permission_mode: TaskRunBootstrapCreateRequestInitialPermissionModeEnum;
+        auto_publish: boolean;
+    }>;
+    export type TaskSourceRequest = {
+        /**
+         * The kind of row the task starts from. It must be the kind the profile takes.
+         *
+         * * `signal_report` - Signal Report
+         * * `hog_flow` - Hog Flow
+         */
+        kind: PublicTaskSourceKindEnum;
+        /**
+         * ID of that row. It must belong to the current project.
+         */
+        id: string;
+    };
     export type TaskCreate = Partial<{
         title: string;
         title_manually_set: boolean;
@@ -17588,6 +17759,10 @@ export namespace Schemas {
         sandbox_environment_id: string | null;
         custom_image_id: string | null;
         runtime: TaskRuntimeEnum;
+        profile: string;
+        options: TaskRunOptionsRequest & unknown;
+        source: TaskSourceRequest & unknown;
+        idempotency_key: string;
     }>;
     /**
      * Detail response for a task.
@@ -19392,9 +19567,11 @@ export namespace Endpoints {
             body: Schemas.TaskCreate;
         };
         responses: {
+            200: Schemas.TaskCreateResponseDTO;
             201: Schemas.TaskCreateResponseDTO;
             402: Schemas.TaskRunErrorResponse;
             403: Schemas.TaskRunErrorResponse;
+            409: Schemas.TaskRunErrorResponse;
             429: Schemas.TaskRunErrorResponse;
             503: Schemas.TaskRunErrorResponse;
         };

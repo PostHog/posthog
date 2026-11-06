@@ -362,6 +362,7 @@ Descope,project_id management_key,,,,,descope
 Develocity,instance_url access_key,,,,,develocity
 DevinAI,api_key org_id,,,,,devin-ai
 Dialpad,,,,,,dialpad
+Didit,,,,,,didit
 DigitalOcean,api_key,,,,,digital-ocean
 DingConnect,api_key,,,,,ding-connect
 Directus,,,,,,directus
@@ -643,6 +644,7 @@ Intercom,,intercom_integration_id,,,,intercom
 Interzoid,,,,,,interzoid
 Inth,,,,,,inth
 Intruder,access_token,,,,,intruder
+Invoca,,,,,,invoca
 Invoiced,api_key,,,,,invoiced
 Invoiceninja,api_token base_url,,,,,invoiceninja
 IronSourceAds,,,,,,iron-source-ads
@@ -1041,6 +1043,7 @@ RentCast,api_key,,,zip_codes,,rent-cast
 RentManager,,,,,,rent-manager
 Repairshopr,,,,,,repairshopr
 Replicate,api_key,,,,,replicate
+Replit,,,,,,replit
 ReplyIo,api_key,,,,,reply-io
 Resend,auth_method,auth_method=oauth,,,,resend
 RetailExpress,,,,,,retail-express
