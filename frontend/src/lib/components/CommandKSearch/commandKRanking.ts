@@ -177,26 +177,27 @@ function hitInWords(token: string, words: string[]): Omit<TokenHit, 'field'> | n
 
 const isClean = (hit: Omit<TokenHit, 'field'> | null): boolean => !!hit && hit.typos === 0 && hit.wordStart
 
-function cleanHit(token: string, candidate: RankCandidate, name: Omit<TokenHit, 'field'> | null): TokenHit | null {
-    if (name && isClean(name)) {
-        return { ...name, field: 'name' }
+const wordStartPosition = (token: string, words: string[]): number =>
+    words.findIndex((word) => word.startsWith(token) || word === singular(token))
+
+function cleanHit(token: string, candidate: RankCandidate, nameWords: string[]): TokenHit | null {
+    const name = wordStartPosition(token, nameWords)
+    if (name >= 0) {
+        return { typos: 0, position: name, field: 'name', wordStart: true }
     }
-    for (const alias of candidate.aliases ?? []) {
-        const hit = hitInWords(token, unifiedWords(alias))
-        if (hit && isClean(hit)) {
-            return { ...hit, position: MAX_POSITION_PENALTY, field: 'alias' }
-        }
+    if ((candidate.aliases ?? []).some((alias) => wordStartPosition(token, unifiedWords(alias)) >= 0)) {
+        return { typos: 0, position: MAX_POSITION_PENALTY, field: 'alias', wordStart: true }
     }
     const inIdentity = (candidate.identity ?? []).some((value) => value.toLowerCase().includes(token))
     return inIdentity ? { typos: 0, position: MAX_POSITION_PENALTY, field: 'identity', wordStart: true } : null
 }
 
-function tokenHit(token: string, candidate: RankCandidate, nameWords: string[]): TokenHit | null {
-    const name = hitInWords(token, nameWords)
-    const clean = cleanHit(token, candidate, name)
-    if (clean) {
+function tokenHit(token: string, candidate: RankCandidate, nameWords: string[], strict: boolean): TokenHit | null {
+    const clean = cleanHit(token, candidate, nameWords)
+    if (clean || strict) {
         return clean
     }
+    const name = hitInWords(token, nameWords)
     const context = hitInWords(token, (candidate.context ?? []).flatMap(unifiedWords))
     const hits: TokenHit[] = [
         ...(name ? [{ ...name, field: 'name' as const }] : []),
@@ -271,16 +272,16 @@ function proximityOf(positions: number[]): number {
 
 const usageTier = (frecency: number): number => (frecency >= 1 ? 0 : frecency > 0 ? 1 : 2)
 
-export function rankCandidate(query: string, candidate: RankCandidate): RankKey | null {
+export function rankCandidate(query: string, candidate: RankCandidate, strict = false): RankKey | null {
     const normalizedQuery = query.trim().toLowerCase().replace(/\s+/g, ' ').slice(0, MAX_LOCAL_QUERY_LENGTH)
     const tokens = [...new Set(unifiedWords(normalizedQuery))]
     if (!tokens.length) {
         return null
     }
     const nameWords = unifiedWords(candidate.name)
-    const hits = tokens.map((token) => tokenHit(token, candidate, nameWords))
+    const hits = tokens.map((token) => tokenHit(token, candidate, nameWords, strict))
     const found = hits.filter((hit): hit is TokenHit => hit !== null)
-    if (!found.length) {
+    if (!found.length || (strict && found.length < hits.length)) {
         return null
     }
     const positions = found.filter((hit) => hit.field === 'name').map((hit) => hit.position)
@@ -323,9 +324,13 @@ export function strictLocalMatches<T extends { name: string; displayName?: strin
     return items
         .map((item) => ({
             item,
-            rank: rankCandidate(query, { name: String(item.displayName || item.name), aliases: item.searchKeywords }),
+            rank: rankCandidate(
+                query,
+                { name: String(item.displayName || item.name), aliases: item.searchKeywords },
+                true
+            ),
         }))
-        .filter((entry): entry is { item: T; rank: RankKey } => !!entry.rank && entry.rank[2] <= MatchTier.AliasWords)
+        .filter((entry): entry is { item: T; rank: RankKey } => !!entry.rank)
         .sort((a, b) => compareRanks(a.rank, b.rank))
         .map(({ item }) => item)
 }

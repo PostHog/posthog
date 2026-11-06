@@ -40,10 +40,9 @@ describe('commandKRanking', () => {
         expect(compareRanks(metrics, rankCandidate(query, { name: other, aliases }) ?? [])).toBeLessThan(0)
     })
 
-    it('matches a plural query to a singular name first, without a typo', () => {
-        expect(strictLocalMatches([{ name: 'Surveyed users' }, { name: 'Survey' }], 'surveys')).toEqual([
+    it('matches a plural query to a singular name without a typo', () => {
+        expect(strictLocalMatches([{ name: 'Survey' }, { name: 'Surveyed users' }], 'surveys')).toEqual([
             { name: 'Survey' },
-            { name: 'Surveyed users' },
         ])
     })
 
