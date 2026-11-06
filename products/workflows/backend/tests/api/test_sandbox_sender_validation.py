@@ -571,7 +571,6 @@ class TestSandboxSenderValidation(APIBaseTest):
         [
             ("email_step_renamed", "subject", "Renamed subject", "function_email"),
             ("generic_step_renamed", "subject", "Renamed subject", "function"),
-            ("reply_to_changed", "replyTo", "new-reply@example.com", "function_email"),
             ("reply_to_cleared", "replyTo", "", "function_email"),
         ]
     )
@@ -591,6 +590,7 @@ class TestSandboxSenderValidation(APIBaseTest):
             ("duplicated_step", "add_step", "function_email"),
             ("other_step_switched_to_it", "switch_other_step", "function_email"),
             ("step_type_switched", "switch_type", "function"),
+            ("reply_to_changed", "change_reply_to", "function_email"),
         ]
     )
     def test_stored_templated_sender_is_not_grandfathered_into_a_changed_sender(
@@ -616,6 +616,8 @@ class TestSandboxSenderValidation(APIBaseTest):
         elif change == "switch_type":
             actions[1]["type"] = action_type
             actions[1]["config"]["template_id"] = "template-email"
+        elif change == "change_reply_to":
+            actions[1]["config"]["inputs"]["email"]["value"]["replyTo"] = "new-reply@example.com"
         else:
             raise AssertionError(change)
 
