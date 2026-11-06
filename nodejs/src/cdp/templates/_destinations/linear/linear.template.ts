@@ -30,7 +30,13 @@ fun query(mutation) {
 
 let description := concat(inputs.description, errorTrackingStacktrace(event.properties.$exception_list));
 
-let issue_mutation := f'mutation IssueCreate \\{ issueCreate(input: \\{ title: {jsonStringify(inputs.title)} description: {jsonStringify(description)} teamId: "{inputs.team}" }) \\{ success issue \\{ identifier } } }';
+let priority := toInt(inputs.priority);
+let priority_field := '';
+if (priority > 0 and priority < 5) {
+  priority_field := f' priority: {priority}';
+}
+
+let issue_mutation := f'mutation IssueCreate \\{ issueCreate(input: \\{ title: {jsonStringify(inputs.title)} description: {jsonStringify(description)} teamId: "{inputs.team}"{priority_field} }) \\{ success issue \\{ identifier } } }';
 
 let issue_response := query(issue_mutation);
 
@@ -84,6 +90,22 @@ query(attachment_mutation);`,
             hidden: false,
             required: true,
             default: ERROR_TRACKING_TICKET_DESCRIPTION,
+        },
+        {
+            key: 'priority',
+            type: 'choice',
+            label: 'Priority',
+            choices: [
+                { label: 'No priority', value: '0' },
+                { label: 'Urgent', value: '1' },
+                { label: 'High', value: '2' },
+                { label: 'Medium', value: '3' },
+                { label: 'Low', value: '4' },
+            ],
+            default: '0',
+            secret: false,
+            hidden: false,
+            required: false,
         },
         {
             key: 'posthog_issue_id',
