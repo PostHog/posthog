@@ -11,8 +11,12 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 
-# Tag bodies are capped, so text full of unclosed braces scans in linear time.
-_TAG = re.compile(r"\{\{\{(.{0,500}?)\}\}\}|\{\{(.{0,500}?)\}\}|\{%.{0,500}?%\}", re.DOTALL)
+# Tag bodies are capped, so text full of unclosed braces scans in linear time. The last two alternatives catch an opening
+# with no close in reach, which Liquid would otherwise refuse to parse, failing every send of the template.
+_TAG = re.compile(r"\{\{\{(.{0,500}?)\}\}\}|\{\{(.{0,500}?)\}\}|\{%.{0,500}?%\}|\{\{|\{%", re.DOTALL)
+_OPENING = re.compile(r"\{[{%]")
+# The email renderer treats a backslash or an HTML entity inside a filter argument differently from Resend.
+_UNSAFE_IN_LIQUID_STRING = re.compile(r"\\|&(?:\w+|#\d+|#[xX][0-9a-fA-F]+);")
 _VARIABLE = re.compile(r"^[A-Za-z_][\w-]*(?:\.[A-Za-z_][\w-]*)*$")
 _UNSUBSCRIBE_VARIABLES = {"UNSUBSCRIBE_URL", "RESEND_UNSUBSCRIBE_URL"}
 _CONTACT_VARIABLES = {"FIRST_NAME", "LAST_NAME", "EMAIL"}
@@ -86,9 +90,9 @@ def convert_text(text: str | None, fallbacks: Mapping[str, Any], *, is_html: boo
 
 
 def _literal(tag: str) -> str:
-    # A raw block ends at the first `endraw`, so a tag holding one has to print its opening braces another way.
-    if "endraw" in tag:
-        return tag.replace("{%", '{{ "{%" }}')
+    # A raw block ends at the first `endraw` and needs a close of its own, so these print their openings another way.
+    if "endraw" in tag or tag in ("{{", "{%"):
+        return _OPENING.sub(lambda opening: f'{{{{ "{opening.group(0)}" }}}}', tag)
     return f"{{% raw %}}{tag}{{% endraw %}}"
 
 
@@ -98,7 +102,7 @@ def _liquid_string(value: Any) -> str | None:
     if isinstance(value, int | float):
         return str(value)
     text = str(value)
-    if any(braces in text for braces in ("{{", "}}", "{%", "%}")):
+    if any(braces in text for braces in ("{{", "}}", "{%", "%}")) or _UNSAFE_IN_LIQUID_STRING.search(text):
         return None
     if '"' not in text:
         return f'"{text}"'
