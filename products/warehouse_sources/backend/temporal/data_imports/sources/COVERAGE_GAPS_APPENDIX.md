@@ -10987,18 +10987,24 @@ Note on `/v2/reporting/runs`: skipped deliberately. Each row is a report job the
 
 ## ShipStation — gaps
 
-Today (8): `batches`, `carriers`, `labels`, `manifests`, `pickups`, `shipments`, `tags`, `warehouses`
+API v2 (11): `batches`, `carriers`, `labels`, `manifests`, `packages`, `pickups`, `services`, `shipments`, `tags`, `users`, `warehouses`.
 
-Diffed against: <https://www.shipstation.com/docs/api/ (V1 API reference index; the source targets ssapi.shipstation.com, i.e. V1, not the api.shipstation.com V2 API)>
+API v1 (11): `customers`, `fulfillments`, `marketplaces`, `orders`, `packages`, `products`, `services`, `shipments`, `stores`, `users`, `warehouses`.
+
+Verified against the [v1 reference](https://www.shipstation.com/docs/api/) and [v2 OpenAPI specification](https://github.com/shipstation/mcp-shipstation-api/blob/master/openapi.yaml) on 2026-11-06.
 
 - [x] `GET /carriers (List Carriers)` — Lookup resolving the carrierCode carried on every synced order, shipment and fulfillment row (high)
-- [ ] `GET /carriers/listservices (List Services)` — Lookup resolving serviceCode on shipments and orders — required to report shipping cost by service level (high)
+- [x] `GET /carriers/listservices (List Services)` — Carrier service lookup in v1; v2 uses `/carriers/{carrier_id}/services` (high)
 - [x] `GET /accounts/listtags (List Tags)` — Lookup resolving the tagIds array on orders; without it order tags are opaque integers (high)
-- [ ] `GET /users (List Users)` — Lookup resolving the userId assigned to orders and shipments, enabling per-picker/per-agent throughput analysis (high)
-- [ ] `GET /carriers/listpackages (List Packages)` — Lookup resolving packageCode on shipments for packaging-mix analysis (medium)
-- [ ] `GET /stores/marketplaces (List Marketplaces)` — Lookup resolving marketplaceId on the stores table, giving a clean sales-channel dimension (medium)
+- [x] `GET /users (List Users)` — Account user lookup in both versions; v1 includes inactive users (high)
+- [x] `GET /carriers/listpackages (List Packages)` — Carrier package lookup in v1; v2 uses `/carriers/{carrier_id}/packages` (medium)
+- [x] `GET /stores/marketplaces (List Marketplaces)` — Lookup for the marketplaceId on v1 stores (medium)
 
-Note: The seven synced tables cover every V1 collection that holds transactional data (orders, shipments, fulfillments, products, customers, stores, warehouses). Everything genuinely missing is a lookup/dimension table, which is exactly the highest-leverage kind of gap here. Note the vendor also ships a separate V2 API (api.shipstation.com, OpenAPI at https://github.com/shipstation/mcp-shipstation-api/blob/master/openapi.yaml) with batches, manifests, labels, inventory and pickups — a different product surface from the V1 API this source uses, so those are not counted as gaps.
+The source supports both API versions and defaults new connections to v2.
+All four added lookup tables use full refresh because their endpoints have no date filter.
+Services and packages read each connected carrier and use a key that includes the carrier identifier.
+The v2 user list uses pagination with a maximum page size of 100.
+Marketplaces remains v1-only because the v2 specification has no equivalent endpoint.
 
 ## ShopWired — **thin**
 
