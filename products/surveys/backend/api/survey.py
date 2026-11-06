@@ -234,11 +234,11 @@ def sanitize_survey_question(question: dict[str, Any]) -> dict[str, Any]:
 
 
 def _carry_over_question_ids(questions: list[dict[str, Any]], existing_questions: list[dict[str, Any]]) -> None:
-    """Give an id-less question the id of the stored question with the same type and text.
+    """Give an id-less question the id of the one stored question with the same type and text.
 
     Responses are keyed by question id, so a fresh id hides every earlier answer to that question.
-    A reworded question is not matched: without an id it can't be told apart from a deleted question
-    plus a new one, and guessing wrong would show the old answers under a different question.
+    A reworded question is not matched, and neither is a type and text shared by several stored or
+    sent questions: either way the old answers could land under a different question.
     Ids compare as strings because response keys are built from str(id).
     """
     sent_ids = {str(question["id"]) for question in questions if question.get("id")}
@@ -247,14 +247,17 @@ def _carry_over_question_ids(questions: list[dict[str, Any]], existing_questions
         for existing in existing_questions
         if isinstance(existing.get("id"), str) and existing["id"] not in sent_ids
     ]
-    for question in questions:
-        if question.get("id"):
-            continue
-        content = (question.get("type"), question.get("question"))
-        match = next((e for e in unclaimed if (e.get("type"), e.get("question")) == content), None)
-        if match:
-            question["id"] = match["id"]
-            unclaimed.remove(match)
+    id_less = [question for question in questions if not question.get("id")]
+    for question in id_less:
+        content = _question_content(question)
+        matches = [existing for existing in unclaimed if _question_content(existing) == content]
+        twins = [other for other in id_less if _question_content(other) == content]
+        if len(matches) == 1 and len(twins) == 1:
+            question["id"] = matches[0]["id"]
+
+
+def _question_content(question: dict[str, Any]) -> tuple[Any, Any]:
+    return question.get("type"), question.get("question")
 
 
 # Keep this in sync with SurveyAPISerializer's public runtime contract.
