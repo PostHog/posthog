@@ -8,7 +8,10 @@ from products.cdp.backend.integration_origins import integration_origins
 from products.cdp.backend.secret_origins import secret_origins
 from products.cdp.backend.templates import HOG_FUNCTION_TEMPLATES
 
-SAMPLE_CONFIGS: dict[str, dict[str, Any]] = {"salesforce": {"instance_url": "https://acme.my.salesforce.com"}}
+SAMPLE_CONFIGS: dict[str, dict[str, Any]] = {
+    "intercom": {"app.region": "US"},
+    "salesforce": {"instance_url": "https://acme.my.salesforce.com"},
+}
 
 TEMPLATE_INTEGRATION_INPUTS = [
     (f"{template.id}_{schema['key']}", template.code, schema["key"], schema["integration"])

