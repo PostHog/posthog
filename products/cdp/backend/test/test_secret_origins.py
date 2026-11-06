@@ -1,10 +1,17 @@
+import json
+from pathlib import Path
 from typing import Any
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.cdp.backend.secret_origins import UNBOUND, SecretOrigins, secret_origins
+from products.cdp.backend.secret_origins import UNBOUND, SecretOrigins, secret_origins, url_origin
+
+# The Node worker's tests read the same table, so the origin stored here and the origin the worker compares agree.
+ORIGIN_CASES = json.loads(
+    (Path(__file__).parents[2] / "shared" / "crosslang" / "secret_origin_cases.json").read_text(encoding="utf-8")
+)
 
 SENDS_TOKEN_TO_URL = "fetch(inputs.url, {'headers': {'Authorization': inputs.token}})"
 
@@ -251,28 +258,13 @@ class TestSecretHosts(SimpleTestCase):
     @parameterized.expand(
         [
             ("https://API.Example.COM./a", _origins("https://api.example.com")),
-            ("https://api.example.com:8443/a", _origins("https://api.example.com:8443")),
-            ("https://api.example.com:443/a", _origins("https://api.example.com")),
-            ("http://api.example.com:80", _origins("http://api.example.com")),
-            ("http://api.example.com:443/a", _origins("http://api.example.com:443")),
-            ("http://10.0.0.1:8000/a", _origins("http://10.0.0.1:8000")),
-            ("http://127.1:8000/a", UNBOUND),
-            ("https://2130706433/a", UNBOUND),
-            ("https://0x7f.0.0.1/a", UNBOUND),
-            ("https://010.0.0.1/a", UNBOUND),
-            ("https://[0:0:0:0:0:0:0:1]:8443/a", UNBOUND),
-            ("https://good.example:0443/a", UNBOUND),
-            ("https://good.example:70000/a", UNBOUND),
-            ("https://bücher.example/a", UNBOUND),
-            ("https://claßroom.example/a", UNBOUND),
-            ("https://good.example.com@evil.example.com/a", UNBOUND),
             # The input is a hog template, which reads the doubled backslash as one literal backslash.
             (r"https://evil.example.com\\@good.example.com/a", UNBOUND),
-            ("https://evil.example.com%2f.good.example.com/a", UNBOUND),
-            ("https://evil.example.com\t.good.example.com/a", UNBOUND),
-            ("ftp://files.example.com/a", UNBOUND),
-            ("hooks.example.com/a", UNBOUND),
         ]
     )
     def test_origin_of_a_literal_url(self, url: str, expected: SecretOrigins) -> None:
         assert secret_origins(SENDS_TOKEN_TO_URL, _inputs(url=url, token="t"), [], {"token"}) == {"token": expected}
+
+    @parameterized.expand([(case["url"], case["origin"]) for case in ORIGIN_CASES])
+    def test_url_origin_matches_the_worker(self, url: str, origin: str | None) -> None:
+        assert url_origin(url, complete=True) == origin
