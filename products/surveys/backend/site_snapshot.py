@@ -20,7 +20,12 @@ from posthog.models import Team, User
 from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.exports.backend.facade.api import ExportedAsset, create_export_asset_async, is_export_failure_final
+from products.exports.backend.facade.api import (
+    EXPORT_WORKFLOW_TIMEOUT,
+    ExportedAsset,
+    create_export_asset_async,
+    is_export_failure_final,
+)
 from products.surveys.backend.models import Survey
 
 SNAPSHOT_WINDOW = timedelta(days=7)
@@ -198,6 +203,10 @@ def _no_snapshot_cache_key(team: Team, key: dict[str, str]) -> str:
     return f"survey_site_snapshot_none:{team.id}:{digest}"
 
 
+def _is_abandoned(asset: ExportedAsset) -> bool:
+    return not asset.has_content and asset.created_at < timezone.now() - EXPORT_WORKFLOW_TIMEOUT
+
+
 def _snapshot_of(asset: ExportedAsset) -> SiteSnapshot:
     if asset.exception and is_export_failure_final(
         exception_type=asset.exception_type, failure_type=asset.failure_type
@@ -228,7 +237,7 @@ def get_site_snapshot(team: Team, survey: Survey, device: SnapshotDevice, user: 
         .order_by("-created_at")
         .first()
     )
-    if cached is not None:
+    if cached is not None and not _is_abandoned(cached):
         session_id = (cached.export_context or {})["session_recording_id"]
         return _snapshot_of(cached) if _may_view_recording(user_access_control, team, session_id) else UNAVAILABLE
 
