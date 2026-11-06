@@ -249,7 +249,7 @@ export interface CdpCoreServicesDeps {
      * `null` elsewhere, and when no host is configured, which turns the cap off.
      */
     frequencyCapValkey: RedisV2 | null
-    sandboxEmailCapValkey?: RedisV2 | null
+    sandboxEmailCapValkey: RedisV2 | null
 }
 
 /**
@@ -405,14 +405,6 @@ export function createCdpValkeyShadowPools(
     return { writer, reader }
 }
 
-export function createSandboxDailyCapLimiter(
-    deps: Pick<CdpCoreServicesDeps, 'sandboxEmailCapValkey'>
-): RateLimiterService | null {
-    return deps.sandboxEmailCapValkey
-        ? new RateLimiterService(deps.sandboxEmailCapValkey, { name: 'sandbox-email' })
-        : null
-}
-
 export function createCdpCoreServices(
     config: CdpCoreServicesConfig,
     deps: CdpCoreServicesDeps,
@@ -504,7 +496,9 @@ export function createCdpCoreServices(
     const teamEmailRateLimiter = deps.emailValidationValkey
         ? new RateLimiterService(deps.emailValidationValkey, { name: 'team-email' })
         : null
-    const sandboxEmailRateLimiter = createSandboxDailyCapLimiter(deps)
+    const sandboxEmailRateLimiter = deps.sandboxEmailCapValkey
+        ? new RateLimiterService(deps.sandboxEmailCapValkey, { name: 'sandbox-email' })
+        : null
     const emailAttachmentsService = new EmailAttachmentsService(
         config.CYCLOTRON_NODE_DATABASE_URL,
         EMAIL_ATTACHMENTS_MAX_CONNECTIONS

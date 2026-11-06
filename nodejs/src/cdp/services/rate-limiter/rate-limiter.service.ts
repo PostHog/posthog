@@ -184,7 +184,7 @@ redis.call('SET', claimKey, 1, 'NX', 'PX', replayTtlMs)
 return {1}
 `
 
-// ioredis can replay unanswered commands, so returns need deduplication and an expiry.
+// The return deletes the claim's marker, so a second return of the same claim finds nothing to give back.
 const RETURN_CLAIM_LUA = `
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
@@ -192,7 +192,7 @@ local buckets = #KEYS - 1
 if now > tonumber(ARGV[buckets + 1]) then
     return 0
 end
-if not redis.call('set', KEYS[#KEYS], 1, 'NX', 'PX', ARGV[buckets + 2]) then
+if redis.call('DEL', KEYS[#KEYS]) == 0 then
     return 0
 end
 for i = 1, buckets do
@@ -204,7 +204,7 @@ return 1
 `
 
 const RETURN_WINDOW_MS = 5 * 60 * 1000
-// A claim that reaches Valkey after its caller gave up, such as one ioredis resends after a reconnect, must not
+// A claim that reaches Valkey after its caller gave up, such as one a busy Valkey runs after it timed out, must not
 // take tokens no send uses. The window covers the optional pool's command timeout plus clock skew with Valkey.
 const CLAIM_ACCEPT_WINDOW_MS = 2000
 
@@ -219,6 +219,16 @@ export type IssuedClaim = {
     returnBy: number
     buckets: readonly Pick<ClaimRequest, 'key' | 'requested'>[]
 }
+
+export type ClaimOutcome = IssuedClaim | { granted: false; deniedIndexes: number[] | null }
+
+function hashTag(key: string): string | null {
+    const open = key.indexOf('{')
+    const close = key.indexOf('}', open + 1)
+    return open !== -1 && close > open + 1 ? key.slice(open + 1, close) : null
+}
+
+const claimMarkerKey = (keys: string[], claimId: string): string => `${keys[0]}/claimed/${claimId}`
 
 export interface ClaimRequest {
     key: string
@@ -359,28 +369,31 @@ export class RateLimiterService {
         }
     }
 
-    // All bucket keys must share a hash tag because clustered Valkey rejects cross-slot Lua calls.
-    public async claimAllBuckets(
-        buckets: ClaimRequest[]
-    ): Promise<IssuedClaim | { granted: false; deniedIndexes: number[] | null }> {
+    public async claimRefundable(buckets: ClaimRequest[]): Promise<ClaimOutcome> {
         const keys = buckets.map((bucket) => bucket.key)
         // A repeated key is checked against its balance before either write, so it would pass twice and spend once.
         if (!keys.length || new Set(keys).size !== keys.length) {
-            throw new Error('claimAllBuckets needs at least one bucket, and every bucket key only once')
+            throw new Error('claimRefundable needs at least one bucket, and every bucket key only once')
+        }
+        // Clustered Valkey rejects a Lua call whose keys hash to different slots.
+        const tag = hashTag(keys[0])
+        if (tag === null || keys.some((key) => hashTag(key) !== tag)) {
+            throw new Error('claimRefundable needs every bucket key to share one {hash tag}')
         }
         const endTimer = claimLatency.startTimer({ limiter: this.config.name })
         const claimId = randomUUID()
-        const issuedAt = Date.now()
+        let issuedAt = Date.now()
         const shortestTtlMs = Math.min(...buckets.map((bucket) => (bucket.ttlSeconds ?? 3600) * 1000))
         try {
             const result = await this.valkey.useClient(
-                { name: `rate-limiter:${this.config.name}:claimAllBuckets`, timeout: 1000 },
-                (client) =>
-                    client.eval(
+                { name: `rate-limiter:${this.config.name}:claimRefundable`, timeout: 1000 },
+                (client) => {
+                    issuedAt = Date.now()
+                    return client.eval(
                         CLAIM_ALL_OR_NOTHING_LUA,
                         buckets.length + 1,
                         ...keys,
-                        `${keys[0]}/claimed/${claimId}`,
+                        claimMarkerKey(keys, claimId),
                         ...buckets.flatMap((bucket) =>
                             [bucket.requested, bucket.capacity, bucket.refillPerSecond, bucket.ttlSeconds ?? 3600].map(
                                 String
@@ -389,6 +402,7 @@ export class RateLimiterService {
                         String(issuedAt + CLAIM_ACCEPT_WINDOW_MS),
                         String(2 * RETURN_WINDOW_MS)
                     )
+                }
             )
             if (Array.isArray(result) && result.length === 1 && result[0] === 1) {
                 claimCounter.inc({ limiter: this.config.name, result: 'granted_full' })
@@ -404,13 +418,7 @@ export class RateLimiterService {
                 claimCounter.inc({ limiter: this.config.name, result: 'expired' })
                 return { granted: false, deniedIndexes: null }
             }
-            if (
-                Array.isArray(result) &&
-                result[0] === 0 &&
-                result.length > 1 &&
-                result.slice(1).every((index) => Number.isInteger(index) && index >= 1 && index <= buckets.length) &&
-                new Set(result.slice(1)).size === result.length - 1
-            ) {
+            if (Array.isArray(result) && result[0] === 0 && result.length > 1) {
                 claimCounter.inc({ limiter: this.config.name, result: 'denied' })
                 return { granted: false, deniedIndexes: result.slice(1).map((index) => index - 1) }
             }
@@ -433,24 +441,25 @@ export class RateLimiterService {
         const { buckets } = claim
         const keys = buckets.map((bucket) => bucket.key)
         try {
-            await this.valkey.useClient(
+            const returned = await this.valkey.useClient(
                 { name: `rate-limiter:${this.config.name}:returnClaim`, timeout: 1000 },
                 (client) =>
                     client.eval(
                         RETURN_CLAIM_LUA,
                         buckets.length + 1,
                         ...keys,
-                        `${keys[0]}/returned/${claim.claimId}`,
+                        claimMarkerKey(keys, claim.claimId),
                         ...buckets.map((bucket) => String(bucket.requested)),
-                        String(claim.returnBy),
-                        String(2 * RETURN_WINDOW_MS)
+                        String(claim.returnBy)
                     )
             )
+            claimCounter.inc({ limiter: this.config.name, result: returned === 1 ? 'returned' : 'return_ignored' })
         } catch (err) {
             logger.warn('🪙', `RateLimiterService(${this.config.name}) claim return threw`, {
                 keys,
                 error: String(err),
             })
+            claimCounter.inc({ limiter: this.config.name, result: 'return_error' })
         }
     }
 }
