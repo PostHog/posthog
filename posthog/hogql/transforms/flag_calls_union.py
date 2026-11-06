@@ -525,8 +525,11 @@ class _FlagCallScan:
     literals: list[ast.Constant]
     # The CTE values whose `$feature_flag_called` constants also name the scan's flag calls.
     with_values: list["_WithValue"]
-    # True when the finder stopped at the budget before it found a `$feature_flag_called` literal.
-    unchecked: bool
+
+    @property
+    def unchecked(self) -> bool:
+        """True when the finder stopped at the budget before it found a `$feature_flag_called` literal."""
+        return not (self.literals or self.with_values)
 
 
 def _flag_call_scans(
@@ -568,8 +571,7 @@ def _flag_call_scans(
                         position=position,
                         scan=scan,
                         literals=finder.literals,
-                        with_values=finder.with_values_read,
-                        unchecked=not finder.found_literal,
+                        with_values=list(finder.with_values_read.values()),
                     )
                 )
         join = join.next_join
@@ -883,19 +885,16 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         self.lambda_names: ChainMap[str, ast.Expr] | None = None
         self.values_left = _COMPARED_VALUES_BUDGET
         self.literals: list[ast.Constant] = []
-        # A CTE's list can be read by many scans, so each finder keeps the cached value, not a copy of its literals.
-        self.with_values_read: list[_WithValue] = []
-
-    @property
-    def found_literal(self) -> bool:
-        return bool(self.literals) or any(with_value.literals for with_value in self.with_values_read)
+        # The CTE values with a `$feature_flag_called` constant that the scan reads, by id. A CTE's list can be read by
+        # many scans, so each finder keeps the cached value, not a copy of its literals.
+        self.with_values_read: dict[int, _WithValue] = {}
 
     @property
     def names_flag_calls(self) -> bool:
         # Past the budget the finder cannot tell which values it compares with `event`. A query without any
         # `$feature_flag_called` constant cannot compare `event` with one, so only a query with one counts. A column CTE
         # in scope can hold that constant outside the query.
-        return self.found_literal or (
+        return bool(self.literals or self.with_values_read) or (
             self.values_left < 0
             and (names_flag_called_event(self.root) or self.with_values.cte_in_scope_names_flag_calls)
         )
@@ -960,16 +959,18 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         # An alias of a list can appear many times in one comparison, so each list is read once.
         read_lists: set[int] = set()
         for value in map(self._resolve, values or []):
-            if (with_value := self.with_values.read(value)) is not None:
-                self.values_left -= with_value.count
-                if self.values_left < 0:
-                    return
-                self.with_values_read.append(with_value)
-                continue
-            if isinstance(value, (ast.Tuple, ast.Array)):
+            with_value = self.with_values.read(value)
+            if with_value is not None or isinstance(value, (ast.Tuple, ast.Array)):
                 if id(value) in read_lists:
                     continue
                 read_lists.add(id(value))
+            if with_value is not None:
+                self.values_left -= with_value.count
+                if self.values_left < 0:
+                    return
+                if with_value.literals:
+                    self.with_values_read[id(with_value)] = with_value
+                continue
             for item in value.exprs if isinstance(value, (ast.Tuple, ast.Array)) else [value]:
                 self.values_left -= 1
                 if self.values_left < 0:
@@ -1036,17 +1037,18 @@ class _UnionRenamer(ScanVisitor):
                 if scan.join.sample is not None and scan.join.sample.samples_all_rows():
                     scan.join.sample = None
                 self.renamed = True
-                groups = [literals]
+                self._add_spans(literals)
                 for with_value in found.with_values:
                     if id(with_value) not in self.spanned_with_values:
                         self.spanned_with_values.add(id(with_value))
-                        groups.append(with_value.literals)
-                self.literal_spans.update(
-                    (literal.start, literal.end)
-                    for group in groups
-                    for literal in group
-                    if literal.start is not None and literal.end is not None
-                )
+                        self._add_spans(with_value.literals)
+
+    def _add_spans(self, literals: list[ast.Constant]) -> None:
+        self.literal_spans.update(
+            (literal.start, literal.end)
+            for literal in literals
+            if literal.start is not None and literal.end is not None
+        )
 
     def _left_to_the_swap(self, node: ast.SelectQuery, scan: EventsScan, aliases: _Aliases) -> bool:
         # The flag_evaluations swap handles a first scan whose `event` filter it reads as only flag calls. It swaps or
