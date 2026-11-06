@@ -371,7 +371,7 @@ class _Analysis:
         self.declared_names: list[str] = []
         self.statement_index = 0
         self.other_name_uses: set[str] = set()
-        self.tables: dict[str, _Values] = {}
+        self.tables: dict[str, dict[str, str]] = {}
         self.values: dict[str, _Values] = {}
         self.taints: dict[str, _Taint] = {}
         self.return_values: dict[str, _Values] = {}
@@ -453,7 +453,9 @@ class _Analysis:
         assigned = {name for name, _ in self.assignments}
         return assigned - {name for name, expr in self.assignments if not isinstance(expr, ast.Lambda)}
 
-    def _constant_tables(self, statements: list[ast.Declaration], bound_elsewhere: set[str]) -> dict[str, _Values]:
+    def _constant_tables(
+        self, statements: list[ast.Declaration], bound_elsewhere: set[str]
+    ) -> dict[str, dict[str, str]]:
         """Names declared once, as a top-level statement, with a dictionary of string constants, and only
         read by index after that statement, such as a region-to-host map. Hog resolves a name by block
         scope and then falls back to the globals, so a declaration in a block or function, or a read
@@ -462,24 +464,29 @@ class _Analysis:
         declarations = collections.Counter(self.declared_names)
         assignments = collections.Counter(name for name, _ in self.assignments)
         changed = {name for name, _, _ in self.member_assignments} | bound_elsewhere | self.other_name_uses
-        tables: dict[str, _Values] = {}
+        tables: dict[str, dict[str, str]] = {}
         for index, statement in enumerate(statements):
             if not isinstance(statement, ast.VariableDeclaration) or not isinstance(statement.expr, ast.Dict):
                 continue
             name = statement.name
-            values = [value for _, value in statement.expr.items]
-            constants = [value.value for value in values if isinstance(value, ast.Constant)]
+            entries = {
+                key.value: value.value
+                for key, value in statement.expr.items
+                if isinstance(key, ast.Constant)
+                and isinstance(key.value, str)
+                and isinstance(value, ast.Constant)
+                and isinstance(value.value, str)
+            }
             if (
-                not values
-                or len(constants) != len(values)
-                or not all(isinstance(constant, str) for constant in constants)
+                not entries
+                or len(entries) != len(statement.expr.items)
                 or name in changed | _HOG_GLOBALS
                 or declarations[name] != 1
                 or assignments[name] != 1
                 or any(read == name and read_index <= index for read, read_index in self.table_reads)
             ):
                 continue
-            tables[name] = _normalize(frozenset((constant, True) for constant in constants))
+            tables[name] = entries
         return tables
 
     def _call_arguments(self, lambda_name: str) -> list[ast.Expr] | None:
@@ -775,14 +782,18 @@ class _Analysis:
         self._spend_evaluation()
         if isinstance(node, ast.Constant):
             return frozenset({(node.value, True)}) if isinstance(node.value, str) else _UNKNOWN
+        config_field = _config_field(node)
+        if config_field is not None:
+            key, name = config_field
+            field = self.integration_configs.get(key, {}).get(name)
+            return frozenset({(field, True)}) if isinstance(field, str) else _UNKNOWN
         input_key = _input_key(node)
         if input_key is not None:
-            if isinstance(node, ast.Field) and len(node.chain) > 2:
-                field = self.integration_configs.get(input_key, {}).get(str(node.chain[2]))
-                return frozenset({(field, True)}) if len(node.chain) == 3 and isinstance(field, str) else _UNKNOWN
-            return self.inputs.get(input_key, (_UNKNOWN,))[0]
+            is_member = isinstance(node, ast.Field) and len(node.chain) > 2
+            return _UNKNOWN if is_member else self.inputs.get(input_key, (_UNKNOWN,))[0]
         if isinstance(node, ast.ArrayAccess) and isinstance(node.array, ast.Field) and len(node.array.chain) == 1:
-            return self.tables.get(str(node.array.chain[0]), _UNKNOWN)
+            table = self.tables.get(str(node.array.chain[0]))
+            return _UNKNOWN if table is None else self._table_value(table, node.property)
         if isinstance(node, ast.Field) and len(node.chain) == 1:
             return self.values.get(str(node.chain[0]), _UNKNOWN)
         if isinstance(node, ast.Call):
@@ -795,6 +806,14 @@ class _Analysis:
             if node.name in self.functions:
                 return self.return_values.get(node.name, frozenset())
         return _UNKNOWN
+
+    def _table_value(self, table: dict[str, str], key: ast.Expr) -> _Values:
+        keys = self._value(key)
+        if all(complete and text in table for text, complete in keys):
+            return _normalize(frozenset((table[text], True) for text, _ in keys))
+        # A key the table lacks reads as null, which a template renders as an empty string. The host can
+        # then be missing, so that the rest of the URL names it, as in `https:///evil.example.com`.
+        return _normalize(frozenset((value, True) for value in table.values()) | {("", True)})
 
     def _taint(self, node: ast.AST) -> _Taint:
         self._spend_evaluation()
@@ -840,6 +859,22 @@ def _names_no_input(options: ast.Expr) -> bool:
 def _calls_back_inline(call: ast.Call) -> bool:
     """The library code quotes neither argument, so only what the inline lambda does can carry a value out."""
     return call.name in _ELEMENT_CALLBACK_CALLS and bool(call.args) and isinstance(call.args[0], ast.Lambda)
+
+
+def _config_field(node: ast.AST) -> tuple[str, str] | None:
+    """The input key and field name of `inputs.<key>.<field>` or `inputs.<key>['<field>']`."""
+    if isinstance(node, ast.Field) and len(node.chain) == 3 and node.chain[0] == "inputs":
+        return str(node.chain[1]), str(node.chain[2])
+    if (
+        isinstance(node, ast.ArrayAccess)
+        and isinstance(node.array, ast.Field)
+        and len(node.array.chain) == 2
+        and node.array.chain[0] == "inputs"
+        and isinstance(node.property, ast.Constant)
+        and isinstance(node.property.value, str)
+    ):
+        return str(node.array.chain[1]), node.property.value
+    return None
 
 
 def _input_key(node: ast.AST) -> str | None:
