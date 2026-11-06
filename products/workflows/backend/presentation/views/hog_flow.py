@@ -152,6 +152,7 @@ from products.workflows.backend.facade.activity import (
     bulk_delete_archived_workflows,
     log_workflow_activity,
     log_workflow_schedule_activity,
+    log_workflow_test_run,
     resume_workflow_email_sending,
 )
 from products.workflows.backend.facade.api import (
@@ -6644,8 +6645,16 @@ class HogFlowViewSet(
 
         if not payload.get("mock_async_functions", True):
             configuration = payload.get("configuration") or {}
-            self._require_replay_vision_caller_access(
-                request, configuration.get("actions") if configuration else (hog_flow.actions if hog_flow else [])
+            # The worker runs `{...stored, ...configuration}`, so a field the request omits runs as stored.
+            actions = configuration["actions"] if "actions" in configuration else (hog_flow.actions if hog_flow else [])
+            self._require_replay_vision_caller_access(request, actions)
+            log_workflow_test_run(
+                actor=self._activity_actor(),
+                workflow_id=hog_flow.id if hog_flow else None,
+                name=configuration.get("name") or (hog_flow.name if hog_flow else None),
+                actions=actions,
+                current_action_id=payload.get("current_action_id"),
+                encrypted_inputs=hog_flow.encrypted_inputs if hog_flow and "actions" not in configuration else None,
             )
 
         res = create_hog_flow_invocation_test(

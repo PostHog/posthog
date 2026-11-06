@@ -78,6 +78,8 @@ async function runDigest(t, { env = {}, depotUsage = DEPOT_USAGE, workflowHealth
     const requests = []
     const logs = []
     let blocks
+    let depotInFlight = 0
+    let maxDepotInFlight = 0
     t.mock.method(console, 'info', (message) => logs.push(message))
     t.mock.method(console, 'warn', (message) => logs.push(message))
     t.mock.method(globalThis, 'fetch', async (url, options) => {
@@ -92,12 +94,18 @@ async function runDigest(t, { env = {}, depotUsage = DEPOT_USAGE, workflowHealth
             return Response.json(OVERVIEW)
         }
         if (href.startsWith('https://api.depot.dev/')) {
-            const answer = depotUsage[JSON.parse(options.body).startAt]
-            const usage = Array.isArray(answer) ? answer.shift() : answer
-            if (usage instanceof Error) {
-                throw usage
+            maxDepotInFlight = Math.max(maxDepotInFlight, ++depotInFlight)
+            try {
+                await new Promise((resolve) => setImmediate(resolve))
+                const answer = depotUsage[JSON.parse(options.body).startAt] ?? {}
+                const usage = Array.isArray(answer) ? answer.shift() : answer
+                if (usage instanceof Error) {
+                    throw usage
+                }
+                return usage instanceof Response ? usage : Response.json(usage)
+            } finally {
+                depotInFlight--
             }
-            return usage instanceof Response ? usage : Response.json(usage)
         }
         assert.equal(href, 'https://slack.com/api/chat.postMessage')
         blocks = JSON.parse(options.body).blocks
@@ -114,7 +122,7 @@ async function runDigest(t, { env = {}, depotUsage = DEPOT_USAGE, workflowHealth
             t.mock.timers.tick(30_000)
         }
         await run
-        return { blocks, logs, requests }
+        return { blocks, logs, requests, maxDepotInFlight }
     } finally {
         for (const [key, value] of Object.entries(previousEnv)) {
             if (value === undefined) {
@@ -139,7 +147,17 @@ describe('weekly engineering analytics digest', () => {
         ],
     ]) {
         it(`reports Depot spend for complete UTC weeks and the contract${name}`, async (t) => {
-            const { blocks, requests } = await runDigest(t, override)
+            const { blocks, requests, maxDepotInFlight } = await runDigest(t, override)
+            assert.equal(maxDepotInFlight, 1)
+            const contractRanges = requests
+                .filter((request) => request.url.startsWith('https://api.depot.dev/'))
+                .map((request) => JSON.parse(request.body))
+                .slice(-10)
+            assert.deepEqual(
+                contractRanges.map((range) => range.startAt.slice(0, 10)),
+                Array.from({ length: 10 }, (_, i) => `2026-${String(i + 1).padStart(2, '0')}-01`)
+            )
+            assert.equal(contractRanges.at(-1).endAt, '2026-10-05T00:00:00.000Z')
             const overviewUrl = new URL(requests.find((request) => request.url.includes('/repo_overview/')).url)
             assert.equal(overviewUrl.searchParams.get('date_from'), WEEK)
             assert.equal(overviewUrl.searchParams.get('date_to'), '2026-10-05T00:00:00.000Z')

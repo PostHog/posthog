@@ -560,6 +560,9 @@
     .max-h-\[320px\] {
         max-height: 320px;
     }
+    .max-h-\[480px\] {
+        max-height: 480px;
+    }
     .min-h-7 {
         min-height: calc(0.25rem * 7);
     }
@@ -833,6 +836,9 @@
         text-overflow: ellipsis;
         white-space: nowrap;
     }
+    .overflow-auto {
+        overflow: auto;
+    }
     .overflow-hidden {
         overflow: hidden;
     }
@@ -841,6 +847,9 @@
     }
     .\!rounded-full {
         border-radius: calc(infinity * 1px) !important;
+    }
+    .rounded {
+        border-radius: 0.25rem;
     }
     .rounded-full {
         border-radius: calc(infinity * 1px);
@@ -1102,6 +1111,9 @@
     }
     .whitespace-nowrap {
         white-space: nowrap;
+    }
+    .whitespace-pre-wrap {
+        white-space: pre-wrap;
     }
     .text-current {
         color: currentcolor;
