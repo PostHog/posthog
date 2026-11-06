@@ -364,23 +364,24 @@ describe('OrganizationMembersService', () => {
             const service = new OrganizationMembersService(routerFor(query))
             const outsider = [{ address: 'outside@example.com', unverifiedMember: false }]
             try {
-                const firstLoad = service.getBlockedRecipients(1, ['member@example.com'], { fresh: false })
+                const firstLoad = service.checkRecipients(1, ['member@example.com'], { fresh: false })
                 await jest.advanceTimersByTimeAsync(0)
-                expect(await firstLoad).toEqual([])
+                expect((await firstLoad).blocked).toEqual([])
                 jest.setSystemTime(start + 5_001)
 
-                const first = service.getBlockedRecipients(1, ['outside@example.com'], { fresh: false })
+                const first = service.checkRecipients(1, ['outside@example.com'], { fresh: false })
                 await jest.advanceTimersByTimeAsync(0)
                 await started
                 const later = Array.from({ length: 5 }, () =>
-                    service.getBlockedRecipients(1, ['outside@example.com'], { fresh: false })
+                    service.checkRecipients(1, ['outside@example.com'], { fresh: false })
                 )
                 await jest.advanceTimersByTimeAsync(0)
                 expect(query).toHaveBeenCalledTimes(2)
 
                 releaseReload()
                 await jest.advanceTimersByTimeAsync(0)
-                expect(await Promise.all([first, ...later])).toEqual(Array(6).fill(outsider))
+                const checks = await Promise.all([first, ...later])
+                expect(checks.map((check) => check.blocked)).toEqual(Array(6).fill(outsider))
             } finally {
                 jest.useRealTimers()
             }
