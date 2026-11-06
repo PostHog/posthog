@@ -75,7 +75,9 @@ def _health_context(
     experiment: Experiment, reader_access: ExperimentHealthReaderAccess, user: User | None
 ) -> HealthContext:
     flag_history = load_flag_history(experiment, reader_access=reader_access)
-    context = load_health_context(experiment, flag_history=flag_history)
+    context = load_health_context(
+        experiment, flag_history=flag_history, can_read_flag_history=reader_access.can_read_flag_history
+    )
     traffic = load_condition_set_traffic(experiment, context, reader_access=reader_access)
     latest_calculation = load_latest_calculation(experiment)
     return replace(
@@ -83,7 +85,9 @@ def _health_context(
         condition_set_traffic=traffic,
         pause_history=load_pause_history(experiment, reader_access=reader_access),
         primary_metric=load_primary_metric(experiment),
-        primary_metric_windows=load_primary_metric_windows(experiment),
+        primary_metric_windows=load_primary_metric_windows(
+            experiment, can_read_flag_history=reader_access.can_read_flag_history
+        ),
         metric_compiles=load_metric_compiles(experiment, user=user),
         latest_calculation=latest_calculation,
         exposure_filters_without_column=load_filters_without_column(experiment)
