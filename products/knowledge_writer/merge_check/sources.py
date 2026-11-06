@@ -1,7 +1,8 @@
 import re
 import fnmatch
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
 import requests
@@ -11,6 +12,7 @@ from posthog.egress.limiter.policies import Priority
 
 POSTHOG_REPOSITORY = "PostHog/posthog"
 POSTHOG_MAINLINE = "master"
+COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 GITHUB_API_URL = "https://api.github.com"
 GITHUB_EGRESS_SOURCE = "knowledge_writer"
 SITEMAP_URL = "https://posthog.com/sitemap/sitemap-0.xml"
@@ -88,6 +90,15 @@ def read_github(
     return response
 
 
+def merged_mainline_commit(pull_request: Mapping[str, Any]) -> str | None:
+    commit_sha = pull_request.get("merge_commit_sha")
+    if not pull_request.get("merged_at") or not isinstance(commit_sha, str):
+        return None
+    if (pull_request.get("base") or {}).get("ref") != POSTHOG_MAINLINE:
+        return None
+    return commit_sha if COMMIT_SHA_PATTERN.match(commit_sha) else None
+
+
 def find_merged_pull_request(github: GitHubReader, commit_sha: str) -> MergedPullRequest | None:
     response = read_github(
         github,
@@ -95,12 +106,7 @@ def find_merged_pull_request(github: GitHubReader, commit_sha: str) -> MergedPul
         endpoint="/repos/{owner}/{repo}/commits/{sha}/pulls",
     )
     for listed in response.json():
-        is_merge_into_mainline = (
-            listed.get("merge_commit_sha") == commit_sha
-            and listed.get("merged_at")
-            and (listed.get("base") or {}).get("ref") == POSTHOG_MAINLINE
-        )
-        if not is_merge_into_mainline:
+        if merged_mainline_commit(listed) != commit_sha:
             continue
         return MergedPullRequest(
             number=listed["number"],

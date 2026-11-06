@@ -731,6 +731,18 @@ class ContentAutopilotDiscoverySustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "100/hour"
 
 
+# Each AEO prompt suggestion request queues a Celery job with up to four model calls and several web
+# searches, so it costs model credits. This team bucket also covers browser callers.
+class AEOPromptSuggestionsBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_prompt_suggestions_burst"
+    rate = "5/minute"
+
+
+class AEOPromptSuggestionsSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_prompt_suggestions_sustained"
+    rate = "30/hour"
+
+
 # The batch session-context endpoint computes experiment context for up to 20 recordings per
 # call, in up to several per-day ClickHouse scan sets — heavier than most ClickHouse endpoints
 # — and its primary caller is the session-authenticated replay/experiment UI, which the
