@@ -16,6 +16,7 @@ import {
     warnIfMessageTooLong,
 } from './supportLogic'
 import * as SupportModal from './SupportModal'
+import { supportRouterLogic } from './supportRouterLogic'
 
 // supportLogic and SupportModal import each other, so jest.mock('./SupportModal') leaves supportLogic
 // bound to the real openSupportModal — spy on the live module export instead so the call is intercepted.
@@ -94,6 +95,20 @@ describe('supportLogic', () => {
         afterEach(() => {
             logic?.unmount()
         })
+
+        it.each([{ panel: 'support' }, { supportModal: 'support' }])(
+            'opens a login deep link in the modal without a scene: %j',
+            async (hash) => {
+                router.actions.push('/login', {}, hash)
+                const unmount = supportRouterLogic.mount()
+                try {
+                    await expectLogic(logic).toFinishAllListeners()
+                    expect(openSupportModal).toHaveBeenCalledTimes(1)
+                } finally {
+                    unmount()
+                }
+            }
+        )
 
         it('does not write the panel hash when the form opens as a modal', async () => {
             router.actions.push('/login', { next: '/home' })

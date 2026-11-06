@@ -1,5 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useEffect } from 'react'
+import posthog from 'posthog-js'
+import { useEffect, useLayoutEffect } from 'react'
 
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { AUTH_NOTES, type AuthNotes } from 'scenes/authentication/shared/authScene/authNotes'
@@ -53,6 +54,26 @@ const STEP_COMPONENTS: Record<AuthPageStep, () => JSX.Element> = {
     signup_pending_invite: PendingInviteStep,
 }
 
+const LOGIN_FORM_READY_MARK = 'login:form-ready'
+
+// The duration counts from navigation start, so it only means something when this page load opened /login.
+function captureLoginFormReadyOnce(): void {
+    const pageLoad = performance.getEntriesByType('navigation')[0]
+    if (
+        !pageLoad ||
+        new URL(pageLoad.name).pathname.replace(/\/$/, '') !== '/login' ||
+        performance.getEntriesByName(LOGIN_FORM_READY_MARK).length
+    ) {
+        return
+    }
+    const ready = performance.mark(LOGIN_FORM_READY_MARK)
+    posthog.capture('login form ready', {
+        duration_ms: ready.startTime,
+        '$feature/standalone-login-entry':
+            window.POSTHOG_USER_IDENTITY_WITH_FLAGS?.featureFlags?.['standalone-login-entry'],
+    })
+}
+
 export function Auth(): JSX.Element | null {
     // Mounted here so the login funnel is only reported from the auth scenes
     useMountedLogic(loginTelemetryLogic)
@@ -64,6 +85,12 @@ export function Auth(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { startConditionalPasskeyLogin } = useActions(passkeyLogic)
     const isReturning = useLastLoginMethod() !== null
+
+    useLayoutEffect(() => {
+        if (!user) {
+            captureLoginFormReadyOnce()
+        }
+    }, [user])
 
     // WebKit (Safari/iOS) can't open the passkey modal without a user gesture, so we show
     // passkeys via the email field's autofill instead. Other browsers keep the auto-modal.

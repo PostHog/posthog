@@ -311,6 +311,7 @@ AUTHENTICATION_BACKENDS: list[str] = [
 AUTH_USER_MODEL = "posthog.User"
 
 LOGIN_URL = "/login"
+AUTH_APP_PROTOTYPE_ENABLED = get_from_env("AUTH_APP_PROTOTYPE_ENABLED", False, type_cast=str_to_bool)
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False

@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { AUTH_PROTOTYPE_BOOT, AUTH_PROTOTYPE_META } from './auth-prototype-graph.mjs'
 import { AUTHENTICATED_SHELL, ENTRY, LOGGED_OUT_BOOT } from './bootEntries.mjs'
 import { planCssGroups, stableCssBytes } from './stableCssPlan.mjs'
 
@@ -345,6 +346,20 @@ const ROOTS = [
             'node_modules/d3/src/',
         ],
     },
+    {
+        root: AUTH_PROTOTYPE_BOOT,
+        metaFile: AUTH_PROTOTYPE_META,
+        label: 'separate login app (flag-controlled /login entry)',
+        // 2026-11-05: 2.56 MiB eager output (2,685,117 bytes), the entry stylesheet included. ~5% headroom.
+        budgetBytes: 2_820_000,
+        forbidden: [
+            'node_modules/monaco-editor/',
+            'src/layout/navigation-3000/navigationLogic.tsx',
+            'src/scenes/dashboard/dashboardLogic.tsx',
+            'node_modules/zod/',
+            KEA_TEST_UTILS,
+        ],
+    },
 ]
 
 function fail(message) {
@@ -462,17 +477,28 @@ if (!fs.existsSync(metaPath)) {
 
 const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'))
 const inputs = meta.inputs
-const outputs = meta.outputs
-if (!outputs) {
+if (!meta.outputs) {
     fail(`Metafile at ${metaPath} has no "outputs" — rebuild with metafile output enabled.`)
     process.exit(1)
 }
 
+function metaForRoot(metaFile) {
+    if (!metaFile) {
+        return { meta }
+    }
+    const file = path.join(frontendDir, metaFile)
+    if (!fs.existsSync(file)) {
+        return { error: `Metafile not found at ${file}. Did the build write it?` }
+    }
+    const other = JSON.parse(fs.readFileSync(file, 'utf-8'))
+    return other.outputs ? { meta: other } : { error: `Metafile at ${file} has no "outputs".` }
+}
+
 // esbuild makes every code-split point (real entry points and dynamically-imported
 // modules alike) an entryPoint of some output chunk, so a root maps to exactly one chunk.
-function entryChunk(root) {
+function entryChunk(outputs, root) {
     for (const [name, chunk] of Object.entries(outputs)) {
-        if (chunk.entryPoint === root) {
+        if (chunk.entryPoint === root && name.endsWith('.js')) {
             return name
         }
     }
@@ -481,7 +507,7 @@ function entryChunk(root) {
 
 // The eager download for a root: its entry chunk plus every chunk reachable through static
 // (import-statement) chunk edges. dynamic-import edges are the lazy boundaries — stop there.
-function eagerChunkClosure(entry) {
+function eagerChunkClosure(outputs, entry) {
     const seen = new Set([entry])
     const queue = [entry]
     while (queue.length) {
@@ -526,11 +552,18 @@ for (const verifySubstr of new Set(ROOTS.flatMap((r) => r.forbidden.map(forbidde
     }
 }
 
-for (const { root: rootSpec, label, budgetBytes, forbidden } of ROOTS) {
+for (const { root: rootSpec, metaFile, label, budgetBytes, forbidden } of ROOTS) {
     // A root is one entry module, or several whose closures are downloaded together.
     const rootModules = Array.isArray(rootSpec) ? rootSpec : [rootSpec]
     const root = rootModules.join(' + ')
-    const entries = rootModules.map((module) => ({ module, entry: entryChunk(module) }))
+    const { meta: rootMeta, error: metaError } = metaForRoot(metaFile)
+    if (metaError) {
+        report.errors.push(metaError)
+        fail(metaError)
+        continue
+    }
+    const { inputs: rootInputs, outputs } = rootMeta
+    const entries = rootModules.map((module) => ({ module, entry: entryChunk(outputs, module) }))
     const missing = entries.filter(({ entry }) => !entry)
     if (missing.length > 0) {
         const message = missing
@@ -546,7 +579,7 @@ for (const { root: rootSpec, label, budgetBytes, forbidden } of ROOTS) {
         fail(message)
         continue
     }
-    const eagerChunks = new Set(entries.flatMap(({ entry }) => [...eagerChunkClosure(entry)]))
+    const eagerChunks = new Set(entries.flatMap(({ entry }) => [...eagerChunkClosure(outputs, entry)]))
 
     // Attribute each input module the bytes it actually contributes to the eager chunks —
     // tree-shaken modules contribute nothing, so a barrel only counts its used exports.
@@ -560,11 +593,14 @@ for (const { root: rootSpec, label, budgetBytes, forbidden } of ROOTS) {
             }
         }
     }
-    // CSS is not an `imports` edge, so the chunk walk never reaches it.
-    totalBytes += stableCssBytes(
-        cssPlan,
-        entries.map(({ entry }) => entry)
-    )
+    // CSS is not an `imports` edge, so the chunk walk never reaches it. Another build's HTML links
+    // only its first entry's stylesheet, and the stable CSS split applies to the main app only.
+    totalBytes += metaFile
+        ? (outputs[outputs[entries[0].entry].cssBundle]?.bytes ?? 0)
+        : stableCssBytes(
+              cssPlan,
+              entries.map(({ entry }) => entry)
+          )
     const largest = [...eagerBytesByFile.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15)
 
     const overBudget = totalBytes > budgetBytes
@@ -588,7 +624,7 @@ for (const { root: rootSpec, label, budgetBytes, forbidden } of ROOTS) {
         // One parent map across all root modules; a module reachable from several keeps its first chain.
         const parentOf = new Map()
         for (const module of rootModules) {
-            for (const [child, parent] of eagerClosure(inputs, module).parentOf) {
+            for (const [child, parent] of eagerClosure(rootInputs, module).parentOf) {
                 if (!parentOf.has(child)) {
                     parentOf.set(child, parent)
                 }

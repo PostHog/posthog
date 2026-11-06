@@ -7,6 +7,7 @@ const srcHtmlFiles = [
     'src/layout.html',
     'src/exporter/index.html',
     'src/render-query/index.html',
+    'src/auth-prototype/authPrototype.html',
     '../products/tasks/frontend/infrastructure/infrastructureAdmin.html',
 ]
 const distHtmlFiles = [
@@ -14,6 +15,7 @@ const distHtmlFiles = [
     'dist/layout.html',
     'dist/exporter.html',
     'dist/render_query.html',
+    'dist/auth_prototype.html',
     'dist/infrastructure_admin.html',
 ]
 
