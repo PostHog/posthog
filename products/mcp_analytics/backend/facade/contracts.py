@@ -101,6 +101,7 @@ class MCPToolCall:
     error_message: str
     duration_ms: int | None
     parameters: str
+    response: str
     error_type: str
     error_status: str
 

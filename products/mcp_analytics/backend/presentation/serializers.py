@@ -217,6 +217,10 @@ class MCPToolCallSerializer(serializers.Serializer):
         read_only=True,
         help_text="Arguments the client passed ($mcp_parameters) as JSON text, exactly as the SDK captured them after its redaction. Empty when not captured.",
     )
+    response = serializers.CharField(
+        read_only=True,
+        help_text="Result the MCP server returned ($mcp_response) as JSON text, exactly as the SDK captured it after its redaction and truncation. Empty when not captured.",
+    )
     error_type = serializers.CharField(
         read_only=True,
         help_text="Error category ($mcp_error_type) when the SDK classified the failure, otherwise empty.",

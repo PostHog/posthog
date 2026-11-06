@@ -1601,6 +1601,7 @@ class Command(BaseCommand):
                     "$mcp_intent_source": rng.choices(["context_parameter", "inferred"], weights=[92, 8], k=1)[0],
                     "$mcp_is_error": failure is not None,
                     "$mcp_parameters": TOOL_ARGUMENTS.get(tool_name, {}),
+                    "$mcp_response": {"content": [{"type": "text", "text": f"{tool_name} completed."}]},
                 }
                 if failure:
                     # Permission and validation errors fail before any work; the rest fail after it.
@@ -1611,6 +1612,10 @@ class Command(BaseCommand):
                     tool_properties["$mcp_error_type"] = failure.error_type
                     tool_properties["$mcp_error_message"] = failure.message
                     tool_properties["$mcp_error_status"] = failure.status
+                    tool_properties["$mcp_response"] = {
+                        "content": [{"type": "text", "text": failure.message}],
+                        "isError": True,
+                    }
                 tool_properties["$mcp_duration_ms"] = duration_ms
                 emit(session, "$mcp_tool_call", timestamp, tool_properties)
                 session_calls.append(

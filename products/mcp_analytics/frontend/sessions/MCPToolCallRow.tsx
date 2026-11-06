@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { MCPToolCallApi } from '../generated/api.schemas'
 import { DateFilter, mcpToolReportUrl } from '../mcpAnalyticsToolQualityLogic'
 import { CreateFixTaskButton } from '../tool-quality/CreateFixTaskButton'
-import { MCPErrorContext, formatErrorContext, formatToolArguments } from '../tool-quality/errorContext'
+import { MCPErrorContext, formatCapturedJson, formatErrorContext } from '../tool-quality/errorContext'
 import { formatDuration, formatRelativeOffset } from './utils'
 
 function errorContext(toolCall: MCPToolCallApi, sessionId: string): MCPErrorContext {
@@ -24,7 +24,29 @@ function errorContext(toolCall: MCPToolCallApi, sessionId: string): MCPErrorCont
         intent: toolCall.intent || undefined,
         sessionId,
         parameters: toolCall.parameters || undefined,
+        response: toolCall.response || undefined,
     }
+}
+
+function CapturedJson({ label, json, property }: { label: string; json: string; property: string }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <span className="text-[11px] font-semibold text-secondary">{label}</span>
+            {json ? (
+                <CodeSnippet
+                    language={Language.JSON}
+                    compact
+                    wrap
+                    thing={label.toLowerCase()}
+                    maxLinesWithoutExpansion={12}
+                >
+                    {formatCapturedJson(json)}
+                </CodeSnippet>
+            ) : (
+                <span className="text-xs text-secondary">Not captured. The SDK sends this as {property}.</span>
+            )}
+        </div>
+    )
 }
 
 export function MCPToolCallRow({
@@ -80,7 +102,7 @@ export function MCPToolCallRow({
                         icon={<IconChevronDown className={expanded ? 'rotate-180' : undefined} />}
                         onClick={() => setExpanded(!expanded)}
                         aria-expanded={expanded}
-                        tooltip={expanded ? 'Hide details' : 'Show arguments and actions'}
+                        tooltip={expanded ? 'Hide details' : 'Show arguments, result and actions'}
                         data-attr="mcp-session-tool-call-expand"
                     />
                 </div>
@@ -96,21 +118,8 @@ export function MCPToolCallRow({
 
             {expanded ? (
                 <div className="flex flex-col gap-2 pl-5 pt-1">
-                    {toolCall.parameters ? (
-                        <CodeSnippet
-                            language={Language.JSON}
-                            compact
-                            wrap
-                            thing="arguments"
-                            maxLinesWithoutExpansion={12}
-                        >
-                            {formatToolArguments(toolCall.parameters)}
-                        </CodeSnippet>
-                    ) : (
-                        <div className="text-xs text-secondary">
-                            No arguments captured. The SDK sends them as $mcp_parameters.
-                        </div>
-                    )}
+                    <CapturedJson label="Arguments" json={toolCall.parameters} property="$mcp_parameters" />
+                    <CapturedJson label="Result" json={toolCall.response} property="$mcp_response" />
                     <div className="flex flex-wrap items-center gap-1">
                         {toolCall.event_id ? (
                             <LemonButton
@@ -126,7 +135,7 @@ export function MCPToolCallRow({
                                 <LemonButton
                                     size="xsmall"
                                     icon={<IconCopy />}
-                                    tooltip="Copy the failure, arguments and links for a coding agent"
+                                    tooltip="Copy the failure, arguments, result and links for a coding agent"
                                     onClick={() => void copyToClipboard(formatErrorContext(failure), 'error context')}
                                     data-attr="mcp-session-tool-call-copy-context"
                                 >

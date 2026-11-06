@@ -61,6 +61,7 @@ SELECT
     toString(properties.$mcp_error_message) AS error_message,
     toString(properties.$mcp_duration_ms) AS duration_ms_raw,
     JSONExtractRaw(properties, '$mcp_parameters') AS parameters,
+    JSONExtractRaw(properties, '$mcp_response') AS response,
     toString(properties.$mcp_error_type) AS error_type,
     toString(properties.$mcp_error_status) AS error_status
 FROM events
@@ -1001,8 +1002,9 @@ def list_mcp_tool_calls(
             error_message=row[5] or "",
             duration_ms=_parse_int(row[6]),
             parameters=row[7] or "",
-            error_type=row[8] or "",
-            error_status=row[9] or "",
+            response=row[8] or "",
+            error_type=row[9] or "",
+            error_status=row[10] or "",
         )
         for row in rows[:limit]
     ]

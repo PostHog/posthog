@@ -1220,6 +1220,7 @@ class TestListMCPToolCalls(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
                     "$mcp_parameters": {"query": "select 1", "limit": 5},
                     "$mcp_error_type": "api_5xx",
                     "$mcp_error_status": 503,
+                    "$mcp_response": {"content": [{"type": "text", "text": "upstream 503"}], "isError": True},
                 },
                 {"query": "select 1", "limit": 5},
                 ("api_5xx", "503"),
@@ -1235,7 +1236,7 @@ class TestListMCPToolCalls(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
             ("nothing_captured", {}, None, ("", "")),
         ]
     )
-    def test_returns_captured_arguments_and_error_bucket(
+    def test_returns_captured_arguments_result_and_error_bucket(
         self,
         _name: str,
         extra_properties: dict[str, Any],
@@ -1256,6 +1257,7 @@ class TestListMCPToolCalls(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
 
         assert (json.loads(call.parameters) if call.parameters else None) == expected_parameters
         assert (call.error_type, call.error_status) == expected_bucket
+        assert (json.loads(call.response) if call.response else None) == extra_properties.get("$mcp_response")
 
     def test_has_next_signals_more_pages(self) -> None:
         session_id = str(uuid7())
