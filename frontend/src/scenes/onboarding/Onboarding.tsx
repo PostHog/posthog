@@ -5,6 +5,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ControlOnboarding } from './flows/control/ControlOnboarding'
+import { GuidedOnboarding } from './flows/guided/GuidedOnboarding'
 
 export const scene: SceneExport = {
     component: Onboarding,
@@ -13,6 +14,7 @@ export const scene: SceneExport = {
 // pinned: keys are the variants of the `onboarding-flow-selector` flag. Each flow mounts its own logic.
 const ONBOARDING_FLOWS: Record<string, () => JSX.Element> = {
     control: ControlOnboarding,
+    guided: GuidedOnboarding,
 }
 
 export function Onboarding(): JSX.Element {
