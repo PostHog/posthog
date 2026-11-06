@@ -1,4 +1,4 @@
-import { captureElementImage } from 'lib/utils/captureElementImage'
+import { EmptyImageError, captureElementImage } from 'lib/utils/captureElementImage'
 
 import { toolbarUploadMedia } from '~/toolbar/shared/toolbarFetch'
 import { isToolbarRootElement, toError } from '~/toolbar/shared/utils'
@@ -34,7 +34,16 @@ export async function captureElementScreenshot(element: HTMLElement, options?: C
     } catch (error) {
         // html-to-image rejects with a raw DOM Event when a resource on the page fails to load.
         // Rethrow a real Error so the failure reaches error tracking with a message and a stack.
-        throw toError(error, `Failed to capture screenshot of ${describeElement(element)}`)
+        const context = `Failed to capture screenshot of ${describeElement(element)}`
+        if (error instanceof EmptyImageError) {
+            throw error
+        }
+        if (!(error instanceof Error)) {
+            throw toError(error, context)
+        }
+        // Its own errors can quote the page's URLs, such as an SVG `<use>` href that carries a signed token.
+        // The new Error keeps only the original type, so neither its message nor its stack carries page content.
+        throw new Error(`${context} (threw ${error.name})`)
     }
 }
 

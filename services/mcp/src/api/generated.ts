@@ -34356,6 +34356,14 @@ export namespace Schemas {
       readonly exception: string | null;
     }
 
+    export interface DatasetExtendRetention {
+      /**
+         * Revision to extend along with its dataset. Omit to extend only the dataset.
+         * @minimum 1
+         */
+      revision?: number;
+    }
+
     export interface DatasetItemArchive {
       /**
          * Current item version observed by the caller.
@@ -34518,6 +34526,36 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+    }
+
+    export interface DatasetRetentionEntry {
+      /** Dataset to open or extend. */
+      readonly dataset_id: string;
+      /** Name of the dataset. */
+      readonly dataset_name: string;
+      /** Whether the dataset is archived. */
+      readonly dataset_archived: boolean;
+      /**
+         * Historical revision number, or null for a dataset.
+         * @nullable
+         */
+      readonly revision: number | null;
+      /**
+         * Earliest cleanup time if this dataset or revision remains unused.
+         * @nullable
+         */
+      readonly expires_at: string | null;
+    }
+
+    export interface DatasetRetentionRead {
+      /** Accessible active and archived datasets within seven days of expiry. */
+      readonly datasets_count: number;
+      /** Accessible older revisions within seven days of expiry, excluding the latest revision. */
+      readonly revisions_count: number;
+      /** Total expiring entries of the requested kind. */
+      readonly count: number;
+      /** Expiring entries, ordered by earliest cleanup time. */
+      readonly results: readonly DatasetRetentionEntry[];
     }
 
     export interface DatasetRevisionRead {
@@ -47792,10 +47830,34 @@ export namespace Schemas {
       value: unknown;
     };
 
+    /**
+     * The kind of personal or secret data the column's name and type suggest, or null.
+     * @nullable
+     */
+    export type ExternalDataSchemaAvailableColumnsItemSensitivity = typeof ExternalDataSchemaAvailableColumnsItemSensitivity[keyof typeof ExternalDataSchemaAvailableColumnsItemSensitivity] | null;
+
+
+    export const ExternalDataSchemaAvailableColumnsItemSensitivity = {
+      Email: 'email',
+      Phone: 'phone',
+      Name: 'name',
+      Address: 'address',
+      DateOfBirth: 'date_of_birth',
+      IpAddress: 'ip_address',
+      Token: 'token',
+      Secret: 'secret',
+      CardNumber: 'card_number',
+    } as const;
+
     export type ExternalDataSchemaAvailableColumnsItem = {
       name: string;
       data_type?: string;
       is_nullable?: boolean;
+      /**
+         * The kind of personal or secret data the column's name and type suggest, or null.
+         * @nullable
+         */
+      sensitivity?: ExternalDataSchemaAvailableColumnsItemSensitivity;
     };
 
     /**
@@ -60272,6 +60334,95 @@ export namespace Schemas {
       readonly unavailable: readonly string[];
     }
 
+    /**
+     * Non-secret connection settings copied from Fivetran, shaped like the source payload.
+     */
+    export type ItemProposalPrefill = { [key: string]: unknown };
+
+    export interface ProposedRowFilter {
+      /** One of `>`, `>=`, `<`, `<=`, `=`, `!=`, `IN`, `NOT IN`. */
+      operator: string;
+      /** Column the filter applies to. */
+      column: string;
+      /** One value, or several for `IN` and `NOT IN`. */
+      values: string[];
+    }
+
+    export interface ProposedSchema {
+      /** PostHog table name. */
+      name: string;
+      /** Whether the table syncs. */
+      should_sync: boolean;
+      /**
+         * Planned sync type. Null means PostHog picks its default for the table.
+         * @nullable
+         */
+      sync_type: string | null;
+      /** Columns Fivetran skipped, which PostHog skips too. */
+      disabled_columns: string[];
+      /** Row filters copied from Fivetran. */
+      row_filters: ProposedRowFilter[];
+      /** Names to try, in order, when the source does not discover a table called `name`. */
+      alternative_names: string[];
+      /**
+         * The Fivetran table this plan comes from. Apply's `table_overrides` refer to it.
+         * @nullable
+         */
+      vendor_table?: string | null;
+    }
+
+    /**
+     * Non-secret destination settings copied from Fivetran.
+     */
+    export type ProposedDestinationConfig = { [key: string]: unknown };
+
+    export interface ProposedDestination {
+      /** Destination type, for example `Snowflake` or `BigQuery`. */
+      type: string;
+      /** Non-secret destination settings copied from Fivetran. */
+      config: ProposedDestinationConfig;
+      /** The schemas Fivetran writes this connection into. Use another schema in the PostHog destination. */
+      vendor_schemas: string[];
+    }
+
+    export interface TablePair {
+      /** The Fivetran table. */
+      vendor_table: string;
+      /** The PostHog table it was paired with. */
+      posthog_table: string;
+    }
+
+    export interface ItemProposal {
+      /** The PostHog source type this connection becomes. */
+      source_type: string;
+      /** Table name prefix for the new source, taken from the Fivetran connection name. */
+      prefix: string;
+      /** Non-secret connection settings copied from Fivetran, shaped like the source payload. */
+      prefill: ItemProposalPrefill;
+      /**
+         * Tables to sync, with their planned sync settings. Null means PostHog uses its default tables.
+         * @nullable
+         */
+      schemas: ProposedSchema[] | null;
+      /** Planned sync frequency, matched to the Fivetran schedule. */
+      sync_frequency: string;
+      /**
+         * UTC time of day for daily syncs, in HH:MM:SS format.
+         * @nullable
+         */
+      sync_time_of_day: string | null;
+      /** Suggested non-PostHog destination, matched to the Fivetran destination. */
+      destination: ProposedDestination | null;
+      /** Whether every table starts with syncing off, because the connection is paused in Fivetran. */
+      start_paused: boolean;
+      /** Tables that a naming rule paired. Ask the user to confirm each pair before applying. */
+      inferred_tables?: TablePair[];
+      /** Fivetran tables with no PostHog table. Compare them with the source's PostHog tables and propose one, or leave them out. */
+      unmatched_tables?: string[];
+      /** The source's PostHog tables that no Fivetran table maps to. Choose from these for the unmatched tables. Empty when every table matched. */
+      unused_posthog_tables?: string[];
+    }
+
     export interface ItemReceipt {
       /** Accepted item UUID. */
       id: string;
@@ -65317,6 +65468,14 @@ export namespace Schemas {
          * @nullable
          */
       readonly duration_ms: number | null;
+      /** Arguments the client passed ($mcp_parameters) as JSON text, exactly as the SDK captured them after its redaction. Empty when not captured. */
+      readonly parameters: string;
+      /** Result the MCP server returned ($mcp_response) as JSON text, exactly as the SDK captured it after its redaction and truncation. Empty when not captured. */
+      readonly response: string;
+      /** Error category ($mcp_error_type) when the SDK classified the failure, otherwise empty. */
+      readonly error_type: string;
+      /** HTTP status ($mcp_error_status) when the failure carried one, otherwise empty. */
+      readonly error_status: string;
     }
 
     /**
@@ -78995,6 +79154,160 @@ export namespace Schemas {
       results: WarehouseColumnStatistics[];
     }
 
+    /**
+     * * `as_is` - Moves as is
+     * * `caveats` - Moves with caveats
+     * * `unsupported` - Not supported
+     */
+    export type WarehouseMigrationItemVerdictEnum = typeof WarehouseMigrationItemVerdictEnum[keyof typeof WarehouseMigrationItemVerdictEnum];
+
+
+    export const WarehouseMigrationItemVerdictEnum = {
+      AsIs: 'as_is',
+      Caveats: 'caveats',
+      Unsupported: 'unsupported',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `applying` - Applying
+     * * `applied` - Applied
+     * * `skipped` - Skipped
+     * * `failed` - Failed
+     */
+    export type WarehouseMigrationItemStatusEnum = typeof WarehouseMigrationItemStatusEnum[keyof typeof WarehouseMigrationItemStatusEnum];
+
+
+    export const WarehouseMigrationItemStatusEnum = {
+      Pending: 'pending',
+      Applying: 'applying',
+      Applied: 'applied',
+      Skipped: 'skipped',
+      Failed: 'failed',
+    } as const;
+
+    export interface WarehouseMigrationItem {
+      /** Item ID. Pass it to the apply and skip actions. */
+      id: string;
+      /** The connection ID in the vendor account. */
+      vendor_connection_id: string;
+      /** The vendor's connector type, for example `postgres` or `hubspot`. */
+      vendor_service: string;
+      /** The connection name in the vendor account. */
+      name: string;
+      /** Whether the connection moves as it is, moves with caveats, or is not supported.
+       *
+       * * `as_is` - Moves as is
+       * * `caveats` - Moves with caveats
+       * * `unsupported` - Not supported */
+      verdict: WarehouseMigrationItemVerdictEnum;
+      /** Differences between Fivetran and PostHog for this connection. */
+      caveats: string[];
+      /** What PostHog creates for this connection. Null when the connection is not supported. */
+      proposal: ItemProposal | null;
+      /** `pending` until the source is created (`applied`) or the user skips it.
+       *
+       * * `pending` - Pending
+       * * `applying` - Applying
+       * * `applied` - Applied
+       * * `skipped` - Skipped
+       * * `failed` - Failed */
+      status: WarehouseMigrationItemStatusEnum;
+      /**
+         * The PostHog source created for this connection, if any.
+         * @nullable
+         */
+      external_data_source_id: string | null;
+      /** Why the last apply attempt failed, if it did. */
+      error: string;
+    }
+
+    export interface PaginatedWarehouseMigrationItemList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WarehouseMigrationItem[];
+    }
+
+    /**
+     * * `fivetran` - Fivetran
+     */
+    export type WarehouseMigrationProviderEnum = typeof WarehouseMigrationProviderEnum[keyof typeof WarehouseMigrationProviderEnum];
+
+
+    export const WarehouseMigrationProviderEnum = {
+      Fivetran: 'fivetran',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `crawling` - Crawling
+     * * `ready` - Ready
+     * * `failed` - Failed
+     */
+    export type WarehouseMigrationStatusEnum = typeof WarehouseMigrationStatusEnum[keyof typeof WarehouseMigrationStatusEnum];
+
+
+    export const WarehouseMigrationStatusEnum = {
+      Pending: 'pending',
+      Crawling: 'crawling',
+      Ready: 'ready',
+      Failed: 'failed',
+    } as const;
+
+    export interface WarehouseMigrationItemCounts {
+      /** Connections that move to PostHog as they are. */
+      as_is: number;
+      /** Connections that move with differences the user should review. */
+      caveats: number;
+      /** Connections PostHog cannot create yet. */
+      unsupported: number;
+      /** Connections already created as PostHog sources. */
+      applied: number;
+      /** Connections the user chose not to move. */
+      skipped: number;
+    }
+
+    export interface WarehouseMigration {
+      /** Migration ID. */
+      id: string;
+      /** The ETL vendor this migration imports from.
+       *
+       * * `fivetran` - Fivetran */
+      provider: WarehouseMigrationProviderEnum;
+      /** `pending` and `crawling` mean the vendor account is still being read. `ready` means the items are planned. `failed` means reading the account failed; see `latest_error`.
+       *
+       * * `pending` - Pending
+       * * `crawling` - Crawling
+       * * `ready` - Ready
+       * * `failed` - Failed */
+      status: WarehouseMigrationStatusEnum;
+      /** Name of the vendor account. */
+      account_name: string;
+      /**
+         * When the vendor account was last read.
+         * @nullable
+         */
+      crawled_at: string | null;
+      /** Why the last read failed, if it did. */
+      latest_error: string;
+      /** When the migration was started. */
+      created_at: string;
+      /** How many connections fall into each group. */
+      item_counts: WarehouseMigrationItemCounts;
+    }
+
+    export interface PaginatedWarehouseMigrationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WarehouseMigration[];
+    }
+
     export interface WarehouseSuggestionCertifyPayload {
       /** Name of the view or table to certify. */
       subject_name: string;
@@ -83180,10 +83493,34 @@ export namespace Schemas {
       value: unknown;
     };
 
+    /**
+     * The kind of personal or secret data the column's name and type suggest, or null.
+     * @nullable
+     */
+    export type PatchedExternalDataSchemaAvailableColumnsItemSensitivity = typeof PatchedExternalDataSchemaAvailableColumnsItemSensitivity[keyof typeof PatchedExternalDataSchemaAvailableColumnsItemSensitivity] | null;
+
+
+    export const PatchedExternalDataSchemaAvailableColumnsItemSensitivity = {
+      Email: 'email',
+      Phone: 'phone',
+      Name: 'name',
+      Address: 'address',
+      DateOfBirth: 'date_of_birth',
+      IpAddress: 'ip_address',
+      Token: 'token',
+      Secret: 'secret',
+      CardNumber: 'card_number',
+    } as const;
+
     export type PatchedExternalDataSchemaAvailableColumnsItem = {
       name: string;
       data_type?: string;
       is_nullable?: boolean;
+      /**
+         * The kind of personal or secret data the column's name and type suggest, or null.
+         * @nullable
+         */
+      sensitivity?: PatchedExternalDataSchemaAvailableColumnsItemSensitivity;
     };
 
     /**
@@ -116235,6 +116572,45 @@ export namespace Schemas {
       username: string;
     }
 
+    export interface WarehouseMigrationConnectLink {
+      /** The ETL vendor.
+       *
+       * * `fivetran` - Fivetran */
+      provider: WarehouseMigrationProviderEnum;
+      /** Link the user opens to enter their vendor API key in PostHog. */
+      connect_url: string;
+      /** What the agent should tell the user and do next. */
+      instructions: string;
+    }
+
+    export interface WarehouseMigrationCreate {
+      /** The ETL vendor to import from.
+       *
+       * * `fivetran` - Fivetran */
+      provider: WarehouseMigrationProviderEnum;
+      /** Read-only API key for the vendor account. */
+      api_key: string;
+      /** Secret that belongs to the API key. */
+      api_secret: string;
+    }
+
+    export interface WarehouseMigrationSkipItems {
+      /**
+         * Items to skip. Pass this or `keep_item_ids`, not both.
+         * @minItems 1
+         */
+      item_ids?: string[];
+      /** Items to keep. Every other item is skipped, for example to migrate only one connection. */
+      keep_item_ids?: string[];
+    }
+
+    export interface WarehouseMigrationSkipItemsResponse {
+      /** Items that are now skipped, including ones skipped before. */
+      skipped_item_ids: string[];
+      /** Items that stay as they are because they are being created or are already PostHog sources. */
+      not_skipped_item_ids: string[];
+    }
+
     /**
      * * `pending` - pending
      * * `provisioning` - provisioning
@@ -126641,6 +127017,36 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type DatasetsRetentionRetrieveParams = {
+    /**
+     * Whether to return expiring datasets or older revisions. Counts always include both.
+     *
+     * * `datasets` - Datasets
+     * * `revisions` - Older revisions
+     * @minLength 1
+     */
+    kind?: DatasetsRetentionRetrieveKind;
+    /**
+     * Maximum entries to return, up to 50.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number;
+    /**
+     * Number of expiring entries to skip.
+     * @minimum 0
+     */
+    offset?: number;
+    };
+
+    export type DatasetsRetentionRetrieveKind = typeof DatasetsRetentionRetrieveKind[keyof typeof DatasetsRetentionRetrieveKind];
+
+
+    export const DatasetsRetentionRetrieveKind = {
+      Datasets: 'datasets',
+      Revisions: 'revisions',
+    } as const;
 
     export type EarlyAccessFeatureListParams = {
     /**
@@ -137879,6 +138285,47 @@ export namespace Schemas {
      */
     search?: string;
     };
+
+    export type WarehouseMigrationsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type WarehouseMigrationsItemsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type WarehouseMigrationsConnectLinkRetrieveParams = {
+    /**
+     * The ETL vendor to import from.
+     *
+     * * `fivetran` - Fivetran
+     * @minLength 1
+     */
+    provider: WarehouseMigrationsConnectLinkRetrieveProvider;
+    };
+
+    export type WarehouseMigrationsConnectLinkRetrieveProvider = typeof WarehouseMigrationsConnectLinkRetrieveProvider[keyof typeof WarehouseMigrationsConnectLinkRetrieveProvider];
+
+
+    export const WarehouseMigrationsConnectLinkRetrieveProvider = {
+      Fivetran: 'fivetran',
+    } as const;
 
     export type WarehouseSavedQueriesListParams = {
     /**
