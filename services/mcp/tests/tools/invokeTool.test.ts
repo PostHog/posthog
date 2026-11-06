@@ -119,8 +119,6 @@ describe('invokeMcpTool', () => {
         expect((error as PostHogPermissionError).missingScope).toBe('query:read')
     })
 
-    // The backend's error body types `detail` loosely, so a list must still reach the
-    // error as text rather than break every reader that treats it as a string.
     it.each([
         ['a string detail', 'bad query', 'bad query'],
         ['a list detail', ['bad query'], '["bad query"]'],

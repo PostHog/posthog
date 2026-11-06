@@ -366,8 +366,6 @@ describe('ToolExecutor metrics', () => {
                 }),
                 'Invalid input for tool: date_from (invalid_type)',
             ],
-            // The API's detail is the only place the cause of a validation failure is
-            // stated, but it can echo what the caller sent, so values are masked by shape.
             [
                 'a PostHogValidationError, with a quoted value masked',
                 apiValidationError("'en' matches the survey's base language", 'questions'),
@@ -446,8 +444,6 @@ describe('ToolExecutor metrics', () => {
             expect(trackToolCallExtras('fail-tool')).toMatchObject({ $mcp_error_message: expected })
         })
 
-        // The detail can echo the caller's input, so it may only ride along where the
-        // tool span already captures that input; elsewhere it stays code and field only.
         it.each([
             ['execute-sql', { query: 'SELECT `my pass phrase` FROM events' }],
             ['workflows-send-email', { body: 'private words' }],

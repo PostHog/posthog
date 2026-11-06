@@ -1225,7 +1225,6 @@ function normalizeErrorField(attr: string): string | undefined {
  */
 const CONTROL_CHARACTERS = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g
 
-/** The call an error came from, so its message can be held to what analytics already captures of that call. */
 interface FailedCall {
     toolName: string
     input: unknown
@@ -1269,11 +1268,10 @@ function resolveSafeErrorMessage(error: unknown, call: FailedCall | undefined): 
     if (apiError instanceof PostHogValidationError) {
         // `detail` is the raw API validation body; for query tools it echoes the caller's
         // offending HogQL/filter expression (`/query/` resolver errors quote the bad name),
-        // so only its sentence survives: every value-shaped span is masked first.
+        // so it rides along only where the tool span already captures that input, masked,
+        // since shape alone cannot tell a caller-chosen identifier from prose.
         const code = apiError.code ? `: ${apiError.code}` : ''
         const field = apiError.attr ? ` (field: ${apiError.attr})` : ''
-        // The detail rides along only where the tool span already captures the caller's
-        // input: masking by shape cannot tell a caller-chosen identifier from prose.
         const detail = call && shouldCaptureToolSpan(call.toolName, call.input) ? maskCallerValues(apiError.detail) : ''
         return `Validation error${code}${field}${detail ? `: ${detail}` : ''}`
     }
@@ -1308,7 +1306,6 @@ const QUOTED_VALUE_PATTERNS = [
 const UNTERMINATED_VALUE = new RegExp(`(?:(?<!\\w)'|[${QUOTE_PAIRS.map(([open]) => open).join('')}])[\\s\\S]*$`)
 const MASKED_VALUE = '<value>'
 
-/** Emails, URLs, anything carrying a digit, and tokens too long to be a word of prose. */
 function isValueShapedToken(token: string): boolean {
     return token.includes('@') || token.includes('://') || /\d/.test(token) || token.length >= 16
 }
