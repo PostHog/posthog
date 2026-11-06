@@ -96,7 +96,7 @@ class SiteSnapshot:
 UNAVAILABLE = SiteSnapshot(status=SnapshotStatus.UNAVAILABLE)
 
 
-def _url_condition(survey: Survey) -> ast.Expr:
+def _url_condition(survey: Survey, url_field: ast.Expr) -> ast.Expr:
     conditions = survey.conditions or {}
     url = conditions.get("url")
     if not url:
@@ -104,35 +104,65 @@ def _url_condition(survey: Survey) -> ast.Expr:
     match_type = SurveyMatchType(conditions.get("urlMatchType") or SurveyMatchType.ICONTAINS)
     return parse_expr(
         URL_MATCH_TEMPLATES[match_type],
-        placeholders={"url": ast.Field(chain=["e", "properties", "$current_url"]), "value": ast.Constant(value=url)},
+        placeholders={"url": url_field, "value": ast.Constant(value=url)},
     )
 
 
 def find_snapshot_moment(team: Team, survey: Survey, device: SnapshotDevice) -> SnapshotMoment | None:
     pageviews_since = timezone.now() - SNAPSHOT_WINDOW
     viewport = DEVICE_VIEWPORTS[device]
+
+    def matches(url: str, width: str, height: str) -> ast.Expr:
+        return parse_expr(
+            "{width} BETWEEN {min_width} AND {max_width} AND {height} BETWEEN 1 AND {max_height} AND {url_condition}",
+            placeholders={
+                "width": parse_expr(width),
+                "height": parse_expr(height),
+                "min_width": ast.Constant(value=viewport.min_width),
+                "max_width": ast.Constant(value=viewport.max_width),
+                "max_height": ast.Constant(value=MAX_EXPORT_HEIGHT),
+                "url_condition": _url_condition(survey, parse_expr(url)),
+            },
+        )
+
+    # Every pageview of the sessions that have a matching one, so each match knows when its visitor moved on.
     matching_pageviews = parse_select(
         """
-        SELECT
-            e.$session_id AS session_id,
-            e.timestamp AS timestamp,
-            e.properties.$current_url AS page_url,
-            toInt(e.properties.$viewport_width) AS viewport_width,
-            toInt(e.properties.$viewport_height) AS viewport_height
-        FROM events AS e
-        WHERE e.event = '$pageview'
-            AND e.timestamp >= {pageviews_since}
-            AND e.$session_id != ''
-            AND toInt(e.properties.$viewport_width) BETWEEN {min_width} AND {max_width}
-            AND toInt(e.properties.$viewport_height) BETWEEN 1 AND {max_height}
-            AND {url_condition}
+        SELECT session_id, timestamp, page_url, viewport_width, viewport_height
+        FROM (
+            SELECT
+                e.$session_id AS session_id,
+                e.timestamp AS timestamp,
+                e.properties.$current_url AS page_url,
+                toInt(e.properties.$viewport_width) AS viewport_width,
+                toInt(e.properties.$viewport_height) AS viewport_height,
+                leadInFrame(e.timestamp) OVER (
+                    PARTITION BY e.$session_id ORDER BY e.timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING
+                ) AS next_pageview_at
+            FROM events AS e
+            WHERE e.event = '$pageview'
+                AND e.timestamp >= {pageviews_since}
+                AND e.$session_id IN (
+                    SELECT e.$session_id
+                    FROM events AS e
+                    WHERE e.event = '$pageview'
+                        AND e.timestamp >= {pageviews_since}
+                        AND e.$session_id != ''
+                        AND {event_matches}
+                )
+        )
+        WHERE {row_matches}
+            AND (next_pageview_at <= timestamp OR next_pageview_at >= timestamp + toIntervalSecond({paint_delay}))
         """,
         placeholders={
             "pageviews_since": ast.Constant(value=pageviews_since),
-            "min_width": ast.Constant(value=viewport.min_width),
-            "max_height": ast.Constant(value=MAX_EXPORT_HEIGHT),
-            "max_width": ast.Constant(value=viewport.max_width),
-            "url_condition": _url_condition(survey),
+            "paint_delay": ast.Constant(value=PAINT_DELAY_SECONDS),
+            "event_matches": matches(
+                "e.properties.$current_url",
+                "toInt(e.properties.$viewport_width)",
+                "toInt(e.properties.$viewport_height)",
+            ),
+            "row_matches": matches("page_url", "viewport_width", "viewport_height"),
         },
     )
     query = cast(
@@ -231,7 +261,9 @@ def _snapshot_key(survey: Survey, device: SnapshotDevice) -> dict[str, str]:
 
 def _may_view_recording(user_access_control: UserAccessControl, team: Team, session_id: str) -> bool:
     recording = SessionRecording.objects.filter(team_id=team.id, session_id=session_id).first()
-    return recording is None or user_access_control.check_access_level_for_object(recording, required_level="viewer")
+    if recording is not None:
+        return user_access_control.check_access_level_for_object(recording, required_level="viewer")
+    return user_access_control.check_access_level_for_resource("session_recording", required_level="viewer")
 
 
 def _snapshot_cache_key(kind: str, team: Team, key: dict[str, str]) -> str:
@@ -248,6 +280,12 @@ def _is_abandoned(asset: ExportedAsset) -> bool:
     return not asset.has_content and asset.created_at < timezone.now() - EXPORT_WORKFLOW_TIMEOUT
 
 
+def _page_url_cache_key(asset: ExportedAsset) -> str:
+    # The exports API returns export_context to anyone who can view the recording, so the page URL, an event
+    # property that can be restricted, is kept out of it.
+    return f"survey_site_snapshot_page_url:{asset.team_id}:{asset.id}"
+
+
 def _snapshot_of(asset: ExportedAsset) -> SiteSnapshot:
     if asset.exception and is_export_failure_final(
         exception_type=asset.exception_type, failure_type=asset.failure_type
@@ -256,17 +294,13 @@ def _snapshot_of(asset: ExportedAsset) -> SiteSnapshot:
     return SiteSnapshot(
         status=SnapshotStatus.READY if asset.has_content else SnapshotStatus.RENDERING,
         exported_asset_id=asset.id,
-        page_url=(asset.export_context or {})["page_url"],
+        page_url=cache.get(_page_url_cache_key(asset)),
     )
 
 
 def get_site_snapshot(team: Team, survey: Survey, device: SnapshotDevice, user: User) -> SiteSnapshot:
     user_access_control = UserAccessControl(user, team)
-    if not team.session_recording_opt_in or not user_access_control.check_access_level_for_resource(
-        "session_recording", required_level="viewer"
-    ):
-        return UNAVAILABLE
-    if not _may_see_page_urls(user, team):
+    if not team.session_recording_opt_in or not _may_see_page_urls(user, team):
         return UNAVAILABLE
 
     key = _snapshot_key(survey, device)
@@ -325,9 +359,9 @@ def _start_snapshot(
             "width": moment.viewport_width,
             "height": moment.viewport_height,
             "survey_site_snapshot": key,
-            "page_url": moment.page_url,
         },
         expires_after=timezone.now() + SNAPSHOT_WINDOW,
         is_system=True,
     )
+    cache.set(_page_url_cache_key(asset), moment.page_url, timeout=SNAPSHOT_WINDOW.total_seconds())
     return _snapshot_of(asset)
