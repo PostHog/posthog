@@ -1100,6 +1100,13 @@ class WarmTaskDTO:
 
 
 @dataclass(frozen=True)
+class TaskStatusMismatchRow:
+    stored_status: str
+    derived_status: str
+    count: int
+
+
+@dataclass(frozen=True)
 class TaskRunGaugeRow:
     """One metric value keyed by (status, environment, origin_product)."""
 
