@@ -98,7 +98,7 @@ class EvalSuggestionsTeamWorkflow(PostHogWorkflow):
     async def run(self, inputs: TeamRunInputs) -> int:
         info = workflow.info()
         # Known before the start activity runs, so a start that created the row and then failed is cleaned up too.
-        run_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{info.workflow_id}/{info.run_id}"))
+        run_id = inputs.run_id or str(uuid.uuid5(uuid.NAMESPACE_URL, f"{info.workflow_id}/{info.run_id}"))
         try:
             await workflow.execute_activity(
                 start_eval_suggestions_run_activity,
