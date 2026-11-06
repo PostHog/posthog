@@ -10,17 +10,13 @@ import type { FlameChangeKind } from './types'
 
 export type FlameColorBy = 'group' | 'name' | 'diff'
 
-/** Bitflags in {@link FlameColors.marks}. */
 export const MARK_NEW = 1
 export const MARK_GONE = 2
 
-/** Diff fills are snapped to this many steps per direction, so 50,000 nodes share a few dozen
- *  color strings and the color math runs once per step instead of once per node. */
+/** Snapping diff fills to a few steps keeps the color math per step, not per node. */
 const DIFF_STEPS = 8
-/** A change this many times the baseline, or this fraction of it, draws at full strength. */
 const DIFF_FULL_RATIO = 2
-/** Weight of the palette color over the background in a fill. Light backgrounds take paler fills,
- *  so dark labels read on every palette hue; dark backgrounds take deeper ones for light labels. */
+/** Paler fills on light backgrounds so dark labels read on every hue, deeper ones on dark. */
 const FILL_STRENGTH = { light: 0.45, dark: 0.6 }
 const ANCESTOR_FADE = 0.45
 const FALLBACK_BACKGROUND = '#ffffff'
@@ -29,11 +25,8 @@ const MIN_INK_CONTRAST = 4.5
 
 export interface FlameInk {
     background: string
-    /** True when the background is dark. */
     dark: boolean
-    /** Text color with the most contrast on the background. */
     ink: string
-    /** Fill for neutral cells: similar, low sample, bundles. */
     neutral: string
     slower: string
     faster: string
@@ -45,8 +38,7 @@ export function resolveInk(theme: ChartTheme): FlameInk {
         palette.length > 4 && toSrgbColor(palette[4]) !== toSrgbColor(palette[0]) ? palette : DEFAULT_CHART_COLORS
     const background = toSrgbColor(theme.backgroundColor ?? FALLBACK_BACKGROUND)
     const dark = prefersLightText(background)
-    // `tooltipColor` is the host's foreground in the stock themes. A host whose tooltip inverts the
-    // page colors would hand over a color close to the background, so fall back to a fixed ink.
+    // A host tooltip with inverted colors hands over an ink close to the background.
     const themeInk = toSrgbColor(theme.tooltipColor ?? FALLBACK_INK)
     const ink =
         contrastRatio(themeInk, background) >= MIN_INK_CONTRAST ? themeInk : dark ? FALLBACK_BACKGROUND : FALLBACK_INK
@@ -68,9 +60,8 @@ export function resolveColorBy(tree: FlameTree<unknown>): FlameColorBy {
 }
 
 export interface FlameColors {
-    /** Fill per node index. Nodes share string instances, so a fill change is an identity check. */
+    /** Nodes share string instances, so a fill change is an identity check. */
     fills: string[]
-    /** {@link MARK_NEW} / {@link MARK_GONE} per node index. */
     marks: Uint8Array
     legend: LegendItem[]
 }
@@ -169,32 +160,24 @@ export function computeFlameColors(
     return { fills, marks, legend }
 }
 
-/** Derived colors keyed by fill, so each distinct fill runs the color math once. */
-export class FlameShades {
-    private readonly text = new Map<string, string>()
-    private readonly ancestor = new Map<string, string>()
-    /** Every node that misses an active search shares one hueless fill, so matches stand out by color. */
-    readonly searchMiss: string
-    readonly searchMissText: string
+export interface FlameShades {
+    searchMiss: string
+    searchMissText: string
+    textOn: (fill: string) => string
+    ancestorOf: (fill: string) => string
+}
 
-    constructor(private readonly ink: FlameInk) {
-        this.searchMiss = mixColors(ink.neutral, ink.background, 0.4)
-        this.searchMissText = mixColors(ink.ink, ink.background, 0.55)
-    }
-
-    textOn(fill: string): string {
-        let color = this.text.get(fill)
-        if (color === undefined) {
-            const { ink, background } = this.ink
-            color = contrastRatio(fill, ink) >= contrastRatio(fill, background) ? ink : background
-            this.text.set(fill, color)
-        }
-        return color
-    }
-
-    /** Fill for an ancestor of the focused node, which spans the whole width. */
-    ancestorOf(fill: string): string {
-        return cached(this.ancestor, fill, () => mixColors(fill, this.ink.background, ANCESTOR_FADE))
+export function createFlameShades(ink: FlameInk): FlameShades {
+    const text = new Map<string, string>()
+    const ancestor = new Map<string, string>()
+    return {
+        searchMiss: mixColors(ink.neutral, ink.background, 0.4),
+        searchMissText: mixColors(ink.ink, ink.background, 0.55),
+        textOn: (fill) =>
+            cached(text, fill, () =>
+                contrastRatio(fill, ink.ink) >= contrastRatio(fill, ink.background) ? ink.ink : ink.background
+            ),
+        ancestorOf: (fill) => cached(ancestor, fill, () => mixColors(fill, ink.background, ANCESTOR_FADE)),
     }
 }
 
@@ -207,8 +190,7 @@ function relativeLuminance(color: string): number {
     return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
 }
 
-/** WCAG 2 contrast. It picks the label color between the theme's ink and background, both of which
- *  sit at the ends of the lightness range, where WCAG 2 and APCA agree on the winner. */
+/** WCAG 2 is enough here: ink and background sit at the ends of the lightness range, where it agrees with APCA. */
 function contrastRatio(a: string, b: string): number {
     const la = relativeLuminance(a)
     const lb = relativeLuminance(b)

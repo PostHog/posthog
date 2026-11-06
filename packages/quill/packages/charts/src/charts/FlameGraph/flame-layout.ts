@@ -1,25 +1,18 @@
 import type { FlameChange, FlameNode, FlameNodeDatum } from './types'
 
-/** Children under this share of their parent move to the end of the row, so that two or more of
- *  them sit next to each other and can bundle into one "+N more" cell. */
+/** Children under this share of their parent sort to the end, so they sit together and can bundle. */
 export const BUNDLE_FRACTION = 0.01
 /** Nodes narrower than this draw inside a "+N more" cell with their small siblings. */
 export const MIN_NODE_PX = 3
 
-/**
- * The tree flattened in breadth-first order. Each depth is one contiguous index range, sorted by x,
- * so a row is culled to the visible window with a binary search. The children of a node are also
- * one contiguous range. Positions are in unit space (the whole graph spans 0..1), so zooming is a
- * change of window and needs no new layout.
- */
+/** Flattened breadth-first, so each row and each node's children are contiguous index ranges sorted
+ *  by x. Positions are in unit space (0..1), so zooming changes the window, not the layout. */
 export interface FlameTree<Meta = unknown> {
     size: number
     nodes: FlameNode<Meta>[]
-    /** `#k` suffix that tells a node's default id apart from an earlier sibling's with the same
-     *  name, or 0. Ids themselves are built on demand by {@link nodeId}, because storing one path
-     *  string per node costs memory quadratic in the depth. */
+    /** `#k` for a repeated sibling name, or 0. Ids aren't stored because paths cost O(depth²) memory. */
     nameSuffix: Int32Array
-    /** Nodes that carry their own `id`, first one wins. */
+    /** First node with a given `id` wins. */
     explicitIds: Map<string, number>
     parent: Int32Array
     depth: Int32Array
@@ -29,14 +22,12 @@ export interface FlameTree<Meta = unknown> {
     self: Float64Array
     childStart: Int32Array
     childCount: Int32Array
-    /** Nodes in the subtree, including the node. */
     subtreeSize: Int32Array
     subtreeMaxDepth: Int32Array
-    /** `rowStart[d]` is the first index at depth `d`; `rowStart[maxDepth + 1]` is `size`. */
+    /** `rowStart[maxDepth + 1]` is `size`. */
     rowStart: Int32Array
     /** -1 for an empty tree. */
     maxDepth: number
-    /** Sum of the roots' values. */
     totalValue: number
     hasBaseline: boolean
     hasGroups: boolean
@@ -51,12 +42,12 @@ export interface FlameWindow {
 
 export interface FlameCell {
     kind: 'node' | 'bundle'
-    /** The node, or the first node of a bundle. */
+    /** First node of a bundle. */
     index: number
-    /** The last node of a bundle; equal to `index` for a node. */
+    /** Equal to `index` for a node. */
     last: number
     depth: number
-    /** Left and right edges in px, relative to the plot and not clamped to it. */
+    /** Px relative to the plot, not clamped to it. */
     x0: number
     x1: number
 }
@@ -86,7 +77,7 @@ function orderChildren<Meta>(children: FlameNode<Meta>[], parentWeight: number):
 }
 
 export function buildFlameTree<Meta>(data: FlameNode<Meta> | FlameNode<Meta>[]): FlameTree<Meta> {
-    // A node object reached twice is skipped, which also stops a cyclic input from looping forever.
+    // Skipping a node object reached twice also stops cyclic input from looping forever.
     const seen = new Set<FlameNode<Meta>>()
     const roots = (Array.isArray(data) ? data : [data]).filter((root) => {
         if (!root || seen.has(root)) {
@@ -251,8 +242,7 @@ function ownId(tree: FlameTree<unknown>, index: number): string | undefined {
     return id !== undefined && tree.explicitIds.get(id) === index ? id : undefined
 }
 
-/** A node's id: its own `id`, or the path of names from the root (or from the nearest ancestor with
- *  its own `id`), joined with `/`. */
+/** Own `id`, else the `/`-joined path of names from the root or the nearest ancestor with an `id`. */
 export function nodeId(tree: FlameTree<unknown>, index: number): string {
     const parts: string[] = []
     for (let i = index; i >= 0; i = tree.parent[i]) {
@@ -266,8 +256,7 @@ export function nodeId(tree: FlameTree<unknown>, index: number): string {
     return parts.reverse().join('/')
 }
 
-/** The index of the node with id `id`, or undefined. Walks down only the branches whose path is a
- *  prefix of `id`, comparing in place, so a lookup builds no path strings. */
+/** Walks only branches whose path prefixes `id`, comparing in place, so a lookup builds no path strings. */
 export function indexOfId(tree: FlameTree<unknown>, id: string): number | undefined {
     const explicit = tree.explicitIds.get(id)
     if (explicit !== undefined) {
@@ -306,8 +295,7 @@ export function indexOfId(tree: FlameTree<unknown>, id: string): number | undefi
     return undefined
 }
 
-/** The part of unit space a focus zooms to. A node with no width cannot be zoomed into, so it
- *  falls back to the whole graph. */
+/** A focus with no width falls back to the whole graph. */
 export function focusWindow(tree: FlameTree<unknown>, focus: FlameFocus): FlameWindow {
     if (focus?.kind === 'node' && tree.x1[focus.index] > tree.x0[focus.index]) {
         return { x0: tree.x0[focus.index], x1: tree.x1[focus.index] }
@@ -318,7 +306,7 @@ export function focusWindow(tree: FlameTree<unknown>, focus: FlameFocus): FlameW
     return { x0: 0, x1: 1 }
 }
 
-/** Rows the focused view needs: the ancestors above the focus plus its deepest descendant. */
+/** Ancestors above the focus plus its deepest descendant. */
 export function focusRowCount(tree: FlameTree<unknown>, focus: FlameFocus): number {
     if (focus?.kind === 'node') {
         return tree.subtreeMaxDepth[focus.index] + 1
@@ -337,7 +325,7 @@ function pushRun(cells: FlameCell[], run: FlameCell): void {
     cells.push(run.index === run.last ? { ...run, kind: 'node' } : run)
 }
 
-/** First index in `[lo, hi)` whose right edge is past `x`. Right edges never decrease along a row. */
+/** Binary search, valid because right edges never decrease along a row. */
 function firstEndingAfter(x1: Float64Array, lo: number, hi: number, x: number): number {
     while (lo < hi) {
         const mid = (lo + hi) >>> 1
@@ -350,12 +338,8 @@ function firstEndingAfter(x1: Float64Array, lo: number, hi: number, x: number): 
     return lo
 }
 
-/**
- * The cells to draw for rows `depthStart..depthEnd` when `window` spans `width` px. Nodes at least
- * {@link MIN_NODE_PX} wide get their own cell. Runs of narrower siblings merge into one bundle cell,
- * and a run of one stays a thin node cell. The children of a node narrower than the minimum are
- * skipped, since their parent already stands for them. Cells come out sorted by depth, then x.
- */
+/** Runs of siblings under {@link MIN_NODE_PX} merge into one bundle cell, and children of a narrow
+ *  node are skipped. Cells come out sorted by depth, then x. */
 export function computeFlameCells(
     tree: FlameTree<unknown>,
     window: FlameWindow,
@@ -413,13 +397,11 @@ export function computeFlameCells(
     return cells
 }
 
-/** A miss this close to a cell still hits it, so a sliver or a narrow "+N more" cell is reachable. */
+/** Lets the pointer reach slivers and narrow "+N more" cells. */
 export const HIT_SLOP_PX = 4
 
-/** The cell under `x` px in row `depth`, from cells sorted by depth then x. In a gap between
- *  cells, the nearest cell within {@link HIT_SLOP_PX} counts as hit. */
+/** `cells` must be sorted by depth, then x. */
 export function cellAt(cells: readonly FlameCell[], depth: number, x: number): FlameCell | null {
-    // First cell of the row, then the first cell in it ending past `x - HIT_SLOP_PX`.
     let lo = 0
     let hi = cells.length
     while (lo < hi) {
@@ -455,7 +437,6 @@ export function cellAt(cells: readonly FlameCell[], depth: number, x: number): F
     return nearest
 }
 
-/** Indices from the root down to `index`, inclusive. */
 export function ancestorPath(tree: FlameTree<unknown>, index: number): number[] {
     const path: number[] = []
     for (let i = index; i >= 0; i = tree.parent[i]) {
@@ -502,12 +483,11 @@ export function classifyChange(node: FlameNode<unknown>, options: FlameDiffOptio
 }
 
 export interface FlameSearchResult {
-    /** 1 where the node's name matches. */
     matches: Uint8Array
-    /** 1 where the node or a node under it matches, so a bundle can tell whether it hides a match. */
+    /** Lets a bundle tell whether it hides a match. */
     containsMatch: Uint8Array
     count: number
-    /** Share of the graph's width covered by matches, 0..1, counting a match inside another match once. */
+    /** 0..1 of the width; a match nested in another match counts once. */
     fraction: number
 }
 
@@ -535,8 +515,7 @@ export function searchFlame(tree: FlameTree<unknown>, query: string | undefined)
         if (names[i].includes(needle)) {
             matches[i] = 1
             count++
-            // Laid-out widths, not raw values: concurrent children are scaled to fit their parent,
-            // and matches that are not nested in each other never overlap.
+            // Laid-out widths, because concurrent children are scaled down to fit their parent.
             if (!insideMatch[i]) {
                 covered += tree.x1[i] - tree.x0[i]
             }
@@ -582,18 +561,16 @@ export interface FlameRowGeometry {
     rowCount: number
 }
 
-/** Top of a depth's row in content px, before the scroll offset. */
 export function rowTop(depth: number, { rowHeight }: FlameRowGeometry): number {
     return depth * rowHeight
 }
 
-/** Depth of the row at content y, or -1 outside the rows. */
+/** -1 outside the rows. */
 export function depthAtY(y: number, { rowHeight, rowCount }: FlameRowGeometry): number {
     const row = Math.floor(y / rowHeight)
     return row < 0 || row >= rowCount ? -1 : row
 }
 
-/** Depths with any part inside the content band `[scrollTop, scrollTop + height)`. */
 export function visibleDepths(
     scrollTop: number,
     height: number,

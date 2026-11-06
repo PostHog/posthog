@@ -10,14 +10,13 @@ export interface FlameCrumb {
 }
 
 interface FlameGraphHeaderProps {
-    /** From the root down to the focused node. Empty when the whole graph is in view. */
+    /** Empty when the whole graph is in view. */
     crumbs: FlameCrumb[]
-    /** Null when there is no zoom to reset. */
     onReset: (() => void) | null
     search: FlameSearchResult | null
 }
 
-/** Crumbs past this count collapse the middle into an ellipsis, keeping the root and the last two. */
+/** Past this, the middle crumbs collapse, keeping the root and the last two. */
 const MAX_VISIBLE_CRUMBS = 3
 
 const CRUMB_CLASS =
@@ -116,5 +115,4 @@ function FlameGraphHeaderInner({ crumbs, onReset, search }: FlameGraphHeaderProp
     )
 }
 
-/** Memoized, because the chart re-renders on every mousemove while the zoom path does not change. */
 export const FlameGraphHeader = React.memo(FlameGraphHeaderInner)

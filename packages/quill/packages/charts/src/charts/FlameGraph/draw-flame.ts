@@ -5,54 +5,61 @@ import { type FlameCell, type FlameRowGeometry, type FlameTree, MIN_NODE_PX, row
 const MONOSPACE_FONT_SIZE = 11
 const LABEL_FONT = `${MONOSPACE_FONT_SIZE}px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace`
 const LABEL_PADDING = 5
-/** Below this a cell is too narrow for even one character and an ellipsis. */
 const MIN_LABEL_WIDTH = LABEL_PADDING * 2 + 12
-/** Cells at least this wide leave a 1px gap on the right, so neighbors read as separate. */
 const MIN_GAP_WIDTH = 4
 const GONE_ALPHA = 0.45
 const NEW_OUTLINE_ALPHA = 0.7
 const HOVER_LINE_WIDTH = 2
 
 const PRINTABLE_ASCII = /^[\x20-\x7e]*$/
-/** Measured widths are dropped all at once past this many, which bounds the cache on long sessions. */
 const MAX_CACHED_WIDTHS = 4096
 
-/**
- * Truncates labels to a width, with full widths cached. In the monospace font an ASCII label is
- * cut by arithmetic on one measured character width, without a `measureText` call per label. Other
- * labels, and every label in the proportional font, start from the label's average character width
- * and step down, which usually takes one or two measurements.
- */
-export class LabelFitter {
-    readonly font = LABEL_FONT
-    private charWidth = 0
-    private readonly widths = new Map<string, number>()
+/** ASCII labels are cut by arithmetic on one measured monospace character width, so most labels skip `measureText`. */
+export interface LabelFitter {
+    font: string
+    fit: (ctx: CanvasRenderingContext2D, text: string, available: number) => string
+}
 
-    fit(ctx: CanvasRenderingContext2D, text: string, available: number): string {
+export function createLabelFitter(): LabelFitter {
+    let charWidth = 0
+    const widths = new Map<string, number>()
+
+    const measure = (ctx: CanvasRenderingContext2D, text: string): number => {
+        let width = widths.get(text)
+        if (width === undefined) {
+            if (widths.size >= MAX_CACHED_WIDTHS) {
+                widths.clear()
+            }
+            width = ctx.measureText(text).width
+            widths.set(text, width)
+        }
+        return width
+    }
+
+    const fit = (ctx: CanvasRenderingContext2D, text: string, available: number): string => {
         if (available <= 0 || !text) {
             return ''
         }
         if (PRINTABLE_ASCII.test(text)) {
-            if (this.charWidth === 0) {
-                this.charWidth = ctx.measureText('0123456789').width / 10 || MONOSPACE_FONT_SIZE * 0.6
+            if (charWidth === 0) {
+                charWidth = ctx.measureText('0123456789').width / 10 || MONOSPACE_FONT_SIZE * 0.6
             }
-            const maxChars = Math.floor(available / this.charWidth)
+            const maxChars = Math.floor(available / charWidth)
             if (text.length <= maxChars) {
                 return text
             }
             return maxChars >= 2 ? `${text.slice(0, maxChars - 1).trimEnd()}${ELLIPSIS}` : ''
         }
-        const full = this.measure(ctx, text)
+        const full = measure(ctx, text)
         if (full <= available) {
             return text
         }
         const fits = (chars: number): boolean =>
             chars === 0 || ctx.measureText(`${text.slice(0, chars)}${ELLIPSIS}`).width <= available
-        // The longest prefix that fits lies in [lo, hi]. Probing around the average-width guess
-        // usually closes the range in two measurements; the binary search covers uneven glyphs.
+        // Probing around the average-width guess usually settles it in two measurements.
         let lo = 0
         let hi = text.length - 1
-        const room = available - this.measure(ctx, ELLIPSIS)
+        const room = available - measure(ctx, ELLIPSIS)
         const guess = full > 0 ? Math.max(0, Math.min(hi, Math.floor((text.length * room) / full))) : 0
         if (fits(guess)) {
             lo = guess
@@ -76,17 +83,7 @@ export class LabelFitter {
         return chars > 0 ? `${text.slice(0, chars).trimEnd()}${ELLIPSIS}` : ''
     }
 
-    private measure(ctx: CanvasRenderingContext2D, text: string): number {
-        let width = this.widths.get(text)
-        if (width === undefined) {
-            if (this.widths.size >= MAX_CACHED_WIDTHS) {
-                this.widths.clear()
-            }
-            width = ctx.measureText(text).width
-            this.widths.set(text, width)
-        }
-        return width
-    }
+    return { font: LABEL_FONT, fit }
 }
 
 export interface FlameDrawInput {
@@ -98,14 +95,11 @@ export interface FlameDrawInput {
     shades: FlameShades
     fitter: LabelFitter
     geometry: FlameRowGeometry
-    /** Search matches, or null without a search. */
     matches: Uint8Array | null
     containsMatch: Uint8Array | null
-    /** Ancestors of the focused node, drawn faded because they span the whole width. */
     ancestors: ReadonlySet<number>
     scrollTop: number
     width: number
-    /** Device pixels per CSS pixel, for snapping edges. */
     pixelRatio: number
 }
 
@@ -116,7 +110,6 @@ export interface CellRect {
     height: number
 }
 
-/** The drawn rectangle of a cell, snapped to device pixels and clipped to the plot width. */
 export function cellRect(
     cell: FlameCell,
     geometry: FlameRowGeometry,
@@ -162,7 +155,7 @@ export function drawFlame(ctx: CanvasRenderingContext2D, input: FlameDrawInput):
         let fill = isBundle ? ink.neutral : fills[cell.index]
         let textColor: string | null = null
         if (matches && containsMatch) {
-            // The children of a narrow node are not drawn, so it stands in for any match under it.
+            // A narrow node's children aren't drawn, so it stands in for any match under it.
             const narrow = cell.x1 - cell.x0 < MIN_NODE_PX
             const hit = isBundle
                 ? bundleHasMatch(cell, containsMatch)
@@ -189,7 +182,6 @@ export function drawFlame(ctx: CanvasRenderingContext2D, input: FlameDrawInput):
             ctx.globalAlpha = 1
         }
 
-        // A cell clipped on the left keeps its label in view at the plot edge.
         const textLeft = Math.max(rect.x, 0) + LABEL_PADDING
         const textRight = Math.min(rect.x + rect.width, input.width) - LABEL_PADDING
         if (textRight - textLeft + LABEL_PADDING * 2 < MIN_LABEL_WIDTH) {

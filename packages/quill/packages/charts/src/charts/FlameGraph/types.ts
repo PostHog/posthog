@@ -2,54 +2,34 @@ import type React from 'react'
 
 import type { ChartTheme, TooltipContext } from '../../core/types'
 
-/** One frame of a call tree: a function, a span name, an LLM step. */
 export interface FlameNode<Meta = unknown> {
-    /** Stable identity, used for `defaultFocusedId` and to keep the focus across data updates.
-     *  Defaults to the path of names from the root, so it only needs setting when sibling names
-     *  repeat or the host needs its own key. Only the first node with a given id keeps it; later
-     *  ones fall back to their path. */
+    /** Defaults to the path of names from the root. Only the first node with a given id keeps it. */
     id?: string
-    /** Label drawn on the rectangle and shown in the tooltip. */
     name: string
-    /** Total (inclusive) value: the node plus everything under it, for example the time spent in a
-     *  function including its callees. Self value is derived as `value` minus the children's
-     *  values. Children that add up to more than their parent (concurrent work in a trace) are
-     *  scaled down to fit inside it. */
+    /** Inclusive of children. Children that add up to more than this are scaled down to fit. */
     value: number
-    /** The same node's total value in a baseline window. Turns on the diff colors, and the width
-     *  uses the larger of `value` and `baselineValue`, so a node that exists in only one window
-     *  still gets room. */
+    /** Turns on diff colors. Width uses the larger of `value` and `baselineValue`. */
     baselineValue?: number
-    /** Number of calls or samples behind `value`. With `baselineCount` it gates the diff colors
-     *  through `config.diff.minCount`. */
+    /** Samples behind `value`, for `config.diff.minCount`. */
     count?: number
-    /** Number of calls or samples behind `baselineValue`. */
     baselineCount?: number
-    /** Category used for color, for example the service or the package. Nodes that share a group
-     *  share a palette color. */
+    /** Nodes in the same group share a color. */
     group?: string
-    /** Child frames, drawn under this one. Their order is kept, except that two or more children
-     *  under 1% of this node move to the end so they can bundle into one "+N more" cell. */
+    /** Two or more children under 1% of this node move to the end so they can bundle. */
     children?: FlameNode<Meta>[]
-    /** Passed through to the tooltip. */
     meta?: Meta
 }
 
-/** How a node's value compares with its baseline. */
 export type FlameChangeKind =
-    /** Above the threshold. */
     | 'slower'
-    /** Below the threshold. */
     | 'faster'
-    /** Within the threshold. */
     | 'similar'
     /** No baseline, or a baseline of zero. */
     | 'new'
-    /** A baseline but no current value. */
     | 'gone'
     /** Fewer samples than `config.diff.minCount` on either side. */
     | 'low-sample'
-    /** The node has no baseline data at all, and the chart is not comparing. */
+    /** No baseline data, and the chart is not comparing. */
     | 'none'
 
 export interface FlameChange {
@@ -58,43 +38,33 @@ export interface FlameChange {
     ratio: number | null
 }
 
-/** A node as the chart resolved it, handed to the tooltip. */
 export interface FlameNodeDatum<Meta = unknown> {
     id: string
     name: string
-    /** Total (inclusive) value. */
     value: number
-    /** `value` minus the children's values, floored at 0. */
     self: number
     baselineValue?: number
     count?: number
     baselineCount?: number
     group?: string
     meta?: Meta
-    /** 0 for a root. */
     depth: number
-    /** Null for a root. */
     parentId: string | null
-    /** `value` as a share of the parent's value, 0..1. A root's parent is the whole graph. */
+    /** 0..1. A root's parent is the whole graph. */
     fractionOfParent: number
-    /** `value` as a share of all the roots' values, 0..1. */
     fractionOfRoot: number
     change: FlameChange
-    /** The node as passed in, with its children. */
     node: FlameNode<Meta>
 }
 
-/** Several small sibling nodes drawn as one "+N more" cell. */
+/** Small siblings drawn as one "+N more" cell. */
 export interface FlameBundleDatum<Meta = unknown> {
-    /** The parent the bundled nodes share, or null for a bundle of roots. */
+    /** Null for a bundle of roots. */
     parent: FlameNodeDatum<Meta> | null
-    /** Number of bundled nodes. */
     count: number
-    /** The bundled nodes, resolved on first read. */
+    /** Resolved on first read. */
     readonly nodes: FlameNodeDatum<Meta>[]
-    /** Every node in the bundle, including the nodes under them. */
     descendantCount: number
-    /** Sum of the bundled nodes' values. */
     value: number
 }
 
@@ -103,50 +73,36 @@ export type FlameHit<Meta = unknown> =
     | { kind: 'bundle'; bundle: FlameBundleDatum<Meta> }
 
 export interface FlameDiffConfig {
-    /** Relative change, 0..1, below which a node reads as similar: 0.1 colors a node when it is
-     *  more than 10% slower or faster. Defaults to 0.1. */
+    /** Relative change below which a node reads as similar. Defaults to 0.1. */
     threshold?: number
-    /** Nodes with fewer samples than this, in `count` or `baselineCount`, stay neutral, because a
-     *  percentage on a handful of samples is noise. Nodes without counts are never gated.
-     *  Defaults to 0 (off). */
+    /** Nodes with fewer samples stay neutral; nodes without counts are never gated. Defaults to 0. */
     minCount?: number
 }
 
-/** Colors follow the data: `diff` colors when any node has a `baselineValue`, else one palette color per
- *  `group`, else one per node name. */
 export interface FlameGraphConfig {
     diff?: FlameDiffConfig
-    /** Formats values in the tooltip. Defaults to `toLocaleString`. */
     valueFormatter?: (value: number) => string
-    /** The graph grows with the tree up to this height in px, then scrolls. Defaults to 480. */
+    /** Grows with the tree up to this height, then scrolls. Defaults to 480. */
     maxHeight?: number
 }
 
-/** Tooltip context for a flame graph hover. `seriesData` holds one row for the hovered node so the
- *  base tooltip helpers keep working. */
 export type FlameTooltipContext<Meta = unknown> = TooltipContext<Meta> & {
     hit: FlameHit<Meta>
-    /** Formats values the same way as the built-in tooltip. */
     valueFormatter: (value: number) => string
-    /** True when the chart compares against a baseline (`diff` colors). */
     comparing: boolean
-    /** True when a click on the hovered cell zooms into it. */
+    /** True when clicking the hovered cell zooms into it. */
     canFocus: boolean
 }
 
 export interface FlameGraphProps<Meta = unknown> {
-    /** One root, or several roots drawn side by side. */
+    /** One root, or several drawn side by side. */
     data: FlameNode<Meta> | FlameNode<Meta>[]
-    /** Defaults to the nearest `ChartThemeProvider`, then the CSS variables. */
     theme?: ChartTheme
     config?: FlameGraphConfig
-    /** Case-insensitive substring matched against node names. Matches keep their color, the rest
-     *  dims, and the breadcrumb row shows the match count and share. */
+    /** Case-insensitive match on node names. Non-matches dim. */
     search?: string
-    /** Node to zoom into on mount. Later changes are ignored; give the chart a new `key` to open on
-     *  another node. */
+    /** Read on mount only; give the chart a new `key` to open on another node. */
     defaultFocusedId?: string | null
-    /** Replaces the tooltip content. */
     tooltip?: (ctx: FlameTooltipContext<Meta>) => React.ReactNode
     className?: string
     dataAttr?: string
