@@ -9,6 +9,7 @@ import { EmailAlignField } from './fields/EmailAlignField'
 import { EmailColorField } from './fields/EmailColorField'
 import { EmailFieldRow } from './fields/EmailFieldRow'
 import { EmailNumberField } from './fields/EmailNumberField'
+import { EmailWeightField } from './fields/EmailWeightField'
 
 export function EmailTextFields({
     editor,
@@ -77,6 +78,12 @@ export function EmailTextFields({
                 onChange={(color) => set({ color })}
                 attr="email-editor-text-color"
             />
+            <EmailWeightField
+                value={style.fontWeight}
+                fallback={nodeType === 'heading' ? 700 : 400}
+                onChange={(fontWeight) => set({ fontWeight })}
+                attr="email-editor-text-weight"
+            />
             <EmailNumberField
                 label="Font size"
                 value={style.fontSize}
@@ -94,12 +101,14 @@ export function EmailTextFields({
                 min={80}
                 max={300}
                 onChange={(lineHeight) => set({ lineHeight })}
+                attr="email-editor-line-height"
             />
             <EmailNumberField
                 label="Letter spacing"
                 value={style.letterSpacing}
                 placeholder={0}
                 onChange={(letterSpacing) => set({ letterSpacing })}
+                attr="email-editor-letter-spacing"
             />
             <div className="flex flex-wrap gap-0.5 py-1">
                 <EmailFormatButtons editor={editor} attrPrefix="email-editor-panel" lists>
@@ -113,6 +122,33 @@ export function EmailTextFields({
                     </EmailFormatButton>
                 </EmailFormatButtons>
             </div>
+            {!editor.state.selection.empty ? (
+                <>
+                    <EmailColorField
+                        label="Selected color"
+                        value={editor.getAttributes('textStyle').color ?? undefined}
+                        placeholder={style.color ?? page.textColor}
+                        onChange={(color) =>
+                            color ? editor.chain().setColor(color).run() : editor.chain().unsetColor().run()
+                        }
+                        attr="email-editor-selection-color"
+                    />
+                    <EmailNumberField
+                        label="Selected size"
+                        value={editor.getAttributes('textStyle').fontSize ?? undefined}
+                        placeholder={style.fontSize ?? size}
+                        min={8}
+                        max={96}
+                        onChange={(fontSize) =>
+                            editor
+                                .chain()
+                                .setMark('textStyle', { fontSize: fontSize ?? null })
+                                .run()
+                        }
+                        attr="email-editor-selection-size"
+                    />
+                </>
+            ) : null}
             <EmailAlignField value={style.textAlign} onChange={(textAlign) => set({ textAlign })} />
             {showLink ? (
                 <LemonButton

@@ -98,6 +98,13 @@ export function EmailColumnsFields({
                         onChange={(backgroundColor) => setBlockStyle(editor, columnPos, { backgroundColor })}
                         attr="email-editor-column-background"
                     />
+                    <EmailSidesField
+                        label="Column padding"
+                        value={columnStyle.padding}
+                        placeholder={NO_PADDING}
+                        onChange={(padding) => setBlockStyle(editor, columnPos, { padding })}
+                        attr="email-editor-column-padding"
+                    />
                     <EmailNumberField
                         label="Column border"
                         value={columnStyle.borderWidth}

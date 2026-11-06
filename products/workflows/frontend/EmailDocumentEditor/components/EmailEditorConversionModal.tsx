@@ -19,7 +19,7 @@ export function EmailEditorConversionPrompt(): JSX.Element {
     const design = logicProps.value?.design as Record<string, any> | null | undefined
     const html = logicProps.value?.html ?? ''
 
-    const conversion = useMemo(() => (open ? unlayerToEmailDocument(design) : null), [open, design])
+    const conversion = useMemo(() => (open ? unlayerToEmailDocument(design, html) : null), [open, design, html])
     const convertedHtml = useMemo(
         () => (conversion?.document ? renderEmailHtml(conversion.document.doc) : ''),
         [conversion]

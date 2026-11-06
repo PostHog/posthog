@@ -81,6 +81,19 @@ function safeColor(color: unknown, fallback = ''): string {
     return typeof color === 'string' && SAFE_COLOR.test(color.trim()) ? color.trim() : fallback
 }
 
+function safeCssValue(value: unknown): string {
+    return String(value).replace(/[;"<>{}]/g, '')
+}
+
+/** A block's own link style applies to everything inside it. */
+function withLinkStyle(ctx: RenderContext, style: EmailBlockStyle): RenderContext {
+    return {
+        ...ctx,
+        linkUnderline: style.linkUnderline ?? ctx.linkUnderline,
+        page: style.linkColor ? { ...ctx.page, linkColor: style.linkColor } : ctx.page,
+    }
+}
+
 function safeFont(font: string): string {
     return font.replace(/[;"<>{}]/g, '')
 }
@@ -108,6 +121,7 @@ function styleOf(node: JSONContent): EmailBlockStyle {
 interface RenderContext {
     page: EmailPageStyle
     contentWidth: number
+    linkUnderline?: boolean
 }
 
 function textFromNodes(nodes: JSONContent[] | undefined): string {
@@ -146,6 +160,10 @@ function wrapMarks(html: string, node: JSONContent, ctx: RenderContext): string 
                     color: safeColor(mark.attrs?.color),
                     'font-size': mark.attrs?.fontSize ? `${px(mark.attrs.fontSize)}px` : undefined,
                     'font-family': mark.attrs?.fontFamily ? safeFont(String(mark.attrs.fontFamily)) : undefined,
+                    'letter-spacing': mark.attrs?.letterSpacing ? safeCssValue(mark.attrs.letterSpacing) : undefined,
+                    'line-height': mark.attrs?.lineHeight ? safeCssValue(mark.attrs.lineHeight) : undefined,
+                    'background-color': safeColor(mark.attrs?.highlight),
+                    'text-transform': mark.attrs?.textTransform ? safeCssValue(mark.attrs.textTransform) : undefined,
                 })
                 return style ? `<span style="${style}">${inner}</span>` : inner
             }
@@ -154,8 +172,10 @@ function wrapMarks(html: string, node: JSONContent, ctx: RenderContext): string 
                 if (!href) {
                     return inner
                 }
-                const color = (node.marks ?? []).find((other) => other.type === 'textStyle')?.attrs?.color
-                return `<a href="${escapeAttribute(href)}" target="_blank" style="color:${safeColor(color, ctx.page.linkColor)};text-decoration:underline">${inner}</a>`
+                const color =
+                    mark.attrs?.color ?? (node.marks ?? []).find((other) => other.type === 'textStyle')?.attrs?.color
+                const underline = mark.attrs?.underline !== false && ctx.linkUnderline !== false
+                return `<a href="${escapeAttribute(href)}" target="_blank" style="color:${safeColor(color, ctx.page.linkColor)};text-decoration:${underline ? 'underline' : 'none'}">${inner}</a>`
             }
             default:
                 return inner
@@ -221,10 +241,14 @@ function renderList(node: JSONContent, ctx: RenderContext): string {
                     ? renderList(child, ctx)
                     : renderInline(child.content, ctx)
             )
-            return `<li style="margin:0 0 4px 0">${parts.join('')}</li>`
+            return `<li style="margin:0 0 ${px(style.listItemGap, 4)}px 0">${parts.join('')}</li>`
         })
         .join('')
-    const listCss = css({ margin: 0, 'padding-left': '24px', ...textProperties(style, ctx, ctx.page.fontSize) })
+    const listCss = css({
+        margin: 0,
+        'padding-left': `${px(style.listIndent, 24)}px`,
+        ...textProperties(style, ctx, ctx.page.fontSize),
+    })
     return `<${tag} style="${listCss}">${items}</${tag}>`
 }
 
@@ -280,9 +304,12 @@ function renderButton(node: JSONContent, ctx: RenderContext): string {
         display: fullWidth ? 'block' : 'inline-block',
         'text-align': 'center',
         padding: `${paddingY}px ${paddingX}px`,
-        ...textProperties({ ...style, color, fontWeight: px(style.fontWeight, 600) }, ctx, ctx.page.fontSize),
+        ...textProperties(
+            { ...style, color, fontWeight: px(style.fontWeight, 600), lineHeight: style.lineHeight ?? 120 },
+            ctx,
+            ctx.page.fontSize
+        ),
         'text-decoration': 'none',
-        'line-height': '120%',
         'border-radius': `${radius}px`,
     })
     // The cell carries the color and padding for Outlook, which ignores padding on a link and any corner radius.
@@ -309,7 +336,7 @@ function renderColumns(node: JSONContent, ctx: RenderContext): string {
     const columns = node.content ?? []
     const available = Math.max(1, ctx.contentWidth - px(padding.left) - px(padding.right))
     const totalRatio = columns.reduce((total, column) => total + (px(column.attrs?.ratio, 1) || 1), 0) || 1
-    const gap = columns.length > 1 ? COLUMN_GAP : 0
+    const gap = columns.length > 1 ? px(style.columnGap, COLUMN_GAP) : 0
     const widths = columns.map((column) => Math.floor((available * (px(column.attrs?.ratio, 1) || 1)) / totalRatio))
     // Each column is an inline-block capped at its width, so columns wrap into a stack on a narrow screen without
     // needing a media query (Gmail apps drop those). Outlook ignores inline-block, so it gets a real table instead.
@@ -332,7 +359,7 @@ function renderColumns(node: JSONContent, ctx: RenderContext): string {
                 'vertical-align': 'top',
                 // The cell around the columns zeroes these to close the gaps between inline blocks.
                 'font-size': `${ctx.page.fontSize}px`,
-                'line-height': `${px(ctx.page.lineHeight)}%`,
+                'line-height': ctx.page.oldEditorStyles ? 'normal' : `${px(ctx.page.lineHeight)}%`,
                 'background-color': background,
                 'box-sizing': 'border-box',
                 padding: sides(columnPadding),
@@ -366,8 +393,9 @@ function htmlBlockFragment(html: string): string {
     return styles + doc.body.innerHTML
 }
 
-function renderBlock(node: JSONContent, ctx: RenderContext): string {
+function renderBlock(node: JSONContent, parentCtx: RenderContext): string {
     const style = styleOf(node)
+    const ctx = withLinkStyle(parentCtx, style)
     switch (node.type) {
         case 'paragraph': {
             const text = textFromNodes(node.content)
@@ -429,7 +457,7 @@ function renderBlock(node: JSONContent, ctx: RenderContext): string {
             // Its own markup may not set a font, so it starts from the page's rather than from the email app's.
             return blockCell(
                 style,
-                `<div style="${css(textProperties({}, ctx, ctx.page.fontSize))}">${htmlBlockFragment(String(node.attrs?.html ?? ''))}</div>`,
+                `<div style="${style.inheritText ? `font-family:${safeFont(ctx.page.fontFamily)};overflow-wrap:break-word;word-break:break-word` : css(textProperties({}, ctx, ctx.page.fontSize))}">${htmlBlockFragment(String(node.attrs?.html ?? ''))}</div>`,
                 NO_SIDES
             )
         default:
@@ -454,6 +482,14 @@ function withoutTrailingEmptyParagraphs(nodes: JSONContent[]): JSONContent[] {
     return nodes.slice(0, end)
 }
 
+/** The page-wide rules every old-editor email carries, so its custom HTML lays out the way it did. */
+export function oldEditorCss(page: EmailPageStyle): string {
+    return `table, td, tr { border-collapse: collapse; vertical-align: top; }
+p { margin: 0; }
+* { line-height: inherit; }
+table, td { color: ${safeColor(page.textColor, '#000000')}; }`
+}
+
 function responsiveCss(page: EmailPageStyle): string {
     const breakpoint = page.bodyWidth + 20
     const custom = page.globalCss.replace(/<\/?style/gi, '')
@@ -467,6 +503,7 @@ a { color: ${safeColor(page.linkColor, '#1d4aff')}; }
   .ph-col { max-width: 100% !important; }
   .ph-col-gap { padding-left: 0 !important; padding-right: 0 !important; }
 }
+${page.oldEditorStyles ? oldEditorCss(page) : ''}
 ${custom}`.trim()
 }
 
@@ -478,8 +515,14 @@ export function renderEmailHtml(doc: JSONContent): string {
     const nodes = withoutTrailingEmptyParagraphs(doc.content ?? [])
 
     // An email that is only one HTML block is the author's own document: it goes out exactly as written.
-    if (nodes.length === 1 && nodes[0].type === 'emailHtml' && FULL_HTML_DOCUMENT.test(nodes[0].attrs?.html ?? '')) {
-        return String(nodes[0].attrs?.html)
+    if (
+        nodes.length === 1 &&
+        nodes[0].type === 'emailHtml' &&
+        FULL_HTML_DOCUMENT.test(nodes[0].attrs?.html ?? '') &&
+        !doc.attrs?.page?.wrapFullHtml
+    ) {
+        // The API trims html when it's saved, and the stored copy in the design has to keep matching it.
+        return String(nodes[0].attrs?.html).trim()
     }
 
     const page = resolvePageStyle(doc.attrs?.page)

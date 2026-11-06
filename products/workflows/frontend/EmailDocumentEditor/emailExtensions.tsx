@@ -42,6 +42,7 @@ export function blockStyleToCanvasCss(style: EmailBlockStyle | null | undefined,
     const isButton = typeName === 'emailButton'
     const isImage = typeName === 'emailImage'
     const isDivider = typeName === 'horizontalRule'
+    const isList = typeName === 'bulletList' || typeName === 'orderedList'
     const properties: Record<string, string | undefined> = {
         color: isButton ? undefined : style.color,
         'background-color': isButton ? undefined : style.backgroundColor,
@@ -53,6 +54,11 @@ export function blockStyleToCanvasCss(style: EmailBlockStyle | null | undefined,
         'text-transform': !isButton && style.uppercase ? 'uppercase' : undefined,
         'text-align': style.textAlign,
         padding: sidesCss(style.padding),
+        'padding-left': isList ? `${(style.padding?.left ?? 0) + (style.listIndent ?? 24)}px` : undefined,
+        gap: style.columnGap !== undefined ? `${style.columnGap}px` : undefined,
+        '--email-list-gap': style.listItemGap !== undefined ? `${style.listItemGap}px` : undefined,
+        '--email-link': style.linkColor,
+        '--email-link-decoration': style.linkUnderline === false ? 'none' : undefined,
         'border-radius': !isButton && !isImage && style.borderRadius ? `${style.borderRadius}px` : undefined,
         border:
             !isButton && !isImage && !isDivider && style.borderWidth
@@ -385,6 +391,23 @@ export const EmailVariable = Node.create({
 /** Liquid links like `{{ unsubscribe_url }}` aren't valid URLs, but they are what people put here. */
 export const EmailLink = LinkExtension.extend({
     inclusive: false,
+    addAttributes() {
+        return {
+            ...this.parent?.(),
+            underline: {
+                default: null,
+                parseHTML: (element: HTMLElement) => (/\bnone\b/.test(element.style.textDecoration) ? false : null),
+                renderHTML: (attributes: Record<string, any>) =>
+                    attributes.underline === false ? { style: 'text-decoration:none' } : {},
+            },
+            color: {
+                default: null,
+                parseHTML: (element: HTMLElement) => element.style.color || null,
+                renderHTML: (attributes: Record<string, any>) =>
+                    attributes.color ? { style: `color:${attributes.color}` } : {},
+            },
+        }
+    },
     addOptions() {
         return {
             ...this.parent?.(),
@@ -412,6 +435,30 @@ export const EmailTextStyle = TextStyle.extend({
                 parseHTML: (element: HTMLElement) => element.style.fontFamily || null,
                 renderHTML: (attributes: Record<string, any>) =>
                     attributes.fontFamily ? { style: `font-family:${attributes.fontFamily}` } : {},
+            },
+            letterSpacing: {
+                default: null,
+                parseHTML: (element: HTMLElement) => element.style.letterSpacing || null,
+                renderHTML: (attributes: Record<string, any>) =>
+                    attributes.letterSpacing ? { style: `letter-spacing:${attributes.letterSpacing}` } : {},
+            },
+            lineHeight: {
+                default: null,
+                parseHTML: (element: HTMLElement) => element.style.lineHeight || null,
+                renderHTML: (attributes: Record<string, any>) =>
+                    attributes.lineHeight ? { style: `line-height:${attributes.lineHeight}` } : {},
+            },
+            highlight: {
+                default: null,
+                parseHTML: (element: HTMLElement) => element.style.backgroundColor || null,
+                renderHTML: (attributes: Record<string, any>) =>
+                    attributes.highlight ? { style: `background-color:${attributes.highlight}` } : {},
+            },
+            textTransform: {
+                default: null,
+                parseHTML: (element: HTMLElement) => element.style.textTransform || null,
+                renderHTML: (attributes: Record<string, any>) =>
+                    attributes.textTransform ? { style: `text-transform:${attributes.textTransform}` } : {},
             },
         }
     },

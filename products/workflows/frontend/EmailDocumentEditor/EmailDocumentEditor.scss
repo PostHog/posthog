@@ -51,7 +51,7 @@
         }
 
         li {
-            margin: 0 0 4px;
+            margin: 0 0 var(--email-list-gap, 4px);
         }
 
         li > p {
@@ -82,7 +82,7 @@
 
         a {
             color: var(--email-link);
-            text-decoration: underline;
+            text-decoration: var(--email-link-decoration, underline);
             cursor: text;
         }
 

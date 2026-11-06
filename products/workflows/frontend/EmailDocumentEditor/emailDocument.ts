@@ -32,6 +32,16 @@ export interface EmailBlockStyle {
     borderWidth?: number
     borderColor?: string
     width?: number
+    /** Columns only: the space between them. */
+    columnGap?: number
+    /** Overrides the page's link color inside this block. */
+    linkColor?: string
+    linkUnderline?: boolean
+    /** Lists only: the indent, and the space between items. */
+    listIndent?: number
+    listItemGap?: number
+    /** HTML blocks only: leave the text settings to the block's own markup. */
+    inheritText?: boolean
     /** Divider only: its thickness and length are styled separately from the block box. */
     lineWidth?: number
     /** Button only: a percentage of the space it sits in. Left out, it fits its label. */
@@ -56,6 +66,10 @@ export interface EmailPageStyle {
     fontUrl: string
     /** The hidden line that inboxes show after the subject. */
     previewText: string
+    /** A lone full HTML document normally goes out as written. This puts it in the email's body instead. */
+    wrapFullHtml: boolean
+    /** Set on converted emails: the old editor's page-wide styles, which custom HTML in the email may rely on. */
+    oldEditorStyles: boolean
     textColor: string
     fontSize: number
     lineHeight: number
@@ -119,6 +133,8 @@ export const DEFAULT_EMAIL_PAGE_STYLE: EmailPageStyle = {
     fontFamily: EMAIL_FONTS[0].value,
     fontUrl: '',
     previewText: '',
+    wrapFullHtml: false,
+    oldEditorStyles: false,
     textColor: '#111111',
     fontSize: 16,
     lineHeight: 150,

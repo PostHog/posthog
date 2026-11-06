@@ -13,6 +13,7 @@ import { EmailAlignField } from './fields/EmailAlignField'
 import { EmailColorField } from './fields/EmailColorField'
 import { EmailFieldRow } from './fields/EmailFieldRow'
 import { EmailNumberField } from './fields/EmailNumberField'
+import { EmailWeightField } from './fields/EmailWeightField'
 
 const DEFAULT_TEXT_PADDING: EmailSides = { top: 8, right: 0, bottom: 8, left: 0 }
 const NO_PADDING: EmailSides = { top: 0, right: 0, bottom: 0, left: 0 }
@@ -95,6 +96,13 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                         min={8}
                         max={40}
                         onChange={(fontSize) => set({ fontSize })}
+                        attr="email-editor-button-font-size"
+                    />
+                    <EmailWeightField
+                        value={style.fontWeight}
+                        fallback={600}
+                        onChange={(fontWeight) => set({ fontWeight })}
+                        attr="email-editor-button-weight"
                     />
                     <EmailNumberField
                         label="Corner radius"
@@ -118,6 +126,7 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                             type="number"
                             size="small"
                             min={0}
+                            data-attr="email-editor-button-inner-x"
                             aria-label="Inner padding left and right"
                             prefix={<span className="text-xs text-secondary">↔</span>}
                             value={style.innerPaddingX ?? ('' as unknown as number)}
@@ -128,6 +137,7 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                             type="number"
                             size="small"
                             min={0}
+                            data-attr="email-editor-button-inner-y"
                             aria-label="Inner padding top and bottom"
                             prefix={<span className="text-xs text-secondary">↕</span>}
                             value={style.innerPaddingY ?? ('' as unknown as number)}

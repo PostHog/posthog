@@ -183,4 +183,68 @@ describe('unlayerToEmailDocument', () => {
         expect(button.attrs.emailStyle).toMatchObject({ buttonWidth: 100, borderWidth: 2, borderColor: '#123456' })
         expect(conversion.notKept).toEqual(['button colors on hover'])
     })
+
+    it('reads text kept only in textJson, and prefers text when a block has both', () => {
+        const textJson = JSON.stringify({
+            root: {
+                type: 'root',
+                children: [
+                    { type: 'heading-paragraph', children: [{ type: 'extended-text', text: 'From json', format: 1 }] },
+                ],
+            },
+        })
+        const convert = (text: string): Record<string, any> | undefined =>
+            unlayerToEmailDocument(design([content('heading', { text, textJson })])).document?.doc.content?.[0]
+
+        expect(convert('')?.content).toEqual([expect.objectContaining({ text: 'From json' })])
+        expect(convert('From text')?.content).toEqual([expect.objectContaining({ text: 'From text' })])
+    })
+
+    it.each([
+        ['a plain string', '{{ link }}', '{{ link }}'],
+        [
+            'an email link without a template',
+            { name: 'email', values: { href: 'a@example.com' } },
+            'mailto:a@example.com',
+        ],
+        [
+            'a template',
+            { name: 'web', attrs: { href: '{{href}}' }, values: { href: 'https://example.com' } },
+            'https://example.com',
+        ],
+        ['a template with no value', { name: 'web', attrs: { href: '{{href}}' }, values: {} }, ''],
+    ])('resolves a button link written as %s', (_name, href, expected) => {
+        const button = unlayerToEmailDocument(design([content('button', { text: 'Go', href })])).document?.doc
+            .content?.[0]
+        expect(button?.attrs?.href).toEqual(expected)
+    })
+
+    it('keeps the old editor defaults: regular headings, percentages from bare line heights, and a 500px body', () => {
+        const doc = unlayerToEmailDocument(
+            design([content('heading', { text: 'Title' }), content('text', { text: '<p>Body</p>', lineHeight: 1.6 })])
+        ).document?.doc as Record<string, any>
+
+        expect(doc.content[0].attrs.emailStyle.fontWeight).toBe(400)
+        expect(doc.content[1].attrs.emailStyle.lineHeight).toBeCloseTo(160)
+        expect(doc.attrs.page.bodyWidth).toBe(500)
+    })
+
+    it('keeps each paragraph margin as the space between blocks, and text it cannot hold as HTML', () => {
+        const [first, second] = unlayerToEmailDocument(
+            design([
+                content('text', {
+                    containerPadding: '10px',
+                    text: '<p style="margin-bottom: 20px;">One</p><p style="margin-top: 5px;">Two</p>',
+                }),
+            ])
+        ).document?.doc.content as Record<string, any>[]
+        expect(first.attrs?.emailStyle.padding.bottom).toBe(0)
+        expect(second.attrs?.emailStyle.padding.top).toBe(20)
+
+        const [kept] = unlayerToEmailDocument(
+            design([content('text', { text: '<p style="border-top: 1px solid red;">Ruled</p>' })])
+        ).document?.doc.content as Record<string, any>[]
+        expect(kept.type).toBe('emailHtml')
+        expect(kept.attrs?.html).toContain('border-top: 1px solid red')
+    })
 })

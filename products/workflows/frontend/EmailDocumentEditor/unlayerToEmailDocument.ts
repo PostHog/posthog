@@ -45,6 +45,11 @@ function parseSides(value: unknown): EmailSides | undefined {
     return { top, right, bottom, left }
 }
 
+/** What the old editor uses for a block that never set its padding. */
+function containerPadding(values: Record<string, any>): EmailSides {
+    return parseSides(values.containerPadding) ?? { top: 10, right: 10, bottom: 10, left: 10 }
+}
+
 function align(value: unknown): EmailTextAlign | undefined {
     return value === 'left' || value === 'center' || value === 'right' ? value : undefined
 }
@@ -73,21 +78,387 @@ function chipsInText(nodes: JSONContent[] | undefined): JSONContent[] | undefine
     })
 }
 
-function textBlocks(html: string, style: EmailBlockStyle): JSONContent[] {
+/**
+ * Where an old-editor link goes. Usually `{ name, attrs: { href: 'mailto:{{email}}' }, values: { email } }`, where
+ * the template decides the shape, but designs written through the API can hold a plain string.
+ */
+function linkUrl(link: unknown): string {
+    if (typeof link === 'string') {
+        return link
+    }
+    const { name, attrs, values } = (link ?? {}) as {
+        name?: string
+        attrs?: Record<string, string>
+        values?: Record<string, string>
+    }
+    if (!values) {
+        return ''
+    }
+    const fallback = name === 'email' ? 'mailto:{{href}}' : name === 'phone' ? 'tel:{{href}}' : '{{href}}'
+    return (attrs?.href ?? fallback).replace(/\{\{\s*(\w+)\s*\}\}/g, (_, key) => values[key] ?? '')
+}
+
+const TEXT_FORMAT = { bold: 1, italic: 2, strike: 4, underline: 8, code: 16, subscript: 32, superscript: 64 }
+
+function escapeHtml(text: string): string {
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+function richNodeToHtml(node: Record<string, any>): string {
+    const children = (node.children ?? []).map(richNodeToHtml).join('')
+    switch (node.type) {
+        case 'linebreak':
+            return '<br />'
+        case 'text':
+        case 'extended-text':
+        case 'merge_tag': {
+            let html = escapeHtml(String(node.text ?? '')).replace(/&quot;/g, '"')
+            const format = Number(node.format) || 0
+            if (format & TEXT_FORMAT.code) {
+                html = `<code>${html}</code>`
+            }
+            if (format & TEXT_FORMAT.subscript) {
+                html = `<sub>${html}</sub>`
+            }
+            if (format & TEXT_FORMAT.superscript) {
+                html = `<sup>${html}</sup>`
+            }
+            if (format & TEXT_FORMAT.underline) {
+                html = `<u>${html}</u>`
+            }
+            if (format & TEXT_FORMAT.strike) {
+                html = `<s>${html}</s>`
+            }
+            if (format & TEXT_FORMAT.italic) {
+                html = `<em>${html}</em>`
+            }
+            if (format & TEXT_FORMAT.bold) {
+                html = `<strong>${html}</strong>`
+            }
+            return node.style ? `<span style="${escapeHtml(String(node.style))}">${html}</span>` : html
+        }
+        case 'link':
+        case 'extended-link':
+            return `<a href="${escapeHtml(node.values ? linkUrl(node.values) || String(node.url ?? '') : String(node.url ?? ''))}"${node.style ? ` style="${escapeHtml(String(node.style))}"` : ''}>${children}</a>`
+        case 'list':
+        case 'extended-list': {
+            const tag = node.listType === 'number' ? 'ol' : 'ul'
+            return `<${tag}>${children}</${tag}>`
+        }
+        case 'listitem':
+        case 'extended-listitem':
+            return `<li>${children}</li>`
+        case 'root':
+            return children
+        default: {
+            const alignment = node.format ? ` style="text-align:${escapeHtml(String(node.format))}"` : ''
+            return `<p${alignment}>${children || '<br />'}</p>`
+        }
+    }
+}
+
+/** Newer old-editor blocks can keep their text only in `textJson`, and the old editor renders `text` when it has both. */
+function richTextOf(values: Record<string, any>): string {
+    const text = String(values.text ?? '')
+    if (text.trim() || !values.textJson) {
+        return text
+    }
+    try {
+        const parsed = typeof values.textJson === 'string' ? JSON.parse(values.textJson) : values.textJson
+        return richNodeToHtml(parsed.root ?? parsed)
+    } catch {
+        return text
+    }
+}
+
+/** A heading or button label can wrap its text in one styled paragraph, whose styling then belongs to the block. */
+function labelStyleOf(html: string, fontSize: number): EmailBlockStyle {
+    const body = new DOMParser().parseFromString(html, 'text/html').body
+    const only = body.children.length === 1 && !body.children[0].previousSibling ? body.children[0] : null
+    if (!only || !['P', 'DIV', 'SPAN'].includes(only.tagName) || only.nextSibling) {
+        return {}
+    }
+    const css = cssOf(only)
+    return {
+        color: css['color'] || undefined,
+        fontWeight: css['font-weight'] ? parseFontWeight(css['font-weight']) : undefined,
+        lineHeight: lineHeightPercent(css['line-height'], fontSize),
+        textAlign: align(css['text-align']),
+    }
+}
+
+function inlineContent(html: string): JSONContent[] {
+    const body = new DOMParser().parseFromString(html, 'text/html').body
+    Array.from(body.children).forEach((child) => {
+        if (child.tagName === 'P' || child.tagName === 'DIV') {
+            ;(child as HTMLElement).style.removeProperty('font-weight')
+        }
+    })
+    const blocks = chipsInText(generateJSON(body.innerHTML, buildEmailExtensions('')).content) ?? []
+    return blocks.flatMap((block, index): JSONContent[] => [
+        ...(index > 0 ? [{ type: 'hardBreak' }] : []),
+        ...(block.content ?? []),
+    ])
+}
+
+const IGNORED_CSS =
+    /^(-webkit-|-moz-|-ms-|mso-|font-variant|font-stretch|font-kerning|font-feature|font-optical|font-synthesis|orphans|widows|text-indent|word-spacing|white-space|text-decoration-(color|style|thickness)|caret|box-sizing|text-size-adjust|word-wrap|overflow-wrap|word-break|text-rendering|outline|text-align-last)/
+const NO_EFFECT = /^(0|0px|none|transparent|normal|auto|inherit|baseline|inline|initial|unset)(\s+(0|0px|none))*$/i
+const INLINE_CSS = new Set([
+    'color',
+    'font-size',
+    'font-family',
+    'font-weight',
+    'font-style',
+    'text-decoration',
+    'text-decoration-line',
+    'letter-spacing',
+    'line-height',
+    'background-color',
+    'text-transform',
+])
+const BLOCK_CSS = new Set([
+    'color',
+    'font-size',
+    'font-family',
+    'font-weight',
+    'font-style',
+    'line-height',
+    'letter-spacing',
+    'text-align',
+    'text-transform',
+    'margin',
+    'margin-top',
+    'margin-right',
+    'margin-bottom',
+    'margin-left',
+    'margin-block',
+    'margin-block-start',
+    'margin-block-end',
+    'padding',
+    'padding-top',
+    'padding-right',
+    'padding-bottom',
+    'padding-left',
+    'background-color',
+])
+const INLINE_TAGS = new Set(['SPAN', 'A', 'STRONG', 'B', 'EM', 'I', 'U', 'S', 'STRIKE', 'DEL', 'BR', 'FONT', 'CODE'])
+const HEADING_SIZE: Record<string, number> = { H1: 2, H2: 1.5, H3: 1.17, H4: 1, H5: 0.83, H6: 0.67 }
+const HEADING_MARGIN: Record<string, number> = { H1: 0.67, H2: 0.83, H3: 1, H4: 1.33, H5: 1.67, H6: 2.33 }
+
+function cssOf(element: Element): Record<string, string> {
+    const declarations: Record<string, string> = {}
+    for (const declaration of (element.getAttribute('style') ?? '').split(';')) {
+        const colon = declaration.indexOf(':')
+        if (colon > 0) {
+            declarations[declaration.slice(0, colon).trim().toLowerCase()] = declaration
+                .slice(colon + 1)
+                .replace(/!important/i, '')
+                .trim()
+        }
+    }
+    return declarations
+}
+
+function canKeepCss(css: Record<string, string>, supported: Set<string>): boolean {
+    return Object.entries(css).every(([name, value]) => {
+        if (IGNORED_CSS.test(name) || NO_EFFECT.test(value)) {
+            return true
+        }
+        if (name === 'font-size' && !/^-?[\d.]+px$/.test(value)) {
+            return false
+        }
+        if (name === 'text-align' && !['left', 'center', 'right', 'start'].includes(value)) {
+            return false
+        }
+        return supported.has(name)
+    })
+}
+
+/** Inline elements inside a block, whether their styling is something the email's text marks can hold. */
+function canKeepInline(element: Element, insideBold = false): boolean {
+    return Array.from(element.children).every((child) => {
+        if (!INLINE_TAGS.has(child.tagName)) {
+            return false
+        }
+        const css = cssOf(child)
+        const weight = css['font-weight']
+        const isBold = insideBold || ['STRONG', 'B'].includes(child.tagName)
+        if (insideBold && weight && /^(normal|[1-4]00)$/.test(weight)) {
+            return false
+        }
+        return canKeepCss(css, INLINE_CSS) && canKeepInline(child, isBold)
+    })
+}
+
+function canKeepTree(block: Element): boolean {
+    if (!canKeepCss(cssOf(block), BLOCK_CSS)) {
+        return false
+    }
+    if (block.tagName === 'UL' || block.tagName === 'OL') {
+        return Array.from(block.children).every(
+            (item) =>
+                item.tagName === 'LI' &&
+                Object.keys(cssOf(item)).every((name) => IGNORED_CSS.test(name) || name.startsWith('margin')) &&
+                Array.from(item.children).every((child) =>
+                    INLINE_TAGS.has(child.tagName)
+                        ? canKeepCss(cssOf(child), INLINE_CSS) && canKeepInline(child)
+                        : child.tagName === 'P' && canKeepCss(cssOf(child), BLOCK_CSS) && canKeepInline(child)
+                )
+        )
+    }
+    return canKeepInline(block)
+}
+
+function cssSides(css: Record<string, string>, name: string, fontSize: number): EmailSides {
+    const length = (value: string | undefined, fallback: number): number => {
+        if (!value) {
+            return fallback
+        }
+        const number = parseFloat(value)
+        return !Number.isFinite(number) ? fallback : value.endsWith('em') ? number * fontSize : number
+    }
+    const parts = (css[name] ?? '').split(/\s+/).filter(Boolean)
+    const [t, r = t, b = t, l = r] = parts
+    const block = (css[`${name}-block`] ?? '').split(/\s+/).filter(Boolean)
+    const blockStart = css[`${name}-block-start`] ?? block[0]
+    const blockEnd = css[`${name}-block-end`] ?? block[1] ?? block[0]
+    return {
+        top: length(css[`${name}-top`] ?? blockStart ?? t, -1),
+        right: length(css[`${name}-right`] ?? r, -1),
+        bottom: length(css[`${name}-bottom`] ?? blockEnd ?? b, -1),
+        left: length(css[`${name}-left`] ?? l, -1),
+    }
+}
+
+function lineHeightPercent(value: string | undefined, fontSize: number): number | undefined {
+    if (!value || !/\d/.test(value)) {
+        return undefined
+    }
+    const number = parseFloat(value)
+    return value.endsWith('%') ? number : value.endsWith('px') ? (number / fontSize) * 100 : number * 100
+}
+
+/**
+ * Turns the old editor's rich text into blocks, keeping each paragraph's own styling and the space between them.
+ * If it uses anything the blocks can't hold, it stays as the markup it already is.
+ */
+function richTextBlocks(html: string, style: EmailBlockStyle): JSONContent[] {
+    const body = new DOMParser().parseFromString(html, 'text/html').body
+    // Bare text and inline elements at the top level act as one paragraph.
+    let wrapper: HTMLElement | null = null
+    for (const child of Array.from(body.childNodes)) {
+        const isInline = child.nodeType === 3 || (child.nodeType === 1 && INLINE_TAGS.has((child as Element).tagName))
+        if (isInline) {
+            if (child.nodeType === 3 && !child.textContent?.trim() && !wrapper) {
+                child.remove()
+                continue
+            }
+            wrapper = wrapper ?? body.insertBefore(body.ownerDocument.createElement('p'), child)
+            wrapper.appendChild(child)
+        } else {
+            wrapper = null
+        }
+    }
+    const elements = Array.from(body.children)
+    const supported = elements.every(
+        (element) =>
+            (element.tagName === 'P' ||
+                element.tagName === 'DIV' ||
+                element.tagName === 'UL' ||
+                element.tagName === 'OL' ||
+                element.tagName in HEADING_SIZE) &&
+            canKeepTree(element)
+    )
+    if (!supported) {
+        return [textAsHtmlBlock(html, style)]
+    }
+    const baseSize = style.fontSize ?? 14
+    const padding = style.padding ?? { top: 0, right: 0, bottom: 0, left: 0 }
+    const parsed = elements.map((element) => {
+        const css = cssOf(element)
+        const headingSize = HEADING_SIZE[element.tagName]
+        const fontSize = css['font-size']
+            ? parseFloat(css['font-size'])
+            : headingSize
+              ? headingSize * baseSize
+              : baseSize
+        const isList = element.tagName === 'UL' || element.tagName === 'OL'
+        const defaultMargin = headingSize ? HEADING_MARGIN[element.tagName] * fontSize : isList ? fontSize : 0
+        const margin = cssSides(css, 'margin', fontSize)
+        const inner = cssSides(css, 'padding', fontSize)
+        const number = <T>(value: number, fallback: T): number | T => (value >= 0 ? value : fallback)
+        return {
+            element,
+            css,
+            fontSize,
+            headingSize,
+            isList,
+            marginTop: number(margin.top, defaultMargin),
+            marginBottom: number(margin.bottom, defaultMargin),
+            sides: {
+                right: number(margin.right, 0) + number(inner.right, 0),
+                left: number(margin.left, 0) + number(inner.left, isList ? 0 : 0),
+                top: number(inner.top, 0),
+                bottom: number(inner.bottom, 0),
+            },
+            listIndent: isList ? number(inner.left, 40) : undefined,
+        }
+    })
     const extensions = buildEmailExtensions('')
-    const content = chipsInText(generateJSON(html, extensions).content) ?? []
-    const padding = style.padding
-    return content.map((node, index) => {
-        const isFirst = index === 0
-        const isLast = index === content.length - 1
+    return parsed.flatMap((block, index) => {
+        const { element, css } = block
+        const previous = parsed[index - 1]
+        const next = parsed[index + 1]
+        const top = previous ? Math.max(previous.marginBottom, block.marginTop) : padding.top + block.marginTop
+        const bottom = next ? 0 : padding.bottom + block.marginBottom
+        const fontWeight = css['font-weight'] ? parseFontWeight(css['font-weight']) : undefined
         const blockStyle = compact({
             ...style,
-            padding: padding
-                ? { ...padding, top: isFirst ? padding.top : 0, bottom: isLast ? padding.bottom : 0 }
-                : undefined,
+            color: css['color'] || style.color,
+            fontSize: block.fontSize,
+            fontFamily: css['font-family'] || style.fontFamily,
+            fontWeight: fontWeight ?? (block.headingSize ? 700 : style.fontWeight),
+            // The old editor's `* { line-height: inherit }` hands down a fixed height, worked out from the block's size.
+            lineHeight:
+                lineHeightPercent(css['line-height'], block.fontSize) ??
+                (style.lineHeight !== undefined ? (style.lineHeight * baseSize) / block.fontSize : undefined),
+            letterSpacing: css['letter-spacing'] ? parseFloat(css['letter-spacing']) : style.letterSpacing,
+            textAlign: align(css['text-align']) ?? style.textAlign,
+            uppercase: css['text-transform'] === 'uppercase' ? true : style.uppercase,
+            backgroundColor: css['background-color'] || style.backgroundColor,
+            listIndent: block.listIndent,
+            listItemGap: block.isList ? 0 : undefined,
+            padding: {
+                top: top + block.sides.top,
+                right: padding.right + block.sides.right,
+                bottom: bottom + block.sides.bottom,
+                left: padding.left + block.sides.left,
+            },
         })
-        return { ...node, attrs: { ...node.attrs, emailStyle: blockStyle } }
+        // The email has only three heading sizes, so a smaller heading is a bold paragraph with its own size.
+        ;(element as HTMLElement).style?.removeProperty('font-weight')
+        const source =
+            element.tagName === 'DIV' || block.headingSize === undefined
+                ? element.tagName === 'DIV'
+                    ? `<p>${element.innerHTML}</p>`
+                    : element.outerHTML
+                : ['H1', 'H2', 'H3'].includes(element.tagName)
+                  ? element.outerHTML
+                  : `<p>${element.innerHTML}</p>`
+        const nodes = chipsInText(generateJSON(source, extensions).content) ?? []
+        return nodes.map((node) => ({ ...node, attrs: { ...node.attrs, emailStyle: blockStyle } }))
     })
+}
+
+function parseFontWeight(value: string): number | undefined {
+    if (value === 'bold' || value === 'bolder') {
+        return 700
+    }
+    if (value === 'normal') {
+        return 400
+    }
+    return parsePx(value)
 }
 
 const BORDER_SIDES = ['Top', 'Right', 'Bottom', 'Left']
@@ -117,16 +488,52 @@ function fontStyleFrom(values: Record<string, any>): Pick<EmailBlockStyle, 'font
     return { fontFamily: values.fontFamily?.value || undefined, fontUrl: values.fontFamily?.url || undefined }
 }
 
-function textStyleFrom(values: Record<string, any>): EmailBlockStyle {
+interface TextDefaults {
+    fontSize: number
+    lineHeight: number
+}
+
+/** Designs written through the API can hold a bare multiplier, like 1.6, where the old editor's own use a percentage. */
+function lineHeightOf(value: unknown): number | undefined {
+    const number = parsePx(value)
+    return number !== undefined && number > 0 && number < 8 ? number * 100 : number
+}
+
+function textStyleFrom(values: Record<string, any>, defaults: TextDefaults): EmailBlockStyle {
+    const linkStyle = values.linkStyle
     return {
         ...fontStyleFrom(values),
         fontWeight: parsePx(values.fontWeight),
         color: values.color || undefined,
-        fontSize: parsePx(values.fontSize),
-        lineHeight: parsePx(values.lineHeight),
+        fontSize: parsePx(values.fontSize) ?? defaults.fontSize,
+        lineHeight: lineHeightOf(values.lineHeight) ?? defaults.lineHeight,
         letterSpacing: parsePx(values.letterSpacing) || undefined,
         textAlign: align(values.textAlign),
-        padding: parseSides(values.containerPadding),
+        padding: containerPadding(values),
+        linkColor: linkStyle?.linkColor && !linkStyle.inherit ? linkStyle.linkColor : undefined,
+        linkUnderline: linkStyle?.linkUnderline === false && !linkStyle.inherit ? false : undefined,
+    }
+}
+
+/** Text the editor can't hold faithfully stays as the markup it already is, so nothing about it changes. */
+function textAsHtmlBlock(html: string, style: EmailBlockStyle): JSONContent {
+    const textCss = [
+        style.fontFamily ? `font-family:${style.fontFamily.replace(/"/g, "'")}` : '',
+        style.fontSize ? `font-size:${style.fontSize}px` : '',
+        style.fontWeight ? `font-weight:${style.fontWeight}` : '',
+        style.lineHeight ? `line-height:${style.lineHeight}%` : '',
+        style.letterSpacing ? `letter-spacing:${style.letterSpacing}px` : '',
+        style.color ? `color:${style.color}` : '',
+        style.textAlign ? `text-align:${style.textAlign}` : '',
+    ]
+        .filter(Boolean)
+        .join(';')
+    return {
+        type: 'emailHtml',
+        attrs: {
+            html: `<div style="${textCss}">${html}</div>`,
+            emailStyle: compact({ padding: style.padding, fontUrl: style.fontUrl, inheritText: true }),
+        },
     }
 }
 
@@ -139,31 +546,12 @@ function socialIconsHtml(values: Record<string, any>): string {
         .map((icon: { name?: string; url?: string }) => {
             const name = String(icon.name ?? '')
             const file = name.toLowerCase().replace(/[^a-z0-9]/g, '')
-            const href = String(icon.url ?? '').replace(/"/g, '&quot;')
+            const url = String(icon.url ?? '')
+            const href = (name === 'Email' && !/^mailto:/i.test(url) ? `mailto:${url}` : url).replace(/"/g, '&quot;')
             return `<td style="padding:0 ${spacing / 2}px"><a href="${href}" target="_blank"><img src="https://cdn.tools.unlayer.com/social/icons/${iconType}/${file}.png" alt="${name.replace(/"/g, '&quot;')}" width="${size}" height="${size}" style="display:block;border:0" /></a></td>`
         })
         .join('')
     return `<table role="presentation" align="${align(values.align) ?? 'center'}" cellpadding="0" cellspacing="0" border="0"><tr>${cells}</tr></table>`
-}
-
-/** Rich text with a table in it: the editor's text blocks can't hold a table, so it stays as the markup it already is. */
-function textAsHtmlBlock(html: string, style: EmailBlockStyle): JSONContent {
-    const textCss = [
-        style.fontFamily ? `font-family:${style.fontFamily.replace(/"/g, "'")}` : '',
-        style.fontSize ? `font-size:${style.fontSize}px` : '',
-        style.lineHeight ? `line-height:${style.lineHeight}%` : '',
-        style.color ? `color:${style.color}` : '',
-        style.textAlign ? `text-align:${style.textAlign}` : '',
-    ]
-        .filter(Boolean)
-        .join(';')
-    return {
-        type: 'emailHtml',
-        attrs: {
-            html: `<div style="${textCss}">${html}</div>`,
-            emailStyle: compact({ padding: style.padding, fontUrl: style.fontUrl }),
-        },
-    }
 }
 
 function isRightToLeft(values: Record<string, any>): boolean {
@@ -173,6 +561,7 @@ function isRightToLeft(values: Record<string, any>): boolean {
 function convertContent(
     content: Record<string, any>,
     contentWidth: number,
+    rowSidePadding: number,
     unsupported: Set<string>,
     notKept: Set<string>
 ): JSONContent[] {
@@ -188,68 +577,81 @@ function convertContent(
     }
     switch (content.type) {
         case 'text':
-        case 'paragraph': {
-            const text = String(values.text ?? '')
-            return /<table\b/i.test(text)
-                ? [textAsHtmlBlock(text, textStyleFrom(values))]
-                : textBlocks(text, textStyleFrom(values))
-        }
+        case 'paragraph':
+            return richTextBlocks(richTextOf(values), textStyleFrom(values, { fontSize: 14, lineHeight: 140 }))
         case 'heading': {
             const level = Math.min(3, parseInt(String(values.headingType ?? 'h1').slice(1), 10) || 1)
-            const inner = String(values.text ?? '')
-            return textBlocks(`<h${level}>${inner}</h${level}>`, textStyleFrom(values))
+            const style = textStyleFrom(values, { fontSize: 22, lineHeight: 140 })
+            return [
+                {
+                    type: 'heading',
+                    attrs: {
+                        level,
+                        emailStyle: compact({
+                            ...style,
+                            fontWeight: style.fontWeight ?? 400,
+                            ...compact(labelStyleOf(richTextOf(values), style.fontSize ?? 22)),
+                        }),
+                    },
+                    content: inlineContent(richTextOf(values)),
+                },
+            ]
         }
         case 'button': {
             const colors = values.buttonColors ?? {}
-            const inner = parseSides(values.padding)
+            const inner = parseSides(values.padding ?? '10px 20px')
             const hover = colors.hoverBackgroundColor
             if (hover && hover !== colors.backgroundColor) {
                 notKept.add('button colors on hover')
             }
-            const label =
-                chipsInText(
-                    generateJSON(`<p>${String(values.text ?? '')}</p>`, buildEmailExtensions('')).content?.[0]?.content
-                ) ?? []
+            const text = richTextOf(values)
+            const fontSize = parsePx(values.fontSize) ?? 14
             return [
                 {
                     type: 'emailButton',
                     attrs: {
-                        href: values.href?.values?.href ?? values.action?.values?.href ?? '',
+                        href: linkUrl(values.href) || linkUrl(values.action),
                         emailStyle: compact({
-                            backgroundColor: colors.backgroundColor || undefined,
-                            color: colors.color || undefined,
+                            backgroundColor: colors.backgroundColor || '#0879A1',
+                            color: colors.color || '#FFFFFF',
                             ...fontStyleFrom(values),
                             ...uniformBorder(values.border, unsupported, 'buttons with a border on only some sides'),
                             buttonWidth:
                                 values.size?.autoWidth === false ? (parsePx(values.size?.width) ?? 100) : undefined,
-                            fontSize: parsePx(values.fontSize),
+                            fontSize,
                             fontWeight: parsePx(values.fontWeight) ?? 400,
-                            borderRadius: parsePx(values.borderRadius),
+                            lineHeight: lineHeightOf(values.lineHeight),
+                            letterSpacing: parsePx(values.letterSpacing) || undefined,
+                            // Without a unit the old editor's value is invalid CSS, so the corners stay square.
+                            borderRadius:
+                                typeof values.borderRadius === 'number' ? 0 : (parsePx(values.borderRadius) ?? 4),
                             innerPaddingX: inner?.left,
                             innerPaddingY: inner?.top,
                             textAlign: align(values.textAlign),
-                            padding: parseSides(values.containerPadding),
+                            padding: containerPadding(values),
+                            ...compact(labelStyleOf(text, fontSize)),
                         }),
                     },
-                    content: label,
+                    content: inlineContent(text),
                 },
             ]
         }
         case 'image': {
             const src = values.src ?? {}
-            const padding = parseSides(values.containerPadding)
+            const padding = containerPadding(values)
             const available = contentWidth - (padding?.left ?? 0) - (padding?.right ?? 0)
+            const percentBase = available - rowSidePadding
             const percent =
                 typeof src.maxWidth === 'string' && src.maxWidth.endsWith('%') ? parseFloat(src.maxWidth) : null
             const width =
-                src.autoWidth === false && percent ? Math.round((available * percent) / 100) : parsePx(src.width)
+                src.autoWidth === false && percent ? Math.round((percentBase * percent) / 100) : parsePx(src.width)
             return [
                 {
                     type: 'emailImage',
                     attrs: {
                         src: src.url ?? '',
                         alt: values.altText ?? '',
-                        href: values.action?.values?.href ?? '',
+                        href: linkUrl(values.action),
                         naturalWidth: parsePx(src.width) ?? null,
                         naturalHeight: parsePx(src.height) ?? null,
                         mediaId: src.id ?? null,
@@ -273,7 +675,7 @@ function convertContent(
                             lineWidth: parsePx(border.borderTopWidth),
                             width: parsePx(values.width),
                             textAlign: align(values.textAlign),
-                            padding: parseSides(values.containerPadding),
+                            padding: containerPadding(values),
                         }),
                     },
                 },
@@ -285,7 +687,7 @@ function convertContent(
                     type: 'emailHtml',
                     attrs: {
                         html: String(values.html ?? ''),
-                        emailStyle: compact({ padding: parseSides(values.containerPadding) }),
+                        emailStyle: compact({ padding: containerPadding(values), inheritText: true }),
                     },
                 },
             ]
@@ -295,13 +697,16 @@ function convertContent(
                     type: 'emailHtml',
                     attrs: {
                         html: socialIconsHtml(values),
-                        emailStyle: compact({ padding: parseSides(values.containerPadding) }),
+                        emailStyle: compact({ padding: containerPadding(values), inheritText: true }),
                     },
                 },
             ]
         case 'custom':
             if (content.slug === 'unsubscribe_link') {
-                return textBlocks(String(values.unsubscribe_link_content ?? ''), textStyleFrom(values))
+                return richTextBlocks(
+                    String(values.unsubscribe_link_content ?? ''),
+                    textStyleFrom(values, { fontSize: 14, lineHeight: 140 })
+                )
             }
             unsupported.add(`the custom block ${String(content.slug ?? '')}`.trim())
             return []
@@ -315,7 +720,10 @@ function convertContent(
  * Builds a document from an old-editor design. Anything the new editor can't show faithfully is reported instead of
  * being dropped, and the email then stays on the old editor. Nothing is saved until a person accepts the result.
  */
-export function unlayerToEmailDocument(design: Record<string, any> | null | undefined): EmailDocumentConversion {
+export function unlayerToEmailDocument(
+    design: Record<string, any> | null | undefined,
+    storedHtml?: string | null
+): EmailDocumentConversion {
     const body = design?.body
     if (!body || !Array.isArray(body.rows)) {
         return { document: null, unsupported: ['a design this editor can’t read'], notKept: [] }
@@ -324,7 +732,7 @@ export function unlayerToEmailDocument(design: Record<string, any> | null | unde
     const notKept = new Set<string>()
     const bodyValues = body.values ?? {}
     const rows: any[] = [...(body.headers ?? []), ...body.rows, ...(body.footers ?? [])]
-    const bodyWidth = parsePx(bodyValues.contentWidth) ?? 600
+    const bodyWidth = parsePx(bodyValues.contentWidth) ?? 500
 
     const rowBackgrounds = new Set(rows.map((row) => row.values?.backgroundColor ?? ''))
     const sharedRowBackground = rowBackgrounds.size === 1 ? [...rowBackgrounds][0] : ''
@@ -334,16 +742,17 @@ export function unlayerToEmailDocument(design: Record<string, any> | null | unde
     const sharedColumnBackground = columnBackgrounds.size === 1 ? [...columnBackgrounds][0] : ''
 
     const page: Partial<EmailPageStyle> = {
+        oldEditorStyles: true,
         backgroundColor: sharedRowBackground || bodyValues.backgroundColor || '#ffffff',
         bodyBackgroundColor: sharedColumnBackground || bodyValues.backgroundColor || '#ffffff',
         bodyWidth,
         bodyPadding: { top: 0, right: 0, bottom: 0, left: 0 },
         align: align(bodyValues.contentAlign) ?? 'center',
-        ...(bodyValues.fontFamily?.value ? { fontFamily: bodyValues.fontFamily.value } : {}),
+        fontFamily: bodyValues.fontFamily?.value || 'arial,helvetica,sans-serif',
         ...(bodyValues.fontFamily?.url ? { fontUrl: bodyValues.fontFamily.url } : {}),
         ...(bodyValues.preheaderText ? { previewText: bodyValues.preheaderText } : {}),
-        ...(bodyValues.textColor ? { textColor: bodyValues.textColor } : {}),
-        ...(bodyValues.linkStyle?.linkColor ? { linkColor: bodyValues.linkStyle.linkColor } : {}),
+        textColor: bodyValues.textColor || '#000000',
+        linkColor: bodyValues.linkStyle?.linkColor || '#0000ee',
     }
 
     const content: JSONContent[] = []
@@ -361,7 +770,9 @@ export function unlayerToEmailDocument(design: Record<string, any> | null | unde
         const cells: number[] = row.cells ?? []
         const columns: any[] = row.columns ?? []
         const totalCells = cells.reduce((total, cell) => total + cell, 0) || columns.length || 1
-        const rowPadding = parseSides(rowValues.padding)
+        // Row padding only sits around the old editor's fixed-width row, so its sides never change the layout.
+        const parsedRowPadding = parseSides(rowValues.padding)
+        const rowPadding = parsedRowPadding ? { ...parsedRowPadding, left: 0, right: 0 } : undefined
         const rowHasPadding = rowPadding && (rowPadding.top || rowPadding.right || rowPadding.bottom || rowPadding.left)
         const sectionBackground =
             (rowValues.backgroundColor && rowValues.backgroundColor !== page.backgroundColor
@@ -370,10 +781,20 @@ export function unlayerToEmailDocument(design: Record<string, any> | null | unde
             rowValues.columnsBackgroundColor ||
             ''
 
+        const rowWidth = bodyWidth
         const converted = columns.map((column, index) => {
-            const width = (bodyWidth * (cells[index] ?? 1)) / totalCells
+            const columnPadding = parseSides(column.values?.padding)
+            const width =
+                (rowWidth * (cells[index] ?? 1)) / totalCells -
+                (columnPadding ? columnPadding.left + columnPadding.right : 0)
             const blocks = (column.contents ?? []).flatMap((item: any) =>
-                convertContent(item, width, unsupported, notKept)
+                convertContent(
+                    item,
+                    width,
+                    (parsedRowPadding?.left ?? 0) + (parsedRowPadding?.right ?? 0),
+                    unsupported,
+                    notKept
+                )
             )
             const background = column.values?.backgroundColor
             const padding = parseSides(column.values?.padding)
@@ -401,6 +822,7 @@ export function unlayerToEmailDocument(design: Record<string, any> | null | unde
                 emailStyle: compact({
                     backgroundColor: sectionBackground || undefined,
                     padding: rowHasPadding ? rowPadding : undefined,
+                    columnGap: 0,
                 }),
             },
             content: converted.map((column) => ({
@@ -409,6 +831,12 @@ export function unlayerToEmailDocument(design: Record<string, any> | null | unde
                 content: column.blocks.length ? column.blocks : [{ type: 'paragraph' }],
             })),
         })
+    }
+
+    // Only an email sent exactly as written stays that way. The old editor put anything else in its body.
+    const onlyBlock = content.length === 1 ? content[0] : null
+    if (onlyBlock?.type === 'emailHtml' && String(onlyBlock.attrs?.html ?? '').trim() !== (storedHtml ?? '').trim()) {
+        page.wrapFullHtml = true
     }
 
     if (unsupported.size) {
