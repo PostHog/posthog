@@ -936,7 +936,7 @@ class BillingManager:
             if org_modified:
                 organization.save()
             package_changed = data_modeling_api.update_organization_billing_package(
-                str(organization.id), _paid_package_status(data)
+                str(organization.id), _paid_package_status(data), computed_at
             )
             if plan_changed or (package_changed and organization.billing_plan_label() == "paid"):
                 data_modeling_api.schedule_organization_schedule_reconcile(str(organization.id))

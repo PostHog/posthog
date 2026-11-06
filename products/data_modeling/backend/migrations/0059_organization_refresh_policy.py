@@ -26,6 +26,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("has_paid_package", models.BooleanField()),
+                ("billing_status_computed_at", models.DateTimeField(blank=True, null=True)),
             ],
         ),
     ]

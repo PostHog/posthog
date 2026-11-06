@@ -8,3 +8,4 @@ class OrganizationRefreshPolicy(models.Model):
         "posthog.Organization", on_delete=models.CASCADE, primary_key=True, db_constraint=False, related_name="+"
     )
     has_paid_package = models.BooleanField()
+    billing_status_computed_at = models.DateTimeField(null=True, blank=True)

@@ -667,6 +667,35 @@ class TestBillingManager(BaseTest):
             BillingManager(license).update_org_details(organization, cast(BillingStatus, {"customer": customer}))
         delay.assert_not_called()
 
+    def test_older_billing_status_does_not_reverse_a_package_only_change(self):
+        organization = self.organization
+        organization.has_active_subscription = True
+        organization.save()
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+        no_package: dict[str, Any] = {"billing_plan": "paid", "products": _NO_PACKAGE_PRODUCTS}
+
+        def sync(computed_at: str, customer: dict[str, Any]) -> list[Any]:
+            with (
+                patch(
+                    "products.data_modeling.backend.tasks.reconcile_organization_schedules"
+                    ".reconcile_organization_schedules.delay"
+                ) as delay,
+                self.captureOnCommitCallbacks(execute=True),
+            ):
+                BillingManager(license).update_org_details(
+                    organization, cast(BillingStatus, {"customer": customer, "computed_at": computed_at})
+                )
+            return delay.call_args_list
+
+        sync("2026-11-01T00:00:00+00:00", no_package)
+        assert sync("2026-11-03T00:00:00+00:00", {"billing_plan": "scale"}) == [call(str(organization.id))]
+        assert sync("2026-11-02T00:00:00+00:00", no_package) == []
+        assert sync("2026-11-04T00:00:00+00:00", no_package) == [call(str(organization.id))]
+
     def test_update_org_details_keeps_logs_retention_while_entitled(self):
         organization = self.organization
         organization.available_product_features = [{"key": "logs_retention_30d", "name": "30-day logs retention"}]
