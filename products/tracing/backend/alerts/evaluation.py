@@ -65,7 +65,11 @@ from products.alerts_platform.backend.facade.platform_metrics import (
     record_batch_duration,
     safe_record,
 )
-from products.alerts_platform.backend.facade.rolling_checks import resolve_check_end, rolling_check_ranges
+from products.alerts_platform.backend.facade.rolling_checks import (
+    derive_breaches,
+    resolve_check_end,
+    rolling_check_ranges,
+)
 from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
 from products.tracing.backend.alerts.check_query import GroupValues, run_check_query, window_values_with_no_requests
 from products.tracing.backend.alerts.destinations import EVENT_IDS_BY_INCIDENT_ACTION, EVENT_IDS_BY_KIND
@@ -247,13 +251,9 @@ def _evaluate(
 
 
 def _observe(condition: TracesPlatformAlertCondition, group: GroupValues, *, key: str) -> GroupObservation:
-    # Newest first, as the machine reads it. No data reaches no breach.
-    breaches = [
-        value is not None
-        and (value > condition.threshold if condition.threshold_operator == "above" else value < condition.threshold)
-        for value in reversed(group.values)
-    ]
-    current, *prior = breaches or [False]
+    current, *prior = derive_breaches(
+        group.values, condition.threshold, condition.threshold_operator, len(group.values)
+    ) or (False,)
     return GroupObservation(
         grouping_key=key,
         current_breached=current,
