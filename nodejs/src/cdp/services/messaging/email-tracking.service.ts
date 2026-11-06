@@ -634,13 +634,14 @@ export class EmailTrackingService {
                         })
                     }
                 }
-                for (const { teamId, emailAddresses, diagnostic } of transientBounceRecipients || []) {
+                for (const { teamId, emailAddresses, diagnostic, bounceTimestamp } of transientBounceRecipients || []) {
                     const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
                     if (parsedTeamId && !isNaN(parsedTeamId)) {
                         await this.emailSuppressionService.recordTransientBounces(
                             parsedTeamId,
                             emailAddresses,
-                            diagnostic
+                            diagnostic,
+                            bounceTimestamp
                         )
                     }
                 }
