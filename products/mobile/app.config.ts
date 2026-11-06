@@ -117,7 +117,9 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         },
         android: {
             package: androidPackage,
-            // Keep pathPattern in sync with APP_LINK_PATHS in posthog/mobile_app_links.py.
+            // Keep pathPattern in sync with APP_LINK_PATHS in posthog/mobile_app_links.py. A pathPattern cannot
+            // exclude a path, so it requires the hyphen of a report UUID. That keeps the web-only
+            // `/inbox/reports/triage` (APP_LINK_EXCLUDED_PATHS) in the browser.
             intentFilters: [
                 {
                     action: 'VIEW',
@@ -125,7 +127,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
                     data: APP_LINK_HOSTS.map((host) => ({
                         scheme: 'https',
                         host,
-                        pathPattern: '/project/.*/inbox/reports/.*',
+                        pathPattern: '/project/.*/inbox/reports/.*-.*',
                     })),
                     category: ['BROWSABLE', 'DEFAULT'],
                 },
