@@ -466,6 +466,15 @@ class TestRelativeDateParse(SimpleTestCase):
             "2019-01-01",
         )
 
+        self.assertEqual(
+            relative_date_parse("yEnd", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
+            "2020-12-31",
+        )
+        self.assertEqual(
+            relative_date_parse("-1yEnd", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
+            "2019-12-31",
+        )
+
     @parameterized.expand(
         [
             # 2020-01-31 is a Friday
