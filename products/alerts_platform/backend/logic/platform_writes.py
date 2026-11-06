@@ -207,10 +207,15 @@ def update_configuration(
 
 
 def create_configuration(
-    *, team_id: int, source_kind: SourceKind, edit: PlatformAlertConfigurationEdit, created_by_id: int | None
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    edit: PlatformAlertConfigurationEdit,
+    created_by_id: int | None,
+    natively: bool | None = None,
 ) -> PlatformAlertConfigurationView:
     """Creates an alert the platform owns: itself for a native kind, and otherwise through the hook
-    its source registered.
+    its source registered. A source that already decided sets `natively`, so the spec does not decide again.
 
     Raises `PlatformAlertNotEditable` for a kind the API cannot create, `InvalidPlatformAlertEdit` for
     settings its source kind rejects, and `PlatformAlertCreateRefused` when the source refuses.
@@ -219,7 +224,7 @@ def create_configuration(
     if spec is None or not spec.creatable:
         raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be created through this API.")
     validated = _validated(source_kind, None, edit, team_id=team_id)
-    if spec.native is not None and spec.creates_natively(team_id):
+    if spec.native is not None and (spec.creates_natively(team_id) if natively is None else natively):
         with transaction.atomic():
             _admit(
                 team_id=team_id,

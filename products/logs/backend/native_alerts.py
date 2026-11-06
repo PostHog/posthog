@@ -29,7 +29,7 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import CONDITION_FIELDS
-from products.logs.backend.platform_ownership import platform_change_of
+from products.logs.backend.platform_ownership import platform_change_of, platform_edit_of
 from products.logs.backend.platform_source_config import filters_of
 
 _LOGS: Final = (SourceKind.LOGS.value,)
@@ -106,19 +106,11 @@ def create_native(
     Raises `PlatformAlertCreateRefused` at the team's cap, and `InvalidPlatformAlertEdit` for settings the
     platform's logs schema rejects.
     """
-    edit = PlatformAlertConfigurationEdit(
-        name=fields["name"],
-        enabled=fields["enabled"],
-        source_config=logs_source_config(
-            fields.get("filters", {}), {field: fields[field] for field in CONDITION_FIELDS}
-        ),
-        grouping=grouping if grouping is not None else Grouping(),
-        schedule_restriction=fields.get("schedule_restriction"),
-        evaluation_periods=fields["evaluation_periods"],
-        datapoints_to_alarm=fields["datapoints_to_alarm"],
-        cooldown_minutes=fields["cooldown_minutes"],
+    # An unsaved logs row carries the fields onto the platform the way a copy's row does.
+    edit = platform_edit_of(LogsAlertConfiguration(**fields), grouping if grouping is not None else Grouping())
+    view = create_configuration(
+        team_id=team_id, source_kind=SourceKind.LOGS, edit=edit, created_by_id=created_by_id, natively=True
     )
-    view = create_configuration(team_id=team_id, source_kind=SourceKind.LOGS, edit=edit, created_by_id=created_by_id)
     return as_logs_alert(view, team_id=team_id, now=timezone.now())
 
 

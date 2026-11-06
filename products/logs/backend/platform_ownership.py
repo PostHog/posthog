@@ -119,6 +119,14 @@ def on_deleted(*, team_id: int, alert_id: UUID) -> None:
     delete_copy(team_id=team_id, legacy_configuration_id=alert_id)
 
 
+def platform_edit_of(alert: LogsAlertConfiguration, grouping: Grouping) -> PlatformAlertConfigurationEdit:
+    """A logs alert's settings as a whole platform edit."""
+    upsert = platform_upsert_of(alert)
+    return PlatformAlertConfigurationEdit(
+        enabled=upsert.enabled, grouping=grouping, **{field: getattr(upsert, field) for field in SETTINGS_FIELDS}
+    )
+
+
 def platform_change_of(
     alert: LogsAlertConfiguration, grouping: Grouping | None
 ) -> Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit]:
