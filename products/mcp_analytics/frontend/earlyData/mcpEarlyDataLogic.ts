@@ -38,7 +38,7 @@ import type { MCPActivityOverviewApi } from '../generated/api.schemas'
 import { type MCPSharedQueryFilters, mcpAnalyticsFiltersLogic, sharedFilterParams } from '../mcpAnalyticsFiltersLogic'
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 import type { MCPOnboardingSignals } from '../mcpAnalyticsOnboardingLogic'
-import type { HarnessRow, ModelRow } from '../mcpDashboardOverviewLogic'
+import { type HarnessRow, type ModelRow, toHarnessRow } from '../mcpDashboardOverviewLogic'
 import { mcpAnalyticsNotificationsLogic } from '../notifications/mcpAnalyticsNotificationsLogic'
 import { mcpRecurringReportsLogic } from '../notifications/mcpRecurringReportsLogic'
 import { type WeeklyReportOffer, weeklyReportOfferLabel } from '../notifications/weeklyReportOffer'
@@ -356,13 +356,7 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
                         ...values.sharedQueryFilters,
                     })) as { results?: MCPHarnessBreakdownItem[] }
                     breakpoint()
-                    return (response?.results ?? []).map((r) => ({
-                        category: r.harness,
-                        total_calls: r.total_calls,
-                        errors: r.errors,
-                        error_rate_pct: r.error_rate_pct,
-                        sessions: r.sessions,
-                    }))
+                    return (response?.results ?? []).map(toHarnessRow)
                 },
             },
         ],
