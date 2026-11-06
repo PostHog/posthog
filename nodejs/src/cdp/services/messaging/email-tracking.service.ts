@@ -12,7 +12,7 @@ import {
     MinimalAppMetric,
 } from '~/cdp/types'
 import { ModifiedRequest } from '~/common/api/router'
-import { RedisClient, RedisV2 } from '~/common/redis/redis-v2'
+import { RedisV2 } from '~/common/redis/redis-v2'
 import { isDevEnv, isTestEnv } from '~/common/utils/env-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger, serializeError } from '~/common/utils/logger'
@@ -90,24 +90,14 @@ const emailTrackingLogSkipsCounter = new Counter({
     labelNames: ['reason', 'source'],
 })
 
-const sesRedeliveriesSkippedCounter = new Counter({
-    name: 'email_tracking_ses_redeliveries_skipped_total',
-    help: 'SES notifications SNS delivered again after they were recorded, and so skipped',
-})
-
-const sesNotificationRecordedKey = (snsMessageId: string): string =>
-    `@posthog/ses-notification-recorded/${snsMessageId}`
-
-// Covers SNS's own redeliveries, and a replay of its dead-letter queue run within days of an outage.
-const SES_NOTIFICATION_RECORDED_TTL_SECONDS = 3 * 24 * 60 * 60
-
 const ENGAGEMENT_PERSON_METRICS: Partial<Record<MinimalAppMetric['metric_name'], MinimalAppMetric['metric_name'][]>> = {
     email_opened: ['email_opened_by_person'],
     email_link_clicked: ['email_opened_by_person', 'email_clicked_by_person'],
 }
 // An open after this counts its person again. Almost all opens and clicks come in the first days.
 const ENGAGEMENT_PEOPLE_TTL_SECONDS = 30 * 24 * 60 * 60
-const REDIS_TIMEOUT_MS = 500
+// A slow Redis costs a person count, never an open or click webhook.
+const ENGAGEMENT_REDIS_TIMEOUT_MS = 500
 // PFADD returns 0 for many new people once a HyperLogLog fills, so the growth of PFCOUNT is what counts. Each pair of
 // keys is a HyperLogLog and the total already reported. Returns how much each total grew.
 const ENGAGEMENT_PEOPLE_SCRIPT = `
@@ -329,7 +319,7 @@ export class EmailTrackingService {
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
         private emailStatusService: EmailStatusService | null = null,
-        private redis: RedisV2 | null = null
+        private engagementRedis: RedisV2 | null = null
     ) {
         const allowedTopicArns = (process.env.SES_ALLOWED_SNS_TOPIC_ARNS ?? '').split(',')
         this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner, allowedTopicArns)
@@ -609,21 +599,11 @@ export class EmailTrackingService {
                 complainedRecipients,
                 deliveredRecipients,
                 emailStatusUpdates,
-                snsMessageId,
             } = await this.sesWebhookHandler.handleWebhook({
                 body: parseJSON(req.body),
                 headers: req.headers,
                 verifySignature: true,
             })
-
-            const dedup = snsMessageId ? await this.sesNotificationDedup(snsMessageId) : 'new'
-            if (dedup === 'recorded') {
-                sesRedeliveriesSkippedCounter.inc()
-                return { status: 200, message: 'already recorded' }
-            }
-            if (dedup === 'unknown') {
-                emailTrackingErrorsCounter.inc({ error_type: 'ses_dedup_unavailable', source: 'ses' })
-            }
 
             // A single SNS notification can yield several metrics (a Click emits its rollup plus a
             // per-link row, a Bounce its rollup plus a per-type row). Flushing inside each call would
@@ -736,52 +716,11 @@ export class EmailTrackingService {
                 emailTrackingErrorsCounter.inc({ error_type: 'suppression_update_failed', source: 'ses' })
             }
 
-            if (snsMessageId && dedup === 'new') {
-                await this.markSesNotificationRecorded(snsMessageId)
-            }
             return { status, message: body as string }
         } catch (error) {
             emailTrackingErrorsCounter.inc({ error_type: error.name || 'unknown' })
             logger.error('[EmailService] handleWebhook: SES webhook error', { error: serializeError(error) })
             throw error
-        }
-    }
-
-    // 'unknown' when Redis cannot answer. The caller then records the notification, because a double count beats a
-    // lost event, and does not mark it, so a dead Redis costs one wait and not two.
-    private async sesNotificationDedup(snsMessageId: string): Promise<'recorded' | 'new' | 'unknown'> {
-        if (!this.redis) {
-            return 'new'
-        }
-        const exists = await this.redisCall('ses-notification-recorded-check', (client) =>
-            client.exists(sesNotificationRecordedKey(snsMessageId))
-        )
-        if (exists === null) {
-            return 'unknown'
-        }
-        return exists === 1 ? 'recorded' : 'new'
-    }
-
-    private async markSesNotificationRecorded(snsMessageId: string): Promise<void> {
-        await this.redisCall('ses-notification-recorded-mark', (client) =>
-            client.set(sesNotificationRecordedKey(snsMessageId), '1', 'EX', SES_NOTIFICATION_RECORDED_TTL_SECONDS)
-        )
-    }
-
-    private async redisCall<T>(name: string, call: (client: RedisClient) => Promise<T>): Promise<T | null> {
-        if (!this.redis) {
-            return null
-        }
-        let timer: NodeJS.Timeout | undefined
-        try {
-            return await Promise.race([
-                this.redis.useClient({ name, failOpen: true }, call),
-                new Promise<null>((resolve) => {
-                    timer = setTimeout(() => resolve(null), REDIS_TIMEOUT_MS)
-                }),
-            ])
-        } finally {
-            clearTimeout(timer)
         }
     }
 
@@ -821,24 +760,31 @@ export class EmailTrackingService {
         source: 'direct' | 'ses'
     ): Promise<{ metric: MinimalAppMetric['metric_name']; count: number }[]> {
         const metrics = ENGAGEMENT_PERSON_METRICS[metricName]
-        if (!metrics || !this.redis) {
+        if (!metrics || !this.engagementRedis) {
             return []
         }
         const keys = metrics.flatMap((metric) => {
             const key = `@posthog/email-engagement-people/{${parentRunId}}/${metric}`
             return [key, `${key}/reported`]
         })
-        const grew = await this.redisCall(
-            'email-engagement-people',
-            (client) =>
-                client.eval(
-                    ENGAGEMENT_PEOPLE_SCRIPT,
-                    keys.length,
-                    ...keys,
-                    invocationId,
-                    ENGAGEMENT_PEOPLE_TTL_SECONDS
-                ) as Promise<number[]>
-        )
+        let timer: NodeJS.Timeout | undefined
+        const grew = await Promise.race([
+            this.engagementRedis.useClient(
+                { name: 'email-engagement-people', failOpen: true },
+                (client) =>
+                    client.eval(
+                        ENGAGEMENT_PEOPLE_SCRIPT,
+                        keys.length,
+                        ...keys,
+                        invocationId,
+                        ENGAGEMENT_PEOPLE_TTL_SECONDS
+                    ) as Promise<number[]>
+            ),
+            new Promise<null>((resolve) => {
+                timer = setTimeout(() => resolve(null), ENGAGEMENT_REDIS_TIMEOUT_MS)
+            }),
+        ])
+        clearTimeout(timer)
         if (!grew) {
             emailTrackingErrorsCounter.inc({ error_type: 'engagement_people_not_counted', source })
             return []

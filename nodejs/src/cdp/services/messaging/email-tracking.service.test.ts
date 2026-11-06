@@ -461,7 +461,8 @@ describe('EmailTrackingService', () => {
             it.each<[string, (service: any) => void]>([
                 [
                     'Redis stalls',
-                    (service) => jest.spyOn(service.redis, 'useClient').mockReturnValue(new Promise(() => {})),
+                    (service) =>
+                        jest.spyOn(service.engagementRedis, 'useClient').mockReturnValue(new Promise(() => {})),
                 ],
                 [
                     'the team config read fails',
@@ -563,7 +564,6 @@ describe('EmailTrackingService', () => {
                 transactionalMessageId,
                 headerCode,
                 distinctId,
-                snsMessageId = new UUIDT().toString(),
             }: {
                 functionId: string
                 parentRunId?: string
@@ -572,7 +572,6 @@ describe('EmailTrackingService', () => {
                 transactionalMessageId?: string
                 headerCode?: string
                 distinctId?: string
-                snsMessageId?: string
             }): Promise<supertest.Response> => {
                 const trackingCode = signer.generate(
                     {
@@ -609,7 +608,7 @@ describe('EmailTrackingService', () => {
                 }
                 const envelope = {
                     Type: 'Notification',
-                    MessageId: snsMessageId,
+                    MessageId: 'sns-message-id',
                     TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
                     Message: JSON.stringify(sesRecord),
                     Timestamp: '2024-01-01T00:00:00.000Z',
@@ -717,17 +716,16 @@ describe('EmailTrackingService', () => {
                 ])
             })
 
-            it.each<[string, (service: any) => void, number]>([
+            it.each<[string, (service: any) => void]>([
                 [
-                    'the first attempt fails reading the team config',
+                    'reading the team config',
                     (service) =>
                         jest
                             .spyOn(service.teamWorkflowsConfigService, 'shouldCaptureEngagementEvents')
                             .mockRejectedValueOnce(new Error('column does not exist')),
-                    500,
                 ],
                 [
-                    'the first attempt fails queueing the engagement event',
+                    'queueing the engagement event',
                     (service) => {
                         jest.spyOn(
                             service.teamWorkflowsConfigService,
@@ -737,41 +735,18 @@ describe('EmailTrackingService', () => {
                             new Error('team lookup failed')
                         )
                     },
-                    500,
                 ],
-                ['the first attempt succeeds', () => {}, 200],
-            ])('records a notification SNS delivers twice once, when %s', async (_, failFirstAttempt, firstStatus) => {
+            ])('counts a notification once when the first attempt fails %s', async (_, failFirstAttempt) => {
                 failFirstAttempt(api['emailTrackingService'])
-                const bounce = {
-                    functionId: hogFunction.id,
-                    distinctId: 'distinct-id',
-                    snsMessageId: new UUIDT().toString(),
-                }
+                const bounce = { functionId: hogFunction.id, distinctId: 'distinct-id' }
 
-                expect((await postBounce(bounce)).status).toBe(firstStatus)
+                expect((await postBounce(bounce)).status).toBe(500)
                 expect((await postBounce(bounce)).status).toBe(200)
 
                 const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
                 expect(metrics.map((m) => [m.value.metric_name, m.value.count])).toEqual([
                     ['email_bounced', 1],
                     ['email_bounced_hard', 1],
-                ])
-            })
-
-            it('records a notification and does not mark it when Redis cannot answer the check', async () => {
-                const service = api['emailTrackingService'] as any
-                const useClient = jest.spyOn(service.redis, 'useClient').mockReturnValue(new Promise(() => {}))
-
-                const response = await postBounce({ functionId: hogFunction.id, snsMessageId: new UUIDT().toString() })
-
-                expect(response.status).toBe(200)
-                const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-                expect(metrics.map((m) => [m.value.metric_name, m.value.count])).toEqual([
-                    ['email_bounced', 1],
-                    ['email_bounced_hard', 1],
-                ])
-                expect(useClient.mock.calls.map(([options]: any[]) => options.name)).toEqual([
-                    'ses-notification-recorded-check',
                 ])
             })
 
@@ -971,7 +946,7 @@ describe('EmailTrackingService', () => {
             }
             const envelope = {
                 Type: 'Notification',
-                MessageId: new UUIDT().toString(),
+                MessageId: 'sns-message-id',
                 TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
                 Message: JSON.stringify(sesRecord),
                 Timestamp: '2024-01-01T00:00:00.000Z',
@@ -1004,7 +979,7 @@ describe('EmailTrackingService', () => {
             }
             const envelope = {
                 Type: 'Notification',
-                MessageId: new UUIDT().toString(),
+                MessageId: 'sns-message-id',
                 TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
                 Message: JSON.stringify(sesRecord),
                 Timestamp: '2024-01-01T00:00:00.000Z',
@@ -1037,7 +1012,7 @@ describe('EmailTrackingService', () => {
             }
             const envelope = {
                 Type: 'Notification',
-                MessageId: new UUIDT().toString(),
+                MessageId: 'sns-message-id',
                 TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
                 Message: JSON.stringify(sesRecord),
                 Timestamp: '2024-01-01T00:00:00.000Z',
