@@ -5829,11 +5829,20 @@ class TestSignalReportPrEndpoints(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_pr_checks_404_when_no_integration_can_access_repo(self):
+    @parameterized.expand([("checks", "_checks_url"), ("comments", "_comments_url")])
+    def test_pr_detail_404_when_no_integration_can_access_repo(self, _name: str, url_method: str) -> None:
         report = self._create_report()
         with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=None):
-            response = self.client.get(self._checks_url(str(report.id)))
+            response = self.client.get(getattr(self, url_method)(str(report.id)))
         assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json() == {
+            "code": "github_repository_inaccessible",
+            "error": (
+                "PostHog's GitHub connection can't access PostHog/posthog. A project admin must give the GitHub app "
+                "access to this repository, or reconnect GitHub."
+            ),
+            "remediation_url": f"/project/{self.team.id}/settings/project-integrations",
+        }
 
     def test_pr_checks_503_when_egress_budget_sheds_request(self):
         report = self._create_report()

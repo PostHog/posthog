@@ -107,22 +107,26 @@ const SLOT_CLAIM_DISABLED_REASON: Record<ImplementationSlotClaim, string> = {
     shipped_pr: 'This report already has a pull request. Open it in the task log to continue it.',
 }
 
-export type PrChecksError = {
+export type GitHubLoadError = {
     message: string
     remediationUrl: string | null
+    code: string | null
 }
 
-const GITHUB_CHECKS_PERMISSION_MISSING_CODE = 'github_checks_permission_missing'
+export const GITHUB_REPOSITORY_INACCESSIBLE_CODE = 'github_repository_inaccessible'
+// Errors a project admin fixes in the GitHub integration settings, so the server sends a link there.
+const GITHUB_REMEDIABLE_ERROR_CODES = ['github_checks_permission_missing', GITHUB_REPOSITORY_INACCESSIBLE_CODE]
 
-function prChecksErrorFrom(error: unknown): PrChecksError {
-    if (error instanceof ApiError && error.code === GITHUB_CHECKS_PERMISSION_MISSING_CODE) {
+function githubLoadErrorFrom(error: unknown, fallbackMessage: string): GitHubLoadError {
+    if (error instanceof ApiError && error.code && GITHUB_REMEDIABLE_ERROR_CODES.includes(error.code)) {
         const remediationUrl = (error.data as { remediation_url?: unknown } | null)?.remediation_url
         return {
             message: error.message,
             remediationUrl: typeof remediationUrl === 'string' ? remediationUrl : null,
+            code: error.code,
         }
     }
-    return { message: "Couldn't load the PR checks from GitHub.", remediationUrl: null }
+    return { message: fallbackMessage, remediationUrl: null, code: null }
 }
 
 // The task↔report association is the `task_run` artefact log now (the legacy `/tasks/` endpoint is
@@ -376,11 +380,11 @@ export interface inboxReportDetailLogicValues {
     prChecks: readonly PullRequestCheckApi[] | null
     prChecksBackedOff: boolean
     prChecksConsecutiveFailures: number
-    prChecksError: PrChecksError | null
+    prChecksError: GitHubLoadError | null
     prChecksFailing: boolean
     prChecksLoading: boolean
     prComments: readonly PullRequestCommentApi[] | null
-    prCommentsError: string | null
+    prCommentsError: GitHubLoadError | null
     prCommentsLoading: boolean
     primaryTask: ReportTaskEntry | null
     priorityExplanation: string | null
@@ -394,7 +398,7 @@ export interface inboxReportDetailLogicValues {
     reportChecksLoading: boolean
     reportClaimant: _UserApi | null
     reportDiff: CommitDiffResponseApi | null
-    reportDiffError: string | null
+    reportDiffError: GitHubLoadError | null
     reportDiffLoading: boolean
     reportReviewers: EnrichedReviewer[] | null
     reportSignals: SignalNode[] | null
@@ -1294,11 +1298,15 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
         // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag).
         reportDiffError: [
-            null as string | null,
+            null as GitHubLoadError | null,
             {
                 loadReportDiff: () => null,
                 loadReportDiffSuccess: () => null,
-                loadReportDiffFailure: () => "Couldn't load the diff. Try again, or open the pull request on GitHub.",
+                loadReportDiffFailure: (_, { errorObject }) =>
+                    githubLoadErrorFrom(
+                        errorObject,
+                        "Couldn't load the diff. Try again, or open the pull request on GitHub."
+                    ),
             },
         ],
         // The commit artefact the current `reportDiff` was loaded for, so the artefact poll re-fetches
@@ -1314,10 +1322,11 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Cleared only on success (not on load start), so the section keeps showing the error while
         // a backed-off retry is in flight instead of flashing back to the loading skeleton.
         prChecksError: [
-            null as PrChecksError | null,
+            null as GitHubLoadError | null,
             {
                 loadPrChecksSuccess: () => null,
-                loadPrChecksFailure: (_, { errorObject }) => prChecksErrorFrom(errorObject),
+                loadPrChecksFailure: (_, { errorObject }) =>
+                    githubLoadErrorFrom(errorObject, "Couldn't load the PR checks from GitHub."),
             },
         ],
         // Consecutive failed checks fetches — feeds `prChecksBackedOff`.
@@ -1329,11 +1338,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             },
         ],
         prCommentsError: [
-            null as string | null,
+            null as GitHubLoadError | null,
             {
                 loadPrComments: () => null,
                 loadPrCommentsSuccess: () => null,
-                loadPrCommentsFailure: () => "Couldn't load the PR comments from GitHub.",
+                loadPrCommentsFailure: (_, { errorObject }) =>
+                    githubLoadErrorFrom(errorObject, "Couldn't load the PR comments from GitHub."),
             },
         ],
         // Cleared only on success, so the error and its retry button stay visible while the retry runs.
@@ -2368,7 +2378,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             let tick = 0
             const interval = setInterval(() => {
                 tick += 1
-                if (!values.hasImplementationPr) {
+                // Polling can't fix a repository the GitHub connection can't reach. Only an admin can.
+                if (!values.hasImplementationPr || values.prChecksError?.code === GITHUB_REPOSITORY_INACCESSIBLE_CODE) {
                     return
                 }
                 // While backed off, only every Nth tick retries — enough for a transient GitHub

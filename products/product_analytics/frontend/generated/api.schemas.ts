@@ -41,7 +41,7 @@ export interface EventsRetentionUpdateApi {
 export interface EventsDeletedApi {
     /** The period in months that was counted for. */
     readonly retention_months: number
-    /** How many queryable events the next monthly cleanup deletes with this period. The count can be up to a day old. */
+    /** How many queryable events are older than the cutoff for this period. The endpoint says which deletion sets the cutoff. The count can be up to a day old. */
     readonly events_deleted: number
 }
 
@@ -10130,6 +10130,15 @@ export interface PathsV2SegmentToFunnelResponseApi {
 }
 
 export type OrganizationEventsRetentionDeletionCountParams = {
+    /**
+     * The period in months to count for, at most 1200. Only events older than this period are counted.
+     * @minimum 1
+     * @maximum 1200
+     */
+    retention_months: number
+}
+
+export type OrganizationEventsRetentionDowngradeDeletionCountParams = {
     /**
      * The period in months to count for, at most 1200. Only events older than this period are counted.
      * @minimum 1
