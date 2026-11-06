@@ -67,10 +67,13 @@ class TestDiffReadingChecks:
                 raise KeyError("unexpected tool output")
             return status, "detail"
 
-        check = (
-            DiffCheck(key="probe", label="probe", triggers=["frontend/*"], verify=["echo", "finding"], soft=warn_only)
-            if runs_a_command
-            else DiffCheck(key="probe", label="probe", triggers=["frontend/*"], verify=None, run=run, soft=warn_only)
+        check = DiffCheck(
+            key="probe",
+            label="probe",
+            triggers=["frontend/*"],
+            soft=warn_only,
+            verify=["echo", "finding"] if runs_a_command else None,
+            run=None if runs_a_command else run,
         )
         with patch("hogli_commands.ci_preflight.DIFF_CHECKS", [check]):
             result = runner.invoke(cli, ["ci:preflight", "--strict"])

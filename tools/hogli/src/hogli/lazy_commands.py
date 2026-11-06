@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sys
 import importlib
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -59,29 +58,6 @@ def _parse_import_string(command_name: str, import_string: Any) -> tuple[str, st
     return module_path, attr
 
 
-def _borrowed_checkout_hint() -> str:
-    """A worktree borrows the main checkout's venv, whose .pth files load hogli and the
-    packages it imports from one checkout, while the command modules load from the
-    worktree. An import that fails only there means that checkout is on another commit.
-    `uv sync` in a worktree repoints the shared .pth files at that worktree, so the
-    remedy is a pull and a sync in the main checkout, not in the one the .pth names."""
-    from hogli.manifest import REPO_ROOT
-
-    hogli_checkout = Path(__file__).resolve().parents[4]
-    if hogli_checkout == REPO_ROOT.resolve() or not (hogli_checkout / "hogli.yaml").is_file():
-        return ""
-    common_dir = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "rev-parse", "--path-format=absolute", "--git-common-dir"],
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    main_checkout = Path(common_dir).parent if common_dir else hogli_checkout
-    return (
-        f"\nhogli loads its shared packages from {hogli_checkout}, not from this worktree. "
-        f"Run `git -C {main_checkout} pull && flox activate -d {main_checkout} -- uv sync`, then retry."
-    )
-
-
 def resolve_click_command(command_name: str, import_string: Any) -> click.Command:
     """Resolve a lazy ``click:`` manifest entry to its ``click.Command`` object.
 
@@ -94,10 +70,7 @@ def resolve_click_command(command_name: str, import_string: Any) -> click.Comman
     try:
         module = importlib.import_module(module_path)
     except Exception as exc:
-        hint = _borrowed_checkout_hint() if isinstance(exc, ImportError) else ""
-        raise click.ClickException(
-            f"hogli: command {command_name!r} could not import {module_path!r}: {exc}{hint}"
-        ) from exc
+        raise click.ClickException(f"hogli: command {command_name!r} could not import {module_path!r}: {exc}") from exc
 
     try:
         command = getattr(module, attr)

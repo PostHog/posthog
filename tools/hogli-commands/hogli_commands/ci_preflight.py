@@ -924,9 +924,6 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool,
     if not as_json:
         click.secho(f"\n  ci:preflight — {len(files)} changed file(s) vs {base}\n", bold=True)
 
-    # Always-on branch-health check, independent of which files changed: a stale
-    # branch breaks CI on merge no matter what the diff touches. Advisory only —
-    # it never counts toward `failures` (a merge is the human/agent's call).
     def record(check: str, status: Status, detail: str, files_count: int, started: float) -> None:
         results.append(
             {
@@ -938,6 +935,9 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool,
             }
         )
 
+    # Always-on branch-health check, independent of which files changed: a stale
+    # branch breaks CI on merge no matter what the diff touches. Advisory only —
+    # it never counts toward `failures` (a merge is the human/agent's call).
     started = time.perf_counter()
     stale_status, stale_detail, stale_props = _staleness(files)
     record("staleness", stale_status, stale_detail, 0, started)

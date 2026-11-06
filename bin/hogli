@@ -26,15 +26,36 @@ else
     PYTHON_CMD="$VIRTUAL_ENV/bin/python"
 fi
 
+# Linked worktrees borrow the main clone's venv, whose editable .pth files name one
+# checkout. A `uv sync` run inside any worktree repoints them at that worktree, after
+# which every other checkout runs that worktree's hogli and fails on imports it does
+# not have. Warn when a .pth names a checkout that is neither this one nor main.
+HOGLI_TOPLEVEL="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+HOGLI_MAIN=""
+if [ -f "$HOGLI_TOPLEVEL/bin/helpers/worktree-borrow.sh" ]; then
+    source "$HOGLI_TOPLEVEL/bin/helpers/worktree-borrow.sh"
+    HOGLI_MAIN="$(posthog_main_repo "$HOGLI_TOPLEVEL")"
+fi
+
 # Migration aid: after the common/hogli/ -> tools/hogli/ + tools/hogli-commands/
 # restructure, users with stale venvs see `ModuleNotFoundError: hogli`. Catch it
 # early and point at `uv sync`. Safe to delete once everyone has re-activated.
 # -P keeps the current directory off sys.path. Hooks run this from the worktree
 # being checked out, whose branch could otherwise ship a `hogli` package that
 # shadows the installed one.
-HOGLI_IMPORT_ERR="$("$PYTHON_CMD" -P -c "import hogli" 2>&1)" || true
-if [[ -n "$HOGLI_IMPORT_ERR" && "$HOGLI_IMPORT_ERR" == *"No module named 'hogli'"* ]]; then
-    cat >&2 <<'EOF'
+HOGLI_PROBE="$("$PYTHON_CMD" -P -c '
+import pathlib, site, sys, hogli
+roots = [pathlib.Path(p).resolve() for p in sys.argv[1:] if p] + [pathlib.Path(sys.prefix).resolve()]
+foreign = set()
+for pth in (p for d in site.getsitepackages() for p in pathlib.Path(d).glob("*.pth")) if sys.argv[1] else ():
+    for line in pth.read_text().splitlines():
+        if line.startswith("/") and not any(pathlib.Path(line).resolve().is_relative_to(r) for r in roots):
+            foreign.add(line)
+print("\n".join(sorted(foreign)))
+' "$HOGLI_TOPLEVEL" "$HOGLI_MAIN" 2>&1)" || true
+case "$HOGLI_PROBE" in
+    *"No module named 'hogli'"*)
+        cat >&2 <<'EOF'
 error: the `hogli` package is not importable from your active venv.
 
 It recently moved to tools/hogli/ (framework) + tools/hogli-commands/ (commands).
@@ -45,7 +66,18 @@ Your venv has stale paths — re-sync it:
 
 Then rerun your hogli command.
 EOF
-    exit 127
-fi
+        exit 127
+        ;;
+    /*)
+        cat >&2 <<EOF
+warning: this venv loads editable packages from another checkout:
+$HOGLI_PROBE
+A \`uv sync\` run inside that worktree repointed the shared venv. Sync from the main clone:
+
+    flox activate -d ${HOGLI_MAIN:-$HOGLI_TOPLEVEL} -- uv sync
+
+EOF
+        ;;
+esac
 
 exec "$PYTHON_CMD" -P -m hogli "$@"
