@@ -167,6 +167,10 @@ async function waitFor<Pending extends PendingApproval, Value>(
             outcome = await flow.poll(pending, Math.min(REQUEST_TIMEOUT_MS, remaining))
         } catch (error) {
             if (!isTransient(error)) {
+                // A lapsed login says nothing about the request, so it stays for `--wait` after `hog auth login`.
+                if ((error as HogError).code === 'session_expired') {
+                    throw error
+                }
                 return fail(error as HogError)
             }
             outcome = { state: 'retry', reason: error.message }
@@ -218,7 +222,9 @@ function isTransient(error: unknown): error is HogError {
         throw error
     }
     return (
-        error.code === 'network_error' || (error instanceof ApiError && (error.status === 429 || error.status >= 500))
+        error.code === 'network_error' ||
+        error.code === 'refresh_failed' ||
+        (error instanceof ApiError && (error.status === 429 || error.status >= 500))
     )
 }
 

@@ -115,7 +115,8 @@ describe('hog ci setup', () => {
 
     test.each([
         ['reuses the request while it waits for an admin', 'pending', 1],
-        ['starts a new request once an admin resolved the last one', 'rejected', 2],
+        ['starts a new request once an admin rejected the last one', 'rejected', 2],
+        ['picks up the policy once an admin approved the last one', 'approved', 1],
     ])('running it again %s', async (_name, lastStatus, created) => {
         const args = ['--branch', 'main', '--scope', 'query:read']
         const first = await setup(args, { respond: policyApi() })
