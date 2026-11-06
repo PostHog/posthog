@@ -1,6 +1,8 @@
+import tempfile
 import functools
 import dataclasses
 from collections.abc import Mapping
+from contextlib import closing
 from datetime import UTC, datetime
 from typing import IO, Any, cast
 
@@ -25,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     valid_bucket_name,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
+    FILE_PARSE_ERROR,
     INVALID_CONFIG_ERROR,
     NO_SUCH_BUCKET_ERROR,
     TOO_MANY_FILES_ERROR,
@@ -35,9 +38,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
     CONNECT_TIMEOUT_SECONDS,
+    COPY_CHUNK_BYTES,
     MAX_LISTED_KEYS,
     MAX_REQUEST_ATTEMPTS,
+    MAX_UNSIZED_OBJECT_BYTES,
     READ_TIMEOUT_SECONDS,
+    SPOOL_MEMORY_BYTES,
 )
 
 S3_MAX_PAGE_SIZE = 1000
@@ -192,6 +198,42 @@ class S3ObjectStore(ObjectStore):
         if self.prefix and not key_prefix:
             key = f"{self.prefix}/"
         return self._list(key, max_objects)
+
+    def open(self, relative: str) -> IO[bytes]:
+        try:
+            return super().open(relative)
+        except KeyError as e:
+            if e.args != ("ContentLength",):
+                raise
+        return self._download(relative)
+
+    def _download(self, relative: str) -> IO[bytes]:
+        """Copy an object to a local file with one plain GET.
+
+        Cloud Storage unpacks an object stored with `Content-Encoding: gzip` when it sends it. For such an
+        object it gives no size and ignores ranges, and s3fs needs both to read a file in parts.
+        """
+        key = "/".join(part for part in (self.prefix, relative) if part)
+        copy = tempfile.SpooledTemporaryFile(max_size=SPOOL_MEMORY_BYTES)
+        try:
+            with closing(self.client.get_object(Bucket=self.bucket, Key=key)["Body"]) as body:
+                copied_bytes = 0
+                while chunk := body.read(COPY_CHUNK_BYTES):
+                    copied_bytes += len(chunk)
+                    if copied_bytes > MAX_UNSIZED_OBJECT_BYTES:
+                        raise ObjectStorageError(
+                            f"{FILE_PARSE_ERROR} '{relative}': the storage provider sends it without a size, and "
+                            f"it is more than {MAX_UNSIZED_OBJECT_BYTES:,} bytes. Remove the file's "
+                            "Content-Encoding metadata, or split it into smaller files."
+                        )
+                    copy.write(chunk)
+        except BaseException as e:
+            copy.close()
+            if isinstance(e, ClientError):
+                raise translate_boto_error(e) from e
+            raise
+        copy.seek(0)
+        return cast(IO[bytes], copy)
 
     def _list(self, key_prefix: str, max_objects: int) -> list[StoredObject]:
         root_key = f"{self.prefix}/" if self.prefix else ""

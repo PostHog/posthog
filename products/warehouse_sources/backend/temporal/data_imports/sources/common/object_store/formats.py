@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     FILE_ROW_NUMBER_COLUMN,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
+    COPY_CHUNK_BYTES,
     CSV_BLOCK_SIZE_BYTES,
     JSONL_CHUNK_BYTES,
     JSONL_CHUNK_ROWS,
@@ -45,12 +46,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     MAX_RECORD_BYTES,
     MAX_UNPACKED_PARQUET_BYTES,
     PARQUET_BATCH_ROWS,
+    SPOOL_MEMORY_BYTES,
 )
 
 TSV_SUFFIXES = (".tsv", ".tsv.gz")
 UTF8_BOM = b"\xef\xbb\xbf"
-SPOOL_MEMORY_BYTES = 8 * 1024 * 1024
-COPY_CHUNK_BYTES = 1024 * 1024
 
 
 class _PrefixedStream(io.RawIOBase):

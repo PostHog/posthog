@@ -19,6 +19,7 @@ import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
 from botocore.exceptions import ClientError
+from botocore.response import StreamingBody
 from botocore.stub import Stubber
 from deltalake import DeltaTable, WriterProperties, write_deltalake
 from deltalake.exceptions import DeltaError, TableNotFoundError
@@ -34,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     CsvOptions,
     DiscoveryOptions,
+    FileFormat,
     ObjectStoreConfig,
     ObjectStoreProvider,
 )
@@ -1366,6 +1368,97 @@ class TestS3Listing:
 
             with pytest.raises(PermissionError):
                 _s3_store(client).list_objects("", 10)
+
+
+def _parquet_bytes(table: pa.Table) -> bytes:
+    sink = io.BytesIO()
+    pq.write_table(table, sink)
+    return sink.getvalue()
+
+
+class TestS3Open:
+    @staticmethod
+    def _store(client: Any) -> S3ObjectStore:
+        fs = filesystem.build_s3_filesystem(
+            ObjectStoreConfig(
+                provider=ObjectStoreProvider.GCS,
+                bucket="customer-data",
+                region="auto",
+                access_key_id="AKIAEXAMPLE",
+                secret_access_key="secret",
+            )
+        )
+
+        # Cloud Storage answers a HEAD for an object stored with `Content-Encoding: gzip` without its size.
+        async def head_without_size(method: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            assert method == "head_object"
+            return {"ETag": '"etag"', "LastModified": MODIFIED_AT}
+
+        fs._call_s3 = head_without_size
+        return S3ObjectStore(
+            fs=fs,
+            root="customer-data/exports",
+            delta_uri_prefix="s3://",
+            delta_storage_options={},
+            client=client,
+            bucket="customer-data",
+            prefix="exports",
+        )
+
+    @staticmethod
+    def _client() -> Any:
+        return boto3.client(
+            "s3", region_name="us-east-1", aws_access_key_id="AKIAEXAMPLE", aws_secret_access_key="secret"
+        )
+
+    @parameterized.expand(
+        [
+            ("csv", "orders.csv", "csv", b"id,name\n1,a\n2,b\n"),
+            ("jsonl", "orders.jsonl", "jsonl", b'{"id": 1, "name": "a"}\n{"id": 2, "name": "b"}\n'),
+            ("parquet", "orders.parquet", "parquet", _parquet_bytes(pa.table({"id": [1, 2], "name": ["a", "b"]}))),
+        ]
+    )
+    def test_an_object_without_a_size_is_read_with_one_plain_get(
+        self, _name: str, path: str, file_format: FileFormat, content: bytes
+    ) -> None:
+        client = self._client()
+        stored = StoredObject(path=path, size=len(content) // 2, modified_at=MODIFIED_AT)
+        with Stubber(client) as stubber:
+            stubber.add_response(
+                "get_object",
+                {"Body": StreamingBody(io.BytesIO(content), len(content))},
+                {"Bucket": "customer-data", "Key": f"exports/{path}"},
+            )
+
+            with self._store(client).open(path) as stream:
+                tables = list(iter_file_tables(stream, stored, file_format, CsvOptions()))
+
+            stubber.assert_no_pending_responses()
+        rows = pa.concat_tables(tables).select(["id", "name"]).to_pylist()
+        assert [(int(row["id"]), row["name"]) for row in rows] == [(1, "a"), (2, "b")]
+
+    def test_an_object_without_a_size_past_the_cap_fails_with_a_parse_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(filesystem, "MAX_UNSIZED_OBJECT_BYTES", 4)
+        client = self._client()
+        with Stubber(client) as stubber:
+            stubber.add_response(
+                "get_object",
+                {"Body": StreamingBody(io.BytesIO(b"id\n1\n2\n"), 7)},
+                {"Bucket": "customer-data", "Key": "exports/orders.csv"},
+            )
+
+            with pytest.raises(ObjectStorageError, match=FILE_PARSE_ERROR):
+                self._store(client).open("orders.csv")
+
+    def test_a_refused_download_becomes_a_permission_error(self) -> None:
+        client = self._client()
+        with Stubber(client) as stubber:
+            stubber.add_client_error("get_object", service_error_code="AccessDenied", http_status_code=403)
+
+            with pytest.raises(PermissionError):
+                self._store(client).open("orders.csv")
 
 
 class TestS3BucketRegion:
