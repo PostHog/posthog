@@ -12,6 +12,9 @@ import psycopg
 from psycopg import sql
 
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline import (
+    client_side_deadline,
+)
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -275,6 +278,8 @@ def get_max_slot_wal_keep_size_mb(conn: psycopg.Connection) -> int | None:
 # that outlasts it, such as a long write or a prepared transaction, makes the position unusable.
 VISIBLE_WAL_WAIT_SECONDS = 30.0
 _VISIBLE_WAL_POLL_SECONDS = 0.5
+# On top of the wait, so a source that stops answering mid-statement cannot hold the snapshot past it.
+_VISIBLE_WAL_STATEMENT_GRACE_SECONDS = 10.0
 
 # Every transaction with an xid, prepared ones included, holds an exclusive lock on it until after it
 # becomes visible. A snapshot's own xip list would miss those at or past its xmax. Only this database's
@@ -302,7 +307,7 @@ def get_visible_wal_lsn(conn: psycopg.Connection, *, timeout: float = VISIBLE_WA
     write position, so an asynchronous commit already visible is not left above it. A standby
     reports how far it has replayed, since it writes no WAL of its own.
     """
-    with conn.cursor() as cur:
+    with client_side_deadline(conn, timeout + _VISIBLE_WAL_STATEMENT_GRACE_SECONDS), conn.cursor() as cur:
         cur.execute(
             "SELECT (CASE WHEN pg_is_in_recovery() THEN pg_last_wal_replay_lsn() ELSE pg_current_wal_insert_lsn() END)::text"
         )
@@ -311,19 +316,21 @@ def get_visible_wal_lsn(conn: psycopg.Connection, *, timeout: float = VISIBLE_WA
             raise ValueError("The server reported no WAL position")
         lsn = str(row[0])
         # Read after the position, so it holds every transaction that may have committed below it unseen.
-        cur.execute(_RUNNING_XIDS)
-        running = _xids(cur.fetchone())
+        running = _running_xids(cur, _RUNNING_XIDS)
         deadline = time.monotonic() + timeout
         while running:
             if time.monotonic() >= deadline:
                 raise WalPositionNotVisibleError(f"{len(running)} transaction(s) still running after {timeout}s")
             time.sleep(_VISIBLE_WAL_POLL_SECONDS)
-            cur.execute(_STILL_RUNNING, (running,))
-            running = _xids(cur.fetchone())
+            running = _running_xids(cur, _STILL_RUNNING, running)
     return lsn
 
 
-def _xids(row: tuple[object, ...] | None) -> list[int]:
+def _running_xids(cur: psycopg.Cursor, query: str, among: list[int] | None = None) -> list[int]:
+    # `pg_stat_activity` is read once per transaction, which would hide a backend that connected since.
+    cur.execute("SELECT pg_stat_clear_snapshot()")
+    cur.execute(query, None if among is None else (among,))
+    row = cur.fetchone()
     return [int(xid) for xid in row[0]] if row is not None and isinstance(row[0], list) else []
 
 

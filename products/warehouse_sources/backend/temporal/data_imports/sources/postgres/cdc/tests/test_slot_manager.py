@@ -140,6 +140,8 @@ def test_the_wal_position_waits_for_transactions_running_when_it_was_read():
     from django.db import connection
 
     connection.ensure_connection()
+    # A read before the other connection opens, so a per-transaction stats snapshot cannot hide it.
+    get_visible_wal_lsn(connection.connection, timeout=5)
     settings = connection.settings_dict
     with psycopg.connect(
         dbname=settings["NAME"],
