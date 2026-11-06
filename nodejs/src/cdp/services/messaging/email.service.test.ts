@@ -664,13 +664,15 @@ describe('EmailService', () => {
             ])(
                 'delivers to the stored member addresses whatever the case and %s',
                 async (_case, mailbox, storedMixedCase, isTest) => {
+                    const stored = new Map<string, string>()
                     if (storedMixedCase) {
-                        await hub.postgres.query(
+                        const { rows } = await hub.postgres.query<{ email: string }>(
                             PostgresUse.COMMON_WRITE,
-                            'UPDATE posthog_user SET email = initcap(email) WHERE id = ANY($1::integer[])',
+                            'UPDATE posthog_user SET email = initcap(email) WHERE id = ANY($1::integer[]) RETURNING email',
                             [memberIds],
                             'test:store-mixed-case-sandbox-members'
                         )
+                        rows.forEach(({ email }) => stored.set(email.toLowerCase(), email))
                     }
                     service = createSandboxService(true)
                     invocation.queueParameters = createSandboxParams({
@@ -681,10 +683,7 @@ describe('EmailService', () => {
 
                     const result = await service.executeSendEmail(invocation, isTest)
 
-                    const storedEmail = (kind = 'test'): string =>
-                        storedMixedCase
-                            ? `${kind[0].toUpperCase()}${kind.slice(1)}-${team.id}@Example.Com`
-                            : memberEmail(kind)
+                    const storedEmail = (kind?: string): string => stored.get(memberEmail(kind)) ?? memberEmail(kind)
                     expect(result.error).toBeUndefined()
                     expect(result.skipped).not.toBe(true)
                     expect(sendEmailSpy).toHaveBeenCalledTimes(1)

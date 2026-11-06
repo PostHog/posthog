@@ -1184,14 +1184,16 @@ export class EmailService {
         const { teamId } = result.invocation
         let blockedRecipients: string[]
         let reason: SandboxRecipientBlockReason
-        let deliverTo: StoredAddressByRecipient = new Map()
         try {
             if (!this.organizationMembers) {
                 throw new Error('Organization member checks are not configured')
             }
-            const check = await this.organizationMembers.checkRecipients(teamId, recipients, { fresh })
-            const blocked = check.blocked
-            deliverTo = check.deliverTo
+            const { blocked, deliverTo } = await this.organizationMembers.checkRecipients(teamId, recipients, {
+                fresh,
+            })
+            if (!blocked.length) {
+                return deliverTo
+            }
             blockedRecipients = blocked.map(({ address }) => address)
             reason = blocked.every(({ unverifiedMember }) => unverifiedMember)
                 ? 'recipient_unverified'
@@ -1203,9 +1205,6 @@ export class EmailService {
                 teamId,
                 error: error instanceof Error ? error.message : 'Unknown error',
             })
-        }
-        if (!blockedRecipients.length) {
-            return deliverTo
         }
         const { explanation, label, guidance } = SANDBOX_RECIPIENT_BLOCK_COPY[reason]
         this.skipSandboxSend(
