@@ -19,6 +19,7 @@ from posthog.api.test.test_user import create_user
 from posthog.models import ActivityLog, ObjectMediaPreview, Tag, Team, UploadedMedia, User
 
 from products.event_definitions.backend.models.event_definition import EventDefinition
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import License, LicenseManager
@@ -904,6 +905,33 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         event_data = next(r for r in response.json()["results"] if r["name"] == "event_with_media")
         assert len(event_data["media_preview_urls"]) == 1
         assert "uploaded_media" in event_data["media_preview_urls"][0]
+
+    @parameterized.expand(
+        [
+            ("other_members_export", None, False),
+            ("event_screenshot", "session-1", True),
+        ]
+    )
+    def test_media_preview_urls_follow_export_access(self, _name, session_recording_id, expects_url):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", "password")
+        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="event_with_export")
+        asset = ExportedAsset.objects.create(
+            team=self.demo_team,
+            export_format="image/png",
+            created_by=None if session_recording_id else other_user,
+            export_context={"session_recording_id": session_recording_id} if session_recording_id else None,
+        )
+        ObjectMediaPreview.objects.create(team=self.demo_team, event_definition=event, exported_asset=asset)
+
+        list_response = self.client.get("/api/projects/@current/event_definitions/")
+        retrieve_response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
+
+        listed = next(r for r in list_response.json()["results"] if r["name"] == "event_with_export")
+        for urls in (listed["media_preview_urls"], retrieve_response.json()["media_preview_urls"]):
+            assert len(urls) == (1 if expects_url else 0)
 
     def test_list_media_preview_urls_empty_when_no_media(self):
         """Events without media previews return empty media_preview_urls."""

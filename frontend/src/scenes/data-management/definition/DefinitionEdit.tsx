@@ -76,6 +76,8 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
     const showHiddenOption = 'hidden' in editDefinition
 
     const { previews, previewsLoading } = useValues(definitionLogicInstance)
+    // A preview without a URL has nothing to show, and the delete handler below matches previews by URL
+    const visiblePreviews = previews?.filter((p: ObjectMediaPreview) => p.media_url) ?? []
     const { createMediaPreview, deleteMediaPreview } = useActions(definitionLogicInstance)
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
@@ -268,12 +270,12 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
                                             />
                                         </div>
 
-                                        {(previewsLoading || (previews && previews.length > 0)) && (
+                                        {(previewsLoading || visiblePreviews.length > 0) && (
                                             <ImageCarousel
                                                 loading={previewsLoading}
-                                                imageUrls={previews?.map((p: ObjectMediaPreview) => p.media_url) ?? []}
+                                                imageUrls={visiblePreviews.map((p: ObjectMediaPreview) => p.media_url)}
                                                 onDelete={(url: string) => {
-                                                    const preview = previews.find(
+                                                    const preview = visiblePreviews.find(
                                                         (p: ObjectMediaPreview) => p.media_url === url
                                                     )
                                                     if (preview) {
