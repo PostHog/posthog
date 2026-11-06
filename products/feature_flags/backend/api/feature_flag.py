@@ -72,7 +72,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, first_error_message
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
@@ -93,6 +93,10 @@ from posthog.settings.feature_flags import REMOTE_CONFIG_RATE_LIMITS
 from posthog.utils import is_valid_regex, str_to_bool
 from posthog.views import format_bytes
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
@@ -746,6 +750,23 @@ def _filter_person_properties_for_flag(
             referenced_keys.add(override["key"])
 
     return {key: value for key, value in person_properties.items() if key in referenced_keys}
+
+
+def _redact_restricted_actual_values(conditions: Any, restricted_person_properties: frozenset[str]) -> Any:
+    if not restricted_person_properties or not isinstance(conditions, list):
+        return conditions
+
+    def redact(prop: Any) -> Any:
+        if isinstance(prop, dict) and prop.get("type") != "group" and prop.get("key") in restricted_person_properties:
+            return {**prop, "actual_value": None}
+        return prop
+
+    return [
+        {**condition, "properties": [redact(prop) for prop in condition["properties"]]}
+        if isinstance(condition, dict) and isinstance(condition.get("properties"), list)
+        else condition
+        for condition in conditions
+    ]
 
 
 def check_flag_limits_for_team(
@@ -6259,6 +6280,12 @@ class FeatureFlagViewSet(
             response_evaluation_distinct_id = (
                 evaluation_distinct_id if distinct_id and distinct_id in distinct_ids else None
             )
+            restricted_person_properties = split_restricted_property_names(
+                get_restricted_properties_with_group_type_index_for_team(
+                    user=cast(User, request.user) if request.user.is_authenticated else None,
+                    team_id=self.team_id,
+                )
+            ).person
             response_data = {
                 "flag_key": feature_flag.key,
                 "result": result,
@@ -6266,11 +6293,15 @@ class FeatureFlagViewSet(
                 "reason_description": reason_description,
                 "condition_index": condition_index,
                 "payload": payload,
-                "person_properties": _filter_person_properties_for_flag(
-                    evaluation_filters, person_properties, flag_key=feature_flag.key
-                ),
+                "person_properties": {
+                    key: value
+                    for key, value in _filter_person_properties_for_flag(
+                        evaluation_filters, person_properties, flag_key=feature_flag.key
+                    ).items()
+                    if key not in restricted_person_properties
+                },
                 "evaluation_distinct_id": response_evaluation_distinct_id,
-                "conditions": detailed_conditions,
+                "conditions": _redact_restricted_actual_values(detailed_conditions, restricted_person_properties),
             }
             if detect_config_format(evaluation_filters).kind == "v2":
                 response_data["conditions_unavailable_reason"] = V2_CONDITIONS_UNAVAILABLE_REASON

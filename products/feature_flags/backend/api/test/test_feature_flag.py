@@ -58,6 +58,8 @@ from posthog.test.persons import (
 )
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.facade.testing import create_property_access_control
 from products.access_control.backend.models.access_control import AccessControl
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortType
@@ -15549,6 +15551,107 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         data = response.json()
         # Should only include 'email' since that's referenced in the flag, not 'name' or 'age'
         self.assertEqual(data["person_properties"], {"email": "test@example.com"})
+
+    @parameterized.expand(
+        [
+            ("restricted_member", False, False),
+            ("restricted_member_at_timestamp", False, True),
+            ("member_with_read_access", True, False),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time")
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_test_evaluation_applies_person_property_access_control(
+        self, _name, can_read_email, at_timestamp, mock_get_flags, mock_build_props
+    ):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        email_definition = PropertyDefinition.objects.create(
+            team=self.team, name="email", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        create_property_access_control(
+            team_id=self.team.pk,
+            property_definition_id=email_definition.id,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        if can_read_email:
+            create_property_access_control(
+                team_id=self.team.pk,
+                property_definition_id=email_definition.id,
+                access_level=PropertyAccessLevel.READ.value,
+                organization_member_id=self.organization_membership.id,
+            )
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "test@example.com"},
+                            {"key": "plan", "type": "person", "value": "pro"},
+                        ]
+                    }
+                ]
+            },
+        )
+        properties = {"email": "test@example.com", "plan": "pro"}
+        create_person(team=self.team, distinct_ids=["test-user"], properties=properties)
+        mock_build_props.return_value = properties
+        mock_get_flags.return_value = {
+            "flags": {
+                "test-flag": {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                    "metadata": {},
+                    "conditions": [
+                        {
+                            "index": 0,
+                            "matched": True,
+                            "explanation": "Condition matched",
+                            "rollout_percentage": 100.0,
+                            "rollout_excluded": False,
+                            "variant": None,
+                            "properties": [
+                                {
+                                    "key": key,
+                                    "operator": "exact",
+                                    "value": value,
+                                    "type": "person",
+                                    "actual_value": value,
+                                    "matched": True,
+                                    "explanation": f"Property '{key}' matched",
+                                }
+                                for key, value in properties.items()
+                            ],
+                        }
+                    ],
+                }
+            }
+        }
+
+        body: dict[str, str] = {"distinct_id": "test-user"}
+        if at_timestamp:
+            body["timestamp"] = datetime.now(UTC).isoformat()
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/", body, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(mock_get_flags.call_args.kwargs["person_properties"], properties)
+        self.assertEqual((data["result"], data["reason"], data["condition_index"]), (True, "condition_match", 0))
+        visible = properties if can_read_email else {"plan": "pro"}
+        self.assertEqual(data["person_properties"], visible)
+        self.assertEqual(
+            {prop["key"]: prop["actual_value"] for prop in data["conditions"][0]["properties"]},
+            {"email": "test@example.com" if can_read_email else None, "plan": "pro"},
+        )
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
