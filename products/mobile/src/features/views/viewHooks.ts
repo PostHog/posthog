@@ -43,7 +43,7 @@ import {
     insightQueryKey,
     tileTarget,
     webOverviewItem,
-    webOverviewQueryKey,
+    webQueryKey,
 } from './items'
 import { useRecordRecentView, useVisibility } from './pinHooks'
 import {
@@ -510,7 +510,7 @@ export function useWebAnalyticsScreen(options: ViewOpenOptions): WebAnalyticsScr
     const queryId = stableStringify(query)
     // biome-ignore lint/correctness/useExhaustiveDependencies: `queryId` stands for `query`.
     const items = useMemo(() => [webOverviewItem(context.item, query)], [context.item, queryId])
-    const snapshot = useSnapshot<WebOverviewSnapshot>(webOverviewQueryKey(context.scope, query))
+    const snapshot = useSnapshot<WebOverviewSnapshot>(webQueryKey(context.scope, query))
     const refresh = useViewRefresh({
         screen: 'web_analytics',
         dataScope: context.dataScope,
