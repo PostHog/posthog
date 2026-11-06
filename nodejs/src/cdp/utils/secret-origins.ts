@@ -6,7 +6,7 @@ import { logger } from '~/common/utils/logger'
 
 import { HogFunctionType } from '../types'
 
-export type SecretOriginCheckMode = 'off' | 'observe' | 'enforce'
+type SecretOriginCheckMode = 'off' | 'observe' | 'enforce'
 
 type SecretOriginOutcome = 'allowed' | 'unbound' | 'unbound_missing' | 'mismatch' | 'error'
 
@@ -30,14 +30,9 @@ const WARN_MAX_ENTRIES = 10_000
 
 export const secretOriginCheckCounter = new Counter({
     name: 'cdp_secret_origin_check_total',
-    help: 'Stored secrets a fetch carries, by whether the request origin is one the secret was saved for',
+    help: 'Stored secrets the first attempt of a fetch carries, by whether the request origin is one the secret was saved for. Functions whose secrets all predate stored origins are not counted.',
     labelNames: ['outcome', 'mode'],
 })
-
-export function parseSecretOriginCheckMode(value: string | undefined): SecretOriginCheckMode {
-    const mode = (value ?? '').trim().toLowerCase()
-    return mode === 'off' || mode === 'enforce' ? mode : 'observe'
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -47,7 +42,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * The origin in the format `url_origin` in products/cdp/backend/secret_origins.py stores. It uses the WHATWG parser
  * that the HTTP client uses, so userinfo, letter case and a default port resolve to the host the request goes to.
  */
-function requestOrigin(url: string): string | null {
+export function requestOrigin(url: string): string | null {
     let parsed: URL
     try {
         parsed = new URL(url)
@@ -61,13 +56,6 @@ function requestOrigin(url: string): string | null {
     }
     const port = parsed.port ? `:${parsed.port}` : ''
     return `${parsed.protocol}//${parsed.hostname.slice(0, end)}${port}`
-}
-
-function secretTexts(value: unknown): string[] {
-    if (typeof value === 'string') {
-        return [value]
-    }
-    return isRecord(value) ? Object.values(value).filter((entry): entry is string => typeof entry === 'string') : []
 }
 
 function namedSecretInputs(params: SecretOriginRequest['params']): Set<string | undefined> {
@@ -96,8 +84,15 @@ function carriedSecretOutcomes(
 ): { origin: string; outcomes: { inputKey: string; outcome: SecretOriginOutcome }[] } | null {
     // encrypted_inputs stays a ciphertext string when decryption fails, and its entries come from stored JSON.
     const encryptedInputs: unknown = hogFunction.encrypted_inputs
-    const origin = requestOrigin(request.url)
-    if (!isRecord(encryptedInputs) || !origin) {
+    if (!isRecord(encryptedInputs)) {
+        return null
+    }
+    // A function whose secrets all predate stored origins can never be refused, so it skips the scan.
+    const hasStoredOrigins = Object.values(encryptedInputs).some(
+        (input) => isRecord(input) && input.allowed_origins !== undefined
+    )
+    const origin = hasStoredOrigins ? requestOrigin(request.url) : null
+    if (!origin) {
         return null
     }
 
@@ -108,13 +103,15 @@ function carriedSecretOutcomes(
         if (!isRecord(input)) {
             continue
         }
+        // Only a text secret is looked for by value. A dictionary secret, such as secret headers, also holds
+        // ordinary values like `application/json` that unrelated requests send, so it counts as carried only
+        // when a fetch option names it.
+        const secret = input.value
         const carried =
             named.has(inputKey) ||
-            secretTexts(input.value).some(
-                (secret) =>
-                    secret.length >= MIN_SCANNED_SECRET_LENGTH &&
-                    sentTexts.some((text) => typeof text === 'string' && text.includes(secret))
-            )
+            (typeof secret === 'string' &&
+                secret.length >= MIN_SCANNED_SECRET_LENGTH &&
+                sentTexts.some((text) => typeof text === 'string' && text.includes(secret)))
         if (carried) {
             outcomes.push({ inputKey, outcome: originOutcome(input.allowed_origins, origin) })
         }
@@ -124,19 +121,29 @@ function carriedSecretOutcomes(
 
 // Fails open on an internal error in every mode, because a refused request is a lost delivery.
 export class SecretOriginGuard {
+    private readonly mode: SecretOriginCheckMode
     private readonly enforcedForTeam: (teamId: number) => boolean
     private readonly lastWarnedAt = new Map<string, number>()
 
-    constructor(
-        private readonly mode: SecretOriginCheckMode,
-        enforceTeams: string | undefined
-    ) {
+    constructor(modeSetting: string | undefined, enforceTeams: string | undefined) {
+        const mode = (modeSetting ?? '').trim().toLowerCase()
+        if (mode === 'off' || mode === 'observe' || mode === 'enforce') {
+            this.mode = mode
+        } else {
+            this.mode = 'observe'
+            if (mode) {
+                logger.warn('🦔', '[HogExecutor] Unknown secret origin check mode, observing instead', {
+                    mode: modeSetting,
+                })
+            }
+        }
         this.enforcedForTeam = buildIntegerMatcher(enforceTeams, true)
     }
 
     check(
         hogFunction: Pick<HogFunctionType, 'id' | 'team_id' | 'template_id' | 'encrypted_inputs'>,
-        request: SecretOriginRequest
+        request: SecretOriginRequest,
+        { firstAttempt }: { firstAttempt: boolean }
     ): SecretOriginRefusal | null {
         if (this.mode === 'off') {
             return null
@@ -146,7 +153,9 @@ export class SecretOriginGuard {
             const result = carriedSecretOutcomes(hogFunction, request)
             let refusal: SecretOriginRefusal | null = null
             for (const { inputKey, outcome } of result?.outcomes ?? []) {
-                secretOriginCheckCounter.inc({ outcome, mode })
+                if (firstAttempt) {
+                    secretOriginCheckCounter.inc({ outcome, mode })
+                }
                 if (outcome === 'mismatch' && result) {
                     this.warn(hogFunction, inputKey, result.origin, mode)
                     refusal ??= { inputKey, origin: result.origin }
@@ -154,7 +163,9 @@ export class SecretOriginGuard {
             }
             return mode === 'enforce' ? refusal : null
         } catch (error) {
-            secretOriginCheckCounter.inc({ outcome: 'error', mode })
+            if (firstAttempt) {
+                secretOriginCheckCounter.inc({ outcome: 'error', mode })
+            }
             logger.warn('🦔', '[HogExecutor] Secret origin check skipped due to an internal error', {
                 error: error instanceof Error ? error.message : String(error),
                 teamId: hogFunction.team_id,

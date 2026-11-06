@@ -27,7 +27,7 @@ import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 import { mergeSecretHeaders, resolveSecretHeaders } from '../utils/secret-headers'
-import { SecretOriginGuard, parseSecretOriginCheckMode } from '../utils/secret-origins'
+import { SecretOriginGuard } from '../utils/secret-origins'
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
@@ -101,7 +101,7 @@ export class HogExecutorAsyncService {
         private deps: HogExecutorAsyncDependencies
     ) {
         this.secretOriginGuard = new SecretOriginGuard(
-            parseSecretOriginCheckMode(config.secretOriginCheckMode),
+            config.secretOriginCheckMode,
             config.secretOriginCheckEnforceTeams
         )
     }
@@ -523,12 +523,16 @@ export class HogExecutorAsyncService {
             fetchParams.body = params.body
         }
 
-        const refusal = this.secretOriginGuard.check(invocation.hogFunction, {
-            url: params.url,
-            headers: signedHeaders,
-            body: fetchParams.body as string | undefined,
-            params,
-        })
+        const refusal = this.secretOriginGuard.check(
+            invocation.hogFunction,
+            {
+                url: params.url,
+                headers: signedHeaders,
+                body: fetchParams.body as string | undefined,
+                params,
+            },
+            { firstAttempt: !invocation.state.attempts }
+        )
         if (refusal) {
             return failSigning(
                 `Refused to send the request to ${refusal.origin} because it contains the secret input ${refusal.inputKey}, which can only be sent to the addresses saved with it. To send it to ${refusal.origin}, enter the secret again in this destination and save.`
