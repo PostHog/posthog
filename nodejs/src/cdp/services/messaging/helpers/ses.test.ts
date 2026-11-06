@@ -678,9 +678,11 @@ describe('SesWebhookHandler', () => {
             }),
         ],
     ])('keeps only sent-to recipients of a %s for suppression', async (_label, arrayKey, buildEvent) => {
+        // The send passes a display name with the address, so the destination entry can carry it too.
+        const mail = { ...baseMail, destination: ['"Recipient Name" <to@example.com>'] }
         const body = [
-            { mail: baseMail, ...buildEvent(['TO@example.com', 'not-sent-to@example.org']) },
-            { mail: baseMail, ...buildEvent(['not-sent-to@example.org']) },
+            { mail, ...buildEvent(['TO@example.com', 'not-sent-to@example.org']) },
+            { mail, ...buildEvent(['not-sent-to@example.org']) },
         ]
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result[arrayKey]).toEqual([expect.objectContaining({ teamId: '1', emailAddresses: ['TO@example.com'] })])

@@ -270,20 +270,33 @@ export type SesEmailStatusUpdate = {
 
 const normalizeAddress = (address: string): string => unquoteMailbox(address).trim().toLowerCase()
 
-// SES reports a bounce or complaint recipient from the receiving server's report, which can name any address.
-// Only an address this send went to may change suppression state.
-const sentToRecipients = <T extends { emailAddress: string }>(rec: SesEventRecord, recipients: T[]): T[] => {
-    const sentTo = new Set(rec.mail.destination.map(normalizeAddress))
-    return recipients.filter((r) => sentTo.has(normalizeAddress(r.emailAddress)))
-}
-
-// The addresses in the To header. SES reports each entry as written, so a display name can wrap the address.
-const toHeaderAddresses = (rec: SesEventRecord): Set<string> =>
+// SES reports each entry as written at send time, so a display name can wrap the address.
+const mailboxAddresses = (entries: string[]): Set<string> =>
     new Set(
-        (rec.mail.commonHeaders?.to ?? []).flatMap((entry) =>
+        entries.flatMap((entry) =>
             addressparser(entry, { flatten: true }).map((parsed) => normalizeAddress(parsed.address))
         )
     )
+
+const toHeaderAddresses = (rec: SesEventRecord): Set<string> => mailboxAddresses(rec.mail.commonHeaders?.to ?? [])
+
+// A rise here means real bounces or complaints no longer reach the suppression list, which nothing else shows.
+const sesRecipientsNotSentToCounter = new Counter({
+    name: 'email_tracking_recipients_not_sent_to_total',
+    help: 'Bounce and complaint recipients left out of suppression because the email was not sent to them',
+    labelNames: ['event_type'],
+})
+
+// SES reports a bounce or complaint recipient from the receiving server's report, which can name any address.
+// Only an address this send went to may change suppression state.
+const sentToRecipients = <T extends { emailAddress: string }>(rec: SesEventRecord, recipients: T[]): T[] => {
+    const sentTo = mailboxAddresses(rec.mail.destination)
+    const kept = recipients.filter((r) => sentTo.has(normalizeAddress(r.emailAddress)))
+    if (kept.length < recipients.length) {
+        sesRecipientsNotSentToCounter.inc({ event_type: rec.eventType }, recipients.length - kept.length)
+    }
+    return kept
+}
 
 /**
  * The status change a Delivery, Bounce, Complaint or Reject record makes to the email it reports on, or the
