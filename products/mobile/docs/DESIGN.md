@@ -200,7 +200,8 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   tabs layout draws once, like the bottom bar. The logomark and the tab's title sit at the same spot on
   every tab. The pill on the right holds More on every tab, and a filter button left of it on a tab that
   publishes one (the Inbox); Views in Edit pins swaps the pill for Done. Pull to refresh is the only manual
-  refresh, so the header has no refresh button. A tab may add a status line under the title (Views does); it
+  refresh, so the header has no refresh button. Its blur and tint fades end above the resting search field,
+  leaving the border and focus ring clear. A tab may add a status line under the title (Views does); it
   and the refresh hint are absolutely positioned, so they never move the title row. Each screen publishes its
   refresh hint, status line, filter button and menu rows to its own slot in `tabHeaderStore` with `useTabHeader`, and the header reads the focused tab's slot.
   The logomark plays the splash's hop while the focused Inbox, Chats or Views page refreshes, including pull-to-refresh and automatic refreshes.
