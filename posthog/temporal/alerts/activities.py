@@ -770,8 +770,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                     new_state=AlertState(alert_check.state),
                 )
 
-            # A firing the policy does not renotify sends nothing, so it has no notification to gate,
-            # and a finished investigation of it would deliver the firing that was held back.
+            # A finished investigation delivers its check's notification, so a check that sends none skips it.
             investigation = decide_investigation(alert, alert_check) if should_notify else InvestigationDecision()
             if investigation.should_investigate and claim_investigation_slot(alert, alert_check):
                 should_start_investigation = True

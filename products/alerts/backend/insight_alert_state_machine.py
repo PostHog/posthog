@@ -36,14 +36,10 @@ INSIGHT_ALERT_POLICY = AlertPolicy(
     errors_set_errored_state=True,
 )
 
-# The AI detector usually flags the same bad state on check after check, so a firing that renotified
-# would send one message per check for as long as the incident stays open. It announces a firing
-# once, and announces again only after a clear check ends it. Every check still asks the model and
-# is recorded.
+# The AI detector flags the same bad state on check after check, so renotifying sends one message per check.
 AI_DETECTOR_ALERT_POLICY = replace(INSIGHT_ALERT_POLICY, renotify_while_firing=False)
 
-# Written on a check that stays firing and announces nothing, so readers that take an unsent firing
-# check as a held notification (the investigation safety net, the cutover) leave it alone.
+# Tells the investigation safety net and the cutover that an unsent firing check owes no notification.
 FIRING_NOT_RENOTIFIED_KEY = "firing_not_renotified"
 
 

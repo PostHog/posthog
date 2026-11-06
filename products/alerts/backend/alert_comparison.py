@@ -153,9 +153,7 @@ class _History:
 
 class InsightCorrespondence(SourceCorrespondence):
     source = SourceKind.INSIGHT
-    # The platform adapter runs production's own policy, so the comparison stays meaningful. Both
-    # stacks pick `AI_DETECTOR_ALERT_POLICY` for an AI detector alert through `insight_alert_policy`,
-    # so the pair stays equal for that detector too.
+    # The platform adapter runs production's own policy, so the comparison stays meaningful.
     production_policy = INSIGHT_ALERT_POLICY
     platform_policy = INSIGHT_ALERT_POLICY
     intentional_divergences = INSIGHT_INTENTIONAL_DIVERGENCES

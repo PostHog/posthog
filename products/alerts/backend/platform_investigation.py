@@ -200,8 +200,7 @@ def with_investigation(check: PlatformAlertCheckInput, evaluation: SourceBatchEv
             deliveries=() if metrics_held else evaluation.deliveries,
         )
     if group.kind != AlertEventKind.FIRING:
-        # A firing the policy does not renotify announces nothing, so the agent has no message to gate
-        # and its verdict would follow up on a check that sent nothing.
+        # A firing check that announces nothing gives the agent no message to gate or follow up on.
         return evaluation
     decision = decide_investigation(
         alert,
