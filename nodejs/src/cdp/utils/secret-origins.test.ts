@@ -14,27 +14,32 @@ describe('secret origins', () => {
     const SECRET = 'sk_test_origin_0000000000'
     const guard = new SecretOriginGuard({ observeTeams: '', enforceTeams: ' * ' })
 
+    const boundApiKey = (allowedOrigins: string | string[]): HogFunctionType['encrypted_inputs'] => {
+        const encryptedInputs = { api_key: { value: SECRET, allowed_origins: allowedOrigins } }
+        return encryptedInputs
+    }
+
     const refusal = (url: string, allowedOrigins: string | string[]): SecretOriginRefusal | null =>
         guard.check(
-            {
-                id: 'fn',
-                team_id: 1,
-                bytecode: [],
-                encrypted_inputs: { api_key: { value: SECRET, allowed_origins: allowedOrigins } } as any,
-            },
+            { id: 'fn', team_id: 1, bytecode: [], encrypted_inputs: boundApiKey(allowedOrigins) },
             { url, headers: {}, body: JSON.stringify({ key: SECRET }), params: {} }
         ).refusal
 
-    it.each<{ case: string; hogFunction: Partial<Pick<HogFunctionType, 'inputs_schema' | 'inputs' | 'mappings'>> }>([
+    it.each<{
+        case: string
+        hogFunction: Partial<Pick<HogFunctionType, 'inputs_schema' | 'inputs' | 'mappings'>>
+        expected: SecretOriginRefusal | null
+    }>([
         {
-            case: 'a top-level secret input',
+            case: 'refuses it when a top-level secret input saved before encryption',
             hogFunction: {
                 inputs_schema: [{ type: 'dictionary', key: 'headers', secret: true }],
                 inputs: { headers: { value: { Authorization: SECRET } } },
             },
+            expected: { inputKey: 'api_key', origin: 'https://evil.example' },
         },
         {
-            case: 'a mapping secret input',
+            case: 'refuses it when a mapping secret input saved before encryption',
             hogFunction: {
                 mappings: [
                     {
@@ -43,20 +48,29 @@ describe('secret origins', () => {
                     },
                 ],
             },
+            expected: { inputKey: 'api_key', origin: 'https://evil.example' },
         },
-    ])('refuses a bound secret that $case saved before encryption also holds', ({ hogFunction }) => {
+        {
+            case: 'sends it when a plain dictionary input',
+            hogFunction: {
+                inputs_schema: [{ type: 'dictionary', key: 'headers' }],
+                inputs: { headers: { value: { Authorization: SECRET } } },
+            },
+            expected: null,
+        },
+    ])('$case also holds the bound secret', ({ hogFunction, expected }) => {
         const check = guard.check(
             {
                 id: 'fn',
                 team_id: 1,
                 bytecode: [],
                 ...hogFunction,
-                encrypted_inputs: { api_key: { value: SECRET, allowed_origins: ['https://good.example'] } } as any,
+                encrypted_inputs: boundApiKey(['https://good.example']),
             },
             { url: 'https://evil.example/', headers: {}, body: JSON.stringify({ key: SECRET }), params: {} }
         )
 
-        expect(check.refusal).toEqual({ inputKey: 'api_key', origin: 'https://evil.example' })
+        expect(check.refusal).toEqual(expected)
     })
 
     it.each(ORIGIN_CASES.filter((c) => c.origin !== null))(
