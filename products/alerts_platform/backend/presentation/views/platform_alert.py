@@ -20,9 +20,8 @@ from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, as_drf_validation_error
-from posthog.integrations import IntegrationManager
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Team, User
-from posthog.models.integration import SLACK_INTEGRATION_KINDS
 from posthog.permissions import (
     FEATURE_FLAG_REQUIRED_ERROR_CODE,
     get_authenticator_client,
@@ -809,12 +808,12 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         serializer.is_valid(raise_exception=True)
         data = cast(AlertDestinationData, serializer.validated_data["data"])
         event_kinds: tuple[AlertEventKind, ...] = serializer.validated_data["event_kinds"]
-        # Native delivery looks the workspace up by team and kind, so a destination naming any other
-        # integration would be saved and never notify.
-        if data["type"] == DestinationType.SLACK and data["slack_workspace_id"] not in IntegrationManager.kinds(
-            *SLACK_INTEGRATION_KINDS, auth_types="any"
-        ).get_many(team_id, [data["slack_workspace_id"]]):
-            raise ValidationError({"slack_workspace_id": "Choose a Slack workspace connected to this project."})
+        if data["type"] == DestinationType.SLACK:
+            # The accessor native delivery sends through, so a destination it would refuse is never saved.
+            try:
+                IntegrationManager.slack.oauth.get(team_id, data["slack_workspace_id"])
+            except IntegrationNotFound:
+                raise ValidationError({"slack_workspace_id": "Choose a Slack workspace connected to this project."})
         try:
             with transaction.atomic():
                 # The alert's row stays locked until the destinations commit. A delete that got there
@@ -862,7 +861,10 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             204: OpenApiResponse(description="The destinations are deleted. An ID of another alert is ignored."),
             403: OpenApiResponse(description="The caller cannot write alerts of this source kind."),
             404: OpenApiResponse(description="No alert with this id that the caller can read."),
-            409: OpenApiResponse(description="The alert's source product manages its destinations."),
+            409: OpenApiResponse(
+                description="The alert's source product manages its destinations, or a PagerDuty destination "
+                "has an open incident."
+            ),
         },
         description="Delete notification destinations of an alert.",
     )
@@ -872,6 +874,17 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         serializer = PlatformAlertDeleteDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         destination_ids: list[UUID] = serializer.validated_data["destination_ids"]
+        # The resolve for an open incident goes to the destinations that remain when the firing ends,
+        # so a removed incident manager would keep its incident open for good.
+        if any(alert.state == PlatformAlertState.FIRING.value for alert in configuration.alerts) and any(
+            destination.id in destination_ids
+            and destination.enabled
+            and destination.data["type"] == DestinationType.PAGERDUTY
+            for destination in platform_api.list_alert_destinations(
+                team_id=self._canonical_team_id(), configuration_id=configuration.id
+            )
+        ):
+            raise Conflict("This PagerDuty destination has an open incident. Remove it once the alert resolves.")
         deleted = platform_api.delete_alert_destinations(
             team_id=self._canonical_team_id(), configuration_id=configuration.id, destination_ids=destination_ids
         )

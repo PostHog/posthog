@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -5,8 +7,10 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.integration import Integration
+from posthog.models.integration.auth_types import ANY
 from posthog.models.scoping import team_scope
 
+from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import create_configuration, list_alert_destinations
 from products.alerts_platform.backend.facade.contracts import Grouping, PlatformAlertConfigurationEdit, SourceKind
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
@@ -124,6 +128,34 @@ class TestPlatformAlertDestinations(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == field
+
+    def test_a_slack_workspace_delivery_cannot_send_through_is_refused(self) -> None:
+        # Delivery sends only through an OAuth Slack integration, so a token one would never notify.
+        workspace = Integration.objects._with_auth(ANY).create(
+            team=self.team, kind="slack", config={"auth_type": "token"}, sensitive_config={}
+        )
+
+        response = self.client.post(
+            self.url,
+            {"type": "slack", "slack_workspace_id": workspace.id, "slack_channel_id": "C123"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "slack_workspace_id"
+
+    def test_a_pagerduty_destination_with_an_open_incident_cannot_be_removed(self) -> None:
+        created = self.client.post(
+            self.url, {"type": "pagerduty", "pagerduty_routing_key": _ROUTING_KEY}, format="json"
+        ).json()
+        with team_scope(self.team.id):
+            platform_testing.start_firing(
+                self.configuration_id, team_id=self.team.id, at=datetime(2026, 11, 5, 12, 0, tzinfo=UTC)
+            )
+
+        refused = self.client.post(f"{self.url}delete/", {"destination_ids": [created["id"]]}, format="json")
+        assert refused.status_code == status.HTTP_409_CONFLICT, refused.json()
+        assert [d["id"] for d in self.client.get(self.url).json()] == [created["id"]]
 
     def test_a_kind_whose_product_owns_its_destinations_is_refused(self) -> None:
         with team_scope(self.team.id):
