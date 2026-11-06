@@ -19,6 +19,8 @@ import { Card, CardState } from './Card'
 import { ChartTooltip } from './ChartTooltip'
 
 const MAX_TOOLS = 8
+const ROW_HEIGHT_PX = 40
+const CHART_MARGINS = { top: 4, right: 20, bottom: 22 }
 
 // Upper bound for the error-rate track: a bit above the worst tool's rate, rounded up to a clean 10 —
 // so the track ends just past the data (a 30% max gives a 50% track) rather than an empty-looking 100%.
@@ -68,7 +70,7 @@ export function ToolErrorRateChart({
             showGrid: true,
             yTickFormatter: (value: number) => formatPercentage(value, { compact: true }),
             tooltip: { placement: 'cursor' },
-            margins: { top: 4, right: 20, bottom: 22 },
+            margins: CHART_MARGINS,
             barCornerRadius: 4,
             bars: { minBandSize: 30, valueDomain: { min: 0, max: axisMax } },
         }
@@ -109,7 +111,12 @@ export function ToolErrorRateChart({
                 }
                 empty={<div className="py-6 text-center text-[12px] text-secondary">{emptyMessage}</div>}
             >
-                <div className="flex min-h-80 flex-1 flex-col">
+                {/* The height follows the row count, not the card. The card stretches to the height of the card
+                    next to it, so a chart that fills the card draws thicker bars beside a taller neighbor. */}
+                <div
+                    className="flex flex-col"
+                    style={{ height: sorted.length * ROW_HEIGHT_PX + CHART_MARGINS.top + CHART_MARGINS.bottom }}
+                >
                     <BarChart
                         series={series}
                         labels={labels}
