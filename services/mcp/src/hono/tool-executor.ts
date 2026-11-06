@@ -719,6 +719,11 @@ export class ToolExecutor {
         // it. Non-`call` verbs (tools/info/search/schema) resolve no inner tool and stay
         // attributed to `exec`.
         const execToolName = (): string => execMetrics.innerToolName ?? 'exec'
+        // The dispatcher can reject a `call` before any handler runs (malformed JSON, a
+        // gated tool, a dropped `call` prefix). Server metrics keep those on `exec`, but
+        // the analytics event names the tool the agent was reaching for, so its failure
+        // counts against that tool rather than hiding in the `exec` bucket.
+        const analyticsToolName = (): string => execMetrics.innerToolName ?? attemptedCallTarget(execShape) ?? 'exec'
 
         // Which stored skill an exec-routed read returned. Success only, unlike the
         // verb above: that records what the agent attempted, this records what it got.
@@ -756,7 +761,7 @@ export class ToolExecutor {
             })
 
             void trackToolCall(
-                execToolName(),
+                analyticsToolName(),
                 duration,
                 failureShape !== undefined,
                 state,
@@ -775,7 +780,7 @@ export class ToolExecutor {
                     ...guidanceAnalyticsProperties(guidance),
                 },
                 analyticsMeta,
-                this.servedToolDescription(execToolName())
+                this.servedToolDescription(analyticsToolName())
             )
 
             return attachGuidanceNotice(response, guidance, {
@@ -797,7 +802,7 @@ export class ToolExecutor {
             }
 
             void trackToolCall(
-                metricTool,
+                analyticsToolName(),
                 Date.now() - startMs,
                 true,
                 state,
@@ -809,7 +814,7 @@ export class ToolExecutor {
                     ...guidanceAnalyticsProperties(guidance),
                 },
                 analyticsMeta,
-                this.servedToolDescription(metricTool)
+                this.servedToolDescription(analyticsToolName())
             )
 
             const sessionUuid = await sessionUuidForError(state)
@@ -1311,6 +1316,12 @@ function inputShapeAnalyticsProperties(
 function recordedTargetTool(execShape: Record<string, unknown>): string | undefined {
     const target = execShape.$mcp_exec_target_tool
     return typeof target === 'string' && target !== UNRECOGNIZED_EXEC_TOKEN ? target : undefined
+}
+
+/** The tool a `call`, or a command that dropped its `call` prefix, named. */
+function attemptedCallTarget(execShape: Record<string, unknown>): string | undefined {
+    const verb = execShape.$mcp_exec_verb
+    return verb === 'call' || verb === UNRECOGNIZED_EXEC_TOKEN ? recordedTargetTool(execShape) : undefined
 }
 
 /**

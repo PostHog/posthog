@@ -28,20 +28,30 @@ export interface PromptSearches {
     distinct: number
 }
 
+/** Matches the backend's search grouping: case and runs of whitespace are ignored. */
+const searchKey = (query: string): string => query.trim().toLowerCase().split(/\s+/).join(' ')
+
 /** The web searches each engine ran on its latest check of a prompt. */
 export const promptSearches = (prompt: Pick<AEOPromptApi, 'latest_checks'>): PromptSearches => {
     const byEngine = sortEngines(prompt.latest_checks.map((check) => check.engine))
-        .map((engine) => ({
-            engine,
-            queries: prompt.latest_checks.find((check) => check.engine === engine)?.search_queries ?? [],
-        }))
+        .map((engine) => {
+            const queries = prompt.latest_checks.find((check) => check.engine === engine)?.search_queries ?? []
+            const unique = new Map<string, string>()
+            for (const query of queries) {
+                const key = searchKey(query)
+                if (key && !unique.has(key)) {
+                    unique.set(key, query.trim())
+                }
+            }
+            return { engine, queries: [...unique.values()] }
+        })
         .filter(({ queries }) => queries.length > 0)
     const engineCounts = new Map<string, { query: string; engines: number }>()
     for (const { queries } of byEngine) {
-        for (const query of new Set(queries.map((query) => query.trim().toLowerCase()))) {
-            const original = queries.find((candidate) => candidate.trim().toLowerCase() === query) ?? query
-            const entry = engineCounts.get(query)
-            engineCounts.set(query, { query: entry?.query ?? original, engines: (entry?.engines ?? 0) + 1 })
+        for (const query of queries) {
+            const key = searchKey(query)
+            const entry = engineCounts.get(key)
+            engineCounts.set(key, { query: entry?.query ?? query, engines: (entry?.engines ?? 0) + 1 })
         }
     }
     let primary: { query: string; engines: number } | null = null

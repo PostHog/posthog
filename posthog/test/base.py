@@ -219,6 +219,7 @@ from posthog.models.web_preaggregated.team_selection import (
     WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL,
     WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
 )
+from posthog.organization_caching import access_cache
 from posthog.session_recordings.sql.session_replay_event_sql import (
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
@@ -1670,6 +1671,24 @@ def snapshot_postgres_queries(fn):
             fn(self, *args, **kwargs)
 
     return wrapped
+
+
+@contextmanager
+def count_organization_access_cache_round_trips() -> Iterator[Callable[[], int]]:
+    # The local memory test cache implements get_many with one get per key, unlike Redis MGET.
+    unpatched_get = access_cache.get
+    missing = object()
+    with (
+        patch.object(access_cache, "get", wraps=access_cache.get) as get,
+        patch.object(
+            access_cache,
+            "get_many",
+            side_effect=lambda keys: {
+                key: value for key in keys if (value := unpatched_get(key, missing)) is not missing
+            },
+        ) as get_many,
+    ):
+        yield lambda: get.call_count + get_many.call_count
 
 
 def reset_unusable_db_connections() -> None:

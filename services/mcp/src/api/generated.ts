@@ -20,6 +20,11 @@ export namespace Schemas {
       cited: boolean;
       /** The engine did not answer. When true, 'cited' is false and says nothing about citations. */
       check_failed: boolean;
+      /**
+         * 1-based rank of the first target-domain URL among the answer's cited URLs. Null when the answer did not cite one.
+         * @nullable
+         */
+      target_best_position: number | null;
       /** The web searches the engine ran while answering, in the order it ran them. Empty when it ran none or the check failed. */
       search_queries: string[];
       /** When the check ran. */
@@ -190,6 +195,11 @@ export namespace Schemas {
       mentioned: number;
       /** Checks that day where the engine did not answer. */
       failed: number;
+      /**
+         * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+         * @nullable
+         */
+      avg_position: number | null;
     }
 
     export interface AEOPromptEngineDomainShare {
@@ -237,6 +247,11 @@ export namespace Schemas {
       mentioned: number;
       /** Checks where the engine did not answer. */
       failed: number;
+      /**
+         * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+         * @nullable
+         */
+      avg_position: number | null;
       /** When the engine first ran the prompt. */
       first_checked_at: string;
       /** When the engine last ran the prompt. */
@@ -282,6 +297,11 @@ export namespace Schemas {
       prompts: number;
       /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
       prompts_cited: number;
+      /**
+         * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+         * @nullable
+         */
+      avg_position: number | null;
     }
 
     export interface AEOPromptSetDomain {
@@ -318,6 +338,11 @@ export namespace Schemas {
       prompts: number;
       /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
       prompts_cited: number;
+      /**
+         * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+         * @nullable
+         */
+      avg_position: number | null;
       /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
       engine: string;
     }
@@ -345,6 +370,11 @@ export namespace Schemas {
       prompts: number;
       /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
       prompts_cited: number;
+      /**
+         * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+         * @nullable
+         */
+      avg_position: number | null;
       /** Topic the checks ran with. Empty for prompts that have no topic. A prompt moved to another topic keeps its past checks under the old one. */
       topic: string;
       /** Prompts that are on, not archived, and have this topic now. */
@@ -60256,6 +60286,95 @@ export namespace Schemas {
       readonly unavailable: readonly string[];
     }
 
+    /**
+     * Non-secret connection settings copied from Fivetran, shaped like the source payload.
+     */
+    export type ItemProposalPrefill = { [key: string]: unknown };
+
+    export interface ProposedRowFilter {
+      /** One of `>`, `>=`, `<`, `<=`, `=`, `!=`, `IN`, `NOT IN`. */
+      operator: string;
+      /** Column the filter applies to. */
+      column: string;
+      /** One value, or several for `IN` and `NOT IN`. */
+      values: string[];
+    }
+
+    export interface ProposedSchema {
+      /** PostHog table name. */
+      name: string;
+      /** Whether the table syncs. */
+      should_sync: boolean;
+      /**
+         * Planned sync type. Null means PostHog picks its default for the table.
+         * @nullable
+         */
+      sync_type: string | null;
+      /** Columns Fivetran skipped, which PostHog skips too. */
+      disabled_columns: string[];
+      /** Row filters copied from Fivetran. */
+      row_filters: ProposedRowFilter[];
+      /** Names to try, in order, when the source does not discover a table called `name`. */
+      alternative_names: string[];
+      /**
+         * The Fivetran table this plan comes from. Apply's `table_overrides` refer to it.
+         * @nullable
+         */
+      vendor_table?: string | null;
+    }
+
+    /**
+     * Non-secret destination settings copied from Fivetran.
+     */
+    export type ProposedDestinationConfig = { [key: string]: unknown };
+
+    export interface ProposedDestination {
+      /** Destination type, for example `Snowflake` or `BigQuery`. */
+      type: string;
+      /** Non-secret destination settings copied from Fivetran. */
+      config: ProposedDestinationConfig;
+      /** The schemas Fivetran writes this connection into. Use another schema in the PostHog destination. */
+      vendor_schemas: string[];
+    }
+
+    export interface TablePair {
+      /** The Fivetran table. */
+      vendor_table: string;
+      /** The PostHog table it was paired with. */
+      posthog_table: string;
+    }
+
+    export interface ItemProposal {
+      /** The PostHog source type this connection becomes. */
+      source_type: string;
+      /** Table name prefix for the new source, taken from the Fivetran connection name. */
+      prefix: string;
+      /** Non-secret connection settings copied from Fivetran, shaped like the source payload. */
+      prefill: ItemProposalPrefill;
+      /**
+         * Tables to sync, with their planned sync settings. Null means PostHog uses its default tables.
+         * @nullable
+         */
+      schemas: ProposedSchema[] | null;
+      /** Planned sync frequency, matched to the Fivetran schedule. */
+      sync_frequency: string;
+      /**
+         * UTC time of day for daily syncs, in HH:MM:SS format.
+         * @nullable
+         */
+      sync_time_of_day: string | null;
+      /** Suggested non-PostHog destination, matched to the Fivetran destination. */
+      destination: ProposedDestination | null;
+      /** Whether every table starts with syncing off, because the connection is paused in Fivetran. */
+      start_paused: boolean;
+      /** Tables that a naming rule paired. Ask the user to confirm each pair before applying. */
+      inferred_tables?: TablePair[];
+      /** Fivetran tables with no PostHog table. Compare them with the source's PostHog tables and propose one, or leave them out. */
+      unmatched_tables?: string[];
+      /** The source's PostHog tables that no Fivetran table maps to. Choose from these for the unmatched tables. Empty when every table matched. */
+      unused_posthog_tables?: string[];
+    }
+
     export interface ItemReceipt {
       /** Accepted item UUID. */
       id: string;
@@ -75733,7 +75852,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys.
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The error tracking sources (`source_product=error_tracking`) read `issue_filters`: an object with a `properties` list of event property filters, the same shape error tracking alert filters use. The filter sees the issue's own fields (`name`, `description`, `severity`, `assignee`) and the properties of one exception: the first one for a new issue, the reopening one, or an example for a spike. Only issues that match become signals. The server compiles the filter and ignores any bytecode sent with it. Save the same filter on all three error tracking rows with `config_set`, and remove it with `config_remove`. Filters apply to future signals only, and they decide which issues are eligible. They are not a spend cap. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys.
      */
     export type SignalSourceConfigConfig = { [key: string]: unknown };
 
@@ -75747,7 +75866,7 @@ export namespace Schemas {
       source_product: SignalSourceProductEnum;
       source_type: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys. */
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The error tracking sources (`source_product=error_tracking`) read `issue_filters`: an object with a `properties` list of event property filters, the same shape error tracking alert filters use. The filter sees the issue's own fields (`name`, `description`, `severity`, `assignee`) and the properties of one exception: the first one for a new issue, the reopening one, or an example for a spike. Only issues that match become signals. The server compiles the filter and ignores any bytecode sent with it. Save the same filter on all three error tracking rows with `config_set`, and remove it with `config_remove`. Filters apply to future signals only, and they decide which issues are eligible. They are not a spend cap. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys. */
       config?: SignalSourceConfigConfig;
       /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
       config_set?: SignalSourceConfigConfigSet;
@@ -78977,6 +79096,160 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: WarehouseColumnStatistics[];
+    }
+
+    /**
+     * * `as_is` - Moves as is
+     * * `caveats` - Moves with caveats
+     * * `unsupported` - Not supported
+     */
+    export type WarehouseMigrationItemVerdictEnum = typeof WarehouseMigrationItemVerdictEnum[keyof typeof WarehouseMigrationItemVerdictEnum];
+
+
+    export const WarehouseMigrationItemVerdictEnum = {
+      AsIs: 'as_is',
+      Caveats: 'caveats',
+      Unsupported: 'unsupported',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `applying` - Applying
+     * * `applied` - Applied
+     * * `skipped` - Skipped
+     * * `failed` - Failed
+     */
+    export type WarehouseMigrationItemStatusEnum = typeof WarehouseMigrationItemStatusEnum[keyof typeof WarehouseMigrationItemStatusEnum];
+
+
+    export const WarehouseMigrationItemStatusEnum = {
+      Pending: 'pending',
+      Applying: 'applying',
+      Applied: 'applied',
+      Skipped: 'skipped',
+      Failed: 'failed',
+    } as const;
+
+    export interface WarehouseMigrationItem {
+      /** Item ID. Pass it to the apply and skip actions. */
+      id: string;
+      /** The connection ID in the vendor account. */
+      vendor_connection_id: string;
+      /** The vendor's connector type, for example `postgres` or `hubspot`. */
+      vendor_service: string;
+      /** The connection name in the vendor account. */
+      name: string;
+      /** Whether the connection moves as it is, moves with caveats, or is not supported.
+       *
+       * * `as_is` - Moves as is
+       * * `caveats` - Moves with caveats
+       * * `unsupported` - Not supported */
+      verdict: WarehouseMigrationItemVerdictEnum;
+      /** Differences between Fivetran and PostHog for this connection. */
+      caveats: string[];
+      /** What PostHog creates for this connection. Null when the connection is not supported. */
+      proposal: ItemProposal | null;
+      /** `pending` until the source is created (`applied`) or the user skips it.
+       *
+       * * `pending` - Pending
+       * * `applying` - Applying
+       * * `applied` - Applied
+       * * `skipped` - Skipped
+       * * `failed` - Failed */
+      status: WarehouseMigrationItemStatusEnum;
+      /**
+         * The PostHog source created for this connection, if any.
+         * @nullable
+         */
+      external_data_source_id: string | null;
+      /** Why the last apply attempt failed, if it did. */
+      error: string;
+    }
+
+    export interface PaginatedWarehouseMigrationItemList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WarehouseMigrationItem[];
+    }
+
+    /**
+     * * `fivetran` - Fivetran
+     */
+    export type WarehouseMigrationProviderEnum = typeof WarehouseMigrationProviderEnum[keyof typeof WarehouseMigrationProviderEnum];
+
+
+    export const WarehouseMigrationProviderEnum = {
+      Fivetran: 'fivetran',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `crawling` - Crawling
+     * * `ready` - Ready
+     * * `failed` - Failed
+     */
+    export type WarehouseMigrationStatusEnum = typeof WarehouseMigrationStatusEnum[keyof typeof WarehouseMigrationStatusEnum];
+
+
+    export const WarehouseMigrationStatusEnum = {
+      Pending: 'pending',
+      Crawling: 'crawling',
+      Ready: 'ready',
+      Failed: 'failed',
+    } as const;
+
+    export interface WarehouseMigrationItemCounts {
+      /** Connections that move to PostHog as they are. */
+      as_is: number;
+      /** Connections that move with differences the user should review. */
+      caveats: number;
+      /** Connections PostHog cannot create yet. */
+      unsupported: number;
+      /** Connections already created as PostHog sources. */
+      applied: number;
+      /** Connections the user chose not to move. */
+      skipped: number;
+    }
+
+    export interface WarehouseMigration {
+      /** Migration ID. */
+      id: string;
+      /** The ETL vendor this migration imports from.
+       *
+       * * `fivetran` - Fivetran */
+      provider: WarehouseMigrationProviderEnum;
+      /** `pending` and `crawling` mean the vendor account is still being read. `ready` means the items are planned. `failed` means reading the account failed; see `latest_error`.
+       *
+       * * `pending` - Pending
+       * * `crawling` - Crawling
+       * * `ready` - Ready
+       * * `failed` - Failed */
+      status: WarehouseMigrationStatusEnum;
+      /** Name of the vendor account. */
+      account_name: string;
+      /**
+         * When the vendor account was last read.
+         * @nullable
+         */
+      crawled_at: string | null;
+      /** Why the last read failed, if it did. */
+      latest_error: string;
+      /** When the migration was started. */
+      created_at: string;
+      /** How many connections fall into each group. */
+      item_counts: WarehouseMigrationItemCounts;
+    }
+
+    export interface PaginatedWarehouseMigrationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WarehouseMigration[];
     }
 
     export interface WarehouseSuggestionCertifyPayload {
@@ -88139,7 +88412,7 @@ export namespace Schemas {
     }
 
     /**
-     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys.
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The error tracking sources (`source_product=error_tracking`) read `issue_filters`: an object with a `properties` list of event property filters, the same shape error tracking alert filters use. The filter sees the issue's own fields (`name`, `description`, `severity`, `assignee`) and the properties of one exception: the first one for a new issue, the reopening one, or an example for a spike. Only issues that match become signals. The server compiles the filter and ignores any bytecode sent with it. Save the same filter on all three error tracking rows with `config_set`, and remove it with `config_remove`. Filters apply to future signals only, and they decide which issues are eligible. They are not a spend cap. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys.
      */
     export type PatchedSignalSourceConfigConfig = { [key: string]: unknown };
 
@@ -88153,7 +88426,7 @@ export namespace Schemas {
       source_product?: SignalSourceProductEnum;
       source_type?: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys. */
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The error tracking sources (`source_product=error_tracking`) read `issue_filters`: an object with a `properties` list of event property filters, the same shape error tracking alert filters use. The filter sees the issue's own fields (`name`, `description`, `severity`, `assignee`) and the properties of one exception: the first one for a new issue, the reopening one, or an example for a spike. Only issues that match become signals. The server compiles the filter and ignores any bytecode sent with it. Save the same filter on all three error tracking rows with `config_set`, and remove it with `config_remove`. Filters apply to future signals only, and they decide which issues are eligible. They are not a spend cap. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys. */
       config?: PatchedSignalSourceConfigConfig;
       /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
       config_set?: PatchedSignalSourceConfigConfigSet;
@@ -116201,6 +116474,45 @@ export namespace Schemas {
       username: string;
     }
 
+    export interface WarehouseMigrationConnectLink {
+      /** The ETL vendor.
+       *
+       * * `fivetran` - Fivetran */
+      provider: WarehouseMigrationProviderEnum;
+      /** Link the user opens to enter their vendor API key in PostHog. */
+      connect_url: string;
+      /** What the agent should tell the user and do next. */
+      instructions: string;
+    }
+
+    export interface WarehouseMigrationCreate {
+      /** The ETL vendor to import from.
+       *
+       * * `fivetran` - Fivetran */
+      provider: WarehouseMigrationProviderEnum;
+      /** Read-only API key for the vendor account. */
+      api_key: string;
+      /** Secret that belongs to the API key. */
+      api_secret: string;
+    }
+
+    export interface WarehouseMigrationSkipItems {
+      /**
+         * Items to skip. Pass this or `keep_item_ids`, not both.
+         * @minItems 1
+         */
+      item_ids?: string[];
+      /** Items to keep. Every other item is skipped, for example to migrate only one connection. */
+      keep_item_ids?: string[];
+    }
+
+    export interface WarehouseMigrationSkipItemsResponse {
+      /** Items that are now skipped, including ones skipped before. */
+      skipped_item_ids: string[];
+      /** Items that stay as they are because they are being created or are already PostHog sources. */
+      not_skipped_item_ids: string[];
+    }
+
     /**
      * * `pending` - pending
      * * `provisioning` - provisioning
@@ -122701,6 +123013,7 @@ export namespace Schemas {
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
+     * * `SignalSourceConfig` - SignalSourceConfig
      * * `SignalTeamConfig` - SignalTeamConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
@@ -122822,6 +123135,7 @@ export namespace Schemas {
       InstanceSetting: 'InstanceSetting',
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
+      SignalSourceConfig: 'SignalSourceConfig',
       SignalTeamConfig: 'SignalTeamConfig',
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
@@ -122929,6 +123243,7 @@ export namespace Schemas {
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
+     * * `SignalSourceConfig` - SignalSourceConfig
      * * `SignalTeamConfig` - SignalTeamConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
@@ -123038,6 +123353,7 @@ export namespace Schemas {
       InstanceSetting: 'InstanceSetting',
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
+      SignalSourceConfig: 'SignalSourceConfig',
       SignalTeamConfig: 'SignalTeamConfig',
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
@@ -135530,6 +135846,19 @@ export namespace Schemas {
       Widget: 'widget',
     } as const;
 
+    export type SurveysActivityRetrieveParams = {
+    /**
+     * Number of items per page
+     * @minimum 1
+     */
+    limit?: number;
+    /**
+     * Page number
+     * @minimum 1
+     */
+    page?: number;
+    };
+
     export type SurveysResponsesListParams = {
     /**
      * When true, exclude responses that have been archived via the archive_response endpoint.
@@ -137828,6 +138157,47 @@ export namespace Schemas {
      */
     search?: string;
     };
+
+    export type WarehouseMigrationsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type WarehouseMigrationsItemsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type WarehouseMigrationsConnectLinkRetrieveParams = {
+    /**
+     * The ETL vendor to import from.
+     *
+     * * `fivetran` - Fivetran
+     * @minLength 1
+     */
+    provider: WarehouseMigrationsConnectLinkRetrieveProvider;
+    };
+
+    export type WarehouseMigrationsConnectLinkRetrieveProvider = typeof WarehouseMigrationsConnectLinkRetrieveProvider[keyof typeof WarehouseMigrationsConnectLinkRetrieveProvider];
+
+
+    export const WarehouseMigrationsConnectLinkRetrieveProvider = {
+      Fivetran: 'fivetran',
+    } as const;
 
     export type WarehouseSavedQueriesListParams = {
     /**

@@ -14,6 +14,11 @@ export interface AEOPromptEngineCheckApi {
     cited: boolean
     /** The engine did not answer. When true, 'cited' is false and says nothing about citations. */
     check_failed: boolean
+    /**
+     * 1-based rank of the first target-domain URL among the answer's cited URLs. Null when the answer did not cite one.
+     * @nullable
+     */
+    target_best_position: number | null
     /** The web searches the engine ran while answering, in the order it ran them. Empty when it ran none or the check failed. */
     search_queries: string[]
     /** When the check ran. */
@@ -191,6 +196,11 @@ export interface AEOPromptEngineStatsApi {
     mentioned: number
     /** Checks where the engine did not answer. */
     failed: number
+    /**
+     * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+     * @nullable
+     */
+    avg_position: number | null
     /** When the engine first ran the prompt. */
     first_checked_at: string
     /** When the engine last ran the prompt. */
@@ -210,6 +220,11 @@ export interface AEOPromptDailyEngineStatsApi {
     mentioned: number
     /** Checks that day where the engine did not answer. */
     failed: number
+    /**
+     * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+     * @nullable
+     */
+    avg_position: number | null
 }
 
 export interface AEOPromptEngineDomainShareApi {
@@ -363,6 +378,11 @@ export interface AEOPromptSetCountsApi {
     prompts: number
     /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
     prompts_cited: number
+    /**
+     * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+     * @nullable
+     */
+    avg_position: number | null
 }
 
 export interface AEOPromptSetEngineCountsApi {
@@ -388,6 +408,11 @@ export interface AEOPromptSetEngineCountsApi {
     prompts: number
     /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
     prompts_cited: number
+    /**
+     * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+     * @nullable
+     */
+    avg_position: number | null
     /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
     engine: string
 }
@@ -415,6 +440,11 @@ export interface AEOPromptSetTopicCountsApi {
     prompts: number
     /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
     prompts_cited: number
+    /**
+     * Mean 1-based rank of the first target-domain URL among the cited URLs, over the checks that cited one. Lower is better. Null when no check cited a target domain.
+     * @nullable
+     */
+    avg_position: number | null
     /** Topic the checks ran with. Empty for prompts that have no topic. A prompt moved to another topic keeps its past checks under the old one. */
     topic: string
     /** Prompts that are on, not archived, and have this topic now. */

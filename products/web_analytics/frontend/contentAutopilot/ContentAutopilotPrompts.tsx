@@ -35,7 +35,13 @@ const checkTag = (prompt: AEOPromptApi, engine: string): JSX.Element => {
     if (!check) {
         return <span className="text-muted whitespace-nowrap">Not checked</span>
     }
-    return <ContentAutopilotCheckResultTag cited={check.cited} checkFailed={check.check_failed} />
+    return (
+        <ContentAutopilotCheckResultTag
+            cited={check.cited}
+            checkFailed={check.check_failed}
+            position={check.target_best_position}
+        />
+    )
 }
 
 const PromptSearchesLine = ({ prompt }: { prompt: AEOPromptApi }): JSX.Element | null => {
@@ -58,7 +64,11 @@ const PromptSearchesLine = ({ prompt }: { prompt: AEOPromptApi }): JSX.Element |
                 </div>
             }
         >
-            <div className="mt-0.5 text-xs text-muted truncate max-w-120" data-attr="content-autopilot-prompt-searches">
+            <div
+                className="mt-0.5 text-xs text-muted truncate max-w-120"
+                tabIndex={0}
+                data-attr="content-autopilot-prompt-searches"
+            >
                 Searched for "{primary}"{distinct > 1 ? ` +${distinct - 1} more` : ''}
             </div>
         </Tooltip>

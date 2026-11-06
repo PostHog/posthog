@@ -28,12 +28,14 @@ interface TileSpec {
 
 export function kpiTileUrls(searchParams: Record<string, any>): {
     sessions: string
+    erroredSessions: string
     toolQuality: string
     intentClustering: string
 } {
     const { landing: _landing, search: _search, ...sharedParams } = searchParams
     return {
         sessions: combineUrl(urls.mcpAnalyticsSessions(), sharedParams).url,
+        erroredSessions: combineUrl(urls.mcpAnalyticsSessions(), { ...sharedParams, has_errors: 'true' }).url,
         toolQuality: combineUrl(urls.mcpAnalyticsToolQuality(), sharedParams).url,
         intentClustering: combineUrl(urls.mcpAnalyticsIntentClustering(), sharedParams).url,
     }
@@ -109,6 +111,7 @@ export function KpiTiles({
 }): JSX.Element {
     const {
         sessions: sessionsHref,
+        erroredSessions: erroredSessionsHref,
         toolQuality: toolQualityHref,
         intentClustering: intentClusteringHref,
     } = kpiTileUrls(useValues(router).searchParams)
@@ -145,11 +148,11 @@ export function KpiTiles({
         {
             label: 'Error rate',
             metric: kpis.errorRatePct,
-            href: sessionsHref,
+            href: erroredSessionsHref,
             format: (n) => formatPercentage(n, { compact: true }),
             color: theme.colors[4],
             loading: kpisLoading,
-            summaryLabel: 'Latest',
+            summaryLabel: 'Overall',
         },
         {
             label: 'p95 latency',
@@ -157,8 +160,8 @@ export function KpiTiles({
             href: toolQualityHref,
             format: formatMs,
             color: theme.colors[0],
-            loading: kpisLoading,
-            summaryLabel: 'Latest',
+            loading: kpisLoading || usersLoading,
+            summaryLabel: 'Overall',
         },
         ...(showIntentClusters
             ? [

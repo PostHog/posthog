@@ -1,5 +1,5 @@
 import type { AEOPromptEngineCheckApi, ContentAutopilotOpportunityApi } from '../generated/api.schemas'
-import { EXAMPLE_OPPORTUNITIES } from './contentAutopilotStoryFixtures'
+import { EXAMPLE_OPPORTUNITIES, EXAMPLE_PROMPTS } from './contentAutopilotStoryFixtures'
 import { draftableOpportunity, promptSearches } from './utils'
 
 describe('utils', () => {
@@ -25,39 +25,30 @@ describe('utils', () => {
     })
 
     describe('promptSearches', () => {
+        const check = (engine: string, search_queries: string[]): AEOPromptEngineCheckApi => ({
+            ...EXAMPLE_PROMPTS[0].latest_checks[0],
+            engine,
+            search_queries,
+        })
+
         it.each<[string, AEOPromptEngineCheckApi[], { primary: string | null; distinct: number }]>([
             ['no searches', [], { primary: null, distinct: 0 }],
             [
                 'the search most engines ran wins, case ignored',
                 [
-                    {
-                        engine: 'openai-web-search',
-                        cited: false,
-                        check_failed: false,
-                        search_queries: ['Best session replay', 'replay pricing'],
-                        checked_at: '2026-11-01T00:00:00Z',
-                    },
-                    {
-                        engine: 'claude-web-search',
-                        cited: false,
-                        check_failed: false,
-                        search_queries: ['best session replay'],
-                        checked_at: '2026-11-01T00:00:00Z',
-                    },
+                    check('openai-web-search', ['Best session replay', 'replay pricing']),
+                    check('claude-web-search', ['best session replay']),
                 ],
                 { primary: 'best session replay', distinct: 2 },
             ],
             [
+                'blank and repeated searches are skipped',
+                [check('claude-web-search', ['  ', 'Same', 'same '])],
+                { primary: 'Same', distinct: 1 },
+            ],
+            [
                 'one engine, first search',
-                [
-                    {
-                        engine: 'claude-web-search',
-                        cited: false,
-                        check_failed: false,
-                        search_queries: ['first', 'second'],
-                        checked_at: '2026-11-01T00:00:00Z',
-                    },
-                ],
+                [check('claude-web-search', ['first', 'second'])],
                 { primary: 'first', distinct: 2 },
             ],
         ])('picks the search to show with %s', (_name, latest_checks, expected) => {
