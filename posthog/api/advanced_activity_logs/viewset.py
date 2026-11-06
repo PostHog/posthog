@@ -27,6 +27,7 @@ from posthog.models.activity_logging.activity_log import (
     ActivityScope,
     apply_activity_visibility_restrictions,
 )
+from posthog.models.activity_logging.property_value_visibility import PropertyValueVisibility
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
 from posthog.models.activity_logging.utils import CREDENTIAL_TYPE_CHOICES
 from posthog.models.organization import Organization, OrganizationMembership
@@ -109,6 +110,13 @@ def apply_organization_scoped_filter(
         return queryset.filter(team_id=team_id)
 
 
+def visible_detail(instance: ActivityLog, context: dict[str, Any]) -> Optional[dict[str, Any]]:
+    visibility = PropertyValueVisibility.from_serializer_context(context)
+    if visibility is None:
+        return instance.safe_detail
+    return visibility.apply(instance, instance.safe_detail)
+
+
 def credential_type_field() -> serializers.ChoiceField:
     return serializers.ChoiceField(
         choices=CREDENTIAL_TYPE_CHOICES,
@@ -169,7 +177,7 @@ class ActivityLogSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: ActivityLog) -> dict:
         data = super().to_representation(instance)
-        data["detail"] = instance.safe_detail
+        data["detail"] = visible_detail(instance, self.context)
         return data
 
     def get_unread(self, obj: ActivityLog) -> bool:
@@ -564,7 +572,7 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
         ]
 
     def get_detail(self, obj):
-        return json.dumps(obj.safe_detail) if obj.detail else ""
+        return json.dumps(visible_detail(obj, self.context)) if obj.detail else ""
 
 
 class StaticFiltersSerializer(serializers.Serializer):

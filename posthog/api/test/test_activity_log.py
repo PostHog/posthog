@@ -28,6 +28,9 @@ from posthog.session.activity import session_public_id
 from posthog.test.authentication_checks import covers_authentication
 from posthog.test.insight_queries import default_pageview_query
 
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks.csv_exporter import add_query_params
 
@@ -294,6 +297,79 @@ class TestActivityLogAuditLogsGate(APIBaseTest):
         assert "New name" in body
         entry.refresh_from_db()
         assert entry.detail == detail
+
+    @parameterized.expand(
+        [
+            (f"{endpoint}_{name}", endpoint, level, hidden)
+            for endpoint in ("activity_log/", "advanced_activity_logs/", "advanced_activity_logs/?is_csv_export=1")
+            for name, level, hidden in (
+                ("member", OrganizationMembership.Level.MEMBER, True),
+                ("admin", OrganizationMembership.Level.ADMIN, False),
+            )
+        ]
+    )
+    def test_group_property_values_follow_property_access_control(
+        self, _name: str, endpoint: str, level: OrganizationMembership.Level, hidden: bool
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = level
+        self.organization_membership.save()
+        plan = PropertyDefinition.objects.create(
+            team=self.team, name="plan", type=PropertyDefinition.Type.GROUP, group_type_index=0
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=plan, access_level=PropertyAccessLevel.NONE.value
+        )
+        for name, before, after in (
+            ("plan", "example-plan-before", "example-plan-after"),
+            ("industry", "example-industry-before", "example-industry-after"),
+        ):
+            ActivityLog.objects.create(
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                user=self.user,
+                scope="Group",
+                activity="update_property",
+                item_id="1",
+                detail={
+                    "name": name,
+                    "changes": [{"type": "Group", "action": "changed", "before": before, "after": after}],
+                },
+            )
+        ActivityLog.objects.create(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            user=self.user,
+            scope="FeatureFlag",
+            activity="updated",
+            item_id="2",
+            detail={
+                "name": "plan",
+                "changes": [
+                    {
+                        "type": "FeatureFlag",
+                        "field": "key",
+                        "action": "changed",
+                        "before": "old-key",
+                        "after": "new-key",
+                    }
+                ],
+            },
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/{endpoint}")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.content.decode()
+        assert ("example-plan-before" in body) is not hidden
+        assert ("example-plan-after" in body) is not hidden
+        assert "example-industry-before" in body
+        assert "example-industry-after" in body
+        assert "old-key" in body
+        assert "new-key" in body
 
     @parameterized.expand(
         [
