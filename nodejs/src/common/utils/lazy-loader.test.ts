@@ -335,6 +335,25 @@ describe('LazyLoader', () => {
             expect(loader).toHaveBeenCalledTimes(2)
         })
 
+        it('sees a write made while another reload runs, and shares one follow-up load', async () => {
+            const reloading = new LazyLoader<string>({ name: 'test', loader, bufferMs: 0 })
+            let finishRunningReload: (values: Record<string, string>) => void = () => {}
+            loader
+                .mockReturnValueOnce(new Promise((resolve) => (finishRunningReload = resolve)))
+                .mockResolvedValueOnce({ key1: 'after write' })
+
+            const running = reloading.reload('key1')
+            while (loader.mock.calls.length === 0) {
+                await delay(1)
+            }
+            const later = [reloading.reload('key1'), reloading.reload('key1'), reloading.reload('key1')]
+            finishRunningReload({ key1: 'before write' })
+
+            await Promise.all([running, ...later])
+            expect(await reloading.get('key1')).toBe('after write')
+            expect(loader).toHaveBeenCalledTimes(2)
+        })
+
         it('shares one load between reloads called together', async () => {
             loader.mockResolvedValueOnce({ key1: 'value1' }).mockResolvedValueOnce({ key1: 'value2' })
             await lazyLoader.get('key1')
