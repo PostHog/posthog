@@ -21,25 +21,11 @@ const meta: Meta<typeof DashboardSetupPrompt> = {
 export default meta
 type Story = StoryObj<typeof DashboardSetupPrompt>
 
-export const Scanning: Story = {
-    args: {
-        dismissible: false,
-        children: (dismissButton) => <SourceSetupPanel state="scanning" headerAction={dismissButton} />,
-    },
-    parameters: { testOptions: { waitForLoadersToDisappear: false } },
-}
-export const Failed: Story = {
-    args: {
-        dismissible: false,
-        children: (dismissButton) => <SourceSetupPanel state="error" onRetry={() => {}} headerAction={dismissButton} />,
-    },
-}
-
-export const Suggestions: Story = {
+export const Dismissible: Story = {
     args: { children: (dismissButton) => <SourceSetupPanel state="empty" headerAction={dismissButton} /> },
 }
 export const WithoutSetup: Story = {
-    ...Suggestions,
+    ...Dismissible,
     parameters: {
         featureFlags: {
             [FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP]: false,

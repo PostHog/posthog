@@ -95,6 +95,7 @@ export function ReportNoteComposer({ report }: { report: SignalReport }): JSX.El
     return (
         <LemonInput
             size="small"
+            className="px-2"
             placeholder="Add a note…"
             onFocus={() => setOpen(true)}
             aria-label="Add a note about this report"
