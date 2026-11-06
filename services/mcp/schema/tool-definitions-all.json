@@ -5800,7 +5800,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "events-retention-deletion-count": {
-        "description": "Count this project's events that the next monthly cleanup would delete if the project kept events for `retention_months` months. Call it before events-retention-update-prepare and tell the user the count, so they know how many events a shorter period deletes. The cleanup deletes whole calendar months, so the count covers the events from before the start of the month that holds the date `retention_months` months before the next cleanup.\n\nThe count only includes events that queries can still return, and it can be up to a day old. It only predicts the monthly cleanup, so it doesn't apply when removing the period makes the project use the default period, which a cleanup every 3 months applies. A 504 means the count took too long. Tell the user the count isn't available, and don't retry in a loop. Organization admins only.",
+        "description": "Count this project's events that the next monthly cleanup would delete if the project kept events for `retention_months` months. Call it before events-retention-update-prepare and tell the user the count, so they know how many events a shorter period deletes. The cleanup deletes whole calendar months, so the count covers the events from before the start of the month that holds the date `retention_months` months before the next cleanup.",
         "category": "Product analytics",
         "feature": "product_analytics",
         "summary": "Count the events a project's retention period would delete",
