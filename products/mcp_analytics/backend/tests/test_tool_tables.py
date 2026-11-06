@@ -716,15 +716,10 @@ class TestMCPToolNeighborsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhou
     ) -> None:
         now = datetime.now(tz=UTC)
         conversations: dict[str, list[str | None]] = {
-            # The target repeats, back to back and again at the end: each occurrence counts, but
-            # never as its own neighbor.
-            "conv1": ["tool_a", "query_run", "query_run", "tool_b", "query_run"],
-            # The target opens the conversation, so it has nothing before it.
-            "conv2": ["query_run", "tool_c"],
-            # Never calls the target, so its pairs must not leak into the counts.
-            "conv3": ["tool_b", "tool_d"],
-            # A call with no tool name is not a neighbor, so it must not take a top-five slot as a blank.
-            "conv4": [None, "query_run", None],
+            "target_repeats_back_to_back_and_at_the_end": ["tool_a", "query_run", "query_run", "tool_b", "query_run"],
+            "target_opens_the_conversation": ["query_run", "tool_c"],
+            "target_never_called": ["tool_b", "tool_d"],
+            "nameless_calls_beside_the_target": [None, "query_run", None],
         }
         for session_id, tools in conversations.items():
             for position, tool in enumerate(tools):

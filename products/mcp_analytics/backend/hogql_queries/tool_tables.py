@@ -753,8 +753,7 @@ class MCPToolSampleIntentsQueryRunner(HarnessLabelQueryRunner[MCPToolSampleInten
         )
 
 
-# Each call's neighbour, lined up with `tools`: the sequence shifted one place, padded with NULL
-# where a conversation starts or ends. Fixed strings, never user input.
+# The sequence shifted one place, so each call lines up with its neighbour without a lambda capturing `tools`.
 _NEIGHBORS_SQL: dict[NeighborDirection, str] = {
     NeighborDirection.BEFORE: "arrayPushFront(arrayPopBack(tools), NULL)",
     NeighborDirection.AFTER: "arrayPushBack(arrayPopFront(tools), NULL)",
@@ -773,13 +772,8 @@ class MCPToolNeighborsQueryRunner(AnalyticsQueryRunner[MCPToolNeighborsQueryResp
         return mcp_query_date_range(self.team, self.query.dateRange)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        # Builds each conversation's tool sequence with groupArray rather than a window function:
-        # a window over every call in the range sorts all of them by conversation, which on a busy
-        # server costs several times the scan itself. Every tool call is collected (not just the
-        # target tool) so each call's neighbour is in the sequence, and the shared filters apply
-        # first so a filtered-out call cannot count as a neighbour either. The neighbours are a
-        # shifted copy zipped with the sequence, because a lambda that indexes into `tools`
-        # captures the whole array once per element.
+        # groupArray, not a window function: a window sorts every call in the range by conversation,
+        # which costs several times the scan on a busy server.
         where = _tool_call_where(
             self.query,
             self.query_date_range,
