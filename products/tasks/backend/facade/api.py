@@ -856,15 +856,6 @@ def _task_slack_thread_references(task: Task) -> list[contracts.SlackThreadRefer
     return references
 
 
-def _task_status_label(task: Task) -> str | None:
-    if task.status is None:
-        return None
-    label = task.get_status_display()
-    if task.status_reason in (None, Task.StatusReason.TURN_CLOSED):
-        return label
-    return f"{label} ({task.get_status_reason_display().lower()})"
-
-
 def get_task_for_slack_unfurl(task_id: str | UUID, team_id: int, user_id: int) -> contracts.TaskSlackUnfurlDTO | None:
     task = (
         _visible_task_qs(team_id, user_id)
@@ -878,7 +869,7 @@ def get_task_for_slack_unfurl(task_id: str | UUID, team_id: int, user_id: int) -
         id=task.id,
         title=task.title,
         created_by_id=task.created_by_id,
-        status=_task_status_label(task),
+        status=task.status_label,
     )
 
 

@@ -446,7 +446,7 @@ Use this tool when the user wants to:
             lines = [f"Found {len(tasks)} task(s):\n"] if tasks else []
 
             for task in tasks:
-                status = task.get_status_display() if task.status else "Unknown"
+                status = task.status_label or "Unknown"
 
                 lines.append(f"- {task.slug} (ID: {task.id}): {task.title}")
                 lines.append(f"  Status: {status} | Repository: {task.repository or 'N/A'}")
