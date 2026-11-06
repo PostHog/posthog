@@ -11,8 +11,9 @@ from uuid import UUID, uuid4
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import ANY, MagicMock, patch
 
+from django.conf import UserSettingsHolder, settings
 from django.core.management import call_command
-from django.db import connection
+from django.db import DatabaseError, connection
 from django.test import override_settings
 from django.utils import timezone
 
@@ -3573,6 +3574,92 @@ class TestHogFlowAPI(APIBaseTest):
             payload = mock_invoke.call_args.kwargs["payload"]
             assert payload["globals"] == {"event": {"event": "$pageview", "distinct_id": "test-distinct-id"}}
             assert payload["mock_async_functions"] is True
+
+    @parameterized.expand(
+        [
+            ("saved_workflow_real_requests", True, False),
+            ("new_workflow_real_requests", False, False),
+            ("mocked_requests", True, True),
+        ]
+    )
+    def test_test_invocation_with_real_requests_is_logged_without_input_values(
+        self, _name: str, saved: bool, mock_async_functions: bool
+    ):
+        workspace = Integration.objects.create(team=self.team, kind="slack", config={}, created_by=self.user)
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-slack",
+                "inputs": {
+                    "slack_workspace": {"value": workspace.id},
+                    "channel": {"value": "C0123456789"},
+                    "text": {"value": "sent-by-the-test"},
+                },
+            }
+        )
+        flow_id = "new"
+        data: dict[str, Any] = {
+            "globals": {"event": {"event": "$pageview", "distinct_id": "d"}},
+            "mock_async_functions": mock_async_functions,
+            "current_action_id": "action_1",
+        }
+        if saved:
+            created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+            assert created.status_code == 201, created.json()
+            flow_id = created.json()["id"]
+        else:
+            data["configuration"] = hog_flow
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+        ) as mock_invoke:
+            mock_invoke.return_value = MagicMock(status_code=500, json=lambda: {"error": "Worker failed"})
+            self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/", data, format="json")
+        assert mock_invoke.call_count == 1
+
+        rows = list(ActivityLog.objects.filter(team_id=self.team.id, scope="HogFlow", activity="tested"))
+        if mock_async_functions:
+            assert rows == []
+            return
+        assert len(rows) == 1
+        assert rows[0].user == self.user
+        assert rows[0].item_id == (flow_id if saved else None)
+        detail = rows[0].detail
+        assert detail is not None
+        assert detail["name"] == "Test Flow"
+        assert detail["context"] == {
+            "action_id": "action_1",
+            "action_type": "function",
+            "template_id": "template-slack",
+            "input_keys": ["channel", "slack_workspace", "text"],
+            "integration_ids": [workspace.id],
+        }
+        assert "sent-by-the-test" not in json.dumps(detail)
+
+    def test_test_invocation_with_real_requests_does_not_run_when_its_activity_log_write_fails(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        production_settings = UserSettingsHolder(settings)
+        production_settings.TEST = False
+        with (
+            patch(
+                "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+            ) as mock_invoke,
+            patch.object(ActivityLog.objects, "create", side_effect=DatabaseError("insert rejected")),
+            patch("posthog.models.activity_logging.activity_log.settings", production_settings),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/new/invocations/",
+                {
+                    "configuration": hog_flow,
+                    "globals": {"event": {"event": "$pageview", "distinct_id": "d"}},
+                    "mock_async_functions": False,
+                    "current_action_id": "action_1",
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        mock_invoke.assert_not_called()
 
     @parameterized.expand(
         [
