@@ -38,8 +38,8 @@ KAFKA_SETTINGS = (
 
 # The metrics and ingestion-metrics nodes were created by hand and hold these objects already, so
 # every statement is a no-op on them. This records the layout and builds it on a replaced cluster.
-# The creates skip existing tables, so the column, view, and codec changes from 0370 and 0371 are
-# applied to those nodes by hand as well.
+# The creates skip existing tables, so the column, view, codec, and sorting key changes from 0370,
+# 0371, and 0372 are applied to those nodes by hand as well.
 #
 # The creates leave require_hosts off, so this applies cleanly before those nodes join
 # posthog_migrations. Nothing here drops the logs or apm side, which keeps running until reads cut over.
