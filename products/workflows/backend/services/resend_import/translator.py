@@ -210,7 +210,7 @@ class _Builder:
     def _with_variables(self, key: str, text: str, variables: Mapping[str, Any]) -> str:
         for name, source in variables.items():
             replacement = self._variable_source(key, name, source)
-            text = re.sub(rf"\bvariables\.{re.escape(name)}\b", lambda _, value=replacement: value, text)
+            text = _fill_variable(text, name, replacement)
         return text
 
     def _variable_source(self, key: str, name: str, source: Any) -> str:
@@ -365,6 +365,11 @@ class _Builder:
         groups = self._condition_groups(key, self.steps[key].get("config") or {})
         self.notes = kept
         return groups
+
+
+def _fill_variable(text: str, name: str, replacement: str) -> str:
+    # A callable keeps a backslash in the replacement from reading as a regex escape.
+    return re.sub(rf"\bvariables\.{re.escape(name)}\b", lambda _: replacement, text)
 
 
 def _rename_reserved_keys(steps: Mapping[str, Any]) -> dict[str, str]:
