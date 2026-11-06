@@ -119,7 +119,7 @@ export function ProviderImportPanel({
         startedImportRunLoading,
         showImportAgainForm,
     } = useValues(providerImportLogic)
-    const { submitImportForm, startImport, setShowImportAgainForm } = useActions(providerImportLogic)
+    const { submitImportForm, startImport, setShowImportAgainForm, loadImportRuns } = useActions(providerImportLogic)
 
     const noStepsReason = selectedImportSteps.length === 0 ? 'Select at least one thing to import' : undefined
 
@@ -128,6 +128,15 @@ export function ProviderImportPanel({
             <div className="flex justify-center py-8">
                 <Spinner className="text-3xl" />
             </div>
+        )
+    }
+
+    // Without the history, the form could hide a running import and start a second one.
+    if (importRuns === null) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Try again', onClick: loadImportRuns }}>
+                Couldn't load your earlier imports.
+            </LemonBanner>
         )
     }
 

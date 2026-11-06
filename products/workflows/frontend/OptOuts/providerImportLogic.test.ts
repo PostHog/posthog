@@ -136,7 +136,10 @@ describe('providerImportLogic', () => {
         logic.actions.loadImportProvidersSuccess([PROVIDER_OPTION, resend] as any)
         expect(logic.values.selectedProvider).toBeNull()
 
+        logic.actions.setImportFormValue('api_key', 'a-key-for-another-tool')
         logic.actions.selectProvider('resend')
         expect(logic.values.selectedProvider?.key).toBe('resend')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.importForm.api_key).toBe('')
     })
 })
