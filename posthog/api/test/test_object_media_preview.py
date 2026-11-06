@@ -168,6 +168,7 @@ class TestObjectMediaPreviewAPI(APIBaseTest):
 
         assert len(with_four) == len(with_one)
         assert not any("other-project-session" in sql for sql in with_four)
+        assert not any('"posthog_exportedasset"."content"' in sql for sql in with_four)
 
     @parameterized.expand(
         [

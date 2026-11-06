@@ -1,6 +1,8 @@
 import uuid
 from collections.abc import Iterable
 
+from django.db.models import QuerySet
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, status, viewsets
@@ -19,7 +21,11 @@ from posthog.taxonomy.scout_writes import refuse_scout_taxonomy_write
 from products.event_definitions.backend.models import EventDefinition
 from products.exports.backend.facade.auth import viewable_exported_asset_ids
 
-PREVIEW_SELECT_RELATED = ("uploaded_media", "exported_asset")
+
+def with_preview_media(queryset: QuerySet[ObjectMediaPreview]) -> QuerySet[ObjectMediaPreview]:
+    # An export's content column can hold the whole file when object storage is off, and no preview path reads it
+    return queryset.select_related("uploaded_media", "exported_asset").defer("exported_asset__content")
+
 
 PREFERRED_EXPORTED_SCAN_LIMIT = 50
 
@@ -167,8 +173,8 @@ class ObjectMediaPreviewViewSet(
         # The mixin applies its team filter only after this method returns, and the access check below
         # loads every exported preview in the queryset, so scope to the team first.
         queryset = (
-            queryset.filter(team_id=self.team_id)
-            .select_related(*PREVIEW_SELECT_RELATED, "event_definition")
+            with_preview_media(queryset.filter(team_id=self.team_id))
+            .select_related("event_definition")
             .order_by("-updated_at", "-id")
         )
         event_definition_id = self.request.query_params.get("event_definition")
@@ -237,12 +243,14 @@ class ObjectMediaPreviewViewSet(
             return Response(serializer.data)
 
         exported = list(
-            ObjectMediaPreview.objects.filter(
-                event_definition_id=event_definition_id,
-                team=self.team,
-                exported_asset__isnull=False,
+            with_preview_media(
+                ObjectMediaPreview.objects.filter(
+                    event_definition_id=event_definition_id,
+                    team=self.team,
+                    exported_asset__isnull=False,
+                )
             )
-            .select_related(*PREVIEW_SELECT_RELATED, "event_definition")
+            .select_related("event_definition")
             .order_by("-updated_at", "-id")[:PREFERRED_EXPORTED_SCAN_LIMIT]
         )
         self._visible_exported_asset_ids = visible_exported_asset_ids(exported, self)

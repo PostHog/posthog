@@ -35,5 +35,9 @@ def viewable_exported_asset_ids(
     Uses the same rules as the exports API, with a fixed number of queries however many ids are given.
     Product exports are never included, because their owning product authorizes them on its own endpoints.
     """
-    assets = ExportedAsset.objects.filter(id__in=set(asset_ids), team_id=team_id).select_related("dashboard", "insight")
+    assets = (
+        ExportedAsset.objects.filter(id__in=set(asset_ids), team_id=team_id)
+        .select_related("dashboard", "insight")
+        .defer("content")
+    )
     return viewable_assets(assets, user_id=user_id, user_access_control=user_access_control)

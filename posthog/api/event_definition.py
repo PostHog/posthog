@@ -24,7 +24,7 @@ from posthog.api.event_definition_generators.base import EventDefinitionGenerato
 from posthog.api.event_definition_generators.golang import GolangGenerator
 from posthog.api.event_definition_generators.python import PythonGenerator
 from posthog.api.event_definition_generators.typescript import TypeScriptGenerator
-from posthog.api.object_media_preview import PREVIEW_SELECT_RELATED, visible_previews
+from posthog.api.object_media_preview import visible_previews, with_preview_media
 from posthog.api.pagination import CappedCountLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -784,11 +784,9 @@ class EventDefinitionViewSet(
             event_ids = [obj.id for obj in objects]
             media_map: dict[str, list[str]] = defaultdict(list)
             if event_ids:
-                previews = (
+                previews = with_preview_media(
                     ObjectMediaPreview.objects.filter(event_definition_id__in=event_ids)
-                    .select_related(*PREVIEW_SELECT_RELATED)
-                    .order_by("-updated_at")
-                )
+                ).order_by("-updated_at")
                 for p in visible_previews(previews, self):
                     if p.media_url:
                         media_map[str(p.event_definition_id)].append(p.media_url)
