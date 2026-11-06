@@ -4,12 +4,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import type { EvalSuggestionApi, EvalSuggestionFilterApi } from '../../generated/api.schemas'
-
-const UNITS: Record<string, [string, string]> = {
-    generation: ['generation', 'generations'],
-    trace: ['trace', 'traces'],
-    session: ['conversation', 'conversations'],
-}
+import { UNITS } from './units'
 
 /** "Only where review_lens is security-1 or security-2", in full, since a chip cuts multi-value filters short. */
 function filterSummary(filters: readonly EvalSuggestionFilterApi[]): string {

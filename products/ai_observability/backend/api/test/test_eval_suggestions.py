@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -271,6 +272,94 @@ class TestEvalSuggestionsApi(APIBaseTest):
     def test_dismiss_rejects_an_unknown_reason(self) -> None:
         response = self.client.post(f"{self.url}/{self._suggestion().id}/dismiss/", {"reason": "boring"}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("burst_then_an_empty_slice", [5000, 0], 0),
+            ("still_too_full_after_every_shrink", [5000, 4000, 3000, 2000], 3),
+        ]
+    )
+    @patch(f"{BACKFILLS_MODULE}.sync_connect")
+    @patch(f"{ACCEPT_MODULE}.count_backfill_candidates")
+    def test_accept_falls_back_to_the_last_window_with_traffic(
+        self, _name: str, counts: list[int], kept_window: int, count: MagicMock, connect: MagicMock
+    ) -> None:
+        connect.return_value = _temporal_client()
+        count.side_effect = [BackfillScope(to_evaluate=units, already_judged=0) for units in counts]
+
+        response = self.client.post(f"{self.url}/{self._suggestion().id}/accept/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        backfill = EvaluationBackfill.objects.for_team(self.team.pk).get()
+        assert backfill.max_units == 500
+        assert backfill.window_start == count.call_args_list[kept_window].kwargs["window_start"]
+
+    @patch(f"{ACCEPT_MODULE}.count_backfill_candidates", side_effect=RuntimeError("Code: 159. Timeout exceeded"))
+    def test_accept_keeps_the_evaluation_when_the_backfill_cannot_start(self, _count: MagicMock) -> None:
+        response = self.client.post(f"{self.url}/{self._suggestion().id}/accept/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["backfill_id"] is None
+        assert Evaluation.objects.filter(team=self.team, deleted=False).count() == 1
+
+    @parameterized.expand([("with_a_working_key", True, "gpt-5-mini", 0.2), ("without_a_key", False, None, None)])
+    @patch(f"{ACCEPT_MODULE}.count_backfill_candidates", return_value=BackfillScope(to_evaluate=20, already_judged=0))
+    def test_judge_estimate_prices_whole_units_on_the_key_accept_uses(
+        self, _name: str, with_key: bool, model: str | None, cost: float | None, _count: MagicMock
+    ) -> None:
+        if with_key:
+            self._judge_key()
+        # The card priced a whole trace at $0.01: 1,000 runs a week for $10.
+        suggestion = self._suggestion(
+            EvalSuggestionKind.NEW_LLM_JUDGE,
+            draft=JUDGE_DRAFT,
+            estimated_weekly_runs=1000,
+            estimated_weekly_cost_usd=10.0,
+            mean_input_tokens=100,
+        )
+
+        estimate = self.client.get(f"{self.url}/{suggestion.id}/accept_estimate/").json()
+
+        assert (estimate["units"], estimate["judge_model"]) == (20, model)
+        assert estimate["estimated_cost_usd"] == (None if cost is None else pytest.approx(cost))
+
+    @parameterized.expand([("untouched", False, True), ("edited_after_the_run", True, False)])
+    def test_retrieve_says_whether_a_fix_still_applies(self, _name: str, edited: bool, applies: bool) -> None:
+        target = _evaluation(self.team)
+        fix = self._suggestion(
+            EvalSuggestionKind.FIX_EVAL, draft={"conditions": _conditions("signals_scout")}, target_evaluation=target
+        )
+        if edited:
+            target.save()
+
+        assert self.client.get(f"{self.url}/{fix.id}/").json()["applies"] is applies
+
+    @patch("products.ai_observability.backend.api.evaluations.report_user_action")
+    def test_applied_fix_is_tracked_as_an_evaluation_update(self, report: MagicMock) -> None:
+        target = _evaluation(self.team)
+        fix = self._suggestion(
+            EvalSuggestionKind.FIX_EVAL, draft={"conditions": _conditions("signals_scout")}, target_evaluation=target
+        )
+
+        self.client.post(f"{self.url}/{fix.id}/apply_fix/")
+
+        updated = [call for call in report.call_args_list if call.args[1] == "llma evaluation updated"]
+        assert [call.args[2]["suggestion_id"] for call in updated] == [str(fix.id)]
+        assert updated[0].args[2]["changed_fields"] == ["conditions"]
+
+    @parameterized.expand([("starts", None, True), ("start_fails", RuntimeError("Temporal is down"), False)])
+    @patch(f"{API_MODULE}.is_enabled_for_organization", return_value=True)
+    def test_first_visit_starts_one_run_a_day(
+        self, _name: str, start_error: Exception | None, pending: bool, _flag: MagicMock
+    ) -> None:
+        self.suggestion_run.delete()
+        with patch(f"{API_MODULE}.start_first_visit_run", new=AsyncMock(side_effect=start_error)) as start:
+            first = self.client.get(f"{self.url}/").json()
+            second = self.client.get(f"{self.url}/").json()
+
+        assert first["pending"] is pending
+        assert second["pending"] is False
+        assert start.await_count == 1
 
 
 class TestEvalSuggestionsAccessControl(APIBaseTest):

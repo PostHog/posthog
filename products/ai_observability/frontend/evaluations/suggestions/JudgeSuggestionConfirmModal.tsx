@@ -6,6 +6,7 @@ import { humanFriendlyCurrency, humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { evaluationSuggestionsLogic } from './evaluationSuggestionsLogic'
+import { unitNoun } from './units'
 
 function costText(usd: number | null): string {
     if (usd === null) {
@@ -26,7 +27,9 @@ export function JudgeSuggestionConfirmModal(): JSX.Element {
     } = useValues(evaluationSuggestionsLogic)
     const { closeJudgeConfirm, acceptSuggestion } = useActions(evaluationSuggestionsLogic)
     const accepting = inFlight?.action === 'accept'
-    const unitNoun = `${estimate?.target ?? 'trace'}s`
+    const units = unitNoun(estimate?.target, 2)
+    // The estimate names no model when the project has no working AI provider key, which accept would refuse.
+    const needsKey = !!estimate && !estimate.judge_model
 
     return (
         <LemonModal
@@ -48,7 +51,13 @@ export function JudgeSuggestionConfirmModal(): JSX.Element {
                     <LemonButton
                         type="primary"
                         loading={accepting}
-                        disabledReason={evalSuggestionEstimateLoading ? 'Wait for the cost estimate' : null}
+                        disabledReason={
+                            evalSuggestionEstimateLoading
+                                ? 'Wait for the cost estimate'
+                                : needsKey
+                                  ? 'Add a working AI provider key first'
+                                  : null
+                        }
                         onClick={() => judgeConfirm && acceptSuggestion(judgeConfirm)}
                         data-attr="eval-suggestion-confirm-add"
                     >
@@ -58,6 +67,17 @@ export function JudgeSuggestionConfirmModal(): JSX.Element {
             }
         >
             <div className="flex flex-col gap-3">
+                {needsKey && !judgeConfirmError && (
+                    <LemonBanner
+                        type="warning"
+                        action={{
+                            children: 'Manage provider keys',
+                            to: urls.settings('project-ai-observability', 'ai-observability-byok'),
+                        }}
+                    >
+                        LLM judges run on your own AI provider key. Add a working key to add this eval.
+                    </LemonBanner>
+                )}
                 {judgeConfirmError && (
                     <LemonBanner
                         type="error"
@@ -85,14 +105,14 @@ export function JudgeSuggestionConfirmModal(): JSX.Element {
                         <p className="m-0">
                             {`${
                                 estimate.units > 0
-                                    ? `It runs on recent ${unitNoun} now, then on new ones as they arrive.`
-                                    : `No recent ${unitNoun} match yet, so it starts with new ones as they arrive.`
+                                    ? `It runs on recent ${units} now, then on new ones as they arrive.`
+                                    : `No recent ${units} match yet, so it starts with new ones as they arrive.`
                             } Your AI provider key pays for each run.`}
                         </p>
                         <dl className="flex flex-col gap-1 m-0">
                             {estimate.units > 0 && (
                                 <div className="flex justify-between gap-4">
-                                    <dt className="text-secondary">{`Recent ${unitNoun} to evaluate`}</dt>
+                                    <dt className="text-secondary">{`Recent ${units} to evaluate`}</dt>
                                     <dd className="m-0">{humanFriendlyNumber(estimate.units)}</dd>
                                 </div>
                             )}

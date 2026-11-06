@@ -21,6 +21,7 @@ function suggestion(overrides: Partial<EvalSuggestionApi> = {}): EvalSuggestionA
         id: 'code-1',
         kind: 'new_hog',
         status: 'proposed',
+        applies: true,
         template_key: 'unrecovered_errors',
         headline: '1 in 125 traces ends on a failed call',
         outcome: 'Checks every trace for a tool or model call that failed with no recovery.',

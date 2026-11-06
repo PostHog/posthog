@@ -92,12 +92,28 @@ class EvalSuggestionSerializer(serializers.ModelSerializer):
         help_text="Name of an existing evaluation that may already cover this suggestion.",
     )
 
+    applies = serializers.SerializerMethodField(
+        help_text=(
+            "False for a fix_eval whose evaluation is gone or changed after the run, so its patch would undo "
+            "that change. Always true for other kinds."
+        )
+    )
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_applies(self, suggestion: EvalSuggestion) -> bool:
+        if suggestion.kind != EvalSuggestionKind.FIX_EVAL:
+            return True
+        target = suggestion.target_evaluation
+        # The same rule as STALE_FIX, which hides these from the list.
+        return target is not None and not target.deleted and target.updated_at <= suggestion.run.created_at
+
     class Meta:
         model = EvalSuggestion
         fields = [
             "id",
             "kind",
             "status",
+            "applies",
             "template_key",
             "headline",
             "outcome",

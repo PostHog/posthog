@@ -12,7 +12,7 @@ from django.db import transaction
 from django.utils import timezone
 
 import structlog
-from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
 from posthog.dataclasses import frozen
@@ -26,7 +26,7 @@ from products.ai_observability.backend.api.evaluation_backfills import (
     clamp_backfill_window,
     start_backfill,
 )
-from products.ai_observability.backend.api.evaluations import EvaluationSerializer, create_evaluation
+from products.ai_observability.backend.api.evaluations import EvaluationSerializer, create_evaluation, update_evaluation
 from products.ai_observability.backend.backfill_candidates import count_backfill_candidates
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 from products.ai_observability.backend.models.eval_suggestions import (
@@ -38,9 +38,6 @@ from products.ai_observability.backend.models.evaluation_backfill import Evaluat
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
-
-from .pipeline import judge_model
-from .ranking import judge_input_price
 
 logger = structlog.get_logger(__name__)
 
@@ -104,9 +101,14 @@ def plan_backfill(
     conditions: list[dict[str, Any]],
     cap: int,
 ) -> BackfillPlan | None:
-    """The most recent window that holds at most `cap` units, or None when recent data holds none."""
+    """The most recent window that holds at most `cap` units, or None when recent data holds none.
+
+    Shrinking assumes even traffic, so a burst can leave a shrunk window empty or still too full. Then the last
+    window with traffic runs, and the backfill's `max_units` stops it at `cap`.
+    """
     now = timezone.now()
     window = clamp_backfill_window(team, target, target_config, now - BACKFILL_LOOKBACK, now)
+    last_with_traffic: BackfillWindow | None = None
     for _ in range(MAX_SHRINKS):
         scope = count_backfill_candidates(
             team=team,
@@ -119,12 +121,13 @@ def plan_backfill(
             rerun_existing=True,
         )
         if scope.to_evaluate == 0:
-            return None
+            return BackfillPlan(window=last_with_traffic, units=cap) if last_with_traffic else None
         if scope.to_evaluate <= cap:
             return BackfillPlan(window=window, units=scope.to_evaluate)
+        last_with_traffic = window
         span = (window.end - window.start) * cap / scope.to_evaluate * SHRINK_MARGIN
         window = BackfillWindow(start=window.end - span, end=window.end)
-    return None
+    return BackfillPlan(window=last_with_traffic, units=cap) if last_with_traffic else None
 
 
 def judge_model_configuration(team: Team) -> dict[str, Any]:
@@ -151,9 +154,18 @@ def estimate(suggestion: EvalSuggestion, team: Team) -> AcceptEstimate:
     model = None
     cost: float | None = 0.0
     if suggestion.draft.get("evaluation_type") == "llm_judge":
-        model = judge_model(team)
-        price = judge_input_price(model)
-        cost = units * suggestion.mean_input_tokens * price if price and suggestion.mean_input_tokens else None
+        # The same key and model accept uses. Without a working key, accept refuses, so nothing is priced.
+        try:
+            model = judge_model_configuration(team)["model"]
+        except ValidationError:
+            model = None
+        # Priced per unit as the card was, so a trace judge counts every generation it reads.
+        per_unit = (
+            suggestion.estimated_weekly_cost_usd / suggestion.estimated_weekly_runs
+            if suggestion.estimated_weekly_cost_usd is not None and suggestion.estimated_weekly_runs
+            else None
+        )
+        cost = units * per_unit if model and per_unit is not None else None
     return AcceptEstimate(
         target=target,
         units=units,
@@ -190,9 +202,9 @@ def _start_recent_backfill(team: Team, evaluation: Evaluation, cap: int, user: U
             max_units=plan.units,
             user=user,
         )
-    except (ValidationError, APIException):
-        # The evaluation exists and runs on new traffic either way, so a backfill that cannot start
-        # costs the user the preview, not the evaluation.
+    except Exception:
+        # The evaluation exists and runs on new traffic either way, so a backfill that cannot start, for any
+        # reason, costs the user the preview, not the evaluation.
         logger.warning("llma.eval_suggestion_backfill_not_started", evaluation_id=str(evaluation.id), exc_info=True)
         return None
 
@@ -274,7 +286,12 @@ def apply_fix(suggestion_id: str, *, team: Team, serializer_context: dict[str, A
             raise Conflict(TARGET_CHANGED_MESSAGE)
         serializer = EvaluationSerializer(target, data=suggestion.draft, partial=True, context=serializer_context)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        update_evaluation(
+            serializer,
+            request=serializer_context["request"],
+            team=team,
+            tracking_properties={"suggestion_id": str(suggestion.id)},
+        )
         suggestion.status = EvalSuggestionStatus.ACCEPTED
         suggestion.decided_at = timezone.now()
         suggestion.save(update_fields=["status", "decided_at", "updated_at"])

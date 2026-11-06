@@ -13,6 +13,7 @@ import { EvaluationSuggestions } from './EvaluationSuggestions'
 function suggestion(overrides: Partial<EvalSuggestionApi> & Pick<EvalSuggestionApi, 'id' | 'kind'>): EvalSuggestionApi {
     return {
         status: 'proposed',
+        applies: true,
         template_key: '',
         headline: '',
         outcome: '',
