@@ -177,7 +177,11 @@ def _clean_suggestions(raw: object) -> list[SuggestedReply]:
 
 
 def request_reply_suggestions(
-    answer_markdown: str, attribution: ReplySuggestionAttribution, person_message: str | None = None
+    answer_markdown: str,
+    attribution: ReplySuggestionAttribution,
+    person_message: str | None = None,
+    *,
+    reasoning_effort: str | None = None,
 ) -> list[SuggestedReply]:
     """Raises on a failed call, so the offline eval can tell a failure from an answer that asks nothing."""
     if not answer_markdown.strip():
@@ -196,6 +200,8 @@ def request_reply_suggestions(
         properties=properties,
     ).with_options(timeout=SUGGESTIONS_TIMEOUT_SECONDS, max_retries=SUGGESTIONS_MAX_RETRIES)
     extra: dict[str, Any] = {"user": attribution.distinct_id} if attribution.distinct_id else {}
+    if reasoning_effort:
+        extra["reasoning_effort"] = reasoning_effort
     response = client.chat.completions.create(
         model=SUGGESTIONS_MODEL,
         messages=[
@@ -213,12 +219,18 @@ def request_reply_suggestions(
 
 
 def suggest_replies(
-    answer_markdown: str, attribution: ReplySuggestionAttribution, person_message: str | None = None
+    answer_markdown: str,
+    attribution: ReplySuggestionAttribution,
+    person_message: str | None = None,
+    *,
+    reasoning_effort: str | None = None,
 ) -> list[SuggestedReply]:
     """Any failure returns no replies: a missing suggestion costs the reader one typed reply, and a
     wrong one sends the agent an instruction nobody gave."""
     try:
-        return request_reply_suggestions(answer_markdown, attribution, person_message)
+        return request_reply_suggestions(
+            answer_markdown, attribution, person_message, reasoning_effort=reasoning_effort
+        )
     except Exception:
         logger.warning("reply_suggestions_failed", ai_product=attribution.ai_product, exc_info=True)
         return []

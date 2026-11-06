@@ -23,6 +23,7 @@ REPLY_SUGGESTIONS_FLAG = "posthog-ai-reply-suggestions"
 REPLY_SUGGESTIONS_METHOD = "_posthog/reply_suggestions"
 REPLY_SUGGESTIONS_AI_PRODUCT = "posthog_ai"
 REPLY_SUGGESTIONS_FEATURE = "reply_suggestions"
+REPLY_SUGGESTIONS_REASONING_EFFORT = "none"
 
 MAX_TRANSCRIPT_LOG_BYTES = 16 * 1024 * 1024
 
@@ -100,6 +101,7 @@ def generate_reply_suggestions(run_id: str, team_id: int) -> ReplySuggestionsOut
             run_id=str(task_run.id),
         ),
         transcript.last_human_message,
+        reasoning_effort=REPLY_SUGGESTIONS_REASONING_EFFORT,
     )
     if not suggestions:
         return _skipped("nothing_to_suggest")

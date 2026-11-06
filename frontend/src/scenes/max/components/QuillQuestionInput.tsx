@@ -9,7 +9,7 @@ import { Button, Kbd, Spinner, Switch, Text } from '@posthog/quill'
 import { cn } from 'lib/utils/css-classes'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
-import { QuillComposerLayout } from 'products/posthog_ai/frontend/api/composer'
+import { QuillComposerLayout, ReplySuggestionHint } from 'products/posthog_ai/frontend/api/composer'
 
 import { ContextTags, ContextToolInfoTags, SandboxContextTags } from '../Context'
 import { maxThreadLogic } from '../maxThreadLogic'
@@ -24,7 +24,6 @@ import {
 import { FillInHint } from './FillInHint'
 import { QuillContextPicker } from './QuillContextPicker'
 import { QuillModeSelector } from './QuillModeSelector'
-import { ReplySuggestionHint } from './ReplySuggestionHint'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 import { type QueuedMessageEditProps, useQuestionInput } from './useQuestionInput'
 

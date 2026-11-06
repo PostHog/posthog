@@ -297,6 +297,7 @@ export function useQuestionInput({ textAreaRef, onSubmit }: UseQuestionInputOpti
             if (noModifiers && (event.key === 'Tab' || event.key === 'ArrowRight')) {
                 event.preventDefault()
                 acceptedReplySuggestion.current = replySuggestion
+                setDismissedReplySuggestionTurn(sandboxReplySuggestions.turnIndex)
                 handleQuestionChange(replySuggestion)
                 posthog.capture('posthog ai reply suggestion accepted', {
                     conversation_id: conversation?.id,

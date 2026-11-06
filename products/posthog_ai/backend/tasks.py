@@ -1,5 +1,5 @@
 import structlog
-from celery import shared_task
+from celery import Task, shared_task
 from prometheus_client import Counter
 
 from posthog.celery_queues import CeleryQueue
@@ -37,9 +37,22 @@ REPLY_SUGGESTIONS_OUTCOMES_TOTAL = Counter(
 )
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.POSTHOG_AI.value, soft_time_limit=45, time_limit=60)
-def generate_reply_suggestions_task(*, run_id: str, team_id: int) -> None:
+REPLY_SUGGESTIONS_SETTLE_RETRIES = 3
+REPLY_SUGGESTIONS_SETTLE_RETRY_SECONDS = 0.5
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    queue=CeleryQueue.POSTHOG_AI.value,
+    soft_time_limit=45,
+    time_limit=60,
+    max_retries=REPLY_SUGGESTIONS_SETTLE_RETRIES,
+)
+def generate_reply_suggestions_task(self: Task, *, run_id: str, team_id: int) -> None:
     outcome = generate_reply_suggestions(run_id, team_id)
+    if outcome.reason == "turn_in_progress" and self.request.retries < REPLY_SUGGESTIONS_SETTLE_RETRIES:
+        raise self.retry(countdown=REPLY_SUGGESTIONS_SETTLE_RETRY_SECONDS)
     reason = outcome.reason if outcome.status != "emitted" else "emitted"
     REPLY_SUGGESTIONS_OUTCOMES_TOTAL.labels(status=outcome.status, reason=reason).inc()
     logger.info(

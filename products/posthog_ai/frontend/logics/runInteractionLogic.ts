@@ -57,6 +57,7 @@ import { rememberAttachmentPreview } from '../utils/attachmentPreviews'
 import type { PendingAttachment } from '../utils/attachments'
 import { extractCommentContexts, withCommentContexts } from '../utils/commentContext'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
+import type { ReplySuggestions } from '../utils/replySuggestions'
 import { submitWithWarmRunRetry } from '../utils/warmRunSubmission'
 import { chatContextLogic, chatSendItems } from './chatContextLogic'
 import { codexBillingLogic, pickedCodexModelAccess, usesChatGptPlan } from './codexBillingLogic'
@@ -197,6 +198,7 @@ export interface runInteractionLogicValues {
     currentRunStatus: RunStatus | null // runStreamLogic
     isThinking: boolean // runStreamLogic
     pendingPermissionRequest: PermissionRequestRecord | null // runStreamLogic
+    replySuggestions: ReplySuggestions | null // runStreamLogic
     permissionResponseRequestIds: Set<string> // runStreamLogic
     respondingToPermission: boolean // runStreamLogic
     runOpening: boolean // runStreamLogic
@@ -243,7 +245,10 @@ export interface runInteractionLogicValues {
     modeOverride: PermissionMode | null
     modelOverride: string | null
     pendingContextItems: AttachedContextItem[]
+    acceptedReplySuggestion: string | null
+    dismissedReplySuggestionTurn: number | null
     queueEditing: boolean
+    replySuggestion: string | null
     queueHeld: boolean
     queueHold: QueueHold
     queuedMessages: QueuedMessage[]
@@ -499,6 +504,23 @@ export interface runInteractionLogicActions {
     setQueueEditing: (editing: boolean) => {
         editing: boolean
     }
+    acceptReplySuggestion: (
+        reply: string,
+        key: string
+    ) => {
+        reply: string
+        key: string
+        turnIndex: number | null
+    }
+    dismissReplySuggestion: (turnIndex: number) => {
+        turnIndex: number
+    }
+    reportReplySuggestionShown: (turnIndex: number) => {
+        turnIndex: number
+    }
+    clearAcceptedReplySuggestion: () => {
+        value: true
+    }
     setSending: (sending: boolean) => {
         sending: boolean
     }
@@ -565,6 +587,12 @@ export interface runInteractionLogicMeta {
             permissionResponseRequestIds: Set<string>
         ) => boolean
         steerPending: (deferredSteerRequestId: string | null, sending: boolean) => boolean
+        replySuggestion: (
+            replySuggestions: ReplySuggestions | null,
+            dismissedReplySuggestionTurn: number | null,
+            isBusy: boolean,
+            isSubmitting: boolean
+        ) => string | null
         composerActive: (
             pendingPermissionRequest: PermissionRequestRecord | null,
             respondingToPermission: boolean,
@@ -699,6 +727,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 'permissionResponseRequestIds',
                 'bootstrappedRunId',
                 'bootstrappedTaskId',
+                'replySuggestions',
             ],
             attachedContextLogic,
             ['sentContextKeysByTask', 'seenContextLinesByTask'],
@@ -790,6 +819,14 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         queueDeliveryFailed: true,
         // Mirrors the queue editor's open/closed state into the logic, so an automatic drain waits for it.
         setQueueEditing: (editing: boolean) => ({ editing }),
+        acceptReplySuggestion: (reply: string, key: string) => ({
+            reply,
+            key,
+            turnIndex: values.replySuggestions?.turnIndex ?? null,
+        }),
+        dismissReplySuggestion: (turnIndex: number) => ({ turnIndex }),
+        reportReplySuggestionShown: (turnIndex: number) => ({ turnIndex }),
+        clearAcceptedReplySuggestion: true,
         // Pick the model / reasoning effort for the next message. Selection is held client-side only and
         // synced to the running agent (via `set_config_option`) at send time — not on each pick. The backend
         // doesn't persist live changes back to the run state, so the override is the source of truth.
@@ -829,6 +866,20 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             {
                 setQueueEditing: (_, { editing }) => editing,
                 clearQueue: () => false,
+            },
+        ],
+        dismissedReplySuggestionTurn: [
+            null as number | null,
+            {
+                dismissReplySuggestion: (_, { turnIndex }) => turnIndex,
+                acceptReplySuggestion: (state, { turnIndex }) => turnIndex ?? state,
+            },
+        ],
+        acceptedReplySuggestion: [
+            null as string | null,
+            {
+                acceptReplySuggestion: (_, { reply }) => reply,
+                clearAcceptedReplySuggestion: () => null,
             },
         ],
         consentBlockedSource: ['draft' as 'draft' | 'queue' | 'steer', { blockOnConsent: (_, { source }) => source }],
@@ -1124,6 +1175,18 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     startupOverride ?? override ?? getModeOption(current)?.value ?? getModeOption(initial)?.value
                 return picked ? resolveModeForRuntimeAdapter(adapter, picked) : getDefaultModeForRuntimeAdapter(adapter)
             },
+        ],
+        replySuggestion: [
+            (s) => [s.replySuggestions, s.dismissedReplySuggestionTurn, s.isBusy, s.isSubmitting],
+            (
+                replySuggestions: ReplySuggestions | null,
+                dismissedTurn: number | null,
+                isBusy: boolean,
+                isSubmitting: boolean
+            ): string | null =>
+                !replySuggestions || isBusy || isSubmitting || replySuggestions.turnIndex === dismissedTurn
+                    ? null
+                    : (replySuggestions.suggestions[0]?.reply ?? null),
         ],
         // The agent is actively working a turn — a follow-up typed now should stage rather than send.
         isBusy: [
@@ -1804,6 +1867,33 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
     }),
     listeners(taskDraftListeners),
     listeners(({ actions, values, props, cache }) => ({
+        reportReplySuggestionShown: ({ turnIndex }) => {
+            posthog.capture('posthog ai reply suggestion shown', {
+                task_id: props.taskId,
+                turn_index: turnIndex,
+                suggestion_count: values.replySuggestions?.suggestions.length,
+            })
+        },
+        acceptReplySuggestion: ({ key, turnIndex }) => {
+            posthog.capture('posthog ai reply suggestion accepted', {
+                task_id: props.taskId,
+                turn_index: turnIndex,
+                key,
+            })
+        },
+        dismissReplySuggestion: ({ turnIndex }) => {
+            posthog.capture('posthog ai reply suggestion dismissed', { task_id: props.taskId, turn_index: turnIndex })
+        },
+        pushHumanMessage: ({ content }) => {
+            const accepted = values.acceptedReplySuggestion
+            if (accepted !== null) {
+                posthog.capture('posthog ai reply suggestion sent', {
+                    task_id: props.taskId,
+                    edited: content.trim() !== accepted,
+                })
+                actions.clearAcceptedReplySuggestion()
+            }
+        },
         hydrateTaskDraft: () => {
             const draft = values.composerForm.draft
             const commentLogic = props.taskId ? taskCommentContextsLogic.findMounted({ taskId: props.taskId }) : null

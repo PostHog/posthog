@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from celery.exceptions import Retry
 from parameterized import parameterized
 
 from products.posthog_ai.backend.reply_suggestions.service import (
@@ -8,6 +9,7 @@ from products.posthog_ai.backend.reply_suggestions.service import (
     ReplySuggestionsOutcome,
     generate_reply_suggestions,
 )
+from products.posthog_ai.backend.tasks import generate_reply_suggestions_task
 from products.tasks.backend.facade.api import TaskClientProvenance
 from products.tasks.backend.facade.contracts import StreamNotificationDelivery
 from products.tasks.backend.facade.reply_suggestions import SuggestedReply
@@ -84,6 +86,7 @@ class TestGenerateReplySuggestions(BaseTest):
         assert person_message == "Why did the relay keep retrying?"
         assert attribution.ai_product == "posthog_ai"
         assert attribution.run_id == str(self.task_run.id)
+        assert self.mocks["suggest"].call_args.kwargs == {"reasoning_effort": "none"}
         publish = self.mocks["publish"].call_args
         assert publish.args[3] == REPLY_SUGGESTIONS_METHOD
         assert publish.args[4] == {
@@ -118,3 +121,19 @@ class TestGenerateReplySuggestions(BaseTest):
 
         assert self._generate() == ReplySuggestionsOutcome(status="skipped", reason=reason)
         self.mocks["suggest"].assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("retries_while_the_last_frames_land", "turn_in_progress", True),
+            ("does_not_retry_a_settled_turn", "nothing_to_suggest", False),
+        ]
+    )
+    def test_task_retries_only_while_the_turn_settles(self, _name: str, reason: str, retries: bool):
+        outcome = ReplySuggestionsOutcome(status="skipped", reason=reason)
+        kwargs = {"run_id": str(self.task_run.id), "team_id": self.team.id}
+        with patch("products.posthog_ai.backend.tasks.generate_reply_suggestions", return_value=outcome):
+            if retries:
+                with self.assertRaises(Retry):
+                    generate_reply_suggestions_task.apply(kwargs=kwargs)
+            else:
+                generate_reply_suggestions_task.apply(kwargs=kwargs)

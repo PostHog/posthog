@@ -11,6 +11,8 @@ import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut
 import { cn } from 'lib/utils/css-classes'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
+import { ReplySuggestionHint } from 'products/posthog_ai/frontend/api/composer'
+
 import { ContextDisplay } from '../Context'
 import { maxThreadLogic } from '../maxThreadLogic'
 import {
@@ -21,7 +23,6 @@ import {
     composerPlaceholder,
 } from './composerCopy'
 import { FillInHint } from './FillInHint'
-import { ReplySuggestionHint } from './ReplySuggestionHint'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 import { type QueuedMessageEditProps, useQuestionInput } from './useQuestionInput'
 
