@@ -16,6 +16,7 @@ type CachedRead = { paused: Promise<boolean>; expiresAt: number }
 export class SandboxSenderStateService {
     private lookup: BoundedPrimaryLookup
     private cached: CachedRead | undefined
+    private reloads = 0
 
     constructor(
         private postgres: PostgresRouter,
@@ -29,19 +30,32 @@ export class SandboxSenderStateService {
         })
         pubSub.on<{ tenantName: string }>('reload-sandbox-sender-state', ({ tenantName }): void => {
             if (tenantName === this.tenantName) {
+                this.reloads++
                 this.cached = undefined
             }
         })
     }
 
-    // Every call after a reload message starts a new read. A caller already waiting gets the read it joined,
-    // which ran at the same time as the change.
-    public isPaused({ fresh = false }: { fresh?: boolean } = {}): Promise<boolean> {
+    // A reload message that arrives while a check waits means the state changed during its read, so the
+    // check reads again within the same budget.
+    public async isPaused({ fresh = false }: { fresh?: boolean } = {}): Promise<boolean> {
+        const giveUpAt = performance.now() + DEFAULT_LOADER_RETRY.maxElapsedMs
+        for (;;) {
+            const reloads = this.reloads
+            const paused = await this.currentRead(fresh, giveUpAt)
+            if (reloads === this.reloads) {
+                return paused
+            }
+            fresh = true
+        }
+    }
+
+    private currentRead(fresh: boolean, giveUpAt: number): Promise<boolean> {
         if (!fresh && this.cached && performance.now() < this.cached.expiresAt) {
             return this.cached.paused
         }
         const read: CachedRead = {
-            paused: this.readWithRetry(),
+            paused: this.readWithRetry(giveUpAt),
             expiresAt: performance.now() + REFRESH_AGE_MS + Math.random() * REFRESH_JITTER_MS,
         }
         this.cached = read
@@ -53,15 +67,17 @@ export class SandboxSenderStateService {
         return read.paused
     }
 
-    private async readWithRetry(): Promise<boolean> {
-        const { retryIntervalMs, retryJitterMs = 0, maxElapsedMs } = DEFAULT_LOADER_RETRY
-        const giveUpAt = performance.now() + maxElapsedMs
+    private async readWithRetry(giveUpAt: number): Promise<boolean> {
+        const { retryIntervalMs, retryJitterMs = 0 } = DEFAULT_LOADER_RETRY
         for (let attempt = 1; ; attempt++) {
+            // An attempt with less than one interval left would only time out while holding a connection.
+            if (giveUpAt - performance.now() < retryIntervalMs) {
+                throw new Error('The sandbox sender state check ran out of time')
+            }
             try {
                 return await this.read(Math.min(LOOKUP_TIMEOUT_MS, Math.ceil(giveUpAt - performance.now())))
             } catch (error) {
                 const delayMs = retryIntervalMs + Math.floor(Math.random() * retryJitterMs)
-                // An attempt with less than one interval left would only time out while holding a connection.
                 if (error?.isRetriable !== true || performance.now() + delayMs + retryIntervalMs > giveUpAt) {
                     logger.warn('Sandbox sender state read failed', { attempt, error: String(error) })
                     throw error
