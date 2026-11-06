@@ -88,16 +88,17 @@ describe('oauthDeviceAuthorizeLogic', () => {
     })
 
     it.each([
-        ['nothing but identity', ['openid'], ['openid', 'insight:read'], 'hog can view data in 1 area.'],
+        ['nothing but identity', ['openid'], ['openid', 'insight:read'], 'hog can view data in 1 area.', null],
         [
             'a scope a step-up adds',
             ['openid', 'dashboard:write'],
             ['openid', 'dashboard:write', 'insight:read'],
             'hog can view and change data in 1 area, and view data in 1 more.',
+            "hog needs the permissions marked Required, so you can't remove them. To refuse them, deny the login.",
         ],
     ])(
         'with %s required, approves only the scopes the person kept, at the level they picked',
-        async (_name, requiredScopes, approvedScopes, scopeSummary) => {
+        async (_name, requiredScopes, approvedScopes, scopeSummary, requiredScopesNote) => {
             useGrantMocks({ ...GRANT, required_scopes: requiredScopes })
             const logic = oauthDeviceAuthorizeLogic()
             logic.mount()
@@ -111,7 +112,7 @@ describe('oauthDeviceAuthorizeLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(approvals).toEqual([{ user_code: 'BCDF-GHJK', project_id: 42, scopes: approvedScopes }])
-            await expectLogic(logic).toMatchValues({ scopeSummary })
+            await expectLogic(logic).toMatchValues({ scopeSummary, requiredScopesNote })
         }
     )
 

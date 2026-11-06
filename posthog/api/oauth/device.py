@@ -316,8 +316,7 @@ class OAuthDeviceAuthorizationView(DeviceAuthorizationView):
             )
 
         scopes = resolve_device_scopes(request.POST.get("scope"), application)
-        # A step-up marks the scopes it adds as required, so the person can't approve it without them.
-        # The check runs after the ceiling clamp, so a client can't lock a scope the page won't show.
+        # Checked after the ceiling clamp, so a client can't lock a scope the approval page won't show.
         required = sorted(set(request.POST.get("required_scopes", "").split()))
         if not_requested := [scope for scope in required if scope not in scopes]:
             return _error_response(
