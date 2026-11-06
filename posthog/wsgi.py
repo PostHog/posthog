@@ -44,14 +44,6 @@ try:
 
     _ = get_resolver().url_patterns  # property access triggers the build
 
-    # Finalize Celery before this worker serves. Otherwise the first `.delay()` finalizes it
-    # while holding Celery's finalize lock, and that imports the periodic task modules. A thread
-    # lazily importing one of those modules holds its import lock and waits for the finalize
-    # lock, so both block forever, and so does every later `.delay()` in this worker.
-    from posthog.celery import app as celery_app
-
-    _ = celery_app.tasks  # property access triggers the finalize
-
     # Load the warehouse source catalog before this worker serves, so its first warehouse
     # query skips the multi-second import. No-op unless PREWARM_WAREHOUSE_SOURCE_REGISTRY
     # is set, which deployment config enables only for the Granian deployment that serves

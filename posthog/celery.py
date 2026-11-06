@@ -9,6 +9,7 @@ import structlog
 from celery import Celery
 from celery.signals import (
     celeryd_init,
+    import_modules,
     setup_logging,
     task_failure,
     task_postrun,
@@ -330,12 +331,14 @@ def retry_signal_handler(sender, reason, **kwargs):
     CELERY_TASK_RETRY_COUNTER.labels(task_name=sender.name, reason=reason).inc()
 
 
-@app.on_after_finalize.connect
-def setup_periodic_tasks(sender: Celery, **kwargs):
-    from posthog.tasks.scheduled import setup_periodic_tasks
-
+# Only worker and beat boot send import_modules. A web worker finalizes Celery on its first `.delay()`,
+# and a task import under the finalize lock there can deadlock with a thread lazily importing a task module.
+@import_modules.connect(sender=app)
+def setup_periodic_tasks(sender: Celery, **kwargs: object) -> None:
     try:
-        setup_periodic_tasks(sender)
+        from posthog.tasks.scheduled import setup_periodic_tasks as register_periodic_tasks
+
+        register_periodic_tasks(sender)
     except Exception as exc:
         # Setup fails silently. Alert the team if a configuration error is detected in periodic tasks.
         CELERY_TASK_INITIALIZATION_FAILURE_COUNTER.inc()

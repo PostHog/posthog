@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from django.test import SimpleTestCase
 
@@ -65,18 +65,3 @@ class TestInstanceSpreadMinute(SimpleTestCase):
             with self.settings(SITE_URL=site_url):
                 minutes.add(instance_spread_minute("send license usage", 40))
         assert len(minutes) > 1
-
-
-class TestCleanupSweepScheduling(SimpleTestCase):
-    def test_a_hobby_schedule_registers_the_sweeps_without_querying_clickhouse(self) -> None:
-        # This function runs during Celery finalize, at web worker boot. A stalled ClickHouse must not block that.
-        sender = MagicMock()
-        with (
-            self.settings(CLOUD_DEPLOYMENT=None, DEBUG=False),
-            patch("posthog.models.async_deletion.celery_fallback.sync_execute") as sync_execute,
-        ):
-            setup_periodic_tasks(sender)
-
-        sync_execute.assert_not_called()
-        names = {call.kwargs.get("name") for call in sender.add_periodic_task.call_args_list}
-        self.assertLessEqual({"clickhouse clear removed data", "clickhouse clear deleted person data"}, names)

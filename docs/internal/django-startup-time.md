@@ -61,7 +61,7 @@ the enums (~270 classes) live in `posthog.schema_enums`, a separate generated mo
 everything else got one of the standard treatments — enum-only imports repointed to `posthog.schema_enums`, annotation-only model uses moved under `TYPE_CHECKING` with quoted annotations, method-body uses imported at call time.
 The default when writing a model file or any other setup-path module: take enums from `posthog.schema_enums`; if you need an actual pydantic model, import it inside the method that uses it.
 The same applies to the celery task graph: `posthog/tasks/__init__.py` eagerly imports every task module so autodiscovery registers them, so any module-level `from posthog.tasks...` import on a setup path drags all of them in — import tasks at the call site, and take `CeleryQueue` from `posthog.celery_queues` (import-light, made for decorator-eval consumers).
-Web workers are the exception: `posthog/wsgi.py` and `posthog/asgi.py` finalize Celery at boot, which imports the periodic task modules, because finalizing during a request can deadlock with a lazy task import.
+Periodic task registration in `posthog/celery.py` runs on Celery's `import_modules` signal, which only worker and beat boot send. Keep imports out of `on_after_finalize` receivers: a web worker finalizes Celery on its first `.delay()`, and an import under the finalize lock can deadlock with a thread lazily importing a task module.
 
 ## The regression guard
 
