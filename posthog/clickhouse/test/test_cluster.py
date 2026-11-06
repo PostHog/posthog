@@ -629,6 +629,9 @@ def test_map_hosts_by_role() -> None:
         assert times_called[NodeRole.ENDPOINTS] == 0
         times_called.clear()
 
+    [shard] = cluster.shards
+    assert cluster.any_host_in_shard_by_roles(shard, [NodeRole.DATA], Workload.OFFLINE).connection_info.host == "host3"
+
 
 def test_map_hosts_with_satellite_clusters() -> None:
     main_cluster_hosts = [

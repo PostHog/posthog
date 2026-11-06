@@ -566,6 +566,22 @@ class ClickhouseCluster:
                 {host: executor.submit(self.__get_task_function(host, fn)) for host, fn in shard_host_fn.items()}
             )
 
+    def any_host_in_shard_by_roles(
+        self, shard_num: int, node_roles: list[NodeRole], workload: Workload = Workload.DEFAULT
+    ) -> HostInfo:
+        try:
+            return next(iter(self.__hosts_by_roles(self.__shards[shard_num], node_roles, workload)))
+        except StopIteration:
+            raise ValueError(
+                f"No hosts found with role {node_roles} and workload {workload.value} in shard {shard_num}"
+            )
+
+    def on_host(self, host: HostInfo, fn: Callable[[Client], T]) -> Future[T]:
+        if host not in self.__hosts:
+            raise ValueError(f"{host} is not a host of this cluster")
+        with ThreadPoolExecutor() as executor:
+            return executor.submit(self.__get_task_function(host, fn))
+
     def map_any_host_in_shards(
         self, shard_fns: dict[int, Callable[[Client], T]], concurrency: int | None = None
     ) -> FuturesMap[HostInfo, T]:
@@ -606,15 +622,9 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
-        shard_host_fns = {}
-        for shard, fn in shard_fns.items():
-            try:
-                host = next(iter(self.__hosts_by_roles(self.__shards[shard], node_roles, workload)))
-                shard_host_fns[host] = fn
-            except StopIteration:
-                raise ValueError(
-                    f"No hosts found with role {node_roles} and workload {workload.value} in shard {shard}"
-                )
+        shard_host_fns = {
+            self.any_host_in_shard_by_roles(shard, node_roles, workload): fn for shard, fn in shard_fns.items()
+        }
 
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             return FuturesMap(
