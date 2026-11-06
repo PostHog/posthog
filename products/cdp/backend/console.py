@@ -486,10 +486,13 @@ class ReplayFailedRunsTool(ConsoleTool):
             return []
         if request.resolver_match is None or request.resolver_match.url_name != "admin_console_tool_operation":
             return []
-        runs = request.GET.get("runs", "")
+        runs, destinations, teams = (request.GET.get(name, "") for name in ("runs", "destinations", "teams"))
         description = ""
-        if runs.isdigit():
-            description = f"This queues {_count(int(runs), 'run')}. Type {runs} to confirm."
+        if runs.isdigit() and destinations.isdigit() and teams.isdigit():
+            description = (
+                f"This queues {_count(int(runs), 'run')} for {_count(int(destinations), 'destination')} "
+                f"in {_count(int(teams), 'team')}. Type {runs} to confirm."
+            )
         return [
             ToolOperation(
                 key="send",
@@ -594,7 +597,14 @@ class ReplayFailedRunsTool(ConsoleTool):
         blocks.extend(_plan_tables(plan))
         blocks.append(_destinations_table(plan))
         send_url = reverse("admin_console_tool_operation", kwargs={"tool_key": TOOL_KEY, "operation_key": "send"})
-        send_query = _filters_query(request, step="details", reviewed=plan.fingerprint, runs=str(plan.invocation_count))
+        send_query = _filters_query(
+            request,
+            step="details",
+            reviewed=plan.fingerprint,
+            runs=str(plan.invocation_count),
+            destinations=str(len(plan.replayable_functions)),
+            teams=str(plan.team_count),
+        )
         blocks.append(
             Links(items=(Link(label="Send replay", href=f"{send_url}?{send_query.urlencode()}", primary=True),))
         )
