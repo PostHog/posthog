@@ -62,7 +62,6 @@ from posthog.hogql.test.utils import json_dynamic_read_sql
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
-from posthog.models import PropertyDefinition
 from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE, EVENTS_PROPERTIES_JSON_TYPE
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.instance_setting import override_instance_config
@@ -70,6 +69,7 @@ from posthog.models.team.team import WeekStartDay
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 

@@ -60,7 +60,7 @@ from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.dataclasses import frozen
 from posthog.interval_specs import get_interval_func
-from posthog.models import Property, PropertyDefinition, Team
+from posthog.models import Property, Team
 from posthog.models.element import Element
 from posthog.models.event import Selector
 from posthog.models.property import BehavioralPropertyType, PropertyGroup, ValueT
@@ -71,6 +71,7 @@ from products.actions.backend.facade.api import get_action
 from products.actions.backend.facade.contracts import Action, ActionNotFound, ActionStep
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
