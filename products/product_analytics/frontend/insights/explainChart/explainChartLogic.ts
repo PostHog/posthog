@@ -629,7 +629,11 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                 cache.linkedExplanationIdLoaded = saved.id
                 actions.storySaved(saved.id)
                 const { location, searchParams, hashParams } = router.values
-                if (location.pathname.endsWith(`/insights/${shortId}`)) {
+                if (
+                    [`/insights/${shortId}`, `/insights/${shortId}/edit`].some((path) =>
+                        location.pathname.endsWith(path)
+                    )
+                ) {
                     router.actions.replace(location.pathname, { ...searchParams, explanation: saved.id }, hashParams)
                 }
             } catch {
@@ -647,8 +651,8 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
         storyAvailable: () => actions.loadLinkedExplanation(),
     })),
     urlToAction(({ actions, props }) => ({
-        '/insights/:shortId': ({ shortId }, { explanation }) => {
-            if (shortId === props.dashboardItemId) {
+        '/insights/:shortId(/:mode)': ({ shortId, mode }, { explanation }) => {
+            if (shortId === props.dashboardItemId && (mode === undefined || mode === 'edit')) {
                 actions.setLinkedExplanationId(
                     typeof explanation === 'string' && isUUIDLike(explanation) ? explanation : null
                 )
