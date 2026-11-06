@@ -5,8 +5,9 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import PropertyDefinition
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
+
+from products.event_definitions.backend.models import PropertyDefinition
 
 from ee.models.property_definition import EnterprisePropertyDefinition
 

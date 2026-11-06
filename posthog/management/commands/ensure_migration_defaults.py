@@ -11,16 +11,13 @@ from django.core.management.base import BaseCommand
 
 from oauth2_provider.settings import oauth2_settings
 
+from posthog.admin.console.registry import console
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.oauth import OAuthApplication
 
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.demo.backend.facade.dashboard_templates import seed_dev_dashboard_templates
 from products.growth.backend.models import EnrichmentPromptConfig
-
-# auth groups originally seeded by RunPython migrations. Keep this in sync with
-# any 04xx/05xx migration that did `AuthGroup.objects.get_or_create(name=...)`.
-_AUTH_GROUPS: tuple[str, ...] = ("Billing Team", "ClickHouse Team")
 
 # Streamlit OAuth first-party app — mirrors
 # products/streamlit_apps/backend/migrations/0002_seed_streamlit_oauth_app.py.
@@ -348,7 +345,9 @@ class Command(BaseCommand):
         created_items: list[str] = []
         skipped_items: list[str] = []
 
-        for group_name in _AUTH_GROUPS:
+        # The admin console gates operations on these groups (Owner.staff_group), so a database without them
+        # lets nobody run those operations. Reading them from the console keeps each group name in one place.
+        for group_name in sorted(console.staff_groups()):
             _, created = AuthGroup.objects.get_or_create(name=group_name)
             if created:
                 created_items.append(f"Auth group: {group_name}")

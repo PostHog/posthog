@@ -47,7 +47,7 @@ class ShopWiredSource(ResumableSource[ShopWiredSourceConfig, ShopWiredResumeConf
             releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your ShopWired API credentials to pull your store data into the PostHog Data warehouse.
 
-You can create an API key and secret under **Account > API keys** in your [ShopWired](https://www.shopwired.co.uk) account. The credentials grant read access to your products, categories, brands, tags, customers, orders, and vouchers.
+You can create an API key and secret under **Account > API keys** in your [ShopWired](https://www.shopwired.co.uk) account. Sync products, product variations, categories, brands, tags, customers, orders, incomplete orders, order statuses, and vouchers. Transactions and payouts require ShopWired Payments.
 """,
             iconPath="/static/services/shopwired.png",
             docsUrl="https://posthog.com/docs/cdp/sources/shopwired",
@@ -96,8 +96,6 @@ You can create an API key and secret under **Account > API keys** in your [ShopW
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Only orders expose a server-side created-date filter (`from`), so every other endpoint is
-        # full refresh only.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(

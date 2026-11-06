@@ -41,6 +41,10 @@ from products.warehouse_sources.backend.file_uploads import (
     build_file_upload_url_pattern,
     hosted_upload_s3_path,
 )
+from products.warehouse_sources.backend.logic.column_sensitivity import classify_column_sensitivity
+from products.warehouse_sources.backend.models.column_annotation import (
+    WarehouseColumnAnnotation as _WarehouseColumnAnnotation,
+)
 from products.warehouse_sources.backend.models.column_statistics import (
     WarehouseColumnStatistics as _WarehouseColumnStatistics,
 )
@@ -71,7 +75,7 @@ from products.warehouse_sources.backend.models.util import (
     validate_warehouse_table_url_pattern,
 )
 from products.warehouse_sources.backend.source_status import effective_source_status
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType, WarehouseColumnAnnotationDescriptionSource
 from products.warehouse_sources.backend.view_consumers import saved_queries_feeding_consumers
 from products.warehouse_sources.backend.webhook_registration import schema_needs_webhook, sources_missing_webhook
 
@@ -98,6 +102,9 @@ __all__ = [
     "discard_backing_table",
     "record_table_row_count",
     "allowed_table_ids",
+    "live_table_exists",
+    "table_level_descriptions",
+    "write_table_level_description",
     "denied_table_ids",
     "pending_source_ids_for_tables",
     "tables_awaiting_first_sync",
@@ -107,6 +114,8 @@ __all__ = [
     "list_jobs_for_source",
     "import_started_before",
     "list_column_statistics",
+    "column_sensitivity",
+    "column_sensitivity_enabled",
     "saved_queries_feeding_consumers",
     "schema_needs_webhook",
     "sources_missing_webhook",
@@ -541,6 +550,57 @@ def _resolve_allowed_table_ids(
     return _allowed_tables(_tables_for_access_check(candidates), user_access_control, required_level)
 
 
+def table_level_descriptions(team_id: int, table_ids: Collection[UUID]) -> dict[UUID, contracts.TableLevelDescription]:
+    """The text that `TableDescriptions` resolves for each table: the annotation, then the source schema."""
+    descriptions: dict[UUID, contracts.TableLevelDescription] = {}
+    for table_id, text in (
+        _ExternalDataSchema.objects.filter(team_id=team_id, table_id__in=table_ids, deleted=False)
+        .exclude(description__isnull=True)
+        .exclude(description="")
+        .order_by("updated_at")
+        .values_list("table_id", "description")
+    ):
+        descriptions[table_id] = contracts.TableLevelDescription(text=text or "", source=None)
+    for table_id, text, source in (
+        _WarehouseColumnAnnotation.objects.for_team(team_id)
+        .filter(table_id__in=table_ids, column_name="")
+        .values_list("table_id", "description", "description_source")
+    ):
+        descriptions[table_id] = contracts.TableLevelDescription(
+            text=text, source=WarehouseColumnAnnotationDescriptionSource(source)
+        )
+    return descriptions
+
+
+def live_table_exists(team_id: int, table_id: UUID) -> bool:
+    return _DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id, id=table_id).exists()
+
+
+def write_table_level_description(team_id: int, table_id: UUID, description: str) -> None:
+    """Store a user edit, protected from enrichment. An empty description deletes the row."""
+    annotations = _WarehouseColumnAnnotation.objects.for_team(team_id)
+    if not description:
+        annotations.filter(table_id=table_id, column_name="").delete()
+        return
+    table = _DataWarehouseTable.raw_objects.queryable().get(team_id=team_id, id=table_id)
+    user_edited = _WarehouseColumnAnnotation.DescriptionSource.USER_EDITED
+    annotation, created = annotations.get_or_create(
+        table=table,
+        column_name="",
+        defaults={
+            "team_id": team_id,
+            "description": description,
+            "description_source": user_edited,
+            "is_user_edited": True,
+        },
+    )
+    if not created:
+        annotation.description = description
+        annotation.description_source = user_edited
+        annotation.is_user_edited = True
+        annotation.save(update_fields=["description", "description_source", "is_user_edited", "updated_at"])
+
+
 def pending_source_ids_for_tables(team_id: int, table_ids: Collection[UUID] | None = None) -> dict[UUID, UUID]:
     """Map each self-managed table to the managed source that will import it on its first sync.
 
@@ -806,6 +866,22 @@ def list_jobs_for_source(
         .order_by("-created_at")[: min(max(limit, 1), MAX_JOBS_PER_SOURCE)]
     )
     return [_to_job(j) for j in qs]
+
+
+def column_sensitivity(column_name: str, data_type: str | None) -> str | None:
+    """The kind of personal or secret data a column's name and type suggest, such as `email`, or None."""
+    sensitivity = classify_column_sensitivity(column_name, data_type)
+    return sensitivity.value if sensitivity else None
+
+
+def column_sensitivity_enabled(team_id: int) -> bool:
+    """Whether the team sees sensitivity tags. The same flag gates the column picker's suggestions."""
+    # Inline: keeps the Temporal helpers off this module's import path.
+    from products.warehouse_sources.backend.temporal.data_imports.schema_flags import (  # noqa: PLC0415
+        is_team_flag_enabled,
+    )
+
+    return is_team_flag_enabled(team_id, "warehouse-column-sensitivity")
 
 
 def import_started_before(

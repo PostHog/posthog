@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 import { currentPageLogic } from '~/toolbar/shared/stats/currentPageLogic'
 import { toolbarApi } from '~/toolbar/shared/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
+import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 import { ElementsEventType } from '~/toolbar/shared/types'
 import { TOOLBAR_ROOT_ATTRIBUTE } from '~/toolbar/shared/utils'
 
@@ -483,6 +484,33 @@ describe('heatmapToolbarMenuLogic', () => {
                 area.remove()
             }
         })
+
+        it.each([
+            { eventFilterEnabled: true, expectedProperties: 2 },
+            { eventFilterEnabled: false, expectedProperties: 1 },
+        ])(
+            'reloads the clickmap with the variant filter only when the event filter flag is $eventFilterEnabled',
+            async ({ eventFilterEnabled, expectedProperties }) => {
+                jest.spyOn(toolbarPosthogJS, 'getFeatureFlag').mockReturnValue(eventFilterEnabled)
+                await expectLogic(logic, () => logic.actions.enableHeatmap()).toDispatchActions([
+                    'getElementStatsSuccess',
+                ])
+
+                const variantFilter = { flagKey: 'checkout', variant: 'test' }
+                await expectLogic(logic, () => logic.actions.setHeatmapVariantFilter(variantFilter)).toDispatchActions([
+                    'getElementStatsSuccess',
+                ])
+
+                expect(logic.values.heatmapVariantFilter).toEqual(variantFilter)
+                const lastCall = (toolbarApi.elementStats.list as jest.Mock).mock.calls.at(-1)[0]
+                expect(lastCall.properties).toHaveLength(expectedProperties)
+                if (eventFilterEnabled) {
+                    expect(lastCall.properties).toContainEqual(
+                        expect.objectContaining({ key: '$feature/checkout', value: 'test', type: 'event' })
+                    )
+                }
+            }
+        )
 
         it('loads every remaining page when load all starts, and ends the run on the last page', async () => {
             jest.spyOn(toolbarApi.elementStats, 'list').mockResolvedValue({
