@@ -478,10 +478,16 @@ export const Table = (props: TableProps): JSX.Element => {
                     )
                 }
 
+                const sourceColumnName = cell.sourceColumnName ?? column.name
+                const columnFormat =
+                    response && 'column_formats' in response
+                        ? response.column_formats?.[response.columns.indexOf(sourceColumnName)]
+                        : undefined
+
                 return (
                     <div className="truncate" title={getCellTitle(cell)}>
                         {renderColumn(
-                            cell.sourceColumnName ?? column.name,
+                            sourceColumnName,
                             cell.formattedValue,
                             tableResults[isTransposed ? index - 1 : data.rowIndex],
                             recordIndex,
@@ -489,7 +495,10 @@ export const Table = (props: TableProps): JSX.Element => {
                             {
                                 kind: NodeKind.DataTableNode,
                                 source: props.query.source,
-                            }
+                            },
+                            undefined,
+                            undefined,
+                            columnFormat
                         )}
                     </div>
                 )
