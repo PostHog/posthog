@@ -34,7 +34,8 @@ use crate::router::State as AppState;
 use crate::timestamp;
 use crate::token::validate_token;
 use crate::v0_request::{
-    exceeds_max_ai_event_bytes, is_ai_event, DataType, ProcessedEvent, ProcessedEventMetadata,
+    exceeds_max_ai_event_bytes, is_ai_event, resolve_ai_max_event_bytes, DataType, ProcessedEvent,
+    ProcessedEventMetadata,
 };
 use crate::v1::gateway_provenance as gp;
 
@@ -306,8 +307,7 @@ async fn ai_handler_inner(
     };
 
     // Step 5: Retrieve and validate remaining multipart parts (continues parsing from multipart)
-    let parts =
-        retrieve_multipart_parts(&mut multipart, event_metadata, state.ai_max_event_bytes).await?;
+    let parts = retrieve_multipart_parts(&mut multipart, event_metadata, &state, token).await?;
 
     // Step 6: Parse the parts
     let mut parsed = parse_multipart_data(parts)?;
@@ -676,7 +676,8 @@ fn process_properties_part(
 async fn retrieve_multipart_parts(
     multipart: &mut Multipart<'_>,
     event_metadata: EventMetadata,
-    max_event_bytes: u64,
+    state: &AppState,
+    token: &str,
 ) -> Result<RetrievedMultipartParts, AiRejection> {
     let mut part_count = 0;
     let mut accepted_parts = Vec::new();
@@ -737,11 +738,20 @@ async fn retrieve_multipart_parts(
     // an oversized event off the producer, whose own cap would refuse it only
     // after the whole body had been read.
     let combined_size = event_size + properties_size;
-    if exceeds_max_ai_event_bytes(combined_size, max_event_bytes) {
-        return Err(AiRejection::EventAndPropertiesTooBig {
-            size: combined_size,
-            max: max_event_bytes as usize,
-        });
+    if exceeds_max_ai_event_bytes(combined_size, state.ai_max_event_bytes) {
+        let max_event_bytes = resolve_ai_max_event_bytes(
+            state.event_restriction_service.as_ref(),
+            token,
+            state.timesource.current_time().timestamp(),
+            state.ai_max_event_bytes,
+        )
+        .await;
+        if exceeds_max_ai_event_bytes(combined_size, max_event_bytes) {
+            return Err(AiRejection::EventAndPropertiesTooBig {
+                size: combined_size,
+                max: max_event_bytes as usize,
+            });
+        }
     }
 
     // Use the event JSON from the pre-parsed metadata

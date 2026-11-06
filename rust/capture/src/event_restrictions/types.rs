@@ -95,6 +95,7 @@ pub enum RestrictionType {
     RedirectToDlq,
     SkipPersonProcessing,
     RedirectToTopic,
+    OverrideAiMaxEventBytes,
 }
 
 impl RestrictionType {
@@ -105,6 +106,7 @@ impl RestrictionType {
             "redirect_to_dlq" => Some(Self::RedirectToDlq),
             "skip_person_processing" => Some(Self::SkipPersonProcessing),
             "redirect_to_topic" => Some(Self::RedirectToTopic),
+            "override_ai_max_event_bytes" => Some(Self::OverrideAiMaxEventBytes),
             _ => None,
         }
     }
@@ -116,6 +118,7 @@ impl RestrictionType {
             Self::RedirectToDlq => "redirect_to_dlq",
             Self::SkipPersonProcessing => "skip_person_processing",
             Self::RedirectToTopic => "redirect_to_topic",
+            Self::OverrideAiMaxEventBytes => "override_ai_max_event_bytes",
         }
     }
 
@@ -126,20 +129,22 @@ impl RestrictionType {
             Self::RedirectToDlq => "redirect_to_dlq",
             Self::SkipPersonProcessing => "skip_person_processing",
             Self::RedirectToTopic => "redirect_to_topic",
+            Self::OverrideAiMaxEventBytes => "override_ai_max_event_bytes",
         }
     }
 
-    pub fn all() -> [Self; 5] {
+    pub fn all() -> [Self; 6] {
         [
             Self::DropEvent,
             Self::ForceOverflow,
             Self::SkipPersonProcessing,
             Self::RedirectToDlq,
             Self::RedirectToTopic,
+            Self::OverrideAiMaxEventBytes,
         ]
     }
 
-    /// Bit position for this restriction type (0-4).
+    /// Bit position for this restriction type (0-5).
     const fn bit_pos(self) -> u8 {
         match self {
             Self::DropEvent => 0,
@@ -147,6 +152,7 @@ impl RestrictionType {
             Self::RedirectToDlq => 2,
             Self::SkipPersonProcessing => 3,
             Self::RedirectToTopic => 4,
+            Self::OverrideAiMaxEventBytes => 5,
         }
     }
 }
@@ -234,6 +240,7 @@ impl AppliedRestrictions {
                         result.redirect_to_topic =
                             restrictions.redirect_topic().map(|s| s.to_string());
                     }
+                    RestrictionType::OverrideAiMaxEventBytes => {}
                 }
             }
         }
@@ -377,6 +384,10 @@ mod tests {
         assert_eq!(
             RestrictionType::from_redis_key("redirect_to_topic"),
             Some(RestrictionType::RedirectToTopic)
+        );
+        assert_eq!(
+            RestrictionType::from_redis_key("override_ai_max_event_bytes"),
+            Some(RestrictionType::OverrideAiMaxEventBytes)
         );
         assert_eq!(RestrictionType::from_redis_key("unknown_type"), None);
     }
@@ -563,7 +574,7 @@ mod tests {
             set.insert(t);
         }
 
-        assert_eq!(set.len(), 5);
+        assert_eq!(set.len(), RestrictionType::all().len());
         for t in RestrictionType::all() {
             assert!(set.contains(t));
         }
