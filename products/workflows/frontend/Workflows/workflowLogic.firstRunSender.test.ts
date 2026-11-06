@@ -664,6 +664,55 @@ describe('workflow first-run sender', () => {
         workflow.unmount()
     })
 
+    it('skips the broadcast offer for a batch email whose inserted step got a sandbox sender the project list lacks', async () => {
+        const environmentId = ApiConfig.getCurrentTeamId()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': ({ params }) => [
+                    200,
+                    { results: String(params.team_id) === String(environmentId) ? integrations : [] },
+                ],
+                '/api/projects/:team_id/hog_flows/broadcast_conversion_candidates/': { has_more: false, results: [] },
+            },
+            post: {
+                '/api/projects/:team_id/hog_flows/': async ({ request }) => [
+                    201,
+                    { ...((await request.json()) as Record<string, any>), id: 'created-flow' },
+                ],
+            },
+        })
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, project_id: environmentId + 1 })
+        jest.mocked(confirmCreateAsBroadcast).mockResolvedValue('broadcast')
+        const workflow = workflowLogic({ id: 'new' })
+        workflow.mount()
+        await expectLogic(workflow).toDispatchActions(['loadWorkflowSuccess'])
+        const editor = hogFlowEditorLogic({ id: 'new' })
+        editor.mount()
+        await expectLogic(editor).toFinishAllListeners()
+        const [triggerStep] = NEW_WORKFLOW.actions
+        workflow.actions.setWorkflowAction(triggerStep.id, {
+            ...triggerStep,
+            config: { type: 'batch', filters: {} },
+        } as HogFlowAction)
+
+        editor.actions.setNodeToBeAdded({ ...emailAction('function_email'), id: undefined } as any)
+        editor.actions.onDrop(undefined, NEW_WORKFLOW.edges[0])
+        await expectLogic(editor).toFinishAllListeners()
+        expect(emailValueOf(workflow, editor.values.selectedNodeId ?? undefined)?.from).toEqual({
+            integrationId: SANDBOX.id,
+        })
+        expect(integrationsLogic.values.integrations?.map((integration) => integration.id)).not.toContain(SANDBOX.id)
+
+        workflow.actions.setWorkflowValues({ name: 'Monthly update', exit_condition: 'exit_only_at_end' })
+        await expectLogic(workflow, () => workflow.actions.submitWorkflow())
+            .toDispatchActions(['saveWorkflowSuccess'])
+            .toFinishAllListeners()
+
+        expect(confirmCreateAsBroadcast).not.toHaveBeenCalled()
+        editor.unmount()
+        workflow.unmount()
+    })
+
     it.each<[string, HogFlowAction, Partial<IntegrationType>[]]>([
         [
             'an email step in a project with two own senders and no default',
