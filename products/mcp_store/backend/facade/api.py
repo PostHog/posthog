@@ -5,15 +5,19 @@ This is the ONLY module other apps are allowed to import.
 """
 
 import json
+import time
 import uuid
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 from typing import Any
 from urllib.parse import urlsplit
 
+from django.db import transaction
 from django.db.models import Q
 
 import structlog
+
+from posthog.models.user import User
 
 from products.mcp_store.backend.agents import (
     BuiltInAgentKey,
@@ -41,7 +45,9 @@ from products.mcp_store.backend.gateway import (
     agent_grant_owner_label,
     agent_grant_proxy_path,
     installation_for_agent_access,
+    link_installation_to_gateway,
     reachable_agent_grants,
+    server_disabled_reason,
 )
 from products.mcp_store.backend.models import (
     MCPAuthType,
@@ -60,6 +66,7 @@ from products.mcp_store.backend.policy import (
     legacy_state_for_caller,
 )
 from products.mcp_store.backend.proxy import record_tool_call_audit, resolve_call_decision, validate_installation_auth
+from products.mcp_store.backend.tasks import sync_installation_tools_task
 from products.mcp_store.backend.tools import (
     ToolCallError,
     ToolsFetchError,
@@ -381,6 +388,74 @@ def _connects_from_a_link(template: MCPServerTemplate) -> bool:
     if template.auth_type != MCPAuthType.OAUTH:
         return False
     return bool(template.oauth_credentials_source or (template.oauth_credentials or {}).get("client_id"))
+
+
+SLACK_MCP_URL = "https://mcp.slack.com/mcp"
+
+
+def _connectable_slack_template(team_id: int, user_id: int) -> MCPServerTemplate | None:
+    """The Slack MCP template that a token from PostHog's own Slack app can connect: on PostHog's app, available to
+    the team, turned on for it, and not revoked for this member. The dev template runs on another app, so it never
+    qualifies."""
+    template = (
+        MCPServerTemplate.available_for_team(team_id)
+        .filter(url=SLACK_MCP_URL, oauth_credentials_source="slack_app")
+        .first()
+    )
+    if template is None or server_disabled_reason(team_id, template.url) is not None:
+        return None
+    revoked = MCPMemberServerRevocation.objects.for_team(team_id).filter(
+        gateway_server__url=template.url, user_id=user_id
+    )
+    return None if revoked.exists() else template
+
+
+def slack_mcp_user_scopes(team_id: int, user_id: int | None) -> tuple[str, ...]:
+    """The user scopes a Slack account link must ask for, so its token can also connect the member's Slack MCP.
+    Empty when the team cannot use the Slack MCP."""
+    template = _connectable_slack_template(team_id, user_id or 0)
+    return tuple(template.oauth_scope_allowlist or ()) if template is not None else ()
+
+
+def connect_slack_mcp_from_user_token(
+    team_id: int, user: User, *, access_token: str, refresh_token: str | None, granted_scopes: frozenset[str]
+) -> bool:
+    """Connect the member's Slack MCP with the user token that PostHog's Slack app just minted for them, so they skip
+    a second Slack consent screen. A working connection stays as it is. Returns whether the member is connected."""
+    template = _connectable_slack_template(team_id, user.id)
+    if template is None or not set(template.oauth_scope_allowlist or ()) <= granted_scopes:
+        return False
+    with transaction.atomic():
+        installation, _ = MCPServerInstallation.objects.get_or_create(
+            team_id=team_id,
+            user=user,
+            url=template.url,
+            scope="personal",
+            defaults={
+                "template": template,
+                "display_name": template.name,
+                "description": template.description,
+                "auth_type": template.auth_type,
+            },
+        )
+        if installation.is_enabled and _is_oauth_ready(installation):
+            return True
+        sensitive = {
+            key: value
+            for key, value in (installation.sensitive_configuration or {}).items()
+            if key not in ("needs_reauth", "refresh_token", "expires_in")
+        }
+        sensitive["access_token"] = access_token
+        sensitive["token_retrieved_at"] = int(time.time())
+        if refresh_token:
+            sensitive["refresh_token"] = refresh_token
+        installation.template = template
+        installation.is_enabled = True
+        installation.sensitive_configuration = sensitive
+        installation.save(update_fields=["template", "is_enabled", "sensitive_configuration", "updated_at"])
+        link_installation_to_gateway(installation, created_by=user)
+    transaction.on_commit(lambda: sync_installation_tools_task.delay(str(installation.id)))
+    return True
 
 
 def team_tools_not_connected(team_id: int, user_id: int) -> list[UnconnectedTeamTool]:
