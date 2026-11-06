@@ -309,14 +309,8 @@ class TestEvalSuggestionsApi(APIBaseTest):
     ) -> None:
         if with_key:
             self._judge_key()
-        # The card priced a whole trace at $0.01: 1,000 runs a week for $10.
-        suggestion = self._suggestion(
-            EvalSuggestionKind.NEW_LLM_JUDGE,
-            draft=JUDGE_DRAFT,
-            estimated_weekly_runs=1000,
-            estimated_weekly_cost_usd=10.0,
-            mean_input_tokens=100,
-        )
+        # One trace judge run reads a 40k-token transcript, at $0.25 per million input tokens.
+        suggestion = self._suggestion(EvalSuggestionKind.NEW_LLM_JUDGE, draft=JUDGE_DRAFT, mean_input_tokens=40_000)
 
         estimate = self.client.get(f"{self.url}/{suggestion.id}/accept_estimate/").json()
 

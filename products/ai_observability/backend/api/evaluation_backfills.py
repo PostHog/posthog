@@ -338,6 +338,7 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
             "window_end",
             "conditions",
             "rerun_existing",
+            "max_units",
             "total_count",
             "dispatched_count",
             "completed_count",
@@ -357,6 +358,9 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
             "window_start": {"help_text": "Inclusive start of the window, by unit timestamp."},
             "window_end": {"help_text": "Exclusive end of the window."},
             "rerun_existing": {"help_text": "Whether units with an existing result are evaluated again."},
+            "max_units": {
+                "help_text": "Most units this backfill evaluates, for a capped preview such as an accepted eval suggestion. Null means no cap."
+            },
             "total_count": {
                 "help_text": "Units matched at creation. Units that land in the window later can take dispatched_count and skipped_count past it."
             },

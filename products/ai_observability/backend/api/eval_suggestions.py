@@ -237,7 +237,7 @@ class EvalSuggestionEstimateSerializer(serializers.Serializer):
     estimated_cost_usd = serializers.FloatField(
         allow_null=True,
         help_text=(
-            "units x mean input tokens per generation x the judge model's input price, in USD. "
+            "units x input tokens one judge run reads x the input price of the model accept uses, in USD. "
             "0 for Hog checks, null when the price or token count is unknown."
         ),
     )

@@ -26,9 +26,9 @@ function kindLabel(suggestion: EvalSuggestionApi): string {
         return 'Broken eval'
     }
     if (suggestion.kind === 'new_hog') {
-        return 'Code check · free'
+        return 'Code check'
     }
-    return suggestion.draft.evaluation_type === 'llm_judge' ? 'LLM judge' : 'Sentiment · free'
+    return suggestion.draft.evaluation_type === 'llm_judge' ? 'LLM judge' : 'Sentiment'
 }
 
 export function EvaluationSuggestionCard({ suggestion }: { suggestion: EvalSuggestionApi }): JSX.Element {
