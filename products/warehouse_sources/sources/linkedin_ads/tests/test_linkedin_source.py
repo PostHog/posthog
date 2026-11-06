@@ -23,6 +23,15 @@ from products.warehouse_sources.sources.sdk import (
     VersionDeprecation,
 )
 
+_TEMPORARY_ERRORS_COPY = (
+    "LinkedIn kept returning temporary errors, so this sync run did not finish. "
+    "This usually clears on its own and the next sync runs on schedule."
+)
+_RATE_LIMITED_COPY = (
+    "LinkedIn is rate limiting requests for this connection, so this sync run did not finish. "
+    "The next sync runs on schedule."
+)
+
 
 class TestLinkedInAdsSource:
     """Test suite for LinkedInAdsSource class."""
@@ -95,6 +104,25 @@ class TestLinkedInAdsSource:
     def test_retryable_errors_does_not_match_unrelated(self, other_error):
         retryable_errors = self.source.get_retryable_errors()
         assert not any(pattern in other_error for pattern in retryable_errors)
+
+    @pytest.mark.parametrize(
+        "observed_error,expected_copy",
+        [
+            ('LinkedIn API error (retryable, 500): {"message":"example failure"}', _TEMPORARY_ERRORS_COPY),
+            ("LinkedIn API error (retryable, 503): upstream unavailable", _TEMPORARY_ERRORS_COPY),
+            ('LinkedIn API error (retryable, 429): {"message":"example throttle"}', _RATE_LIMITED_COPY),
+            (
+                "LinkedIn API returned a malformed (non-JSON) response: Expecting value: line 1 column 1 (char 0)",
+                _TEMPORARY_ERRORS_COPY,
+            ),
+        ],
+    )
+    def test_retry_exhausted_errors_map_transient_failures_to_customer_copy(self, observed_error, expected_copy):
+        retry_exhausted_errors = self.source.get_retry_exhausted_errors()
+        retryable_errors = self.source.get_retryable_errors()
+
+        assert next(copy for key, copy in retry_exhausted_errors.items() if key in observed_error) == expected_copy
+        assert all(any(pattern in key for pattern in retryable_errors) for key in retry_exhausted_errors)
 
     def test_defaults_new_sources_to_202610(self):
         assert self.source.default_version == LINKEDIN_ADS_VERSION_202610

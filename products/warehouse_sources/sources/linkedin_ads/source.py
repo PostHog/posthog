@@ -172,6 +172,21 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             "LinkedIn API returned a malformed (non-JSON) response",
         }
 
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        temporary_errors = (
+            "LinkedIn kept returning temporary errors, so this sync run did not finish. "
+            "This usually clears on its own and the next sync runs on schedule."
+        )
+        # First match wins, so the 429 key must come before the generic retryable prefix.
+        return {
+            "LinkedIn API error (retryable, 429)": (
+                "LinkedIn is rate limiting requests for this connection, so this sync run did not finish. "
+                "The next sync runs on schedule."
+            ),
+            "LinkedIn API error (retryable, ": temporary_errors,
+            "LinkedIn API returned a malformed (non-JSON) response": temporary_errors,
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
