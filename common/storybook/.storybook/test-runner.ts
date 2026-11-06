@@ -44,6 +44,10 @@ const VIEWPORT_SETTLE_TIMEOUT_MS = 5000
 const QUIET_WINDOW_MS = 250
 const RESIZE_SETTLE_TIMEOUT_MS = 300
 const CONTENT_SETTLE_TIMEOUT_MS = 1300
+// A snapshot is kept when two captures in a row match. The cap ends the loop on a page that never stops
+// changing, which then keeps its last capture as before.
+const MAX_SNAPSHOT_CAPTURES = 4
+const RECAPTURE_SETTLE_TIMEOUT_MS = 100
 
 // Each story file gets a fresh browser context, so `prepare` reloads the whole preview bundle with a
 // cold HTTP cache. Under CI contention that tail overruns Playwright's 30s default. RETRY_TIMES can't
@@ -121,11 +125,25 @@ export default {
                 pendingFetches++
                 return untrackedFetch(...fetchArgs).finally(() => pendingFetches--)
             }
+            // Components that call Math.random (placeholder names, skeleton widths) render differently on every run.
+            // A seeded generator (mulberry32) gives the same sequence each time, and preVisit restarts it per story,
+            // so a story's output does not depend on which stories ran before it in the file.
+            const RANDOM_SEED = 1
+            let randomState = RANDOM_SEED
+            Math.random = (): number => {
+                randomState = (randomState + 0x6d2b79f5) | 0
+                let value = Math.imul(randomState ^ (randomState >>> 15), 1 | randomState)
+                value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value
+                return ((value ^ (value >>> 14)) >>> 0) / 4294967296
+            }
             ;(window as unknown as { __testRunnerWork: unknown }).__testRunnerWork = {
                 pendingBefore: (time: number): boolean =>
                     pendingFetches > 0 || Array.from(pendingTimers.values()).some((due) => due <= time),
                 setTimeout: untrackedSetTimeout,
                 now: untrackedNow,
+                restartRandom: (): void => {
+                    randomState = RANDOM_SEED
+                },
             }
 
             const patchedUserAgent = `${navigator.userAgent} StorybookTestRunner`
@@ -173,6 +191,11 @@ export default {
         // Reduced motion makes components skip animations the CSS override cannot reach, such as the
         // requestAnimationFrame-driven camera moves in React Flow and d3 canvases, which a capture can catch mid-way.
         await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
+        await page.evaluate(() =>
+            (
+                window as unknown as { __testRunnerWork?: { restartRandom: () => void } }
+            ).__testRunnerWork?.restartRandom()
+        )
         await page.route(/\/(embedded|shared)\//, (route) =>
             route.fulfill({ status: 200, contentType: 'text/html', body: EMBED_STUB_HTML })
         )
@@ -763,7 +786,12 @@ async function doTakeSnapshotWithTheme(
     theme: SnapshotTheme,
     storyContext: StoryContext
 ): Promise<void> {
-    const { includeNavigationInSnapshot = false, snapshotTargetSelector } = storyContext.parameters?.testOptions ?? {}
+    const {
+        includeNavigationInSnapshot = false,
+        snapshotTargetSelector,
+        waitForLoadersToDisappear = true,
+    } = storyContext.parameters?.testOptions ?? {}
+    const loaderTimeoutMs = waitForLoadersToDisappear ? loaderTimeout(context) : 0
 
     // Figure out what's the right check function depending on the parameters
     let check: (
@@ -771,6 +799,7 @@ async function doTakeSnapshotWithTheme(
         context: TestContext,
         browser: SupportedBrowserName,
         theme: SnapshotTheme,
+        loaderTimeoutMs: number,
         targetSelector?: string
     ) => Promise<void>
     if (storyContext.parameters?.layout === 'fullscreen') {
@@ -790,28 +819,30 @@ async function doTakeSnapshotWithTheme(
         check = expectStoryToMatchComponentSnapshot
     }
 
-    await check(page, context, browser, theme, snapshotTargetSelector)
+    await check(page, context, browser, theme, loaderTimeoutMs, snapshotTargetSelector)
 }
 
 async function expectStoryToMatchViewportSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    theme: SnapshotTheme
+    theme: SnapshotTheme,
+    loaderTimeoutMs: number
 ): Promise<void> {
-    await expectLocatorToMatchStorySnapshot(page, context, browser, theme)
+    await expectLocatorToMatchStorySnapshot(page, context, browser, theme, loaderTimeoutMs)
 }
 
 async function expectStoryToMatchSceneSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    theme: SnapshotTheme
+    theme: SnapshotTheme,
+    loaderTimeoutMs: number
 ): Promise<void> {
     // If the `main` element isn't present, let's use `body` - this is needed in logged-out screens.
     // We use .last(), because the order of selector matches is based on the order of elements in the DOM,
     // and not the order of the selectors in the query.
-    await expectLocatorToMatchStorySnapshot(page.locator('body, main').last(), context, browser, theme)
+    await expectLocatorToMatchStorySnapshot(page.locator('body, main').last(), context, browser, theme, loaderTimeoutMs)
 }
 
 async function expectStoryToMatchComponentSnapshot(
@@ -819,6 +850,7 @@ async function expectStoryToMatchComponentSnapshot(
     context: TestContext,
     browser: SupportedBrowserName,
     theme: SnapshotTheme,
+    loaderTimeoutMs: number,
     targetSelector: string = '#storybook-root'
 ): Promise<void> {
     await page.evaluate(() => {
@@ -848,7 +880,7 @@ async function expectStoryToMatchComponentSnapshot(
     // Widening the root for a popover can resize a chart again.
     await waitForChartCanvasesPainted(page)
 
-    await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, {
+    await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, loaderTimeoutMs, {
         omitBackground: true,
     })
 }
@@ -858,9 +890,10 @@ async function expectLocatorToMatchStorySnapshot(
     context: TestContext,
     browser: SupportedBrowserName,
     theme: SnapshotTheme,
+    loaderTimeoutMs: number,
     options?: LocatorScreenshotOptions
 ): Promise<void> {
-    const image = await takeSnapshotImage(locator, context, options)
+    const image = await takeSettledSnapshotImage(locator, context, theme, loaderTimeoutMs, options)
     let customSnapshotIdentifier = `${context.id}--${theme}`
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`
@@ -876,6 +909,44 @@ async function expectLocatorToMatchStorySnapshot(
         failureThreshold: 0.01,
         failureThresholdType: 'percent',
     })
+}
+
+/**
+ * Captures until two screenshots in a row match. The quiet wait cannot see everything that changes a page later:
+ * a lazy code chunk, a request that starts after the quiet window, or a loader that mounts after the wait.
+ * Between captures the quiet and loader wait runs again, so a page that changed is captured again once it settles.
+ */
+async function takeSettledSnapshotImage(
+    locator: Locator | Page,
+    context: TestContext,
+    theme: SnapshotTheme,
+    loaderTimeoutMs: number,
+    options?: LocatorScreenshotOptions
+): Promise<Buffer> {
+    const page = 'page' in locator ? locator.page() : locator
+    let previous = await takeSnapshotImage(locator, context, options)
+    for (let capture = 2; capture <= MAX_SNAPSHOT_CAPTURES; capture++) {
+        await waitForQuiet(page, RECAPTURE_SETTLE_TIMEOUT_MS, loaderTimeoutMs)
+        await waitForChartCanvasesPainted(page)
+        await finishAnimations(page)
+        const image = await takeSnapshotImage(locator, context, options)
+        if (image.equals(previous)) {
+            if (capture > 2) {
+                // eslint-disable-next-line no-console
+                console.log(
+                    `[test-runner] ${context.id} (${theme}): the page changed after the quiet wait, ` +
+                        `so the snapshot needed ${capture} captures.`
+                )
+            }
+            return image
+        }
+        previous = image
+    }
+    // eslint-disable-next-line no-console
+    console.log(
+        `[test-runner] ${context.id} (${theme}): the page still changed between captures after ${MAX_SNAPSHOT_CAPTURES} captures.`
+    )
+    return previous
 }
 
 /**
