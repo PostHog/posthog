@@ -14,13 +14,16 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { getDefaultInterval } from 'lib/utils/dateFilters'
 import {
     type ComparisonWindow,
     buildBucketKeys,
     buildComparisonWindow,
+    BUCKET_FORMAT,
     lastBucketIsInProgress,
     normalizeBucket,
+    startOfBucket,
 } from 'lib/utils/timeBuckets'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -327,6 +330,19 @@ export function buildDailyActivity(rows: ActivityRow[], bucketKeys: string[]): D
         successes: bucketKeys.map((k) => byDay.get(k)?.successes ?? 0),
         errors: bucketKeys.map((k) => byDay.get(k)?.errors ?? 0),
     }
+}
+
+// The window opens on a whole bucket so it stays the same between loads and the server can answer the
+// KPI and Users queries from its cache. A window opening at the current millisecond is a new cache key
+// on every load. A window shorter than one bucket keeps its start, because rounding it would reach into
+// the selected period's first bucket and count earlier events as current.
+function kpiComparisonWindow(dateFilter: DateFilter, timezone: string, interval: IntervalType): ComparisonWindow {
+    const window = buildComparisonWindow(dateFilter.dateFrom, dateFilter.dateTo, timezone, interval)
+    const opening = startOfBucket(dayjs(window.dateFrom).tz(timezone), interval)
+    if (opening.format(BUCKET_FORMAT) >= window.currentStartBucket) {
+        return window
+    }
+    return { ...window, dateFrom: opening.toISOString() }
 }
 
 // Merge the dashboard's active filters with a doubled comparison window's date range.
@@ -803,12 +819,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             {
                 loadKPIs: async (_: void, breakpoint) => {
                     const { interval } = values
-                    const kpiWindow = buildComparisonWindow(
-                        values.dateFilter.dateFrom,
-                        values.dateFilter.dateTo,
-                        values.timezone,
-                        interval
-                    )
+                    const kpiWindow = kpiComparisonWindow(values.dateFilter, values.timezone, interval)
                     const response = await queryLatest<HogQLQueryResponse>(
                         {
                             kind: NodeKind.HogQLQuery,
@@ -827,12 +838,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             {
                 loadPeriodTotals: async (_: void, breakpoint): Promise<PeriodTotals> => {
                     const { interval, timezone } = values
-                    const kpiWindow = buildComparisonWindow(
-                        values.dateFilter.dateFrom,
-                        values.dateFilter.dateTo,
-                        timezone,
-                        interval
-                    )
+                    const kpiWindow = kpiComparisonWindow(values.dateFilter, timezone, interval)
                     // Split the doubled window at the selected period's start. currentStartBucket is
                     // interval-aligned (buildComparisonWindow truncates to the bucket start), so comparing the raw
                     // `timestamp` against toDateTime(bucket, tz) lands on the same instant as the KPI
