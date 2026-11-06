@@ -8,16 +8,13 @@ from posthog.dataclasses import frozen
 from posthog.models.person.util import get_distinct_id_rows
 from posthog.personhog_client.client import personhog_call, require_personhog_client
 from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG, GetGroupsRequest, GroupIdentifier, ReadOptions
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
-QUERY_TIMEOUT_SECONDS = 30
+QUERY_TIMEOUT_SECONDS = HOGQL_INCREASED_MAX_EXECUTION_TIME
 
-# These budgets cap each lookup. Exceeding a budget must fail the batch, never report a missing identity.
+# Partial results must fail the batch, never report a missing identity.
 QUERY_SETTINGS = {
     "max_execution_time": str(QUERY_TIMEOUT_SECONDS),
-    "max_memory_usage": str(256 * 1024**2),
-    "max_bytes_to_read": str(1024**3),
-    "max_threads": "2",
-    "max_result_bytes": str(4 * 1024**2),
     "result_overflow_mode": "throw",
     "skip_unavailable_shards": "0",
     "timeout_overflow_mode": "throw",

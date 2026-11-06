@@ -155,8 +155,9 @@ It removes candidates only after that check returns zero.
 Failed mutations and failed verification leave candidates pending for a later attempt.
 Each batch submits at most one membership mutation per shard, with one shard query at a time.
 A storage table with five pending mutations refuses more work.
-Queries have a 30-second execution limit, a 256 MiB memory limit, a 1 GiB read limit, and a 4 MiB result limit.
-Shard connections have a 60-second socket timeout so a stalled network read releases the batch lock.
+Queries use the SQL editor's `HOGQL_INCREASED_MAX_EXECUTION_TIME` setting, which defaults to 600 seconds.
+Memory, read, thread, and result limits come from the ClickHouse profile, as they do for SQL editor queries.
+Shard connections have a socket timeout of twice the query execution limit so a stalled network read releases the batch lock.
 Mutation task logs omit membership keys.
 Unavailable shards and overflow limits fail the query rather than return partial results.
 
