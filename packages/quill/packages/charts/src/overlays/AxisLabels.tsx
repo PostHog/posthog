@@ -3,6 +3,7 @@ import React from 'react'
 import { useChartLayout } from '../core/chart-context'
 import { TICK_GAP } from '../core/y-axis-gutters'
 import { minimumRotatedTickLabelGap, normalizeTickLabelRotation } from '../utils/axis-labels'
+import type { XAxisTickCallback } from '../utils/dates'
 import { AXIS_LABEL_FONT, getTextMeasureCtx, truncateToWidth } from '../utils/text-measure'
 
 interface AxisLabelsProps {
@@ -77,6 +78,38 @@ function dropOverlappingLabels<T extends { text: string; x: number }>(candidates
     return visible
 }
 
+const CALENDAR_MONTH_STEPS = [1, 2, 3, 6, 12]
+
+function keepCalendarLabels<T extends { index: number; text: string; x: number }>(
+    candidates: T[],
+    monthOfYear: (index: number) => number | undefined,
+    padding: number
+): T[] | null {
+    const ctx = getTextMeasureCtx()
+    if (!ctx || candidates.length === 0) {
+        return null
+    }
+    ctx.font = AXIS_LABEL_FONT
+    const extents = candidates.map((label) => ({ label, half: ctx.measureText(label.text).width / 2 }))
+    type Extent = (typeof extents)[number]
+    const clear = (a: Extent, b: Extent): boolean => a.label.x + a.half + padding <= b.label.x - b.half
+    const latest = extents[extents.length - 1]
+
+    for (const step of CALENDAR_MONTH_STEPS) {
+        const kept = extents.filter((extent) => (monthOfYear(extent.label.index) ?? 1) % step === 0)
+        if (kept[kept.length - 1] !== latest) {
+            if (kept.length > 0 && !clear(kept[kept.length - 1], latest)) {
+                kept.pop()
+            }
+            kept.push(latest)
+        }
+        if (kept.every((extent, i) => i === 0 || clear(kept[i - 1], extent))) {
+            return kept.map((extent) => extent.label)
+        }
+    }
+    return null
+}
+
 export function computeVisibleXLabels(
     labels: string[],
     xScale: (label: string) => number | undefined,
@@ -105,7 +138,12 @@ export function computeVisibleXLabels(
         }
     }
 
-    return rotation === 0 ? dropOverlappingLabels(candidates, CATEGORY_LABEL_PADDING) : candidates
+    if (rotation !== 0) {
+        return candidates
+    }
+    const monthOfYear = (formatter as XAxisTickCallback | undefined)?.monthOfYear
+    const calendarLabels = monthOfYear && keepCalendarLabels(candidates, monthOfYear, CATEGORY_LABEL_PADDING)
+    return calendarLabels || dropOverlappingLabels(candidates, CATEGORY_LABEL_PADDING)
 }
 
 interface ValueTickCandidate {

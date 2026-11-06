@@ -23,7 +23,7 @@ export function createXAxisTickCallback({
     interval,
     allDays,
     timezone,
-}: CreateXAxisTickCallbackArgs): ((value: string | number, index: number) => string | null) | undefined {
+}: CreateXAxisTickCallbackArgs): XAxisTickCallback | undefined {
     if (allDays.length === 0 || typeof allDays[0] !== 'string') {
         return
     }
@@ -39,7 +39,7 @@ export function createXAxisTickCallback({
     const resolvedInterval = interval ?? inferInterval(parsedDates, isDateOnlyLabel(allDays[0]))
     const mode = pickMode(resolvedInterval, parsedDates, first, last)
 
-    return (_value: string | number, index: number): string | null => {
+    const callback: XAxisTickCallback = (_value: string | number, index: number): string | null => {
         const date = parsedDates[index]
         if (!date?.isValid()) {
             return String(_value)
@@ -51,6 +51,15 @@ export function createXAxisTickCallback({
 
         return formatTick(mode, date, index)
     }
+    if (mode.type === 'month' || mode.type === 'monthly' || mode.type === 'quarter') {
+        callback.monthOfYear = (index) => (parsedDates[index]?.isValid() ? parsedDates[index].month() : undefined)
+    }
+    return callback
+}
+
+/** `monthOfYear` (0-11) lets the axis thin month labels on calendar steps counted from January. */
+export type XAxisTickCallback = ((value: string | number, index: number) => string | null) & {
+    monthOfYear?: (index: number) => number | undefined
 }
 
 export const parseDateForAxis = parseDateInTimezone
