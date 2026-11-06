@@ -3607,6 +3607,9 @@ class TestHogFlowAPI(APIBaseTest):
             created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
             assert created.status_code == 201, created.json()
             flow_id = created.json()["id"]
+            HogFlow.objects.filter(id=flow_id).update(
+                encrypted_inputs={"action_1": {"api_token": {"value": "stored-secret"}}}
+            )
         else:
             data["configuration"] = hog_flow
 
@@ -3631,10 +3634,13 @@ class TestHogFlowAPI(APIBaseTest):
             "action_id": "action_1",
             "action_type": "function",
             "template_id": "template-slack",
-            "input_keys": ["channel", "slack_workspace", "text"],
+            "input_keys": ["api_token", "channel", "slack_workspace", "text"]
+            if saved
+            else ["channel", "slack_workspace", "text"],
             "integration_ids": [workspace.id],
         }
         assert "sent-by-the-test" not in json.dumps(detail)
+        assert "stored-secret" not in json.dumps(detail)
 
     @parameterized.expand(
         [

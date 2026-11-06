@@ -80,16 +80,20 @@ def _tested_action(actions: Any, current_action_id: Optional[str]) -> dict[str, 
     return {"id": current_action_id}
 
 
-def workflow_test_run_context(actions: Any, current_action_id: Optional[str]) -> WorkflowTestRunContext:
+def workflow_test_run_context(
+    actions: Any, current_action_id: Optional[str], encrypted_inputs: Any = None
+) -> WorkflowTestRunContext:
     action = _tested_action(actions, current_action_id)
     config = _as_dict(action.get("config"))
     inputs = _as_dict(config.get("inputs"))
+    # A saved flow keeps its secret inputs apart from `actions`, and the worker folds them back in.
+    secret_keys = _as_dict(_as_dict(encrypted_inputs).get(str(action.get("id")))).keys()
     template_id = config.get("template_id") if isinstance(config.get("template_id"), str) else None
     return WorkflowTestRunContext(
         action_id=action.get("id"),
         action_type=action.get("type"),
         template_id=template_id,
-        input_keys=sorted(inputs.keys()),
+        input_keys=sorted({*inputs.keys(), *secret_keys}),
         integration_ids=_integration_ids(template_id, config),
     )
 
@@ -101,6 +105,7 @@ def log_workflow_test_run(
     name: Optional[str],
     actions: Any,
     current_action_id: Optional[str],
+    encrypted_inputs: Any = None,
 ) -> None:
     # Without `strict`, production drops a failed write and the test still sends real requests.
     log_activity(
@@ -112,5 +117,5 @@ def log_workflow_test_run(
         item_id=str(workflow_id) if workflow_id else None,
         scope="HogFlow",
         activity="tested",
-        detail=Detail(name=name, context=workflow_test_run_context(actions, current_action_id)),
+        detail=Detail(name=name, context=workflow_test_run_context(actions, current_action_id, encrypted_inputs)),
     )
