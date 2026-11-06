@@ -62,14 +62,14 @@ export function loginFlow(
 }
 
 // Each login probes the keychain again, so a login at the desk moves credentials out of the file a
-// login over SSH had to use. Clears the command's pending login too, so a later `--wait` can't
-// replace these credentials with an older approval.
+// login over SSH had to use. Clears every pending login too, so a later `--wait` of any login
+// command can't replace these credentials with an older approval.
 // `replace` is for a step-up. It gets the stored login and returns the key to save in its place.
 // The stored login is revoked once the new one is saved, so it doesn't linger in PostHog.
 export async function saveLogin(
     runtime: Runtime,
     unverified: AccessKey,
-    { command = LOGIN_COMMAND, replace }: { command?: string; replace?: (stored: AccessKey) => AccessKey } = {}
+    { replace }: { replace?: (stored: AccessKey) => AccessKey } = {}
 ): Promise<LoggedIn> {
     let key = await unverified.verify(runtime)
     const [probe, previous] = await Promise.all([probeKeychain(runtime), readSettings(runtime)])
@@ -110,7 +110,7 @@ export async function saveLogin(
     // Outside the lock: once the new login is stored, no renewal can rotate the replaced one. A
     // failed revoke leaves the replaced login working until it expires, which is no reason to fail a
     // step-up that already saved its tokens.
-    await Promise.all([replaced?.logout(runtime), clearPending(runtime, command)])
+    await Promise.all([replaced?.logout(runtime), ...LOGIN_COMMANDS.map((command) => clearPending(runtime, command))])
     return {
         host,
         projectId: key.projectId,

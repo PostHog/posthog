@@ -18,12 +18,14 @@ type AddResult =
       }
 
 // Saves the approved login in place of the stored one. In the same project it keeps the stored
-// login's id, so commands still running on it pick up the new tokens.
+// login's id, so commands still running on it pick up the new tokens. Only an OAuth login's key is
+// an id: a personal API key's key is the secret itself, which settings.json must never hold.
 async function finish(ctx: Context, approved: OAuthLogin): Promise<AddResult> {
     const saved = await saveLogin(ctx.runtime, approved, {
-        command: ADD_COMMAND,
         replace: (stored) =>
-            stored.projectId === approved.projectId ? approved.continuing(stored.loginKey) : approved,
+            stored.status().kind === 'oauth' && stored.projectId === approved.projectId
+                ? approved.continuing(stored.loginKey)
+                : approved,
     })
     return {
         status: 'added',

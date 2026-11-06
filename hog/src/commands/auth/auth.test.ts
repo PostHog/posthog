@@ -786,21 +786,37 @@ describe('hog auth login', () => {
     })
 
     test.each([
-        ['in the same project, the login keeps its id', 42, 'login-1', null],
-        ['in another project, the login gets a new id', 7, expect.not.stringMatching(/^login-1$/), '42'],
-    ])('add --wait replaces the stored login and revokes it: %s', async (_name, project, loginId, previous) => {
+        ['in the same project, the login keeps its id', OAUTH_LOGIN, 42, 'login-1', null, REFRESH_TOKEN],
+        [
+            'in another project, the login gets a new id',
+            OAUTH_LOGIN,
+            7,
+            expect.not.stringMatching(/^login-1$/),
+            '42',
+            REFRESH_TOKEN,
+        ],
+        // A personal API key's login key is the key itself, which must stay out of settings.json.
+        [
+            'over a personal API key, the login gets a new id',
+            KEYCHAIN_LOGIN,
+            42,
+            expect.not.stringMatching(/^phx_/),
+            null,
+            undefined,
+        ],
+    ])('add --wait replaces the stored login: %s', async (_name, stored, project, loginId, previous, revoked) => {
         const scopes = ['openid', 'insight:read', 'insight:write']
         const result = await runHog(['auth', 'add', '--wait'], {
             env: { CLAUDECODE: '1' },
             files: {
-                ...OAUTH_LOGIN.files,
+                ...stored.files,
                 [ADD_PENDING_FILE]: JSON.stringify({
                     ...(readJson(PENDING) as object),
                     scopes,
                     requiredScopes: ['insight:write'],
                 }),
             },
-            keychain: OAUTH_LOGIN.keychain,
+            keychain: stored.keychain,
             respond: deviceFlow(0, {
                 status: 200,
                 body: {
@@ -824,9 +840,8 @@ describe('hog auth login', () => {
             refreshToken: STEPPED_UP_REFRESH,
         })
         expect(readJson(result.files[SETTINGS_FILE] ?? '{}')).toMatchObject({ logins: { [EU]: { loginId, scopes } } })
-        expect(result.requests.find((request) => request.url.endsWith('/oauth/revoke/'))?.body).toMatchObject({
-            token: REFRESH_TOKEN,
-        })
+        const revoke = result.requests.find((request) => request.url.endsWith('/oauth/revoke/'))
+        expect((revoke?.body as { token?: string } | undefined)?.token).toBe(revoked)
         expect(result.files[ADD_PENDING_FILE]).toBeUndefined()
     })
 
