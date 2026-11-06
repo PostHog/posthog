@@ -107,10 +107,14 @@ const providers = {
                 },
             ],
             can_resolve_subject: true,
-            setup_snippet:
-                'your-job:\n  id_tokens:\n    HOG_ID_TOKEN:\n      aud: https://us.posthog.com\n',
+            setup_snippet: 'your-job:\n  id_tokens:\n    HOG_ID_TOKEN:\n      aud: https://us.posthog.com\n',
         },
     ],
+    custom: {
+        name: 'Custom OIDC provider',
+        docs_url: 'https://posthog.com/docs/api/workload-identity/custom',
+        default_subject_claim: 'sub',
+    },
     job_settings: {
         host: 'https://us.posthog.com',
         project_id: 997,
@@ -167,6 +171,12 @@ function TrustedWorkloads(): JSX.Element {
         },
         get: {
             '/api/projects/:team_id/workload_trust_policies/providers/': providers,
+            '/api/projects/:team_id/workload_trust_policies/check_issuer/': {
+                issuer: 'https://auth.example.com',
+                jwks_uri: 'https://auth.example.com/.well-known/jwks.json',
+                signing_algorithms: ['RS256', 'ES256'],
+                audience: 'https://us.posthog.com',
+            },
             '/api/projects/:team_id/workload_trust_policy_requests/resolve_subject/': {
                 subject: '123456',
                 subject_name: 'Acme/web',
@@ -218,20 +228,24 @@ export const WithPolicies: Story = {
     render: () => <TrustedWorkloads />,
 }
 
+async function openAddModal(canvasElement: HTMLElement): Promise<ReturnType<typeof within>> {
+    const canvas = within(canvasElement)
+    // The button stays disabled until the providers and policies load.
+    const addButton = await waitFor(() => {
+        const button = canvas.getByText('Add trusted workload').closest('button')
+        if (!button || button.getAttribute('aria-disabled') === 'true') {
+            throw new Error('Waiting for the trusted workloads to load')
+        }
+        return button
+    })
+    await userEvent.click(addButton)
+    return within(canvasElement.ownerDocument.body)
+}
+
 export const AddingAGitHubRepository: Story = {
     render: () => <TrustedWorkloads />,
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        // The button stays disabled until the providers and policies load.
-        const addButton = await waitFor(() => {
-            const button = canvas.getByText('Add trusted workload').closest('button')
-            if (!button || button.getAttribute('aria-disabled') === 'true') {
-                throw new Error('Waiting for the trusted workloads to load')
-            }
-            return button
-        })
-        await userEvent.click(addButton)
-        const body = within(canvasElement.ownerDocument.body)
+        const body = await openAddModal(canvasElement)
         await userEvent.type(await body.findByPlaceholderText('owner/repo'), 'acme/web')
         await userEvent.click(await body.findByText('Look up'))
         await body.findByText('Found through your GitHub integration.')
@@ -250,5 +264,16 @@ export const AfterAddingShowsTheJobSnippet: Story = {
             await userEvent.click(submit)
         }
         await body.findByText('Set up the workload')
+    },
+}
+
+export const AddingACustomOIDCProvider: Story = {
+    render: () => <TrustedWorkloads />,
+    play: async ({ canvasElement }) => {
+        const body = await openAddModal(canvasElement)
+        await userEvent.click(await body.findByText('Custom OIDC provider'))
+        await userEvent.type(await body.findByPlaceholderText('https://auth.example.com'), 'https://auth.example.com')
+        await userEvent.click(await body.findByText('Check issuer'))
+        await body.findByText(/PostHog found the issuer/)
     },
 }
