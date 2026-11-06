@@ -613,7 +613,13 @@ class TestMetricResultStore(BaseTest):
 
     @parameterized.expand(
         [
-            (f"{writer}_{held_by}", writer, held_by, reader)
+            (
+                f"{writer}_{held_by}",
+                writer,
+                held_by,
+                reader,
+                (writer, held_by) != ("daily_failure", "the_same_daily_key"),
+            )
             for writer in ("run_failure", "daily_failure")
             for held_by, reader in (
                 ("a_version_1_recalculation", "for_run"),
@@ -623,8 +629,8 @@ class TestMetricResultStore(BaseTest):
             )
         ]
     )
-    def test_a_failure_keeps_the_completed_row_that_holds_its_window(
-        self, _name: str, writer: str, held_by: str, reader: str
+    def test_only_a_daily_failure_replaces_a_completed_row_and_only_under_its_own_key(
+        self, _name: str, writer: str, held_by: str, reader: str, kept: bool
     ) -> None:
         experiment = self._experiment()
         calculation_config = get_metric_calculation_config(experiment, "m1")
@@ -640,12 +646,20 @@ class TestMetricResultStore(BaseTest):
         self._write(writer, experiment, calculation_config)
 
         row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid="m1", query_to=_WINDOW)
-        assert (row.fingerprint, row.status, row.error_message) == (
-            held_fingerprint,
-            ExperimentMetricResult.Status.COMPLETED,
-            None,
-        )
-        assert self._read(reader, experiment, calculation_config) == [1]
+        if kept:
+            assert (row.fingerprint, row.status, row.error_message) == (
+                held_fingerprint,
+                ExperimentMetricResult.Status.COMPLETED,
+                None,
+            )
+            assert self._read(reader, experiment, calculation_config) == [1]
+        else:
+            assert (row.fingerprint, row.status, row.result, row.error_message) == (
+                held_fingerprint,
+                ExperimentMetricResult.Status.FAILED,
+                None,
+                "boom",
+            )
 
     @parameterized.expand(
         [

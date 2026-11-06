@@ -358,10 +358,10 @@ describe('experimentMetricsLogic', () => {
                 expectedError: { detail: 'boom', retriable: false },
             },
             {
-                name: 'shows the saved result of a metric whose calculation failed',
+                name: 'shows the error of a metric whose failed calculation kept a completed row',
                 primaryRow: completedRecalculation.results[0],
                 expectedResult: primaryResult,
-                expectedError: null,
+                expectedError: { detail: 'boom', retriable: false },
             },
         ])(
             '$name when the latest run loaded on mount is a partial failure',

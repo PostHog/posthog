@@ -113,7 +113,7 @@ The snapshot for such an experiment is the one row at `end_date` for the current
 
 `ExperimentMetricResult` has no foreign key pointing back to `ExperimentMetricsRecalculation`. The scoping key lives entirely in the fingerprint plus `query_to`. This avoided a migration on a shared table to add a nullable column, and makes the two workflow families uniform in how they write results.
 
-Run reads rebuild the current keys and match the run's window. A configuration change can leave a running experiment uncovered; an ended experiment keeps compatible completed results through the display key. A finished run of an ended experiment shows the saved end point of a metric that it failed, the same point the cold-start fallback shows, so a failed recalculation does not hide a decided result. The `metric_errors` entry still counts the failure.
+Run reads rebuild the current keys and match the run's window. A configuration change can leave a running experiment uncovered; an ended experiment keeps compatible completed results through the display key.
 
 Every read and write of `ExperimentMetricResult` goes through `MetricResultStore` (`metric_calculation/results.py`), so the salt and the sync's copy window stay in one module.
 The current result of a metric (`current_outcome`) is the completed row whose data ends last under the metric's current calculation key, salted or bare.
@@ -127,7 +127,7 @@ Every writer (the calc activity, the daily activities, the backfill and the time
 A row that holds the window under another fingerprint is therefore updated in place, so no write can fail on the unique constraint or create a second row for a window.
 A daily write and a recalculation share a window only when an experiment stops while its daily run is in flight, so both use `end_date`.
 A successful daily write then takes over the recalculation's row, and the next reload recomputes that metric.
-A failed write, daily or recalculation, leaves any completed row in place, because it has no result to replace it with.
+A failed write leaves a completed row under another fingerprint in place, because it has no result to replace it with. A failed recalculation also leaves a completed row under its own key in place, while a failed daily point replaces it, so the chart shows the latest attempt.
 The calc activity's write keeps its lock order and its terminal-run guard (see [cancellation and result-write protection](../../../../docs/internal/experiment-metric-recalculation.md)).
 
 Backfill requests lock the experiment while checking for an active job by metric UUID, deleting its daily results, and creating the new job in one transaction. Failed job creation preserves the existing results. The active-job unique index includes the metric UUID as well as the experiment and calculation key, so equivalent metrics can backfill independently. Keeping the key in the index allows existing jobs for one UUID under different keys to coexist during a rolling deployment; the locked UUID lookup prevents new requests from adding another job for that metric.

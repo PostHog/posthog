@@ -28,9 +28,9 @@ row up with `.get()` on that key. While the constraint holds, no two rows tie, s
 
 Every write looks the row up on `(experiment, metric_uuid, query_to)` and stores the fingerprint as an updated
 field. A row that holds the window under another fingerprint is therefore updated in place, and no write can
-violate the unique constraint or create a second row for a window. A failure is the exception: it never replaces a
-completed row, under any fingerprint, because it has no result to put in that row's place. The saved result stays
-readable, and a recalculation run keeps the failure in its `metric_errors`.
+violate the unique constraint or create a second row for a window. A failure is the exception: it leaves a
+completed row under another fingerprint in place, because it has no result to replace that row with. A recalculation
+failure also leaves a completed row under its own key in place, and the run keeps the failure in its `metric_errors`.
 
 Every query filters on the experiment first, so the `(experiment, metric_uuid, query_to)` indexes serve it.
 """
@@ -422,7 +422,7 @@ class MetricResultStore:
     ) -> None:
         """Store the failure of one metric of a recalculation run, unless the run is terminal or missing, or a completed
         row holds the window. The caller records the failure in the run's `metric_errors` too, so the run reports it
-        while the completed row keeps the saved result readable."""
+        even when the completed row stays."""
         self._record_for_run(
             recalculation_id,
             calculation_config,
@@ -470,13 +470,13 @@ class MetricResultStore:
         query_from: datetime,
         error_message: str,
     ) -> None:
-        """Store a failed daily point under the bare calculation key, unless a completed row holds the window.
-        `display_key` is as for `record_daily_point`.
+        """Store a failed daily point under the bare calculation key, unless a completed row under another
+        fingerprint holds the window. `display_key` is as for `record_daily_point`.
 
-        A row under another fingerprint is usually a recalculation of a stopped experiment, because a late daily run
-        and the recalculation both use `end_date`. The run finds its row only by the salted key, and a failure has no
-        result to put in its place, so the store keeps the row and drops the failure. A completed point under the
-        same key also stays, so the timeseries keeps the last successful result at that window.
+        That row is usually a recalculation of a stopped experiment, because a late daily run and the recalculation
+        both use `end_date`. The run finds its row only by the salted key, and a failure has no result to put in its
+        place, so the store keeps the row and drops the failure. A completed point under the same key gets the
+        failure, so the timeseries shows the latest attempt at that window.
         """
         self._upsert(
             metric_uuid,
@@ -489,6 +489,7 @@ class MetricResultStore:
             error_message=error_message,
             query_id=None,
             completed_at=None,
+            replaces_completed_row_of_same_fingerprint=True,
         )
 
     def copy_into_sync_run(
@@ -582,6 +583,7 @@ class MetricResultStore:
         error_message: str | None,
         query_id: str | None,
         completed_at: datetime | None,
+        replaces_completed_row_of_same_fingerprint: bool = False,
     ) -> None:
         fields: dict[str, Any] = {
             "fingerprint": fingerprint,
@@ -602,7 +604,8 @@ class MetricResultStore:
             )
             if created:
                 return
-            if status == _FAILED and row.status == _COMPLETED:
+            replaces_completed_row = replaces_completed_row_of_same_fingerprint and row.fingerprint == fingerprint
+            if status == _FAILED and row.status == _COMPLETED and not replaces_completed_row:
                 logger.info(
                     "Keeping a completed experiment metric result instead of a failure",
                     experiment_id=self.experiment_id,

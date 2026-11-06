@@ -263,26 +263,23 @@ const resolveResultByUuid = (
  * Resolver: a metric's failure as `{ detail, retriable }` (the MetricErrorState shape), or null. `metric_errors`
  * wins (it covers FAILED rows AND discovery-step failures absent from `results`), falling back to a
  * failed row's error_message. A rejected run carries the earlier run's rows, so its error is dropped on a
- * metric that has a row: the banner shows the message and the cell keeps the earlier result. A failed calculation
- * keeps the completed row that held its window, so its error is dropped on a metric whose row is completed and the
- * cell keeps the saved result.
+ * metric that has a row: the banner shows the message and the cell keeps the earlier result.
  * `_shown_failure` in products/experiments/backend/health/latest_calculation.py repeats this rule for the health
  * checks, so change both together.
  */
 const resolveErrorByUuid = (recalculation: RecalculationPayload): ResolveByUuid<MetricErrorState> => {
     const metricErrors = metricErrorEntries(recalculation)
-    const rowStatusByUuid = new Map((recalculation.results ?? []).map((r) => [r.metric_uuid, r.status]))
+    const uuidsWithRow = new Set((recalculation.results ?? []).map((r) => r.metric_uuid))
     const failedResultMessageByUuid = new Map(
         (recalculation.results ?? [])
             .filter((r) => r.status === 'failed' && r.error_message)
             .map((r) => [r.metric_uuid, r.error_message as string])
     )
     return (uuid) => {
-        const rowStatus = rowStatusByUuid.get(uuid)
-        const rowKept =
-            rowStatus === 'completed' ||
-            (rowStatus !== undefined && metricErrors[uuid]?.error_type === RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE)
-        const entry = rowKept ? undefined : metricErrors[uuid]
+        const entry =
+            metricErrors[uuid]?.error_type === RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE && uuidsWithRow.has(uuid)
+                ? undefined
+                : metricErrors[uuid]
         const message = entry?.message ?? failedResultMessageByUuid.get(uuid)
         return message ? { detail: message, retriable: entry?.retriable === true } : null
     }

@@ -28,7 +28,7 @@ from products.experiments.backend.metric_calculation.config import (
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_validation import event_last_seen, metric_nodes
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricResult
-from products.experiments.backend.recalculation import get_latest_recalculation, read_run_rows
+from products.experiments.backend.recalculation import get_latest_recalculation
 from products.experiments.backend.temporal.models import RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE
 
 # The calculation doesn't apply the reader's warehouse access, so the names that HogQL suggests in its message can name
@@ -67,7 +67,7 @@ def _load_latest_calculation(experiment: Experiment) -> LatestCalculation:
         )
     metric_errors = run.metric_errors if isinstance(run.metric_errors, dict) else {}
     results = MetricResultStore(experiment_id=experiment.id)
-    rows = {row.metric_uuid: row for row in read_run_rows(run, configs=list(configs.values()), with_result=False)}
+    rows = {row.metric_uuid: row for row in results.for_run(run, with_result=False)}
     failures = tuple(
         failure
         for metric_id, calculation_config in configs.items()
@@ -207,12 +207,10 @@ def _shown_failure(
 
     pinned: `resolveErrorByUuid` in experimentMetricsLogic.ts. The run's error entry wins over a failed row,
     because it also covers failures before the query ran. A rejected run carries the rows of the run before it, so
-    its error doesn't show on a metric that has a row. A failed calculation keeps the completed row that held its
-    window, so its error doesn't show on a metric whose row is completed.
+    its error doesn't show on a metric that has a row.
     """
     error: dict[str, Any] = entry if isinstance(entry, dict) else {}
-    rejected = error.get("error_type") == RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE
-    if row is not None and (rejected or row.status == ExperimentMetricResult.Status.COMPLETED):
+    if error.get("error_type") == RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE and row is not None:
         error = {}
     message = error.get("message")
     if not isinstance(message, str):

@@ -47,8 +47,9 @@ That recalculation updates the latest results only; time series points keep thei
 When the experiment is over the recalculation age limit, the latest response sets `exceeds_recalculation_age_limit`, and the page explains that the stored results stay as they are instead of offering the recalculation.
 
 A failed recalculation never replaces a completed result row.
-The row keeps its result and fingerprint, the run records the failure in `metric_errors` and counts the metric as failed, and the page keeps showing the stored result.
-A failed daily calculation also leaves a completed row at its window in place.
+The row keeps its result and fingerprint, and the run records the failure in `metric_errors` and counts the metric as failed.
+The page shows the failure, as it does for a metric without a stored result.
+A failed daily calculation leaves a completed row under another fingerprint in place, and replaces a completed point under its own key, so the chart shows the latest attempt.
 
 The API reports this provenance as `configuration_status` on each recalculation result and as `configuration_by_day` on the timeseries results: `current`, `previous` or `unknown`.
 Under version 1, every result under the version 1 key reports `current`.
