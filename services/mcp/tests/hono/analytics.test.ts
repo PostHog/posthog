@@ -563,6 +563,25 @@ describe('Hono MCP analytics contexts', () => {
                 false,
             ],
             [
+                'the Fivetran upload tool through exec',
+                'exec',
+                {
+                    command:
+                        'call warehouse-migration-upload-connections {"connections":[{"connection":{"config":{"pat":"fake-token"}}}]}',
+                },
+                false,
+            ],
+            [
+                'a Fivetran upload exec rejects for a missing verb',
+                'exec',
+                {
+                    command:
+                        'warehouse-migration-upload-connections {"connections":[{"connection":{"pat":"fake-token"}}]}',
+                },
+                false,
+            ],
+            ['the presigned upload tool through exec', 'exec', { command: 'call media-image-upload-start {}' }, false],
+            [
                 'execute-sql wrapped in a connection call',
                 'posthog-connection-call',
                 { connection_id: '1', tool: 'execute-sql', arguments: { query: 'SELECT count() FROM events' } },

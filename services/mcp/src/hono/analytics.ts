@@ -343,6 +343,25 @@ const PRESIGNED_UPLOAD_TOOL_NAME = 'media-image-upload-start'
 // (`pat`, credential-bearing URLs) have names key-based redaction can't recognize.
 const FIVETRAN_UPLOAD_TOOL_NAME = 'warehouse-migration-upload-connections'
 
+const UNCAPTURED_PAYLOAD_TOOL_NAMES: ReadonlySet<string> = new Set([
+    PRESIGNED_UPLOAD_TOOL_NAME,
+    FIVETRAN_UPLOAD_TOOL_NAME,
+])
+
+function carriesUncapturedPayload(toolName: string, input: unknown): boolean {
+    if (UNCAPTURED_PAYLOAD_TOOL_NAMES.has(toolName)) {
+        return true
+    }
+    // Match the whole exec command, as for email sends: a call through exec, or one exec rejects, carries the same
+    // args in its command string and the same result in its output.
+    const command = (input as { command?: unknown } | null | undefined)?.command
+    return (
+        toolName === 'exec' &&
+        typeof command === 'string' &&
+        [...UNCAPTURED_PAYLOAD_TOOL_NAMES].some((name) => command.includes(name))
+    )
+}
+
 // Their output is another project's data, possibly from another region: a wrapped
 // execute-sql result or any API response. The execute-sql exemption below checks only
 // the outer tool name, so without this check the wrapped query's rows land in
@@ -399,7 +418,7 @@ function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     if (isGatewayToolName(toolName)) {
         return false
     }
-    if (toolName === PRESIGNED_UPLOAD_TOOL_NAME || toolName === FIVETRAN_UPLOAD_TOOL_NAME) {
+    if (carriesUncapturedPayload(toolName, input)) {
         return false
     }
     if (POSTHOG_CONNECTION_TOOL_NAMES.has(toolName)) {
