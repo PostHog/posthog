@@ -6,6 +6,7 @@ from django.core.cache import cache
 from celery.exceptions import Retry
 from parameterized import parameterized
 
+from products.posthog_ai.backend.reply_suggestions.dispatch import enqueue_reply_suggestions
 from products.posthog_ai.backend.reply_suggestions.service import (
     REPLY_SUGGESTIONS_METHOD,
     ReplySuggestionsOutcome,
@@ -114,6 +115,13 @@ class TestGenerateReplySuggestions(BaseTest):
         assert (first.status, repeat.reason, next_turn.status) == ("emitted", "turn_already_claimed", "emitted")
         assert self.mocks["suggest"].call_count == 2
         assert self.mocks["publish"].call_args.args[4]["turnIndex"] == 2
+
+    def test_simultaneous_reports_of_a_turn_queue_one_job(self):
+        with patch("products.posthog_ai.backend.tasks.generate_reply_suggestions_task.apply_async") as apply_async:
+            queued = [enqueue_reply_suggestions(self.task_run) for _ in range(3)]
+
+        assert queued == [True, False, False]
+        apply_async.assert_called_once()
 
     def test_a_long_answer_reaches_the_model_with_its_closing_question(self):
         answer = "Step details. " * 600 + "Should I open a pull request with the fix?"
