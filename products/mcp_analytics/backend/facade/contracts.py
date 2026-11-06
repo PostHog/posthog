@@ -100,6 +100,10 @@ class MCPToolCall:
     is_error: bool
     error_message: str
     duration_ms: int | None
+    parameters: str
+    response: str
+    error_type: str
+    error_status: str
 
 
 @dataclass(frozen=True)
