@@ -79,9 +79,7 @@ export class OrganizationMembersService {
         )
         for (const row of rows) {
             const { verifiedEmails, unverifiedEmails } = members.get(String(row.team_id))!
-            // Null marks an account from before email verification existed. Like the web app's login and
-            // email-change flows, only an explicit false counts as unverified.
-            ;(row.is_email_verified !== false ? verifiedEmails : unverifiedEmails).add(normalizeEmail(row.email))
+            ;(row.is_email_verified === true ? verifiedEmails : unverifiedEmails).add(normalizeEmail(row.email))
         }
         return Object.fromEntries(members)
     }
