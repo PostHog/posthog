@@ -19,13 +19,13 @@ from prometheus_client import Counter
 from posthog.hogql.parser import parse_string_template
 
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationManager
 from posthog.models.activity_logging.activity_log import (
     ActivityContextBase,
     ActivityLog,
     Detail,
     update_activity_context,
 )
-from posthog.models.integration import Integration
 
 from products.cdp.backend.validation import collect_inputs
 
@@ -243,12 +243,9 @@ def _stored_secrets(row: ActivityLog, secret_inputs: Any) -> list[str]:
     context = cast(Detail, row.detail).context
     integration_ids = getattr(context, "integration_ids", None) or []
     configs: list[Any] = []
-    if row.team_id is not None:
-        configs = list(
-            Integration.objects.filter(team_id=row.team_id, id__in=integration_ids).values_list(
-                "sensitive_config", flat=True
-            )
-        )
+    if row.team_id is not None and integration_ids:
+        records = IntegrationManager.any.with_source_rows().get_many(row.team_id, integration_ids)
+        configs = [dict(record.sensitive_config) for record in records.values()]
     return [*_string_values(secret_inputs), *_string_values(configs)]
 
 
