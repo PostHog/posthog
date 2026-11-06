@@ -499,6 +499,7 @@ export class IngestionApiServer implements NodeServer {
                 sessionIdleTimeoutMs: this.config.INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS,
                 readMaxBytes: this.config.INGESTION_API_GRPC_READ_MAX_BYTES,
                 drainTimeoutMs: this.config.INGESTION_API_GRPC_DRAIN_TIMEOUT_MS,
+                stuckBatchTimeoutMs: this.config.INGESTION_API_GRPC_STUCK_BATCH_TIMEOUT_MS,
             },
             {
                 driver: new GrpcStreamIngestDriver(grpcPipeline, this.promiseScheduler),
