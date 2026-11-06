@@ -517,10 +517,6 @@ If you propose this again, name the jobs and prove that each one reads only the 
 
 Storybook's `select-stories` job checks out only `.nvmrc` from the PR head. It keeps the bounded blobless history for changed-path detection, downloads the module graph, and runs the selector from a separate trusted base checkout, which also carries `common/storybook/storybook-timings.json`. Source files do not need to exist in the PR worktree for this job. The manifest is there because it sizes the shard count, and a file count cannot size that: the stories a frontend diff affects carry about twice the render time per story that the average story does. It is read from the base checkout so the nightly refresh applies to branches behind master and a fork cannot steer the shard count.
 
-The E2E spec selector keeps its script, map, and both complete spec roots in a sparse PR-head checkout.
-After the bounded history fetch, a selector script that differs from the base branch restores the full tree, because older or modified selectors can read other files.
-The E2E test job still checks out the complete tree.
-
 _Also asked as:_ sparse-checkout, partial clone, do not check out the whole repo, speed up the checkout step
 
 ### Drop `filter: blob:none` from a deep checkout
