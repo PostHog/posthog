@@ -249,7 +249,7 @@ export interface accountNotebooksLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         notebooks: (
             notebooksResponse: PaginatedAccountNotebookListApi | null,
-            pendingNotebookTags: any
+            pendingNotebookTags: Record<string, string[]>
         ) => AccountNotebookApi[] | null
         notebooksCount: (notebooksResponse: PaginatedAccountNotebookListApi | null) => number
         pagination: (page: number, notebooksCount: number) => PaginationManual
@@ -259,16 +259,38 @@ export interface accountNotebooksLogicMeta {
             createdByFilter: number[],
             sorting: Sorting | null,
             passthroughViewFilters: PassthroughViewFilters,
-            passthroughViewOrdering: any
+            passthroughViewOrdering:
+                | '-account_name'
+                | '-created_at'
+                | '-created_by'
+                | '-last_modified_at'
+                | '-title'
+                | 'account_name'
+                | 'created_at'
+                | 'created_by'
+                | 'last_modified_at'
+                | 'title'
+                | null
         ) => AccountNotesViewState
         tileConfig: (
             searchTerm: string,
             sorting: Sorting | null,
             tagsFilter: string[],
             createdByFilter: number[],
-            currentViewId: any,
+            currentViewId: string | null,
             passthroughViewFilters: PassthroughViewFilters,
-            passthroughViewOrdering: any
+            passthroughViewOrdering:
+                | '-account_name'
+                | '-created_at'
+                | '-created_by'
+                | '-last_modified_at'
+                | '-title'
+                | 'account_name'
+                | 'created_at'
+                | 'created_by'
+                | 'last_modified_at'
+                | 'title'
+                | null
         ) => AccountViewTileConfig
     }
 }

@@ -12,6 +12,9 @@ const viewFormLogic = kea([
 const meta: Meta<typeof SavedViewFormModal> = {
     title: 'Customer Analytics/Saved views/Form',
     component: SavedViewFormModal,
+    parameters: {
+        testOptions: { snapshotTargetSelector: '.LemonModal', waitForSelector: '.LemonModal' },
+    },
     args: {
         isOpen: true,
         isEditing: false,

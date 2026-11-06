@@ -287,7 +287,7 @@ export interface accountNotesLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         accountNotes: (
             accountNotesResponse: PaginatedAccountNoteListApi | null,
-            pendingNoteTags: any
+            pendingNoteTags: Record<string, string[]>
         ) => AccountNoteApi[]
         currentUserId: (user: UserType | null) => number | null
         createdByCurrentUser: (createdByFilter: number[], currentUserId: number | null) => boolean
