@@ -103,6 +103,25 @@ class TestTaskRunSync(TestCase):
         self.task.refresh_from_db()
         self.assertEqual((self.task.status, self.task.status_reason), expected)
 
+    def test_first_status_fill_also_fills_legacy_pr_columns(self) -> None:
+        pr_url = "https://github.com/posthog/posthog/pull/7"
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"wizard_head_branch": "posthog/wizard-abc", "verified_pr_urls": [pr_url]},
+        )
+        Task.objects.filter(pk=self.task.pk).update(status=None, head_branch=None, pr_urls=[])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            run.status = TaskRun.Status.COMPLETED
+            run.save(update_fields=["status"])
+
+        self.task.refresh_from_db()
+        self.assertEqual(
+            (self.task.status, self.task.head_branch, self.task.pr_urls), ("idle", "posthog/wizard-abc", [pr_url])
+        )
+
     def test_recovered_agent_error_reaches_the_task(self) -> None:
         with self.captureOnCommitCallbacks(execute=True):
             _save_status(TaskRun.Status.FAILED, error_message="Activity task failed")(self.task)
