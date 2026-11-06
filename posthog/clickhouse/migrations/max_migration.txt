@@ -1,1 +1,1 @@
-0371_embedding_model_small_256
+0374_trace_spans_kafka_metrics_aggregating
