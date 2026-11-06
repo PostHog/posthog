@@ -4648,6 +4648,8 @@ def _handle_work_focus_task_click(payload: dict) -> HttpResponse:
     request = str(value.get("request") or "").strip() if value else ""
     source = value.get("source") if value else None
     source = source if isinstance(source, str) and source.startswith("https://") else None
+    line = value.get("source_line") if value and source else None
+    line = line if isinstance(line, str) and len(line) <= 500 else None
     container = payload.get("container") or {}
     message_ts = container.get("message_ts")
     block_id = (action or {}).get("block_id")
@@ -4675,7 +4677,7 @@ def _handle_work_focus_task_click(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
 
     # The thread opens with the whole request and the message it came from, so the person sees what the task works on.
-    source_line = f"\n<{source}|↗ The message this came from>" if source else ""
+    source_line = f"\n{line}" if line else (f"\n<{source}|The message this came from>" if source else "")
     posted = client.chat_postMessage(
         channel=slack_user_id,
         text=f"*Starting a task*\n{request}{source_line}",
