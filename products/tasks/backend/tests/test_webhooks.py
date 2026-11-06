@@ -33,7 +33,7 @@ from products.signals.backend.models import (
 )
 from products.tasks.backend.facade.api import find_signal_implementation_run
 from products.tasks.backend.models import Task, TaskRun, TaskThreadMessage
-from products.tasks.backend.webhooks import _task_run_scope_team_ids, find_task_run
+from products.tasks.backend.webhooks import _task_run_scope_team_ids, find_task_id_by_pull_request, find_task_run
 
 
 class TestAccountType(SimpleTestCase):
@@ -816,13 +816,16 @@ class TestGitHubPRWebhook(TestCase):
             "repository": {"full_name": "posthog/posthog"},
         }
 
-        response = self._make_webhook_request(payload)
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._make_webhook_request(payload)
         self.assertEqual(response.status_code, 202)
 
         run.refresh_from_db()
         assert run.output is not None
         self.assertEqual(run.output["pr_url"], pr_url)
         self.assertEqual(run.state["verified_pr_urls"], [pr_url])
+        self.task.refresh_from_db()
+        self.assertIn(pr_url, self.task.pr_urls)
 
     @parameterized.expand([("primary_url", False), ("additional_url", True)])
     @patch("products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True)
@@ -1950,6 +1953,35 @@ class TestFindTaskRun(TestCase):
             origin_product=Task.OriginProduct.USER_CREATED,
             repository="posthog/posthog",
         )
+
+    @parameterized.expand(
+        [
+            ("pr_url", {"pr_url": "https://github.com/posthog/posthog/pull/9"}, True),
+            ("canonical_pr_url", {"pr_url": "https://github.com/PostHog/posthog/pull/9"}, True),
+            ("head_branch", {"branch": "posthog/wizard-abc", "repository": "PostHog/posthog"}, True),
+            ("head_branch_other_repository", {"branch": "posthog/wizard-abc", "repository": "posthog/other"}, False),
+            ("review_hog_pr_url", {"pr_url": "https://github.com/posthog/posthog/pull/10"}, False),
+        ]
+    )
+    def test_task_column_lookup(self, _name: str, lookup: dict, found: bool) -> None:
+        Task.objects.filter(pk=self.task.pk).update(
+            pr_urls=["https://github.com/posthog/posthog/pull/9"], head_branch="posthog/wizard-abc"
+        )
+        Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Review task",
+            description="Review",
+            origin_product=Task.OriginProduct.REVIEW_HOG,
+            repository="posthog/posthog",
+            pr_urls=["https://github.com/posthog/posthog/pull/10"],
+        )
+
+        task_id = find_task_id_by_pull_request(
+            lookup.get("pr_url"), lookup.get("branch"), lookup.get("repository"), team_ids=[self.team.id]
+        )
+
+        self.assertEqual(task_id, self.task.id if found else None)
 
     def test_finds_by_pr_url(self):
         task_run = TaskRun.objects.create(
