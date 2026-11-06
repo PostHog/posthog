@@ -61,7 +61,8 @@ const FLAG_SETUP_CHECKS = [
 ]
 
 const SETUP: ExperimentHealthSetupApi = {
-    release_conditions: [{ rollout_percentage: 50, property_count: 1 }],
+    release_conditions: [{ rollout_percentage: 50, property_count: 1, aggregation_group_type_index: null }],
+    early_exit: false,
     bucketing_identifier: 'distinct_id',
     aggregation_group_type_index: null,
     evaluation_runtime: 'all',

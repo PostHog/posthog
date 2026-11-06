@@ -10445,12 +10445,20 @@ export namespace Schemas {
          * The number of filters a user must match, such as properties and cohorts. 0 matches all users.
          */
         property_count: number;
+        /**
+         * The group type the condition set assigns variants by: its own, or the flag's when it sets none. Null when it assigns them by user.
+         */
+        aggregation_group_type_index: number | null;
     };
     export type ExperimentHealthSetup = {
         /**
-         * The flag's condition sets, in the order the flag evaluates them.
+         * The flag's condition sets that can serve a request, in the order the flag evaluates them. Sets at 0%, and sets after a set that ends the evaluation, are left out.
          */
         release_conditions: Array<ExperimentHealthReleaseCondition>;
+        /**
+         * Whether the flag stops at the first condition set whose filters match, also when its rollout leaves the user out. Otherwise such a user goes on to the next set.
+         */
+        early_exit: boolean;
         /**
          * The flag's `bucketing_identifier`. Null on the flag reads as distinct_id.
          *
@@ -10459,7 +10467,7 @@ export namespace Schemas {
          */
         bucketing_identifier: BucketingIdentifierEnum;
         /**
-         * The group type the flag assigns variants by. Null when it assigns them by user.
+         * The flag's own group type, which the exposure counts and the results use. A condition set can override it. Null for users.
          */
         aggregation_group_type_index: number | null;
         /**

@@ -473,18 +473,21 @@ class ExperimentHealthCheckResult:
 
 @frozen
 class ExperimentHealthReleaseCondition:
-    """A condition set of the flag: the share of its matching users who get the flag, and how many filters they must
-    match."""
+    """A condition set of the flag: the share of its matching users or groups who get the flag, how many filters they
+    must match, and the group type it assigns variants by (None for users)."""
 
     rollout_percentage: float
     property_count: int
+    aggregation_group_type_index: int | None
 
 
 @frozen
 class ExperimentHealthSetup:
     """The settings of the experiment's flag that decide who gets the flag and which variant a user gets."""
 
+    # The condition sets that can serve a request, in evaluation order.
     release_conditions: tuple[ExperimentHealthReleaseCondition, ...]
+    early_exit: bool
     bucketing_identifier: str
     aggregation_group_type_index: int | None
     evaluation_runtime: str

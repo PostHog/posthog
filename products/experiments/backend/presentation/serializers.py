@@ -367,12 +367,28 @@ class ExperimentHealthReleaseConditionSerializer(serializers.Serializer):
     property_count = serializers.IntegerField(
         help_text="The number of filters a user must match, such as properties and cohorts. 0 matches all users.",
     )
+    aggregation_group_type_index = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "The group type the condition set assigns variants by: its own, or the flag's when it sets none. Null when "
+            "it assigns them by user."
+        ),
+    )
 
 
 class ExperimentHealthSetupSerializer(serializers.Serializer):
     release_conditions = ExperimentHealthReleaseConditionSerializer(
         many=True,
-        help_text="The flag's condition sets, in the order the flag evaluates them.",
+        help_text=(
+            "The flag's condition sets that can serve a request, in the order the flag evaluates them. Sets at 0%, and "
+            "sets after a set that ends the evaluation, are left out."
+        ),
+    )
+    early_exit = serializers.BooleanField(
+        help_text=(
+            "Whether the flag stops at the first condition set whose filters match, also when its rollout leaves the "
+            "user out. Otherwise such a user goes on to the next set."
+        ),
     )
     bucketing_identifier = serializers.ChoiceField(
         choices=FeatureFlag.BUCKETING_IDENTIFIER_CHOICES,
@@ -380,7 +396,10 @@ class ExperimentHealthSetupSerializer(serializers.Serializer):
     )
     aggregation_group_type_index = serializers.IntegerField(
         allow_null=True,
-        help_text="The group type the flag assigns variants by. Null when it assigns them by user.",
+        help_text=(
+            "The flag's own group type, which the exposure counts and the results use. A condition set can override "
+            "it. Null for users."
+        ),
     )
     evaluation_runtime = serializers.ChoiceField(
         choices=FeatureFlag.EVALUATION_RUNTIME_CHOICES,

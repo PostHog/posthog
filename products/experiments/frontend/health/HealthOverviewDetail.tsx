@@ -6,11 +6,7 @@ import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 
 import { groupsModel } from '~/models/groupsModel'
 
-import type {
-    EvaluationRuntimeEnumApi,
-    ExperimentHealthReleaseConditionApi,
-    ExperimentHealthSetupApi,
-} from '../generated/api.schemas'
+import type { EvaluationRuntimeEnumApi, ExperimentHealthSetupApi } from '../generated/api.schemas'
 import { HEALTH_CHECK_STATUS_DISPLAY } from './healthCheckStatusDisplay'
 import type { HealthReading } from './healthCheckValues'
 import { type HealthPanelCheck, countHealthChecks } from './healthPanelChecks'
@@ -30,25 +26,27 @@ function joinWithOr(items: string[]): string {
     return items.length <= 2 ? items.join(' or ') : `${items.slice(0, -1).join(', ')}, or ${items[items.length - 1]}`
 }
 
-function eligibleText(conditions: ExperimentHealthReleaseConditionApi[], entities: string): string | null {
-    if (conditions.length === 0) {
-        return null
+function releaseConditionsText(
+    { release_conditions, early_exit }: ExperimentHealthSetupApi,
+    pluralOf: (groupTypeIndex: number | null) => string
+): string {
+    if (release_conditions.length === 0) {
+        return 'No one'
     }
-    if (conditions.length > MAX_LISTED_CONDITIONS) {
-        return `${conditions.length} condition sets`
+    if (release_conditions.length > MAX_LISTED_CONDITIONS) {
+        return `${release_conditions.length} condition sets`
     }
-    return capitalizeFirstLetter(
-        joinWithOr(
-            conditions.map(({ rollout_percentage, property_count }) => {
-                const matching = property_count > 0 ? ` matching ${pluralize(property_count, 'filter')}` : ''
-                if (rollout_percentage >= 100) {
-                    return `all ${entities}${matching}`
-                }
-                const share = Math.round(rollout_percentage * 100) / 100
-                return `${share}% of ${matching ? entities : `all ${entities}`}${matching}`
-            })
-        )
-    )
+    const sets = release_conditions.map(({ rollout_percentage, property_count, aggregation_group_type_index }) => {
+        const entities = pluralOf(aggregation_group_type_index)
+        const matching = property_count > 0 ? ` matching ${pluralize(property_count, 'filter')}` : ''
+        if (rollout_percentage >= 100) {
+            return `all ${entities}${matching}`
+        }
+        const share = Math.round(rollout_percentage * 100) / 100
+        return `${share}% of ${matching ? entities : `all ${entities}`}${matching}`
+    })
+    // With early exit, a user who matches the filters of a set never reaches a later one, so the sets read in order.
+    return capitalizeFirstLetter(early_exit ? sets.join(', otherwise ') : joinWithOr(sets))
 }
 
 export function HealthOverviewDetail({
@@ -61,23 +59,27 @@ export function HealthOverviewDetail({
     setup: ExperimentHealthSetupApi | null
 }): JSX.Element {
     const { aggregationLabel } = useValues(groupsModel)
-    const entities =
-        setup?.aggregation_group_type_index != null
-            ? aggregationLabel(setup.aggregation_group_type_index).plural
-            : 'users'
-    const eligible = setup ? eligibleText(setup.release_conditions, entities) : null
+    const pluralOf = (groupTypeIndex: number | null): string =>
+        groupTypeIndex !== null ? aggregationLabel(groupTypeIndex).plural : 'users'
+    const assignmentUnit = (groupTypeIndex: number | null): string =>
+        groupTypeIndex !== null
+            ? capitalizeFirstLetter(aggregationLabel(groupTypeIndex).singular)
+            : setup?.bucketing_identifier === 'device_id'
+              ? 'Device (device ID)'
+              : 'User (distinct ID)'
+    const assignmentUnits = [
+        ...new Set(
+            (setup?.release_conditions ?? []).map(({ aggregation_group_type_index }) =>
+                assignmentUnit(aggregation_group_type_index)
+            )
+        ),
+    ]
     const setupReadings: HealthReading[] = setup
         ? [
-              ...(eligible ? [{ label: `Eligible ${entities}`, text: eligible }] : []),
-              {
-                  label: 'Assigns variants by',
-                  text:
-                      setup.aggregation_group_type_index !== null
-                          ? capitalizeFirstLetter(aggregationLabel(setup.aggregation_group_type_index).singular)
-                          : setup.bucketing_identifier === 'device_id'
-                            ? 'Device (device ID)'
-                            : 'User (distinct ID)',
-              },
+              { label: 'Release conditions', text: releaseConditionsText(setup, pluralOf) },
+              ...(assignmentUnits.length > 0
+                  ? [{ label: 'Assigns variants by', text: joinWithOr(assignmentUnits) }]
+                  : []),
               { label: 'Evaluation runtime', text: RUNTIME_LABELS[setup.evaluation_runtime] },
               ...(setup.evaluation_contexts.length > 0
                   ? [

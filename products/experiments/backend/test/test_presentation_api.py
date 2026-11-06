@@ -868,14 +868,14 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "rule": None,
             },
         )
-        # The added condition set has no rollout percentage, which the flag service reads as 100.
-        added_condition = (
-            [{"rollout_percentage": 100.0, "property_count": 1}] if _name == "condition_added_after_launch" else []
-        )
         self.assertEqual(
             health["setup"],
             {
-                "release_conditions": [{"rollout_percentage": 100.0, "property_count": 0}, *added_condition],
+                # A condition set added after the first one, which serves all users, can't serve a request.
+                "release_conditions": [
+                    {"rollout_percentage": 100.0, "property_count": 0, "aggregation_group_type_index": None}
+                ],
+                "early_exit": False,
                 "bucketing_identifier": "distinct_id",
                 "aggregation_group_type_index": None,
                 "evaluation_runtime": "all",
