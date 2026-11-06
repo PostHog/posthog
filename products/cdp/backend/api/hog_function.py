@@ -334,6 +334,19 @@ def entered_secret_input_keys(raw_inputs: Any) -> set[str]:
     }
 
 
+def _raise_secret_reentry(errors: Any) -> None:
+    """Re-raise a test run's secret refusal as a save would, because the raw errors the test run returns drop its code."""
+    configuration_errors = errors.get("configuration") if isinstance(errors, dict) else None
+    inputs_errors = configuration_errors.get("inputs") if isinstance(configuration_errors, dict) else None
+    if not isinstance(inputs_errors, dict):
+        return
+    refused = [key for key, error in inputs_errors.items() if getattr(error, "code", None) == "secret_reentry_required"]
+    if refused:
+        raise serializers.ValidationError(
+            {"inputs": dict.fromkeys(refused, SECRET_REENTRY_MESSAGE)}, code="secret_reentry_required"
+        )
+
+
 def _comparable_inputs(items: Any) -> dict:
     return {
         key: (item.get("value"), item.get("templating") or "hog")
@@ -1690,6 +1703,7 @@ class HogFunctionViewSet(
 
         serializer = HogFunctionInvocationSerializer(data=data, context=context)
         if not serializer.is_valid():
+            _raise_secret_reentry(serializer.errors)
             return Response(serializer.errors, status=400)
 
         configuration = serializer.validated_data["configuration"]

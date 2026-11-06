@@ -508,6 +508,8 @@ class TestHogFunctionDrafts(DraftTestCase):
 
         assert response.status_code == expected_status, response.json()
         assert mock_invoke.called == (expected_status == status.HTTP_200_OK)
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert (response.json()["attr"], response.json()["code"]) == ("inputs__token", "secret_reentry_required")
 
     @parameterized.expand([("live_edit", False), ("draft_test_run", True)])
     def test_rotating_one_secret_keeps_an_unbound_sibling(self, _name: str, staged: bool):
