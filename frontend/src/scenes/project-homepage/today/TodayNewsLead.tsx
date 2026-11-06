@@ -34,7 +34,7 @@ export function TodayNewsLead({ story, onDiveIn }: { story: TodayNewsLeadStory; 
             <Text render={<h3 />} className="m-0 text-base font-medium text-balance">
                 {story.title}
             </Text>
-            <Text size="sm" variant="muted" render={<span />}>
+            <Text size="sm" variant="muted" render={<span />} className="text-pretty">
                 {story.summary}
             </Text>
             <span className="mt-2 flex items-center gap-4">

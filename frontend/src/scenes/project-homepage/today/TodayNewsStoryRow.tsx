@@ -28,7 +28,7 @@ export function TodayNewsStoryRow({ story, onDiveIn }: { story: TodayNewsStory; 
                     <Text size="sm" render={<span />} className="font-medium">
                         {story.title}
                     </Text>
-                    <Text size="sm" variant="muted" render={<span />}>
+                    <Text size="sm" variant="muted" render={<span />} className="text-pretty">
                         {story.summary}
                     </Text>
                 </span>

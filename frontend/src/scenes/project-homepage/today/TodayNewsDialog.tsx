@@ -64,7 +64,7 @@ export function TodayNewsDialog(): JSX.Element {
                                     Also this week
                                 </Text>
                                 {edition.briefs.map((brief) => (
-                                    <Text key={brief} size="sm" variant="muted" render={<p />} className="m-0">
+                                    <Text key={brief} size="xs" render={<p />} className="m-0">
                                         {brief}
                                     </Text>
                                 ))}

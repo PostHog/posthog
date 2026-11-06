@@ -36,12 +36,11 @@ export const SAMPLE_NEWS_EDITION: TodayNewsEdition = {
         product: 'product_analytics',
         productLabel: 'Product analytics',
         title: 'Checkout conversion dropped 12% when the new address form shipped',
-        summary:
-            'Mobile visitors now stop at the address step. Desktop did not change, so the form is the likely cause, not the traffic.',
+        summary: 'Mobile visitors now stop at the address step. Desktop is flat, so the form is the likely cause.',
         change: -12,
         tone: 'risk',
         divePrompt: 'Why did checkout conversion fall after the address form change, and what should we fix first?',
-        metricLabel: 'Checkout conversion',
+        metricLabel: 'Last 14 days',
         metricValue: '31.4%',
         series: SAMPLE_SERIES,
         seriesLabels: SAMPLE_SERIES.map((_, index) =>
@@ -54,8 +53,7 @@ export const SAMPLE_NEWS_EDITION: TodayNewsEdition = {
             product: 'alerts',
             productLabel: 'Alerts',
             title: '3 alerts are firing, and 2 of them point at checkout',
-            summary:
-                'Event volume drop, client API failures and checkout errors. Start with checkout errors: they affect the most users.',
+            summary: 'Checkout errors affect the most users, so start there.',
             change: null,
             tone: 'risk',
             divePrompt: 'Three alerts are firing. Which one should we look at first, and what is the likely cause?',
@@ -75,8 +73,7 @@ export const SAMPLE_NEWS_EDITION: TodayNewsEdition = {
             product: 'error_tracking',
             productLabel: 'Error tracking',
             title: 'A new checkout error reached 214 users',
-            summary:
-                '‘Cannot read properties of null’ on the checkout page, first seen on Tuesday. Nobody owns it yet.',
+            summary: '‘Cannot read properties of null’ on checkout, since Tuesday. Nobody owns it yet.',
             change: null,
             tone: 'risk',
             divePrompt: 'A new checkout error reached 214 users. What causes it, and how do we fix it?',
