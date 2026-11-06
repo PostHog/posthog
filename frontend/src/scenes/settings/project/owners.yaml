@@ -1,0 +1,5 @@
+version: 1
+owners: []
+rules:
+    - match: ['/OtherIntegrationsSettings.tsx', '/OtherIntegrationsSettings.test.tsx']
+      owners: team-surfaces

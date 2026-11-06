@@ -44,10 +44,8 @@ import { availableSourcesLogic } from './availableSourcesLogic'
 import { BillingLimitNotice } from './components/BillingLimitNotice'
 import { DestinationStep } from './components/DestinationStep'
 import { FileUploadSourceForm } from './components/FileUploadSourceForm'
-import { SelfManagedSourceForm } from './components/SelfManagedSourceForm'
 import { WebhookStepFallback } from './components/WebhookStepFallback'
 import { FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
-import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import { SourceCatalog } from './SourceCatalog'
 import { SourceCatalogSkeleton } from './SourceCatalogSkeleton'
 import { WIZARD_DESTINATION_STEP, type SourceWizardLogicProps, sourceWizardLogic } from './sourceWizardLogic'
@@ -254,7 +252,6 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         nextButtonText,
         selectedConnector,
         connectors,
-        isSelfManagedSource,
         source,
         sourceConnectionDetails,
         isWebhookFieldInputsSubmitting,
@@ -268,7 +265,6 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         source.access_method
     )
     const showAccessMethodSelector = currentStep === 2 && supportsDirectQuery(selectedConnector?.name)
-    const { tableLoading: manualLinkIsLoading } = useValues(selfManagedSourceLogic)
 
     const mainContainer = useFloatingContainer()
 
@@ -301,7 +297,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
 
         const nextButton = (disabledReason?: string | false): JSX.Element => (
             <LemonButton
-                loading={isLoading || manualLinkIsLoading || isWebhookFieldInputsSubmitting}
+                loading={isLoading || isWebhookFieldInputsSubmitting}
                 disabledReason={
                     disabledReason || (!canGoNext && (nextButtonDisabledReason || 'Finish this step to continue'))
                 }
@@ -327,16 +323,12 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                         Back
                     </LemonButton>
                 )}
-                {isSelfManagedSource ? (
-                    nextButton()
-                ) : (
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.ExternalDataSource}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        {({ disabledReason: accessDisabledReason }) => nextButton(accessDisabledReason ?? undefined)}
-                    </AccessControlAction>
-                )}
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.ExternalDataSource}
+                    minAccessLevel={AccessControlLevel.Editor}
+                >
+                    {({ disabledReason: accessDisabledReason }) => nextButton(accessDisabledReason ?? undefined)}
+                </AccessControlAction>
             </div>
         )
     }, [
@@ -344,14 +336,12 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         canGoBack,
         onBack,
         isLoading,
-        manualLinkIsLoading,
         isWebhookFieldInputsSubmitting,
         canGoNext,
         nextButtonDisabledReason,
         nextButtonText,
         onSubmit,
         props.hideBackButton,
-        isSelfManagedSource,
         isFileUploadSource,
     ])
 
@@ -582,7 +572,11 @@ function DatabaseFirewallHint(): JSX.Element | null {
     )
 }
 
-function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: SourceWizardLogicProps }): JSX.Element {
+function SecondStep({
+    sourceWizardLogicProps,
+}: {
+    sourceWizardLogicProps?: SourceWizardLogicProps
+}): JSX.Element | null {
     const { selectedConnector, source, sourceConnectionDetails, prefixRequired } = useValues(sourceWizardLogic)
     const selectedAccessMethod = getEffectiveAccessMethod(
         2,
@@ -596,7 +590,11 @@ function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: Sourc
         return <FileUploadSourceForm />
     }
 
-    return selectedConnector ? (
+    if (!selectedConnector) {
+        return null
+    }
+
+    return (
         <div className="space-y-4">
             {selectedConnector.caption && selectedAccessMethod !== 'direct' && (
                 <LemonMarkdown className="text-sm">{selectedConnector.caption}</LemonMarkdown>
@@ -636,10 +634,6 @@ function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: Sourc
                 sourceWizardLogicProps={sourceWizardLogicProps}
             />
         </div>
-    ) : (
-        <BindLogic logic={selfManagedSourceLogic} props={{ id: 'new' }}>
-            <SelfManagedSourceForm />
-        </BindLogic>
     )
 }
 
