@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 
 import requests
 import structlog
+import tldextract
 from prometheus_client import Counter
 
 from posthog.hogql.parser import parse_string_template
@@ -42,6 +43,9 @@ TEST_RUN_REQUEST_ORIGINS_MISSING = Counter(
 _MAX_REQUEST_ORIGINS = 100
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 _REDACTED = "***REDACTED***"
+_ORIGIN_PARTS = re.compile(r"^([a-z][a-z0-9+.-]*://)([^/:\[\]]+)(:\d+)?$")
+# The bundled suffix list, so a test run never fetches it over the network.
+_DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
 # A shorter value matches ordinary host fragments, so it would hide where requests went, and is no credential.
 _MIN_SECRET_LENGTH = 8
 
@@ -210,13 +214,27 @@ def _host_forms(secret: str) -> set[str]:
     return {form for form in forms if len(form) >= _MIN_SECRET_LENGTH}
 
 
+def _redact_subdomain(origin: str, pattern: re.Pattern[str]) -> str:
+    # The registrable domain is never redacted. The caller can store any value as a secret, so redacting
+    # the domain would let them hide where the requests went.
+    parts = _ORIGIN_PARTS.match(origin)
+    if parts is None:
+        return origin
+    scheme, host, port = parts.groups()
+    domain = _DOMAIN_PARTS(host)
+    if not domain.subdomain or not domain.top_domain_under_public_suffix:
+        return origin
+    subdomain = pattern.sub(_REDACTED, domain.subdomain)
+    return f"{scheme}{subdomain}.{domain.top_domain_under_public_suffix}{port or ''}"
+
+
 def redact_secrets_in_origins(origins: list[str], secrets: Iterable[str]) -> list[str]:
     forms = set().union(*(_host_forms(secret) for secret in secrets))
     if not forms:
         return origins
     # One pass, longest first, so a secret inside a longer one cannot leave part of the longer one behind.
     pattern = re.compile("|".join(re.escape(form) for form in sorted(forms, key=len, reverse=True)), re.IGNORECASE)
-    return [pattern.sub(_REDACTED, origin) for origin in origins]
+    return [_redact_subdomain(origin, pattern) for origin in origins]
 
 
 def _stored_secrets(row: ActivityLog, secret_inputs: Any) -> list[str]:
@@ -224,10 +242,14 @@ def _stored_secrets(row: ActivityLog, secret_inputs: Any) -> list[str]:
     # control, so redacting it would let the caller hide the host they sent requests to.
     context = cast(Detail, row.detail).context
     integration_ids = getattr(context, "integration_ids", None) or []
-    configs = Integration.objects.filter(team_id=row.team_id, id__in=integration_ids).values_list(
-        "sensitive_config", flat=True
-    )
-    return [*_string_values(secret_inputs), *_string_values(list(configs))]
+    configs: list[Any] = []
+    if row.team_id is not None:
+        configs = list(
+            Integration.objects.filter(team_id=row.team_id, id__in=integration_ids).values_list(
+                "sensitive_config", flat=True
+            )
+        )
+    return [*_string_values(secret_inputs), *_string_values(configs)]
 
 
 def without_request_origins(body: Any) -> Any:

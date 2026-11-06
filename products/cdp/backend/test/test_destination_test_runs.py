@@ -38,6 +38,18 @@ class TestDestinationTestRunContext(SimpleTestCase):
                 "https://***REDACTED***.example.com",
             ),
             ("secret_too_short_to_be_a_credential", "eu", "https://eu.example.com", "https://eu.example.com"),
+            (
+                "secret_that_names_the_registrable_domain",
+                "evil-attacker.com",
+                "https://evil-attacker.com",
+                "https://evil-attacker.com",
+            ),
+            (
+                "secret_in_the_domain_under_a_subdomain",
+                "fake-host-secret",
+                "https://api.fake-host-secret.com:8443",
+                "https://api.fake-host-secret.com:8443",
+            ),
         ]
     )
     def test_redacts_a_stored_secret_in_the_form_a_url_parser_writes_the_host(
