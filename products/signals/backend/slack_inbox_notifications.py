@@ -7,6 +7,7 @@ suggested reviewer is also routed to one destination: their own configured targe
 by their min-priority), otherwise the team-default channel. A personal target is either a channel
 or the reviewer's own Slack account, which Slack delivers as a direct message. Reviewers sharing a
 destination get a single post mentioning only the reviewers routed there.
+Already-addressed reports still reach the team channel, but do not notify suggested reviewers.
 All sends are best-effort.
 """
 
@@ -564,7 +565,9 @@ def _build_reviewer_routes(
     its own reviewers. The team-default channel (if configured) receives every report, with no
     mentions when no reviewer is routed there.
     """
-    reviewer_user_ids = resolve_suggested_reviewer_user_ids(report)
+    reviewer_user_ids = (
+        set() if report.latest_already_addressed is True else resolve_suggested_reviewer_user_ids(report)
+    )
     reviewer_users = {user.id: user for user in User.objects.filter(id__in=reviewer_user_ids)}
     own_configs = _own_target_configs_by_user(report.team_id, reviewer_user_ids)
 
