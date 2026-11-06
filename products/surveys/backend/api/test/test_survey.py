@@ -3577,13 +3577,25 @@ class TestSurvey(APIBaseTest):
                 [(0, {}, True), (1, {}, False), (2, {}, True)],
                 [0, 1, 2],
             ),
+            (
+                "no_ids_twin_stored_questions_are_ambiguous",
+                [(3, {}, False), (1, {}, True), (2, {}, True)],
+                [None, 1, 2],
+                [{"type": "open", "question": "What brought you here?", "description": "Second copy"}],
+            ),
+            (
+                "no_ids_twin_sent_questions_are_ambiguous",
+                [(0, {}, False), (0, {"description": "Copy"}, False), (1, {}, True), (2, {}, True)],
+                [None, None, 1, 2],
+            ),
         ]
     )
-    def test_question_ids_survive_questions_patch(self, _name, payload_spec, expected_sources):
-        stored = [
+    def test_question_ids_survive_questions_patch(self, _name, payload_spec, expected_sources, extra_stored=()):
+        stored: list[dict[str, Any]] = [
             {"id": str(uuid.uuid4()), "type": "open", "question": "What brought you here?"},
             {"id": str(uuid.uuid4()), "type": "single_choice", "question": "Which plan?", "choices": ["Free", "Paid"]},
             {"id": str(uuid.uuid4()), "type": "rating", "question": "How likely to recommend?", "scale": 10},
+            *({"id": str(uuid.uuid4()), **extra} for extra in extra_stored),
         ]
         survey = Survey.objects.create(
             team=self.team, created_by=self.user, name="live survey", type="popover", questions=stored
