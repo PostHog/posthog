@@ -1,6 +1,7 @@
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 
@@ -115,26 +116,40 @@ class TestSample(ClickhouseTestMixin, APIBaseTest):
         assert 0 <= reply < correction
 
 
+AT = datetime(2026, 11, 1, tzinfo=UTC)
+
+
+def _row(
+    index: int,
+    properties: dict[str, Any] | None = None,
+    *,
+    answer: str = "",
+    unreadable: bool = False,
+    previous: str = "",
+) -> tuple[Any, ...]:
+    """One hydration row, in the column order of _HYDRATE_SQL."""
+    output = json.dumps([{"role": "assistant", "content": answer}]) if answer else ""
+    return (
+        "t",
+        f"e{index}",
+        "$ai_generation",
+        AT + timedelta(seconds=index),
+        "u",
+        properties or {},
+        "",
+        1,
+        False,
+        output,
+        "",
+        unreadable,
+        previous,
+        "",
+        "",
+    )
+
+
 def test_a_trace_holds_the_segment_value_of_every_generation() -> None:
-    at = datetime(2026, 11, 1, tzinfo=UTC)
-    rows = [
-        (
-            "t",
-            f"e{index}",
-            "$ai_generation",
-            at + timedelta(seconds=index),
-            "u",
-            {"ai_product": product},
-            "",
-            1,
-            False,
-            "",
-            "",
-            False,
-            "",
-        )
-        for index, product in enumerate(["chat-1", "search"])
-    ]
+    rows = [_row(index, {"ai_product": product}) for index, product in enumerate(["chat-1", "search"])]
 
     sampled = _sampled_trace("t", rows, held_out=False, spans_days=False, segment_keys=["ai_product"])
 
@@ -145,15 +160,42 @@ def test_a_trace_holds_the_segment_value_of_every_generation() -> None:
 
 
 def test_a_long_earlier_reply_leaves_room_for_the_current_turn() -> None:
-    at = datetime(2026, 11, 1, tzinfo=UTC)
     history = json.dumps({"role": "assistant", "content": "x" * 5000})
-    rows = [("t", "e0", "$ai_generation", at, "u", {}, "", 1, False, "", "", False, history)]
 
-    sampled = _sampled_trace("t", rows, held_out=False, spans_days=False, segment_keys=[])
+    sampled = _sampled_trace("t", [_row(0, previous=history)], held_out=False, spans_days=False, segment_keys=[])
 
     assert sampled is not None
     assert len(sampled.turn_text) <= 3100
     assert sampled.turn_text.index("User:") < 3000
+
+
+def test_an_event_cut_to_fit_anywhere_in_the_trace_skips_it() -> None:
+    rows = [_row(0, unreadable=True), _row(1, answer="Short final answer.")]
+    assert _sampled_trace("t", rows, held_out=False, spans_days=False, segment_keys=[]) is None
+
+
+@parameterized.expand(
+    [
+        ("plain_answer", {}, 0.0),
+        ("malformed_token_count", {"$ai_input_tokens": "lots"}, 0.0),
+        ("numeric_token_count", {"$ai_input_tokens": "120"}, 120.0),
+    ]
+)
+def test_a_trace_survives_malformed_metadata(_name: str, properties: dict[str, Any], tokens: float) -> None:
+    sampled = _sampled_trace(
+        "t", [_row(0, properties, answer="Done.")], held_out=False, spans_days=False, segment_keys=[]
+    )
+    assert sampled is not None and sampled.input_tokens == tokens
+
+
+def test_the_final_text_drops_the_renderers_role_label() -> None:
+    answer = json.dumps([{"role": "assistant", "parts": [{"type": "text", "content": '{"status": "done"}'}]}])
+    row = list(_row(0))
+    row[9] = answer
+
+    sampled = _sampled_trace("t", [tuple(row)], held_out=False, spans_days=False, segment_keys=[])
+
+    assert sampled is not None and not sampled.final_text.lower().startswith("assistant:")
 
 
 @parameterized.expand(

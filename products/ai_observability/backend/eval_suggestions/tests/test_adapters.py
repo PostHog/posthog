@@ -44,6 +44,11 @@ def _calls(*calls: tuple[str, dict[str, Any], str]) -> tuple[str, dict[str, Any]
     return "$ai_generation", {"$ai_output_choices": [{"role": "assistant", "content": "", "tool_calls": tool_calls}]}
 
 
+def _otel_call(name: str, arguments: dict[str, Any], call_id: str) -> tuple[str, dict[str, Any]]:
+    part = {"type": "tool_call", "name": name, "arguments": arguments, "id": call_id}
+    return "$ai_generation", {"$ai_output_choices": [{"role": "assistant", "parts": [part]}]}
+
+
 def _span(name: str, error: str | None = None) -> tuple[str, dict[str, Any]]:
     return "$ai_span", {"$ai_span_name": name, **({"$ai_is_error": True, "$ai_error": error} if error else {})}
 
@@ -114,6 +119,19 @@ class TestAdaptedChecks:
             ("card_number", adapters.sensitive_data(), [_answer("Card 4242 4242 4242 4242 is on file")], False),
             ("secret_key", adapters.sensitive_data(), [_answer("Use sk-abcdefghijklmnopqrstuvwx123")], False),
             ("no_final_text_does_not_apply", adapters.sensitive_data(), [_span("search")], None),
+            # The email went to a tool, and the answer the user read has none.
+            (
+                "email_only_in_a_tool_call",
+                adapters.sensitive_data(),
+                [_answer("I'll send the invite."), _calls(("send_invite", {"email": "jane.doe@acme.io"}, "c1"))],
+                True,
+            ),
+            (
+                "otel_tool_call_parts_repeat",
+                REPEATS,
+                [_otel_call("search", {"q": "a"}, f"c{i}") for i in range(3)],
+                False,
+            ),
         ]
     )
     def test_verdict(self, _name: str, check: adapters.AdaptedCheck, events: list, expected: bool | None) -> None:
