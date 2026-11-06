@@ -19,7 +19,7 @@ from posthog.api.livestream_impersonation import LivestreamImpersonation
 from posthog.auth import refuse_blocked_account
 from posthog.ip_restrictions import get_ip_restrictions_for_principal
 from posthog.jwt import PosthogJwtAudience, decode_jwt
-from posthog.models import OrganizationMembership, PropertyDefinition, Team, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.utils import ActivityCredentialMixin
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.permissions import ActiveOrganizationPermission, VerifiedDomainEnforcementPermission
@@ -29,6 +29,7 @@ from posthog.user_permissions import UserPermissions
 from products.access_control.backend.property_access_control import (
     get_restricted_properties_with_group_type_index_for_team,
 )
+from products.event_definitions.backend.models import PropertyDefinition
 
 # Mirrors AnyGroupType in the livestream service.
 ANY_GROUP_TYPE = "*"

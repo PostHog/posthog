@@ -376,9 +376,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             # being a @cached_property this still degrades safely.
             if "team" in self.__dict__:
                 canonical_team_id = self.team.parent_team_id or team_id
+                resolved_from_team_id: int | None = team_id
             else:
                 canonical_team_id = team_id
-            self._team_scope_token = set_current_team_id(canonical_team_id)
+                resolved_from_team_id = None
+            self._team_scope_token = set_current_team_id(canonical_team_id, resolved_from_team_id=resolved_from_team_id)
 
     def dangerously_get_permissions(self):
         """
@@ -619,8 +621,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         return self.param_derived_from_user_current_team == "team_id" or "team_id" in self.parent_query_kwargs
 
     @property
+    def _is_nested_project_view(self) -> bool:
+        return "project_id" in self.parent_query_kwargs
+
+    @property
     def _is_project_view(self):
-        return self.param_derived_from_user_current_team == "project_id" or "project_id" in self.parent_query_kwargs
+        return self.param_derived_from_user_current_team == "project_id" or self._is_nested_project_view
 
     @cached_property
     def team_id(self) -> int:
@@ -707,6 +713,15 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except (Project.DoesNotExist, ValueError):
             raise NotFound(detail="Project not found.")
 
+    def _get_project_team_or_404(self) -> Team:
+        try:
+            team = self.team
+        except Team.DoesNotExist:
+            raise NotFound(detail="Project not found.")
+        if team.project_id != self.project_id:
+            raise NotFound(detail="Project not found.")
+        return team
+
     @cached_property
     def organization_id(self) -> str:
         try:
@@ -717,6 +732,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             if self._is_team_view:
                 # TODO: self.team.project.organization_id when project environments are rolled out
                 current_organization_id = self.team.organization_id
+            elif self._is_nested_project_view:
+                current_organization_id = self._get_project_team_or_404().organization_id
             elif self._is_project_view:
                 current_organization_id = self.project.organization_id
             elif user:
@@ -730,6 +747,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     def organization(self) -> Organization:
         if self._is_team_view:
             return self.team.organization
+        if self._is_nested_project_view:
+            return self._get_project_team_or_404().organization
         try:
             return Organization.objects.get(
                 id=self.project.organization_id if self._is_project_view else self.organization_id

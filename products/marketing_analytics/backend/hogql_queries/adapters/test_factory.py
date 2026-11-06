@@ -27,9 +27,22 @@ from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     TikTokAdsConfig,
 )
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
+from products.marketing_analytics.backend.hogql_queries.adapters.file_source import FileSourceAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
+from products.marketing_analytics.backend.hogql_queries.adapters.self_managed import (
+    AWSAdapter,
+    AzureAdapter,
+    CloudflareR2Adapter,
+    GoogleCloudAdapter,
+    SelfManagedAdapter,
+)
 from products.marketing_analytics.backend.hogql_queries.constants import TABLE_PATTERNS
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 
 
 class FactoryTestMixin:
@@ -598,3 +611,81 @@ class TestNativeSourceKillSwitch(SimpleTestCase):
         assert set(errors) == ({adapter.config.source_id for adapter in adapters[1:]} if enabled else set())
         assert all(messages for messages in errors.values())
         factory.logger.exception.assert_not_called()
+
+
+_BUCKET_PROVIDERS: list[tuple[str, str, type[SelfManagedAdapter]]] = [
+    ("AmazonS3", "https://example-bucket.s3.amazonaws.com/spend/*.csv", AWSAdapter),
+    ("GoogleCloudStorage", "https://storage.googleapis.com/example-bucket/spend/*.csv", GoogleCloudAdapter),
+    ("AzureBlob", "https://example.blob.core.windows.net/spend/*.csv", AzureAdapter),
+    ("CloudflareR2", "https://example.r2.cloudflarestorage.com/example-bucket/spend/*.csv", CloudflareR2Adapter),
+]
+_POSTHOG_STORAGE_URL = "https://example-warehouse.s3.amazonaws.com/team_1/example_spend/*.parquet"
+_TABLE_STATES = ["never_migrated", "migrated_not_adopted", "adopted", "new_managed_table"]
+
+
+class TestFileSourceTableDiscovery(BaseTest):
+    def _create_table_state(self, state: str, source_type: str, customer_url: str) -> tuple[DataWarehouseTable, str]:
+        managed = state in ("adopted", "new_managed_table")
+        source = None
+        if state != "never_migrated":
+            source = ExternalDataSource.objects.create(
+                team=self.team, source_id="example", connection_id="example", source_type=source_type
+            )
+        table = DataWarehouseTable.raw_objects.create(
+            team=self.team,
+            name="example_spend",
+            format="CSVWithNames",
+            url_pattern=_POSTHOG_STORAGE_URL if managed else customer_url,
+            credential=None
+            if managed
+            else DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret"),
+            external_data_source=source if managed else None,
+        )
+        schema = None
+        if source is not None:
+            schema = ExternalDataSchema.objects.create(
+                team=self.team, source=source, name="example_spend", table=table if managed else None
+            )
+        mapping_key = str(schema.id) if state == "new_managed_table" and schema else str(table.id)
+        self.team.marketing_analytics_config.sources_map = {
+            mapping_key: {"campaign": "campaign", "source": "source", "cost": "spend", "date": "day"}
+        }
+        self.team.marketing_analytics_config.save()
+        return table, mapping_key
+
+    def _make_factory(self, table: DataWarehouseTable) -> MarketingSourceFactory:
+        database = Mock(get_warehouse_table_names=Mock(return_value=[table.name]))
+        context = QueryContext(date_range=None, team=self.team, base_currency=DEFAULT_CURRENCY, database=database)
+        return MarketingSourceFactory(context=context)
+
+    @parameterized.expand(
+        [
+            (f"{state}_{source_type}", state, source_type, customer_url, self_managed_adapter)
+            for source_type, customer_url, self_managed_adapter in _BUCKET_PROVIDERS
+            for state in _TABLE_STATES
+        ]
+        + [(f"{state}_FileUpload", state, "FileUpload", "", SelfManagedAdapter) for state in _TABLE_STATES[2:]]
+    )
+    def test_table_gets_one_adapter_with_its_mapping(
+        self,
+        _name: str,
+        state: str,
+        source_type: str,
+        customer_url: str,
+        self_managed_adapter: type[SelfManagedAdapter],
+    ) -> None:
+        table, mapping_key = self._create_table_state(state, source_type, customer_url)
+        factory = self._make_factory(table)
+
+        adapters = factory.create_adapters(raise_on_error=True)
+
+        assert len(adapters) == 1
+        adapter = adapters[0]
+        if state in ("adopted", "new_managed_table"):
+            assert type(adapter) is FileSourceAdapter
+            assert adapter.get_source_type() == source_type
+        else:
+            assert type(adapter) is self_managed_adapter
+        assert adapter.config.source_id == mapping_key
+        assert adapter.config.source_map.cost == "spend"
+        assert factory.get_valid_adapters(adapters) == adapters

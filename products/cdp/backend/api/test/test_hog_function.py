@@ -6,12 +6,14 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import ANY, MagicMock, patch
 
-from django.db import connection
+from django.conf import UserSettingsHolder, settings
+from django.db import DatabaseError, connection
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -2779,6 +2781,126 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "order": 0,
                 "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
             }
+
+    @parameterized.expand(
+        [
+            ("saved_function_real_requests", True, False, False, None),
+            ("saved_function_runs_its_stored_config", True, False, True, None),
+            ("new_function_real_requests", False, False, False, None),
+            ("new_function_mocked_requests", False, True, False, None),
+            ("native_destination_ignores_mocking", False, True, False, "native-example"),
+            ("segment_destination_ignores_mocking", True, True, False, "segment-example"),
+        ]
+    )
+    def test_test_invocation_with_real_requests_is_logged_without_input_values(
+        self,
+        _name: str,
+        saved: bool,
+        mock_async_functions: bool,
+        omit_stored_fields: bool,
+        template_id: Optional[str],
+    ):
+        integration = Integration.objects.create(team=self.team, kind="slack", config={}, created_by=self.user)
+        mapping_integration = Integration.objects.create(team=self.team, kind="slack", config={}, created_by=self.user)
+        configuration = {
+            **EXAMPLE_FULL,
+            "inputs_schema": [
+                *EXAMPLE_FULL["inputs_schema"],
+                {"key": "workspace", "type": "integration", "integration": "slack"},
+            ],
+            "inputs": {
+                **EXAMPLE_FULL["inputs"],
+                "workspace": {"value": integration.id},
+                "payload": {"value": {"event": "{event}", "team": "{inputs.workspace.team}"}},
+            },
+            "mappings": [
+                {
+                    "name": "Pageviews",
+                    "inputs_schema": [
+                        {"key": "mapping_workspace", "type": "integration", "integration": "slack"},
+                        {"key": "mapping_text", "type": "string"},
+                    ],
+                    "inputs": {
+                        "mapping_workspace": {"value": mapping_integration.id},
+                        "mapping_text": {"value": "{{ inputs.mapping_workspace.team }}", "templating": "liquid"},
+                    },
+                }
+            ],
+        }
+        if template_id:
+            HogFunctionTemplate.objects.create(
+                template_id=template_id,
+                sha="1.0.0",
+                name="Example",
+                description="Example destination",
+                code="return event",
+                code_language="hog",
+                inputs_schema=[],
+                type="destination",
+                status="stable",
+                category=["Other"],
+                free=True,
+            )
+            configuration["template_id"] = template_id
+        function_id = "new"
+        if saved:
+            created = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=configuration)
+            assert created.status_code == status.HTTP_201_CREATED, created.json()
+            function_id = created.json()["id"]
+
+        tested_configuration = (
+            {
+                key: value
+                for key, value in configuration.items()
+                if key not in ("hog", "inputs", "inputs_schema", "mappings")
+            }
+            if omit_stored_fields
+            else configuration
+        )
+        with patch("products.cdp.backend.api.hog_function.create_hog_invocation_test") as mock_invocation:
+            mock_invocation.return_value = MagicMock(status_code=500, json=lambda: {"errors": ["Worker failed"]})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/{function_id}/invocations/",
+                data={"configuration": tested_configuration, "mock_async_functions": mock_async_functions},
+            )
+        assert mock_invocation.call_count == 1, response.json()
+
+        rows = list(ActivityLog.objects.filter(team_id=self.team.id, scope="HogFunction", activity="tested"))
+        if mock_async_functions and not template_id:
+            assert rows == []
+            return
+        assert len(rows) == 1
+        assert rows[0].user == self.user
+        assert rows[0].item_id == (function_id if saved else None)
+        detail = rows[0].detail
+        assert detail is not None
+        assert detail["context"] == {
+            "mock_async_functions": mock_async_functions,
+            "integration_ids": sorted([integration.id, mapping_integration.id]),
+            "input_keys": ["headers", "method", "payload", "url", "workspace"],
+            "mapping_input_keys": ["mapping_text", "mapping_workspace"],
+            "input_references": {"payload": ["workspace"]},
+            "mapping_input_references": {"mapping_text": ["mapping_workspace"]},
+            "hog": EXAMPLE_FULL["hog"],
+        }
+        assert "0e02d917-563f-4050-9725-aad881b69937" not in json.dumps(detail)
+
+    def test_test_invocation_with_real_requests_does_not_run_when_its_activity_log_write_fails(self):
+        # Under `settings.TEST`, `log_activity` raises on every failed write, strict or not. The override
+        # stays in its module, because route modules read `settings.TEST` when the URL conf loads.
+        production_settings = UserSettingsHolder(settings)
+        production_settings.TEST = False
+        with (
+            patch("products.cdp.backend.api.hog_function.create_hog_invocation_test") as mock_invocation,
+            patch.object(ActivityLog.objects, "create", side_effect=DatabaseError("insert rejected")),
+            patch("posthog.models.activity_logging.activity_log.settings", production_settings),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/new/invocations/",
+                data={"configuration": EXAMPLE_FULL, "mock_async_functions": False},
+            )
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        mock_invocation.assert_not_called()
 
     def test_test_invocation_rejects_a_posthog_connection_input(self):
         connection = Integration.objects.create(team=self.team, kind="posthog", created_by=self.user)

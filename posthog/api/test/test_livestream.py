@@ -22,7 +22,7 @@ from posthog.api.team.live_events import live_events_token_for_request
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
-from posthog.models import OrganizationDomain, OrganizationMembership, PropertyDefinition, User
+from posthog.models import OrganizationDomain, OrganizationMembership, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.session.backend import SessionStore
@@ -34,6 +34,7 @@ from posthog.utils import get_safe_cache
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class TestLivestreamAuthorization(APIBaseTest):

@@ -238,7 +238,15 @@ export class InstructionsFormatter {
     private artifactSections(ctx: InstructionsContext): string[] {
         return [
             ANALYSIS_ARTIFACTS,
-            ...(ctx.tools?.some(({ name }) => name === 'explain-chart') ? [EXPLAIN_CHART] : []),
+            ...(ctx.tools?.some(({ name }) => name === 'explain-chart')
+                ? [
+                      formatPrompt(EXPLAIN_CHART, {
+                          explain_chart_link_line: ctx.tools.some(({ name }) => name === 'explain-chart-save')
+                              ? 'Where the conversation cannot show the chart explanation, call `explain-chart-save` with the same arguments and give the person the link it returns, which opens it beside the chart in PostHog.'
+                              : '',
+                      }),
+                  ]
+                : []),
             ...(ctx.notebookCellsEnabled ? [formatPrompt(NOTEBOOK_SQL, notebookSqlVars(ctx)), NOTEBOOK_PYTHON] : []),
             ...(ctx.notebookRunEnabled ? [NOTEBOOK_RUN] : []),
         ]

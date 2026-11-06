@@ -163,8 +163,8 @@ Map the investigation onto it:
   chart's `days`. The app works out each chapter's numbers from the chart, so leave them out
   of `summary`.
 - **Likely cause** and **Confidence** → `cause`, `confidence` and `confidence_reason`.
-- **Evidence** → `evidence`, each finding with the `query` that produced it, or a `url`
-  for a commit or a deploy. The chart explanation runs each query and draws it: an insight
+- **Evidence** → `evidence`, each finding with the `query` that produced it, the
+  `insightShortId` of a saved insight, or a `url` to a GitHub pull request or commit. No other links are accepted. The chart explanation runs each query and draws it: an insight
   query with its insight chart, and a `HogQLQuery` from its rows. Shape the SQL for the chart,
   with the x-axis column first, then optionally one text column to break down by, then the numbers.
   Prefer a series over time to a before-and-after comparison, so the user sees when the change happened.
@@ -179,7 +179,8 @@ Call `posthog:explain-chart` first. It reports any chapter whose dates match no 
 chart, so fix those dates and call it again.
 When its response says the user already sees the result, the chart explanation is on screen, and you are done.
 Otherwise call `posthog:render-ui` with `tool_name` `explain-chart` and the same input as `tool_input`.
-When the call fails because the tool does not exist, or `render-ui` does not exist either, the user sees nothing, so write the written report instead.
+When `render-ui` does not exist, call `posthog:explain-chart-save` with the same arguments and give the user the link it returns, which opens the chart explanation in PostHog.
+When the call fails because the tool does not exist, or neither `render-ui` nor a link is available, the user sees nothing, so write the written report instead.
 
 Then reply briefly.
 Say which chapter to look at first, then add only what the chart explanation cannot hold, such as a caveat about the data, a linked fix or a decision that is still open.

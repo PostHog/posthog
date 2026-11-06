@@ -2555,11 +2555,11 @@ export type SurveysResponsesListParams = {
 
 export type SurveysStatsRetrieveParams = {
     /**
-     * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+     * Optional start date: an ISO 8601 timestamp (e.g. 2024-01-01T00:00:00Z) or a relative date such as -7d, -24h or -1m
      */
     date_from?: string
     /**
-     * Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+     * Optional end date: an ISO 8601 timestamp (e.g. 2024-01-31T23:59:59Z) or a relative date such as -1d
      */
     date_to?: string
     /**
@@ -2581,11 +2581,11 @@ export type SurveysSummarizeResponsesCreateParams = {
 
 export type SurveysGlobalStatsRetrieveParams = {
     /**
-     * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+     * Optional start date: an ISO 8601 timestamp (e.g. 2024-01-01T00:00:00Z) or a relative date such as -7d, -24h or -1m
      */
     date_from?: string
     /**
-     * Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+     * Optional end date: an ISO 8601 timestamp (e.g. 2024-01-31T23:59:59Z) or a relative date such as -1d
      */
     date_to?: string
 }

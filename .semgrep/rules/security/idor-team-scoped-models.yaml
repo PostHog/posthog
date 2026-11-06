@@ -226,6 +226,7 @@ rules:
                               |ExternalDataSourceDestination
                               |ExternalDataSourceInputsBackup
                               |FeatureFlag
+                              |FeatureFlagCodeAnalysis
                               |FeatureRequest
                               |FeatureRequestAccountLink
                               |FeatureRequestEvidence
@@ -315,6 +316,7 @@ rules:
                               |RelationshipProposal
                               |MCPAnalyticsSubmission
                               |MCPAuditEvent
+                              |MCPCustomHarness
                               |MCPGatewayServer
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
@@ -405,6 +407,7 @@ rules:
                               |SharingConfiguration
                               |SignalEmissionRecord
                               |SignalFirstReportNotification
+                              |SignalRatedUsage
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
@@ -740,6 +743,7 @@ rules:
                         |ExternalDataSource
                         |ExternalDataSourceInputsBackup
                         |FeatureFlag
+                        |FeatureFlagCodeAnalysis
                         |FeatureRequest
                         |FeatureRequestAccountLink
                         |FeatureRequestEvidence
@@ -823,6 +827,7 @@ rules:
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
                         |MCPAuditEvent
+                        |MCPCustomHarness
                         |MCPGatewayServer
                         |MCPIntentClusterSnapshot
                         |MCPIntentEmbeddingCache
@@ -912,6 +917,7 @@ rules:
                         |SharingConfiguration
                         |SignalEmissionRecord
                         |SignalFirstReportNotification
+                        |SignalRatedUsage
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact

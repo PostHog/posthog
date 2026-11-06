@@ -5,6 +5,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.lazy_join_tags import GROUP_N, PERSON_DISTINCT_ID_OVERRIDES, PERSON_DISTINCT_IDS, PERSONS
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
+    EventsRetentionTable,
     ExpressionField,
     FieldOrTable,
     FieldTraverser,
@@ -12,7 +13,6 @@ from posthog.hogql.database.models import (
     LazyJoin,
     StringDatabaseField,
     StringJSONDatabaseField,
-    Table,
     UUIDDatabaseField,
     VirtualTable,
 )
@@ -121,11 +121,13 @@ _ELEMENT_ARRAY_STAND_INS = ("elements_chain_texts", "elements_chain_ids", "eleme
 ELEMENT_STAND_INS = frozenset(_ELEMENT_STRING_STAND_INS + _ELEMENT_ARRAY_STAND_INS)
 
 
-class FlagEvaluationsTable(Table):
+# Flag calls are events too, and a query on events can read them from here, so events retention applies.
+class FlagEvaluationsTable(EventsRetentionTable):
     description: str = (
         "One row per feature flag evaluation, from the `$feature_flag_called` event. Rows are kept for 90 days. "
         "A project that is not sending flag-evaluation telemetry yet sees an empty table."
     )
+    events_retention_field: str = "timestamp"
     fields: dict[str, FieldOrTable] = {
         "uuid": UUIDDatabaseField(name="uuid", nullable=False, description="Unique identifier of this row."),
         "event": StringDatabaseField(

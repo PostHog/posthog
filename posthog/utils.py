@@ -1241,7 +1241,7 @@ def _default_event_info_cache_key(team_id: int) -> str:
 
 @tracer.start_as_current_span("template.default_event_info")
 def get_default_event_info(team: "Team") -> dict:
-    from posthog.models import EventDefinition
+    from products.event_definitions.backend.models import EventDefinition
 
     cache_key = _default_event_info_cache_key(team.id)
     cached = get_safe_cache(cache_key)
@@ -1320,8 +1320,7 @@ def _has_person_email_ttl(team: "Team", has_person_email: bool) -> int:
 
 @tracer.start_as_current_span("template.has_person_email")
 def get_has_person_email(team: "Team") -> bool:
-    from posthog.models import PropertyDefinition
-
+    from products.event_definitions.backend.models import PropertyDefinition
     from products.event_definitions.backend.models.property_definition import PERSON_EMAIL_PROPERTY_NAME
 
     cache_key = _has_person_email_cache_key(team.project_id)
@@ -2363,19 +2362,24 @@ def cast_timestamp_or_now(timestamp: Optional[Union[datetime.datetime, str]]) ->
     return timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
+def parse_crontab(schedule: str) -> crontab:
+    """Parse a five-field cron string. Raises for a wrong field count or an invalid field."""
+    minute, hour, day_of_month, month_of_year, day_of_week = schedule.strip().split(" ")
+    return crontab(
+        minute=minute,
+        hour=hour,
+        day_of_month=day_of_month,
+        month_of_year=month_of_year,
+        day_of_week=day_of_week,
+    )
+
+
 def get_crontab(schedule: Optional[str]) -> Optional[crontab]:
     if schedule is None or schedule == "":
         return None
 
     try:
-        minute, hour, day_of_month, month_of_year, day_of_week = schedule.strip().split(" ")
-        return crontab(
-            minute=minute,
-            hour=hour,
-            day_of_month=day_of_month,
-            month_of_year=month_of_year,
-            day_of_week=day_of_week,
-        )
+        return parse_crontab(schedule)
     except Exception as err:
         capture_exception(err)
         return None
