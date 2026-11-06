@@ -370,7 +370,7 @@ class TestReplyMirror(APIBaseTest):
             created_by=self.user,
         )
 
-    @patch("posthog.tasks.comment_slack_sync.ph_background_capture")
+    @patch("posthog.tasks.comment_slack_sync.ph_scoped_capture")
     @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
     def test_posts_reply_to_the_mirrored_thread(self, mock_slack, mock_capture):
         self._mirror()
@@ -388,7 +388,7 @@ class TestReplyMirror(APIBaseTest):
         client = mock_slack.return_value.client
         assert client.chat_postMessage.call_count == 1
         assert client.chat_postMessage.call_args.kwargs["thread_ts"] == "100.1"
-        capture = mock_capture.return_value
+        capture = mock_capture.return_value.__enter__.return_value
         capture.assert_called_once()
         assert capture.call_args.kwargs["event"] == "discussion reply sent to slack"
         assert capture.call_args.kwargs["distinct_id"] == str(self.user.distinct_id)
@@ -467,7 +467,7 @@ class TestReplyMirror(APIBaseTest):
             ("flag_off", False, 0),
         ]
     )
-    @patch("posthog.models.comment.slack_thread.posthoganalytics.feature_enabled")
+    @patch("posthog.helpers.slack_thread_mirror.posthoganalytics.feature_enabled")
     @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
     def test_kill_switch_follows_mirror_creator(self, _name, enabled_for_creator, expected_posts, mock_slack, flag):
         flag.side_effect = lambda _key, distinct_id, **_kwargs: (
@@ -484,7 +484,7 @@ class TestReplyMirror(APIBaseTest):
 
 
 class TestIngestSlackReply(APIBaseTest):
-    @patch("posthog.tasks.comment_slack_sync.ph_background_capture")
+    @patch("posthog.tasks.comment_slack_sync.ph_scoped_capture")
     @patch("posthog.tasks.comment_slack_sync.resolve_slack_user")
     @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
     def test_saves_reply_and_captures_event(self, _mock_slack, mock_resolve, mock_capture):
@@ -516,7 +516,7 @@ class TestIngestSlackReply(APIBaseTest):
 
         reply = Comment.objects.get(team=self.team, source_comment=parent)
         assert reply.content == "from slack"
-        capture = mock_capture.return_value
+        capture = mock_capture.return_value.__enter__.return_value
         capture.assert_called_once()
         assert capture.call_args.kwargs["event"] == "discussion reply received from slack"
         assert capture.call_args.kwargs["distinct_id"] == str(self.team.uuid)

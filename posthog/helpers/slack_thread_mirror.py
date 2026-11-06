@@ -6,16 +6,40 @@ The inbound counterpart — ingesting Slack replies back as comments — is wire
 the Slack event webhook lives.
 """
 
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 import structlog
+import posthoganalytics
 from slack_sdk import WebClient
 
 from posthog.comment.formatting import rich_content_to_slack_payload
+from posthog.models.comment.slack_thread import DISCUSSIONS_SLACK_SYNC_FLAG
 from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.slack.identity import resolve_slack_avatar_by_email
 
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+    from posthog.models.user import User
+
 logger = structlog.get_logger(__name__)
+
+
+def evaluate_discussions_slack_sync_flag(user: "User | None", team: "Team") -> bool | None:
+    """The flag's raw value for this person, or None when evaluation fails.
+
+    The creation gate and the kill switch must evaluate the flag the same way, but they apply
+    opposite failure policies, so each caller decides what None means.
+    """
+    distinct_id = str(user.distinct_id) if user and user.distinct_id else str(team.uuid)
+    try:
+        return posthoganalytics.feature_enabled(
+            DISCUSSIONS_SLACK_SYNC_FLAG,
+            distinct_id,
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+        )
+    except Exception:
+        return None
 
 
 def slack_author_from_user(user: object | None) -> tuple[str, str]:

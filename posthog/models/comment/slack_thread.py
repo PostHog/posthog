@@ -1,39 +1,14 @@
-from typing import TYPE_CHECKING
-
 from django.db import models, transaction
-
-import posthoganalytics
 
 from posthog.models.comment.comment import COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API, OBSERVATION_COMMENT_SCOPES, Comment
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import UUIDModel
 
-if TYPE_CHECKING:
-    from posthog.models.team import Team
-    from posthog.models.user import User
-
 # Gates creating new mirrors (fail-closed, in the send_to_slack action) and doubles as the
 # kill switch for syncing on existing mirrors (explicit-off, in the Celery tasks and the
 # inbound ingest) — flipping it off during an incident halts all mirror traffic.
 DISCUSSIONS_SLACK_SYNC_FLAG = "discussions-slack-sync"
-
-
-def evaluate_discussions_slack_sync_flag(user: "User | None", team: "Team") -> bool | None:
-    """The flag's raw value for this person, or None when evaluation fails.
-
-    The creation gate and the kill switch must evaluate the flag the same way, but they apply
-    opposite failure policies, so each caller decides what None means.
-    """
-    distinct_id = str(user.distinct_id) if user and user.distinct_id else str(team.uuid)
-    try:
-        return posthoganalytics.feature_enabled(
-            DISCUSSIONS_SLACK_SYNC_FLAG,
-            distinct_id,
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-        )
-    except Exception:
-        return None
 
 
 class CommentSlackThread(TeamScopedRootMixin, UUIDModel):

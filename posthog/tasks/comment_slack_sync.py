@@ -8,14 +8,17 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.comment.formatting import slack_files_to_placeholder_lines, slack_to_content_and_rich_content
 from posthog.event_usage import groups
-from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
+from posthog.helpers.slack_thread_mirror import (
+    evaluate_discussions_slack_sync_flag,
+    post_comment_to_slack_thread,
+    slack_author_from_user,
+)
 from posthog.models.comment import Comment, CommentSlackThread
 from posthog.models.comment.comment import COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API, OBSERVATION_COMMENT_SCOPES
-from posthog.models.comment.slack_thread import evaluate_discussions_slack_sync_flag
 from posthog.models.integration import SlackIntegration
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.ph_client import ph_background_capture
+from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.slack.identity import resolve_posthog_user_for_slack, resolve_slack_user
 
@@ -59,14 +62,15 @@ def _capture_sync_event(
     # Slack authors without a PostHog account count against the team, not the mirror's creator.
     distinct_id = str(actor.distinct_id) if actor and actor.distinct_id else str(team.uuid)
     try:
-        ph_background_capture()(
-            distinct_id=distinct_id,
-            event=event,
-            properties={"scope": mirror.scope, **properties},
-            groups=groups(team=team),
-        )
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=distinct_id,
+                event=event,
+                properties={"scope": mirror.scope, **properties},
+                groups=groups(team=team),
+            )
     except Exception:
-        logger.exception("comment_slack_sync_capture_failed", event=event, comment_slack_thread_id=str(mirror.id))
+        logger.exception("comment_slack_sync_capture_failed", event_name=event, comment_slack_thread_id=str(mirror.id))
 
 
 def _slack_retry_after(exc: Exception) -> int | None:

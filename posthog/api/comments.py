@@ -26,7 +26,11 @@ from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.comment.access import task_comment_target_is_accessible
 from posthog.event_usage import groups
 from posthog.exceptions import Conflict
-from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
+from posthog.helpers.slack_thread_mirror import (
+    evaluate_discussions_slack_sync_flag,
+    post_comment_to_slack_thread,
+    slack_author_from_user,
+)
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -40,7 +44,6 @@ from posthog.models.comment.comment import (
     activity_log_scope_for,
     canonical_comment_scope,
 )
-from posthog.models.comment.slack_thread import evaluate_discussions_slack_sync_flag
 from posthog.models.comment.utils import (
     DESKTOP_COMMENT_SCOPES,
     build_comment_item_url,
