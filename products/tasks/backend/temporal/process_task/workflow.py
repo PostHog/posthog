@@ -3018,12 +3018,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         """
         self._resume_snapshot_invalidated = False
         activity_count = self._sandbox_activity_count
-        # The replacement restores memory from storage, so storage must match the snapshot first.
-        # Taken after the activity count, so agent activity during the persist abandons the rotation.
+        # A replacement built from a snapshot without a baseline (its restore failed) restores from
+        # storage, so storage must hold the snapshot's memory first. Taken after the activity count,
+        # so agent activity during the persist abandons the rotation.
         if self._agent_memory_persist_enabled:
             await self._drain_agent_memory_persist_task()
             if not await self._persist_agent_memory(old_sandbox_id, reason="ttl_rotation"):
-                # The replacement would restore older stored memory over the snapshot's newer files.
+                # Without that save, such a replacement would restore older stored files over newer ones.
                 return SandboxRotation(
                     relay_task=relay_task,
                     credential_refresh_task=credential_refresh_task,

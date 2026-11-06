@@ -6,13 +6,11 @@ import pytest
 from posthog.models import User
 from posthog.storage.object_storage import ObjectStorageError
 
-from products.tasks.backend.logic.services.agent_memory import MemoryRestoreResult, MemorySyncCounts
+from products.tasks.backend.logic.services.agent_memory import MemorySyncCounts
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.persist_agent_memory import (
-    AGENT_MEMORY_RESTORED_SANDBOX_STATE_KEY,
     PersistAgentMemoryInput,
     persist_agent_memory,
-    restore_agent_memory_into_sandbox,
 )
 
 MODULE = "products.tasks.backend.temporal.process_task.activities.persist_agent_memory"
@@ -42,29 +40,6 @@ def _input(run: TaskRun, sandbox_id: str = "sb-1", actor_user_id: int | None = N
         reason="teardown",
         actor_user_id=actor_user_id,
     )
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize(
-    "state, expected_allow_deletes",
-    [
-        ({AGENT_MEMORY_RESTORED_SANDBOX_STATE_KEY: "sb-1"}, True),
-        ({AGENT_MEMORY_RESTORED_SANDBOX_STATE_KEY: "sb-previous"}, False),
-        ({}, False),
-    ],
-)
-def test_persist_deletes_only_from_the_sandbox_that_received_a_complete_restore(
-    activity_environment: Any, mocker: Any, team: Any, state: dict, expected_allow_deletes: bool
-) -> None:
-    run = _run(team, state)
-    sandbox = _patch_sandbox(mocker, running=True)
-    persist = mocker.patch(f"{MODULE}.persist_sandbox_memory", return_value=MemorySyncCounts(files_written=2))
-
-    output = activity_environment.run(unwrap(persist_agent_memory), _input(run))
-
-    persist.assert_called_once_with(sandbox, team_id=team.id, user_id=7, allow_deletes=expected_allow_deletes)
-    assert output.error is None
-    assert output.files_written == 2
 
 
 @pytest.mark.django_db
@@ -106,19 +81,3 @@ def test_a_storage_failure_raises_so_temporal_retries(activity_environment: Any,
 
     with pytest.raises(ObjectStorageError):
         activity_environment.run(unwrap(persist_agent_memory), _input(run))
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("complete", [True, False])
-def test_only_a_complete_restore_marks_the_sandbox(mocker: Any, team: Any, complete: bool) -> None:
-    run = _run(team, {AGENT_MEMORY_RESTORED_SANDBOX_STATE_KEY: "sb-previous"})
-    sandbox = mocker.Mock(id="sb-1")
-    mocker.patch(
-        f"{MODULE}.restore_sandbox_memory",
-        return_value=MemoryRestoreResult(counts=MemorySyncCounts(), complete=complete),
-    )
-
-    restore_agent_memory_into_sandbox(sandbox, run_id=str(run.id), team_id=team.id, user_id=7)
-
-    run.refresh_from_db()
-    assert run.state[AGENT_MEMORY_RESTORED_SANDBOX_STATE_KEY] == ("sb-1" if complete else "sb-previous")

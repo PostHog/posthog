@@ -214,8 +214,7 @@ def test_a_malformed_baseline_reads_as_empty(raw: bytes) -> None:
     assert parse_baseline(raw) == {}
 
 
-@pytest.mark.parametrize("allow_deletes", [True, False])
-def test_persist_uploads_only_what_changed_since_the_baseline(storage: FakeStorage, allow_deletes: bool) -> None:
+def test_persist_uploads_only_what_changed_since_the_baseline(storage: FakeStorage) -> None:
     storage.objects = {
         _key(WORKSPACE_SLUG, "MEMORY.md"): b"newer, saved by another sandbox",
         _key(REPO_SLUG, "MEMORY.md"): b"index",
@@ -244,19 +243,19 @@ def test_persist_uploads_only_what_changed_since_the_baseline(storage: FakeStora
         }
     )
 
-    counts = persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, allow_deletes=allow_deletes)  # type: ignore[arg-type]
+    counts = persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
 
     assert storage.writes == [_key(REPO_SLUG, "new.md")]
     assert storage.objects[_key(WORKSPACE_SLUG, "MEMORY.md")] == b"newer, saved by another sandbox"
     assert storage.objects[_key(REPO_SLUG, "other.md")] == b"added by another sandbox"
-    assert (_key(REPO_SLUG, "removed.md") in storage.objects) is not allow_deletes
+    assert _key(REPO_SLUG, "removed.md") not in storage.objects
     assert sandbox.reads == [SANDBOX_BASELINE_PATH, _memory_path(REPO_SLUG, "new.md")]
     assert counts.skipped["not_file_symlink"] == 1
     assert counts.skipped["file_too_large"] == 1
 
     sandbox.reads.clear()
     storage.writes.clear()
-    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, allow_deletes=allow_deletes)  # type: ignore[arg-type]
+    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
 
     assert storage.writes == []
     assert sandbox.reads == [SANDBOX_BASELINE_PATH]
@@ -280,7 +279,7 @@ def test_deleting_the_last_memory_file_propagates_only_against_a_valid_baseline(
     else:
         sandbox.files[SANDBOX_BASELINE_PATH] = b"{truncated"
 
-    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, allow_deletes=True)  # type: ignore[arg-type]
+    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
 
     assert (_key(REPO_SLUG, "MEMORY.md") not in storage.objects) is expected_deleted
 
@@ -298,7 +297,7 @@ def test_a_slug_left_out_by_the_cap_is_not_treated_as_deleted(storage: FakeStora
     sandbox.files[_memory_path("-a", "MEMORY.md")] = b"new checkout"
     sandbox.mtimes[_memory_path("-a", "MEMORY.md")] = 1.0
 
-    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, allow_deletes=True)  # type: ignore[arg-type]
+    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
 
     assert storage.objects[_key(slugs[-1], "MEMORY.md")] == b"index"
     assert storage.writes == [_key("-a", "MEMORY.md")]
@@ -310,14 +309,14 @@ def test_replacing_one_of_fifty_slugs_keeps_a_valid_baseline(storage: FakeStorag
     sandbox.files[_memory_path("-a", "MEMORY.md")] = b"new checkout"
     sandbox.mtimes[_memory_path("-a", "MEMORY.md")] = 1.0
 
-    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, allow_deletes=True)  # type: ignore[arg-type]
+    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
 
     assert _key(slugs[0], "MEMORY.md") not in storage.objects
     assert len(parse_baseline(sandbox.files[SANDBOX_BASELINE_PATH])) == MAX_SLUGS_PER_USER
 
     storage.writes.clear()
     sandbox.reads.clear()
-    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, allow_deletes=True)  # type: ignore[arg-type]
+    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
 
     assert storage.writes == []
     assert sandbox.reads == [SANDBOX_BASELINE_PATH]
@@ -375,11 +374,29 @@ def test_restore_is_complete_only_when_the_sandbox_mirrors_storage(
     assert sandbox.memory() == {}
 
 
-def test_restore_raises_when_storage_cannot_be_listed(storage: FakeStorage) -> None:
+def test_restore_raises_and_leaves_no_baseline_when_storage_cannot_be_listed(storage: FakeStorage) -> None:
     storage.list_fails = True
+    sandbox = FakeSandbox()
 
     with pytest.raises(ObjectStorageError):
-        restore_sandbox_memory(FakeSandbox(), team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+        restore_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+
+    assert SANDBOX_BASELINE_PATH not in sandbox.files
+
+
+def test_restore_keeps_a_snapshot_that_carries_its_own_baseline(storage: FakeStorage) -> None:
+    storage.objects = {
+        _key(REPO_SLUG, "MEMORY.md"): b"older stored index",
+        _key(REPO_SLUG, "deleted-locally.md"): b"removed in the snapshot",
+    }
+    sandbox = FakeSandbox({_memory_path(REPO_SLUG, "MEMORY.md"): b"unsaved local edit"})
+    sandbox.set_baseline({REPO_SLUG: {"MEMORY.md": {"md5": _md5(b"index"), "size": 5, "mtime": 0.5}}})
+    before = dict(sandbox.files)
+
+    result = restore_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+
+    assert result.snapshot_baseline_kept is True
+    assert sandbox.files == before
 
 
 def test_restore_stops_inside_a_slug_once_the_deadline_passes(storage: FakeStorage) -> None:

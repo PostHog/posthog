@@ -24,10 +24,6 @@ from products.tasks.backend.temporal.observability import emit_agent_log
 
 logger = structlog.get_logger(__name__)
 
-# Names the sandbox that last received a complete restore. A persist deletes stored memory files
-# only from that sandbox, because any other sandbox may lack files that storage still holds.
-AGENT_MEMORY_RESTORED_SANDBOX_STATE_KEY = "agent_memory_restored_sandbox_id"
-
 
 @frozen
 class PersistAgentMemoryInput:
@@ -60,26 +56,16 @@ def _record_counts(direction: Literal["persist", "restore"], counts: MemorySyncC
         increment_agent_memory_files(direction, f"skipped_{reason}", count)
 
 
-@frozen
-class _RunMemoryState:
-    restored_sandbox_id: str | None
-    actor_changed: bool
-
-
-def _run_memory_state(run_id: str, team_id: int, actor_user_id: int | None) -> _RunMemoryState:
+def _actor_changed(run_id: str, team_id: int, actor_user_id: int | None) -> bool:
     row = TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("state", "task__created_by_id").first()
     state, created_by_id = row if row is not None else (None, None)
     state = state if isinstance(state, dict) else {}
-    restored = state.get(AGENT_MEMORY_RESTORED_SANDBOX_STATE_KEY)
     # Once someone other than the creator steers the run, the creator's memory must not be saved
     # from this sandbox. The workflow passes the latest follow-up's actor; run state carries the
     # Slack actor recorded when the run started.
     actor = state.get("slack_actor_user_id")
-    actor_changed = (isinstance(actor, int) and not isinstance(actor, bool) and actor != created_by_id) or (
+    return (isinstance(actor, int) and not isinstance(actor, bool) and actor != created_by_id) or (
         actor_user_id is not None and actor_user_id != created_by_id
-    )
-    return _RunMemoryState(
-        restored_sandbox_id=restored if isinstance(restored, str) else None, actor_changed=actor_changed
     )
 
 
@@ -139,16 +125,10 @@ def persist_agent_memory(input: PersistAgentMemoryInput) -> PersistAgentMemoryOu
         return _finish_persist(input, "sandbox_not_found", started_at, counts, f"Sandbox not found: {e}")
     if not sandbox.is_running():
         return _finish_persist(input, "sandbox_not_running", started_at, counts, "Sandbox not running")
-    run_state = _run_memory_state(input.run_id, input.team_id, input.actor_user_id)
-    if run_state.actor_changed:
+    if _actor_changed(input.run_id, input.team_id, input.actor_user_id):
         return _finish_persist(input, "actor_changed", started_at, counts, None)
     try:
-        counts = persist_sandbox_memory(
-            sandbox,
-            team_id=input.team_id,
-            user_id=input.user_id,
-            allow_deletes=run_state.restored_sandbox_id == input.sandbox_id,
-        )
+        counts = persist_sandbox_memory(sandbox, team_id=input.team_id, user_id=input.user_id)
     except NotImplementedError:
         # A backend without file listing (hogland) is a supported configuration, not a failure.
         return _finish_persist(input, "unsupported", started_at, counts, None)
@@ -174,9 +154,10 @@ def restore_agent_memory_into_sandbox(sandbox: SandboxBase, *, run_id: str, team
     try:
         result = restore_sandbox_memory(sandbox, team_id=team_id, user_id=user_id)
         counts = result.counts
-        outcome = "restored" if result.complete else "partial"
-        if result.complete:
-            TaskRun.update_state_atomic(run_id, updates={AGENT_MEMORY_RESTORED_SANDBOX_STATE_KEY: sandbox.id})
+        if result.snapshot_baseline_kept:
+            outcome = "snapshot_baseline_kept"
+        else:
+            outcome = "restored" if result.complete else "partial"
     except NotImplementedError:
         outcome = "unsupported"
     except Exception as e:

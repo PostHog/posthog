@@ -99,6 +99,19 @@ class AgentInstructionsStore:
         return instructions
 
 
+def receives_personal_state(task: Task) -> bool:
+    """Whether a run may carry its user's personal state, such as personal instructions or agent memory.
+
+    Personless runs never do: workflow runs are team resources, and scouts and signal reports act for
+    no person. Internal and infrastructure tasks never do either.
+    """
+    return (
+        task.origin_product not in EXCLUDED_ORIGINS
+        and not task.internal
+        and task.origin_product not in PERSONLESS_ORIGINS
+    )
+
+
 class AgentInstructionsResolver:
     def __init__(self, store: AgentInstructionsStore | None = None) -> None:
         self._store = store or AgentInstructionsStore()
@@ -108,7 +121,7 @@ class AgentInstructionsResolver:
             return None
         project = self._store.get_project(task.team_id).strip()
         personal = ""
-        if not task.internal and task.origin_product not in PERSONLESS_ORIGINS:
+        if receives_personal_state(task):
             user_id = actor_user.id if actor_user is not None else task.created_by_id
             if user_id is not None:
                 personal = self._store.get_personal(task.team_id, user_id).strip()

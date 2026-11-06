@@ -141,10 +141,10 @@ Baseline = dict[str, dict[str, BaselineFile]]
 @frozen
 class MemoryRestoreResult:
     counts: MemorySyncCounts
-    # True only when the sandbox now mirrors storage for every stored slug. A later persist may
-    # delete stored files only after a complete restore, otherwise a failed restore followed by a
-    # persist would erase memory the sandbox never received.
+    # True when the sandbox now mirrors storage for every stored slug, or kept a snapshot's baseline.
     complete: bool
+    # The sandbox came from a snapshot that carries its own baseline, so restore left it alone.
+    snapshot_baseline_kept: bool = False
 
 
 class RestoreDeadlineExceeded(Exception):
@@ -168,31 +168,34 @@ def _parse_baseline_file(value: Any) -> BaselineFile | None:
     return BaselineFile(md5=md5, size=size, mtime=float(mtime))
 
 
-def parse_baseline(raw: bytes | None) -> Baseline:
-    """The baseline the sandbox holds, or an empty one when it is missing or malformed in any part.
-
-    An empty baseline makes the next persist write every file and delete nothing.
-    """
-    if not raw:
-        return {}
+def load_baseline(raw: bytes | None) -> Baseline | None:
+    """The baseline the sandbox holds, or None when it is missing or malformed in any part."""
+    if raw is None:
+        return None
     try:
         data = json.loads(raw)
     except ValueError:
-        return {}
+        return None
     if not isinstance(data, dict) or len(data) > MAX_SLUGS_PER_USER:
-        return {}
+        return None
     baseline: Baseline = {}
     for slug, files in data.items():
         if not is_valid_slug(slug) or not isinstance(files, dict) or len(files) > MAX_FILES_PER_SLUG:
-            return {}
+            return None
         parsed: dict[str, BaselineFile] = {}
         for filename, value in files.items():
             baseline_file = _parse_baseline_file(value)
             if not is_valid_memory_filename(filename) or baseline_file is None:
-                return {}
+                return None
             parsed[filename] = baseline_file
         baseline[slug] = parsed
     return baseline
+
+
+def parse_baseline(raw: bytes | None) -> Baseline:
+    """Like `load_baseline`, but empty when missing or malformed: the next persist then writes
+    every file and deletes nothing."""
+    return load_baseline(raw) or {}
 
 
 def _serialize_baseline(baseline: Baseline) -> bytes:
@@ -206,6 +209,10 @@ def _serialize_baseline(baseline: Baseline) -> bytes:
 
 def read_baseline(sandbox: SandboxBase) -> Baseline:
     return parse_baseline(sandbox.read_file(SANDBOX_BASELINE_PATH, MAX_BASELINE_BYTES))
+
+
+def has_baseline(sandbox: SandboxBase) -> bool:
+    return load_baseline(sandbox.read_file(SANDBOX_BASELINE_PATH, MAX_BASELINE_BYTES)) is not None
 
 
 def write_baseline(sandbox: SandboxBase, baseline: Baseline) -> bool:
@@ -292,7 +299,6 @@ def _persist_slug(
     slug: str,
     entries: list[SandboxDirEntry],
     base: dict[str, BaselineFile],
-    allow_deletes: bool,
     counts: MemorySyncCounts,
 ) -> dict[str, BaselineFile] | None:
     """Upload what changed in one slug since the baseline. Returns the slug's new baseline."""
@@ -342,9 +348,6 @@ def _persist_slug(
         counts.files_written += 1
     if not removed:
         return new_base
-    if not allow_deletes:
-        counts.skip("delete_not_allowed", len(removed))
-        return new_base
     stale_keys = [memory_object_key(team_id, user_id, slug, name) for name in removed if name in stored]
     if stale_keys:
         failed = object_storage.delete_objects(stale_keys)
@@ -354,13 +357,11 @@ def _persist_slug(
     return new_base
 
 
-def persist_sandbox_memory(
-    sandbox: SandboxBase, *, team_id: int, user_id: int, allow_deletes: bool
-) -> MemorySyncCounts:
+def persist_sandbox_memory(sandbox: SandboxBase, *, team_id: int, user_id: int) -> MemorySyncCounts:
     """Upload the memory the agent changed since the baseline.
 
     A slug with no change against the baseline is not touched in storage. A stored file is deleted
-    only when the baseline had it, the sandbox no longer lists it, and `allow_deletes` is set.
+    only when the baseline had it and the sandbox no longer lists it.
     Storage failures raise so the caller can retry.
     """
     counts = MemorySyncCounts()
@@ -387,7 +388,6 @@ def persist_sandbox_memory(
                 slug=slug,
                 entries=entries,
                 base=baseline.get(slug, {}),
-                allow_deletes=allow_deletes,
                 counts=counts,
             )
             if new_base is not None and new_base != baseline.get(slug, {}):
@@ -499,24 +499,30 @@ def _write_sandbox_slug(
 def restore_sandbox_memory(
     sandbox: SandboxBase, *, team_id: int, user_id: int, deadline: float | None = None
 ) -> MemoryRestoreResult:
-    """Write the user's stored memory into the sandbox, replacing each slug storage has.
+    """Write the user's stored memory into a fresh sandbox, replacing each slug storage has.
+
+    A sandbox resumed from a snapshot keeps its own files and baseline: together they describe edits
+    no persist has saved yet, and the next persist diffs against that baseline. Restoring over them
+    would replace those edits with older stored files.
 
     Must run before agent-server boots, while the agent cannot yet race the writes. `deadline` is a
     `time.monotonic()` timestamp. Raises ObjectStorageError when storage cannot be listed, because an
-    empty result must mean an empty prefix.
+    empty result must mean an empty prefix. The sandbox then has no baseline, so no persist deletes.
     """
     deadline = time.monotonic() + RESTORE_DEADLINE_SECONDS if deadline is None else deadline
     counts = MemorySyncCounts()
-    # A snapshot can carry an older sandbox's baseline. Clear it first so a failed restore leaves
-    # the next persist with nothing to compare against, which means writes only and no deletes.
-    if not write_baseline(sandbox, {}):
-        counts.errors += 1
-        return MemoryRestoreResult(counts=counts, complete=False)
+    if has_baseline(sandbox):
+        return MemoryRestoreResult(counts=counts, complete=True, snapshot_baseline_kept=True)
 
     summaries = object_storage.list_object_summaries(user_memory_prefix(team_id, user_id))
 
     if sandbox.list_dir(SANDBOX_HOME_CLAUDE_PROJECTS_DIR) and not sandbox.list_dir(SANDBOX_CLAUDE_PROJECTS_DIR):
         counts.skip("home_projects_unmigrated")
+        return MemoryRestoreResult(counts=counts, complete=False)
+    # Written even when storage is empty, so a snapshot of this sandbox carries a baseline and a
+    # sandbox resumed from it keeps its files.
+    if not write_baseline(sandbox, {}):
+        counts.errors += 1
         return MemoryRestoreResult(counts=counts, complete=False)
 
     by_slug: dict[str, list[StoredObjectSummary]] = {}

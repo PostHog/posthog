@@ -846,6 +846,19 @@ class TestGetTaskProcessingContextActivity:
         assert result.persist_agent_memory_enabled is expected
 
     @pytest.mark.django_db(transaction=True)
+    def test_a_workflow_run_never_gets_agent_memory(self, activity_environment, test_task):
+        test_task.origin_product = Task.OriginProduct.WORKFLOW
+        test_task.save(update_fields=["origin_product"])
+        task_run = test_task.create_run()
+
+        with patch(ALL_FLAGS_TARGET, return_value=_flags({"tasks-persist-agent-memory": True})):
+            result = async_to_sync(activity_environment.run)(
+                get_task_processing_context, GetTaskProcessingContextInput(run_id=str(task_run.id))
+            )
+
+        assert result.persist_agent_memory_enabled is False
+
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_keeps_stamped_event_ingest_off(self, activity_environment, test_task):
         task_run = test_task.create_run(extra_state={"sandbox_event_ingest_enabled": False})
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
