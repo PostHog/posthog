@@ -29,8 +29,8 @@ from posthog.hogql.database.schema.util.where_clause_extractor import (
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
+    escape_clickhouse_json_path,
     escape_clickhouse_string,
-    quote_clickhouse_identifier,
     safe_identifier,
 )
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
@@ -1525,20 +1525,23 @@ class ClickHousePrinter(BasePrinter):
             expr = self.visit(node.expr)
 
         # The native table stores a dotted key as one path named with `%2E` (EVENTS_JSON_INSERT_SETTINGS), so a
-        # dot inside one key must not read as a path separator. The escaped key then takes the bound-parameter
-        # branch below, as `%` would otherwise break the SQL's own parameter placeholders.
+        # dot inside one key must not read as a path separator.
         keys = [key.replace(".", "%2E") for key in node.keys]
 
-        if any("%" in key for key in keys):
+        # An empty key is not a valid SQL identifier, so that path goes to getSubcolumn as a bound value. Every
+        # other key prints as a direct subcolumn read: getSubcolumn() reads every subcolumn and filters afterwards.
+        if any(not key for key in keys):
             if node.access_type == "sub_object":
-                for key in keys:
-                    subcolumn = f"^{quote_clickhouse_identifier(key)}"
-                    expr = f"getSubcolumn({expr}, {self.context.add_value(subcolumn)})"
-                return expr
-            subcolumn = ".".join(keys)
-            return f"getSubcolumn({expr}, {self.context.add_value(subcolumn)})"
+                # getSubcolumn's path parser reads a backslash-escaped backtick, not SQL's doubled backtick.
+                escaped_keys = (key.replace("\\", "\\\\").replace("`", "\\`") for key in keys)
+                subcolumns = [f"^`{key}`" for key in escaped_keys]
+            else:
+                subcolumns = [".".join(keys)]
+            for subcolumn in subcolumns:
+                expr = f"getSubcolumn({expr}, {self.context.add_value(subcolumn)})"
+            return expr
 
         for index, key in enumerate(keys):
             separator = ".^" if node.access_type == "sub_object" and index == 0 else "."
-            expr = f"{expr}{separator}{escape_clickhouse_identifier(key)}"
+            expr = f"{expr}{separator}{escape_clickhouse_json_path(key)}"
         return expr

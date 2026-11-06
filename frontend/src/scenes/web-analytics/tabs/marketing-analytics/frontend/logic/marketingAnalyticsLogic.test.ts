@@ -168,6 +168,7 @@ describe('marketingAnalyticsLogic', () => {
             expect(searchLogic.values.missingSources).toEqual(['GoogleAds'])
             logic.actions.setCompareFilter({ compare: true })
             logic.actions.setDates('-28d', null)
+            expect(searchLogic.values.hasActiveFilters).toBe(false)
             searchLogic.actions.setChannel('paid')
             searchLogic.actions.setQuerySearch('missing query')
             expect(searchLogic.values.hasActiveFilters).toBe(true)
@@ -178,6 +179,7 @@ describe('marketingAnalyticsLogic', () => {
             expect(searchLogic.values.sources.map((source) => source.id)).toEqual(['organic'])
             expect(searchLogic.values.query.search).toBe('')
             expect(logic.values.compareFilter).toEqual({ compare: true })
+            expect(logic.values.dateFilter.dateFrom).toBe('-28d')
             const organicSource = logic.values.dataWarehouseSources!.results[0]
             await expectLogic(logic, () =>
                 logic.actions.loadSourcesSuccess({

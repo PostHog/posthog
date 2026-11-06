@@ -17,6 +17,7 @@ import {
     SOURCE_STEERING_KEY,
     SOURCE_STEERING_MAX_LENGTH,
     SignalSourceConfig,
+    SignalSourceProduct,
 } from '../types'
 
 export interface SourceSteeringFormValues {
@@ -24,11 +25,45 @@ export interface SourceSteeringFormValues {
 }
 
 /** A starting point offered in the modal: `label` is the chip, `line` is what it appends. */
-const STEERING_EXAMPLES: { label: string; line: string }[] = [
+interface SteeringExampleTemplate {
+    label: string
+    line: string
+}
+
+const DEFAULT_STEERING_EXAMPLES: SteeringExampleTemplate[] = [
     { label: 'Skip chores', line: 'Skip anything labeled chore, internal, or dependencies.' },
     { label: 'Billing only', line: 'Only report issues about billing, checkout, or payments.' },
     { label: 'Crashes first', line: 'Anything mentioning a crash, outage, or data loss is worth reporting.' },
 ]
+
+/** Sources whose records have no labels or issue text, so the default examples would not apply. */
+const SOURCE_STEERING_EXAMPLES: Partial<Record<SignalSourceProduct, SteeringExampleTemplate[]>> = {
+    [SignalSourceProduct.ErrorTracking]: [
+        { label: 'Skip noise', line: 'Skip errors from browser extensions, bots, or local development.' },
+        { label: 'Checkout first', line: 'Errors on checkout or payment pages are always worth reporting.' },
+        { label: 'Crashes first', line: 'Anything that crashes the app or loses data is worth reporting.' },
+    ],
+    [SignalSourceProduct.HealthChecks]: [
+        { label: 'Skip SDK updates', line: 'Skip outdated SDK warnings.' },
+        { label: 'Skip source maps', line: 'Skip missing source map warnings.' },
+        { label: 'Data gaps first', line: 'Missing events and failed warehouse syncs are always worth reporting.' },
+    ],
+    [SignalSourceProduct.Analytics]: [
+        {
+            label: 'Skip small changes',
+            line: 'Skip alerts where the metric moved only a little or recovered soon after.',
+        },
+        { label: 'Revenue first', line: 'Alerts on revenue, signups, or checkout metrics are always worth reporting.' },
+        { label: 'Skip test insights', line: 'Skip alerts on insights with test or draft in the name.' },
+    ],
+}
+
+/** Sources that emit each signal as it happens, so their guidance has no sync to wait for. */
+const DIRECT_SOURCE_PRODUCTS: ReadonlySet<SignalSourceProduct> = new Set([
+    SignalSourceProduct.ErrorTracking,
+    SignalSourceProduct.HealthChecks,
+    SignalSourceProduct.Analytics,
+])
 
 export interface SteeringExample {
     label: string
@@ -97,6 +132,7 @@ export interface sourceSteeringModalLogicValues {
     sourceSteeringTouched: boolean
     sourceSteeringTouches: Record<string, boolean>
     sourceSteeringValidationErrors: DeepPartialMap<SourceSteeringFormValues, ValidationErrorType>
+    steeringAppliesFrom: string
     steeringExamples: SteeringExample[]
 }
 
@@ -147,7 +183,11 @@ export interface sourceSteeringModalLogicActions {
 export interface sourceSteeringModalLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        steeringExamples: (sourceSteering: SourceSteeringFormValues) => SteeringExample[]
+        steeringExamples: (
+            sourceSteering: SourceSteeringFormValues,
+            sourceConfigs: SignalSourceConfig[]
+        ) => SteeringExample[]
+        steeringAppliesFrom: (sourceConfigs: SignalSourceConfig[]) => string
     }
 }
 
@@ -228,7 +268,7 @@ export const sourceSteeringModalLogic: LogicWrapper<sourceSteeringModalLogicType
                     throw firstError
                 }
                 captureSignalSourceSteeringChanged({ ...analyticsParams, success: true })
-                lemonToast.success('Guidance saved. It applies from the next sync.')
+                lemonToast.success(`Guidance saved. It applies ${values.steeringAppliesFrom}.`)
                 actions.loadSourceConfigs()
                 logicProps.onClose()
             },
@@ -239,13 +279,23 @@ export const sourceSteeringModalLogic: LogicWrapper<sourceSteeringModalLogicType
         // could push the value past the cap and leave the form unsavable with no edit of the
         // user's own. The view renders `result` and disables the chip when it does not fit.
         steeringExamples: [
-            (s) => [s.sourceSteering],
-            ({ steering }: SourceSteeringFormValues): SteeringExample[] =>
-                STEERING_EXAMPLES.map(({ label, line }) => {
+            (s, p) => [s.sourceSteering, p.sourceConfigs],
+            ({ steering }: SourceSteeringFormValues, sourceConfigs: SignalSourceConfig[]): SteeringExample[] =>
+                (
+                    (sourceConfigs.length > 0 && SOURCE_STEERING_EXAMPLES[sourceConfigs[0].source_product]) ||
+                    DEFAULT_STEERING_EXAMPLES
+                ).map(({ label, line }) => {
                     const current = steering.trimEnd()
                     const result = current ? `${current}\n${line}` : line
                     return { label, line, result, fits: result.length <= SOURCE_STEERING_MAX_LENGTH }
                 }),
+        ],
+        steeringAppliesFrom: [
+            (_, p) => [p.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[]): string =>
+                sourceConfigs.length > 0 && DIRECT_SOURCE_PRODUCTS.has(sourceConfigs[0].source_product)
+                    ? 'to new signals from now on'
+                    : 'from the next sync',
         ],
     }),
 ])

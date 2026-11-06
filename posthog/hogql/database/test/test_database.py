@@ -494,6 +494,12 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             ),
             ("read_mode", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True),
             param(
+                "read_mode_with_the_union_flag_off",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                True,
+                union_flag_enabled=False,
+            ),
+            param(
                 "read_mode_with_reads_forced_to_events",
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
                 False,
@@ -515,7 +521,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             ),
         ]
     )
-    def test_read_flag_calls_from_flag_evaluations_follows_the_read_mode(
+    def test_flag_call_reads_follow_the_read_mode_and_the_union_flag(
         self,
         _name: str,
         mode: FlagEvaluationsMode,
@@ -523,7 +529,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         reads_forced_to_events: bool = False,
         debug: bool = False,
         include_flag_evaluations_table: bool | None = None,
+        union_flag_enabled: bool = True,
     ) -> None:
+        enabled_flags = {"hogql-flag-calls-union"} if union_flag_enabled else set()
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization, defaults={"flag_evaluations_mode": mode}
         )
@@ -531,12 +539,21 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         with (
             override_settings(DEBUG=debug),
             override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
+            patch(
+                "posthog.hogql.database.database.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: key in enabled_flags,
+            ),
         ):
             database = Database.create_for(
                 team=self.team, include_flag_evaluations_table=include_flag_evaluations_table
             )
 
         assert database.read_flag_calls_from_flag_evaluations is expected
+        union_expected = expected and union_flag_enabled
+        assert database.read_flag_calls_with_union is union_expected
+        assert database.has_table(["posthog", "events_with_flag_calls"]) is union_expected
+        context = HogQLContext(team_id=self.team.pk, database=database)
+        assert "posthog.events_with_flag_calls" not in database.serialize(context, include_hidden_posthog_tables=True)
 
     def test_serialize_database_without_fields_matches_full_metadata(self):
         credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
@@ -1145,7 +1162,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         # +1 vs the pre-bulk-credential baseline: one bulk credential fetch replaces the per-row
         # credential joins (decrypt once per credential, not per table/view). +1 more for the
         # organization's flag_evaluations mode, which is_flag_evaluations_table_enabled reads once per build.
-        max_queries = FuzzyInt(7, 9)
+        max_queries = FuzzyInt(7, 10)
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="_accesskey", access_secret="_secret"
         )
@@ -1203,7 +1220,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         # initialization team query doesn't run; the extra query is the single bulk credential fetch
         # (credentials are decrypted once each here instead of re-decrypted per table/view row),
-        # plus the saved-expressions fetch and the organization's flag_evaluations mode
+        # plus the saved-expressions fetch and the organization's flag_evaluations mode.
+        # The custom MCP harness rules come from Redis, which the first build filled.
         with self.assertNumQueries(7):
             modifiers = create_default_modifiers_for_team(
                 self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
@@ -2532,7 +2550,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
             # +1 vs the pre-bulk-credential baseline: one bulk credential fetch replaces the per-row
             # credential joins (decrypt once per credential, not per table/view).
-            with self.assertNumQueries(FuzzyInt(6, 9)):
+            # Upper bound +1 for the custom MCP harness lookup.
+            with self.assertNumQueries(FuzzyInt(6, 10)):
                 Database.create_for(team=self.team)
 
     # We keep adding sources, credentials and tables, number of queries should be stable

@@ -3394,6 +3394,27 @@ export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Reads the file and imports its devices into the push channel in the background. Poll the import to follow its progress.
+ * @summary Import a CSV file of push device tokens
+ */
+export const pushTokenImportsCreateBodyCreateMissingPersonsDefault = false
+
+export const PushTokenImportsCreateBody = /* @__PURE__ */ zod.object({
+    integration_id: zod.number().describe('The APNs or Firebase push channel to add the devices to.'),
+    device_token_file: zod
+        .instanceof(File)
+        .describe(
+            'A UTF-8 CSV file of up to 20 MB. The first line names the columns: `distinct_id` (the ID your app passes to identify) and `device_token` (the APNs device token or FCM registration token). Other columns are ignored.'
+        ),
+    create_missing_persons: zod
+        .boolean()
+        .default(pushTokenImportsCreateBodyCreateMissingPersonsDefault)
+        .describe(
+            'Create a person for a distinct ID that has none. Off by default, so devices of unknown people are listed as failed and can be imported later with new persons.'
+        ),
+})
+
+/**
  * Workflow ideas written by AI from the project's own events. Both calls are free for the customer.
  */
 export const workflowDataSuggestionsBuildBodyRetryDefault = false
