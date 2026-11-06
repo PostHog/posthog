@@ -125,7 +125,7 @@ describe('live adapters', () => {
                         [
                             ['US', 3],
                             ['GB', 1],
-                            ['XK', 1],
+                            ['XX', 1],
                         ],
                     ],
                 ],
@@ -135,7 +135,7 @@ describe('live adapters', () => {
         expect(breakdown.rows.map((row) => [row.label, row.flag, row.percent])).toEqual([
             ['United States', '🇺🇸', 60],
             ['United Kingdom', '🇬🇧', 20],
-            ['XK', '🇽🇰', 20],
+            ['XX', '🇽🇽', 20],
         ])
     })
 

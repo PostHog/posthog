@@ -92,10 +92,13 @@ const NOT_SET = '(not set)'
 
 // A small fallback for runtimes without `Intl.DisplayNames`, such as Hermes. Other codes show as the code.
 const COUNTRY_NAMES: Record<string, string> = {
+    AE: 'United Arab Emirates',
     AR: 'Argentina',
     AT: 'Austria',
     AU: 'Australia',
+    BD: 'Bangladesh',
     BE: 'Belgium',
+    BG: 'Bulgaria',
     BR: 'Brazil',
     CA: 'Canada',
     CH: 'Switzerland',
@@ -132,6 +135,7 @@ const COUNTRY_NAMES: Record<string, string> = {
     PL: 'Poland',
     PT: 'Portugal',
     RO: 'Romania',
+    RU: 'Russia',
     SA: 'Saudi Arabia',
     SE: 'Sweden',
     SG: 'Singapore',

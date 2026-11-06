@@ -11,6 +11,8 @@ import type {
     LiveRankedRow,
 } from '@/model/live'
 
+import { countryFlag, countryName } from './webAnalyticsBreakdowns'
+
 const MINUTE_MS = 60_000
 export const LIVE_MINUTES = 30
 export const LIVE_TOP_ROWS = 10
@@ -143,7 +145,7 @@ export function liveBreakdown(response: unknown, kind: LiveBreakdownKind): LiveB
         ({ key, count }): LiveBreakdownRow => ({
             key,
             label: kind === 'countries' && key !== OTHER ? countryName(key) : key,
-            flag: kind === 'countries' && key !== OTHER ? countryFlag(key) : null,
+            flag: kind === 'countries' && key !== OTHER ? countryFlag(key) || null : null,
             count,
             percent: total > 0 ? (count / total) * 100 : 0,
         })
@@ -202,74 +204,4 @@ export function liveUsersOnlineFromQuery(response: unknown): number | null {
     }
     const value = numberOf(first)
     return value >= 0 ? Math.round(value) : null
-}
-
-export function countryFlag(code: string): string | null {
-    const upper = code.toUpperCase()
-    if (!/^[A-Z]{2}$/.test(upper)) {
-        return null
-    }
-    return String.fromCodePoint(...[...upper].map((letter) => 0x1f1e6 + letter.charCodeAt(0) - 65))
-}
-
-// Hermes has no `Intl.DisplayNames`, so the phone names the most common countries itself and shows the code otherwise.
-const COUNTRY_NAMES: Record<string, string> = {
-    AE: 'United Arab Emirates',
-    AR: 'Argentina',
-    AT: 'Austria',
-    AU: 'Australia',
-    BD: 'Bangladesh',
-    BE: 'Belgium',
-    BG: 'Bulgaria',
-    BR: 'Brazil',
-    CA: 'Canada',
-    CH: 'Switzerland',
-    CL: 'Chile',
-    CN: 'China',
-    CO: 'Colombia',
-    CZ: 'Czechia',
-    DE: 'Germany',
-    DK: 'Denmark',
-    EG: 'Egypt',
-    ES: 'Spain',
-    FI: 'Finland',
-    FR: 'France',
-    GB: 'United Kingdom',
-    GR: 'Greece',
-    HK: 'Hong Kong',
-    HU: 'Hungary',
-    ID: 'Indonesia',
-    IE: 'Ireland',
-    IL: 'Israel',
-    IN: 'India',
-    IT: 'Italy',
-    JP: 'Japan',
-    KE: 'Kenya',
-    KR: 'South Korea',
-    MX: 'Mexico',
-    MY: 'Malaysia',
-    NG: 'Nigeria',
-    NL: 'Netherlands',
-    NO: 'Norway',
-    NZ: 'New Zealand',
-    PH: 'Philippines',
-    PK: 'Pakistan',
-    PL: 'Poland',
-    PT: 'Portugal',
-    RO: 'Romania',
-    RU: 'Russia',
-    SA: 'Saudi Arabia',
-    SE: 'Sweden',
-    SG: 'Singapore',
-    TH: 'Thailand',
-    TR: 'Türkiye',
-    TW: 'Taiwan',
-    UA: 'Ukraine',
-    US: 'United States',
-    VN: 'Vietnam',
-    ZA: 'South Africa',
-}
-
-export function countryName(code: string): string {
-    return COUNTRY_NAMES[code.toUpperCase()] ?? code
 }
