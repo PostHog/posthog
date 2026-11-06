@@ -4,6 +4,7 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
 from django.test import override_settings
 from django.utils import timezone
 
@@ -12,10 +13,13 @@ from botocore.exceptions import (
     ConnectionClosedError,
     EndpointConnectionError,
     NoCredentialsError,
+    PartialCredentialsError,
     SSLError,
 )
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from psycopg import OperationalError as PsycopgOperationalError
+from psycopg.errors import LockNotAvailable
 
 from posthog.models.integration import Integration
 
@@ -224,6 +228,10 @@ def _ses_status_error(code: str, status: int) -> ClientError:
     )
 
 
+def _sync_failures(kind: str) -> float:
+    return REGISTRY.get_sample_value("workflows_sandbox_tenant_sync_failures_total", {"kind": kind}) or 0
+
+
 @override_settings(SES_SANDBOX_TENANT_NAME=SANDBOX_TENANT)
 class TestSandboxTenantStateSync(BaseTest):
     def setUp(self) -> None:
@@ -291,11 +299,51 @@ class TestSandboxTenantStateSync(BaseTest):
     def test_an_unknown_sandbox_tenant_is_never_paused(self, _name: str, stored: str, announced: bool) -> None:
         SandboxSenderTenantState.objects.create(tenant_name=SANDBOX_TENANT, sending_status=stored)
         self.ses.get_tenant.side_effect = ClientError({"Error": {"Code": "NotFoundException"}}, "GetTenant")
+        missing = _sync_failures("missing")
 
         self._sync()
 
         assert SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT).sending_status == ""
         assert self.publish.called is announced
+        assert _sync_failures("missing") == missing + 1
+
+    @parameterized.expand(
+        [
+            ("held_by_another_sync", LockNotAvailable("could not obtain lock"), "busy"),
+            ("database_unreachable", PsycopgOperationalError("connection refused"), "error"),
+        ]
+    )
+    def test_a_sync_that_cannot_lock_the_state_row_is_counted_and_retried(
+        self, _name: str, cause: Exception, kind: str
+    ) -> None:
+        def get(**_kwargs: object) -> None:
+            raise OperationalError(str(cause)) from cause
+
+        failures = _sync_failures(kind)
+
+        with (
+            patch.object(SandboxSenderTenantState.objects, "select_for_update") as select_for_update,
+            self.assertRaises(OperationalError),
+        ):
+            select_for_update.return_value.get.side_effect = get
+            sync_sandbox_tenant_state_task()
+
+        assert _sync_failures(kind) == failures + 1
+        self.ses.get_tenant.assert_not_called()
+
+    def test_a_sweep_whose_provider_cannot_be_built_counts_a_failed_sandbox_read(self) -> None:
+        failures = _sync_failures("error")
+
+        with (
+            patch(
+                "products.workflows.backend.providers.ses.boto3.client",
+                side_effect=PartialCredentialsError(provider="env", cred_var="AWS_SECRET_ACCESS_KEY"),
+            ),
+            self.assertRaises(PartialCredentialsError),
+        ):
+            reconcile_ses_tenant_states()
+
+        assert _sync_failures("error") == failures + 1
 
     def test_the_daily_sweep_syncs_the_sandbox_tenant_once_beside_team_tenants(self) -> None:
         Integration.objects.create(team=self.team, kind="email", config={"provider": "ses"})
@@ -352,7 +400,7 @@ class TestSandboxTenantStateSync(BaseTest):
             return {"Tenant": {"TenantName": TenantName, "SendingStatus": "ENABLED"}}
 
         self.ses.get_tenant.side_effect = get_tenant
-        failures = REGISTRY.get_sample_value("workflows_sandbox_tenant_sync_failures_total", {"kind": kind}) or 0
+        failures = _sync_failures(kind)
 
         with self.captureOnCommitCallbacks(execute=True):
             reconcile_ses_tenant_states()
@@ -360,7 +408,7 @@ class TestSandboxTenantStateSync(BaseTest):
         assert TeamWorkflowsConfig.objects.get(team=self.team).ses_tenant_sending_status == "ENABLED"
         assert SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT).sending_status == "DISABLED"
         assert "reload-sandbox-sender-state" not in [call.args[0] for call in self.publish.call_args_list]
-        assert REGISTRY.get_sample_value("workflows_sandbox_tenant_sync_failures_total", {"kind": kind}) == failures + 1
+        assert _sync_failures(kind) == failures + 1
 
     @override_settings(SES_SANDBOX_TENANT_NAME="")
     def test_nothing_is_synced_while_no_sandbox_tenant_is_configured(self) -> None:
