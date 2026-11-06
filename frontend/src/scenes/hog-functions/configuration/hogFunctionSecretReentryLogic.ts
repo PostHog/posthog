@@ -1,6 +1,8 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import type { FieldName } from 'kea-forms'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { MASKED_SECRET_VALUE, secretEntries } from 'lib/components/CyclotronJob/dictionarySecretRows'
 
 import type { HogFunctionConfigurationType } from '~/types'
@@ -56,9 +58,6 @@ export interface hogFunctionSecretReentryLogicActions {
     submitConfiguration: () => {
         value: true
     } // hogFunctionConfigurationLogic
-    touchConfigurationField: (key: string) => {
-        key: string
-    } // hogFunctionConfigurationLogic
     upsertHogFunctionFailure: (
         error: string,
         errorObject?: any
@@ -74,10 +73,12 @@ export interface hogFunctionSecretReentryLogicActions {
     }
     requireSecretReentry: (
         key: string,
-        retry: SecretReentryRetry
+        retry: SecretReentryRetry,
+        detail: string
     ) => {
         key: string
         retry: SecretReentryRetry
+        detail: string
     }
     secretReentered: (retry: SecretReentryRetry) => {
         retry: SecretReentryRetry
@@ -112,11 +113,11 @@ export const hogFunctionSecretReentryLogic = kea<hogFunctionSecretReentryLogicTy
         values: [hogFunctionConfigurationLogic(props), ['configuration']],
         actions: [
             hogFunctionConfigurationLogic(props),
-            ['setConfigurationValue', 'submitConfiguration', 'touchConfigurationField', 'upsertHogFunctionFailure'],
+            ['setConfigurationValue', 'submitConfiguration', 'upsertHogFunctionFailure'],
         ],
     })),
     actions({
-        requireSecretReentry: (key: string, retry: SecretReentryRetry) => ({ key, retry }),
+        requireSecretReentry: (key: string, retry: SecretReentryRetry, detail: string) => ({ key, retry, detail }),
         setSecretValue: (value: string) => ({ value }),
         setSecretEntry: (entryKey: string, value: string) => ({ entryKey, value }),
         cancelSecretReentry: true,
@@ -168,7 +169,7 @@ export const hogFunctionSecretReentryLogic = kea<hogFunctionSecretReentryLogicTy
                 }
                 const entries = secretEntries(configuration.inputs?.[schema.key]) ?? {}
                 const entryKeys = Object.keys(entries).filter((entry) => entries[entry] === MASKED_SECRET_VALUE)
-                // Without the masked keys there is nothing to list, so the field's own error asks for the value instead.
+                // Without the masked keys there is nothing to list, so the refusal falls back to a toast.
                 return entryKeys.length ? { key: schema.key, label, entryKeys } : null
             },
         ],
@@ -195,7 +196,13 @@ export const hogFunctionSecretReentryLogic = kea<hogFunctionSecretReentryLogicTy
         upsertHogFunctionFailure: ({ errorObject }) => {
             const key = secretReentryKey(errorObject)
             if (key) {
-                actions.requireSecretReentry(key, 'save')
+                actions.requireSecretReentry(key, 'save', errorObject.data.detail)
+            }
+        },
+        requireSecretReentry: ({ detail }) => {
+            if (!values.prompt) {
+                actions.cancelSecretReentry()
+                lemonToast.error(detail)
             }
         },
         confirmSecretReentry: () => {
@@ -209,8 +216,6 @@ export const hogFunctionSecretReentryLogic = kea<hogFunctionSecretReentryLogicTy
                 : values.secretValue
             // Save sends a `secret` input as "keep the stored value", so the entered one drops the flag.
             actions.setConfigurationValue(['inputs', prompt.key], { ...input, secret: false, value })
-            // Clears the refusal the save left on the inputs field, which would otherwise block the retry.
-            actions.touchConfigurationField('inputs')
             actions.secretReentered(request.retry)
             if (request.retry === 'save') {
                 actions.submitConfiguration()

@@ -334,6 +334,12 @@ def entered_secret_input_keys(raw_inputs: Any) -> set[str]:
     }
 
 
+def _secret_reentry_error(refused: list[str]) -> serializers.ValidationError:
+    return serializers.ValidationError(
+        {"inputs": dict.fromkeys(refused, SECRET_REENTRY_MESSAGE)}, code="secret_reentry_required"
+    )
+
+
 def _raise_secret_reentry(errors: Any) -> None:
     """Re-raise a test run's secret refusal as a save would, because the raw errors the test run returns drop its code."""
     configuration_errors = errors.get("configuration") if isinstance(errors, dict) else None
@@ -342,9 +348,7 @@ def _raise_secret_reentry(errors: Any) -> None:
         return
     refused = [key for key, error in inputs_errors.items() if getattr(error, "code", None) == "secret_reentry_required"]
     if refused:
-        raise serializers.ValidationError(
-            {"inputs": dict.fromkeys(refused, SECRET_REENTRY_MESSAGE)}, code="secret_reentry_required"
-        )
+        raise _secret_reentry_error(refused)
 
 
 def _comparable_inputs(items: Any) -> dict:
@@ -1108,9 +1112,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 outcome=_binding_metric(outcome, let_through, stages_draft), surface=surface
             ).inc()
         if enforce:
-            raise serializers.ValidationError(
-                {"inputs": dict.fromkeys(refused, SECRET_REENTRY_MESSAGE)}, code="secret_reentry_required"
-            )
+            raise _secret_reentry_error(refused)
 
     def _enforces_secret_binding(self, team: Team) -> bool:
         if self.context.get("view") is None:

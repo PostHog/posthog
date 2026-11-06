@@ -142,10 +142,12 @@ export interface hogFunctionTestLogicActions {
     } // hogFunctionConfigurationLogic
     requireSecretReentry: (
         key: string,
-        retry: SecretReentryRetry
+        retry: SecretReentryRetry,
+        detail: string
     ) => {
         key: string
         retry: SecretReentryRetry
+        detail: string
     } // hogFunctionSecretReentryLogic
     secretReentered: (retry: SecretReentryRetry) => {
         retry: SecretReentryRetry
@@ -543,7 +545,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 } catch (e: any) {
                     const refusedSecret = secretReentryKey(e)
                     if (refusedSecret) {
-                        actions.requireSecretReentry(refusedSecret, 'test')
+                        actions.requireSecretReentry(refusedSecret, 'test', e.data.detail)
                         return
                     }
                     if (e?.data?.configuration?.filters?.non_field_errors) {
