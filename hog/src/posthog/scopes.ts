@@ -26,24 +26,21 @@ export function parseScope(raw: string): Scope {
     )
 }
 
-function objectAndAction(scope: string): [string, string] {
-    const [object = '', action = ''] = scope.split(':')
-    return [object, action]
-}
-
 // The scopes in `wanted` that `held` doesn't grant, checked the way PostHog checks them: `*` grants
 // everything, `x:write` grants `x:read`, and a legacy scope grants the scope that was split off it.
+// `hasScope` in services/mcp/src/lib/api.ts holds the same rules. hog can't import it, because that
+// module imports through the MCP server's own `@/` path.
 export function scopesNotCovered(held: readonly string[], wanted: readonly string[]): string[] {
     if (held.includes('*')) {
         return []
     }
     const granted = new Set(held)
     const grants = (scope: string): boolean => {
-        const [object, action] = objectAndAction(scope)
+        const [object = '', action = ''] = scope.split(':')
         const legacy = LEGACY_SCOPE_FALLBACKS.get(object)
         const objects = legacy ? [object, legacy] : [object]
         const actions = action === 'read' ? ['read', 'write'] : [action]
-        return granted.has(scope) || objects.some((o) => actions.some((a) => granted.has(`${o}:${a}`)))
+        return objects.some((o) => actions.some((a) => granted.has(`${o}:${a}`)))
     }
     return [...new Set(wanted)].filter((scope) => !grants(scope))
 }

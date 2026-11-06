@@ -208,6 +208,20 @@ async function withSpinner<Value>(spinner: Spinner | undefined, noun: string, wa
     }
 }
 
+// A command that waits for a person can't finish in CI, where nobody is there to approve it. An
+// agent can still hand the link over, so agents pass.
+export function refuseInCi(ctx: Context, command: string, hint: string): void {
+    if (!ctx.prompts && ctx.mode.agent === undefined && ctx.mode.ci) {
+        throw new HogError(
+            'login_needs_a_person',
+            `${command} needs a person to approve it in a browser, so it does not run in CI.`,
+            hint
+        )
+    }
+}
+
+export type PendingResult = Extract<ApprovalResult<never>, { status: 'pending' }>
+
 // Starts a command that waits for a person. At a terminal it shows the link, opens the browser when it
 // can, and waits; Ctrl-C keeps the pending item for `--wait`. Agents and scripts get the link and the
 // `--wait` command to run next, without waiting.

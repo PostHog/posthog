@@ -1,13 +1,12 @@
-import { printPending, resumeApproval, runApproval, type ApprovalResult } from '@/core/approval'
+import { printPending, refuseInCi, resumeApproval, runApproval, type PendingResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { ADD_COMMAND, loginFlow, loginWait, saveLogin } from '@/posthog/login/flow'
 import type { OAuthLogin } from '@/posthog/oauth'
-import { parseScope, scopesNotCovered } from '@/posthog/scopes'
 
 type AddResult =
-    | (Extract<ApprovalResult<never>, { status: 'pending' }> & { host: string })
+    | (PendingResult & { host: string })
     | {
           status: 'added' | 'already_granted'
           host: string
@@ -83,6 +82,8 @@ export default defineCommand({
                 EXIT_USAGE
             )
         }
+        // The scope list is large, so only this command loads it.
+        const { parseScope, scopesNotCovered } = await import('@/posthog/scopes')
         const wanted = args.scopes.map(parseScope)
 
         const credentials = await ctx.credentials()
@@ -101,13 +102,11 @@ export default defineCommand({
                 scopes: held,
             }
         }
-        if (!ctx.prompts && ctx.mode.agent === undefined && ctx.mode.ci) {
-            throw new HogError(
-                'login_needs_a_person',
-                'hog auth add needs a person to approve it in a browser, so it does not run in CI.',
-                'Set HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST to a key with the scopes instead.'
-            )
-        }
+        refuseInCi(
+            ctx,
+            ADD_COMMAND,
+            'Set HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST to a key with the scopes instead.'
+        )
 
         const flow = loginFlow(ctx.runtime, key.host, [...held, ...added], {
             command: ADD_COMMAND,
