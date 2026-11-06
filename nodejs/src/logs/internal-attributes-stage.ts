@@ -8,7 +8,7 @@ export const INTERNAL_SOURCE_ATTRIBUTE = `${INTERNAL_ATTRIBUTE_PREFIX}source`
 
 const logsInternalAttributesDroppedCounter = new Counter({
     name: 'logs_ingestion_internal_attributes_dropped_total',
-    help: 'posthog.internal.* attribute keys ingestion dropped, by reason. not_internal means a batch that did not verify carried one.',
+    help: 'posthog.internal.* attribute keys dropped from decoded batches, by reason. A passthrough batch is not checked, so readers also require the internal_source column.',
     labelNames: ['reason'],
 })
 
