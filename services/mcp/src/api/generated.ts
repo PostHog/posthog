@@ -34338,6 +34338,14 @@ export namespace Schemas {
       readonly exception: string | null;
     }
 
+    export interface DatasetExtendRetention {
+      /**
+         * Revision to extend along with its dataset. Omit to extend only the dataset.
+         * @minimum 1
+         */
+      revision?: number;
+    }
+
     export interface DatasetItemArchive {
       /**
          * Current item version observed by the caller.
@@ -34500,6 +34508,36 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+    }
+
+    export interface DatasetRetentionEntry {
+      /** Dataset to open or extend. */
+      readonly dataset_id: string;
+      /** Name of the dataset. */
+      readonly dataset_name: string;
+      /** Whether the dataset is archived. */
+      readonly dataset_archived: boolean;
+      /**
+         * Historical revision number, or null for a dataset.
+         * @nullable
+         */
+      readonly revision: number | null;
+      /**
+         * Earliest cleanup time if this dataset or revision remains unused.
+         * @nullable
+         */
+      readonly expires_at: string | null;
+    }
+
+    export interface DatasetRetentionRead {
+      /** Accessible active and archived datasets within seven days of expiry. */
+      readonly datasets_count: number;
+      /** Accessible older revisions within seven days of expiry, excluding the latest revision. */
+      readonly revisions_count: number;
+      /** Total expiring entries of the requested kind. */
+      readonly count: number;
+      /** Expiring entries, ordered by earliest cleanup time. */
+      readonly results: readonly DatasetRetentionEntry[];
     }
 
     export interface DatasetRevisionRead {
@@ -47774,10 +47812,34 @@ export namespace Schemas {
       value: unknown;
     };
 
+    /**
+     * The kind of personal or secret data the column's name and type suggest, or null.
+     * @nullable
+     */
+    export type ExternalDataSchemaAvailableColumnsItemSensitivity = typeof ExternalDataSchemaAvailableColumnsItemSensitivity[keyof typeof ExternalDataSchemaAvailableColumnsItemSensitivity] | null;
+
+
+    export const ExternalDataSchemaAvailableColumnsItemSensitivity = {
+      Email: 'email',
+      Phone: 'phone',
+      Name: 'name',
+      Address: 'address',
+      DateOfBirth: 'date_of_birth',
+      IpAddress: 'ip_address',
+      Token: 'token',
+      Secret: 'secret',
+      CardNumber: 'card_number',
+    } as const;
+
     export type ExternalDataSchemaAvailableColumnsItem = {
       name: string;
       data_type?: string;
       is_nullable?: boolean;
+      /**
+         * The kind of personal or secret data the column's name and type suggest, or null.
+         * @nullable
+         */
+      sensitivity?: ExternalDataSchemaAvailableColumnsItemSensitivity;
     };
 
     /**
@@ -65388,6 +65450,14 @@ export namespace Schemas {
          * @nullable
          */
       readonly duration_ms: number | null;
+      /** Arguments the client passed ($mcp_parameters) as JSON text, exactly as the SDK captured them after its redaction. Empty when not captured. */
+      readonly parameters: string;
+      /** Result the MCP server returned ($mcp_response) as JSON text, exactly as the SDK captured it after its redaction and truncation. Empty when not captured. */
+      readonly response: string;
+      /** Error category ($mcp_error_type) when the SDK classified the failure, otherwise empty. */
+      readonly error_type: string;
+      /** HTTP status ($mcp_error_status) when the failure carried one, otherwise empty. */
+      readonly error_status: string;
     }
 
     /**
@@ -83387,10 +83457,34 @@ export namespace Schemas {
       value: unknown;
     };
 
+    /**
+     * The kind of personal or secret data the column's name and type suggest, or null.
+     * @nullable
+     */
+    export type PatchedExternalDataSchemaAvailableColumnsItemSensitivity = typeof PatchedExternalDataSchemaAvailableColumnsItemSensitivity[keyof typeof PatchedExternalDataSchemaAvailableColumnsItemSensitivity] | null;
+
+
+    export const PatchedExternalDataSchemaAvailableColumnsItemSensitivity = {
+      Email: 'email',
+      Phone: 'phone',
+      Name: 'name',
+      Address: 'address',
+      DateOfBirth: 'date_of_birth',
+      IpAddress: 'ip_address',
+      Token: 'token',
+      Secret: 'secret',
+      CardNumber: 'card_number',
+    } as const;
+
     export type PatchedExternalDataSchemaAvailableColumnsItem = {
       name: string;
       data_type?: string;
       is_nullable?: boolean;
+      /**
+         * The kind of personal or secret data the column's name and type suggest, or null.
+         * @nullable
+         */
+      sensitivity?: PatchedExternalDataSchemaAvailableColumnsItemSensitivity;
     };
 
     /**
@@ -126887,6 +126981,36 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type DatasetsRetentionRetrieveParams = {
+    /**
+     * Whether to return expiring datasets or older revisions. Counts always include both.
+     *
+     * * `datasets` - Datasets
+     * * `revisions` - Older revisions
+     * @minLength 1
+     */
+    kind?: DatasetsRetentionRetrieveKind;
+    /**
+     * Maximum entries to return, up to 50.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number;
+    /**
+     * Number of expiring entries to skip.
+     * @minimum 0
+     */
+    offset?: number;
+    };
+
+    export type DatasetsRetentionRetrieveKind = typeof DatasetsRetentionRetrieveKind[keyof typeof DatasetsRetentionRetrieveKind];
+
+
+    export const DatasetsRetentionRetrieveKind = {
+      Datasets: 'datasets',
+      Revisions: 'revisions',
+    } as const;
 
     export type EarlyAccessFeatureListParams = {
     /**
