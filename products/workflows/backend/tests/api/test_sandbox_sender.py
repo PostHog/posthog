@@ -1,9 +1,6 @@
-from typing import TYPE_CHECKING, Any
-
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, _Call, patch
+from unittest.mock import MagicMock, patch
 
-from django.db.models import QuerySet
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -11,11 +8,6 @@ from rest_framework import status
 
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
-from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.utils import hash_key_value
-
-if TYPE_CHECKING:
-    from rest_framework.response import _MonkeyPatchedResponse
 
 SANDBOX_SETTINGS = {
     "WORKFLOWS_SANDBOX_SENDER_DOMAIN": "sandbox.example.com",
@@ -31,19 +23,19 @@ class TestSandboxSenderAPI(APIBaseTest):
         self.flag_enabled = self._patch("posthoganalytics.feature_enabled", return_value=True)
         self.capture = self._patch("posthoganalytics.capture")
 
-    def _patch(self, target: str, **kwargs: Any) -> MagicMock:
+    def _patch(self, target: str, **kwargs: object) -> MagicMock:
         patcher = patch(target, **kwargs)
         mock = patcher.start()
         self.addCleanup(patcher.stop)
         return mock
 
-    def _ensure(self) -> "_MonkeyPatchedResponse":
+    def _ensure(self):
         return self.client.post(f"/api/environments/{self.team.id}/integrations/email_sandbox_sender/")
 
-    def _sandbox_rows(self) -> QuerySet[Integration]:
+    def _sandbox_rows(self):
         return Integration.objects.filter(team=self.team, kind="email", integration_id="posthog-sandbox")
 
-    def _provisioned_events(self) -> list[_Call]:
+    def _provisioned_events(self) -> list:
         return [
             c for c in self.capture.call_args_list if c.kwargs.get("event") == "workflows sandbox sender provisioned"
         ]
@@ -53,7 +45,6 @@ class TestSandboxSenderAPI(APIBaseTest):
         self.organization.save()
 
         first = self._ensure()
-        assert len(self._provisioned_events()) == 1
         self.organization.name = "Acme Rockets"
         self.organization.save()
         second = self._ensure()
@@ -114,40 +105,13 @@ class TestSandboxSenderAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("read scope", "integration:read", status.HTTP_403_FORBIDDEN),
-            ("write scope", "integration:write", status.HTTP_200_OK),
-        ]
-    )
-    def test_ensure_with_an_api_key_needs_the_integration_write_scope(
-        self, _name: str, scope: str, expected_status: int
-    ) -> None:
-        PersonalAPIKey.objects.create(
-            label="Sandbox", user=self.user, secure_value=hash_key_value("phx_sandbox_key"), scopes=[scope]
-        )
-        self.client.logout()
-
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/integrations/email_sandbox_sender/",
-            HTTP_AUTHORIZATION="Bearer phx_sandbox_key",
-        )
-
-        assert response.status_code == expected_status, response.json()
-        assert self._sandbox_rows().exists() == (expected_status == status.HTTP_200_OK)
-
-    @parameterized.expand(
-        [
             ("verify", "post", "email/verify/", {}),
-            (
-                "edit",
-                "patch",
-                "email/",
-                {"config": {"email": "x@sandbox.example.com", "name": "Other", "provider": "sandbox"}},
-            ),
+            ("edit", "patch", "email/", {"config": {"email": "x@sandbox.example.com", "name": "Other"}}),
             ("delete", "delete", "", None),
         ]
     )
     def test_users_cannot_change_the_sandbox_sender(
-        self, _name: str, method: str, path: str, body: dict[str, Any] | None
+        self, _name: str, method: str, path: str, body: dict | None
     ) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

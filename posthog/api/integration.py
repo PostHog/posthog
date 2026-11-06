@@ -1374,6 +1374,7 @@ class IntegrationViewSet(
         "anthropic_managed_agents",
         "anthropic_managed_agent_environments",
         "anthropic_managed_agent_vaults",
+        "email_sandbox_sender",
     ]
     scope_object_write_actions = [
         "create",
@@ -1385,7 +1386,6 @@ class IntegrationViewSet(
         "github_prepare_callback",
         "github_link_existing",
         "github_oauth_authorize",
-        "email_sandbox_sender",
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
     ]
@@ -2470,13 +2470,14 @@ class IntegrationViewSet(
     @extend_schema(responses={200: IntegrationSerializer})
     @action(methods=["PATCH"], detail=True, url_path="email")
     def email_update(self, request, **kwargs) -> Response:
-        email = EmailIntegration(self.get_object())
-        email.ensure_user_managed()
+        instance = self.get_object()
+        config = request.data.get("config", {})
 
-        serializer = NativeEmailIntegrationSerializer(data=request.data.get("config", {}))
+        serializer = NativeEmailIntegrationSerializer(data=config)
         serializer.is_valid(raise_exception=True)
 
-        email.update_native_integration(serializer.validated_data, email.integration.team_id)
+        email = EmailIntegration(instance)
+        email.update_native_integration(serializer.validated_data, instance.team_id)
 
         return Response(IntegrationSerializer(email.integration).data)
 

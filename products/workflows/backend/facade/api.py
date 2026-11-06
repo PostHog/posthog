@@ -43,8 +43,8 @@ from products.workflows.backend.utils.rrule_utils import compute_next_occurrence
 
 __all__ = [
     "MIN_EMAIL_SENDING_TIER",
-    "SandboxSenderUnavailable",
     "compute_next_occurrences",
+    "SandboxSenderUnavailable",
     "create_batch_job",
     "ensure_sandbox_email_sender",
     "ensure_workflows_config",
