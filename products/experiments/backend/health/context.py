@@ -89,7 +89,9 @@ class FlagHistory:
     """The changes of the flag after launch that can have moved exposed people, and whether anyone was exposed
     before them. A change before the first exposure moved nobody, so it does not count."""
 
-    launched_at: datetime
+    # The experiment's start date, which can lie before its launch. The results count exposures from it, so the history
+    # and its exposure windows start there too.
+    start_date: datetime
     team_timezone: str
     # Every change of every kind, in time order.
     changes: tuple[FlagChange, ...]
@@ -146,7 +148,7 @@ class FlagHistoryNotChecked:
     """A flag history that was not compared with the exposures, and the reason. Every change counts."""
 
     reason: FlagHistoryNotCheckedReason
-    launched_at: datetime
+    start_date: datetime
     team_timezone: str
     # Every change since launch, in time order. Empty for NO_HISTORY_ACCESS, which does not read them.
     changes: tuple[FlagChange, ...]
@@ -180,6 +182,9 @@ class ReachableCondition:
     variant_property: VariantProperty | None
     # The cohorts whose members the condition matches. A `not_in` cohort filter matches the users outside the cohort.
     member_cohort_ids: frozenset[int] = frozenset()
+    # Whether the condition has no filters, or only filters that leave users out, so it includes nearly everyone who
+    # reaches it.
+    includes_everyone: bool = False
 
 
 @frozen
@@ -218,7 +223,7 @@ class PauseHistory:
     write these entries, from the page, the API or MCP. A flag disabled or enabled anywhere else, such as on the flag
     page, writes none."""
 
-    launched_at: datetime
+    start_date: datetime
     team_timezone: str
     # The time of the latest entry when it is a pause. None when it is a resume, or the experiment has no entry.
     paused_at: datetime | None
@@ -230,17 +235,17 @@ class ExperimentOnFlag:
     flag, so the flag's state can belong to one of them. It has no name or id, because the reader of this experiment
     may have no access to the other one."""
 
-    launched_at: datetime | None
+    start_date: datetime | None
     ended_at: datetime | None
     archived: bool
 
     @property
     def is_draft(self) -> bool:
-        return self.launched_at is None
+        return self.start_date is None
 
     @property
     def is_running(self) -> bool:
-        return self.launched_at is not None and self.ended_at is None
+        return self.start_date is not None and self.ended_at is None
 
 
 @frozen
@@ -673,6 +678,30 @@ def _member_cohort_ids(condition: Mapping[str, Any]) -> frozenset[int]:
     )
 
 
+_EXCLUDING_OPERATORS = frozenset(
+    {
+        PropertyOperator.IS_NOT,
+        PropertyOperator.NOT_ICONTAINS,
+        PropertyOperator.NOT_ICONTAINS_MULTI,
+        PropertyOperator.NOT_STARTS_WITH,
+        PropertyOperator.NOT_ENDS_WITH,
+        PropertyOperator.NOT_REGEX,
+        PropertyOperator.NOT_BETWEEN,
+        PropertyOperator.NOT_IN,
+        PropertyOperator.IS_NOT_SET,
+        PropertyOperator.SEMVER_NEQ,
+        PropertyOperator.IS_CLEANED_PATH_NOT_EXACT,
+    }
+)
+
+
+def _includes_everyone(condition: Mapping[str, Any]) -> bool:
+    properties = condition.get("properties")
+    if not isinstance(properties, list) or not properties:
+        return True
+    return all(isinstance(prop, dict) and prop.get("operator") in _EXCLUDING_OPERATORS for prop in properties)
+
+
 def _reachable_condition(
     number: int, condition: Mapping[str, Any], variant_keys: set[str], flag_aggregation: int | None
 ) -> ReachableCondition:
@@ -682,6 +711,7 @@ def _reachable_condition(
         pinned_variant=pinned,
         variant_property=None if pinned is None else _variant_property(condition, pinned, flag_aggregation),
         member_cohort_ids=_member_cohort_ids(condition),
+        includes_everyone=_includes_everyone(condition),
     )
 
 
@@ -789,7 +819,7 @@ def _other_experiments_on_flag(experiment: Experiment) -> tuple[ExperimentOnFlag
         .values_list("start_date", "end_date", "archived", named=True)
     )
     return tuple(
-        ExperimentOnFlag(launched_at=other.start_date, ended_at=other.end_date, archived=other.archived)
+        ExperimentOnFlag(start_date=other.start_date, ended_at=other.end_date, archived=other.archived)
         for other in others
     )
 
@@ -1072,6 +1102,7 @@ def load_health_context(
     exposures: ExposureTotals | None = None,
     *,
     flag_history: FlagHistory | FlagHistoryNotChecked | None = None,
+    can_read_flag_history: bool = False,
 ) -> HealthContext:
     links = saved_metric_links(experiment)
     shared_metric_roles = [saved_metric_link_role(link) for link in links]
@@ -1099,7 +1130,7 @@ def load_health_context(
         baseline_variant_key=_configured_baseline_variant_key(experiment.stats_config),
         primary_metric_count=len(experiment.metrics or []) + shared_metric_roles.count("primary"),
         secondary_metric_count=len(experiment.metrics_secondary or []) + shared_metric_roles.count("secondary"),
-        hours_since_launch=experiment.hours_since_launch,
+        hours_since_launch=experiment.hours_since_launch(read_activity_log=can_read_flag_history),
         metric_events=metric_events,
         exposure_events=exposure_events,
         events_received=events_received,

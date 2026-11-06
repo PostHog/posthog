@@ -473,7 +473,7 @@ def test_metric_set_reraises_a_403_that_is_not_the_games_restriction() -> None:
     assert isinstance(result.raised, requests.HTTPError)
 
 
-@pytest.mark.parametrize("status", [500, 503])
+@pytest.mark.parametrize("status", [500, 502, 503])
 def test_metric_set_server_error_stays_retryable_with_vendor_outage_copy(status: int) -> None:
     with mock.patch(f"{MODULE}._today", return_value=TODAY):
         result = _run(

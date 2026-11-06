@@ -4,6 +4,7 @@ import { normalizeMessages } from '../../../messageNormalization'
 import { CompatMessage } from '../../../types'
 import { INTERNAL_THINKING_ROLE, INTERNAL_TOOL_RESULT_ROLE, extractText, extractTextContent } from '../../../utils'
 import { MessagePart, MessageRole, ThreadMessage } from '../types'
+import { hasLossyNumber } from './jsonNumbers'
 import { TeamId, isAttachmentItemType, toAttachment } from './toAttachment'
 
 const TEXT_ITEM_TYPES = new Set(['text', 'input_text', 'output_text'])
@@ -33,6 +34,17 @@ function parseArguments(args: unknown): unknown {
     } catch {
         return args
     }
+}
+
+// Tools often return JSON as text, which reads better as the structure it encodes. Scalars stay as written, and so
+// does a result whose numbers parsing would round, because the view must show the captured value.
+function parseToolResult(result: unknown): unknown {
+    const parsed = parseArguments(result)
+    if (!isObject(parsed) && !Array.isArray(parsed)) {
+        return result
+    }
+    // The number scan runs on valid JSON only: on malformed text its string pattern backtracks quadratically.
+    return typeof result === 'string' && hasLossyNumber(result) ? result : parsed
 }
 
 // The normalizer passes some media items it has no recipe for through as their JSON text.
@@ -136,14 +148,14 @@ export function toThreadMessages(
         const role = toRole(message.role)
         const { text, attachments } = contentParts(message, teamId)
 
-        // A tool call part holds its result as text only, so a result carrying media stays its own
+        // A tool call part cannot hold attachments, so a result carrying media stays its own
         // message and keeps its attachments.
         const pendingCall =
             role === 'tool' && message.tool_call_id && attachments.length === 0
                 ? pendingCalls.get(message.tool_call_id)
                 : undefined
         if (pendingCall && message.tool_call_id) {
-            pendingCall.result = text || message.content
+            pendingCall.result = parseToolResult(text || message.content)
             pendingCalls.delete(message.tool_call_id)
             return
         }
