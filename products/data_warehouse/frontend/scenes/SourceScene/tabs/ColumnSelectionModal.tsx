@@ -344,7 +344,6 @@ export function ColumnSelectionPicker({
                                     {column.data_type && (
                                         <span className="text-xs text-muted-alt">{column.data_type}</span>
                                     )}
-                                    <SensitivityChip sensitivity={chipFor(column)} />
                                     {retained && (
                                         <span className="text-xs text-muted">
                                             {primaryKeys.has(column.name) ? 'primary key' : 'incremental field'}
@@ -363,36 +362,40 @@ export function ColumnSelectionPicker({
                             ) : (
                                 checkbox
                             )}
-                            {enableMasking &&
-                                (isMasked(column.name) ? (
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="tertiary"
-                                        icon={<IconLock />}
-                                        onClick={() => toggleMask(column.name)}
-                                        tooltip="This column syncs as a one-way hash. Click to unmask it and sync its real values again."
-                                        data-attr="schema-column-unmask"
-                                    >
-                                        Masked
-                                    </LemonButton>
-                                ) : (
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="secondary"
-                                        onClick={() => toggleMask(column.name)}
-                                        tooltip="Replace this column's values with a one-way hash when syncing. Use it for passwords and personal data. A masked column no longer matches the same values in tables where it isn't masked."
-                                        disabledReason={
-                                            isMaskable(column.name)
-                                                ? undefined
-                                                : retained || isSyncKey(column.name)
-                                                  ? "Primary key and incremental columns can't be masked"
-                                                  : 'Only synced columns can be masked'
-                                        }
-                                        data-attr="schema-column-mask"
-                                    >
-                                        Mask
-                                    </LemonButton>
-                                ))}
+                            {enableMasking && (
+                                <div className="flex shrink-0 items-center gap-2">
+                                    <SensitivityChip sensitivity={chipFor(column)} />
+                                    {isMasked(column.name) ? (
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="tertiary"
+                                            icon={<IconLock />}
+                                            onClick={() => toggleMask(column.name)}
+                                            tooltip="This column syncs as a one-way hash. Click to unmask it and sync its real values again."
+                                            data-attr="schema-column-unmask"
+                                        >
+                                            Masked
+                                        </LemonButton>
+                                    ) : (
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            onClick={() => toggleMask(column.name)}
+                                            tooltip="Replace this column's values with a one-way hash when syncing. Use it for passwords and personal data. A masked column no longer matches the same values in tables where it isn't masked."
+                                            disabledReason={
+                                                isMaskable(column.name)
+                                                    ? undefined
+                                                    : retained || isSyncKey(column.name)
+                                                      ? "Primary key and incremental columns can't be masked"
+                                                      : 'Only synced columns can be masked'
+                                            }
+                                            data-attr="schema-column-mask"
+                                        >
+                                            Mask
+                                        </LemonButton>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )
                 })}
