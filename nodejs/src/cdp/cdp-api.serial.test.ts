@@ -2,8 +2,10 @@
 import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
+import { createHash } from 'crypto'
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
+import { Pool } from 'pg'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -32,7 +34,7 @@ import {
     insertHogFunctionTemplate,
     insertIntegration,
 } from './_tests/fixtures'
-import { insertHogFlow as _insertHogFlow } from './_tests/fixtures-hogflows'
+import { insertHogFlow as _insertHogFlow, hideHogFlowsFromReplica } from './_tests/fixtures-hogflows'
 import { CdpApi } from './cdp-api'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
@@ -41,6 +43,7 @@ import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
+import { decodeInvocationGlobals } from './services/monitoring/hog-invocation-results.service'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { compileHog } from './templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
@@ -2145,8 +2148,11 @@ describe('CDP API', () => {
             {
                 secret = 'local-dev-workflows-transactional-email-jwt',
                 audience = 'posthog:workflows:send_transactional_email',
-            } = {}
-        ) => jwt.sign({ team_id: teamId, hog_flow_id: hogFlowId }, secret, { audience, expiresIn: '2m' })
+                claims = {},
+            }: { secret?: string; audience?: string; claims?: Record<string, string> } = {}
+        ) => jwt.sign({ team_id: teamId, hog_flow_id: hogFlowId, ...claims }, secret, { audience, expiresIn: '2m' })
+        const tokenFor = (route: string, teamId: number, hogFlowId: string) =>
+            mintToken(teamId, hogFlowId, route.endsWith('/send') ? { claims: { kind: 'code_send' } } : {})
 
         const transactionalFlow = (
             trigger: 'api' | 'schedule',
@@ -2200,7 +2206,7 @@ describe('CDP API', () => {
         const sendAccepted = (flowId: string, payload: Record<string, unknown>) =>
             supertest(app)
                 .post(`/api/projects/${team.id}/hog_flows/${flowId}/transactional_email/send`)
-                .set({ Authorization: `Bearer ${mintToken(team.id, flowId)}` })
+                .set({ Authorization: `Bearer ${tokenFor('transactional_email/send', team.id, flowId)}` })
                 .send(payload)
 
         const sendOn = (
@@ -2215,6 +2221,26 @@ describe('CDP API', () => {
             from: { integrationId: 12, email: 'security@example.com', name: 'Example' },
             replyTo: ['help@example.com'],
             tracking: { captureEngagement: true },
+        }
+
+        const FILE_CONTENT = 'c2VjcmV0LWZpbGU='
+        const attachment = (overrides: Record<string, unknown> = {}) => ({
+            filename: 'report.pdf',
+            content: FILE_CONTENT,
+            contentType: 'application/pdf',
+            ...overrides,
+        })
+        const storedAttachments = async (filename: string): Promise<{ job_id: string; content: Buffer }[]> => {
+            const pool = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+            try {
+                return (
+                    await pool.query('SELECT job_id, content FROM cyclotron_email_attachments WHERE filename = $1', [
+                        filename,
+                    ])
+                ).rows
+            } finally {
+                await pool.end()
+            }
         }
 
         beforeEach(async () => {
@@ -2270,7 +2296,13 @@ describe('CDP API', () => {
                 expect.anything()
             )
             expect(emailStatusRows()).toEqual([
-                expect.objectContaining({ team_id: team.id, message_id: res.body.invocation_id, status: 'queued' }),
+                expect.objectContaining({
+                    team_id: team.id,
+                    message_id: res.body.invocation_id,
+                    status: 'queued',
+                    recipient: 'user@example.com',
+                    function_id: hogFlow.id,
+                }),
             ])
         })
 
@@ -2307,33 +2339,19 @@ describe('CDP API', () => {
             const sendKeyedOn = (route: 'transactional_email' | 'transactional_email/send', payload: object) =>
                 supertest(app)
                     .post(`/api/projects/${team.id}/hog_flows/${hogFlow.id}/${route}`)
-                    .set({ Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+                    .set({ Authorization: `Bearer ${tokenFor(route, team.id, hogFlow.id)}` })
                     .send({ ...payload, idempotency_key: keyed.idempotency_key })
             const changedContent = { ...codeSend, content: { ...codeSend.content, subject: 'Your new code' } }
-            const defaultSenderSend = (integrationId: number) => ({
-                ...codeSend,
-                from: { integrationId, isDefault: true },
-            })
             const otherSenderId = codeSend.from.integrationId + 3
+            const addresslessSend = { ...codeSend, from: { integrationId: codeSend.from.integrationId } }
 
             beforeEach(() => {
                 keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
             })
 
-            const integrationOnlySend = (from: Record<string, unknown>) => ({
-                ...codeSend,
-                from: { integrationId: codeSend.from.integrationId, ...from },
-            })
-
             it.each([
                 ['a template send', 'transactional_email', body, body],
                 ['a code send', 'transactional_email/send', { ...body, send: codeSend }, { ...body, send: codeSend }],
-                [
-                    'a code send after the default sender changed',
-                    'transactional_email/send',
-                    { ...body, send: defaultSenderSend(codeSend.from.integrationId) },
-                    { ...body, send: defaultSenderSend(otherSenderId) },
-                ],
                 [
                     'a code send after its named address resolved to another sender',
                     'transactional_email/send',
@@ -2341,10 +2359,10 @@ describe('CDP API', () => {
                     { ...body, send: { ...codeSend, from: { ...codeSend.from, integrationId: otherSenderId } } },
                 ],
                 [
-                    'a code send whose retry leaves out that its sender is not the default',
+                    'a code send from a sender without an address',
                     'transactional_email/send',
-                    { ...body, send: integrationOnlySend({ isDefault: false }) },
-                    { ...body, send: integrationOnlySend({}) },
+                    { ...body, send: addresslessSend },
+                    { ...body, send: addresslessSend },
                 ],
             ] as const)(
                 'returns the first send for a retry of %s and queues nothing new',
@@ -2392,9 +2410,25 @@ describe('CDP API', () => {
                     ],
                 ],
                 [
-                    'a named sender instead of the default one',
-                    ['transactional_email/send', { ...body, send: defaultSenderSend(codeSend.from.integrationId) }],
-                    ['transactional_email/send', { ...body, send: codeSend }],
+                    'another sender without an address',
+                    ['transactional_email/send', { ...body, send: addresslessSend }],
+                    [
+                        'transactional_email/send',
+                        { ...body, send: { ...addresslessSend, from: { integrationId: otherSenderId } } },
+                    ],
+                ],
+                [
+                    'a changed cc',
+                    ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['manager@example.com'] } }],
+                    ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['someone-else@example.com'] } }],
+                ],
+                [
+                    'a changed file under the same name',
+                    ['transactional_email/send', { ...body, send: { ...codeSend, attachments: [attachment()] } }],
+                    [
+                        'transactional_email/send',
+                        { ...body, send: { ...codeSend, attachments: [attachment({ content: 'b3RoZXI=' })] } },
+                    ],
                 ],
             ] as const)(
                 'rejects the key for a request with %s',
@@ -2546,6 +2580,10 @@ describe('CDP API', () => {
             ],
             ['a code send for a local template', { tracking: { captureEngagement: false } }],
             [
+                'a code send with copies to addresses that use atext symbols',
+                { ...codeSend, cc: ['jane=tag@example.com'], bcc: ['jane~tag@example.com'] },
+            ],
+            [
                 'a template send with the workflow version Django graded',
                 { tracking: { captureEngagement: false }, hogFlowVersion: 1 },
             ],
@@ -2580,27 +2618,204 @@ describe('CDP API', () => {
         })
 
         it.each([
+            ['a field this version does not know', { ...codeSend, priority: 'high' }],
+            [
+                'a content field this version does not know',
+                { ...codeSend, content: { ...codeSend.content, amp: '<p/>' } },
+            ],
+            [
+                'a sender field this version does not know',
+                { ...codeSend, from: { ...codeSend.from, replyName: 'Ops' } },
+            ],
+            [
+                'a tracking field this version does not know',
+                { ...codeSend, tracking: { captureEngagement: true, pixel: false } },
+            ],
             ['content without a body', { ...codeSend, content: { subject: 'Hi', html: '', text: '' } }],
             ['content with an empty subject', { ...codeSend, content: { subject: '', text: 'Hi' } }],
             ['a sender without an integration', { ...codeSend, from: { email: 'security@example.com' } }],
             ['no tracking choice', { content: codeSend.content }],
+            [
+                'more than 10 cc addresses',
+                { ...codeSend, cc: Array.from({ length: 11 }, (_, i) => `copy-${i}@example.com`) },
+            ],
+            ['a file that is not base64', { ...codeSend, attachments: [attachment({ content: `${FILE_CONTENT}!` })] }],
+            ['an empty file', { ...codeSend, attachments: [attachment({ content: '' })] }],
+            [
+                'a file too long to check as base64',
+                { ...codeSend, attachments: [attachment({ content: 'A'.repeat(4_500_000) })] },
+            ],
+            [
+                'a file type mailbox providers block',
+                { ...codeSend, attachments: [attachment({ filename: 'setup.EXE' })] },
+            ],
+            ['a file type only SES refuses', { ...codeSend, attachments: [attachment({ filename: 'settings.reg' })] }],
+            ['a file type only Gmail blocks', { ...codeSend, attachments: [attachment({ filename: 'disk.iso' })] }],
+            [
+                'a filename with a path separator',
+                { ...codeSend, attachments: [attachment({ filename: '../report.pdf' })] },
+            ],
+            [
+                'a filename with a line break',
+                { ...codeSend, attachments: [attachment({ filename: 'report\r\n.pdf' })] },
+            ],
+            [
+                'a content type that is not a MIME type',
+                { ...codeSend, attachments: [attachment({ contentType: 'pdf' })] },
+            ],
+            ['a content id in angle brackets', { ...codeSend, attachments: [attachment({ contentId: '<logo>' })] }],
+            [
+                'a content id longer than SES accepts',
+                { ...codeSend, attachments: [attachment({ contentId: 'x'.repeat(79) })] },
+            ],
+            [
+                'a content type longer than SES accepts',
+                { ...codeSend, attachments: [attachment({ contentType: `application/${'x'.repeat(67)}` })] },
+            ],
+            ['a file field this version does not know', { ...codeSend, attachments: [attachment({ size: 11 })] }],
+            ['more than 10 files', { ...codeSend, attachments: Array.from({ length: 11 }, () => attachment()) }],
+            [
+                'files over 512 KB in total',
+                {
+                    ...codeSend,
+                    attachments: [
+                        attachment({ content: Buffer.alloc(300 * 1024).toString('base64') }),
+                        attachment({ content: `${Buffer.alloc(213 * 1024).toString('base64')}${FILE_CONTENT}` }),
+                    ],
+                },
+            ],
         ])('refuses a code send with %s', async (_desc, acceptedSend) => {
             const invalidBefore = await outcomeCount('invalid_request')
 
             const res = await sendAccepted(hogFlow.id, { ...body, send: acceptedSend })
 
             expect(res.status).toEqual(400)
+            expect(JSON.stringify(res.body)).not.toContain(FILE_CONTENT.slice(0, 12))
             expect(await outcomeCount('invalid_request')).toEqual(invalidBefore + 1)
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 
-        it('queues a send when the team is over its email quota', async () => {
-            jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+        it.each([
+            [
+                'a bcc address is suppressed',
+                'recipient_suppressed',
+                { bcc: ['hidden@example.com'] },
+                () =>
+                    jest
+                        .spyOn(api['emailSuppressionService'], 'isSuppressed')
+                        .mockImplementation((_teamId, email) => Promise.resolve(email === 'hidden@example.com')),
+            ],
+            [
+                "a cc address's domain has no mail servers",
+                'recipient_unreachable',
+                { cc: ['copy@example.com'] },
+                () =>
+                    jest
+                        .spyOn(api['emailValidationService'], 'getRecipientSkipReason')
+                        .mockImplementation((_teamId, email) =>
+                            Promise.resolve(email === 'copy@example.com' ? 'Skipping send: no mail servers.' : null)
+                        ),
+            ],
+            ['a cc address is malformed', 'recipient_unreachable', { cc: ['copy@ph\u3002example.com'] }, () => {}],
+        ] as const)('refuses the whole code send when %s', async (_desc, code, copies, refuse) => {
+            refuse()
+
+            const res = await sendAccepted(hogFlow.id, { ...body, send: { ...codeSend, ...copies } })
+
+            expect(res.status).toEqual(422)
+            expect(res.body).toEqual({ error: code })
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('stores the files of a code send outside the queued run and its snapshot, and a replay stores none', async () => {
+            const resultsOutputs = api['invocationResultsService'].invocationResultsRowsService['outputs']
+            const produceResultRow = jest.spyOn(resultsOutputs, 'produce')
+            const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
+            hub.HOG_INVOCATION_RESULTS_ENABLED = true
+            const filename = `report-${new UUIDT().toString()}.pdf`
+            const keyed = {
+                ...body,
+                idempotency_key: `key-${new UUIDT().toString()}`,
+                send: { ...codeSend, attachments: [attachment({ filename })] },
+            }
+
+            try {
+                const first = await sendAccepted(hogFlow.id, keyed)
+                const replay = await sendAccepted(hogFlow.id, keyed)
+
+                expect(first.status).toEqual(202)
+                expect(replay.body).toMatchObject({ invocation_id: first.body.invocation_id, replayed: true })
+                expect(await storedAttachments(filename)).toEqual([
+                    { job_id: first.body.invocation_id, content: Buffer.from('secret-file') },
+                ])
+                const [invocation] = mockQueueInvocations.mock.calls[0][0]
+                expect(invocation.state.send.attachments).toEqual([
+                    {
+                        filename,
+                        contentType: 'application/pdf',
+                        sizeBytes: 11,
+                        sha256: createHash('sha256').update('secret-file').digest('hex'),
+                    },
+                ])
+                expect(JSON.stringify(invocation)).not.toContain(FILE_CONTENT)
+                const snapshots = produceResultRow.mock.calls.filter(([output]) => output === 'hog_invocation_results')
+                expect(snapshots).not.toHaveLength(0)
+                for (const [, message] of snapshots) {
+                    const row = parseJSON(String(message.value))
+                    const globals = JSON.stringify(await decodeInvocationGlobals(row.invocation_globals))
+                    expect(globals).toContain(filename)
+                    expect(globals).not.toContain(FILE_CONTENT)
+                }
+            } finally {
+                hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
+            }
+        })
+
+        it('keeps the stored files when the queue insert fails, as the job may be queued already', async () => {
+            mockQueueInvocations.mockRejectedValueOnce(new Error('queue down'))
+            const filename = `report-${new UUIDT().toString()}.pdf`
+
+            const res = await sendAccepted(hogFlow.id, {
+                ...body,
+                send: { ...codeSend, attachments: [attachment({ filename })] },
+            })
+
+            expect(res.status).toEqual(500)
+            expect(await storedAttachments(filename)).toEqual([
+                { job_id: expect.any(String), content: Buffer.from('secret-file') },
+            ])
+        })
+
+        it.each<[string, () => { payload: Record<string, unknown>; verify?: () => void }]>([
+            [
+                'the team is over its email quota',
+                () => {
+                    jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+                    return { payload: body }
+                },
+            ],
+            [
+                "the lookup of the recipient's mail servers fails",
+                () => {
+                    jest.spyOn(api['emailValidationService'], 'getRecipientSkipReason').mockRestore()
+                    const resolveMx = jest.mocked(api['emailValidationService']['resolver'].resolveMx)
+                    resolveMx.mockRejectedValueOnce(Object.assign(new Error('queryMx ETIMEOUT'), { code: 'ETIMEOUT' }))
+                    // A domain no other test sends to, so no cached verdict answers before the lookup.
+                    const domain = `${new UUIDT().toString()}.example.org`
+                    return {
+                        payload: { ...body, to: `user@${domain}` },
+                        verify: () => expect(resolveMx).toHaveBeenCalledWith(domain),
+                    }
+                },
+            ],
+        ])('queues a send when %s', async (_desc, arrange) => {
+            const { payload, verify } = arrange()
             const queuedBefore = await outcomeCount('queued')
 
-            const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+            const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }, payload)
 
             expect(res.status).toEqual(202)
+            verify?.()
             expect(await outcomeCount('queued')).toEqual(queuedBefore + 1)
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
@@ -2637,7 +2852,7 @@ describe('CDP API', () => {
                     'sending_paused',
                     () =>
                         jest
-                            .spyOn(api['hogFlowManager'], 'getHogFlow')
+                            .spyOn(api['hogFlowManager'], 'getHogFlowCheckingPrimaryOnMiss')
                             .mockResolvedValueOnce({ ...hogFlow, email_sending_paused_at: Date.now() }),
                 ],
                 [
@@ -2658,7 +2873,7 @@ describe('CDP API', () => {
                 const refusedBefore = await outcomeCount(code)
                 const stagesBefore = await stageCounts()
                 const keyed = { ...body, ...extra, idempotency_key: `key-${new UUIDT().toString()}` }
-                const headers = { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }
+                const headers = { Authorization: `Bearer ${tokenFor(route, team.id, hogFlow.id)}` }
 
                 const refused = await sendOn(route, hogFlow.id, headers, keyed)
 
@@ -2686,7 +2901,7 @@ describe('CDP API', () => {
 
             it('replays a keyed send whose workflow stopped being active since it went out', async () => {
                 const keyed = { ...body, ...extra, idempotency_key: `key-${new UUIDT().toString()}` }
-                const headers = { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }
+                const headers = { Authorization: `Bearer ${tokenFor(route, team.id, hogFlow.id)}` }
                 const first = await sendOn(route, hogFlow.id, headers, keyed)
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
@@ -2706,6 +2921,23 @@ describe('CDP API', () => {
 
         it.each([
             ['a valid address', { to: 'user@example.com' }, 202, 'queued'],
+            ...[
+                'jane=tag@example.com',
+                'jane~tag@example.com',
+                'jane#tag@example.com',
+                "o'brien@example.com",
+                'a!b$c%d&e*f/g?h^i`j|k~l@example.com',
+                'jane@sub.example.co.uk',
+            ].map((to) => [to, { to }, 202, 'queued'] as const),
+            ...[
+                'jane@bücher.example',
+                'jane@[192.0.2.1]',
+                '"jane doe"@example.com',
+                'jane@localhost',
+                '.jane@example.com',
+                'jane.@example.com',
+                'jane..doe@example.com',
+            ].map((to) => [to, { to }, 422, 'recipient_unreachable'] as const),
             ['a domain with a fullwidth dot', { to: 'user@ph\uFF0Eexample.com' }, 422, 'recipient_unreachable'],
             ['an ideographic full stop', { to: 'user@ph\u3002example.com' }, 422, 'recipient_unreachable'],
             ['a zero-width space', { to: 'user\u200B@example.com' }, 422, 'recipient_unreachable'],
@@ -2737,6 +2969,57 @@ describe('CDP API', () => {
             )
             expect(validationLogs).toHaveLength(expectedStatus === 400 ? 1 : 0)
             expect(JSON.stringify(validationLogs)).not.toContain('example.com')
+        })
+
+        it.each([
+            [
+                'sending_suspended',
+                422,
+                [
+                    'sending_suspended',
+                    'sending_paused',
+                    'recipient_suppressed',
+                    'quota_limited',
+                    'recipient_unreachable',
+                ],
+            ],
+            [
+                'sending_paused',
+                422,
+                ['sending_paused', 'recipient_suppressed', 'quota_limited', 'recipient_unreachable'],
+            ],
+            ['recipient_suppressed', 422, ['recipient_suppressed', 'quota_limited', 'recipient_unreachable']],
+            ['quota_limited', 429, ['quota_limited', 'recipient_unreachable']],
+        ] as const)('refuses with %s when it and every later check would refuse', async (code, status, reasons) => {
+            // Marketing, because a transactional email bypasses the quota.
+            const marketingFlow = await insertHogFlow(transactionalFlow('api', 'active', 'marketing'))
+            const arrange: Record<(typeof reasons)[number], () => void> = {
+                sending_suspended: () =>
+                    jest
+                        .spyOn(api['teamWorkflowsConfigService'], 'getEmailSendingSuspension')
+                        .mockResolvedValue('staff'),
+                sending_paused: () =>
+                    jest
+                        .spyOn(api['hogFlowManager'], 'getHogFlowCheckingPrimaryOnMiss')
+                        .mockResolvedValue({ ...marketingFlow, email_sending_paused_at: Date.now() }),
+                recipient_suppressed: () =>
+                    jest.spyOn(api['emailSuppressionService'], 'isSuppressed').mockResolvedValue(true),
+                quota_limited: () =>
+                    jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true),
+                recipient_unreachable: () =>
+                    jest
+                        .spyOn(api['emailValidationService'], 'getRecipientSkipReason')
+                        .mockResolvedValue('Skipping send: the domain has no reachable mail servers.'),
+            }
+            reasons.forEach((reason) => arrange[reason]())
+
+            const res = await send(marketingFlow.id, {
+                Authorization: `Bearer ${mintToken(team.id, marketingFlow.id)}`,
+            })
+
+            expect(res.status).toEqual(status)
+            expect(res.body).toEqual({ error: code })
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 
         it('sends to a recipient whose only suppression is a spam complaint', async () => {
@@ -2773,22 +3056,28 @@ describe('CDP API', () => {
         it.each([
             ['transactional_email', body],
             ['transactional_email/send', { ...body, send: codeSend }],
-        ])('sends on %s under a workflow created after the cached read missed it', async (route, payload) => {
-            const unseen = transactionalFlow('api', 'active')
-            const post = () =>
-                supertest(app)
-                    .post(`/api/projects/${team.id}/hog_flows/${unseen.id}/${route}`)
-                    .set({ Authorization: `Bearer ${mintToken(team.id, unseen.id)}` })
-                    .send(payload)
+        ])(
+            'sends on %s under a workflow the replica does not have yet, reading the primary once',
+            async (route, payload) => {
+                const unseen = await _insertHogFlow(hub.postgres, transactionalFlow('api', 'active'))
+                const query = hideHogFlowsFromReplica(hub.postgres, [unseen.id])
+                const post = () =>
+                    supertest(app)
+                        .post(`/api/projects/${team.id}/hog_flows/${unseen.id}/${route}`)
+                        .set({ Authorization: `Bearer ${tokenFor(route, team.id, unseen.id)}` })
+                        .send(payload)
 
-            expect((await post()).status).toEqual(404)
-            expect(mockQueueInvocations).not.toHaveBeenCalled()
+                expect((await post()).status).toEqual(202)
+                expect((await post()).status).toEqual(202)
 
-            await _insertHogFlow(hub.postgres, unseen)
-
-            expect((await post()).status).toEqual(202)
-            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-        })
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(2)
+                expect(
+                    query.mock.calls.filter(
+                        ([use, , , tag]) => use === PostgresUse.COMMON_WRITE && tag === 'fetchHogFlows'
+                    )
+                ).toHaveLength(1)
+            }
+        )
 
         it.each(['transactional_email', 'transactional_email/send'])(
             'authenticates every send on %s',
@@ -2800,12 +3089,28 @@ describe('CDP API', () => {
                         .send({ ...body, send: codeSend })
 
                 expect((await post({})).status).toEqual(401)
-                expect((await post({ Authorization: `Bearer ${mintToken(team.id + 1, hogFlow.id)}` })).status).toEqual(
-                    401
-                )
+                expect(
+                    (await post({ Authorization: `Bearer ${tokenFor(route, team.id + 1, hogFlow.id)}` })).status
+                ).toEqual(401)
                 expect(mockQueueInvocations).not.toHaveBeenCalled()
             }
         )
+
+        it.each([
+            ['a template send token on the code send route', 'transactional_email/send', 'transactional_email'],
+            ['a code send token on the template send route', 'transactional_email', 'transactional_email/send'],
+        ])('refuses %s', async (_desc, route, tokenRoute) => {
+            const unauthorizedBefore = await outcomeCount('unauthorized')
+
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${hogFlow.id}/${route}`)
+                .set({ Authorization: `Bearer ${tokenFor(tokenRoute, team.id, hogFlow.id)}` })
+                .send({ ...body, send: codeSend })
+
+            expect(res.status).toEqual(401)
+            expect(await outcomeCount('unauthorized')).toEqual(unauthorizedBefore + 1)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
 
         it.each([
             ['no token', () => ({})],

@@ -176,9 +176,12 @@ function HorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
         <>
             <div
                 ref={playlistRef}
-                className={cn('relative flex flex-col shrink-0', {
-                    'w-3': isPlaylistCollapsed,
-                })}
+                className={cn(
+                    'relative flex flex-col shrink-0 motion-safe:transition-[width] motion-safe:duration-200',
+                    {
+                        'w-3': isPlaylistCollapsed,
+                    }
+                )}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={
                     isPlaylistCollapsed
@@ -222,9 +225,12 @@ function FeedHorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Eleme
             <PlayerWrapper {...props} className="h-full flex-1 shrink" />
             <div
                 ref={feedRef}
-                className={cn('relative flex flex-col shrink-0', {
-                    'w-3': isPlaylistCollapsed,
-                })}
+                className={cn(
+                    'relative flex flex-col shrink-0 motion-safe:transition-[width] motion-safe:duration-200',
+                    {
+                        'w-3': isPlaylistCollapsed,
+                    }
+                )}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={
                     isPlaylistCollapsed

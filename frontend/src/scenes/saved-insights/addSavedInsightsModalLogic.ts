@@ -11,7 +11,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
-import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic, placeTilesInGroup } from 'scenes/dashboard/dashboardLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -387,6 +387,10 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         addInsightToDashboard: async ({ insight, dashboardId }) => {
             try {
                 actions.setDashboardUpdateLoading(insight.id, true)
+                const mountedDashboard = dashboardLogic.findMounted({ id: dashboardId })
+                const tileIdsBefore = new Set(mountedDashboard?.values.tiles.map((dashboardTile) => dashboardTile.id))
+                // Closing the modal clears the add target, so read it before the request.
+                const groupKey = mountedDashboard?.values.newTileGroupKey ?? null
                 const tile = await insightsApi.addToDashboard(insight.id, dashboardId)
                 actions.updateInsight({
                     ...insight,
@@ -395,9 +399,17 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                         tile,
                     ],
                 })
-                dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
-                    action: DashboardLoadAction.Update,
-                })
+                // A tile that was already on the dashboard stays in its own group.
+                await placeTilesInGroup(
+                    values.currentTeamId,
+                    dashboardId,
+                    tileIdsBefore.has(tile.id) ? [] : [tile.id],
+                    groupKey
+                )
+                // The dashboard can close while the requests run, so look it up again.
+                dashboardLogic
+                    .findMounted({ id: dashboardId })
+                    ?.actions.loadDashboard({ action: DashboardLoadAction.Update })
                 lemonToast.success('Insight added to dashboard')
             } catch (e) {
                 actions.dashboardUpdateFailed(insight.id)

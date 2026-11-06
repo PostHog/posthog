@@ -3,12 +3,13 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
+import { register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
-import { insertHogFunction } from '~/cdp/_tests/fixtures'
-import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
+import { createExampleInvocation, insertHogFunction, insertIntegration } from '~/cdp/_tests/fixtures'
+import { hideHogFlowsFromReplica, insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
 import { CdpApi } from '~/cdp/cdp-api'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '~/cdp/types'
 import { setupExpressApp } from '~/common/api/router'
@@ -203,14 +204,31 @@ describe('EmailTrackingService', () => {
         } as any
         const phIdOf = (html: string): string => html.match(/ph_id=([A-Za-z0-9._-]+)/)![1]
 
-        it('includes distinct_id in the public tracking URLs in dev/test', () => {
-            const out = addTrackingToEmail(
-                '<body><a href="https://example.com">x</a></body>',
-                invocationWithDistinctId,
-                signer
-            )
-            expect(signer.parse(phIdOf(out))?.distinctId).toBe('leaky-id')
-        })
+        it.each([
+            { captureEngagement: undefined, distinctId: 'leaky-id' },
+            { captureEngagement: true, distinctId: 'leaky-id' },
+            { captureEngagement: false, distinctId: undefined },
+        ])(
+            'mints the pixel and redirect codes in dev/test with the distinct_id the send choice $captureEngagement allows',
+            ({ captureEngagement, distinctId }) => {
+                const out = addTrackingToEmail(
+                    '<body><a href="https://example.com">x</a></body>',
+                    {
+                        ...invocationWithDistinctId,
+                        state: {
+                            ...invocationWithDistinctId.state,
+                            send: captureEngagement === undefined ? undefined : { tracking: { captureEngagement } },
+                        },
+                    },
+                    signer
+                )
+                const codes = [...out.matchAll(/ph_id=([A-Za-z0-9_.-]+)/g)].map((match) => signer.parse(match[1]))
+                expect(codes).toHaveLength(2)
+                for (const code of codes) {
+                    expect(code).toMatchObject({ functionId: 'fn-1', invocationId: 'inv-1', distinctId })
+                }
+            }
+        )
 
         it('omits distinct_id from the public tracking URLs in production (Referer-leak guard)', () => {
             const devSpy = jest.spyOn(envUtils, 'isDevEnv').mockReturnValue(false)
@@ -428,6 +446,78 @@ describe('EmailTrackingService', () => {
                 })
             })
 
+            it('counts a large audience, where most new people do not change the HyperLogLog', async () => {
+                const parentRunId = new UUIDT().toString()
+                const service = api['emailTrackingService'] as any
+                let opened = 0
+                for (let index = 0; index < 5000; index++) {
+                    const added = await service.newEngagedPeople(parentRunId, `person-${index}`, 'email_opened', 'ses')
+                    opened += added[0]?.count ?? 0
+                }
+                expect(opened).toBeGreaterThan(4900)
+                expect(opened).toBeLessThan(5100)
+            })
+
+            it('still records the open when Redis stalls', async () => {
+                const parentRunId = new UUIDT().toString()
+                const service = api['emailTrackingService'] as any
+                jest.spyOn(service.engagementRedis, 'useClient').mockReturnValue(new Promise(() => {}))
+                const code = signer.generate({
+                    functionId: hogFunction.id,
+                    id: new UUIDT().toString(),
+                    teamId: team.id,
+                    parentRunId,
+                })
+
+                const response = await supertest(app).get(`/public/m/pixel?ph_id=${code}`)
+
+                expect(response.status).toBe(200)
+                await waitForExpect(() => {
+                    const names = mockProducerObserver
+                        .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                        .filter(({ value }) => value.app_source_id === parentRunId)
+                        .map(({ value }) => value.metric_name)
+                    expect(names).toEqual(['email_opened'])
+                })
+            })
+
+            it('counts a person once per run however often they open or click', async () => {
+                const parentRunId = new UUIDT().toString()
+                const phId = (id: string): string =>
+                    signer.generate({
+                        functionId: hogFunction.id,
+                        id,
+                        teamId: team.id,
+                        parentRunId,
+                    })
+                const first = phId(new UUIDT().toString())
+                const second = phId(new UUIDT().toString())
+
+                for (const code of [first, first, second]) {
+                    await supertest(app).get(`/public/m/pixel?ph_id=${code}`)
+                }
+                await supertest(app).get(`/public/m/redirect?ph_id=${first}&target=https://example.com`)
+                await supertest(app).get(`/public/m/redirect?ph_id=${first}&target=https://example.com`)
+
+                await waitForExpect(() => {
+                    const counts: Record<string, number> = {}
+                    for (const { value } of mockProducerObserver.getProducedKafkaMessagesForTopic(
+                        KAFKA_APP_METRICS_2
+                    )) {
+                        if (value.app_source_id === parentRunId) {
+                            counts[value.metric_name as string] =
+                                (counts[value.metric_name as string] ?? 0) + (value.count as number)
+                        }
+                    }
+                    expect(counts).toEqual({
+                        email_opened: 3,
+                        email_opened_by_person: 2,
+                        email_link_clicked: 2,
+                        email_clicked_by_person: 1,
+                    })
+                })
+            })
+
             it('should return a 200 even if the tracking code is invalid', async () => {
                 const res = await supertest(app).get(`/public/m/pixel?ph_id=invalid-tracking-code`)
                 expect(res.status).toBe(200)
@@ -459,16 +549,14 @@ describe('EmailTrackingService', () => {
                 parentRunId,
                 workflowVersion,
                 transactionalMessageId,
-                distinctId,
-                captureEngagement,
+                headerCode,
             }: {
                 functionId: string
                 parentRunId?: string
                 workflowVersion?: number
                 // Sends the bounce as SES reports it for a transactional email with this message id.
                 transactionalMessageId?: string
-                distinctId?: string
-                captureEngagement?: boolean
+                headerCode?: string
             }): Promise<supertest.Response> => {
                 const trackingCode = signer.generate(
                     {
@@ -477,12 +565,9 @@ describe('EmailTrackingService', () => {
                         teamId: team.id,
                         parentRunId,
                         workflowVersion,
-                        distinctId,
-                        captureEngagement,
                     },
                     false,
-                    workflowVersion !== undefined,
-                    captureEngagement !== undefined
+                    workflowVersion !== undefined
                 )
                 const sesRecord = {
                     eventType: 'Bounce',
@@ -491,7 +576,7 @@ describe('EmailTrackingService', () => {
                         source: 'sender@posthog.com',
                         messageId: 'ses-message-id',
                         destination: ['user@example.com'],
-                        headers: [{ name: TRACKING_CODE_HEADER_NAME, value: trackingCode }],
+                        headers: [{ name: TRACKING_CODE_HEADER_NAME, value: headerCode ?? trackingCode }],
                         ...(transactionalMessageId
                             ? {
                                   commonHeaders: { to: ['user@example.com'] },
@@ -521,11 +606,24 @@ describe('EmailTrackingService', () => {
                     .send(JSON.stringify(envelope))
             }
 
-            it('writes a hog_flow log entry for a bounce that resolves to a flow', async () => {
+            it.each([
+                ['on the replica', false, false],
+                ['only on the primary, during replica lag', true, false],
+                ['on the replica, while the hog function lookup fails', false, true],
+                ['only on the primary, while the hog function lookup fails', true, true],
+            ])('writes a hog_flow log entry for a bounce that resolves to a flow %s', async (_, lagging, fail) => {
                 const hogFlow = await insertHogFlow(
                     hub.postgres,
                     new FixtureHogFlowBuilder().withTeamId(team.id).build()
                 )
+                if (lagging) {
+                    hideHogFlowsFromReplica(hub.postgres, [hogFlow.id])
+                }
+                if (fail) {
+                    jest.spyOn(api['emailTrackingService']['hogFunctionManager'], 'getHogFunctions').mockRejectedValue(
+                        new Error('hog function lookup failed')
+                    )
+                }
 
                 const res = await postBounce({ functionId: hogFlow.id })
                 expect(res.status).toBe(200)
@@ -548,9 +646,34 @@ describe('EmailTrackingService', () => {
                 expect(metrics.map((m) => m.value.metric_name)).toEqual(['email_bounced', 'email_bounced_hard'])
                 expect(metrics[0].value).toMatchObject({
                     team_id: team.id,
+                    app_source: 'hog_flow',
+                    app_source_id: hogFlow.id,
                     metric_name: 'email_bounced',
                     metric_kind: 'email',
                 })
+            })
+
+            it('counts a failed primary lookup as a lookup failure for a bounce on a flow only the primary has', async () => {
+                const hogFlow = await insertHogFlow(
+                    hub.postgres,
+                    new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                )
+                hideHogFlowsFromReplica(hub.postgres, [hogFlow.id])
+                jest.spyOn(
+                    api['emailTrackingService']['hogFlowManager'],
+                    'getHogFlowsCheckingPrimaryOnMiss'
+                ).mockRejectedValue(new Error('primary lookup failed'))
+                const lookupFailures = async (): Promise<number> =>
+                    (await register.getSingleMetric('email_tracking_errors_total')!.get()).values.find(
+                        (v) => v.labels.error_type === 'hog_flow_lookup_failed' && v.labels.source === 'ses'
+                    )?.value ?? 0
+                const before = await lookupFailures()
+
+                const res = await postBounce({ functionId: hogFlow.id })
+                expect(res.status).toBe(200)
+
+                expect(await lookupFailures()).toBeGreaterThan(before)
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)).toHaveLength(0)
             })
 
             it('records the bounced status of a transactional email', async () => {
@@ -577,7 +700,9 @@ describe('EmailTrackingService', () => {
                 ])
             })
 
-            it('records the metric but writes no log entry when the bounce resolves to a hog_function', async () => {
+            it('records the metric but writes no log entry and reads no workflow from the primary when the bounce resolves to a hog_function', async () => {
+                const query = jest.spyOn(hub.postgres, 'query')
+
                 const res = await postBounce({ functionId: hogFunction.id })
                 expect(res.status).toBe(200)
 
@@ -593,6 +718,11 @@ describe('EmailTrackingService', () => {
 
                 const logs = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
                 expect(logs).toHaveLength(0)
+                expect(
+                    query.mock.calls.filter(
+                        ([target, , , tag]) => target === PostgresUse.COMMON_WRITE && tag === 'fetchHogFlows'
+                    )
+                ).toHaveLength(0)
             })
 
             it('attributes the bounce to the version that sent it, not the version live when it lands', async () => {
@@ -622,12 +752,11 @@ describe('EmailTrackingService', () => {
 
             it.each([
                 { captureEngagement: true, teamCaptures: true, captured: 1 },
-                { captureEngagement: true, teamCaptures: false, captured: 0 },
-                { captureEngagement: false, teamCaptures: true, captured: 0 },
                 { captureEngagement: undefined, teamCaptures: true, captured: 1 },
-                { captureEngagement: undefined, teamCaptures: false, captured: 0 },
+                { captureEngagement: false, teamCaptures: true, captured: 0 },
+                { captureEngagement: true, teamCaptures: false, captured: 0 },
             ])(
-                "captures with the send's choice $captureEngagement only when the team switch $teamCaptures allows it",
+                "captures the bounce of a sent email by the send's choice $captureEngagement and the team switch $teamCaptures",
                 async ({ captureEngagement, teamCaptures, captured }) => {
                     await hub.postgres.query(
                         PostgresUse.COMMON_WRITE,
@@ -642,8 +771,44 @@ describe('EmailTrackingService', () => {
                         hub.postgres,
                         new FixtureHogFlowBuilder().withTeamId(team.id).build()
                     )
+                    const integration = await insertIntegration(hub.postgres, team.id, {
+                        kind: 'email',
+                        config: {
+                            email: 'sender@posthog-test.com',
+                            name: 'Sender',
+                            domain: 'posthog-test.com',
+                            verified: true,
+                            provider: 'ses',
+                        },
+                    })
+                    const emailService = api['hogExecutorAsync']['deps'].emailService
+                    const sesSend = jest
+                        .spyOn(emailService.sesV2Client!, 'send')
+                        .mockResolvedValue({ MessageId: 'ses-message-id' } as never)
+                    const invocation = createExampleInvocation({
+                        id: hogFlow.id,
+                        team_id: team.id,
+                    })
+                    invocation.state.globals.event.distinct_id = 'user-1'
+                    if (captureEngagement !== undefined) {
+                        invocation.state.send = { tracking: { captureEngagement } }
+                    }
+                    invocation.queueParameters = {
+                        type: 'email',
+                        to: { email: 'user@example.com', name: 'User' },
+                        from: { integrationId: integration.id },
+                        subject: 'Reset your password',
+                        text: 'Hi',
+                        html: '<p>Hi</p>',
+                    }
 
-                    const res = await postBounce({ functionId: hogFlow.id, distinctId: 'user-1', captureEngagement })
+                    expect((await emailService.executeSendEmail(invocation)).error).toBeUndefined()
+                    const headers: { Name: string; Value: string }[] = (sesSend.mock.calls[0][0] as any).input.Content
+                        .Simple.Headers
+                    const headerCode = headers.find((header) => header.Name === TRACKING_CODE_HEADER_NAME)!.Value
+                    mockInternalFetch.mockClear()
+
+                    const res = await postBounce({ functionId: hogFlow.id, headerCode })
                     expect(res.status).toBe(200)
 
                     const capturedEvents = mockInternalFetch.mock.calls.map(

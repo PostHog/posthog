@@ -13,7 +13,7 @@ import {
     PersonPropertyFilter,
     Team,
 } from '../types'
-import type { AcceptedSend } from './services/hogflows/transactional-email'
+import type { QueuedSend } from './services/hogflows/transactional-email'
 import type { HogErrorClass } from './utils/hog-error-classification'
 
 export type HogBytecode = any[]
@@ -257,12 +257,15 @@ export type MinimalAppMetric = {
         | 'email_opened'
         | 'email_link_clicked'
         | 'email_link_clicked_by_link'
+        | 'email_opened_by_person'
+        | 'email_clicked_by_person'
         | 'email_bounced'
         | 'email_bounced_hard'
         | 'email_bounced_transient'
         | 'email_bounced_undetermined'
         | 'email_bounce_prevented'
         | 'message_frequency_capped'
+        | 'message_frequency_cap_held'
         | 'email_suppressed'
         | 'email_missing_recipient'
         | 'email_suspended'
@@ -432,6 +435,7 @@ export type CyclotronJobInvocationHogFunctionContext = {
     sensitive?: boolean
     actionStepCount?: number
     customerTaskIdempotencyVersion?: 1
+    send?: QueuedSend
 }
 
 export type WorkflowStepResumeStatus = 'completed' | 'failed' | 'cancelled'
@@ -562,6 +566,9 @@ export type HogFlowInvocationContext = {
             parkedAt?: string
         }
         resumeResult?: { key: string; status: WorkflowStepResumeStatus; result?: Record<string, unknown> }
+        // Set when a message step first finds the person at the frequency cap and the team holds capped
+        // messages. The step re-checks the cap on each wake and skips the send once this ISO time passes.
+        frequencyCapHoldDeadlineAt?: string
     }
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.
@@ -575,7 +582,7 @@ export type HogFlowInvocationContext = {
     // conversions are counted by the matcher and never touch this flag.
     conversionCounted?: boolean
     variables?: Record<string, any>
-    send?: AcceptedSend
+    send?: QueuedSend
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
     // the same way it does for hog functions, so the `max_attempts` guard on
@@ -612,6 +619,7 @@ export type HogFunctionInputSchemaType = {
         | 'task_repository'
         | 'task_mcp_installations'
         | 'signals_scout'
+        | 'posthog_survey'
         | 'replay_vision_scan'
         | 'task_skills'
     key: string

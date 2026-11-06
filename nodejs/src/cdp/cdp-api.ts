@@ -56,11 +56,18 @@ import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.servic
 import {
     AcceptedSend,
     AcceptedSendRequestSchema,
+    CODE_SEND_TOKEN_CLAIMS,
+    QueuedSend,
+    TEMPLATE_SEND_TOKEN_CLAIMS,
     TransactionalEmailOutcome,
     TransactionalEmailRequest,
     TransactionalEmailRequestSchema,
     TransactionalEmailStageTimer,
+    decodeAttachments,
+    isRecipientFormatIssue,
     predatesGradedVersion,
+    queuedSend,
+    transactionalEmailRecipients,
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
 import { InvocationResultsService } from './services/invocation-results.service'
@@ -68,6 +75,7 @@ import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
+import { EmailAttachmentsService } from './services/messaging/email-attachments.service'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from './services/messaging/email-priority'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
@@ -175,7 +183,8 @@ const ACCEPTED_SEND_FINGERPRINT_MARKER = 'accepted_send'
 
 const transactionalEmailFingerprint = (
     hogFlowId: string,
-    { to, distinct_id, variables, send }: TransactionalEmailRequest
+    { to, distinct_id, variables }: TransactionalEmailRequest,
+    send: QueuedSend | undefined
 ): string => {
     const templateRequest = [hogFlowId, to, distinct_id, variables]
     return IdempotencyKeys.fingerprint(
@@ -189,13 +198,13 @@ const whatTheCallerSent = ({
     from,
     hogFlowVersion,
     ...send
-}: AcceptedSend): Omit<AcceptedSend, 'from' | 'hogFlowVersion'> & { from?: CallerChosenSender } => ({
+}: QueuedSend): Omit<QueuedSend, 'from' | 'hogFlowVersion'> & { from?: CallerChosenSender } => ({
     ...send,
     from: senderTheCallerChose(from),
 })
 
 const senderTheCallerChose = (from: AcceptedSend['from']): CallerChosenSender | undefined => {
-    if (!from || from.isDefault) {
+    if (!from) {
         return undefined
     }
     return from.email ? { email: from.email, name: from.name } : { integrationId: from.integrationId, name: from.name }
@@ -234,6 +243,7 @@ export class CdpApi {
     private transactionalEmailJwt: ScopedServiceJwt
     private transactionalEmailIdempotencyKeys: IdempotencyKeys
     private emailSuppressionService: EmailSuppressionService
+    private emailAttachmentsService: EmailAttachmentsService
     private emailValidationService: EmailValidationService
     private teamWorkflowsConfigService: TeamWorkflowsConfigService
     private emailStatusService: EmailStatusService
@@ -251,6 +261,7 @@ export class CdpApi {
         this.hogFlowManager = services.hogFlowManager
         this.recipientTokensService = services.recipientTokensService
         this.emailSuppressionService = services.emailSuppressionService
+        this.emailAttachmentsService = services.emailAttachmentsService
         this.emailValidationService = services.emailValidationService
         this.teamWorkflowsConfigService = services.teamWorkflowsConfigService
         this.hogExecutorAsync = services.hogExecutorAsync
@@ -285,7 +296,8 @@ export class CdpApi {
             services.teamWorkflowsConfigService,
             new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
             services.emailSuppressionService,
-            services.emailStatusService
+            services.emailStatusService,
+            services.redis
         )
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
@@ -352,6 +364,7 @@ export class CdpApi {
             this.rerunJobManager = new RerunJobManager({
                 dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL,
                 maxCount: this.config.HOG_INVOCATION_RERUN_MAX_COUNT,
+                runStartPagingTeams: this.config.CDP_RERUN_RUN_START_PAGING_TEAMS,
             })
             await this.rerunJobManager.connect()
         }
@@ -364,6 +377,7 @@ export class CdpApi {
             this.batchExportHogFunctionService.stop(),
             this.rerunJobManager?.disconnect() ?? Promise.resolve(),
             this.invocationResultsService.stop(),
+            this.emailAttachmentsService.stop(),
         ])
     }
 
@@ -416,11 +430,11 @@ export class CdpApi {
         router.post('/api/projects/:team_id/workflow_steps/resume', asyncHandler(this.postWorkflowStepResume))
         router.post(
             '/api/projects/:team_id/hog_flows/:id/transactional_email',
-            asyncHandler(this.postTransactionalEmail(TransactionalEmailRequestSchema))
+            asyncHandler(this.postTransactionalEmail(TransactionalEmailRequestSchema, TEMPLATE_SEND_TOKEN_CLAIMS))
         )
         router.post(
             '/api/projects/:team_id/hog_flows/:id/transactional_email/send',
-            asyncHandler(this.postTransactionalEmail(AcceptedSendRequestSchema))
+            asyncHandler(this.postTransactionalEmail(AcceptedSendRequestSchema, CODE_SEND_TOKEN_CLAIMS))
         )
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
@@ -1197,7 +1211,7 @@ export class CdpApi {
     // Auth: a per-call JWT minted by Django on its own audience and key, pinned to the team and the workflow,
     // never the fleet-wide internal secret.
     private postTransactionalEmail =
-        (schema: z.ZodType<TransactionalEmailRequest, unknown>) =>
+        (schema: z.ZodType<TransactionalEmailRequest, unknown>, tokenClaims: Record<string, string | undefined>) =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             const stages = new TransactionalEmailStageTimer()
             const reply = (outcome: TransactionalEmailOutcome, status: number, body: Record<string, unknown>) => {
@@ -1211,7 +1225,15 @@ export class CdpApi {
                         error: 'Transactional email auth not configured (WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET unset)',
                     })
                 }
-                if (!this.verifyScopedWorkflowJwt(this.transactionalEmailJwt, req, res, 'transactional email')) {
+                if (
+                    !this.verifyScopedWorkflowJwt(
+                        this.transactionalEmailJwt,
+                        req,
+                        res,
+                        'transactional email',
+                        tokenClaims
+                    )
+                ) {
                     transactionalEmailRequestsTotal.inc({ outcome: 'unauthorized' })
                     return
                 }
@@ -1220,7 +1242,7 @@ export class CdpApi {
                 if (!parsed.success) {
                     const issues = parsed.error.issues
                     // Signup accepts some addresses this check refuses, and no retry can fix an address.
-                    if (issues.every((issue) => issue.path[0] === 'to' && issue.code === 'invalid_format')) {
+                    if (issues.every(isRecipientFormatIssue)) {
                         return reply('recipient_unreachable', 422, { error: 'recipient_unreachable' })
                     }
                     // Paths and codes only: the values include the recipient's address.
@@ -1234,14 +1256,18 @@ export class CdpApi {
                 const { to, distinct_id: distinctId, variables, idempotency_key: idempotencyKey, send } = parsed.data
 
                 stages.start('load')
-                const team = await this.deps.teamManager.getTeam(parseInt(req.params.team_id)).catch(() => null)
-                if (!team) {
-                    return reply('not_found', 404, { error: 'Team not found' })
-                }
-                const hogFlow = await this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(
+                const teamLookup = this.deps.teamManager.getTeam(parseInt(req.params.team_id)).catch(() => null)
+                const hogFlowLookup = this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(
                     req.params.id,
                     send?.hogFlowVersion
                 )
+                // A missing team returns before the workflow lookup is awaited, so its failure must not go unhandled.
+                hogFlowLookup.catch(() => undefined)
+                const team = await teamLookup
+                if (!team) {
+                    return reply('not_found', 404, { error: 'Team not found' })
+                }
+                const hogFlow = await hogFlowLookup
                 if (!hogFlow || hogFlow.team_id !== team.id) {
                     return reply('not_found', 404, { error: 'Workflow not found' })
                 }
@@ -1280,8 +1306,10 @@ export class CdpApi {
                 })
 
                 const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
-                if (send) {
-                    invocation.state.send = send
+                const files = decodeAttachments(send)
+                const sendToQueue = send ? queuedSend(send, files) : undefined
+                if (sendToQueue) {
+                    invocation.state.send = sendToQueue
                 }
                 // The run skips the trigger pipeline that counts runs for event-triggered workflows, so the email
                 // worker counts it instead.
@@ -1293,7 +1321,7 @@ export class CdpApi {
                 invocation.queuePriority = EMAIL_QUEUE_PRIORITY[priorityClass]
 
                 const idempotencyKeys = this.transactionalEmailIdempotencyKeys
-                const fingerprint = transactionalEmailFingerprint(hogFlow.id, parsed.data)
+                const fingerprint = transactionalEmailFingerprint(hogFlow.id, parsed.data, sendToQueue)
                 if (idempotencyKey) {
                     // Checked before the quota, so a retry of a send that went out gets its answer even
                     // when the team has hit its quota since.
@@ -1321,13 +1349,21 @@ export class CdpApi {
                 }
                 try {
                     stages.start('checks')
-                    const refusal = await this.refuseTransactionalEmail(team.id, hogFlow, to)
+                    const refusal = await this.refuseTransactionalEmail(
+                        team.id,
+                        hogFlow,
+                        transactionalEmailRecipients(parsed.data)
+                    )
                     if (refusal) {
                         if (idempotencyKey) {
                             stages.start('idempotency')
                             await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
                         }
                         return reply(refusal.outcome, refusal.status, { error: refusal.outcome })
+                    }
+                    if (files.length) {
+                        stages.start('files')
+                        await this.emailAttachmentsService.store(invocation.id, team.id, files)
                     }
                     stages.start('queue_insert')
                     this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
@@ -1351,7 +1387,13 @@ export class CdpApi {
                     await idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id)
                 }
                 stages.start('metrics_flush')
-                this.emailStatusService.queue({ teamId: team.id, messageId: invocation.id, status: 'queued' })
+                this.emailStatusService.queue({
+                    teamId: team.id,
+                    messageId: invocation.id,
+                    status: 'queued',
+                    recipient: to,
+                    functionId: hogFlow.id,
+                })
                 // Best-effort rows, so the 202 waits for the hand-off to Kafka (flushed on shutdown) but not the acks.
                 const warnTelemetryFlushFailed = (error: unknown) =>
                     logger.warn('⚠️', 'Transactional email telemetry flush failed', {
@@ -1380,26 +1422,42 @@ export class CdpApi {
     private async refuseTransactionalEmail(
         teamId: number,
         hogFlow: HogFlow,
-        to: string
+        recipients: string[]
     ): Promise<{ outcome: TransactionalEmailOutcome; status: number } | null> {
         if (hogFlow.status !== 'active') {
             return { outcome: 'not_sendable', status: 400 }
         }
-        if (await this.teamWorkflowsConfigService.getEmailSendingSuspension(teamId)) {
+        // The lookups run at the same time, and the checks below await them in order, so the first refusal in that
+        // order wins. The MX check's DNS lookup runs even when an earlier check refuses, which is acceptable because
+        // refusals are rare and the verdict is cached per domain.
+        const suspension = this.teamWorkflowsConfigService.getEmailSendingSuspension(teamId)
+        const suppressed = Promise.all(
+            recipients.map((email) => this.emailSuppressionService.isSuppressed(teamId, email, { transactional: true }))
+        )
+        const quota = checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
+        // A DNS failure lets the send through.
+        const recipientSkipReasons = Promise.all(
+            recipients.map((email) => this.emailValidationService.getRecipientSkipReason(teamId, email))
+        )
+        // An earlier refusal returns before the later lookups are awaited, so their failures must not go unhandled.
+        const lookups: Promise<unknown>[] = [suspension, suppressed, quota, recipientSkipReasons]
+        for (const lookup of lookups) {
+            lookup.catch(() => undefined)
+        }
+
+        if (await suspension) {
             return { outcome: 'sending_suspended', status: 422 }
         }
         if (hogFlow.email_sending_paused_at) {
             return { outcome: 'sending_paused', status: 422 }
         }
-        if (await this.emailSuppressionService.isSuppressed(teamId, to, { transactional: true })) {
+        if ((await suppressed).some(Boolean)) {
             return { outcome: 'recipient_suppressed', status: 422 }
         }
-        const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
-        if (isLimited) {
+        if ((await quota).isLimited) {
             return { outcome: 'quota_limited', status: 429 }
         }
-        // Last, because a cache miss costs a DNS lookup. A DNS failure lets the send through.
-        if (await this.emailValidationService.getRecipientSkipReason(teamId, to)) {
+        if ((await recipientSkipReasons).some(Boolean)) {
             return { outcome: 'recipient_unreachable', status: 422 }
         }
         return null
@@ -1410,7 +1468,7 @@ export class CdpApi {
         req: ModifiedRequest,
         res: express.Response,
         label: string,
-        extraClaims?: Record<string, string>
+        extraClaims?: Record<string, string | undefined>
     ): boolean {
         const { team_id, id } = req.params
         const authHeader = req.headers['authorization']

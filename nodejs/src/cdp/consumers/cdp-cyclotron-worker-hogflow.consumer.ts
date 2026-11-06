@@ -58,6 +58,24 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
         return [...terminalResults, ...executed]
     }
 
+    protected override async queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {
+        await super.queueInvocationResults(results)
+        await this.deleteAttachmentsOfFinishedSends(results)
+    }
+
+    private async deleteAttachmentsOfFinishedSends(results: CyclotronJobInvocationResult[]): Promise<void> {
+        await Promise.all(
+            results
+                .filter(
+                    (result) =>
+                        result.finished &&
+                        (result.invocation.state as CyclotronJobInvocationHogFlow['state'] | null)?.send?.attachments
+                            ?.length
+                )
+                .map((result) => this.emailAttachmentsService.delete(result.invocation.id, result.invocation.teamId))
+        )
+    }
+
     /**
      * Terminate an invocation as canceled through the normal result pipeline, so the
      * terminal lifecycle row, app metric, and run log all land. A bare cyclotron
@@ -109,6 +127,9 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
         const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
         const failedInvocations: CyclotronJobInvocation[] = []
         const terminalResults: CyclotronJobInvocationResult[] = []
+        const hogFlows = await this.hogFlowManager.getHogFlowsCheckingPrimaryOnMiss(
+            invocations.filter((item) => !item.cancelRequestedAt).map((item) => item.functionId)
+        )
 
         await Promise.all(
             invocations.map(async (item) => {
@@ -124,10 +145,15 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
                 const team = await this.deps.teamManager.getTeam(item.teamId)
                 const send = (item.state as CyclotronJobInvocationHogFlow['state'] | null)?.send
-                const hogFlow = await this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(
-                    item.functionId,
-                    send?.hogFlowVersion
-                )
+                const batched = hogFlows[item.functionId]
+                // A send graded at a newer version than the batch read found reads the primary for that version.
+                const hogFlow =
+                    batched && predatesGradedVersion(batched, send)
+                        ? await this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(
+                              item.functionId,
+                              send?.hogFlowVersion
+                          )
+                        : batched
                 if (!hogFlow || !team) {
                     logger.error('⚠️', 'Error finding hog flow', {
                         id: item.functionId,

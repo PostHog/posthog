@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils/strings'
@@ -96,9 +95,10 @@ import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics
 import { expandGroupNodes } from './expandGroupNodes'
 
 export interface Tab {
-    label: string | JSX.Element
+    label: string
     type: InsightType
     dataAttr: string
+    beta?: boolean
 }
 
 type OmitConflictingProperties<T> = Omit<T, 'resultCustomizations'>
@@ -587,12 +587,7 @@ export interface insightNavLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         activeView: (query: Node<Record<string, any>> | null) => InsightType
-        tabs: (
-            activeView: InsightType,
-            query: Node<Record<string, any>> | null,
-            featureFlags: FeatureFlagsSet,
-            metricsQueryCache: MetricsQuery | null
-        ) => Tab[]
+        tabs: (activeView: InsightType, query: Node<Record<string, any>> | null, featureFlags: FeatureFlagsSet) => Tab[]
     }
 }
 
@@ -664,12 +659,11 @@ export const insightNavLogic = kea<insightNavLogicType>([
             },
         ],
         tabs: [
-            (s) => [s.activeView, s.query, s.featureFlags, s.metricsQueryCache],
+            (s) => [s.activeView, s.query, s.featureFlags],
             (
                 activeView: InsightType,
                 query: null | import('~/queries/schema/schema-general').Node,
-                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
-                metricsQueryCache: MetricsQuery | null
+                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ) => {
                 const tabs: Tab[] = [
                     {
@@ -697,11 +691,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
                 // Visible when flagged or when viewing an existing journeys insight, so links never dead-end
                 if (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_V2] || activeView === InsightType.JOURNEYS) {
                     tabs.push({
-                        label: (
-                            <>
-                                Journeys <LemonTag type="warning">BETA</LemonTag>
-                            </>
-                        ),
+                        label: 'Journeys',
+                        beta: true,
                         type: InsightType.JOURNEYS,
                         dataAttr: 'insight-journeys-tab',
                     })
@@ -722,15 +713,16 @@ export const insightNavLogic = kea<insightNavLogicType>([
 
                 if (featureFlags[FEATURE_FLAGS.HOG] || activeView === InsightType.HOG) {
                     tabs.push({
-                        label: <>Hog 🦔</>,
+                        label: 'Hog 🦔',
                         type: InsightType.HOG,
                         dataAttr: 'insight-hog-tab',
                     })
                 }
 
-                // New metrics charts are metric widgets. The tab stays only so saved metrics insights remain
-                // editable, including after a switch to another tab and back.
-                if (activeView === InsightType.METRICS || metricsQueryCache) {
+                if (
+                    (featureFlags[FEATURE_FLAGS.METRICS] && featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]) ||
+                    activeView === InsightType.METRICS
+                ) {
                     tabs.push({
                         label: 'Metrics',
                         type: InsightType.METRICS,

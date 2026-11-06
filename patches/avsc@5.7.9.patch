@@ -1,0 +1,19 @@
+diff --git a/lib/utils.js b/lib/utils.js
+index cd0cb41a24c57786e5cb4dd0061f3d8d9a7492b6..266afce261f2980000b02802b69f45f7d94af54b 100644
+--- a/lib/utils.js
++++ b/lib/utils.js
+@@ -548,7 +548,14 @@ Tap.prototype.readInt = Tap.prototype.readLong = function () {
+     // Switch to float arithmetic, otherwise we might overflow.
+     f = n;
+     fk = 268435456; // 2 ** 28.
++    var i = 4; // Bytes read so far.
+     do {
++      if (i++ === 10) {
++        // A long takes at most 10 bytes. A longer varint is invalid, and past about 150 bytes
++        // `fk` overflows, so a zero group adds `0 * Infinity` and the result is NaN.
++        this._invalidate();
++        return 0;
++      }
+       b = buf[this.pos++];
+       f += (b & 0x7f) * fk;
+       fk *= 128;
