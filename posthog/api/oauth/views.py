@@ -2291,7 +2291,8 @@ class OAuthTokenView(TokenView):
         except workload_token_exchange.WorkloadExchangeError as e:
             logger.info("workload_token_exchange_rejected", error_code=e.code.value)
             self._capture_token_rejected(grant_type, "", e.code.value)
-            return JsonResponse(e.body(), status=e.http_status)
+            headers = {"Retry-After": str(e.retry_after)} if e.retry_after is not None else None
+            return JsonResponse(e.body(), status=e.http_status, headers=headers)
         except (OperationalError, RedisError) as e:
             logger.warning("workload_token_exchange_unavailable", error=str(e))
             return _temporarily_unavailable_response()

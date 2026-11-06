@@ -10,6 +10,7 @@ import json
 import functools
 from typing import Any, cast
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
@@ -54,6 +55,7 @@ from posthog.rate_limit import (
 from posthog.scopes import RISKY_SCOPE_WARNINGS
 from posthog.tasks.email import WorkloadTrustPolicyChange, send_workload_trust_policy_changed
 from posthog.workload_identity.providers import (
+    ConditionPreset,
     WorkloadProvider,
     get_supported_workload_providers,
     get_workload_provider_by_issuer,
@@ -311,6 +313,23 @@ class WorkloadClaimSerializer(serializers.Serializer):
     help_text = serializers.CharField(  # type: ignore[assignment]
         allow_blank=True, help_text="A hint that says where to find the claim's value."
     )
+    placeholder = serializers.CharField(allow_blank=True, help_text="An example value to show in an empty field.")
+
+
+class ConditionPresetSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Stable identifier of the preset within its provider.")
+    label = serializers.CharField(help_text="What the UI calls the preset, like Pushes to a branch.")  # type: ignore[assignment]
+    help_text = serializers.CharField(help_text="What runs the preset matches.")  # type: ignore[assignment]
+    conditions = serializers.SerializerMethodField(
+        help_text="Claim name to value. {value} stands for what the person types into the preset's field."
+    )
+    takes_value = serializers.BooleanField(help_text="Whether the preset has a field to type a value into.")
+    placeholder = serializers.CharField(allow_blank=True, help_text="An example value for the preset's field.")
+    default_value = serializers.CharField(allow_blank=True, help_text="The value the preset's field starts with.")
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_conditions(self, preset: ConditionPreset) -> dict[str, str]:
+        return dict(preset.conditions)
 
 
 class WorkloadProviderSerializer(serializers.Serializer):
@@ -323,6 +342,24 @@ class WorkloadProviderSerializer(serializers.Serializer):
     condition_claims = WorkloadClaimSerializer(
         many=True, help_text="The claims a policy can require an exact value for, in display order."
     )
+    condition_presets = ConditionPresetSerializer(
+        many=True, help_text="Common choices of conditions to offer before the raw claims, in display order."
+    )
+    can_resolve_subject = serializers.SerializerMethodField(
+        help_text="Whether PostHog can look up the subject from its name with resolve_subject."
+    )
+    setup_snippet = serializers.SerializerMethodField(
+        help_text="The CI config a job of this project needs, empty when the provider has none."
+    )
+
+    def get_can_resolve_subject(self, provider: WorkloadProvider) -> bool:
+        return provider.resolve_subject is not None
+
+    def get_setup_snippet(self, provider: WorkloadProvider) -> str:
+        # The token's audience is SITE_URL, so the job has to send it there.
+        return provider.setup_snippet_for(
+            host=(settings.SITE_URL or "").rstrip("/"), project_id=self.context["project_id"]
+        )
 
 
 class WorkloadProvidersResponseSerializer(serializers.Serializer):
@@ -417,7 +454,9 @@ class WorkloadTrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "grantable_scopes": sorted(grantable),
             "risky_scopes": {scope: warning for scope, warning in RISKY_SCOPE_WARNINGS.items() if scope in grantable},
         }
-        return Response(WorkloadProvidersResponseSerializer(payload).data)
+        # Policies live on the project's own team, which the exchange's `resource` names.
+        context = {"project_id": self.team.project_id}
+        return Response(WorkloadProvidersResponseSerializer(payload, context=context).data)
 
 
 def requesting_application(request: Request) -> OAuthApplication | None:

@@ -3,6 +3,8 @@ import type { Host } from '@/posthog/host'
 import type { ProjectId } from '@/posthog/ids'
 import type { ProviderIdToken } from '@/posthog/tokens'
 
+import { GITHUB_ACTIONS } from './github-actions'
+
 export type WorkloadConditions = Record<string, string>
 
 // A CI provider whose OIDC token PostHog exchanges for a workload token. The backend keeps the
@@ -28,7 +30,7 @@ export interface WorkloadProvider {
     snippet(target: { host: Host; projectId: ProjectId }): string
 }
 
-export const WORKLOAD_PROVIDERS: readonly WorkloadProvider[] = []
+export const WORKLOAD_PROVIDERS: readonly WorkloadProvider[] = [GITHUB_ACTIONS]
 
 export function detectWorkloadProvider(
     env: Env,

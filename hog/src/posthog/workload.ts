@@ -15,6 +15,7 @@ import {
     type AccessKeyStorage,
     type LogoutOutcome,
 } from './access-key'
+import type { HttpResponse } from './api'
 import { hostUrl, type Host } from './host'
 import type { ProjectId } from './ids'
 import { grantLifetime, OAuthErrorBody, oauthPost, TokenResponse } from './oauth'
@@ -37,6 +38,9 @@ const ExchangeErrorBody = OAuthErrorBody.extend({
     approval_url: z.string().optional().catch(undefined),
     claims: z.record(z.string(), z.unknown()).optional().catch(undefined),
 })
+
+const RetryAfterBody = z.object({ retry_after: z.number().int().nonnegative() })
+const MAX_RETRY_AFTER_SECONDS = 60
 
 const TRY_AGAIN = 'Run the job again in a minute.'
 const SET_HOST =
@@ -103,12 +107,20 @@ export async function exchangeWorkloadToken(
     if (subjectToken === undefined) {
         return undefined
     }
-    const response = await oauthPost(runtime, host, 'oauth/token/', {
-        grant_type: TOKEN_EXCHANGE_GRANT_TYPE,
-        subject_token: subjectToken,
-        subject_token_type: ID_TOKEN_TYPE,
-        resource: hostUrl(host, `api/projects/${projectId}`).toString(),
-    })
+    const exchange = (): Promise<HttpResponse> =>
+        oauthPost(runtime, host, 'oauth/token/', {
+            grant_type: TOKEN_EXCHANGE_GRANT_TYPE,
+            subject_token: subjectToken,
+            subject_token_type: ID_TOKEN_TYPE,
+            resource: hostUrl(host, `api/projects/${projectId}`).toString(),
+        })
+    let response = await exchange()
+    // A large job matrix can use up the repository's exchanges for a moment, so one short wait saves the job.
+    const retryAfter = RetryAfterBody.safeParse(response.json).data?.retry_after
+    if (response.status === 429 && retryAfter !== undefined && retryAfter <= MAX_RETRY_AFTER_SECONDS) {
+        await runtime.sleep(retryAfter * 1000)
+        response = await exchange()
+    }
     if (!response.ok) {
         throw exchangeError(response.status, response.json, provider, projectId)
     }

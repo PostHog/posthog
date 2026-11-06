@@ -5908,6 +5908,30 @@ export interface WorkloadClaimApi {
     label: string
     /** A hint that says where to find the claim's value. */
     help_text: string
+    /** An example value to show in an empty field. */
+    placeholder: string
+}
+
+/**
+ * Claim name to value. {value} stands for what the person types into the preset's field.
+ */
+export type ConditionPresetApiConditions = { [key: string]: string }
+
+export interface ConditionPresetApi {
+    /** Stable identifier of the preset within its provider. */
+    key: string
+    /** What the UI calls the preset, like Pushes to a branch. */
+    label: string
+    /** What runs the preset matches. */
+    help_text: string
+    /** Claim name to value. {value} stands for what the person types into the preset's field. */
+    readonly conditions: ConditionPresetApiConditions
+    /** Whether the preset has a field to type a value into. */
+    takes_value: boolean
+    /** An example value for the preset's field. */
+    placeholder: string
+    /** The value the preset's field starts with. */
+    default_value: string
 }
 
 export interface WorkloadProviderApi {
@@ -5925,6 +5949,12 @@ export interface WorkloadProviderApi {
     subject_name_claim: WorkloadClaimApi
     /** The claims a policy can require an exact value for, in display order. */
     condition_claims: WorkloadClaimApi[]
+    /** Common choices of conditions to offer before the raw claims, in display order. */
+    condition_presets: ConditionPresetApi[]
+    /** Whether PostHog can look up the subject from its name with resolve_subject. */
+    readonly can_resolve_subject: boolean
+    /** The CI config a job of this project needs, empty when the provider has none. */
+    readonly setup_snippet: string
 }
 
 export interface WorkloadProvidersResponseApi {

@@ -27326,6 +27326,28 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Claim name to value. {value} stands for what the person types into the preset's field.
+     */
+    export type ConditionPresetConditions = {[key: string]: string};
+
+    export interface ConditionPreset {
+      /** Stable identifier of the preset within its provider. */
+      key: string;
+      /** What the UI calls the preset, like Pushes to a branch. */
+      label: string;
+      /** What runs the preset matches. */
+      help_text: string;
+      /** Claim name to value. {value} stands for what the person types into the preset's field. */
+      readonly conditions: ConditionPresetConditions;
+      /** Whether the preset has a field to type a value into. */
+      takes_value: boolean;
+      /** An example value for the preset's field. */
+      placeholder: string;
+      /** The value the preset's field starts with. */
+      default_value: string;
+    }
+
+    /**
      * * `high` - high
      * * `medium` - medium
      * * `low` - low
@@ -118052,6 +118074,8 @@ export namespace Schemas {
       label: string;
       /** A hint that says where to find the claim's value. */
       help_text: string;
+      /** An example value to show in an empty field. */
+      placeholder: string;
     }
 
     export interface WorkloadProvider {
@@ -118069,6 +118093,12 @@ export namespace Schemas {
       subject_name_claim: WorkloadClaim;
       /** The claims a policy can require an exact value for, in display order. */
       condition_claims: WorkloadClaim[];
+      /** Common choices of conditions to offer before the raw claims, in display order. */
+      condition_presets: ConditionPreset[];
+      /** Whether PostHog can look up the subject from its name with resolve_subject. */
+      readonly can_resolve_subject: boolean;
+      /** The CI config a job of this project needs, empty when the provider has none. */
+      readonly setup_snippet: string;
     }
 
     /**

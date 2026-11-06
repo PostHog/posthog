@@ -5,7 +5,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.workload_identity.providers import WorkloadClaim
+from posthog.workload_identity.providers import ConditionPreset, WorkloadClaim
 from posthog.workload_identity.test.fixtures import FAKE_WORKLOAD_PROVIDER
 
 
@@ -20,6 +20,22 @@ class TestWorkloadProviderEntry(SimpleTestCase):
                 {"condition_claims": (WorkloadClaim(name="ref", label="Ref"), WorkloadClaim(name="ref", label="Ref"))},
             ),
             ("subject_as_condition_claim", {"condition_claims": (WorkloadClaim(name="repository_id", label="ID"),)}),
+            (
+                "preset_on_a_claim_policies_cannot_set",
+                {
+                    "condition_presets": (
+                        ConditionPreset(key="x", label="X", help_text="", conditions=(("sha", "abc"),)),
+                    )
+                },
+            ),
+            (
+                "preset_with_two_values_in_one_claim",
+                {
+                    "condition_presets": (
+                        ConditionPreset(key="x", label="X", help_text="", conditions=(("ref", "{value}/{value}"),)),
+                    )
+                },
+            ),
         ]
     )
     def test_rejects_an_entry_the_exchange_or_activity_log_cannot_use(

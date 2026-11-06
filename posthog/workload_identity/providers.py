@@ -11,6 +11,7 @@ import string
 from enum import StrEnum
 
 from posthog.dataclasses import frozen
+from posthog.workload_identity.resolvers import resolve_github_repository
 from posthog.workload_identity.subjects import SubjectResolver
 
 
@@ -27,6 +28,29 @@ class WorkloadClaim:
     name: str
     label: str
     help_text: str = ""
+    placeholder: str = ""
+
+
+PRESET_VALUE = "{value}"
+SNIPPET_HOST = "{host}"
+SNIPPET_PROJECT_ID = "{project_id}"
+
+
+@frozen
+class ConditionPreset:
+    """A common choice of conditions, so people pick "Pushes to a branch" rather than claim names."""
+
+    key: str
+    label: str
+    help_text: str
+    # Claim name to value. A value can hold PRESET_VALUE once, and a preset without it needs no input.
+    conditions: tuple[tuple[str, str], ...]
+    placeholder: str = ""
+    default_value: str = ""
+
+    @property
+    def takes_value(self) -> bool:
+        return any(PRESET_VALUE in value for _, value in self.conditions)
 
 
 @frozen
@@ -57,6 +81,13 @@ class WorkloadProvider:
     # Looks the subject up from its name, so people don't have to find an immutable ID by hand. `None`
     # when the provider has no API PostHog can ask.
     resolve_subject: SubjectResolver | None = None
+    condition_presets: tuple[ConditionPreset, ...] = ()
+    # The CI config that gives a job its OIDC token and points hog at the project, with SNIPPET_HOST and
+    # SNIPPET_PROJECT_ID where the values go.
+    setup_snippet: str = ""
+
+    def setup_snippet_for(self, *, host: str, project_id: int) -> str:
+        return self.setup_snippet.replace(SNIPPET_HOST, host).replace(SNIPPET_PROJECT_ID, str(project_id))
 
     def __post_init__(self) -> None:
         condition_names = [claim.name for claim in self.condition_claims]
@@ -72,13 +103,129 @@ class WorkloadProvider:
             unknown = sorted(set(fields) - recorded_names)
             if unknown:
                 raise ValueError(f"{self.key}: templates can only use recorded claims, not {unknown}.")
+        preset_keys = [preset.key for preset in self.condition_presets]
+        if len(set(preset_keys)) != len(preset_keys):
+            raise ValueError(f"{self.key}: condition presets must have unique keys.")
+        for preset in self.condition_presets:
+            claims = [claim for claim, _ in preset.conditions]
+            if not claims or len(set(claims)) != len(claims) or not set(claims) <= set(condition_names):
+                raise ValueError(f"{self.key}: preset {preset.key} must set distinct condition claims.")
+            if any(value.count(PRESET_VALUE) > 1 for _, value in preset.conditions):
+                raise ValueError(f"{self.key}: preset {preset.key} can use {PRESET_VALUE} once per value.")
 
 
-# Planned: GitHub Actions, then GitLab.com.
+GITHUB_ACTIONS = WorkloadProvider(
+    key="github_actions",
+    name="GitHub Actions",
+    issuer="https://token.actions.githubusercontent.com",
+    jwks_url="https://token.actions.githubusercontent.com/.well-known/jwks",
+    audience_check=AudienceCheck.SITE_URL,
+    subject_claim=WorkloadClaim(
+        name="repository_id",
+        label="Repository ID",
+        help_text="GitHub's number for the repository. PostHog looks it up from the repository name.",
+        placeholder="123456789",
+    ),
+    subject_name_claim=WorkloadClaim(
+        name="repository",
+        label="Repository",
+        help_text="The owner and name, as GitHub shows them.",
+        placeholder="owner/repo",
+    ),
+    condition_claims=(
+        WorkloadClaim(
+            name="ref",
+            label="Branch or tag",
+            help_text="The full ref, like refs/heads/main or refs/tags/v1.0.0.",
+            placeholder="refs/heads/main",
+        ),
+        WorkloadClaim(
+            name="environment",
+            label="Environment",
+            help_text="The GitHub environment the job deploys to.",
+            placeholder="production",
+        ),
+        WorkloadClaim(
+            name="ref_protected",
+            label="Protected ref",
+            help_text="true when any branch protection or ruleset covers the ref, whatever its rules are.",
+            placeholder="true",
+        ),
+        WorkloadClaim(
+            name="event_name",
+            label="Event",
+            help_text="What started the run, like push, workflow_dispatch or schedule.",
+            placeholder="push",
+        ),
+        WorkloadClaim(
+            name="workflow_ref",
+            label="Workflow",
+            help_text="The workflow file and its ref.",
+            placeholder="owner/repo/.github/workflows/deploy.yml@refs/heads/main",
+        ),
+        WorkloadClaim(
+            name="job_workflow_ref",
+            label="Reusable workflow",
+            help_text="For a job that calls a reusable workflow, that workflow's file and ref.",
+            placeholder="owner/shared/.github/workflows/release.yml@refs/heads/main",
+        ),
+        WorkloadClaim(
+            name="runner_environment",
+            label="Runner",
+            help_text="github-hosted or self-hosted.",
+            placeholder="github-hosted",
+        ),
+    ),
+    recorded_claims=(
+        WorkloadClaim(name="repository", label="Repository"),
+        WorkloadClaim(name="workflow", label="Workflow"),
+        WorkloadClaim(name="run_id", label="Run"),
+        WorkloadClaim(name="run_attempt", label="Attempt"),
+        WorkloadClaim(name="sha", label="Commit"),
+        WorkloadClaim(name="ref", label="Branch or tag"),
+        WorkloadClaim(name="environment", label="Environment"),
+        WorkloadClaim(name="event_name", label="Event"),
+        WorkloadClaim(name="actor", label="Started by"),
+    ),
+    actor_label_template="{repository} · {workflow} run {run_id}",
+    run_url_template="https://github.com/{repository}/actions/runs/{run_id}",
+    docs_url="https://posthog.com/docs/api/workload-identity/github-actions",
+    resolve_subject=resolve_github_repository,
+    condition_presets=(
+        ConditionPreset(
+            key="branch_push",
+            label="Pushes to a branch",
+            # A pull_request_target run from a fork carries the base branch as its ref, so the event pins
+            # the preset to code that is on the branch.
+            help_text="Runs for commits pushed to this branch. Pull request runs don't match, even ones that target the branch.",
+            conditions=(("ref", f"refs/heads/{PRESET_VALUE}"), ("event_name", "push")),
+            placeholder="main",
+            default_value="main",
+        ),
+        ConditionPreset(
+            key="environment",
+            label="A deployment environment",
+            help_text="Jobs that deploy to this GitHub environment. Its protection rules decide who can start them.",
+            conditions=(("environment", PRESET_VALUE),),
+            placeholder="production",
+            default_value="production",
+        ),
+    ),
+    setup_snippet=f"""permissions:
+  id-token: write # lets hog get an OIDC token for PostHog
+  contents: read
+env:
+  HOG_HOST: {SNIPPET_HOST}
+  HOG_PROJECT_ID: "{SNIPPET_PROJECT_ID}"
+""",
+)
+
 # Can't be supported with this design:
 # - Bitbucket Pipelines fixes the token's audience per workspace, so a token can't name this PostHog instance.
 # - Self-managed GitLab makes each instance its own issuer, and only the issuers listed here are trusted.
-SUPPORTED_WORKLOAD_PROVIDERS: tuple[WorkloadProvider, ...] = ()
+# - GitHub Enterprise Cloud with a customized issuer sends https://token.actions.githubusercontent.com/<enterprise>,
+#   an issuer per enterprise.
+SUPPORTED_WORKLOAD_PROVIDERS: tuple[WorkloadProvider, ...] = (GITHUB_ACTIONS,)
 
 
 def normalize_issuer(issuer: str) -> str:

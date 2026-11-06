@@ -133,6 +133,23 @@ describe('workload credentials', () => {
         expect((error as HogError).hint).toContain(hint)
     })
 
+    test('waits once when the repository used up its exchanges for a moment', async () => {
+        let calls = 0
+        const runtime = runtimeWith({
+            env: IN_CI,
+            respond: () =>
+                calls++ === 0
+                    ? { status: 429, body: { error_code: 'workload_rate_limited', retry_after: 3 } }
+                    : exchanged(WORKLOAD_TOKEN),
+        })
+        const start = runtime.now()
+
+        const credentials = await resolveCredentials(runtime, { workloadProviders: [FAKE_PROVIDER] })
+
+        expect(credentials.source).toBe('workload')
+        expect(runtime.now() - start).toBe(3000)
+    })
+
     test('a job with no credentials at all names the fix in the job', async () => {
         const runtime = runtimeWith({ env: { ...IN_CI, FAKE_CI_TOKEN: '' } })
         const error = await resolveCredentials(runtime, { workloadProviders: [FAKE_PROVIDER] }).catch((e) => e)
