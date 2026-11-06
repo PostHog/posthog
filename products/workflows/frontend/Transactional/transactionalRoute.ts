@@ -2,7 +2,7 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
 import type { MessagingNavTabKey } from '../messagingTabs'
 
-export type TransactionalTab = 'transactional' | 'log' | 'metrics'
+export type TransactionalTab = 'transactional' | 'log' | 'received' | 'metrics'
 export type TransactionalRoute = MessagingNavTabKey | TransactionalTab | 'new'
 
 /** The view a URL opens in the Transactional scene, or null for a URL that belongs to another scene. */

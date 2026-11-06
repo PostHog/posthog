@@ -21,7 +21,7 @@ import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
 import { MessagingSetup } from '../MessagingSetup'
 import { MessagingTabActions } from '../MessagingTabActions'
 import { MESSAGING_TAB_CONTENT, isMessagingSetupTab } from '../messagingTabs'
-import { TransactionalEmailLog } from './log/TransactionalEmailLog'
+import { EmailLogViews } from './log/EmailLogViews'
 import { TransactionalEmailMetrics } from './metrics/TransactionalEmailMetrics'
 import { TransactionalEmailsTable } from './TransactionalEmailsTable'
 import { TransactionalRoute, TransactionalTab, transactionalRouteFor } from './transactionalRoute'
@@ -41,7 +41,8 @@ export function TransactionalScene(): JSX.Element {
     const lastRoute = useRef<TransactionalRoute>(route ?? 'transactional')
     lastRoute.current = route ?? lastRoute.current
     const currentTab = lastRoute.current
-    const isTransactionalTab = currentTab === 'transactional' || currentTab === 'log' || currentTab === 'metrics'
+    const isTransactionalTab =
+        currentTab === 'transactional' || currentTab === 'log' || currentTab === 'received' || currentTab === 'metrics'
 
     if (!showTransactional) {
         return <NotFound object="page" />
@@ -89,7 +90,13 @@ export function TransactionalScene(): JSX.Element {
             />
             <EmailSuspensionBanner />
             <LemonTabs<TransactionalTab | 'library' | 'messaging-setup'>
-                activeKey={isTransactionalTab || currentTab === 'library' ? currentTab : 'messaging-setup'}
+                activeKey={
+                    currentTab === 'received'
+                        ? 'log'
+                        : isTransactionalTab || currentTab === 'library'
+                          ? currentTab
+                          : 'messaging-setup'
+                }
                 tabs={[
                     {
                         label: 'Transactional emails',
@@ -101,7 +108,7 @@ export function TransactionalScene(): JSX.Element {
                         label: 'Log',
                         key: 'log',
                         link: urls.transactionalLog(),
-                        content: <TransactionalEmailLog />,
+                        content: <EmailLogViews view={currentTab === 'received' ? 'received' : 'sent'} />,
                     },
                     {
                         label: 'Metrics',

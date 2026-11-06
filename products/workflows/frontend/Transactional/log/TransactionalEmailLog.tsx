@@ -13,28 +13,11 @@ import { urls } from 'scenes/urls'
 import type { TransactionalEmailLogEntryApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { messageTemplatesLogic } from '../../TemplateLibrary/messageTemplatesLogic'
+import { EmailAddress } from './EmailAddress'
 import { EMAIL_STATUS_DESCRIPTION, EMAIL_STATUS_LABEL, EMAIL_STATUS_TAG, emailReasonText } from './emailLogStatus'
 import { QuillTransactionalEmailLogFilters } from './QuillTransactionalEmailLogFilters'
 import { TransactionalEmailLogDateFilter } from './TransactionalEmailLogDateFilter'
 import { transactionalEmailLogLogic } from './transactionalEmailLogLogic'
-
-/** Lets a long address wrap before its domain instead of mid-word. */
-function EmailAddress({ address }: { address: string }): JSX.Element {
-    if (!address) {
-        return <span className="text-secondary">Unknown recipient</span>
-    }
-    const at = address.lastIndexOf('@')
-    if (at <= 0) {
-        return <span className="break-all">{address}</span>
-    }
-    return (
-        <span className="break-words">
-            {address.slice(0, at)}
-            <wbr />
-            {address.slice(at)}
-        </span>
-    )
-}
 
 const STATUS_OPTIONS = (['delivered', 'sent', 'queued', 'bounced', 'complained', 'failed'] as const).map((status) => ({
     value: status,
