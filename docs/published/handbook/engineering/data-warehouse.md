@@ -24,6 +24,14 @@ Direct-connection catalogs contain no authored models and are exempt from the re
 
 This reservation does not add qualified names to existing models or require a namespace on new models.
 
+## Model refresh minimums
+
+The `data-modeling-refresh-floor` flag evaluates locally using `organization_plan` (`free`, `paid`, or `unknown`) and `organization_package` (`paid`, `none`, or `unknown`). Billing sync records whether the organization has Boost, Teams, Scale, Enterprise, a custom contract, or an active trial of one of those packages. Only a billing plan of `free` or `paid` with none of those reads as `none`. Missing package data preserves the last known status; organizations without a successful package sync remain `unknown`, so run `sync_from_billing` before you target `organization_package`.
+
+The proposed rollout targets free organizations with a `1hour` minimum and paid organizations with `organization_package=none` with a `30min` minimum. Paid organizations with a package retain the existing `15min` minimum. Do not target an unknown plan or unknown paid-package status with the no-package rule. These are flag targeting rules and payloads, not hardcoded defaults.
+
+Each variant payload contains `min_interval` and `clamp_existing`. `min_interval` can't be coarser than `7day`, the coarsest cadence an endpoint can use, and a coarser value counts as an invalid payload. With `clamp_existing: false`, existing faster cadences keep running. With `clamp_existing: true`, schedules run at the minimum while preserving the saved cadence. Subscription and package changes enqueue a schedule reconciliation after their transaction commits, and a second one five minutes later because Temporal's schedule listing can lag. After changing flag targeting or payloads, use `reconcile_organization_schedules --organization-ids` to apply the policy to existing tier schedules. Deploying the code alone does not enable the rollout.
+
 ## Model materialization usage
 
 The Models **Usage** tab shows bytes read, CPU time, and run counts for materializations over a preset or custom range of complete UTC days.

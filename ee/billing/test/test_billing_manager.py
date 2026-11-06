@@ -11,7 +11,7 @@ from urllib.request import Request as UrllibRequest
 
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -26,6 +26,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.data_modeling.backend.facade import api as data_modeling_api
 from products.logs.backend.models import LogsRetentionRule
 
 from ee.billing.billing_manager import (
@@ -48,6 +49,10 @@ from ee.billing.billing_manager import (
 from ee.billing.billing_types import BillingProvider, BillingStatus, Product
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 from ee.models.license import License, LicenseManager
+
+_NO_PACKAGE_PRODUCTS = [
+    {"type": "platform_and_support", "addons": [{"type": "teams", "subscribed": False, "plans": []}]},
+]
 
 
 def create_default_products_response(**kwargs) -> dict[str, list[Product]]:
@@ -528,6 +533,169 @@ class TestBillingManager(BaseTest):
         self.team.refresh_from_db()
         # Retention drops to the default; unrelated Logs settings survive.
         assert self.team.logs_settings == {"retention_days": 14, "json_parse_logs": True}
+
+    @parameterized.expand(
+        [
+            ("upgrade", False, None, {"has_active_subscription": True}, True),
+            ("downgrade", True, None, {"has_active_subscription": False}, True),
+            ("same_plan", True, None, {"has_active_subscription": True}, False),
+            ("partial_response", False, None, {}, False),
+            ("paid_missing_products", True, True, {}, False),
+            ("paid_empty_products", True, True, {"products": []}, False),
+            ("paid_missing_addons", True, True, {"products": [{"type": "platform_and_support"}]}, False),
+            (
+                "paid_malformed_plans",
+                True,
+                True,
+                {
+                    "products": [
+                        {
+                            "type": "platform_and_support",
+                            "addons": [{"type": "teams", "subscribed": False, "plans": None}],
+                        }
+                    ]
+                },
+                False,
+            ),
+            ("first_package_sync", True, None, {"billing_plan": "paid", "products": _NO_PACKAGE_PRODUCTS}, True),
+            ("free_first_package_sync", False, None, {"has_active_subscription": False, "billing_plan": "free"}, False),
+            ("paid_plan_missing_products", True, True, {"billing_plan": "paid"}, False),
+            ("paid_plan_empty_products", True, True, {"billing_plan": "paid", "products": []}, False),
+            ("still_no_package", True, False, {"billing_plan": "paid", "products": _NO_PACKAGE_PRODUCTS}, False),
+            (
+                "flat_fee_stays_unknown",
+                True,
+                None,
+                {"products": [{"type": "platform_and_support", "plans": [], "addons": []}]},
+                False,
+            ),
+            ("contract_customer", True, False, {"billing_plan": "paid", "subscription_level": "custom"}, True),
+            (
+                "active_package_trial",
+                True,
+                False,
+                {"billing_plan": "paid", "trial": {"status": "active", "target": "scale"}},
+                True,
+            ),
+            (
+                "expired_package_trial",
+                True,
+                True,
+                {
+                    "billing_plan": "paid",
+                    "products": _NO_PACKAGE_PRODUCTS,
+                    "trial": {"status": "expired", "target": "scale"},
+                },
+                True,
+            ),
+            *[
+                (f"billing_plan_{package}", True, False, {"billing_plan": package}, True)
+                for package in ("boost", "scale", "enterprise")
+            ],
+            *[
+                (
+                    f"package_added_{package}",
+                    True,
+                    False,
+                    {"products": [{"type": "platform_and_support", "addons": [{"type": package, "subscribed": True}]}]},
+                    True,
+                )
+                for package in ("boost", "teams", "scale", "enterprise")
+            ],
+            (
+                "current_plan_package",
+                True,
+                False,
+                {
+                    "products": [
+                        {
+                            "type": "platform_and_support",
+                            "addons": [{"type": "teams", "subscribed": False, "plans": [{"current_plan": True}]}],
+                        }
+                    ]
+                },
+                True,
+            ),
+            (
+                "inactive_package",
+                True,
+                True,
+                {"billing_plan": "paid", "products": _NO_PACKAGE_PRODUCTS},
+                True,
+            ),
+            (
+                "unknown_package_status",
+                True,
+                True,
+                {"products": [{"type": "platform_and_support", "addons": [{"type": "teams"}]}]},
+                False,
+            ),
+        ]
+    )
+    def test_update_org_details_reconciles_refresh_schedules_on_plan_or_package_changes(
+        self, _name: str, was_paid: bool, had_package: bool | None, customer: dict[str, object], expect_reconcile: bool
+    ) -> None:
+        organization = self.organization
+        organization.has_active_subscription = was_paid
+        organization.save()
+        data_modeling_api.update_organization_billing_package(str(organization.id), had_package)
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with (
+            patch(
+                "products.data_modeling.backend.tasks.reconcile_organization_schedules"
+                ".reconcile_organization_schedules.delay"
+            ) as delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            BillingManager(license).update_org_details(organization, cast(BillingStatus, {"customer": customer}))
+
+        assert delay.call_args_list == ([call(str(organization.id))] if expect_reconcile else [])
+        delay.reset_mock()
+        with (
+            patch(
+                "products.data_modeling.backend.tasks.reconcile_organization_schedules"
+                ".reconcile_organization_schedules.delay",
+                delay,
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            BillingManager(license).update_org_details(organization, cast(BillingStatus, {"customer": customer}))
+        delay.assert_not_called()
+
+    def test_older_billing_status_does_not_reverse_a_package_only_change(self):
+        organization = self.organization
+        organization.has_active_subscription = True
+        organization.save()
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+        no_package: dict[str, Any] = {"billing_plan": "paid", "products": _NO_PACKAGE_PRODUCTS}
+
+        def sync(computed_at: str | None, customer: dict[str, Any]) -> list[Any]:
+            with (
+                patch(
+                    "products.data_modeling.backend.tasks.reconcile_organization_schedules"
+                    ".reconcile_organization_schedules.delay"
+                ) as delay,
+                self.captureOnCommitCallbacks(execute=True),
+            ):
+                BillingManager(license).update_org_details(
+                    organization, cast(BillingStatus, {"customer": customer, "computed_at": computed_at})
+                )
+            return delay.call_args_list
+
+        sync("2026-11-01T00:00:00+00:00", no_package)
+        assert sync("2026-11-03T00:00:00+00:00", {"billing_plan": "scale"}) == [call(str(organization.id))]
+        assert sync("2026-11-02T00:00:00+00:00", no_package) == []
+        assert sync(None, no_package) == []
+        assert sync("2026-11-04T00:00:00+00:00", no_package) == [call(str(organization.id))]
 
     def test_update_org_details_keeps_logs_retention_while_entitled(self):
         organization = self.organization

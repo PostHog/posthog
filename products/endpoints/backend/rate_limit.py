@@ -63,6 +63,8 @@ def _cache_timeout(state: MaterializedServingState, *, pending: bool = False) ->
     # The cache only refills on a miss. A snapshot that outlives its freshness window would
     # keep the endpoint on the inline rate after the next run refreshed the table, so the
     # entry expires with the window.
+    if state.window_from_plan_floor:
+        return STALE_STATE_RECHECK_TTL
     if not state.ready or state.materialized_at is None or not state.freshness_seconds:
         # A pending materialization becomes servable on its own, with nothing to refill the
         # entry, so hold it only briefly. A version with no materialization keeps the full

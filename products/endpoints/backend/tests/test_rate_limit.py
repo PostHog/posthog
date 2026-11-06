@@ -9,13 +9,16 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from posthoganalytics.types import FeatureFlagResult
 from prometheus_client import REGISTRY
 from rest_framework.exceptions import Throttled
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
-from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.api import set_declared_target
+from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
+from products.endpoints.backend.logic.materialization import build_materialization_info
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.presentation.throttles import (
     EndpointBurstThrottle,
@@ -312,7 +315,9 @@ class TestCheckAndCacheMaterializationStatus(APIBaseTest):
         self.assertFalse(is_endpoint_materialization_ready(self.team.id, "versioned_endpoint3"))
 
 
-def _create_ready_materialized_endpoint(team, user, name: str, materialized_at) -> None:
+def _create_ready_materialized_endpoint(
+    team, user, name: str, materialized_at, declared_target: timedelta | None = None
+) -> None:
     saved_query = DataWarehouseSavedQuery.objects.create(
         name=f"{name}_query",
         team=team,
@@ -344,6 +349,11 @@ def _create_ready_materialized_endpoint(team, user, name: str, materialized_at) 
         saved_query=saved_query,
         cache_ttl_seconds=3600,
     )
+    if declared_target is not None:
+        node = Node.objects.create(
+            team=team, dag=DAG.get_or_create_default(team), saved_query=saved_query, type=NodeType.ENDPOINT
+        )
+        set_declared_target(node, declared_target)
 
 
 class TestIsMaterializedEndpointRequest(APIBaseTest):
@@ -396,6 +406,19 @@ class TestIsMaterializedEndpointRequest(APIBaseTest):
 
         self.assertTrue(_is_materialized_endpoint_request(request, view))
         self.assertTrue(is_endpoint_materialization_ready(self.team.id, "lazy_endpoint"))
+
+    @parameterized.expand([("latest", None), ("numbered", 1)])
+    def test_loading_a_version_preloads_what_the_serving_window_reads(self, _name, version_number):
+        _create_ready_materialized_endpoint(self.team, self.user, "preloaded", timezone.now())
+        endpoint = Endpoint.objects.get(team=self.team, name="preloaded")
+        endpoint.versions.update(team=self.team)
+
+        version = endpoint.get_version(version_number)
+
+        with self.assertNumQueries(0):
+            team = version.team
+            assert team is not None
+            self.assertEqual(team.organization.id, self.organization.id)
 
     @parameterized.expand(
         [
@@ -522,6 +545,48 @@ class TestEndpointThrottles(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("clamped_view_serves_until_its_next_run", "6hour", True, timedelta(hours=2), True),
+            ("clamped_view_goes_stale_past_the_floor", "6hour", True, timedelta(hours=7), False),
+            ("unclamped_view_keeps_its_declared_window", "6hour", False, timedelta(hours=2), False),
+            ("finer_floor_keeps_the_declared_window", "15min", True, timedelta(hours=2), False),
+            ("unreadable_floor_keeps_the_declared_window", "6 hours", True, timedelta(hours=2), False),
+            ("view_with_no_cadence_keeps_its_cache_ttl", "6hour", True, timedelta(hours=2), False, None),
+        ]
+    )
+    def test_plan_floor_sets_the_serving_window_only_when_the_scheduler_applies_it(
+        self, name, min_interval, clamp_existing, materialized_age, expected_serving, declared_target=timedelta(hours=1)
+    ):
+        _create_ready_materialized_endpoint(
+            self.team, self.user, name, timezone.now() - materialized_age, declared_target
+        )
+        request = MagicMock()
+        request.data = {}
+        request.query_params = {}
+        view = MagicMock()
+        view.team_id = self.team.id
+        view.kwargs = {"name": name}
+        throttle = EndpointBurstThrottle()
+
+        with patch(
+            "products.data_modeling.backend.logic.refresh_floor.posthoganalytics.get_feature_flag_result",
+            return_value=FeatureFlagResult(
+                key="data-modeling-refresh-floor",
+                enabled=True,
+                variant=None,
+                payload={"min_interval": min_interval, "clamp_existing": clamp_existing},
+                reason=None,
+            ),
+        ):
+            throttle.allow_request(request, view)
+            info = build_materialization_info(
+                EndpointVersion.objects.get(endpoint__name=name, endpoint__team=self.team)
+            )
+
+        self.assertEqual(throttle.scope, "materialized_endpoint_burst" if expected_serving else "api_queries_burst")
+        self.assertEqual(info["ready"], expected_serving)
+
+    @parameterized.expand(
+        [
             ("materialized", True, "materialized_endpoint_burst", "materialized_rate"),
             ("inline", False, "api_queries_burst", "inline_rate"),
         ]
@@ -610,6 +675,28 @@ class TestMaterializationStateCacheTimeout(APIBaseTest):
 
         timeout = cache_set.call_args.kwargs["timeout"]
         self.assertAlmostEqual(timeout, expected_timeout, delta=5)
+
+    def test_snapshot_serving_on_the_plan_floor_rechecks_soon(self):
+        _create_ready_materialized_endpoint(
+            self.team, self.user, "clamped_timed_endpoint", timezone.now() - timedelta(hours=2), timedelta(hours=1)
+        )
+
+        with (
+            patch(
+                "products.data_modeling.backend.logic.refresh_floor.posthoganalytics.get_feature_flag_result",
+                return_value=FeatureFlagResult(
+                    key="data-modeling-refresh-floor",
+                    enabled=True,
+                    variant=None,
+                    payload={"min_interval": "6hour", "clamp_existing": True},
+                    reason=None,
+                ),
+            ),
+            patch("products.endpoints.backend.rate_limit.cache.set", wraps=cache.set) as cache_set,
+        ):
+            self.assertTrue(check_materialized_request(self.team.id, "clamped_timed_endpoint", None, {}))
+
+        self.assertEqual(cache_set.call_args.kwargs["timeout"], STALE_STATE_RECHECK_TTL)
 
     @parameterized.expand(
         [

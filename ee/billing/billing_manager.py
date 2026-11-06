@@ -13,6 +13,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from django.db import transaction
 from django.db.models import F, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -37,6 +38,8 @@ from posthog.models.team.event_retention import (
 )
 from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
+
+from products.data_modeling.backend.facade import api as data_modeling_api
 
 from ee.billing.access_token import mint_billing_access_token
 from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo
@@ -84,6 +87,7 @@ class FundingStatusUnavailable(Exception):
 
 
 _FUNDING_STATUS_UNAVAILABLE_CACHE_VALUE = "__funding_status_unavailable__"
+_PAID_PACKAGES = ("boost", "teams", "scale", "enterprise")
 
 
 @frozen
@@ -133,6 +137,41 @@ def _has_quota_limiting_markers(usage: dict | None) -> bool:
             return True
 
     return False
+
+
+def _subscribes_to_paid_package(products: object) -> bool:
+    if not isinstance(products, list):
+        return False
+    for product in products:
+        if not isinstance(product, dict) or product.get("type") != "platform_and_support":
+            continue
+        addons = product.get("addons")
+        for addon in addons if isinstance(addons, list) else []:
+            if not isinstance(addon, dict) or addon.get("type") not in _PAID_PACKAGES:
+                continue
+            plans = addon.get("plans")
+            if addon.get("subscribed") is True or (
+                isinstance(plans, list)
+                and any(isinstance(plan, dict) and plan.get("current_plan") is True for plan in plans)
+            ):
+                return True
+    return False
+
+
+def _paid_package_status(customer: CustomerInfo) -> bool | None:
+    billing_plan = customer.get("billing_plan")
+    trial = customer.get("trial")
+    products = customer.get("products")
+    if (
+        billing_plan in _PAID_PACKAGES
+        or customer.get("subscription_level") == "custom"
+        or (isinstance(trial, dict) and trial.get("status") == "active" and trial.get("target") in _PAID_PACKAGES)
+        or _subscribes_to_paid_package(products)
+    ):
+        return True
+    if billing_plan == "free" or (billing_plan == "paid" and products):
+        return False
+    return None
 
 
 def _is_older_than_applied_billing_status(organization: Organization, computed_at: datetime) -> bool:
@@ -829,6 +868,7 @@ class BillingManager:
         available_product_features = data.get("available_product_features", None)
         revoked_feature_keys: set[str] = set()
         events_retention_changed = False
+        plan_changed = False
         # An empty list is deliberately ignored: this runs on hot paths (get_billing, usage
         # reports) and a partial or error-path billing response must not downgrade the org.
         # Genuine cancellations still send the (non-empty) free-tier feature list.
@@ -858,6 +898,7 @@ class BillingManager:
             if has_active_subscription != organization.has_active_subscription:
                 organization.has_active_subscription = has_active_subscription
                 org_modified = True
+                plan_changed = True
 
         customer_trust_scores = data.get("customer_trust_scores", {})
 
@@ -891,8 +932,14 @@ class BillingManager:
             organization.usage["billing_status_computed_at"] = computed_at.isoformat()
             organization.usage["billing_latest_usage_report_date"] = billing_status.get("latest_usage_report_date")
 
-        if org_modified:
-            organization.save()
+        with transaction.atomic():
+            if org_modified:
+                organization.save()
+            package_changed = data_modeling_api.update_organization_billing_package(
+                str(organization.id), _paid_package_status(data), computed_at
+            )
+            if plan_changed or (package_changed and organization.billing_plan_label() == "paid"):
+                data_modeling_api.schedule_organization_schedule_reconcile(str(organization.id))
 
         if events_retention_changed:
             reconcile_organization_events_retention(organization)

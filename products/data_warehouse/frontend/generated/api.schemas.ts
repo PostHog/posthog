@@ -1832,6 +1832,7 @@ export const MaterializeSyncFrequencyEnumApi = {
 
 /**
  * * `source` - source
+ * * `plan` - plan
  * * `consumer` - consumer
  */
 export type SyncFrequencyBlockedByEnumApi =
@@ -1839,6 +1840,7 @@ export type SyncFrequencyBlockedByEnumApi =
 
 export const SyncFrequencyBlockedByEnumApi = {
     Source: 'source',
+    Plan: 'plan',
     Consumer: 'consumer',
 } as const
 
@@ -1866,12 +1868,13 @@ export interface SyncFrequencyOptionApi {
     cadence: MaterializeSyncFrequencyEnumApi
     /** False when writing this cadence would be rejected. */
     allowed: boolean
-    /** Which side withholds this cadence: 'source' when no upstream source syncs that often, 'consumer' when a downstream view or endpoint refreshes more often than this. Null when the cadence is allowed.
+    /** Which side withholds this cadence: 'source' when no upstream source syncs that often, 'plan' when the organization's plan does not allow refreshing that often, 'consumer' when a downstream view or endpoint refreshes more often than this. Null when the cadence is allowed.
      *
      * * `source` - source
+     * * `plan` - plan
      * * `consumer` - consumer */
     blocked_by: SyncFrequencyBlockedByEnumApi | null
-    /** The source or consumer named in `blocked_by`. Null when allowed, and also when the blocker sits outside the caller's access grants, where `blocked_by` still gives the direction. */
+    /** The source or consumer named in `blocked_by`. Null when allowed, when `blocked_by` is 'plan', and also when the blocker sits outside the caller's access grants, where `blocked_by` still gives the direction. */
     blocker: SyncFrequencyBlockerApi | null
     /** Upstream materialized views that would refresh more often than they do now if this cadence were chosen, because a view cannot be fresher than its inputs. Only views the caller may read are listed. Empty when the cadence is blocked. */
     speeds_up: SyncFrequencyBlockerApi[]
@@ -1886,6 +1889,38 @@ export interface SyncFrequencyBoundApi {
     blocker: SyncFrequencyBlockerApi | null
 }
 
+/**
+ * * `source` - source
+ * * `plan` - plan
+ */
+export type SyncFrequencyClampReasonEnumApi =
+    (typeof SyncFrequencyClampReasonEnumApi)[keyof typeof SyncFrequencyClampReasonEnumApi]
+
+export const SyncFrequencyClampReasonEnumApi = {
+    Source: 'source',
+    Plan: 'plan',
+} as const
+
+export interface SyncFrequencyEffectiveApi {
+    /** The `sync_frequency` value the view refreshes at now. The saved `sync_frequency` is never rewritten, so this differs from it when something holds the view back, and is finer than it when a downstream view or endpoint needs fresher data.
+     *
+     * * `never` - never
+     * * `15min` - 15min
+     * * `30min` - 30min
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day
+     * * `30day` - 30day */
+    cadence: SavedQuerySyncFrequencyEnumApi
+    /** Why `cadence` is slower than the view would otherwise refresh: 'plan' when the organization's plan does not allow refreshing that often, 'source' when the upstream sources do not sync that often. Null when nothing holds the view back.
+     *
+     * * `source` - source
+     * * `plan` - plan */
+    reason: SyncFrequencyClampReasonEnumApi | null
+}
+
 export interface SyncFrequencyBoundsApi {
     /** What governs this view's cadence. 'tiered' is the only mode where `options` is meaningful and `sync_frequency` is writable per view. 'managed_viewset' means PostHog owns the view, and 'no_node' means the view has no data modeling node to store a cadence on.
      *
@@ -1897,8 +1932,12 @@ export interface SyncFrequencyBoundsApi {
     options: SyncFrequencyOptionApi[]
     /** The fastest bound: no cadence finer than this is allowed, because the source named here does not sync more often. Null when no source withholds a cadence. */
     floor: SyncFrequencyBoundApi | null
+    /** The fastest cadence the organization's plan allows: no cadence finer than this can be saved. `blocker` is always null. Null when the plan withholds no cadence. */
+    plan_floor: SyncFrequencyBoundApi | null
     /** The slowest bound: no cadence coarser than this is allowed, because the consumer named here refreshes that often. Null when no consumer withholds a cadence. */
     ceiling: SyncFrequencyBoundApi | null
+    /** How often the view actually refreshes, and what holds it back when something does. Null when no schedule runs the view, and outside 'tiered' mode. */
+    effective: SyncFrequencyEffectiveApi | null
     /** Upstream sources with no sync schedule, so the floor is a guess: these arrive when someone runs them, and refreshing more often than they really sync will serve stale data. Only sources the caller may read are listed. */
     best_effort_sources: SyncFrequencyBlockerApi[]
     /** True when at least one such source sits outside the caller's access grants, so the list above is incomplete and the caveat still applies. */
@@ -1948,7 +1987,7 @@ export interface DataWarehouseSavedQueryApi {
      * * `7day` - 7day
      * * `30day` - 30day */
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
-    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
+    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling, and the organization's plan can set a floor too. Read-only, and present on retrieve, create and update responses only. */
     readonly sync_frequency_bounds: SyncFrequencyBoundsApi
     readonly columns: readonly DataWarehouseSavedQueryApiColumnsItem[]
     readonly status: DataWarehouseSavedQueryStatusEnumApi | null
@@ -2074,7 +2113,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * * `7day` - 7day
      * * `30day` - 30day */
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
-    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling. Read-only, and present on retrieve, create and update responses only. */
+    /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling, and the organization's plan can set a floor too. Read-only, and present on retrieve, create and update responses only. */
     readonly sync_frequency_bounds?: SyncFrequencyBoundsApi
     readonly columns?: readonly PatchedDataWarehouseSavedQueryApiColumnsItem[]
     readonly status?: DataWarehouseSavedQueryStatusEnumApi | null

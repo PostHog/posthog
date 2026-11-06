@@ -15,6 +15,7 @@ from django.utils import timezone
 
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
+from posthoganalytics.types import FeatureFlagResult
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
@@ -1400,21 +1401,74 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(bounds["frequency_mode"], "tiered")
         self.assertTrue(bounds["options"])
 
-    def test_every_offered_cadence_is_accepted_and_every_withheld_one_is_refused(self):
+    def _floor_free_plans(self, payload: dict | None) -> Any:
+        self.organization.has_active_subscription = False
+        self.organization.save(update_fields=["has_active_subscription"])
+
+        def evaluate(key, distinct_id, *, person_properties=None, **_kwargs):
+            enabled = payload is not None and (person_properties or {}).get("organization_plan") == "free"
+            return FeatureFlagResult(key=key, enabled=enabled, variant=None, payload=payload, reason=None)
+
+        return patch(
+            "products.data_modeling.backend.logic.refresh_floor.posthoganalytics.get_feature_flag_result",
+            side_effect=evaluate,
+        )
+
+    @parameterized.expand(
+        [
+            ("consumer_ceiling", timedelta(hours=6), None, "consumer"),
+            ("plan_floor", timedelta(days=30), {"min_interval": "6hour"}, "plan"),
+        ]
+    )
+    def test_every_offered_cadence_is_accepted_and_every_withheld_one_is_refused(
+        self, _name, consumer_target, plan_floor, blocked_by
+    ):
         # The whole point of serving bounds is that the picker and the write path cannot
         # disagree. Walk every option the API offered and hold the PATCH to that promise.
-        upstream = self._create_view_with_a_consumer(consumer_target=timedelta(hours=6))
-        options = self._read_frequency_bounds(upstream["id"])["options"]
-        self.assertTrue(any(option["allowed"] for option in options))
-        self.assertTrue(any(not option["allowed"] for option in options))
+        upstream = self._create_view_with_a_consumer(consumer_target=consumer_target)
+        with self._floor_free_plans(plan_floor):
+            options = self._read_frequency_bounds(upstream["id"])["options"]
+            self.assertTrue(any(option["allowed"] for option in options))
+            self.assertIn(blocked_by, {option["blocked_by"] for option in options if not option["allowed"]})
 
-        for option in options:
-            with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
-                response = self.client.patch(
-                    f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}",
-                    {"sync_frequency": option["cadence"]},
-                )
-            self.assertEqual(response.status_code, 200 if option["allowed"] else 400, (option, response.json()))
+            for option in options:
+                with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+                    response = self.client.patch(
+                        f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}",
+                        {"sync_frequency": option["cadence"]},
+                    )
+                self.assertEqual(response.status_code, 200 if option["allowed"] else 400, (option, response.json()))
+
+    @parameterized.expand(
+        [
+            (
+                "clamped",
+                {"min_interval": "6hour", "clamp_existing": True},
+                "6 hours",
+                {"cadence": "6hour", "reason": "plan"},
+            ),
+            ("kept_until_clamped", {"min_interval": "6hour"}, "6 hours", {"cadence": "15min", "reason": None}),
+            ("not_floored", None, None, {"cadence": "15min", "reason": None}),
+        ]
+    )
+    def test_bounds_report_the_plan_floor_and_the_cadence_the_view_runs_at(
+        self, _name, plan_floor, expected_label, expected_effective
+    ):
+        # The picker says "refreshes every 6 hours on your plan (set to 15 minutes)" from this, so the
+        # saved cadence and the one the scheduler uses must both come back.
+        from products.data_modeling.backend.facade.api import set_declared_target
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        set_declared_target(Node.objects.get(saved_query_id=saved_query["id"]), timedelta(minutes=15))
+
+        with self._floor_free_plans(plan_floor):
+            response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}")
+
+        self.assertEqual(response.status_code, 200, response.json())
+        bounds = response.json()["sync_frequency_bounds"]
+        self.assertEqual(response.json()["sync_frequency"], "15min")
+        self.assertEqual(bounds["plan_floor"], {"label": expected_label, "blocker": None} if expected_label else None)
+        self.assertEqual(bounds["effective"], expected_effective)
 
     def test_a_withheld_cadence_names_the_view_that_withholds_it(self):
         # A disabled option with no reason reads as a broken control. Every block carries the

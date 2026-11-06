@@ -354,6 +354,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # --- Special (has source_team + destination_team, not a plain team) ---
         "ResourceTransfer",
         # --- Organization-scoped (correctly above team level) ---
+        "PendingOrganizationReconcile",  # Plain organization_id survives organization deletion; no API endpoint.
+        "OrganizationRefreshPolicy",  # Organization-scoped billing package status; no API endpoint.
         "OrganizationDomain",
         "OrganizationIntegration",
         "OrganizationInvite",

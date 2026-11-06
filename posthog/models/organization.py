@@ -504,6 +504,17 @@ class Organization(ModelActivityMixin, UUIDTModel):
             return "enterprise"
         return "paid"
 
+    def billing_plan_label(self) -> Literal["free", "paid", "unknown"]:
+        """The `organization_plan` person property that staged-rollout flags target.
+
+        Read from `has_active_subscription`, which billing syncs, rather than from `get_plan_tier`,
+        which calls an organization "paid" as soon as it has any product feature. "unknown" until
+        billing has synced the organization once.
+        """
+        if self.has_active_subscription is None:
+            return "unknown"
+        return "paid" if self.has_active_subscription else "free"
+
     def limit_product_until_end_of_billing_cycle(self, resource: "QuotaResource") -> None:
         """
         Limit a resource for all teams of this organization until the end of the current billing cycle.

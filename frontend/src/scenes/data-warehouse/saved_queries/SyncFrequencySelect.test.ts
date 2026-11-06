@@ -14,6 +14,7 @@ import {
     unpinnedCadence,
     speedUpWarning,
     unsatisfiableReason,
+    withPinnedSegment,
 } from './SyncFrequencySelect'
 
 describe('SyncFrequencySelect', () => {
@@ -246,6 +247,36 @@ describe('SyncFrequencySelect', () => {
         expect(explanation).toContain('hubspot_contacts has no sync schedule')
     })
 
+    it.each([
+        ['a pin that would hold the cadence', { unpinnedBy: { '1hour': '15min' } }],
+        [
+            'a pin that would strand a downstream view',
+            { unpinnedBy: { '1hour': '15min' }, pinBlockedBy: { '1hour': blocker('maps') } },
+        ],
+    ] as [string, PinOptions][])('keeps a cadence below the plan floor off for %s', (_case, pinOptions) => {
+        const options = buildOptions(
+            bounds({
+                options: [{ cadence: '1hour', allowed: false, blocked_by: 'plan', blocker: null }],
+            } as Partial<SyncFrequencyBoundsApi>),
+            pinning({ canPin: true, ...pinOptions })
+        )
+
+        expect(options[0].disabledReason).toBe('More often than your plan allows')
+    })
+
+    it.each([
+        ['stays clickable when it can unpin', true, undefined],
+        ['stays off while it cannot unpin', false, 'More often than your plan allows'],
+    ])('a pinned cadence below the plan floor %s', (_case, canUnpin, reason) => {
+        const options = withPinnedSegment(
+            [{ value: '1hour', label: '1h', disabledReason: 'More often than your plan allows' }],
+            '1hour',
+            { canUnpin }
+        )
+
+        expect(options[0].disabledReason).toBe(reason)
+    })
+
     describe('a blocker outside the caller access grants', () => {
         // The backend nulls the whole blocker rather than blanking its name, so every surface that
         // would have named it has to still say which direction blocks the cadence.
@@ -254,6 +285,7 @@ describe('SyncFrequencySelect', () => {
                 bounds({
                     options: [
                         { cadence: '15min', allowed: false, blocked_by: 'source', blocker: null },
+                        { cadence: '1hour', allowed: false, blocked_by: 'plan', blocker: null },
                         { cadence: '24hour', allowed: false, blocked_by: 'consumer', blocker: null },
                     ],
                 } as Partial<SyncFrequencyBoundsApi>)
@@ -261,6 +293,9 @@ describe('SyncFrequencySelect', () => {
 
             expect(options.find((option) => option.value === '15min')?.disabledReason).toBe(
                 'More often than the upstream sources sync'
+            )
+            expect(options.find((option) => option.value === '1hour')?.disabledReason).toBe(
+                'More often than your plan allows'
             )
             expect(options.find((option) => option.value === '24hour')?.disabledReason).toBe(
                 'Too slow for a downstream view'
