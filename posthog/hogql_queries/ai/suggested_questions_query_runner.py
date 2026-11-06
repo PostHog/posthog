@@ -95,7 +95,6 @@ class SuggestedQuestionsQueryRunner(QueryRunner):
                 f"{get_instance_region()}/team/{team.id}",
                 posthog_properties={"ai_product": "suggested_questions", "team_id": team.id},
                 distinct_id=team_distinct_id(team.id),
-                use_ai_gateway=True,
             )
             questions_start = completion.content.find("QUESTIONS:")
             if questions_start == -1:

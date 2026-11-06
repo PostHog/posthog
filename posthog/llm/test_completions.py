@@ -4,8 +4,6 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
-from parameterized import parameterized
-
 from posthog.llm.completions import hit_openai
 
 AI_GATEWAY_URL = "https://ai-gateway.example/v1"
@@ -22,7 +20,7 @@ def _stub_create(client: MagicMock) -> MagicMock:
 
 
 class TestHitOpenai(SimpleTestCase):
-    @override_settings(OPENAI_MODEL="my-gateway-deployment")
+    @override_settings(OPENAI_MODEL="my-gateway-deployment", AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
     @patch("posthog.llm.completions._get_openai_client")
     def test_sends_the_configured_model(self, mock_get_client: MagicMock) -> None:
         create = _stub_create(mock_get_client.return_value)
@@ -46,7 +44,6 @@ class TestHitOpenai(SimpleTestCase):
             posthog_properties=PROPERTIES,
             posthog_groups={"instance": "https://us.posthog.com"},
             distinct_id="user-distinct-id",
-            use_ai_gateway=True,
         )
 
         headers = mock_gateway_openai.call_args.kwargs["default_headers"]
@@ -61,33 +58,20 @@ class TestHitOpenai(SimpleTestCase):
         assert completion.content == "SELECT 1"
         mock_get_direct_client.assert_not_called()
 
-    @parameterized.expand(
-        [
-            ("not_opted_in", AI_GATEWAY_URL, AI_GATEWAY_KEY, False),
-            ("gateway_unset", "", "", True),
-        ]
-    )
+    @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
     @patch("posthog.llm.completions._get_openai_client")
     @patch("posthog.llm.gateway_client.OpenAI")
-    def test_falls_back_to_the_direct_client(
-        self,
-        _name: str,
-        gateway_url: str,
-        gateway_key: str,
-        use_ai_gateway: bool,
-        mock_gateway_openai: MagicMock,
-        mock_get_direct_client: MagicMock,
+    def test_falls_back_to_the_direct_client_when_gateway_unset(
+        self, mock_gateway_openai: MagicMock, mock_get_direct_client: MagicMock
     ) -> None:
         create = _stub_create(mock_get_direct_client.return_value)
 
-        with override_settings(AI_GATEWAY_URL=gateway_url, AI_GATEWAY_API_KEY=gateway_key):
-            hit_openai(
-                messages=[{"role": "user", "content": "hi"}],
-                user="US/1",
-                posthog_properties=PROPERTIES,
-                distinct_id="user-distinct-id",
-                use_ai_gateway=use_ai_gateway,
-            )
+        hit_openai(
+            messages=[{"role": "user", "content": "hi"}],
+            user="US/1",
+            posthog_properties=PROPERTIES,
+            distinct_id="user-distinct-id",
+        )
 
         assert create.call_args.kwargs["posthog_properties"] == PROPERTIES
         assert create.call_args.kwargs["posthog_distinct_id"] == "user-distinct-id"
