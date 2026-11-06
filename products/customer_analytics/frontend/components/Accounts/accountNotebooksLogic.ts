@@ -22,11 +22,9 @@ import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanel
 import { defaultNotebookContent } from 'scenes/notebooks/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import {
-    accountsNotebooksCreate,
-    accountsNotebooksList,
-    accountsNotebooksPartialUpdate,
-} from 'products/customer_analytics/frontend/generated/api'
+import { tagsModel } from '~/models/tagsModel'
+
+import { accountsNotebooksCreate, accountsNotebooksList } from 'products/customer_analytics/frontend/generated/api'
 import type {
     AccountNotebookApi,
     PaginatedAccountNotebookListApi,
@@ -41,9 +39,11 @@ import {
     type AccountNotesViewFilters,
     type AccountNotesViewState,
 } from '../AccountNotes/accountNotesLogic'
+import { updateAccountNoteTags } from '../AccountNotes/accountNoteTagUpdates'
 import {
     getTileRecord,
     getTileString,
+    getTileStringArray,
     type AccountViewTileConfig,
     type AccountViewTileLogicProps,
 } from './accountViewTileConfig'
@@ -102,6 +102,7 @@ export interface accountNotebooksLogicValues {
     createdByFilter: number[]
     createdNote: AccountNotebookApi | null
     createdNoteLoading: boolean
+    currentViewId: string | null
     defaultViewState: AccountNotesViewState
     notebooks: AccountNotebookApi[] | null
     notebooksCount: number
@@ -110,12 +111,25 @@ export interface accountNotebooksLogicValues {
     page: number
     pagination: PaginationManual
     passthroughViewFilters: PassthroughViewFilters
+    passthroughViewOrdering:
+        | '-account_name'
+        | '-created_at'
+        | '-created_by'
+        | '-last_modified_at'
+        | '-title'
+        | 'account_name'
+        | 'created_at'
+        | 'created_by'
+        | 'last_modified_at'
+        | 'title'
+        | null
+    pendingNotebookTags: Record<string, string[]>
     searchTerm: string
     sorting: Sorting | null
     tagsFilter: string[]
+    tileConfig: AccountViewTileConfig
     updatedNotebook: AccountNotebookApi | null
     updatedNotebookLoading: boolean
-    updatingShortId: string | null
     viewState: AccountNotesViewState
 }
 
@@ -132,7 +146,11 @@ export interface accountNotebooksLogicActions {
         id: string
         silent?: boolean | undefined
     } // notebookPanelLogic
-    applyViewState: (viewState: AccountNotesViewState) => {
+    applyViewState: (
+        viewState: AccountNotesViewState,
+        currentViewId?: string | null
+    ) => {
+        currentViewId: string | null | undefined
         viewState: AccountNotesViewState
     }
     createNote: () => {
@@ -171,8 +189,18 @@ export interface accountNotebooksLogicActions {
         notebooksResponse: PaginatedAccountNotebookListApi
         payload?: any
     }
+    noteTagUpdateFailed: (
+        shortId: string,
+        tags: string[] | undefined
+    ) => {
+        shortId: string
+        tags: string[] | undefined
+    }
     setCreatedByFilter: (userIds: number[]) => {
         userIds: number[]
+    }
+    setCurrentViewId: (id: string | null) => {
+        id: string | null
     }
     setPage: (page: number) => {
         page: number
@@ -219,7 +247,10 @@ export interface accountNotebooksLogicActions {
 export interface accountNotebooksLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        notebooks: (notebooksResponse: PaginatedAccountNotebookListApi | null) => AccountNotebookApi[] | null
+        notebooks: (
+            notebooksResponse: PaginatedAccountNotebookListApi | null,
+            pendingNotebookTags: any
+        ) => AccountNotebookApi[] | null
         notebooksCount: (notebooksResponse: PaginatedAccountNotebookListApi | null) => number
         pagination: (page: number, notebooksCount: number) => PaginationManual
         viewState: (
@@ -227,8 +258,18 @@ export interface accountNotebooksLogicMeta {
             tagsFilter: string[],
             createdByFilter: number[],
             sorting: Sorting | null,
-            passthroughViewFilters: PassthroughViewFilters
+            passthroughViewFilters: PassthroughViewFilters,
+            passthroughViewOrdering: any
         ) => AccountNotesViewState
+        tileConfig: (
+            searchTerm: string,
+            sorting: Sorting | null,
+            tagsFilter: string[],
+            createdByFilter: number[],
+            currentViewId: any,
+            passthroughViewFilters: PassthroughViewFilters,
+            passthroughViewOrdering: any
+        ) => AccountViewTileConfig
     }
 }
 
@@ -254,11 +295,16 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
         setTagsFilter: (tags: string[]) => ({ tags }),
         setCreatedByFilter: (userIds: number[]) => ({ userIds }),
         // Replaces search, tags, author and sort at once (saved views), so the list loads a single time.
-        applyViewState: (viewState: AccountNotesViewState) => ({ viewState }),
+        applyViewState: (viewState: AccountNotesViewState, currentViewId?: string | null) => ({
+            viewState,
+            currentViewId,
+        }),
+        setCurrentViewId: (id: string | null) => ({ id }),
+        noteTagUpdateFailed: (shortId: string, tags: string[] | undefined) => ({ shortId, tags }),
         createNote: true,
         updateNotebook: (shortId: string, updates: PatchedAccountNotebookUpdateApi) => ({ shortId, updates }),
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ actions, props, values }) => ({
         notebooksResponse: [
             null as PaginatedAccountNotebookListApi | null,
             {
@@ -318,8 +364,9 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
                 }) => {
                     const projectId = String(values.currentTeamId)
                     try {
-                        return await accountsNotebooksPartialUpdate(projectId, props.accountId, shortId, updates)
+                        return await updateAccountNoteTags(projectId, props.accountId, shortId, updates)
                     } catch (error) {
+                        actions.noteTagUpdateFailed(shortId, updates.tags)
                         posthog.captureException(error as Error, {
                             scope: 'accountNotebooksLogic.updateNotebook',
                         })
@@ -345,23 +392,45 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
                 applyViewState: (_, { viewState }) => viewOrderingToSorting(viewState.ordering),
             },
         ],
+        currentViewId: [
+            getTileString(props.initialConfig, 'currentViewId') || null,
+            {
+                setCurrentViewId: (_, { id }) => id,
+                applyViewState: (state, { currentViewId }) => (currentViewId === undefined ? state : currentViewId),
+            },
+        ],
+        passthroughViewOrdering: [
+            isAccountNotesListOrdering(props.initialConfig?.passthroughViewOrdering)
+                ? props.initialConfig.passthroughViewOrdering
+                : (null as AccountNotesListOrdering | null),
+            {
+                applyViewState: (_, { viewState }) =>
+                    SORTABLE_COLUMNS.has(orderingToSorting(viewState.ordering).columnKey) ? null : viewState.ordering,
+                setSorting: () => null,
+            },
+        ],
         page: [1, { setPage: (_, { page }) => page }],
         tagsFilter: [
-            [] as string[],
+            getTileStringArray(props.initialConfig, 'tagsFilter'),
             {
                 setTagsFilter: (_, { tags }) => tags,
                 applyViewState: (_, { viewState }) => viewState.filters.tags,
             },
         ],
         createdByFilter: [
-            [] as number[],
+            Array.isArray(props.initialConfig?.createdByFilter)
+                ? props.initialConfig.createdByFilter.filter((id): id is number => typeof id === 'number')
+                : [],
             {
                 setCreatedByFilter: (_, { userIds }) => userIds,
                 applyViewState: (_, { viewState }) => viewState.filters.created_by,
             },
         ],
         passthroughViewFilters: [
-            EMPTY_PASSTHROUGH_FILTERS,
+            {
+                ...EMPTY_PASSTHROUGH_FILTERS,
+                ...getTileRecord(props.initialConfig, 'passthroughViewFilters'),
+            } as PassthroughViewFilters,
             {
                 applyViewState: (_, { viewState }) => ({
                     assigned_to: viewState.filters.assigned_to,
@@ -385,20 +454,40 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
                         : state,
             },
         ],
-        updatingShortId: [
-            null as string | null,
+        pendingNotebookTags: [
+            {} as Record<string, string[]>,
             {
-                updateNotebook: (_, { shortId }) => shortId,
-                updateNotebookSuccess: () => null,
-                updateNotebookFailure: () => null,
+                updateNotebook: (state, { shortId, updates }) =>
+                    updates.tags ? { ...state, [shortId]: updates.tags } : state,
+                updateNotebookSuccess: (state, { payload }) => {
+                    if (!payload || state[payload.shortId] !== payload.updates.tags) {
+                        return state
+                    }
+                    const next = { ...state }
+                    delete next[payload.shortId]
+                    return next
+                },
+                noteTagUpdateFailed: (state, { shortId, tags }) => {
+                    if (state[shortId] !== tags) {
+                        return state
+                    }
+                    const next = { ...state }
+                    delete next[shortId]
+                    return next
+                },
             },
         ],
     })),
     selectors(({ actions }) => ({
         notebooks: [
-            (s) => [s.notebooksResponse],
-            (response: PaginatedAccountNotebookListApi | null): AccountNotebookApi[] | null =>
-                response?.results ?? null,
+            (s) => [s.notebooksResponse, s.pendingNotebookTags],
+            (
+                response: PaginatedAccountNotebookListApi | null,
+                pending: Record<string, string[]>
+            ): AccountNotebookApi[] | null =>
+                response?.results.map((note) =>
+                    pending[note.short_id] ? { ...note, tags: pending[note.short_id] } : note
+                ) ?? null,
         ],
         notebooksCount: [
             (s) => [s.notebooksResponse],
@@ -417,13 +506,21 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
             }),
         ],
         viewState: [
-            (s) => [s.searchTerm, s.tagsFilter, s.createdByFilter, s.sorting, s.passthroughViewFilters],
+            (s) => [
+                s.searchTerm,
+                s.tagsFilter,
+                s.createdByFilter,
+                s.sorting,
+                s.passthroughViewFilters,
+                s.passthroughViewOrdering,
+            ],
             (
                 searchTerm: string,
                 tagsFilter: string[],
                 createdByFilter: number[],
                 sorting: Sorting | null,
-                passthroughViewFilters: PassthroughViewFilters
+                passthroughViewFilters: PassthroughViewFilters,
+                passthroughViewOrdering: AccountNotesListOrdering | null
             ): AccountNotesViewState => ({
                 filters: {
                     ...EMPTY_NOTES_VIEW_STATE.filters,
@@ -432,10 +529,37 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
                     tags: tagsFilter,
                     created_by: createdByFilter,
                 },
-                ordering: sortingToViewOrdering(sorting),
+                ordering: passthroughViewOrdering ?? sortingToViewOrdering(sorting),
             }),
         ],
-        // What "All notes" goes back to on this tab: no filters, newest first (this tab's own default sort).
+        tileConfig: [
+            (s) => [
+                s.searchTerm,
+                s.sorting,
+                s.tagsFilter,
+                s.createdByFilter,
+                s.currentViewId,
+                s.passthroughViewFilters,
+                s.passthroughViewOrdering,
+            ],
+            (
+                searchTerm: string,
+                sorting: Sorting | null,
+                tagsFilter: string[],
+                createdByFilter: number[],
+                currentViewId: string | null,
+                passthroughViewFilters: PassthroughViewFilters,
+                passthroughViewOrdering: AccountNotesListOrdering | null
+            ): AccountViewTileConfig => ({
+                searchTerm,
+                sorting,
+                tagsFilter,
+                createdByFilter,
+                currentViewId,
+                passthroughViewFilters,
+                passthroughViewOrdering,
+            }),
+        ],
         defaultViewState: [
             () => [],
             (): AccountNotesViewState => ({
@@ -447,7 +571,7 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
     listeners(({ actions, props, values }) => ({
         setSearchTerm: async (_, breakpoint) => {
             await breakpoint(300)
-            props.onConfigChange?.({ searchTerm: values.searchTerm, sorting: values.sorting })
+            props.onConfigChange?.(values.tileConfig)
             posthog.capture(AccountsEvents.NotesSearched, {
                 has_query: values.searchTerm.trim().length > 0,
                 query_length: values.searchTerm.trim().length,
@@ -455,7 +579,7 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
             actions.setPage(1)
         },
         setSorting: ({ sorting }) => {
-            props.onConfigChange?.({ searchTerm: values.searchTerm, sorting: values.sorting })
+            props.onConfigChange?.(values.tileConfig)
             posthog.capture(AccountsEvents.NotesSorted, {
                 column: sorting?.columnKey ?? null,
                 direction: sorting ? (sorting.order === -1 ? 'desc' : 'asc') : 'cleared',
@@ -463,6 +587,7 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
             actions.setPage(1)
         },
         setTagsFilter: () => {
+            props.onConfigChange?.(values.tileConfig)
             posthog.capture(AccountsEvents.NotesFiltered, {
                 filter_type: 'tag',
                 tag_count: values.tagsFilter.length,
@@ -471,6 +596,7 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
             actions.setPage(1)
         },
         setCreatedByFilter: () => {
+            props.onConfigChange?.(values.tileConfig)
             posthog.capture(AccountsEvents.NotesFiltered, {
                 filter_type: 'created_by',
                 user_count: values.createdByFilter.length,
@@ -478,8 +604,9 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
             })
             actions.setPage(1)
         },
+        setCurrentViewId: () => props.onConfigChange?.(values.tileConfig),
         applyViewState: () => {
-            props.onConfigChange?.({ searchTerm: values.searchTerm, sorting: values.sorting })
+            props.onConfigChange?.(values.tileConfig)
             actions.setPage(1)
         },
         setPage: () => {
@@ -495,6 +622,7 @@ export const accountNotebooksLogic = kea<accountNotebooksLogicType>([
             actions.setPage(1)
         },
         updateNotebookSuccess: ({ updatedNotebook, payload }) => {
+            tagsModel.findMounted()?.actions.loadTags()
             posthog.capture(AccountsEvents.NoteUpdated, {
                 notebook_short_id: updatedNotebook.short_id,
                 fields: Object.keys(payload?.updates ?? {}),
