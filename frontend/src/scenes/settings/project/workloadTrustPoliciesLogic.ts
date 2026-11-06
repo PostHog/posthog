@@ -89,7 +89,7 @@ export interface workloadTrustPoliciesLogicValues {
     providers: WorkloadProvidersResponseApi | null
     providersLoadFailed: boolean
     providersLoading: boolean
-    savedPolicy: WorkloadTrustPolicyApi | null
+    showingSetup: boolean
     scopeLevels: Record<string, ScopeAccessLevel>
     scopeRows: WorkloadTrustPolicyScopeRow[]
     scopeSearchTerm: string
@@ -209,8 +209,8 @@ export interface workloadTrustPoliciesLogicActions {
             enabled: boolean
         }
     }
-    setSavedPolicy: (policy: WorkloadTrustPolicyApi | null) => {
-        policy: WorkloadTrustPolicyApi | null
+    showSetup: () => {
+        value: true
     }
     setScopeLevel: (
         key: string,
@@ -260,8 +260,8 @@ export interface workloadTrustPoliciesLogicMeta {
             editingProvider: WorkloadProviderApi | null
         ) => string | undefined
         setupSnippet: (
-            savedPolicy: WorkloadTrustPolicyApi | null,
-            providers: WorkloadProvidersResponseApi | null
+            showingSetup: boolean,
+            editingProvider: WorkloadProviderApi | null
         ) => {
             docsUrl: string
             providerName: string
@@ -294,7 +294,7 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
         setConditionRows: (rows: WorkloadConditionRow[]) => ({ rows }),
         resetConditionRows: (rows: WorkloadConditionRow[]) => ({ rows }),
         lookUpSubject: true,
-        setSavedPolicy: (policy: WorkloadTrustPolicyApi | null) => ({ policy }),
+        showSetup: true,
         setScopeSearchTerm: (searchTerm: string) => ({ searchTerm }),
         deletePolicy: (policy: WorkloadTrustPolicyApi) => ({ policy }),
     }),
@@ -320,11 +320,11 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
                 resetConditionRows: (_, { rows }) => rows,
             },
         ],
-        savedPolicy: [
-            null as WorkloadTrustPolicyApi | null,
+        showingSetup: [
+            false,
             {
-                setSavedPolicy: (_, { policy }) => policy,
-                setEditingPolicyId: () => null,
+                showSetup: () => true,
+                setEditingPolicyId: () => false,
             },
         ],
         subjectLookupError: [
@@ -446,9 +446,8 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
                         saved,
                         ...(values.policies ?? []).filter((policy) => policy.id !== saved.id),
                     ])
-                    const provider = values.providers?.supported.find((candidate) => candidate.issuer === saved.issuer)
-                    if (isNew && provider?.setup_snippet) {
-                        actions.setSavedPolicy(saved)
+                    if (isNew && values.editingProvider?.setup_snippet) {
+                        actions.showSetup()
                     } else {
                         actions.setEditingPolicyId(null)
                     }
@@ -506,17 +505,14 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
                 conditionsFromRows(rows, editingProvider).conflict,
         ],
         setupSnippet: [
-            (s) => [s.savedPolicy, s.providers],
+            (s) => [s.showingSetup, s.editingProvider],
             (
-                savedPolicy: WorkloadTrustPolicyApi | null,
-                providers: WorkloadProvidersResponseApi | null
-            ): { snippet: string; providerName: string; docsUrl: string } | null => {
-                const provider = providers?.supported.find((candidate) => candidate.issuer === savedPolicy?.issuer)
-                if (!savedPolicy || !provider?.setup_snippet) {
-                    return null
-                }
-                return { snippet: provider.setup_snippet, providerName: provider.name, docsUrl: provider.docs_url }
-            },
+                showingSetup: boolean,
+                provider: WorkloadProviderApi | null
+            ): { snippet: string; providerName: string; docsUrl: string } | null =>
+                showingSetup && provider?.setup_snippet
+                    ? { snippet: provider.setup_snippet, providerName: provider.name, docsUrl: provider.docs_url }
+                    : null,
         ],
         claimLabels: [
             (s) => [s.editingProvider],

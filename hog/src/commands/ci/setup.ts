@@ -165,7 +165,7 @@ export default defineCommand({
         const { host, projectId } = (await ctx.session()).current
         const target = { host, projectId }
         const subject = options.subjectId
-            ? { subject: options.subjectId, subject_name: subjectName, found_via: '--subject-id' }
+            ? { subject: options.subjectId, subject_name: subjectName }
             : await resolveSubject(api, projectId, provider, subjectName)
         const name = options.name ?? `${subject.subject_name} on ${provider.name}`
 

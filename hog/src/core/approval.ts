@@ -50,6 +50,8 @@ export interface ApprovalFlow<Pending extends PendingApproval, Value> {
     refresh?: (existing: Pending) => Promise<Pending | undefined>
     // Who approves when the person at the terminal can't, so hog hands over the link instead of waiting.
     approver?: (pending: Pending) => string | undefined
+    // Admins set their own names, so the names never go into the instructions an agent follows.
+    approverNames?: (pending: Pending) => string[]
     // `timeoutMs` is how long the poll request may take before the request expires.
     poll: (pending: Pending, timeoutMs: number) => Promise<PollOutcome<Value>>
     // Caps one wait for a request that stays open for days, so an agent never blocks on a person for long.
@@ -72,6 +74,7 @@ export type ApprovalResult<Value> =
           instructions: string
           next: string
           approver?: string
+          approverNames?: string[]
       }
     | { status: 'approved'; value: Value }
 
@@ -163,14 +166,8 @@ async function waitFor<Pending extends PendingApproval, Value>(
         try {
             outcome = await flow.poll(pending, Math.min(REQUEST_TIMEOUT_MS, remaining))
         } catch (error) {
-            if (!(error instanceof HogError)) {
-                throw error
-            }
-            const transient =
-                error.code === 'network_error' ||
-                (error instanceof ApiError && (error.status === 429 || error.status >= 500))
-            if (!transient) {
-                return fail(error)
+            if (!isTransient(error)) {
+                return fail(error as HogError)
             }
             outcome = { state: 'retry', reason: error.message }
         }
@@ -202,7 +199,27 @@ async function waitFor<Pending extends PendingApproval, Value>(
                 return fail(expired(flow))
         }
     }
+    // PostHog keeps an approval given before the deadline.
+    try {
+        const last = await flow.poll(pending, REQUEST_TIMEOUT_MS)
+        if (last.state === 'approved') {
+            return last.value
+        }
+    } catch (error) {
+        if (isTransient(error)) {
+            throw interrupted(error.message)
+        }
+    }
     return fail(expired(flow))
+}
+
+function isTransient(error: unknown): error is HogError {
+    if (!(error instanceof HogError)) {
+        throw error
+    }
+    return (
+        error.code === 'network_error' || (error instanceof ApiError && (error.status === 429 || error.status >= 500))
+    )
 }
 
 function expired(flow: { noun: string; command: string }): HogError {
@@ -214,7 +231,7 @@ function expired(flow: { noun: string; command: string }): HogError {
 }
 
 function pendingResult<Pending extends PendingApproval>(
-    flow: Pick<ApprovalFlow<Pending, unknown>, 'command' | 'approver'>,
+    flow: Pick<ApprovalFlow<Pending, unknown>, 'command' | 'approver' | 'approverNames'>,
     pending: Pending
 ): Extract<ApprovalResult<never>, { status: 'pending' }> {
     const code = pending.userCode ?? null
@@ -231,7 +248,7 @@ function pendingResult<Pending extends PendingApproval>(
         expiresAt: new Date(pending.expiresAt).toISOString(),
         instructions: `Ask the user to ${approve}. Then run \`${flow.command} --wait\`, which returns once they approve. If it times out, run it again.`,
         next: `${flow.command} --wait`,
-        ...(approver ? { approver } : {}),
+        ...(approver ? { approver, approverNames: flow.approverNames?.(pending) ?? [] } : {}),
     }
 }
 
@@ -292,7 +309,7 @@ export async function resumeApproval<Pending extends PendingApproval, Value>(
 export function printPending(out: Output, result: Extract<ApprovalResult<unknown>, { status: 'pending' }>): void {
     out.line(
         result.approver
-            ? `Only ${escapeControls(result.approver)} can approve it. Send them this link:`
+            ? `Only ${escapeControls(result.approver)}${result.approverNames?.length ? ` (${escapeControls(result.approverNames.join(', '))})` : ''} can approve it. Send them this link:`
             : result.code
               ? `Open this link to approve, and check that it shows the code ${out.style(escapeControls(result.code), 'bold')}:`
               : 'Open this link to approve:'
