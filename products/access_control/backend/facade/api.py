@@ -229,6 +229,17 @@ def person_property_names_with_access_rules(*, team_id: int) -> frozenset[str]:
     )
 
 
+def group_property_names_with_access_rules(*, team_id: int, group_type_index: int) -> frozenset[str]:
+    """Group properties of one group type with any access rule on the team, for callers that share a result across users."""
+    return frozenset(
+        PropertyAccessControl.objects.filter(
+            team_id=team_id,
+            property_definition__type=PropertyDefinition.Type.GROUP,
+            property_definition__group_type_index=group_type_index,
+        ).values_list("property_definition__name", flat=True)
+    )
+
+
 def team_has_public_sharing_access_rules(*, team_id: int) -> bool:
     return (
         AccessControl.objects.filter(

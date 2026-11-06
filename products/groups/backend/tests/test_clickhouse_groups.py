@@ -46,7 +46,9 @@ from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.test.persons import create_group_type_mapping, create_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.event_definitions.backend.models import PropertyDefinition
 from products.groups.backend.presentation.views import _decode_groups_cursor, _encode_groups_cursor
 from products.notebooks.backend.facade.content import convert_notebook_content_to_markdown, is_markdown_notebook_content
@@ -261,6 +263,49 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(markdown.startswith("# Mr. Krabs Notes"), markdown)
         self.assertIn("## Quick context", markdown)
         self.assertIn("- Industry:", markdown)
+
+    @parameterized.expand(
+        [
+            ("rule_on_name", "name", 0, "# Notes"),
+            ("rule_on_other_property", "industry", 0, "# Mr. Krabs Notes"),
+            ("rule_on_name_of_other_group_type", "name", 1, "# Mr. Krabs Notes"),
+        ]
+    )
+    @time_machine.travel("2021-05-02", tick=False)
+    @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
+    def test_crm_notebook_leaves_out_properties_with_access_rules(
+        self, _name, rule_property, rule_group_type_index, expected_heading, _
+    ):
+        key = "key"
+        group = create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key=key,
+            properties={"industry": "finance", "name": "Mr. Krabs"},
+        )
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team,
+            project=self.team.project,
+            name=rule_property,
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=rule_group_type_index,
+        )
+        # A rule for one member still matters: the notebook is shared with the whole project.
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=property_definition,
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/find?group_type_index=0&group_key={key}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        relationship = ResourceNotebook.objects.filter(group=group.id).first()
+        assert relationship is not None
+        markdown = convert_notebook_content_to_markdown(relationship.notebook.content)
+        self.assertEqual(markdown.splitlines()[0], expected_heading)
+        self.assertEqual(relationship.notebook.title, expected_heading.removeprefix("# "))
 
     @time_machine.travel("2021-05-02", tick=False)
     @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
