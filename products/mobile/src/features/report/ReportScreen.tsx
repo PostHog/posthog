@@ -71,7 +71,6 @@ type Overlay = 'none' | Sheet
 interface ReportScreenProps {
     reportId: string
     from: ReportOpenSource
-    /** The project and host of the web link that opened the screen. */
     link?: ReportLink
 }
 
@@ -312,7 +311,6 @@ function ReportContent({ reportId, from, link }: ReportScreenProps): ReactElemen
     // Chat reads the session's project, so a report from another project moves the session there first. When the
     // session cannot move, the web opens the report instead of the chat loading the wrong project.
     const followReportProject = (): boolean => followLinkProject(link?.projectId)
-    // An in-app browser, because Linking.openURL can hand an associated link straight back to this app.
     const openReportOnWeb = (): void => {
         if (report.webUrl) {
             WebBrowser.openBrowserAsync(report.webUrl).catch(() => undefined)

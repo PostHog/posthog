@@ -5,7 +5,6 @@ import { useAuthStore } from '@/auth/authStore'
 import { useSessionProjectScope } from '@/auth/projectScope'
 import { useDataMode } from '@/demo/demoMode'
 
-/** The project and host a web report link names. Null fields mean the link did not name them. */
 export interface ReportLink {
     projectId: number | null
     host: string | null

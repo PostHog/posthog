@@ -10,13 +10,9 @@ function scopeOf(state: Pick<AuthState, 'signedIn' | 'host' | 'projectId'>): Pro
         : null
 }
 
-/**
- * Overrides the session's project for a subtree. A report a web link opened provides the link's project, so its
- * reads and writes go to that project and the session's project stays as it is.
- */
+/** A report a web link opened provides the link's project here, so the session's project stays as it is. */
 export const ProjectScopeOverride = createContext<ProjectScope | null>(null)
 
-/** The override in force, or null when the subtree reads the session's project. */
 export function useProjectScopeOverride(): ProjectScope | null {
     return useContext(ProjectScopeOverride)
 }

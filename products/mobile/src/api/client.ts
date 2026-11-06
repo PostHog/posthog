@@ -98,10 +98,7 @@ function hostKey(host: string): string {
     return host.replace(/\/+$/, '').toLowerCase()
 }
 
-/**
- * The API path of `path` in `scope`'s project. The caller names the project, so a screen can read a project other
- * than the session's. The session's token works only on its own host, so a scope on another host throws.
- */
+// The session's token works only on its own host, so a scope on another host throws.
 export function scopedPath(scope: ProjectScope | null, path: string): string {
     const auth = requireAuth()
     if (scope === null) {
