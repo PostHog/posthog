@@ -283,7 +283,7 @@ export const TodayStyleReports: Story = {
 }
 
 // The Home-style report: the single-page report, with the inbox sections under "Details".
-export const TodayStyleReport: Story = {
+export const TodayStyleReport = {
     parameters: { featureFlags: todayStyleFlags, layout: 'padded' },
     decorators: [
         routeTo(urls.inboxReport('reports', reportTabReports[0].id)),
@@ -296,7 +296,7 @@ export const TodayStyleReport: Story = {
             },
         }),
     ],
-}
+} satisfies Story
 
 export const TodayStyleReportWithPullRequest: Story = {
     ...TodayStyleReport,
