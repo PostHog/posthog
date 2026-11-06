@@ -44,8 +44,13 @@ export async function promptStepUp(ctx: Context, scopes: readonly string[]): Pro
     if (!prompts || !canStepUp(await ctx.credentials())) {
         return false
     }
-    const question = `This needs ${scopes.join(', ')}, which your login doesn't have. Add these scopes now?`
-    if (!(await prompts.confirm(question, { initialValue: true })) || (await stepUp(ctx, scopes)).status !== 'added') {
+    // An earlier step-up in this command can have added them already.
+    const missing = scopesNotCovered((await ctx.session()).current.status().scopes ?? [], scopes)
+    if (missing.length === 0) {
+        return true
+    }
+    const question = `This needs ${missing.join(', ')}, which your login doesn't have. Add these scopes now?`
+    if (!(await prompts.confirm(question, { initialValue: true })) || (await stepUp(ctx, missing)).status !== 'added') {
         return false
     }
     await (await ctx.session()).reload()

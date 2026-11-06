@@ -257,7 +257,7 @@ describe('hog api', () => {
                 code: 'step_up_required',
                 message: 'Your credentials need insight:write, query:read to call insight-create.',
                 scopes: ['insight:write', 'query:read'],
-                command: 'hog auth add insight:write query:read',
+                command: 'hog auth add --host https://eu.posthog.com insight:write query:read',
             },
         ],
         [

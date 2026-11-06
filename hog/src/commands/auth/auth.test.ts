@@ -953,8 +953,8 @@ describe('hog auth login', () => {
         expect(result.error()).toMatchObject({
             code: 'step_up_required',
             scopes: ['query:read', 'dashboard:write'],
-            command: 'hog auth add query:read dashboard:write',
-            hint: expect.stringContaining('hog auth add query:read dashboard:write'),
+            command: `hog auth add --host ${EU} query:read dashboard:write`,
+            hint: expect.stringContaining(`hog auth add --host ${EU} query:read dashboard:write`),
         })
         expect(result.requests.map((request) => request.url)).toEqual([`${EU}/api/environments/42/query`])
     })
