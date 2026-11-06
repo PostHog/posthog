@@ -1,4 +1,5 @@
 import json
+import tracemalloc
 from typing import Any
 
 import pytest
@@ -10,6 +11,10 @@ import requests
 import requests_mock
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.facade.contracts import (
+    MigrationConnectionUpload,
+    WarehouseMigrationUploadTooLargeError,
+)
 from products.warehouse_sources.backend.migration.fivetran.client import (
     FIVETRAN_API_URL,
     FivetranAPIError,
@@ -21,6 +26,7 @@ from products.warehouse_sources.backend.migration.fivetran.client import (
 from products.warehouse_sources.backend.migration.fivetran.snapshot import (
     SnapshotStoppedError,
     fetch_snapshot,
+    merge_upload,
     parse_connection,
 )
 from products.warehouse_sources.backend.migration.secrets import strip_secrets
@@ -203,6 +209,24 @@ class TestFetchSnapshot(SimpleTestCase):
             m.get(f"{FIVETRAN_API_URL}/connections/conn_pg/schemas", status_code=status_code, json=body)
             with pytest.raises(error):
                 fetch_snapshot(_client())
+
+
+class TestMergeUpload(SimpleTestCase):
+    def test_refuses_a_schema_name_repeated_in_every_table_without_encoding_all_of_it(self) -> None:
+        # About 120 KB as uploaded, and about 200 MB once each of the 2,000 tables carries the schema name.
+        schema_config = {"schemas": {"s" * 100_000: {"enabled": True, "tables": {f"t{i}": {} for i in range(2_000)}}}}
+        connection = {"id": "conn_a", "service": "postgres", "schema": "public"}
+        upload = MigrationConnectionUpload(connection=connection, schema_config=schema_config)
+        # The first call imports modules lazily, which would count toward the peak.
+        merge_upload(None, account=None, destinations=[], connections=[MigrationConnectionUpload(connection, None)])
+        tracemalloc.start()
+        try:
+            with pytest.raises(WarehouseMigrationUploadTooLargeError):
+                merge_upload(None, account=None, destinations=[], connections=[upload])
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+        assert peak < 50_000_000
 
 
 class TestConnectionConfig(SimpleTestCase):

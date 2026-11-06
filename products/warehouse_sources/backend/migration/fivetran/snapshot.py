@@ -170,7 +170,7 @@ def merge_upload(
         destinations=tuple(stored_destinations.values()),
         connections=tuple(stored_connections.values()),
     )
-    if len(json.dumps(snapshot.to_json())) > MAX_UPLOADED_SNAPSHOT_BYTES:
+    if _json_longer_than(snapshot.to_json(), MAX_UPLOADED_SNAPSHOT_BYTES):
         raise WarehouseMigrationUploadTooLargeError()
     return UploadedSnapshot(
         snapshot=snapshot, connection_ids=tuple(dict.fromkeys(connection_ids)), errors=tuple(errors)
@@ -192,9 +192,20 @@ def _upload_problem(value: Any) -> str | None:
         # Postgres stores no NUL character and no lone UTF-16 surrogate such as `"\ud800"`.
         elif isinstance(item, str) and not _storable(item):
             return "it holds a NUL character or a broken Unicode character, so it is not a Fivetran response."
-    if len(json.dumps(value)) > MAX_UPLOADED_CONNECTION_BYTES:
+    if _json_longer_than(value, MAX_UPLOADED_CONNECTION_BYTES):
         return "larger than 1 MB, so it cannot be uploaded. Migrate this account with an API key."
     return None
+
+
+def _json_longer_than(value: Any, limit: int) -> bool:
+    """Encodes only up to `limit`. Parsing repeats a schema name in each of its tables, so the full text can be far
+    larger than the upload."""
+    length = 0
+    for chunk in json.JSONEncoder().iterencode(value):
+        length += len(chunk)
+        if length > limit:
+            return True
+    return False
 
 
 def _storable(text: str) -> bool:
