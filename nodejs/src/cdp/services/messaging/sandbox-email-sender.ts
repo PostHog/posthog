@@ -19,9 +19,8 @@ const MAX_TEMPLATE_HTML_BYTES = 75_000
 const MAX_ELEMENT_DEPTH = 256
 const MAX_ATTRIBUTES_PER_TAG = 64
 const MAX_CONDITION_LENGTH = 100
-// Each element in the source takes at least three bytes, so a parse that creates more elements than that is
-// re-opening formatting elements for every text run, which multiplies a small template into millions of nodes.
-const MAX_ELEMENTS_PER_PARSE = Math.ceil(MAX_TEMPLATE_HTML_BYTES / 3)
+const MIN_SOURCE_BYTES_PER_ELEMENT = 3
+const MAX_ELEMENTS_PER_PARSE = Math.ceil(MAX_TEMPLATE_HTML_BYTES / MIN_SOURCE_BYTES_PER_ELEMENT)
 
 class FooterNotRetained extends Error {
     constructor() {
@@ -275,16 +274,19 @@ function conditionHolds(condition: string, client: ConditionalClient): boolean {
     return value
 }
 
+type BoundedTreeAdapter = TreeAdapter<DefaultTreeAdapterMap> & { readonly maxAttributesPerTag: number }
+
 class AttributeBoundedParser extends Parser<DefaultTreeAdapterMap> {
     constructor(...args: ConstructorParameters<typeof Parser<DefaultTreeAdapterMap>>) {
         super(...args)
+        const { maxAttributesPerTag } = this.treeAdapter as BoundedTreeAdapter
         const tokenizer = this.tokenizer as unknown as {
             currentToken: { attrs: unknown[] } | null
             _leaveAttrName: () => void
         }
         const leaveAttrName = tokenizer._leaveAttrName.bind(tokenizer)
         tokenizer._leaveAttrName = () => {
-            if ((tokenizer.currentToken?.attrs.length ?? 0) >= MAX_ATTRIBUTES_PER_TAG) {
+            if ((tokenizer.currentToken?.attrs.length ?? 0) >= maxAttributesPerTag) {
                 throw new FooterNotRetained()
             }
             leaveAttrName()
@@ -306,10 +308,11 @@ function refuseDeepNesting(parent: DefaultTreeAdapterMap['parentNode']): void {
     }
 }
 
-function boundedTreeAdapter(): TreeAdapter<DefaultTreeAdapterMap> {
+function boundedTreeAdapter(maxAttributesPerTag = MAX_ATTRIBUTES_PER_TAG): BoundedTreeAdapter {
     let elements = 0
     return {
         ...defaultTreeAdapter,
+        maxAttributesPerTag,
         createElement(tagName, namespaceURI, attrs) {
             elements += 1
             if (elements > MAX_ELEMENTS_PER_PARSE) {
@@ -334,10 +337,7 @@ function boundedTreeAdapter(): TreeAdapter<DefaultTreeAdapterMap> {
                 return
             }
             const present = new Set(recipient.attrs.map((attr) => attr.name))
-            if (
-                recipient.attrs.length + attrs.filter((attr) => !present.has(attr.name)).length >
-                MAX_ATTRIBUTES_PER_TAG
-            ) {
+            if (recipient.attrs.length + attrs.filter((attr) => !present.has(attr.name)).length > maxAttributesPerTag) {
                 throw new FooterNotRetained()
             }
             defaultTreeAdapter.adoptAttributes(recipient, attrs)
@@ -347,6 +347,13 @@ function boundedTreeAdapter(): TreeAdapter<DefaultTreeAdapterMap> {
 
 function parseBounded(html: string, scriptingEnabled = false): DefaultTreeAdapterMap['document'] {
     return AttributeBoundedParser.parse(html, { scriptingEnabled, treeAdapter: boundedTreeAdapter() })
+}
+
+function parseBuiltEmail(html: string, scriptingEnabled = false): DefaultTreeAdapterMap['document'] {
+    return AttributeBoundedParser.parse(html, {
+        scriptingEnabled,
+        treeAdapter: boundedTreeAdapter(MAX_ATTRIBUTES_PER_TAG + 1),
+    })
 }
 
 function parseBoundedFragment(
@@ -392,7 +399,7 @@ function conditionalMarker(comment: string): ConditionalMarker | null {
 }
 
 function outlookViews(html: string): DefaultTreeAdapterMap['document'][] {
-    const document = parseBounded(html)
+    const document = parseBuiltEmail(html)
     const marker = `outlook-conditional-${randomUUID()}-`
     const markers: ConditionalMarker[] = []
     const parents: DefaultTreeAdapterMap['parentNode'][] = [document]
@@ -443,7 +450,7 @@ function outlookViews(html: string): DefaultTreeAdapterMap['document'][] {
         }
         views.add(view)
     }
-    return [...views].map((view) => parseBounded(view))
+    return [...views].map((view) => parseBuiltEmail(view))
 }
 
 function insertPreheader(body: DefaultTreeAdapterMap['element'], preheaderHtml: string): void {
@@ -486,7 +493,7 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
     if (Buffer.byteLength(serialized) > MAX_TEMPLATE_HTML_BYTES) {
         throw new TooLargeForSandbox()
     }
-    const renderings = [parseBounded(serialized), parseBounded(serialized, true), ...outlookViews(serialized)]
+    const renderings = [parseBuiltEmail(serialized), parseBuiltEmail(serialized, true), ...outlookViews(serialized)]
     for (const rendering of renderings) {
         const deliveredFooter = htmlBody(rendering)?.childNodes.at(-1)
         if (
