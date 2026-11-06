@@ -3,6 +3,10 @@ import { useActions, useValues } from 'kea'
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
 
+import { releaseStageProductForScene } from 'lib/components/ReleaseStageTag/releaseStage'
+import { ReleaseStageTag } from 'lib/components/ReleaseStageTag/ReleaseStageTag'
+import { Scene } from 'scenes/sceneTypes'
+
 import { ContentAutopilotDrafts } from './ContentAutopilotDrafts'
 import { type ContentAutopilotWorkspaceTab, contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotOpportunities } from './ContentAutopilotOpportunities'
@@ -24,6 +28,7 @@ export interface ContentAutopilotBotsTab {
 type AiVisibilityTab = ContentAutopilotWorkspaceTab | 'bots'
 
 export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): JSX.Element => {
+    const releaseStageProduct = releaseStageProductForScene(Scene.WebAnalytics, 'AI visibility')
     const {
         profile,
         activeRun,
@@ -76,7 +81,10 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
         <div className="flex flex-col gap-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                    <h1 className="m-0">AI visibility</h1>
+                    <div className="flex items-center gap-2">
+                        <h1 className="m-0">AI visibility</h1>
+                        {releaseStageProduct && <ReleaseStageTag product={releaseStageProduct} />}
+                    </div>
                     <p className="m-0 mt-1 text-muted max-w-3xl">
                         Track whether AI assistants mention and cite your site when they answer the prompts you care
                         about.

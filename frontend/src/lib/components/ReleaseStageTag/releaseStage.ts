@@ -28,8 +28,8 @@ export function releaseStageProductForScene(
     const owners = products.filter((product) => product.sceneKey === sceneId)
     // Many products list scenes they do not own in `sceneKeys`, so a scene listed by more than one has no clear owner.
     const candidates = owners.length > 0 ? owners : products.filter((product) => product.sceneKeys?.includes(sceneId))
-    const [product] = candidates
-    return candidates.length === 1 && releaseStage(product) !== null && productsItemName(product) === title
-        ? product
-        : undefined
+    // Products can share a scene (AI visibility reuses the Web analytics scene), so the title picks between them.
+    const named = candidates.filter((product) => productsItemName(product) === title)
+    const [product] = named
+    return named.length === 1 && releaseStage(product) !== null ? product : undefined
 }
