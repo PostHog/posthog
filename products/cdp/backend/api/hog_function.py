@@ -525,13 +525,14 @@ class OriginCheck(StrEnum):
     INTEGRATION_UNLISTED = "integration_unlisted"
 
 
-# A key refused by several checks shows the error of the first check listed here. Entering the secret
-# again does not fix an integration refusal, so it goes first and the user does not retype for nothing.
 _REFUSAL_CODES: dict[OriginCheck, str] = {
     OriginCheck.INTEGRATION: "integration_origin_refused",
     OriginCheck.INTEGRATION_UNLISTED: "integration_origin_refused",
     OriginCheck.SECRET: "secret_reentry_required",
 }
+# A key refused by several checks shows the error of the first check here. Entering the secret again
+# does not fix an integration refusal, so those go first and the user does not retype for nothing.
+_REFUSAL_PRECEDENCE = (OriginCheck.INTEGRATION, OriginCheck.INTEGRATION_UNLISTED, OriginCheck.SECRET)
 
 
 @frozen
@@ -1211,8 +1212,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             ]
             outcomes += self._integration_origin_outcomes(attrs, team, instance)
         stages_draft = bool(self.context.get("stages_draft"))
-        refused = [item for item in outcomes if item.binding == SecretBinding.REFUSED]
-        enforce = bool(refused) and not stages_draft and self._enforces_secret_binding(team)
+        refuses = any(item.binding == SecretBinding.REFUSED for item in outcomes)
+        enforce = refuses and not stages_draft and self._enforces_secret_binding(team)
         for key, bound in bound_secrets.items():
             origins = bound.origins
             if bound.binding == SecretBinding.REFUSED and not enforce and not stages_draft:
@@ -1220,7 +1221,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 # keeps the old origins because publishing checks the move again.
                 origins = bound.derived
             attrs["inputs"][key]["allowed_origins"] = stored_origins(origins)
-        self._report_origins(outcomes, refused, enforce)
+        self._report_origins(outcomes, enforce)
 
         return attrs
 
@@ -1350,18 +1351,21 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             )
         )
 
-    def _report_origins(self, outcomes: list[_OriginOutcome], refused: list[_OriginOutcome], enforce: bool) -> None:
+    def _report_origins(self, outcomes: list[_OriginOutcome], enforce: bool) -> None:
         stages_draft = bool(self.context.get("stages_draft"))
         surface = "draft" if stages_draft else getattr(self.context.get("view"), "action", None) or "internal"
         for item in outcomes:
             SECRET_HOST_BINDING_COUNTER.labels(
                 outcome=item.metric_outcome(enforce, stages_draft), surface=surface, kind=item.kind
             ).inc()
-        if enforce:
-            errors: dict[str, ErrorDetail] = {}
-            for item in sorted(refused, key=lambda item: list(_REFUSAL_CODES).index(item.check)):
-                errors.setdefault(item.key, ErrorDetail(item.message, code=_REFUSAL_CODES[item.check]))
-            raise serializers.ValidationError({"inputs": errors})
+        if not enforce:
+            return
+        errors: dict[str, ErrorDetail] = {}
+        for check in _REFUSAL_PRECEDENCE:
+            for item in outcomes:
+                if item.check == check and item.binding == SecretBinding.REFUSED:
+                    errors.setdefault(item.key, ErrorDetail(item.message, code=_REFUSAL_CODES[check]))
+        raise serializers.ValidationError({"inputs": errors})
 
     def to_representation(self, data):
         is_instance = isinstance(data, HogFunction)
