@@ -10,6 +10,15 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
 from posthog.models.event.sql import EVENTS_JSON_CLEANER, EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
 
+
+def test_reversible_null_paths_decode_in_document_sql(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("posthog.clickhouse.events_json.EVENTS_JSON_REVERSIBLE_KEYS", True)
+    sql = event_document_sql("properties", "nulls", "temporary", "temporary_nulls", "flags")
+    assert r"replaceAll(replaceAll(null_key, '\x252E', '.'), '\x2525', '\x25')" in sql
+    assert r"replaceAll(replaceAll(null_segment, '\x252E', '.'), '\x2525', '\x25')" in sql
+    assert sql % {} == sql
+
+
 # The event properties and person properties an SDK sent, then the rebuilt documents where they differ from what was
 # sent. A sent empty value under a dynamic key stays; the declared paths read '' or [] whether sent empty or absent,
 # so the document leaves those out. Recorded null fields must survive reconstruction regardless of document size.

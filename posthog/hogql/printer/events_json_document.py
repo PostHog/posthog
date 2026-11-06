@@ -17,12 +17,13 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.escape_sql import escape_clickhouse_string
 
-from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
+from posthog.clickhouse.events_json import (
+    EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
+    PERSON_PROPERTIES_JSON_SUBCOLUMNS,
+    decode_json_key_sql,
+)
 
 _FEATURE_FLAGS_KEY = "$feature_flags"
-# A null-key path joins object keys and array positions with `.` and writes a dot inside one key as `%2E`. The SQL
-# spells that `%` as the escape `\x25`, because a printed query goes through %-style parameter substitution.
-_ENCODED_DOT_SQL = "'\\x252E'"
 _NO_PATHS_SQL = "CAST([], 'Array(Array(String))')"
 
 
@@ -43,10 +44,6 @@ def declared_string_paths(subcolumns: dict[str, str]) -> tuple[str, ...]:
 EVENTS_PROPERTIES_DECLARED_ARRAY_PATHS = declared_array_paths(EVENTS_PROPERTIES_JSON_SUBCOLUMNS)
 EVENTS_PROPERTIES_DECLARED_STRING_PATHS = declared_string_paths(EVENTS_PROPERTIES_JSON_SUBCOLUMNS)
 PERSON_PROPERTIES_DECLARED_STRING_PATHS = declared_string_paths(PERSON_PROPERTIES_JSON_SUBCOLUMNS)
-
-
-def _decoded_key_sql(segment_sql: str) -> str:
-    return f"replaceAll({segment_sql}, {_ENCODED_DOT_SQL}, '.')"
 
 
 def _bind_sql(values: dict[str, str], body_sql: str) -> str:
@@ -78,13 +75,13 @@ def _runs_sql(sorted_sql: str, key: Callable[[str], str], item: str) -> str:
 
 def _top_level_null_keys_sql(null_keys_sql: str) -> str:
     """The keys of the members sent as `null`, which are the recorded paths of one segment."""
-    return f"arrayMap(null_key -> {_decoded_key_sql('null_key')}, arrayFilter(null_key -> position(null_key, '.') = 0, {null_keys_sql}))"
+    return f"arrayMap(null_key -> {decode_json_key_sql('null_key')}, arrayFilter(null_key -> position(null_key, '.') = 0, {null_keys_sql}))"
 
 
 def _nested_null_paths_sql(null_keys_sql: str) -> str:
     """Each recorded path of more than one segment as its list of segments."""
     return (
-        f"arrayMap(null_path -> arrayMap(null_segment -> {_decoded_key_sql('null_segment')}, splitByChar('.', null_path)), "
+        f"arrayMap(null_path -> arrayMap(null_segment -> {decode_json_key_sql('null_segment')}, splitByChar('.', null_path)), "
         f"arrayFilter(null_path -> position(null_path, '.') > 0, {null_keys_sql}))"
     )
 

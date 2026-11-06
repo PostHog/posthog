@@ -53,7 +53,7 @@ from posthog.hogql.type_system import infer_tuple_access_constant_type, parse_sq
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
 from posthog.clickhouse.client.escape import substitute_params
-from posthog.clickhouse.events_json import NULL_KEYS_COLUMNS, TEMPORARY_PROPERTIES_COLUMN
+from posthog.clickhouse.events_json import NULL_KEYS_COLUMNS, TEMPORARY_PROPERTIES_COLUMN, encode_json_key
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.uuidt import UUIDT
 from posthog.week_start_day import WeekStartDay
@@ -1523,9 +1523,8 @@ class ClickHousePrinter(BasePrinter):
         else:
             expr = self.visit(node.expr)
 
-        # The native table stores a dotted key as one path named with `%2E` (EVENTS_JSON_INSERT_SETTINGS), so a
-        # dot inside one key must not read as a path separator.
-        keys = [key.replace(".", "%2E") for key in node.keys]
+        # Encode each key before joining so a dot inside one key cannot become a path separator.
+        keys = [encode_json_key(key) for key in node.keys]
 
         # An empty key is not a valid SQL identifier, so that path goes to getSubcolumn as a bound value. Every
         # other key prints as a direct subcolumn read: getSubcolumn() reads every subcolumn and filters afterwards.

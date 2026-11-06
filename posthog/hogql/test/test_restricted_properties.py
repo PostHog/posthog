@@ -7,6 +7,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import build_database_root_node
 from posthog.hogql.database.models import StringJSONDatabaseField, Table, TableNode
+from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.restricted_properties import (
     PERSON_PROPERTY_CONTAINERS,
@@ -19,6 +20,34 @@ from posthog.constants import GROUP_TYPES_LIMIT
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 _GROUP_PROPERTIES_COLUMN = re.compile(r"group(\d+)_properties")
+
+
+@pytest.mark.parametrize(
+    "reversible, encoded, encoded_twice",
+    [(False, "user%%2Eemail", "user%%2Eemail"), (True, "user%25%2Eemail", "user%2525%252Eemail")],
+)
+def test_native_restrictions_include_encoded_event_and_identify_keys(
+    monkeypatch: pytest.MonkeyPatch, reversible: bool, encoded: str, encoded_twice: str
+) -> None:
+    monkeypatch.setattr("posthog.clickhouse.events_json.EVENTS_JSON_REVERSIBLE_KEYS", reversible)
+    context = HogQLContext(
+        team_id=1,
+        use_new_events_schema=True,
+        restricted_properties={
+            RestrictedProperty(name="user%.email", property_type=PropertyDefinition.Type.EVENT),
+            RestrictedProperty(name="user%.email", property_type=PropertyDefinition.Type.PERSON),
+        },
+    )
+    assert restricted_property_keys_for_table_type(ast.TableType(table=EventsTable()), context) == {
+        "user%.email",
+        encoded,
+        "$unparseable_properties",
+        *(f"{container}.user%.email" for container in PERSON_PROPERTY_CONTAINERS),
+        *(f"{container}.{encoded}" for container in PERSON_PROPERTY_CONTAINERS),
+        *(f"{container}%2E{encoded}" for container in PERSON_PROPERTY_CONTAINERS),
+        *(f"{container}%2E{encoded_twice}" for container in PERSON_PROPERTY_CONTAINERS),
+    }
+
 
 # A distinct restricted key per property class, so a table dispatched to the wrong class, or a group blob
 # dispatched to the wrong index, comes back carrying the wrong key instead of passing on a non-empty set.

@@ -51,6 +51,7 @@ from posthog.hogql.constants import (
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
+from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
@@ -61,7 +62,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import json_dynamic_read_sql
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
+from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE, encode_json_key
 from posthog.models import PropertyDefinition
 from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE, EVENTS_PROPERTIES_JSON_TYPE
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
@@ -91,6 +92,25 @@ def _find_query_plan_node(node: dict, condition: Callable[[dict], bool]) -> dict
         if result is not None:
             return result
     return None
+
+
+@pytest.mark.parametrize("access_type, separator", [("path", "."), ("sub_object", ".^")])
+def test_native_json_subcolumn_encodes_reversible_keys(
+    monkeypatch: pytest.MonkeyPatch, access_type: Literal["path", "sub_object"], separator: str
+) -> None:
+    monkeypatch.setattr("posthog.clickhouse.events_json.EVENTS_JSON_REVERSIBLE_KEYS", True)
+    context = HogQLContext(team_id=1, use_new_events_schema=True)
+    node = ast.JsonSubcolumnAccess(
+        expr=ast.Field(
+            chain=["properties"],
+            type=ast.FieldType(table_type=ast.TableType(table=EventsTable()), name="properties"),
+        ),
+        keys=["a%2E.b", "tail%"],
+        access_type=access_type,
+    )
+    sql = print_prepared_ast(node, context=context, dialect="clickhouse")
+    assert sql == rf"events.properties{separator}`a\x25252E\x252Eb`.`tail\x2525`"
+    assert sql % {} == sql
 
 
 class TestPrinter(BaseTest):
@@ -140,7 +160,7 @@ class TestPrinter(BaseTest):
 
     def _json_dynamic_subcolumn_expr(self, root: str, property_name: str) -> str:
         # A dotted key is one path name with its dots escaped, not a nested path.
-        return self._json_dynamic_subcolumn_path_expr(root, [property_name.replace(".", "%2E")])
+        return self._json_dynamic_subcolumn_path_expr(root, [encode_json_key(property_name)])
 
     def _json_dynamic_subcolumn_path_expr(self, root: str, property_path: list[str]) -> str:
         return json_dynamic_read_sql(root, property_path)
