@@ -417,13 +417,14 @@ export class ToolExecutor {
                     llmModel: prepared.llmModel,
                     llmModelSource: prepared.llmModelSource,
                     llmModelMissingReason: prepared.llmModel ? undefined : getModelMissingReason(rawArgs.llm_model),
+                    parameters: prepared.args ?? rawArgs,
                 },
                 args: prepared.args ?? rawArgs,
                 preparedCall: prepared,
             }
         } catch {
             return {
-                analyticsMeta: { llmModelMissingReason: 'capture_error' },
+                analyticsMeta: { llmModelMissingReason: 'capture_error', parameters: rawArgs },
                 args: rawArgs,
                 preparedCall: undefined,
             }
@@ -458,6 +459,7 @@ export class ToolExecutor {
                 message,
                 describeValidationError(validation.error, tool.schema)
             )
+            const rejected = { content: [{ type: 'text', text: message }], isError: true }
             void trackToolCall(
                 tool.name,
                 0,
@@ -467,13 +469,10 @@ export class ToolExecutor {
                     ...inputShape,
                     ...errorAnalyticsProperties(classifyToolError(rejection, tool.name), rejection),
                 },
-                analyticsMeta,
+                { ...analyticsMeta, response: rejected },
                 this.servedToolDescription(tool.name)
             )
-            return {
-                content: [{ type: 'text', text: message }],
-                isError: true,
-            }
+            return rejected
         }
 
         const stop = toolCallDurationSeconds.startTimer({ tool: tool.name })
@@ -551,7 +550,7 @@ export class ToolExecutor {
                     ...toolResultAnalyticsProperties(response),
                     ...guidanceAnalyticsProperties(guidance),
                 },
-                analyticsMeta,
+                { ...analyticsMeta, response },
                 this.servedToolDescription(tool.name)
             )
 
@@ -597,21 +596,7 @@ export class ToolExecutor {
                 this.builtInSkillHint(state)
             )
 
-            void trackToolCall(
-                tool.name,
-                Date.now() - startMs,
-                true,
-                state,
-                {
-                    ...inputShape,
-                    ...errorAnalyticsProperties(classification, error),
-                    ...(lookupMiss ? skillLookupMissProperties(lookupMiss.kind) : {}),
-                    ...guidanceAnalyticsProperties(guidance),
-                },
-                analyticsMeta,
-                this.servedToolDescription(tool.name)
-            )
-
+            const durationMs = Date.now() - startMs
             const errorMessage = extractErrorMessage(error)
             if (tool.name === EXECUTE_SQL_TOOL_NAME) {
                 void trackExecuteSqlGeneration(
@@ -619,7 +604,7 @@ export class ToolExecutor {
                     validation.data,
                     state,
                     {
-                        durationMs: Date.now() - startMs,
+                        durationMs,
                         isError: true,
                         errorMessage,
                     },
@@ -628,27 +613,39 @@ export class ToolExecutor {
             }
 
             void trackToolSpan(tool.name, state, {
-                durationMs: Date.now() - startMs,
+                durationMs,
                 isError: true,
                 errorMessage,
                 input: validation.data,
             })
 
-            if (lookupMiss) {
-                return attachGuidanceNotice({ content: [{ type: 'text', text: lookupMiss.message }] }, guidance)
-            }
-
-            const sessionUuid = await sessionUuidForError(state)
-            return attachGuidanceNotice(
-                handleToolError(
-                    error,
-                    tool.name,
-                    state.distinctId,
-                    sessionUuid,
-                    state.suppressAnalytics || isPrivateScoutTrialTool(tool.name)
-                ),
-                guidance
+            const failed = lookupMiss
+                ? attachGuidanceNotice({ content: [{ type: 'text', text: lookupMiss.message }] }, guidance)
+                : attachGuidanceNotice(
+                      handleToolError(
+                          error,
+                          tool.name,
+                          state.distinctId,
+                          await sessionUuidForError(state),
+                          state.suppressAnalytics || isPrivateScoutTrialTool(tool.name)
+                      ),
+                      guidance
+                  )
+            void trackToolCall(
+                tool.name,
+                durationMs,
+                true,
+                state,
+                {
+                    ...inputShape,
+                    ...errorAnalyticsProperties(classification, error),
+                    ...(lookupMiss ? skillLookupMissProperties(lookupMiss.kind) : {}),
+                    ...guidanceAnalyticsProperties(guidance),
+                },
+                { ...analyticsMeta, response: failed },
+                this.servedToolDescription(tool.name)
             )
+            return failed
         }
     }
 
@@ -690,6 +687,7 @@ export class ToolExecutor {
                 message,
                 describeValidationError(validation.error, resolved.schema)
             )
+            const rejected = { content: [{ type: 'text', text: message }], isError: true }
             void trackToolCall(
                 'exec',
                 0,
@@ -700,12 +698,9 @@ export class ToolExecutor {
                     ...wrapperInputShape,
                     ...errorAnalyticsProperties(classifyToolError(rejection, 'exec'), rejection),
                 },
-                analyticsMeta
+                { ...analyticsMeta, response: rejected }
             )
-            return {
-                content: [{ type: 'text', text: message }],
-                isError: true,
-            }
+            return rejected
         }
 
         const startMs = Date.now()
@@ -724,6 +719,14 @@ export class ToolExecutor {
         // the analytics event names the tool the agent was reaching for, so its failure
         // counts against that tool rather than hiding in the `exec` bucket.
         const analyticsToolName = (): string => execMetrics.innerToolName ?? attemptedCallTarget(execShape) ?? 'exec'
+        // The event names the inner tool, so its arguments are the inner tool's, not the command string.
+        const execAnalyticsMeta = (response: unknown): ToolCallAnalyticsMeta => ({
+            ...analyticsMeta,
+            parameters: execMetrics.innerToolName
+                ? parseExecCallInnerArgs(validation.data.command)
+                : analyticsMeta?.parameters,
+            response,
+        })
 
         // Which stored skill an exec-routed read returned. Success only, unlike the
         // verb above: that records what the agent attempted, this records what it got.
@@ -779,7 +782,7 @@ export class ToolExecutor {
                     ...toolResultAnalyticsProperties(response),
                     ...guidanceAnalyticsProperties(guidance),
                 },
-                analyticsMeta,
+                execAnalyticsMeta(response),
                 this.servedToolDescription(analyticsToolName())
             )
 
@@ -801,9 +804,26 @@ export class ToolExecutor {
                 toolCallsTotal.inc({ tool: 'exec', status })
             }
 
+            const durationMs = Date.now() - startMs
+            // Attribute the failure to the inner tool that actually ran (e.g. `query-logs`),
+            // not the `exec` wrapper — so the agent-facing `[tool]` label and the 5xx
+            // exception fingerprint point at the real source instead of collapsing every
+            // exec-routed failure into one opaque `exec` bucket.
+            const failed = attachGuidanceNotice(
+                handleToolError(
+                    error,
+                    metricTool,
+                    state.distinctId,
+                    await sessionUuidForError(state),
+                    state.suppressAnalytics ||
+                        isPrivateScoutTrialTool(metricTool) ||
+                        isPrivateScoutTrialTool(execShape.$mcp_exec_target_tool)
+                ),
+                guidance
+            )
             void trackToolCall(
                 analyticsToolName(),
-                Date.now() - startMs,
+                durationMs,
                 true,
                 state,
                 {
@@ -813,27 +833,10 @@ export class ToolExecutor {
                     ...execMetrics.commandMeta,
                     ...guidanceAnalyticsProperties(guidance),
                 },
-                analyticsMeta,
+                execAnalyticsMeta(failed),
                 this.servedToolDescription(analyticsToolName())
             )
-
-            const sessionUuid = await sessionUuidForError(state)
-            // Attribute the failure to the inner tool that actually ran (e.g. `query-logs`),
-            // not the `exec` wrapper — so the agent-facing `[tool]` label and the 5xx
-            // exception fingerprint point at the real source instead of collapsing every
-            // exec-routed failure into one opaque `exec` bucket.
-            return attachGuidanceNotice(
-                handleToolError(
-                    error,
-                    metricTool,
-                    state.distinctId,
-                    sessionUuid,
-                    state.suppressAnalytics ||
-                        isPrivateScoutTrialTool(metricTool) ||
-                        isPrivateScoutTrialTool(execShape.$mcp_exec_target_tool)
-                ),
-                guidance
-            )
+            return failed
         }
     }
 
@@ -1041,6 +1044,10 @@ export class ToolExecutor {
                 formatInputValidationError('render-ui', validation.error),
                 describeValidationError(validation.error, renderUiTool.schema)
             )
+            const rejected = {
+                content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }],
+                isError: true,
+            }
             void trackToolCall(
                 'render-ui',
                 0,
@@ -1050,9 +1057,9 @@ export class ToolExecutor {
                     ...inputShape,
                     ...errorAnalyticsProperties(classifyToolError(rejection, 'render-ui'), rejection),
                 },
-                analyticsMeta
+                { ...analyticsMeta, response: rejected }
             )
-            return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
+            return rejected
         }
 
         const stop = toolCallDurationSeconds.startTimer({ tool: 'render-ui' })
@@ -1061,23 +1068,33 @@ export class ToolExecutor {
             const handlerResult = await renderUiTool.handler(state.context, validation.data)
             toolCallsTotal.inc({ tool: 'render-ui', status: 'success' })
             stop({ status: 'success' })
-            void trackToolCall('render-ui', Date.now() - startMs, false, state, inputShape, analyticsMeta)
+            void trackToolCall('render-ui', Date.now() - startMs, false, state, inputShape, {
+                ...analyticsMeta,
+                response: handlerResult,
+            })
             // The handler always returns an exec-built payload (UI resourceUri + structuredContent).
             return handlerResult
         } catch (error: unknown) {
             toolCallsTotal.inc({ tool: 'render-ui', status: 'error' })
             stop({ status: 'error' })
             const classification = classifyToolError(error, 'render-ui')
+            const durationMs = Date.now() - startMs
+            const failed = handleToolError(
+                error,
+                'render-ui',
+                state.distinctId,
+                await sessionUuidForError(state),
+                state.suppressAnalytics
+            )
             void trackToolCall(
                 'render-ui',
-                Date.now() - startMs,
+                durationMs,
                 true,
                 state,
                 { ...inputShape, ...errorAnalyticsProperties(classification, error) },
-                analyticsMeta
+                { ...analyticsMeta, response: failed }
             )
-            const sessionUuid = await sessionUuidForError(state)
-            return handleToolError(error, 'render-ui', state.distinctId, sessionUuid, state.suppressAnalytics)
+            return failed
         }
     }
 }

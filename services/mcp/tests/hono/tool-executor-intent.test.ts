@@ -246,6 +246,9 @@ describe('ToolExecutor analytics capture', () => {
             expect(event.properties).toMatchObject({
                 $mcp_project_id: '1',
             })
+            // Exec routes name the inner tool, so they carry its arguments rather than the command string.
+            expect(event.parameters).toEqual({ projectId: 2 })
+            expect(JSON.stringify(event.response)).toContain('Switched to project 2')
         }
     )
 

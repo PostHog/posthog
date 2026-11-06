@@ -162,6 +162,10 @@ export interface ToolCallAnalyticsMeta {
     /** Where the model identifier came from -> `$mcp_llm_model_source`. */
     llmModelSource?: MCPAnalyticsModelSource
     llmModelMissingReason?: ModelMissingReason
+    /** The arguments the tool ran with → `$mcp_parameters`. The SDK sanitizes and truncates them. */
+    parameters?: unknown
+    /** What the agent got back → `$mcp_response`. The SDK sanitizes and truncates it. */
+    response?: unknown
 }
 
 export async function trackToolCall(
@@ -225,6 +229,7 @@ export async function trackToolCall(
             ...(analyticsMeta?.intentSource ? { intentSource: analyticsMeta.intentSource } : {}),
             ...(analyticsMeta?.llmModel ? { llmModel: analyticsMeta.llmModel } : {}),
             ...(analyticsMeta?.llmModelSource ? { llmModelSource: analyticsMeta.llmModelSource } : {}),
+            ...capturedPayload(toolName, state, analyticsMeta),
             properties: {
                 ...properties,
                 tool_name: toolName,
@@ -378,7 +383,7 @@ function readsEmailRecipients(toolName: string, input: unknown): boolean {
     )
 }
 
-function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
+function shouldCaptureToolInput(toolName: string, input: unknown): boolean {
     if (isPrivateScoutTrialTool(toolName)) {
         return false
     }
@@ -401,6 +406,13 @@ function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
         return false
     }
     if (readsEmailRecipients(toolName, input)) {
+        return false
+    }
+    return true
+}
+
+function shouldCaptureToolOutput(toolName: string, input: unknown): boolean {
+    if (!shouldCaptureToolInput(toolName, input)) {
         return false
     }
     // execute-sql can't be captured wholesale: its payload is the query result,
@@ -481,6 +493,27 @@ function serializeSpanState(value: unknown): string | undefined {
     }
 }
 
+// Arguments and results follow the `$ai_span` policy and redaction; the SDK then truncates them.
+function capturedPayload(
+    toolName: string,
+    state: ResolvedState,
+    analyticsMeta: ToolCallAnalyticsMeta | undefined
+): { parameters?: unknown; response?: unknown } {
+    const { parameters, response } = analyticsMeta ?? {}
+    return {
+        ...(parameters !== undefined && shouldCaptureToolInput(toolName, parameters)
+            ? { parameters: redactSecrets(parameters) }
+            : {}),
+        ...(response !== undefined && shouldCaptureToolOutput(toolName, parameters)
+            ? {
+                  response: redactSecrets(
+                      state.clientProfile.consumer === 'posthog_ai' ? omitAppData(response) : response
+                  ),
+              }
+            : {}),
+    }
+}
+
 function omitAppData(output: unknown): unknown {
     if (typeof output !== 'object' || output === null || Array.isArray(output)) {
         return output
@@ -498,15 +531,15 @@ function omitAppData(output: unknown): unknown {
 /**
  * Captures an `$ai_span` for a tool call, joining the same MCP-session trace as
  * the execute-sql `$ai_generation` events. Trace-target online evaluations then
- * see a call's args AND result, neither of which `$mcp_tool_call` carries.
+ * see a call's args AND result. `$mcp_tool_call` carries them under the same policy.
  *
  * Every tool is captured by default. `execute-sql` is the one exception: its
  * payload is the query result and it serves the bulk of MCP volume, so only its
- * metadata queries are captured (see {@link shouldCaptureToolSpan}).
+ * metadata queries are captured (see {@link shouldCaptureToolOutput}).
  */
 export async function trackToolSpan(toolName: string, state: ResolvedState, meta: ToolSpanMeta): Promise<void> {
     try {
-        if (!shouldCaptureToolSpan(toolName, meta.input)) {
+        if (!shouldCaptureToolOutput(toolName, meta.input)) {
             return
         }
         const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)

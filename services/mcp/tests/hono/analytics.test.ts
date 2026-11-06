@@ -207,6 +207,55 @@ describe('Hono MCP analytics contexts', () => {
         }
     })
 
+    // `$mcp_tool_call` carries arguments and results under the same policy as `$ai_span`,
+    // except that execute-sql keeps its query (already on `$ai_generation`) and drops its rows.
+    it.each([
+        ['an ordinary tool', 'query-logs', { query: 'level:error' }, true, true],
+        ['execute-sql on plain data', 'execute-sql', { query: 'SELECT count() FROM events' }, true, false],
+        [
+            'execute-sql querying metadata',
+            'execute-sql',
+            { query: 'SELECT name FROM system.information_schema.metrics' },
+            true,
+            true,
+        ],
+        ['a proxied third-party tool', 'linear__create_issue', { title: 'Customer escalation' }, false, false],
+        ['the presigned upload tool', 'media-image-upload-start', { name: 'logo.png' }, false, false],
+        ['a connection forward', 'posthog-connection-forward', { id: '1', path: 'api/' }, false, false],
+        ['an email log search', 'workflows-transactional-emails-list', { search: 'jane@example.com' }, false, false],
+        [
+            'an email send through exec',
+            'exec',
+            { command: 'call workflows-send-email-prepare {"to":"ada@example.com"}' },
+            false,
+            false,
+        ],
+    ])(
+        'gates captured arguments and result for %s',
+        async (_case, toolName, parameters, sendsArguments, sendsResult) => {
+            await trackToolCall(toolName, 12, false, makeState(), undefined, { parameters, response: 'rows' })
+
+            const captured = mockCaptureToolCall.mock.calls[0]![0]
+            expect(captured.parameters).toEqual(sendsArguments ? parameters : undefined)
+            expect(captured.response).toEqual(sendsResult ? 'rows' : undefined)
+        }
+    )
+
+    it('redacts secret-bearing fields from captured arguments and result', async () => {
+        await trackToolCall('user-settings-update', 12, false, makeState(), undefined, {
+            parameters: { first_name: 'Ada', password: 'hunter2', payload: { client_secret: 'oauth-secret' } },
+            response: { id: 1, api_key: 'phx_live_123' },
+        })
+
+        const { parameters, response } = mockCaptureToolCall.mock.calls[0]![0]
+        expect(parameters).toEqual({
+            first_name: 'Ada',
+            password: '[redacted]',
+            payload: { client_secret: '[redacted]' },
+        })
+        expect(response).toEqual({ id: 1, api_key: '[redacted]' })
+    })
+
     it.each([
         [MCP_INTENT_PROMPT_FLAG, true],
         [MCP_INTENT_PROMPT_FLAG, false],
