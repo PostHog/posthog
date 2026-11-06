@@ -96,7 +96,13 @@ export function MCPToolCallRow({
             {expanded ? (
                 <div className="flex flex-col gap-2 pl-5 pt-1">
                     {toolCall.parameters ? (
-                        <CodeSnippet language={Language.JSON} compact thing="arguments" maxLinesWithoutExpansion={12}>
+                        <CodeSnippet
+                            language={Language.JSON}
+                            compact
+                            wrap
+                            thing="arguments"
+                            maxLinesWithoutExpansion={12}
+                        >
                             {formatToolArguments(toolCall.parameters)}
                         </CodeSnippet>
                     ) : (
