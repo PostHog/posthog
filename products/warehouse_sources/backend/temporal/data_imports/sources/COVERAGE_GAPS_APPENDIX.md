@@ -11069,24 +11069,24 @@ Note: Only `domains` is synced (settings.py has a single endpoint, no dynamic di
 
 ## Shutterstock — gaps
 
-Today (9): `image_categories`, `image_collections`, `image_licenses`, `images_updated`, `subscriptions`, `video_categories`, `video_collections`, `video_licenses`, `videos_updated`
+Today (15): `audio_genres`, `audio_instruments`, `audio_licenses`, `audio_moods`, `image_categories`, `image_collection_items`, `image_collections`, `image_licenses`, `images_updated`, `subscriptions`, `video_categories`, `video_collection_items`, `video_collections`, `video_licenses`, `videos_updated`
 
 Diffed against: <https://api-reference.shutterstock.com/>
 
-- [ ] `images/collections/{id}/items and videos/collections/{id}/items (GET)` — the join table for collections we already sync — without it a collection row has no members (high)
-- [ ] `audio/licenses (GET /v2/audio/licenses)` — audio licensing transactions, the same analytical shape as the image and video licenses already synced (high)
-- [ ] `images/licenses/{id}/downloads, videos/licenses/{id}/downloads, audio/licenses/{id}/downloads (GET)` — actual download events per license — usage grain under the license rows we sync (high)
+- [x] `images/collections/{id}/items and videos/collections/{id}/items (GET)` - added `image_collection_items` and `video_collection_items`, with `collection_id` on each member.
+- [x] `audio/licenses (GET /v2/audio/licenses)` - added `audio_licenses`, with incremental sync on `download_time`.
+- [x] `images/licenses/{id}/downloads, videos/licenses/{id}/downloads, audio/licenses/{id}/downloads (GET)` - skipped: the official v2 reference documents POST actions that generate download URLs. These paths do not list download events.
 - [ ] `editorial/licenses (GET /v2/editorial/licenses)` — editorial licensing transactions, missing from the licensing picture entirely (medium)
 - [ ] `sfx/licenses (GET /v2/sfx/licenses)` — sound-effects licensing transactions (medium)
 - [ ] `contributors/{contributor_id} (GET /v2/contributors)` — lookup resolving the contributor id carried on every synced asset; accepts comma-separated ids (medium)
 - [ ] `audio/collections and audio/collections/{id}/items (GET)` — audio collection membership, mirroring image and video collections (medium)
 - [ ] `editorial/images/updated and editorial/videos/updated (GET)` — editorial catalog deltas alongside the images_updated and videos_updated feeds already synced (medium)
-- [ ] `audio/genres, audio/instruments, audio/moods (GET)` — taxonomy lookup tables for audio, equivalent to the image and video category tables (medium)
+- [x] `audio/genres, audio/instruments, audio/moods (GET)` - added `audio_genres`, `audio_instruments`, and `audio_moods` as full-refresh tables.
 - [ ] `editorial/images/categories and editorial/videos/categories (GET)` — editorial taxonomy lookups (medium)
 - [ ] `catalog/collections and catalog/collections/{collection_id}/items (GET)` — the customer's own asset catalog and its membership (medium)
 - [ ] `images/collections/featured and videos/collections/featured (GET, plus /items)` — Shutterstock-curated collections and their contents (low)
 
-Note: Coverage is solid for the images and videos verticals (categories, collections, licenses, updated feeds) but the audio, SFX, and editorial verticals are entirely absent, and collection membership is never resolved.
+Note: Image and video collections include their members. Audio licenses and taxonomy tables are available. Audio collections, SFX, and editorial data remain gaps.
 
 ## SigmaComputing — gaps
 
