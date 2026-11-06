@@ -1,4 +1,5 @@
 import { Message } from 'node-rdkafka'
+import { Counter } from 'prom-client'
 
 import { sanitizeEvent } from '~/common/utils/event'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -7,7 +8,24 @@ import { UUID } from '~/common/utils/utils'
 import { TopHogMetricFactory, count, max, sum, timer } from '~/ingestion/framework/extensions/tophog'
 import { dlq, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { Properties } from '~/plugin-scaffold'
 import { EventHeaders, IncomingEvent, PipelineEvent } from '~/types'
+
+export const v1OptionsAppliedTotal = new Counter({
+    name: 'ingestion_v1_options_applied_total',
+    help: 'Capture v1 outbound options applied to event properties, by option key and outcome',
+    labelNames: ['key', 'outcome'],
+})
+
+/** Capture v1 option keys that always override the matching client property. The key names are the capture contract. */
+const CAPTURE_OPTION_OVERRIDES: ReadonlyArray<[key: string, property: string, type: 'string' | 'boolean']> = [
+    ['session_id', '$session_id', 'string'],
+    ['window_id', '$window_id', 'string'],
+    ['cookieless_mode', '$cookieless_mode', 'boolean'],
+    ['disable_skew_correction', '$ignore_sent_at', 'boolean'],
+    ['product_tour_id', '$product_tour_id', 'string'],
+    ['process_person_profile', '$process_person_profile', 'boolean'],
+]
 
 /**
  * TopHog metrics for the parse step: parse timing and raw message sizes,
@@ -46,6 +64,7 @@ export function createParseKafkaMessageStep<T extends { message: Message }>(): P
             const {
                 data: dataStr,
                 token: _token,
+                options,
                 ...rawEvent
             } = requireObject(parseJSON(message.value!.toString()), 'outer message')
             const data = requireObject(parseJSON(requireString(dataStr, 'data')), 'data field')
@@ -58,7 +77,9 @@ export function createParseKafkaMessageStep<T extends { message: Message }>(): P
 
             // Use sanitize-only normalization here. Full normalization (including
             // personInitialAndUTMProperties) happens after transformations in normalizeEventStep.
-            const event: PipelineEvent = sanitizeEvent(parsePipelineEvent(combinedEvent))
+            const parsed = parsePipelineEvent(combinedEvent)
+            applyCaptureOptions(options, parsed.properties!)
+            const event: PipelineEvent = sanitizeEvent(parsed)
 
             return Promise.resolve(ok({ ...input, event: { event } }))
         } catch (error) {
@@ -68,6 +89,54 @@ export function createParseKafkaMessageStep<T extends { message: Message }>(): P
             )
         }
     }
+}
+
+/**
+ * Applies the server-side values that capture v1 publishes in the outer message's `options`.
+ * Only the outer message is read: `data` is client-controlled, and `/i/v0/ai` puts the whole client event there.
+ */
+function applyCaptureOptions(options: unknown, properties: Properties): void {
+    if (options === undefined) {
+        return
+    }
+    if (typeof options !== 'object' || options === null || Array.isArray(options)) {
+        v1OptionsAppliedTotal.labels({ key: 'options', outcome: 'invalid_type' }).inc()
+        return
+    }
+    const values = options as Record<string, unknown>
+
+    for (const [key, property, type] of CAPTURE_OPTION_OVERRIDES) {
+        const value = values[key]
+        if (value === undefined) {
+            continue
+        }
+        if (typeof value !== type) {
+            v1OptionsAppliedTotal.labels({ key, outcome: 'invalid_type' }).inc()
+            continue
+        }
+        const outcome = properties[property] === value ? 'override_same' : 'override_diff'
+        v1OptionsAppliedTotal.labels({ key, outcome }).inc()
+        properties[property] = value
+    }
+
+    const lib = values.req_lib
+    const libVersion = values.req_lib_version
+    if (lib === undefined && libVersion === undefined) {
+        return
+    }
+    if (typeof lib !== 'string' || typeof libVersion !== 'string') {
+        v1OptionsAppliedTotal.labels({ key: 'req_lib', outcome: 'invalid_type' }).inc()
+        return
+    }
+    if (properties.$lib == null) {
+        properties.$lib = lib
+        properties.$lib_version = libVersion
+        v1OptionsAppliedTotal.labels({ key: 'req_lib', outcome: 'lib_filled' }).inc()
+        return
+    }
+    const outcome =
+        properties.$lib === lib && properties.$lib_version === libVersion ? 'lib_kept_same' : 'lib_kept_diff'
+    v1OptionsAppliedTotal.labels({ key: 'req_lib', outcome }).inc()
 }
 
 function parsePipelineEvent(raw: Record<string, unknown>): PipelineEvent {

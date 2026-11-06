@@ -6,7 +6,7 @@ import { PipelineResultType, dlq, ok } from '~/ingestion/framework/results'
 import { createRecordingTopHog } from '~/tests/helpers/tophog'
 import { EventHeaders } from '~/types'
 
-import { createParseKafkaMessageStep, parseMessageTopHogMetrics } from './parse-kafka-message'
+import { createParseKafkaMessageStep, parseMessageTopHogMetrics, v1OptionsAppliedTotal } from './parse-kafka-message'
 
 // Mock dependencies
 jest.mock('~/common/utils/logger')
@@ -462,6 +462,166 @@ describe('createParseKafkaMessageStep', () => {
                 const result = await step({ message: msg })
                 expect(result).toEqual(dlq('failed_parse_message', expect.any(Error)))
             })
+        })
+    })
+
+    describe('capture v1 options', () => {
+        beforeEach(() => {
+            v1OptionsAppliedTotal.reset()
+        })
+
+        function makeMessage(data: Record<string, unknown>, outer: Record<string, unknown>): Message {
+            return {
+                value: Buffer.from(
+                    JSON.stringify({
+                        data: JSON.stringify({ event: 'test_event', distinct_id: 'test_user', ...data }),
+                        uuid: VALID_UUID,
+                        ...outer,
+                    })
+                ),
+            } as Message
+        }
+
+        async function parseProperties(
+            data: Record<string, unknown>,
+            outer: Record<string, unknown>
+        ): Promise<Record<string, unknown>> {
+            const result = await step({ message: makeMessage(data, outer) })
+            expect(result.type).toBe(PipelineResultType.OK)
+            return (result as any).value.event.event.properties
+        }
+
+        async function countedOutcomes(): Promise<Record<string, number>> {
+            const { values } = await v1OptionsAppliedTotal.get()
+            return Object.fromEntries(values.map(({ labels, value }) => [`${labels.key}:${labels.outcome}`, value]))
+        }
+
+        it.each([
+            ['session_id', '$session_id', 'client-session', 'server-session'],
+            ['window_id', '$window_id', 'client-window', 'server-window'],
+            ['window_id', '$window_id', 'client-window', ''],
+            ['cookieless_mode', '$cookieless_mode', false, true],
+            ['disable_skew_correction', '$ignore_sent_at', true, false],
+            ['product_tour_id', '$product_tour_id', 'client-tour', 'server-tour'],
+            ['process_person_profile', '$process_person_profile', true, false],
+        ])('%s overrides %s (client %j, server %j)', async (key, property, clientValue, serverValue) => {
+            const properties = await parseProperties(
+                { properties: { [property]: clientValue } },
+                { options: { [key]: serverValue } }
+            )
+
+            expect(properties[property]).toBe(serverValue)
+            expect(await countedOutcomes()).toEqual({ [`${key}:override_diff`]: 1 })
+        })
+
+        it('counts an override that matches the client value as the same', async () => {
+            const properties = await parseProperties(
+                { properties: { $window_id: 'window', $process_person_profile: false } },
+                { options: { window_id: 'window', process_person_profile: false } }
+            )
+
+            expect(properties).toMatchObject({ $window_id: 'window', $process_person_profile: false })
+            expect(await countedOutcomes()).toEqual({
+                'window_id:override_same': 1,
+                'process_person_profile:override_same': 1,
+            })
+        })
+
+        it.each([
+            ['missing', {}, { $lib: 'posthog-rs', $lib_version: '1.0.0' }, 'lib_filled'],
+            [
+                'null',
+                { $lib: null, $lib_version: '0.9.0' },
+                { $lib: 'posthog-rs', $lib_version: '1.0.0' },
+                'lib_filled',
+            ],
+            [
+                'equal to the header',
+                { $lib: 'posthog-rs', $lib_version: '1.0.0' },
+                { $lib: 'posthog-rs', $lib_version: '1.0.0' },
+                'lib_kept_same',
+            ],
+            [
+                'set by the client',
+                { $lib: 'posthog-rs-mcp', $lib_version: '0.3.0' },
+                { $lib: 'posthog-rs-mcp', $lib_version: '0.3.0' },
+                'lib_kept_diff',
+            ],
+            [
+                'set by the client without a version',
+                { $lib: 'custom' },
+                { $lib: 'custom', $lib_version: undefined },
+                'lib_kept_diff',
+            ],
+        ])('fills $lib from req_lib only when $lib is %s', async (_label, clientProperties, expected, outcome) => {
+            const properties = await parseProperties(
+                { properties: clientProperties },
+                { options: { req_lib: 'posthog-rs', req_lib_version: '1.0.0' } }
+            )
+
+            expect({ $lib: properties.$lib, $lib_version: properties.$lib_version }).toEqual(expected)
+            expect(await countedOutcomes()).toEqual({ [`req_lib:${outcome}`]: 1 })
+        })
+
+        it.each([
+            ['a string option is a number', { session_id: 42 }, 'session_id'],
+            ['a bool option is a string', { cookieless_mode: 'true' }, 'cookieless_mode'],
+            ['an option is null', { window_id: null }, 'window_id'],
+            ['req_lib_version is missing', { req_lib: 'posthog-rs' }, 'req_lib'],
+            ['req_lib is not a string', { req_lib: 1, req_lib_version: '1.0.0' }, 'req_lib'],
+        ])('skips the value when %s', async (_label, options, key) => {
+            const clientProperties = { $session_id: 'client', $cookieless_mode: false, $window_id: 'client' }
+
+            const properties = await parseProperties({ properties: clientProperties }, { options })
+
+            expect(properties).toMatchObject(clientProperties)
+            expect(properties.$lib).toBeUndefined()
+            expect(await countedOutcomes()).toEqual({ [`${key}:invalid_type`]: 1 })
+        })
+
+        it.each([
+            ['a string', 'session_id'],
+            ['an array', ['session_id']],
+            ['null', null],
+        ])('ignores options that are %s', async (_label, options) => {
+            const properties = await parseProperties({ properties: { $session_id: 'client' } }, { options })
+
+            expect(properties.$session_id).toBe('client')
+            expect(await countedOutcomes()).toEqual({ 'options:invalid_type': 1 })
+        })
+
+        it('ignores options inside the client-controlled data field', async () => {
+            const properties = await parseProperties(
+                {
+                    properties: { $session_id: 'client' },
+                    options: { session_id: 'injected', req_lib: 'injected', req_lib_version: '1.0.0' },
+                },
+                {}
+            )
+
+            expect(properties.$session_id).toBe('client')
+            expect(properties.$lib).toBeUndefined()
+            expect(await countedOutcomes()).toEqual({})
+        })
+
+        it('applies options to an event without properties', async () => {
+            const properties = await parseProperties(
+                {},
+                { options: { process_person_profile: false, req_lib: 'posthog-go', req_lib_version: '2.0.0' } }
+            )
+
+            expect(properties).toEqual({
+                $process_person_profile: false,
+                $lib: 'posthog-go',
+                $lib_version: '2.0.0',
+            })
+        })
+
+        it('leaves unknown option keys out of the event', async () => {
+            const properties = await parseProperties({ properties: { a: 1 } }, { options: { future_key: 'x' } })
+
+            expect(properties).toEqual({ a: 1 })
+            expect(await countedOutcomes()).toEqual({})
         })
     })
 
