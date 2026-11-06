@@ -193,11 +193,13 @@ class SelectorPart:
         # an id never matched under the earlier parser, so no saved count depends on
         # their reading, and they take the strict one: unescaped values and the full
         # chain key.
-        self.strict_attributes = len(attribute_matches) >= 2 and all(match.key != "id" for match in attribute_matches)
+        self.strict_attributes = len(attribute_matches) >= 2 and all(
+            attribute.key != "id" for attribute in attribute_matches
+        )
         if attribute_matches:
-            for match in attribute_matches:
-                key = match.key
-                value = match.value
+            for attribute in attribute_matches:
+                key = attribute.key
+                value = attribute.value
                 if self.strict_attributes:
                     value = re.sub(r"\\(.)", r"\1", value)
                 if key == "id":
@@ -208,7 +210,7 @@ class SelectorPart:
                     self._require(key, value)
             # Excise the attribute spans and keep the rest, so a class, id or
             # nth-child written after an attribute selector is not discarded.
-            tag = _excise_spans(tag, [(match.start, match.end) for match in attribute_matches])
+            tag = _excise_spans(tag, [(attribute.start, attribute.end) for attribute in attribute_matches])
         positional_matches = list(re.finditer(POSITIONAL_PSEUDO_CLASS_REGEX, tag))
         for match in positional_matches:
             pseudo_class, position = match.group(1), match.group(2)
