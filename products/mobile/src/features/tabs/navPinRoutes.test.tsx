@@ -5,6 +5,8 @@ import { act, renderRouter } from 'expo-router/testing-library'
 import type { ReactElement } from 'react'
 import { View } from 'react-native'
 
+import { defaultPageHref } from '@/features/settings/defaultPageStore'
+
 import { openNavTarget } from './navPinRoutes'
 import { NAV_PINS, type NavPin, restoreNavPins, useNavPins } from './navPinStore'
 import { tabRouteName } from './tabRoutes'
@@ -96,4 +98,29 @@ describe('pinnable list navigation', () => {
             expect(app.getSegments()).toEqual(['(tabs)', tabRouteName(pin)])
         }
     )
+
+    // The pushed screens live under `/views/`, so a start page path never resolves to one of them.
+    test.each([
+        { page: 'web_analytics', segments: ['(tabs)', 'web-analytics'] },
+        { page: 'live', segments: ['(tabs)', 'live'] },
+    ] as const)('the $page start page opens its tab', async ({ page, segments }) => {
+        const app = await renderRouter(
+            {
+                _layout: ListStack,
+                '(tabs)/_layout': TabsStub,
+                '(tabs)/inbox': Screen,
+                '(tabs)/views': Screen,
+                '(tabs)/errors/index': Screen,
+                '(tabs)/replay/index': Screen,
+                '(tabs)/web-analytics/_layout': ListStack,
+                '(tabs)/web-analytics/index': Screen,
+                '(tabs)/live/_layout': ListStack,
+                '(tabs)/live/index': Screen,
+                'views/web-analytics/index': Screen,
+                'views/live': Screen,
+            },
+            { initialUrl: defaultPageHref(page) }
+        )
+        expect(app.getSegments()).toEqual(segments)
+    })
 })
