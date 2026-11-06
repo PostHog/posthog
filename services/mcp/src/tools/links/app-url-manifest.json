@@ -204,6 +204,16 @@
         "params": [],
         "scope": "project"
     },
+    "aiVisibility": {
+        "template": "/ai-visibility",
+        "params": [],
+        "scope": "project"
+    },
+    "aiVisibilityBots": {
+        "template": "/ai-visibility/bots",
+        "params": [],
+        "scope": "project"
+    },
     "alert": {
         "template": "/alerts",
         "params": [],
