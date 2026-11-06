@@ -109,10 +109,11 @@ def disable_platform_insight_alert_configurations(
 
 
 def follow_insight_alert(alert: AlertConfiguration) -> None:
-    """Copies an insight alert that was just created or turned back on, if its team runs insight on the platform.
+    """Copies an insight alert that was just created or turned back on, while insight runs on the platform.
 
     Checks only read enabled copies, so no check would ever see this alert otherwise, and it would
-    stay off the platform until the next backfill.
+    stay off the platform until the next backfill. The insight parallel run covers every team, so a
+    team with no enabled copy yet, such as one creating its first alert, is admitted too.
 
     An AI detector alert is never followed. The backfill copies those only when an operator asks,
     and a copy's stored detector is what records that request, so following would overwrite it.
@@ -121,4 +122,4 @@ def follow_insight_alert(alert: AlertConfiguration) -> None:
         return
     upsert = platform_upsert_of(alert)
     if upsert is not None:
-        upsert_if_running(upsert, revive=True)
+        upsert_if_running(upsert, revive=True, admit_new_teams=True)

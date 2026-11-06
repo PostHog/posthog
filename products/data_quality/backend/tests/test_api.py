@@ -579,6 +579,11 @@ class TestDataQualityCheckAPI(APIBaseTest):
         self.suites_url = f"/api/projects/{self.team.id}/data_quality_runs"
         self.subject = {"subject_type": SubjectType.VIEW, "subject_uuid": str(self.view.id)}
 
+    def test_non_uuid_check_id_returns_404(self) -> None:
+        response = self.client.get(f"{self.url}/999999999/runs/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_model_history_includes_deleted_checks_without_other_models(self) -> None:
         check = self._create_check()
         other_view = DataWarehouseSavedQuery.objects.create(

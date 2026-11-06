@@ -15,7 +15,7 @@ from posthog.models.project import Project
 from posthog.models.user import User
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action, update_action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import TranspilerError
 from products.cdp.backend.site_functions import get_transpiled_function
@@ -231,9 +231,8 @@ class TestSiteFunctions(TestCase):
 
     @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_complex_filters(self, mock_transpile_fn):
-        action = Action.objects.create(team=self.team, name="Test Action")
-        action.steps = [{"event": "$pageview", "url": "https://example.com"}]
-        action.save()
+        action = create_action(team=self.team, name="Test Action")
+        update_action(action, steps_json=[{"event": "$pageview", "url": "https://example.com"}])
 
         self.team.test_account_filters = [
             {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"},
@@ -244,7 +243,7 @@ class TestSiteFunctions(TestCase):
         self.hog_function.hog = "export function onEvent(globals) { console.log(globals); }"
         self.hog_function.filters = {
             "events": [{"id": "$pageview", "name": "$pageview", "type": "events"}],
-            "actions": [{"id": str(action.pk), "name": "Test Action", "type": "actions"}],
+            "actions": [{"id": str(action.id), "name": "Test Action", "type": "actions"}],
             "filter_test_accounts": True,
         }
 
