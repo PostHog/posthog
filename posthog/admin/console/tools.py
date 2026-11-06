@@ -103,6 +103,10 @@ class Link:
     primary: bool = False
     pending_label: str = ""
 
+    def __post_init__(self) -> None:
+        if not self.href.startswith("/") or self.href.startswith(("//", "/\\")):
+            raise ValueError(f"Link {self.label!r} links to {self.href!r}. Link to a PostHog path that starts with /.")
+
 
 @frozen
 class Links:
@@ -226,6 +230,8 @@ class ToolOperation:
     gate: Gate | None = None
     # Staff confirm on a page that shows what will change. For actions on many records, such as a bulk change.
     preview: PreviewHandler | None = None
+    # The run button shows this until the next page loads, for an operation that takes a while.
+    pending_label: str = ""
 
     def __post_init__(self) -> None:
         check_danger(self.key, self.danger, self.form_class, self.undo_hint)

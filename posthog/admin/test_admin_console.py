@@ -19,7 +19,7 @@ from django.utils.html import format_html
 from parameterized import parameterized
 
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
-from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Owner, Panel, ReasonForm
+from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.tools import (
@@ -27,11 +27,15 @@ from posthog.admin.console.tools import (
     ConsoleTool,
     FieldGroup,
     Filters,
+    Link,
+    Links,
     Live,
     Notice,
     Page,
     Paging,
     Row,
+    Stat,
+    Stats,
     Table,
     ToolOperation,
 )
@@ -81,6 +85,11 @@ class _ToolActionForm(forms.Form):
     confirm = forms.CharField(required=False)
 
 
+class _ToolFiltersForm(forms.Form):
+    since = forms.CharField()
+    step = forms.CharField(widget=forms.HiddenInput, required=False)
+
+
 class _ActingTool(_Tool):
     key = "acting-tool"
     title = "Acting tool"
@@ -97,10 +106,29 @@ class _ActingTool(_Tool):
     def operations(self, request: HttpRequest) -> list[ToolOperation]:
         if request.GET.get("state") == "stale":
             return []
-        return [ToolOperation(key="act", label="Act", handler=self._act, form_class=_ToolActionForm)]
+        return [
+            ToolOperation(
+                key="act", label="Act", handler=self._act, form_class=_ToolActionForm, pending_label="Acting..."
+            )
+        ]
 
     def page(self, request: HttpRequest) -> Page:
-        return Page(blocks=())
+        return Page(
+            blocks=(
+                Notice(text="Check the window first.", tone=Tone.WARNING),
+                Stats(items=(Stat(label="Runs to replay", value="1,234"),)),
+                Links(
+                    items=(
+                        Link(label="Show details", href="/admin/console/", primary=True, pending_label="Loading..."),
+                    )
+                ),
+                Filters(
+                    form=_ToolFiltersForm(request.GET),
+                    groups=(FieldGroup(title="Window", field_names=("since",)),),
+                    submit_label="Preview",
+                ),
+            )
+        )
 
 
 def _register_twice() -> None:
@@ -201,6 +229,11 @@ class TestAdminConsoleAssets(SimpleTestCase):
                     undo_hint="It cannot be undone.",
                 ),
                 "reason",
+            ),
+            (
+                "link_off_site",
+                lambda: Link(label="Docs", href="//example.com/phish"),
+                "starts with /",
             ),
             (
                 "filters_that_would_hide_a_field",
@@ -536,6 +569,19 @@ class TestAdminConsoleViews(BaseTest):
             content = response.content.decode()
             assert "Type yes to confirm." in content
             assert 'value="kept text"' in content
+            assert 'data-pending-label="Acting..."' in content
+
+    def test_a_tool_page_renders_every_block_it_holds(self) -> None:
+        with patch.object(console, "get_tool", return_value=_ActingTool()):
+            response = self.client.get("/admin/console/tools/acting-tool/?since=2026-10-22&step=details")
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert 'data-tone="warning"' in content and "Check the window first." in content
+        assert "Runs to replay" in content and "1,234" in content
+        assert 'data-pending-label="Loading..."' in content and "Show details" in content
+        assert 'value="2026-10-22"' in content and "Preview" in content
+        assert re.search(r'<input type="hidden" name="step" value="details"', content)
 
     def test_a_tool_operation_needs_a_csrf_token_even_with_an_api_key_parameter(self) -> None:
         client = Client(enforce_csrf_checks=True)

@@ -116,6 +116,8 @@ class Operation:
     gate: Gate | None = None
     # Staff confirm on a page that shows what will change, for an action that is hard to take back.
     preview: RecordPreviewHandler | None = None
+    # The run button shows this until the next page loads, for an operation that takes a while.
+    pending_label: str = ""
 
     def __post_init__(self) -> None:
         check_danger(self.key, self.danger, self.form_class, self.undo_hint)
