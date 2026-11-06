@@ -94,7 +94,7 @@ const emailTrackingLogSkipsCounter = new Counter({
 
 export const sesQueuedNotificationsCounter = new Counter({
     name: 'email_tracking_ses_queued_notifications_total',
-    help: 'SES notifications through the queue, by stage: queued by the webhook, then recorded or dead-lettered',
+    help: 'SES notifications through the queue, by stage: queued by the webhook, then recorded or skipped',
     labelNames: ['stage'],
 })
 
@@ -639,7 +639,7 @@ export class EmailTrackingService {
         return recording
     }
 
-    // A queued notification that fails to record reaches a dead-letter topic; a 5xx to SNS is lost after its retries.
+    // A failed produce throws, so the webhook answers 5xx and SNS retries the notification.
     private async queueSesNotification(
         rawBody: string,
         body: unknown,

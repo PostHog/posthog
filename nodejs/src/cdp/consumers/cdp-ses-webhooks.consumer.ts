@@ -5,13 +5,18 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { logger, serializeError } from '~/common/utils/logger'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
-import { SES_WEBHOOKS_DLQ_OUTPUT } from '../outputs/outputs'
 import { sesQueuedNotificationsCounter } from '../services/messaging/email-tracking.service'
 import { SnsEnvelope, parseSnsEnvelope } from '../services/messaging/helpers/ses'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 
-// A notification that fails to record goes to the dead-letter topic, so one bad message cannot hold its partition.
+type RecordFailure = {
+    reason: 'unparseable' | 'rejected' | 'recording_failed'
+    error?: ReturnType<typeof serializeError>
+}
+
+// A notification that fails to record is logged, counted and skipped, so one bad message cannot hold its
+// partition. SNS drops a notification the same way after its last retry.
 export class CdpSesWebhooksConsumer extends CdpConsumerBase {
     protected name = 'CdpSesWebhooksConsumer'
     private kafkaConsumer: KafkaConsumerInterface
@@ -26,42 +31,33 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
 
     public async processBatch(messages: Message[]): Promise<void> {
         for (const message of messages) {
-            if (!(await this.record(message))) {
-                await this.deadLetter(message)
+            const failure = await this.record(message)
+            if (failure) {
+                logger.error('[CdpSesWebhooksConsumer] Skipping an SES notification that failed to record', {
+                    topic: message.topic,
+                    partition: message.partition,
+                    offset: message.offset,
+                    ...failure,
+                })
+                sesQueuedNotificationsCounter.inc({ stage: 'skipped' })
             }
         }
     }
 
-    private async record(message: Message): Promise<boolean> {
+    private async record(message: Message): Promise<RecordFailure | null> {
         let envelope: SnsEnvelope
         try {
             envelope = parseSnsEnvelope(message.value?.toString() ?? '')
         } catch {
-            logger.error('[CdpSesWebhooksConsumer] A message does not parse', {
-                offset: message.offset,
-                partition: message.partition,
-            })
             counterParseError.labels({ error: 'unparseable_ses_notification' }).inc()
-            return false
+            return { reason: 'unparseable' }
         }
         try {
             const recording = await this.emailTrackingService.recordQueuedSesNotification(envelope)
-            return recording.outcome === 'recorded'
+            return recording.outcome === 'recorded' ? null : { reason: 'rejected' }
         } catch (error) {
-            logger.error('[CdpSesWebhooksConsumer] Failed to record an SES notification', {
-                snsMessageId: envelope.MessageId,
-                error: serializeError(error),
-            })
-            return false
+            return { reason: 'recording_failed', error: serializeError(error) }
         }
-    }
-
-    private async deadLetter(message: Message): Promise<void> {
-        await this.outputs.produce(SES_WEBHOOKS_DLQ_OUTPUT, {
-            key: message.key ? Buffer.from(message.key) : null,
-            value: message.value ?? null,
-        })
-        sesQueuedNotificationsCounter.inc({ stage: 'dead_lettered' })
     }
 
     public override async start(): Promise<void> {

@@ -25,7 +25,6 @@ import { defaultConfig } from '~/common/config/config'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CDP_SES_WEBHOOKS,
-    KAFKA_CDP_SES_WEBHOOKS_DLQ,
     KAFKA_EMAIL_STATUS,
     KAFKA_LOG_ENTRIES,
 } from '~/common/config/kafka-topics'
@@ -827,11 +826,16 @@ describe('EmailTrackingService', () => {
                     value: Buffer.from(value),
                 })
 
-                const deadLettered = (): (string | undefined)[] =>
+                const deadLettered = (): string[] =>
                     mockProducerObserver
                         .getProducedMessages()
-                        .filter(({ topic }) => topic === KAFKA_CDP_SES_WEBHOOKS_DLQ)
-                        .flatMap(({ messages }) => messages.map(({ value }) => value?.toString()))
+                        .map(({ topic }) => topic)
+                        .filter((topic) => topic.includes('dlq'))
+
+                const skipped = async (): Promise<number> =>
+                    (
+                        await register.getSingleMetric('email_tracking_ses_queued_notifications_total')!.get()
+                    ).values.find((v) => v.labels.stage === 'skipped')?.value ?? 0
 
                 it('answers 200 and queues the envelope by its MessageId without recording it', async () => {
                     const snsMessageId = new UUIDT().toString()
@@ -918,7 +922,7 @@ describe('EmailTrackingService', () => {
                     ['is not JSON', () => Promise.resolve(rawMessage('not json'))],
                     ['is not an SNS envelope', () => Promise.resolve(rawMessage('{}'))],
                     [
-                        'fails to record',
+                        'throws while recording',
                         async () => {
                             await postBounce({
                                 functionId: hogFunction.id,
@@ -936,21 +940,17 @@ describe('EmailTrackingService', () => {
                             return queuedNotifications()[0]
                         },
                     ],
-                ])('dead-letters a message that %s and records the rest of the batch', async (_, failingMessage) => {
+                ])('skips a message that %s and records the rest of the batch', async (_, failingMessage) => {
                     const failing = await failingMessage()
                     await postBounce({ functionId: hogFunction.id })
                     const recordable = queuedNotifications().at(-1)!
+                    const skippedBefore = await skipped()
 
                     await consumer.processBatch([failing, recordable])
 
-                    expect(deadLettered()).toEqual([failing.value?.toString()])
                     expect(recordedMetrics()).toEqual(bounceMetrics)
-                })
-
-                it('fails the batch so it replays when the dead-letter produce fails', async () => {
-                    mockProducerObserver.produceSpy.mockRejectedValueOnce(new Error('broker unavailable'))
-
-                    await expect(consumer.processBatch([rawMessage('not json')])).rejects.toThrow('broker unavailable')
+                    expect(await skipped()).toBe(skippedBefore + 1)
+                    expect(deadLettered()).toEqual([])
                 })
             })
 
