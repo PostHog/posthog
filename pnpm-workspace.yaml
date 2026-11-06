@@ -9,6 +9,7 @@ packages:
     - common/tailwind
     - packages/llm-normalizer
     - packages/owners-yaml
+    - packages/personhog-proto
     - packages/quill
     - packages/quill/apps/*
     - packages/quill/packages/*

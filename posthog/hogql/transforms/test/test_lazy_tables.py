@@ -38,10 +38,11 @@ from posthog.hogql.property_metadata import PropertyMetadata
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
-from posthog.models import Organization, PropertyDefinition, Team
+from posthog.models import Organization, Team
 from posthog.schema_enums import PersonsArgMaxVersion
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class TestNamespacedLazyTables(SimpleTestCase):
