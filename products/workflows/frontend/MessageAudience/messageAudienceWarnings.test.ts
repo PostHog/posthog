@@ -73,7 +73,7 @@ describe('messageAudienceWarnings', () => {
             case: 'only the sandbox sender (broadcast), which cannot send broadcasts',
             destination: 'broadcast',
             senders: [sandbox],
-            expected: ['Set up an email sender before sending'],
+            expected: ["The sandbox sender can't send broadcasts. Set up your own email sender to send this one."],
         },
         {
             case: 'only a sandbox sender kept after the flag was turned off',
@@ -160,22 +160,25 @@ describe('messageAudienceWarnings', () => {
         }
     })
 
-    it('offers to set up email when only the sandbox sender exists', async () => {
-        jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockResolvedValue({
-            email_sending_suspended: false,
-        } as never)
-        jest.mocked(integrationsList).mockResolvedValue({ count: 1, results: [sandbox], next: null } as never)
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
-            [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
-        })
-        const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+    it.each<MessageAudienceDestination>(['workflow', 'broadcast'])(
+        'offers to set up email for a %s when only the sandbox sender exists',
+        async (destination) => {
+            jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockResolvedValue({
+                email_sending_suspended: false,
+            } as never)
+            jest.mocked(integrationsList).mockResolvedValue({ count: 1, results: [sandbox], next: null } as never)
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
+                [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
+            })
+            const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
 
-        await openMessageAudience(audience, 'workflow')
-        const secondaryButton = openDialog.mock.calls[0][0].secondaryButton
-        secondaryButton?.onClick?.({} as never)
+            await openMessageAudience(audience, destination)
+            const secondaryButton = openDialog.mock.calls[0][0].secondaryButton
+            secondaryButton?.onClick?.({} as never)
 
-        expect(secondaryButton?.children).toEqual('Set up email')
-        expect(router.values.location.pathname).toContain(urls.workflows('channels'))
-    })
+            expect(secondaryButton?.children).toEqual('Set up email')
+            expect(router.values.location.pathname).toContain(urls.workflows('channels'))
+        }
+    )
 })

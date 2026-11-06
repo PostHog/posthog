@@ -23,7 +23,12 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.helpers.email_utils import email_domain
 from posthog.integrations import IntegrationManager
-from posthog.models.integration import POSTHOG_CONNECT_KIND, SANDBOX_EMAIL_PROVIDER, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
+from posthog.models.integration import (
+    POSTHOG_CONNECT_KIND,
+    SANDBOX_EMAIL_PROVIDER,
+    WAREHOUSE_SOURCE_TYPE_CONFIG_KEY,
+    is_sandbox_sender_domain,
+)
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -97,26 +102,38 @@ def _sender_integration_ids(from_value: dict) -> set[int]:
     }
 
 
-def _delivery_sender_ids(from_value: dict) -> set[int]:
+def _configured_sender_ids(from_value: dict) -> list[object]:
     rotation = from_value.get("integrationIds")
     # Mirrors selectEmailSenderIntegrationId in the worker: a non-empty rotation replaces integrationId.
-    configured = rotation if isinstance(rotation, list) and rotation else [from_value.get("integrationId")]
+    return rotation if isinstance(rotation, list) and rotation else [from_value.get("integrationId")]
+
+
+def _delivery_sender_ids(from_value: dict) -> set[int]:
+    # The worker looks a sender up by its ID as text, so a numeric string reaches the same sender.
     return {
         int(integration_id)
-        for integration_id in configured
-        if isinstance(integration_id, (int, float))
-        and not isinstance(integration_id, bool)
-        and (not isinstance(integration_id, float) or integration_id.is_integer())
+        for integration_id in _configured_sender_ids(from_value)
+        if (
+            isinstance(integration_id, (int, float))
+            and not isinstance(integration_id, bool)
+            and (not isinstance(integration_id, float) or integration_id.is_integer())
+        )
+        or (isinstance(integration_id, str) and integration_id.strip().isdigit())
     }
+
+
+def _has_templated_sender_id(from_value: dict) -> bool:
+    # Templating resolves the whole email value at send time, so a string ID such as "{123}" can resolve to any sender.
+    return any(
+        isinstance(integration_id, str) and not integration_id.strip().isdigit()
+        for integration_id in _configured_sender_ids(from_value)
+    )
 
 
 def _sandbox_sender_configured() -> bool:
     # Mirrors sandbox_sender_configured() in the workflows product, which imports this module.
-    return bool(
-        settings.WORKFLOWS_SANDBOX_SENDER_DOMAIN
-        and settings.SES_SANDBOX_FROM_ADDRESS
-        and settings.SES_SANDBOX_TENANT_NAME
-    )
+    from_domain = settings.SES_SANDBOX_FROM_ADDRESS.rpartition("@")[2]
+    return bool(settings.SES_SANDBOX_TENANT_NAME) and is_sandbox_sender_domain(from_domain)
 
 
 def _sandbox_email_sender_ids(context: dict[str, Any]) -> frozenset[int]:
@@ -146,6 +163,15 @@ def _stored_email_values(context: dict[str, Any]) -> list[object]:
     return stored
 
 
+def _matches_stored_email(email_value: dict, context: dict[str, Any]) -> bool:
+    return any(
+        isinstance(stored, dict)
+        and email_value["from"] == stored.get("from")
+        and (email_value.get("replyTo") or "") == (stored.get("replyTo") or "")
+        for stored in _stored_email_values(context)
+    )
+
+
 def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) -> None:
     # Every check returns before any query while the sandbox settings are empty. The project flag
     # only gates adoption: a sandbox sender the project already has keeps its limits with the flag off.
@@ -154,13 +180,22 @@ def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) 
     if not isinstance(email_value, dict) or not isinstance(email_value.get("from"), dict):
         return
     integration_ids = _delivery_sender_ids(email_value["from"])
+    templated_sender = _has_templated_sender_id(email_value["from"])
     get_team = context.get("get_team")
-    if not integration_ids or get_team is None:
+    if not (integration_ids or templated_sender) or get_team is None:
         return
     # Rejects an oversized rotation before any query. InputsItemSerializer applies the same limit to every save.
     if len(integration_ids) > MAX_WORKFLOW_EMAIL_SENDERS:
         raise serializers.ValidationError({"input": f"At most {MAX_WORKFLOW_EMAIL_SENDERS} email senders are allowed."})
-    if not integration_ids & _sandbox_email_sender_ids(context):
+    sandbox_ids = _sandbox_email_sender_ids(context)
+    if not integration_ids & sandbox_ids:
+        if templated_sender and sandbox_ids and not _matches_stored_email(email_value, context):
+            raise serializers.ValidationError(
+                {
+                    "input": "A templated sender is not supported while the project has the sandbox sender. "
+                    "Set 'from.integrationId' to the ID of one sender."
+                }
+            )
         return
     if context.get("workflow_origin_product") == "broadcasts":
         raise serializers.ValidationError(
@@ -172,13 +207,8 @@ def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) 
                 "input": "The sandbox sender cannot send transactional email. Select a sender on your own verified domain."
             }
         )
-    for stored in _stored_email_values(context):
-        if (
-            isinstance(stored, dict)
-            and email_value["from"] == stored.get("from")
-            and (email_value.get("replyTo") or "") == (stored.get("replyTo") or "")
-        ):
-            return
+    if _matches_stored_email(email_value, context):
+        return
     is_test_send = getattr(context.get("view"), "action", None) == "invocations"
     if context.get("workflow_action_type") != "function_email" and not is_test_send:
         raise serializers.ValidationError(

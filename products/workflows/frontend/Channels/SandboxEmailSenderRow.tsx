@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
 
 import { IconLetter, IconPlus } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -16,17 +16,18 @@ export function SandboxEmailSenderRow({ integration }: { integration: Integratio
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const fromLine = `${integration.config.name} <${integration.config.email}>`
 
     return (
-        <div className="rounded border bg-surface-primary p-2 @container" data-attr="sandbox-email-sender">
+        <LemonCard hoverEffect={false} className="p-2 @container" data-attr="sandbox-email-sender">
             <div className="flex flex-col gap-3 ml-2 @lg:flex-row @lg:items-center">
                 <div className="flex flex-1 gap-4 items-start min-w-0">
                     <IconLetter className="w-8 h-8 shrink-0" />
                     <div className="flex flex-col gap-1 min-w-0">
                         <div className="flex flex-wrap gap-2 items-center">
                             <strong>Sandbox sender</strong>
-                            <span className="text-xs text-secondary truncate" translate="no">
-                                {`${integration.config.name} <${integration.config.email}>`}
+                            <span className="text-xs text-secondary truncate" translate="no" title={fromLine}>
+                                {fromLine}
                             </span>
                         </div>
                         <span className="text-sm text-secondary">
@@ -47,6 +48,6 @@ export function SandboxEmailSenderRow({ integration }: { integration: Integratio
                     Add your own sender
                 </LemonButton>
             </div>
-        </div>
+        </LemonCard>
     )
 }
