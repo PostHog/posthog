@@ -11,6 +11,7 @@ from requests import Response
 from rest_framework import status
 
 import posthog.plugins.plugin_server_api as plugin_server_api
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -85,7 +86,11 @@ class TestMessagePreferencesViews(BaseTest):
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
-        response = self.client.get(reverse("message_preferences", kwargs={"token": self.token}))
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        self.client.force_login(self.user)
+        response = self.client.get(
+            reverse("message_preferences", kwargs={"token": self.token}), REMOTE_ADDR="198.51.100.7"
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "message_preferences/preferences.html")
@@ -165,7 +170,9 @@ class TestMessagePreferencesViews(BaseTest):
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
-        response = self.client.post(reverse("message_preferences_update"), data)
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        self.client.force_login(self.user)
+        response = self.client.post(reverse("message_preferences_update"), data, REMOTE_ADDR="198.51.100.7")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(json.loads(response.content), {"success": True})
 

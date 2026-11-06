@@ -48,7 +48,7 @@ from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializ
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
+from posthog.constants import DEFAULT_SURVEY_APPEARANCE, SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
@@ -58,8 +58,14 @@ from posthog.helpers.trigram_search import (
     apply_trigram_search,
     drop_similar_when_exact_exists,
 )
+from posthog.ip_restrictions import ip_restrictions_exempt
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
-from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
+from posthog.models.activity_logging.activity_page import (
+    ActivityLogPaginatedResponseSerializer,
+    ActivityQueryParamsSerializer,
+    activity_page_response,
+    parse_activity_page_params,
+)
 from posthog.models.proxy_record import ProxyRecord
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -712,6 +718,18 @@ class SurveyTabPosition(models.TextChoices):
 # render it as `right`. The API replaces it so a response always validates against the position
 # enum the API documents, which generated clients turn into a strict validator.
 LEGACY_SURVEY_POSITIONS = {"bottom-right": SurveyPosition.RIGHT.value}
+
+
+def thank_you_screen_defaults(team: Team) -> dict[str, Any]:
+    survey_config = team.survey_config if isinstance(team.survey_config, dict) else {}
+    team_appearance = survey_config.get("appearance")
+    if not isinstance(team_appearance, dict):
+        team_appearance = {}
+    defaults = {}
+    for field in ("displayThankYouMessage", "thankYouMessageHeader"):
+        team_value = team_appearance.get(field)
+        defaults[field] = DEFAULT_SURVEY_APPEARANCE[field] if team_value is None else team_value
+    return sanitize_survey_appearance(defaults)
 
 
 def normalize_survey_appearance(appearance: dict[str, Any]) -> dict[str, Any]:
@@ -1391,8 +1409,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             )
         if normalized == base_language:
             raise serializers.ValidationError(
-                f"{context}: '{raw_key}' matches the survey's base language ('{base_language}'). "
-                "The original text already covers this language — translate to a different language."
+                f"{context}: '{raw_key}' matches the survey's base language ('{base_language}'), so the untranslated "
+                "text already covers it. Remove this translation, or set base_language to the language the untranslated "
+                "text is written in."
             )
         return normalized
 
@@ -1894,10 +1913,18 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         # updates where only base_language is sent (otherwise get_survey_api_translations would silently
         # drop the matching translation from the SDK payload, making it unreachable with no warning).
         incoming_base_language = data.get("base_language")
-        if incoming_base_language and "translations" not in data and self.instance is not None:
-            normalized_base = _normalize_language_code(incoming_base_language)
-            instance_translations = getattr(self.instance, "translations", None) or {}
-            for existing_key in instance_translations:
+        normalized_base = _normalize_language_code(incoming_base_language) if incoming_base_language else None
+        if (
+            normalized_base
+            and self.instance is not None
+            and normalized_base != _normalize_language_code(self.instance.base_language or DEFAULT_BASE_LANGUAGE)
+        ):
+            existing_keys = list(self.instance.translations or {}) if "translations" not in data else []
+            if "questions" not in data:
+                for question in self.instance.questions or []:
+                    if isinstance(question, dict) and isinstance(question.get("translations"), dict):
+                        existing_keys.extend(question["translations"])
+            for existing_key in existing_keys:
                 if isinstance(existing_key, str) and _normalize_language_code(existing_key) == normalized_base:
                     raise serializers.ValidationError(
                         {
@@ -1932,7 +1959,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if "remove_targeting_flag" in validated_data:
             validated_data.pop("remove_targeting_flag")
 
-        validated_data["team_id"] = self.context["team_id"]
+        team = Team.objects.get(id=self.context["team_id"])
+        validated_data["team_id"] = team.id
+        validated_data["appearance"] = {
+            **thank_you_screen_defaults(team),
+            **(validated_data.get("appearance") or {}),
+        }
         if validated_data.get("targeting_flag_id"):
             # Attaching an existing flag takes write control of it: its active state is later
             # synced to the survey's lifecycle (start/stop/archive). Require feature_flag:write
@@ -1972,7 +2004,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             self._associate_actions(instance, validated_data.get("conditions"))
             self._add_internal_response_sampling_filters(instance)
 
-        team = Team.objects.get(id=self.context["team_id"])
         log_activity(
             organization_id=team.organization_id,
             team_id=self.context["team_id"],
@@ -3136,6 +3167,10 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
 
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 
+    @extend_schema(
+        parameters=[ActivityQueryParamsSerializer],
+        responses={200: ActivityLogPaginatedResponseSerializer},
+    )
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
         page_params = parse_activity_page_params(request)
@@ -4012,6 +4047,7 @@ def _is_another_organizations_proxy_domain(request: HttpRequest, survey: Survey)
 
 @csrf_exempt
 @axes_dispatch
+@ip_restrictions_exempt
 def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
     """
     Server-side rendered public survey page with security and performance optimizations
@@ -4083,6 +4119,8 @@ def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
 
     serializer = SurveyAPISerializer(survey)
     survey_data = serializer.data
+    if survey_data.get("appearance") is None:
+        survey_data["appearance"] = thank_you_screen_defaults(survey.team)
     context = {
         "name": survey.name,
         "survey_id": survey_id,
@@ -4128,7 +4166,11 @@ def create_flag_with_survey_errors():
         if matching_errors:
             original_detail = str(matching_errors[0].get("message"))
             raise serializers.ValidationError(
-                detail=original_detail.replace("feature flags", "surveys"),
+                detail=(
+                    f"{original_detail.replace('feature flags', 'surveys')} To show the survey after someone does an "
+                    "event, add an event trigger to the survey's display conditions. To keep this audience, duplicate "
+                    "the cohort as a static cohort and target that."
+                ),
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
             )
         raise
