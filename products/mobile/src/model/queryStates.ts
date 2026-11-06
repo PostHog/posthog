@@ -6,6 +6,12 @@ export function loadingQuery<T>(): QueryState<T> {
     return { data: undefined, isLoading: true, isError: false, error: null, isRefetching: false, refetch: noop }
 }
 
+export function connectionLoadingQuery<T>(offline: boolean, refetch: () => unknown = noop): QueryState<T> {
+    return offline
+        ? errorQuery(new Error("You're offline. Your data will load when your connection returns."), refetch)
+        : { ...loadingQuery<T>(), refetch }
+}
+
 export function errorQuery<T>(error: Error, refetch: () => unknown = noop): QueryState<T> {
     return { data: undefined, isLoading: false, isError: true, error, isRefetching: false, refetch }
 }

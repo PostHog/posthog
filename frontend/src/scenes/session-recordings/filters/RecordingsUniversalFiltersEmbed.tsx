@@ -58,7 +58,7 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { ReplayFiltersScannerButton } from 'products/replay_vision/frontend/replay_scanners/components/ReplayFiltersScannerButton'
+import { ReplayFiltersScannerEntryPoint } from 'products/replay_vision/frontend/replay_scanners/components/ReplayFiltersScannerEntryPoint'
 import { scannerHandoffFromFilters } from 'products/replay_vision/frontend/replay_scanners/scannerHandoffFromFilters'
 
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
@@ -571,7 +571,6 @@ export const ReplayFiltersTab = ({
     const [isSaveFiltersModalOpen, setIsSaveFiltersModalOpen] = useState(false)
 
     const showFeedbackButton = useFeatureFlag('SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON')
-    const scannerCrossSellEnabled = useFeatureFlag('VISION_ENTRYPOINT_REPLAY_FILTERS')
     // A scanner keeps less of the filter set than this panel does, so what it would actually watch
     // decides both the destination and whether the button is worth offering.
     const scannerHandoff = useMemo(() => scannerHandoffFromFilters(filters), [filters])
@@ -881,14 +880,7 @@ export const ReplayFiltersTab = ({
                             </LemonButton>
                         )}
                         <div className="flex gap-2 ml-auto">
-                            {scannerCrossSellEnabled && (
-                                <>
-                                    <ReplayFiltersScannerButton handoff={scannerHandoff} />
-                                    {/* Grouped away from the buttons that act on the filters themselves:
-                                        this one leaves for another product. */}
-                                    <LemonDivider vertical className="mx-1 self-stretch" />
-                                </>
-                            )}
+                            <ReplayFiltersScannerEntryPoint handoff={scannerHandoff} />
                             {resetButton}
                             <LemonButton
                                 data-attr="filters-save-modal-open"

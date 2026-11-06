@@ -16,16 +16,19 @@ import {
     FieldLegend,
     FieldSet,
     RadioGroup,
+    Skeleton,
     Tooltip,
     TooltipContent,
     TooltipTrigger,
 } from 'lib/ui/quill'
+import { pluralize } from 'lib/utils/strings'
 
 import {
     CLIENT_RULE_PUBLIC_NOTE,
     getEvalMode,
 } from '../../scenes/ErrorTrackingConfigurationScene/suppression_rules/EvaluationIndicator'
 import { errorTrackingEditAccessDisabledReason } from '../../utils'
+import { MessagePattern } from './MessagePattern'
 import { SuppressScopeChoice } from './SuppressScopeChoice'
 import { suppressSimilarIssuesLogic } from './suppressSimilarIssuesLogic'
 import { SuppressScopeKey } from './suppressSimilarScopes'
@@ -34,9 +37,11 @@ export function SuppressSimilarIssuesDialog(): JSX.Element {
     const {
         isOpen,
         snapshots,
+        snapshotsLoading,
         scopeOptions,
         selectedScope,
         selectedOption,
+        selectedImpact,
         scopeImpacts,
         scopeImpactsLoading,
         createdRulesLoading,
@@ -54,57 +59,86 @@ export function SuppressSimilarIssuesDialog(): JSX.Element {
         <Dialog open={isOpen} onOpenChange={(open) => !open && dismissSuggestion()}>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Suppress similar exceptions?</DialogTitle>
+                    <DialogTitle>Suppress future exceptions?</DialogTitle>
                     <DialogDescription>
                         {multiple
-                            ? `These ${snapshots.length} issues are suppressed, but similar exceptions can still open new issues. Choose which ones to drop too.`
-                            : 'This issue is suppressed, but similar exceptions can still open new issues. Choose which ones to drop too.'}
+                            ? `These ${snapshots.length} issues are suppressed. You can also drop new exceptions with matching messages.`
+                            : 'This issue is suppressed. You can also drop new exceptions with a matching message.'}
                     </DialogDescription>
                 </DialogHeader>
                 <DialogBody>
-                    <FieldSet>
-                        <FieldLegend variant="label" className="flex w-full items-center justify-between gap-2">
-                            <span>Drop new exceptions that match</span>
-                            {runsInSdk && (
-                                <span className="flex items-center gap-1">
-                                    <Badge variant="success">
-                                        <IconLaptop />
-                                        Client
-                                    </Badge>
-                                    <Tooltip>
-                                        <TooltipTrigger
-                                            render={
-                                                <Button
-                                                    variant="default"
-                                                    size="icon-xs"
-                                                    aria-label="Who can read this rule"
-                                                    data-attr="error-tracking-suppress-similar-public-note"
-                                                />
-                                            }
-                                        >
-                                            <IconInfo />
-                                        </TooltipTrigger>
-                                        <TooltipContent className="max-w-xs">{CLIENT_RULE_PUBLIC_NOTE}</TooltipContent>
-                                    </Tooltip>
-                                </span>
+                    {snapshotsLoading ? (
+                        <div role="status" aria-label="Loading exception messages" className="flex flex-col gap-3">
+                            <Skeleton className="h-5 w-48" />
+                            <Skeleton className="h-10 w-full" />
+                        </div>
+                    ) : (
+                        <FieldSet>
+                            <FieldLegend variant="label" className="flex w-full items-center justify-between gap-2">
+                                <span>Messages to drop</span>
+                                {runsInSdk && (
+                                    <span className="flex items-center gap-1">
+                                        <Badge variant="success">
+                                            <IconLaptop />
+                                            Client
+                                        </Badge>
+                                        <Tooltip>
+                                            <TooltipTrigger
+                                                render={
+                                                    <Button
+                                                        variant="default"
+                                                        size="icon-xs"
+                                                        aria-label="Who can read this rule"
+                                                        data-attr="error-tracking-suppress-similar-public-note"
+                                                    />
+                                                }
+                                            >
+                                                <IconInfo />
+                                            </TooltipTrigger>
+                                            <TooltipContent className="max-w-xs">
+                                                {CLIENT_RULE_PUBLIC_NOTE}
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </span>
+                                )}
+                            </FieldLegend>
+                            {scopeOptions.length > 1 ? (
+                                <RadioGroup
+                                    value={selectedScope}
+                                    onValueChange={(scope) => selectScope(scope as SuppressScopeKey)}
+                                    className="gap-2"
+                                    aria-label="Messages to drop"
+                                >
+                                    {scopeOptions.map((option) => (
+                                        <SuppressScopeChoice
+                                            key={option.key}
+                                            option={option}
+                                            title={titles[option.key]}
+                                            impact={scopeImpacts?.[option.key]}
+                                            impactLoading={scopeImpactsLoading}
+                                        />
+                                    ))}
+                                </RadioGroup>
+                            ) : (
+                                <>
+                                    <div className="flex flex-wrap gap-1">
+                                        {selectedOption?.messages.map((segments, index) => (
+                                            <MessagePattern key={index} segments={segments} />
+                                        ))}
+                                    </div>
+                                    {scopeImpactsLoading ? (
+                                        <Skeleton className="h-4 w-44" />
+                                    ) : (
+                                        <p className="m-0 text-sm text-secondary">
+                                            {selectedImpact
+                                                ? `${pluralize(selectedImpact.exceptions, 'exception')} across ${pluralize(selectedImpact.issueCount, 'issue')} in the last 7 days`
+                                                : "Couldn't count matching exceptions"}
+                                        </p>
+                                    )}
+                                </>
                             )}
-                        </FieldLegend>
-                        <RadioGroup
-                            value={selectedScope}
-                            onValueChange={(scope) => selectScope(scope as SuppressScopeKey)}
-                            className="gap-2"
-                        >
-                            {scopeOptions.map((option) => (
-                                <SuppressScopeChoice
-                                    key={option.key}
-                                    option={option}
-                                    title={titles[option.key]}
-                                    impact={scopeImpacts?.[option.key]}
-                                    impactLoading={scopeImpactsLoading}
-                                />
-                            ))}
-                        </RadioGroup>
-                    </FieldSet>
+                        </FieldSet>
+                    )}
                 </DialogBody>
                 <DialogFooter>
                     <DialogClose
@@ -118,11 +152,11 @@ export function SuppressSimilarIssuesDialog(): JSX.Element {
                         loading={createdRulesLoading}
                         disabledReason={
                             errorTrackingEditAccessDisabledReason() ??
-                            (selectedOption ? undefined : 'Choose which exceptions to drop')
+                            (selectedOption ? undefined : 'Loading exception messages')
                         }
                         data-attr="error-tracking-suppress-similar-create"
                     >
-                        Suppress similar
+                        Create rule
                     </Button>
                 </DialogFooter>
             </DialogContent>

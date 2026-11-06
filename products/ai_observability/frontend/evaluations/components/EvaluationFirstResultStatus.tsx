@@ -3,7 +3,10 @@ import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { humanFriendlyDuration } from 'lib/utils/durations'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { settleStrategy } from '../constants'
 import { VOLUME_LOOKBACK_DAYS, evaluationTarget, runRate } from '../evaluationVolume'
@@ -47,19 +50,27 @@ export function EvaluationFirstResultStatus(): JSX.Element | null {
 }
 
 function PausedBanner({ evaluation }: { evaluation: EvaluationConfig }): JSX.Element {
-    const { setActiveTab } = useActions(llmEvaluationLogic)
+    const { enabledSaving, enableSavedReason } = useValues(llmEvaluationLogic)
+    const { saveEnabled } = useActions(llmEvaluationLogic)
+    const accessReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Evaluation,
+        AccessControlLevel.Editor,
+        evaluation.user_access_level ?? undefined
+    )
     return (
         <LemonBanner
             type="info"
             className="mb-4"
             action={{
-                children: 'Open configuration',
-                onClick: () => setActiveTab('configuration'),
-                'data-attr': 'llma-evaluation-first-result-triggers',
+                children: 'Turn on',
+                onClick: () => saveEnabled(true),
+                loading: enabledSaving,
+                disabledReason: accessReason ?? enableSavedReason ?? undefined,
+                'data-attr': 'llma-evaluation-first-result-turn-on',
             }}
         >
-            <span className="font-semibold">No results yet, because this evaluation is paused.</span> Turn it on in its
-            configuration to start checking new {UNIT_NOUNS[evaluationTarget(evaluation)]}.
+            <span className="font-semibold">No results yet, because this evaluation is paused.</span> Turn it on to
+            start checking new {UNIT_NOUNS[evaluationTarget(evaluation)]}.
         </LemonBanner>
     )
 }

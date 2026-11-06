@@ -62,6 +62,21 @@ class TestTeamCacheSizeTracker(BaseTest):
         self.tracker.track_cache_write("test_key_1", 500, 300)
         self.assertEqual(self.tracker.get_total_size(), 500)
 
+    @parameterized.expand([("expired_past_grace", -3600, False), ("expired_within_grace", -30, True)])
+    def test_track_cache_write_prunes_tracking_of_expired_entries(
+        self, _name: str, expired_ttl: int, still_tracked: bool
+    ) -> None:
+        self.tracker.track_cache_write("expired_key", 1000, expired_ttl)
+        self.tracker.track_cache_write("real_key", 500, 300)
+
+        self.assertEqual(
+            self.tracker.redis_client.zscore(self.tracker.entries_key, "expired_key") is not None, still_tracked
+        )
+        self.assertEqual(
+            self.tracker.redis_client.hget(self.tracker.sizes_key, "expired_key") is not None, still_tracked
+        )
+        self.assertEqual(self.tracker.get_total_size(), 1500 if still_tracked else 500)
+
     def test_get_total_size_returns_correct_value(self):
         self.assertEqual(self.tracker.get_total_size(), 0)
 

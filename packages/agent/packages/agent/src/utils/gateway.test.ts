@@ -75,6 +75,11 @@ describe("resolveGatewayProduct", () => {
     },
     {
       isInternal: false,
+      originProduct: "feature_flags",
+      expected: "posthog_ai",
+    },
+    {
+      isInternal: false,
       originProduct: "support_reply",
       expected: "conversations",
     },

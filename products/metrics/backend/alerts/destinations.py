@@ -1,4 +1,4 @@
-"""The event ids of a metrics alert's transitions, and the destination types it sends to.
+"""The event ids of a metrics alert's transitions.
 
 A metrics alert's destinations are `AlertDestination` rows. Delivery maps each event id back to the
 transition it announces, so it knows which rows hear it, and words the message itself.
@@ -6,15 +6,7 @@ transition it announces, so it knows which rows hear it, and words the message i
 
 from typing import Final
 
-from products.alerts_platform.backend.facade.contracts import AlertEventKind, DestinationType, IncidentAction
-
-METRICS_ALERT_DESTINATION_TYPES: Final = (
-    DestinationType.SLACK,
-    DestinationType.WEBHOOK,
-    DestinationType.TEAMS,
-    DestinationType.DISCORD,
-    DestinationType.PAGERDUTY,
-)
+from products.alerts_platform.backend.facade.contracts import AlertEventKind, IncidentAction
 
 # The event id each announced kind travels under. Resolved here because the platform imports no source.
 EVENT_IDS_BY_KIND: Final[dict[str, str]] = {

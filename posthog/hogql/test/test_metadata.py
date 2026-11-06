@@ -4,7 +4,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.conf import settings
-from django.db import DatabaseError, connection
+from django.db import DatabaseError, OperationalError, connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
@@ -22,8 +22,14 @@ from posthog.schema import (
     SessionTableVersion,
 )
 
+from posthog.hogql.database.database import Database
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
-from posthog.hogql.flag_called_warnings import FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE, FLAG_CALLED_ON_EVENTS_WARNING
+from posthog.hogql.flag_called_warnings import (
+    FLAG_CALLED_FROM_BOTH_TABLES_NOTICE,
+    FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE,
+    FLAG_CALLED_ON_EVENTS_WARNING,
+    FLAG_CALLED_SPLIT_BY_AGE_NOTICE,
+)
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
 from posthog.hogql.taxonomy_validation import MAX_SUGGESTED_NAMES
@@ -85,6 +91,38 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             ),
             team=self.team,
         )
+
+    def test_fresh_sources_resolve_a_view_that_cached_sources_miss(self) -> None:
+        query = "SELECT a FROM just_created_view"
+        self.assertEqual(len(self._select(query).errors), 1)
+
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="just_created_view",
+            query={"query": "SELECT 1 AS a"},
+            columns={"a": "Int64"},
+        )
+
+        self.assertEqual(len(self._select(query).errors), 1)
+        fresh = get_hogql_metadata(
+            query=HogQLMetadata(kind="HogQLMetadata", language=HogLanguage.HOG_QL, query=query, freshSources=True),
+            team=self.team,
+        )
+        self.assertEqual(fresh.errors, [])
+
+    def test_internal_error_separates_a_validator_failure_from_a_query_error(self) -> None:
+        self.assertFalse(self._select("SELECT missing_column FROM events").internalError)
+
+        with patch.object(Database, "_fetch_sources", side_effect=OperationalError("connection reset")):
+            failed = get_hogql_metadata(
+                query=HogQLMetadata(
+                    kind="HogQLMetadata", language=HogLanguage.HOG_QL, query="SELECT 1", freshSources=True
+                ),
+                team=self.team,
+            )
+
+        self.assertFalse(failed.isValid)
+        self.assertTrue(failed.internalError)
 
     def _select_with_variables(
         self, query: str, variables: Optional[dict[str, dict]] = None, globals: Optional[dict] = None
@@ -437,7 +475,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 _move_notices("command:editor.action.deleteLines"),
             ),
             ("malformed_announcement_url", _FLAG_CALLED_QUERY, True, 1, _move_notices("https://[broken")),
-            ("read_from_flag_evaluations_while_the_rewrite_is_off", _FLAG_CALLS_FROM_FLAG_EVALUATIONS_QUERY, True, 1),
+            ("read_from_flag_evaluations_in_events_mode", _FLAG_CALLS_FROM_FLAG_EVALUATIONS_QUERY, True, 1),
             param(
                 "read_from_flag_evaluations",
                 _FLAG_CALLS_FROM_FLAG_EVALUATIONS_QUERY,
@@ -445,16 +483,53 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 0,
                 _move_notices("https://example.com/announcement"),
                 "https://example.com/announcement",
-                rewrite_enabled=True,
+                mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
                 expected_notices=1,
             ),
-            param("refused_by_the_rewrite", _FLAG_CALLED_QUERY, True, 1, rewrite_enabled=True),
+            param("refused_by_the_swap", _FLAG_CALLED_QUERY, True, 1, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS),
+            param(
+                "mixed_scan_read_from_both_tables",
+                "SELECT count() FROM events WHERE event IN ('$pageview', '$feature_flag_called')",
+                True,
+                0,
+                _move_notices("https://example.com/announcement"),
+                "https://example.com/announcement",
+                mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                union_enabled=True,
+                expected_union_notices=1,
+            ),
+            param(
+                "mixed_scan_read_from_both_tables_once_events_gets_no_flag_calls",
+                "SELECT count() FROM events WHERE event IN ('$pageview', '$feature_flag_called')",
+                True,
+                0,
+                _move_notices("https://example.com/announcement"),
+                "https://example.com/announcement",
+                mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                union_enabled=True,
+                expected_union_notices=1,
+                union_notice=FLAG_CALLED_FROM_BOTH_TABLES_NOTICE,
+            ),
+            param(
+                "mixed_scan_the_union_declines",
+                "SELECT goe_0.properties FROM events WHERE event IN ('$pageview', '$feature_flag_called')",
+                True,
+                1,
+                mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                union_enabled=True,
+            ),
+            param(
+                "mixed_scan_with_the_union_off",
+                "SELECT count() FROM events WHERE event IN ('$pageview', '$feature_flag_called')",
+                True,
+                1,
+                mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+            ),
             param(
                 "read_from_flag_evaluations_without_coverage_once_events_gets_no_flag_calls",
                 _FLAG_CALLED_QUERY,
                 True,
                 0,
-                rewrite_enabled=True,
                 expected_notices=1,
                 mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
             ),
@@ -464,7 +539,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "AND properties.$feature_flag = 'my-flag' AND timestamp >= now() - INTERVAL 7 DAY",
                 True,
                 1,
-                rewrite_enabled=True,
+                mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
             ),
             param(
                 "falls_back_when_a_name_binds_to_a_flag_evaluations_column",
@@ -472,7 +547,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "AND properties.$feature_flag = 'my-flag' AND timestamp >= now() - INTERVAL 7 DAY",
                 True,
                 1,
-                rewrite_enabled=True,
+                mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
             ),
         ]
     )
@@ -486,12 +561,15 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         expected: int,
         move_notices: FeatureFlagResult | None = _MOVE_NOTICES_WITHOUT_URL,
         expected_url: str | None = None,
-        rewrite_enabled: bool = False,
         expected_notices: int = 0,
-        mode: FlagEvaluationsMode = FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+        mode: FlagEvaluationsMode = FlagEvaluationsMode.EVENTS,
+        union_enabled: bool = False,
+        expected_union_notices: int = 0,
+        union_notice: str = FLAG_CALLED_SPLIT_BY_AGE_NOTICE,
     ) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
-            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": mode},
         )
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -515,9 +593,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             patch("posthoganalytics.get_feature_flag_result", return_value=move_notices),
             patch(
                 "posthog.hogql.database.database.feature_enabled_or_false",
-                side_effect=lambda key, *args, **kwargs: (
-                    rewrite_enabled and key == "hogql-flag-calls-from-flag-evaluations"
-                ),
+                side_effect=lambda key, *args, **kwargs: union_enabled and key == "hogql-flag-calls-union",
             ),
         ):
             metadata = self._select(query)
@@ -525,6 +601,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(metadata.isValid, metadata.errors)
         warnings = [w for w in metadata.warnings if w.message == FLAG_CALLED_ON_EVENTS_WARNING]
         notices = [n for n in metadata.notices if n.message == FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE]
+        union_notices = [n for n in metadata.notices if n.message == union_notice]
         literal_start = query.rindex("'$feature_flag_called'")
         literal_end = literal_start + len("'$feature_flag_called'")
         self.assertEqual(
@@ -533,6 +610,10 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             [(n.start, n.end, n.url) for n in notices], [(literal_start, literal_end, expected_url)] * expected_notices
+        )
+        self.assertEqual(
+            [(n.start, n.end, n.url) for n in union_notices],
+            [(literal_start, literal_end, expected_url)] * expected_union_notices,
         )
 
     def test_metadata_does_not_log_invalid_announcement_url_without_a_flag_called_literal(self) -> None:

@@ -147,6 +147,9 @@ async def _capture_report_event(
         "run_count": run_count,
         "source_products": source_products,
     }
+    if temporalio.activity.in_activity():
+        info = temporalio.activity.info()
+        properties.update(workflow_id=info.workflow_id, workflow_run_id=info.workflow_run_id)
     if result is not None:
         properties["result"] = result
     # Only the two outcomes that write prose carry a chart set, so the property is absent rather
@@ -303,6 +306,9 @@ def _is_research_sandbox_unavailable(error: BaseException) -> bool:
 
 @temporalio.workflow.defn(name="signal-report-summary")
 class SignalReportSummaryWorkflow:
+    def __init__(self) -> None:
+        self._quota_admitted = False
+
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SignalReportSummaryWorkflowInputs:
         loaded = json.loads(inputs[0])
@@ -398,7 +404,9 @@ class SignalReportSummaryWorkflow:
     async def _quota_gate_pauses(self, inputs: SignalReportSummaryWorkflowInputs, stage: str) -> bool:
         return await workflow.execute_activity(
             check_report_quota_gate_activity,
-            CheckReportQuotaGateInput(team_id=inputs.team_id, report_id=inputs.report_id, stage=stage),
+            CheckReportQuotaGateInput(
+                team_id=inputs.team_id, report_id=inputs.report_id, stage=stage, admitted=self._quota_admitted
+            ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -444,12 +452,20 @@ class SignalReportSummaryWorkflow:
     async def _fetch_signals(
         self, inputs: SignalReportSummaryWorkflowInputs, log: FilteringBoundLogger
     ) -> FetchSignalsForReportOutput:
-        fetch_input = FetchSignalsForReportInput(team_id=inputs.team_id, report_id=inputs.report_id)
+        required_signal_id = inputs.signal_id if workflow.patched("signals-required-refresh-snapshot") else None
+        fetch_input = FetchSignalsForReportInput(
+            team_id=inputs.team_id, report_id=inputs.report_id, required_signal_id=required_signal_id
+        )
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,
             fetch_input,
             start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            schedule_to_close_timeout=timedelta(minutes=10) if required_signal_id else None,
+            retry_policy=(
+                RetryPolicy(initial_interval=timedelta(seconds=10), maximum_interval=timedelta(seconds=30))
+                if required_signal_id
+                else RetryPolicy(maximum_attempts=3)
+            ),
         )
         # patched(): histories recorded before the retry loop have no timers to replay.
         if fetch_result.signals or not workflow.patched("signals-empty-fetch-retry"):
@@ -514,14 +530,22 @@ class SignalReportSummaryWorkflow:
         ):
             log.info("Report run paused: org over self-driving credits quota", stage="summary_entry")
             return False
+        # Pending signals and the implementation buffer may cause more research passes in
+        # this same pipeline. Admission covers all of them through the final implementation.
+        self._quota_admitted = True
         claim_before_fetch = workflow.patched("signals-spend-explicit-owner")
+        signal_count = 0
+        source_products: list[str] = []
         try:
             if claim_before_fetch:
                 # Grouping must reserve arrivals for the next pass before we take the ClickHouse snapshot.
                 await workflow.execute_activity(
                     mark_report_in_progress_activity,
                     MarkReportInProgressInput(
-                        team_id=inputs.team_id, report_id=inputs.report_id, signal_id=inputs.signal_id
+                        team_id=inputs.team_id,
+                        report_id=inputs.report_id,
+                        signal_id=inputs.signal_id,
+                        preserve_pending_refresh=workflow.patched("signals-required-refresh-snapshot"),
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -761,6 +785,7 @@ class SignalReportSummaryWorkflow:
                     title=decision.title,
                     summary=decision.summary,
                     processed_signal_count=signal_count,
+                    processed_pending_signal_id=fetch_result.processed_pending_signal_id,
                     source_products=source_products,
                     charts=decision.charts,
                     metrics=decision.metrics,
@@ -920,25 +945,23 @@ class SignalReportSummaryWorkflow:
             raise
 
 
-@dataclass
+@frozen
 class CheckReportQuotaGateInput:
     team_id: int
     report_id: str
     stage: str
+    admitted: bool = False
 
 
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
 async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> bool:
-    """Whether the summary workflow must pause at `stage`: the team's org is over its self-driving
-    credits quota with enforcement on, or the team hit its daily report limit. Emits
-    `signal_report_quota_paused` whenever the team is quota-limited, enforced or not, so the
-    dark-launch would-block volume is measurable, and `signal_report_daily_limit_paused` when the
-    daily limit binds; both fire when both limits are hit, keeping each event stream complete for
-    its own gate. Never raises: any failure resolves to False (run proceeds), matching both
-    modules' fail-open policy.
-    """
+    """Check limits before accepting a report pipeline, never between its stages."""
+    # Existing histories still schedule these activities. Returning False preserves replay
+    # compatibility while letting the admitted pass finish repository selection and research.
+    if input.admitted or input.stage in {"pre_repo_selection", "pre_research"}:
+        return False
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
         gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
@@ -1017,6 +1040,7 @@ class MarkReportInProgressInput:
     signal_count: int | None = None
     source_products: list[str] = field(default_factory=list)
     signal_id: str | None = None
+    preserve_pending_refresh: bool = False
 
 
 @temporalio.activity.defn
@@ -1042,7 +1066,8 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
             updated_fields = report.transition_to(
                 SignalReport.Status.IN_PROGRESS, signals_at_run_increment=SIGNALS_AT_RUN_INCREMENT
             )
-            report.pending_triggering_signal_id = None
+            if not input.preserve_pending_refresh:
+                report.pending_triggering_signal_id = None
             if input.signal_count is None:
                 input.signal_count = report.signal_count
             report.researching_signal_count = input.signal_count
@@ -1103,6 +1128,7 @@ class MarkReportReadyInput:
     title: str
     summary: str
     processed_signal_count: int
+    processed_pending_signal_id: str | None = None
     source_products: list[str] = field(default_factory=list)
     # Chart payload to write alongside title/summary, in the same transaction: the JSON set to store,
     # `[]` to clear, or `None` to leave the column untouched. Defaults to `None` so an older workflow
@@ -1277,9 +1303,13 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
             # to its next bucket. Same predicate as the grouping promotion gate, so a signal landing
             # mid-run is researched on the schedule it would have had if it had landed after. The
             # bucket is strictly above what this run processed, so reaching it also means new
-            # signals arrived.
+            # signals arrived. A pending source refresh needs research even between buckets.
             bucket = next_research_bucket(report.researched_signal_count)
-            has_new_signals = bucket is not None and report.signal_count >= bucket
+            has_pending_refresh = (
+                report.pending_triggering_signal_id is not None
+                and str(report.pending_triggering_signal_id) != input.processed_pending_signal_id
+            )
+            has_new_signals = has_pending_refresh or (bucket is not None and report.signal_count >= bucket)
             if has_new_signals:
                 # If more signals arrived while the report was being processed, we want to
                 # re-promote it back to candidate and loop to also process new signals
