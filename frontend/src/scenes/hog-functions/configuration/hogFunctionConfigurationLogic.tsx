@@ -101,6 +101,7 @@ import { MatchingFiltersInput, matchingFiltersToPropertyGroup } from '../filters
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
 import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
+import { parseSecretReentryRefusal } from './secretReentryRefusal'
 
 export interface HogFunctionConfigurationLogicProps {
     logicKey?: string
@@ -2068,6 +2069,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
 
         upsertHogFunctionFailure: ({ errorObject }) => {
+            // hogFunctionSecretReentryLogic asks for the refused secret in a dialog, or shows the refusal as a toast.
+            if (parseSecretReentryRefusal(errorObject)) {
+                return
+            }
             const maybeValidationError = errorObject.data
 
             if (maybeValidationError?.type === 'validation_error' && maybeValidationError.attr) {

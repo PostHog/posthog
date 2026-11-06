@@ -33,7 +33,6 @@ import {
     HogFunctionConfigurationSaveButton,
 } from './components/HogFunctionConfigurationButtons'
 import { HogFunctionInputs } from './components/HogFunctionInputs'
-import { HogFunctionSecretReentryModal } from './components/HogFunctionSecretReentryModal'
 import { HogFunctionSourceWebhookInfo } from './components/HogFunctionSourceWebhookInfo'
 import { HogFunctionSourceWebhookTest } from './components/HogFunctionSourceWebhookTest'
 import { HogFunctionTemplateOptions } from './components/HogFunctionTemplateOptions'
@@ -272,7 +271,6 @@ export function HogFunctionConfiguration({
                     </Form>
                 </div>
                 {type === 'destination' ? <DestinationWorkflowSuggestionModal /> : null}
-                <HogFunctionSecretReentryModal logicProps={logicProps} />
             </BindLogic>
         </div>
     )

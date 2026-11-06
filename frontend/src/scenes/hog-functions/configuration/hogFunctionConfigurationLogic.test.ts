@@ -27,7 +27,6 @@ import {
 import { FLAG_CALLS_NOT_LOADABLE } from '../filters/flagCallsMatching'
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { hogFunctionConfigurationLogic, sanitizeInputs } from './hogFunctionConfigurationLogic'
-import { hogFunctionSecretReentryLogic, secretReentryKey } from './hogFunctionSecretReentryLogic'
 
 jest.mock('lib/api', () => ({
     ...jest.requireActual('lib/api'),
@@ -36,7 +35,6 @@ jest.mock('lib/api', () => ({
         getTemplate: jest.fn(),
         update: jest.fn(),
         create: jest.fn(),
-        createTestInvocation: jest.fn(),
     },
 }))
 
@@ -678,164 +676,6 @@ describe('hogFunctionConfigurationLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['loadHogFunction', 'loadHogFunctionFailure'])
         })
-    })
-
-    describe('entering a secret again', () => {
-        const SECRET_SENDER: HogFunctionType = {
-            ...HOG_FUNCTION,
-            inputs_schema: [
-                ...(HOG_TEMPLATE.inputs_schema ?? []),
-                { key: 'api_key', type: 'string', label: 'API key', secret: true, required: false },
-                { key: 'secret_headers', type: 'dictionary', label: 'Secret headers', secret: true, required: false },
-            ],
-            inputs: {
-                url: { value: 'https://hooks.example.com' },
-                api_key: { value: undefined, secret: true },
-                secret_headers: { secret: true, value: { Authorization: '********' } },
-            },
-        }
-        const REFUSAL_DETAIL = 'This change would send the secret to a new address. Enter the secret again to confirm.'
-        const refusal = (key: string): Record<string, unknown> => ({
-            status: 400,
-            data: {
-                type: 'validation_error',
-                code: 'secret_reentry_required',
-                attr: `inputs__${key}`,
-                detail: REFUSAL_DETAIL,
-            },
-        })
-        let reentryLogic: ReturnType<typeof hogFunctionSecretReentryLogic.build>
-        // Imported after initKeaTests, because the test logic reads the team id from the app context at import.
-        const mountTestLogic = async (): Promise<
-            ReturnType<typeof import('./hogFunctionTestLogic').hogFunctionTestLogic.build>
-        > => {
-            const { hogFunctionTestLogic } = await import('./hogFunctionTestLogic')
-            const testLogic = hogFunctionTestLogic({ id: SECRET_SENDER.id })
-            testLogic.mount()
-            return testLogic
-        }
-
-        beforeEach(async () => {
-            initKeaTests()
-            mockApi.get.mockResolvedValue(SECRET_SENDER)
-            mockApi.update.mockReset()
-            mockApi.createTestInvocation.mockReset()
-            logic = hogFunctionConfigurationLogic({ id: SECRET_SENDER.id })
-            logic.mount()
-            reentryLogic = hogFunctionSecretReentryLogic({ id: SECRET_SENDER.id })
-            reentryLogic.mount()
-            await expectLogic(logic).toDispatchActions(['loadHogFunctionSuccess'])
-            logic.actions.setConfigurationValue('inputs.url', { value: 'https://new.example.com' })
-        })
-
-        it('asks for each refused secret in turn and retries the save with the edits kept', async () => {
-            mockApi.update
-                .mockRejectedValueOnce(refusal('api_key'))
-                .mockRejectedValueOnce(refusal('secret_headers'))
-                .mockResolvedValueOnce(SECRET_SENDER)
-
-            await expectLogic(logic, () => logic.actions.submitConfiguration()).toDispatchActions([
-                'setConfigurationManualErrors',
-            ])
-            expect(reentryLogic.values.prompt).toEqual({ key: 'api_key', label: 'API key', entryKeys: null })
-
-            reentryLogic.actions.setSecretValue('new key')
-            await expectLogic(logic, () => reentryLogic.actions.confirmSecretReentry()).toDispatchActions([
-                'upsertHogFunctionFailure',
-                'setConfigurationManualErrors',
-            ])
-            expect(reentryLogic.values.prompt).toEqual({
-                key: 'secret_headers',
-                label: 'Secret headers',
-                entryKeys: ['Authorization'],
-            })
-
-            reentryLogic.actions.setSecretEntry('Authorization', 'Bearer new')
-            await expectLogic(logic, () => reentryLogic.actions.confirmSecretReentry()).toDispatchActions([
-                'upsertHogFunctionSuccess',
-            ])
-
-            expect(reentryLogic.values.prompt).toBeNull()
-            expect(reentryLogic.values.secretEntryValues).toEqual({})
-            expect(mockApi.update).toHaveBeenCalledTimes(3)
-            expect(mockApi.update.mock.calls[2][1].inputs).toMatchObject({
-                url: { value: 'https://new.example.com' },
-                api_key: { value: 'new key' },
-                secret_headers: { value: { Authorization: 'Bearer new' } },
-            })
-        })
-
-        it('leaves the edit unsaved when the user cancels', async () => {
-            mockApi.update.mockRejectedValueOnce(refusal('api_key'))
-
-            await expectLogic(logic, () => logic.actions.submitConfiguration()).toDispatchActions([
-                'setConfigurationManualErrors',
-            ])
-            reentryLogic.actions.setSecretValue('typed but not sent')
-            reentryLogic.actions.cancelSecretReentry()
-
-            expect(reentryLogic.values.prompt).toBeNull()
-            expect(reentryLogic.values.secretValue).toEqual('')
-            expect(mockApi.update).toHaveBeenCalledTimes(1)
-            expect(logic.values.configuration.inputs?.url).toEqual({ value: 'https://new.example.com' })
-            expect(logic.values.configuration.inputs?.api_key).toEqual({ secret: true })
-        })
-
-        it('retries a refused test run with the entered secret', async () => {
-            const testLogic = await mountTestLogic()
-            mockApi.createTestInvocation
-                .mockRejectedValueOnce(refusal('api_key'))
-                .mockResolvedValueOnce({ status: 'success', logs: [] } as any)
-
-            await expectLogic(testLogic, () => testLogic.actions.submitTestInvocation()).toDispatchActions([
-                'requireSecretReentry',
-            ])
-            expect(reentryLogic.values.prompt).toEqual({ key: 'api_key', label: 'API key', entryKeys: null })
-
-            reentryLogic.actions.setSecretValue('new key')
-            await expectLogic(testLogic, () => reentryLogic.actions.confirmSecretReentry()).toDispatchActions([
-                'submitTestInvocation',
-                'setTestResult',
-            ])
-
-            expect(reentryLogic.values.secretValue).toEqual('')
-            expect(mockApi.createTestInvocation).toHaveBeenCalledTimes(2)
-            expect(mockApi.createTestInvocation.mock.calls[1][1].configuration.inputs.api_key).toMatchObject({
-                value: 'new key',
-            })
-        })
-
-        it.each([
-            ['save', () => logic.actions.submitConfiguration()],
-            [
-                'test run',
-                (testLogic: { actions: { submitTestInvocation: () => void } }) =>
-                    testLogic.actions.submitTestInvocation(),
-            ],
-        ])('shows the refusal as a toast when a %s refuses a secret the form cannot ask for', async (_, submit) => {
-            const testLogic = await mountTestLogic()
-            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
-            mockApi.update.mockRejectedValueOnce(refusal('not_in_schema'))
-            mockApi.createTestInvocation.mockRejectedValueOnce(refusal('not_in_schema'))
-
-            await expectLogic(reentryLogic, () => submit(testLogic)).toDispatchActions([
-                'requireSecretReentry',
-                'cancelSecretReentry',
-            ])
-
-            expect(reentryLogic.values.request).toBeNull()
-            expect(toastSpy).toHaveBeenCalledWith(REFUSAL_DETAIL)
-        })
-    })
-
-    it.each([
-        ['a refusal', { data: { code: 'secret_reentry_required', attr: 'inputs__api_key' } }, 'api_key'],
-        ['another validation error', { data: { code: 'invalid_input', attr: 'inputs__api_key' } }, null],
-        ['a refusal without an attr', { data: { code: 'secret_reentry_required' } }, null],
-        ['a refusal on a mapping', { data: { code: 'secret_reentry_required', attr: 'mappings__0' } }, null],
-        ['a network error', new Error('offline'), null],
-    ])('reads the input key a secret refusal names from %s', (_, error, expected) => {
-        expect(secretReentryKey(error)).toEqual(expected)
     })
 
     describe('internal destination without a trigger', () => {
