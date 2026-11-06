@@ -9,7 +9,13 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.event_definition_generators.python import PythonGenerator
-from posthog.models import EventDefinition, EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
+
+from products.event_definitions.backend.models import (
+    EventDefinition,
+    EventSchema,
+    SchemaPropertyGroup,
+    SchemaPropertyGroupProperty,
+)
 
 
 class TestPythonGenerator(APIBaseTest):

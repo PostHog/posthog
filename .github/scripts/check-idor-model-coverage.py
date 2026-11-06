@@ -356,6 +356,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "ResourceTransfer",
         # --- Organization-scoped (correctly above team level) ---
         "OrganizationDomain",
+        "OrganizationIPRestrictions",
         "OrganizationIntegration",
         "OrganizationInvite",
         "OrganizationMembership",

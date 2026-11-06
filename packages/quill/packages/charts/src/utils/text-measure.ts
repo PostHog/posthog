@@ -51,5 +51,8 @@ export function truncateToWidth(text: string, maxWidth: number, font: string = A
             high = mid - 1
         }
     }
-    return `${text.slice(0, low).trimEnd()}${ELLIPSIS}`
+    // Never cut between the two halves of a surrogate pair, such as an emoji.
+    const code = text.charCodeAt(low - 1)
+    const end = code >= 0xd800 && code <= 0xdbff ? low - 1 : low
+    return `${text.slice(0, end).trimEnd()}${ELLIPSIS}`
 }
