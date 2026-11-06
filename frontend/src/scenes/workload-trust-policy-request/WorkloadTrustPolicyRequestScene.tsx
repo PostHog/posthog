@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonLabel, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -173,6 +173,30 @@ function RequestDetailTable({
     )
 }
 
+function ConfirmIssuerHost({ policyRequest }: { policyRequest: WorkloadTrustPolicyRequestApi }): JSX.Element {
+    const { confirmIssuerHost } = useValues(workloadTrustPolicyRequestLogic({ id: policyRequest.id }))
+    const { setConfirmIssuerHost } = useActions(workloadTrustPolicyRequestLogic({ id: policyRequest.id }))
+    return (
+        <div className="flex flex-col gap-1">
+            <LemonLabel htmlFor="workload-trust-policy-request-confirm-issuer-host">
+                <span>
+                    Type <span className="font-mono">{policyRequest.confirm_issuer_host}</span> to confirm you trust
+                    this issuer
+                </span>
+            </LemonLabel>
+            <LemonInput
+                id="workload-trust-policy-request-confirm-issuer-host"
+                value={confirmIssuerHost}
+                onChange={setConfirmIssuerHost}
+                autoComplete="off"
+                spellCheck={false}
+                className="font-mono"
+                data-attr="workload-trust-policy-request-confirm-issuer-host"
+            />
+        </div>
+    )
+}
+
 function RequestActions({
     policyRequest,
     resolving,
@@ -184,6 +208,8 @@ function RequestActions({
     onApprove: () => void
     onReject: () => void
 }): JSX.Element {
+    const { issuerHostConfirmed } = useValues(workloadTrustPolicyRequestLogic({ id: policyRequest.id }))
+
     if (!policyRequest.can_approve) {
         return (
             <AuthBanner variant="note">
@@ -196,6 +222,7 @@ function RequestActions({
 
     return (
         <div className="flex flex-col gap-2">
+            {policyRequest.confirm_issuer_host ? <ConfirmIssuerHost policyRequest={policyRequest} /> : null}
             <LemonButton
                 type="primary"
                 size="large"
@@ -203,7 +230,13 @@ function RequestActions({
                 center
                 onClick={onApprove}
                 loading={resolving === 'approve'}
-                disabledReason={resolving ? 'Saving' : undefined}
+                disabledReason={
+                    resolving
+                        ? 'Saving'
+                        : !issuerHostConfirmed
+                          ? `Type ${policyRequest.confirm_issuer_host} to approve`
+                          : undefined
+                }
                 data-attr="workload-trust-policy-request-approve"
             >
                 Approve

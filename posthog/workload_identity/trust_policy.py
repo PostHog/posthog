@@ -60,6 +60,7 @@ from posthog.workload_identity.custom_issuer import (
     DEFAULT_SUBJECT_CLAIM,
     CustomIssuerError,
     CustomIssuerUnavailable,
+    custom_issuer_host,
     custom_workload_provider,
     discover_custom_issuer,
     validate_claim_name,
@@ -723,6 +724,9 @@ class WorkloadTrustPolicyRequestSerializer(WorkloadConditionsSerializerMixin, se
     requested_by = UserBasicSerializer(read_only=True, allow_null=True)
     resolved_by = UserBasicSerializer(read_only=True, allow_null=True)
     policy_id = serializers.UUIDField(read_only=True, allow_null=True, help_text="The policy created on approval.")
+    confirm_issuer_host = serializers.SerializerMethodField(
+        help_text="For a custom OIDC provider, the issuer host the approver must type to approve. Null for supported providers."
+    )
 
     class Meta:
         model = WorkloadTrustPolicyRequest
@@ -752,6 +756,7 @@ class WorkloadTrustPolicyRequestSerializer(WorkloadConditionsSerializerMixin, se
             "resolved_by",
             "resolved_at",
             "policy_id",
+            "confirm_issuer_host",
         ]
         read_only_fields = [
             "id",
@@ -771,6 +776,7 @@ class WorkloadTrustPolicyRequestSerializer(WorkloadConditionsSerializerMixin, se
             "resolved_by",
             "resolved_at",
             "policy_id",
+            "confirm_issuer_host",
         ]
         extra_kwargs = {
             "created_at": {"help_text": "When the request was made."},
@@ -798,6 +804,10 @@ class WorkloadTrustPolicyRequestSerializer(WorkloadConditionsSerializerMixin, se
     def get_risky_scopes(self, policy_request: WorkloadTrustPolicyRequest) -> dict[str, str]:
         return {scope: RISKY_SCOPE_WARNINGS[scope] for scope in policy_request.scopes if scope in RISKY_SCOPE_WARNINGS}
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_confirm_issuer_host(self, policy_request: WorkloadTrustPolicyRequest) -> str | None:
+        return custom_issuer_host(policy_request.issuer) if policy_request.subject_claim else None
+
     def get_approval_url(self, policy_request: WorkloadTrustPolicyRequest) -> str:
         return workload_trust_policy_request_url(policy_request.team_id, str(policy_request.pk))
 
@@ -809,6 +819,15 @@ class WorkloadTrustPolicyRequestSerializer(WorkloadConditionsSerializerMixin, se
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         return validate_workload_trust_conditions(attrs)
+
+
+class ApproveWorkloadTrustPolicyRequestSerializer(serializers.Serializer):
+    confirm_issuer_host = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=255,
+        help_text="The issuer host, typed by the approver. A custom OIDC provider request needs it to equal the request's confirm_issuer_host.",
+    )
 
 
 class WorkloadProviderUnavailable(APIException):
@@ -868,7 +887,13 @@ def _warm_custom_issuer(team_id: int, request_id: str) -> None:
 
 
 def resolve_workload_trust_policy_request(
-    *, team_id: int, request_id: str, approve: bool, resolver: User, policy_serializer_context: dict[str, Any]
+    *,
+    team_id: int,
+    request_id: str,
+    approve: bool,
+    resolver: User,
+    policy_serializer_context: dict[str, Any],
+    confirm_issuer_host: str = "",
 ) -> WorkloadTrustPolicyRequest:
     """Approve or reject a pending request. Approving creates the policy from the request's own values,
     checked again against today's rules, in the same transaction that marks the request approved."""
@@ -878,6 +903,13 @@ def resolve_workload_trust_policy_request(
         policy_request = WorkloadTrustPolicyRequest.objects.select_for_update().get(pk=request_id, team_id=team_id)
         if policy_request.effective_status != WorkloadTrustPolicyRequest.Status.PENDING:
             raise serializers.ValidationError(f"This request is {policy_request.effective_status} and can't change.")
+        # A custom issuer is any URL a member typed, so the admin proves they read it before PostHog trusts it.
+        if approve and policy_request.subject_claim:
+            expected_host = custom_issuer_host(policy_request.issuer)
+            if confirm_issuer_host != expected_host:
+                raise serializers.ValidationError(
+                    {"confirm_issuer_host": f"Type {expected_host} to confirm that you trust this issuer."}
+                )
         if approve:
             policy_serializer = WorkloadTrustPolicySerializer(
                 data={
@@ -976,7 +1008,7 @@ class WorkloadTrustPolicyRequestViewSet(
             requested_via_application=requesting_application(self.request),
         )
 
-    def _resolve(self, approve: bool) -> Response:
+    def _resolve(self, approve: bool, confirm_issuer_host: str = "") -> Response:
         policy_request = self.get_object()
         resolved = resolve_workload_trust_policy_request(
             team_id=policy_request.team_id,
@@ -984,6 +1016,7 @@ class WorkloadTrustPolicyRequestViewSet(
             approve=approve,
             resolver=cast(User, self.request.user),
             policy_serializer_context=self.get_serializer_context(),
+            confirm_issuer_host=confirm_issuer_host,
         )
         if resolved.policy is not None:
             notify_admins_of_policy_change(
@@ -1017,10 +1050,13 @@ class WorkloadTrustPolicyRequestViewSet(
             raise WorkloadProviderUnavailable(str(e))
         return Response(ResolvedWorkloadSubjectSerializer(resolved).data)
 
-    @extend_schema(request=None, responses={200: WorkloadTrustPolicyRequestSerializer})
+    @validated_request(
+        request_serializer=ApproveWorkloadTrustPolicyRequestSerializer,
+        responses={200: WorkloadTrustPolicyRequestSerializer},
+    )
     @action(methods=["POST"], detail=True, required_scopes=["workload_trust_policy_request:write"])
-    def approve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self._resolve(approve=True)
+    def approve(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        return self._resolve(approve=True, confirm_issuer_host=request.validated_data.get("confirm_issuer_host", ""))
 
     @extend_schema(request=None, responses={200: WorkloadTrustPolicyRequestSerializer})
     @action(methods=["POST"], detail=True, required_scopes=["workload_trust_policy_request:write"])

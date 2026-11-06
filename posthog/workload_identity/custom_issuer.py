@@ -170,6 +170,11 @@ def discover_custom_issuer(issuer: str, *, refresh: bool = False, retry_failure:
     return metadata
 
 
+def custom_issuer_host(issuer: str) -> str:
+    """The host an admin types to approve a request for this issuer."""
+    return urlsplit(issuer).hostname or ""
+
+
 def custom_checked_claims(policy: Any) -> tuple[str, ...]:
     """The claims a custom policy or request checks: its subject claim, name claim and condition claims."""
     return tuple(name for name in (policy.subject_claim, policy.subject_name_claim, *policy.conditions) if name)

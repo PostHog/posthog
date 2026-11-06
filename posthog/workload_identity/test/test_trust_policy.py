@@ -738,12 +738,29 @@ class TestCustomIssuerPolicyAPI(APIBaseTest):
                 "audience": "https://us.posthog.com",
             }
 
-    def test_approving_a_custom_request_keeps_its_claim_names(self) -> None:
+    @parameterized.expand(
+        [
+            ("the issuer host", {"confirm_issuer_host": "idp.example.com"}, True),
+            ("no confirmation", {}, False),
+            ("another host", {"confirm_issuer_host": "other.example.com"}, False),
+            ("the whole issuer URL", {"confirm_issuer_host": CUSTOM_ISSUER}, False),
+        ]
+    )
+    def test_approving_a_custom_request_needs_the_issuer_host_and_keeps_its_claim_names(
+        self, _name: str, body: dict[str, str], approves: bool
+    ) -> None:
         requests_url = f"/api/projects/{self.team.id}/workload_trust_policy_requests/"
         created = self.client.post(requests_url, _custom_payload(subject_name_claim="name"), format="json")
+        assert created.json()["confirm_issuer_host"] == "idp.example.com"
 
-        approved = self.client.post(f"{requests_url}{created.json()['id']}/approve/")
+        approved = self.client.post(f"{requests_url}{created.json()['id']}/approve/", body, format="json")
 
-        assert approved.status_code == status.HTTP_200_OK, approved.json()
-        policy = WorkloadTrustPolicy.objects.for_team(self.team.id).get()
-        assert (policy.subject_claim, policy.subject_name_claim) == ("sub", "name")
+        if approves:
+            assert approved.status_code == status.HTTP_200_OK, approved.json()
+            policy = WorkloadTrustPolicy.objects.for_team(self.team.id).get()
+            assert (policy.subject_claim, policy.subject_name_claim) == ("sub", "name")
+        else:
+            assert approved.status_code == status.HTTP_400_BAD_REQUEST, approved.json()
+            assert approved.json()["attr"] == "confirm_issuer_host"
+            assert not WorkloadTrustPolicy.objects.for_team(self.team.id).exists()
+            assert WorkloadTrustPolicyRequest.objects.for_team(self.team.id).get().status == "pending"

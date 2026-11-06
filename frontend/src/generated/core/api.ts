@@ -9,6 +9,7 @@ import { apiMutator } from '../../lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ApproveWorkloadTrustPolicyRequestApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
     CIMDVerificationTokenApi,
@@ -3232,11 +3233,14 @@ export const getWorkloadTrustPolicyRequestsApproveCreateUrl = (projectId: string
 export const workloadTrustPolicyRequestsApproveCreate = async (
     projectId: string,
     id: string,
+    approveWorkloadTrustPolicyRequestApi?: ApproveWorkloadTrustPolicyRequestApi,
     options?: RequestInit
 ): Promise<WorkloadTrustPolicyRequestApi> => {
     return apiMutator<WorkloadTrustPolicyRequestApi>(getWorkloadTrustPolicyRequestsApproveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(approveWorkloadTrustPolicyRequestApi),
     })
 }
 
