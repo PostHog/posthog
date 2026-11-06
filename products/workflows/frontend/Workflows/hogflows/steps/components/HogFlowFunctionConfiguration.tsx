@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { CyclotronJobInputType, CyclotronJobInvocationGlobals, HogFunctionMappingType } from '~/types'
 
-import { allowsSandboxSender } from '../../../../Channels/defaultEmailSender'
+import { allowsSandboxSender } from '../../../workflowEmailPrefill'
 import { workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorTestLogic } from '../../panel/testing/hogFlowEditorTestLogic'
 import { isGithubEventTriggerConfig } from '../../registry/triggers/githubTriggerFilters'

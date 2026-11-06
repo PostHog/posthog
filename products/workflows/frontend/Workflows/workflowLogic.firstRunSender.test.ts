@@ -68,6 +68,7 @@ const emailValueOf = (logic: ReturnType<typeof workflowLogic>, id = 'email'): Re
 describe('workflow first-run sender', () => {
     let ensureCalls: number
     let ensureFails: number
+    let ensureFailStatus: number
     let integrations: Partial<IntegrationType>[]
     let action: HogFlowAction
 
@@ -86,6 +87,7 @@ describe('workflow first-run sender', () => {
         integrations = []
         ensureCalls = 0
         ensureFails = 0
+        ensureFailStatus = 500
         action = emailAction('function_email')
         useMocks({
             get: {
@@ -101,7 +103,7 @@ describe('workflow first-run sender', () => {
                     ensureCalls++
                     if (ensureFails > 0) {
                         ensureFails--
-                        return [500, { detail: 'Unavailable' }]
+                        return [ensureFailStatus, { detail: 'Unavailable' }]
                     }
                     integrations = [...integrations, SANDBOX]
                     return [200, SANDBOX]
@@ -369,11 +371,19 @@ describe('workflow first-run sender', () => {
         logic.unmount()
     })
 
-    it('tries to set up the sandbox sender again on the next load after a failure', async () => {
+    it.each([
+        ['a server error', 500, 1],
+        ['the sandbox sender being unavailable', 404, 0],
+        ['no write access', 403, 0],
+    ])('after %s, reports only the unexpected and tries again on the next load', async (_case, status, reports) => {
         ensureFails = 1
+        ensureFailStatus = status
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation()
 
         const logic = await loadTemplate()
         expect(emailValueOf(logic)?.from).toEqual({})
+        expect(captureException).toHaveBeenCalledTimes(reports)
+        captureException.mockRestore()
 
         await expectLogic(logic, () => logic.actions.loadWorkflow()).toDispatchActions(['loadWorkflowSuccess'])
         expect(emailValueOf(logic)?.from).toEqual({ integrationId: SANDBOX.id })
