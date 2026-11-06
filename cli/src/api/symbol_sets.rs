@@ -571,7 +571,7 @@ fn start_upload(
         ..bulk_upload_request(batch, force, skip_on_conflict)
     };
 
-    let res = retry(retry_policy(500, 2, 3), |_| {
+    let res = start_upload_with(retry_policy(500, 2, 3), || {
         client.send_post(
             client.project_url("error_tracking/symbol_sets/bulk_start_upload")?,
             |req| req.json(&request),
@@ -579,9 +579,7 @@ fn start_upload(
     });
 
     match res {
-        Ok(response) => Ok(response
-            .json()
-            .context("Failed to parse start upload response")?),
+        Ok(response) => Ok(response),
         Err(e) if e.has_api_error_code("release_id_mismatch") => {
             Err(UploadError::ReleaseIdMismatch)
         }
@@ -592,6 +590,17 @@ fn start_upload(
             anyhow::anyhow!(e).context("Failed to start upload"),
         )),
     }
+}
+
+/// Drives one start request through `send` under the retry policy `delays`. The body is read
+/// inside the retry, as `check_upload` does: a connection dropped after the headers arrive fails
+/// the read, not the send, and the read alone cannot be repeated.
+fn start_upload_with<I, F>(delays: I, mut send: F) -> Result<BulkUploadStartResponse, ClientError>
+where
+    I: Iterator<Item = Duration>,
+    F: FnMut() -> Result<reqwest::blocking::Response, ClientError>,
+{
+    retry(delays, |_| Ok(send()?.json()?))
 }
 
 /// Transport errors the primary URL gets before an attempt is routed to the
@@ -1282,6 +1291,79 @@ mod tests {
         // Go-based S3 implementations only treat a part as a file when it carries a filename.
         assert!(body.contains("filename=\"file\""), "{body}");
         assert!(body.contains("symbol set bytes"), "{body}");
+    }
+
+    /// Answers one connection per scripted reply, in order, and closes each after its reply. A
+    /// reply with a cut declares the whole body's length but sends only its first `cut` bytes,
+    /// as a connection dropped mid-body does.
+    fn serve_start_replies(replies: Vec<Option<usize>>, body: &'static str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback port");
+        let address = listener.local_addr().expect("read bound address");
+
+        std::thread::spawn(move || {
+            for cut in replies {
+                let (mut stream, _) = listener.accept().expect("accept start connection");
+                let mut buffer = Vec::new();
+                let mut chunk = [0u8; 8192];
+                while !buffer.windows(4).any(|window| window == b"\r\n\r\n") {
+                    let read = stream.read(&mut chunk).expect("read request head");
+                    assert_ne!(read, 0, "connection closed before the request head ended");
+                    buffer.extend_from_slice(&chunk[..read]);
+                }
+
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                stream
+                    .write_all(head.as_bytes())
+                    .expect("write response head");
+                stream
+                    .write_all(&body.as_bytes()[..cut.unwrap_or(body.len())])
+                    .expect("write response body");
+            }
+        });
+
+        format!("http://{address}/")
+    }
+
+    #[test]
+    fn start_upload_retries_a_response_cut_off_mid_body() {
+        // `start_upload_with` retries, so it reaches the callsites `RETRY_TRACING_LOCK` protects.
+        let _retry_tracing_lock = lock_retry_tracing();
+        let body = r#"{"id_map":{"chunk":{"presigned_url":{"url":"https://example.com/","fields":{}},"symbol_set_id":"id"}}}"#;
+        let half = Some(body.len() / 2);
+
+        // (name, reply per attempt, expects the answer)
+        let cases = vec![
+            (
+                "reads the body a later attempt sends whole",
+                vec![half, None],
+                true,
+            ),
+            (
+                "gives up after three cut bodies",
+                vec![half, half, half],
+                false,
+            ),
+        ];
+
+        for (name, replies, expects_answer) in cases {
+            let expected_attempts = replies.len();
+            let url = serve_start_replies(replies, body);
+            let client = Client::new();
+            let mut attempts = 0;
+            let result = start_upload_with(iter::repeat_n(Duration::ZERO, 3), || {
+                attempts += 1;
+                Ok(client.post(&url).send()?)
+            });
+
+            assert_eq!(result.is_ok(), expects_answer, "{name}: {result:?}");
+            if let Ok(response) = result {
+                assert_eq!(response.id_map["chunk"].symbol_set_id, "id", "{name}");
+            }
+            assert_eq!(attempts, expected_attempts, "{name}");
+        }
     }
 
     #[test]
