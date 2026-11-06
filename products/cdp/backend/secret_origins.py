@@ -5,11 +5,12 @@ appears, and a secret whose destination cannot be pinned to known origins is `UN
 """
 
 import re
+import collections
 import dataclasses
 from collections.abc import Iterable, Iterator, Mapping
 from enum import Enum
 from secrets import token_hex
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from prometheus_client import Counter
 
@@ -18,6 +19,9 @@ from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_program, parse_string_template
 
 from posthog.dataclasses import frozen
+
+from products.cdp.backend.filters import TEMPLATE_GLOBALS
+from products.cdp.backend.validation import TRANSFORMATION_LOG_AVAILABLE_GLOBALS
 
 
 class Unbound(Enum):
@@ -78,6 +82,9 @@ _SAFE_CALLS = _VALUE_CALLS | _PURE_CALLS | _DIGEST_CALLS
 _SCALAR_CALLS = (_PURE_CALLS - {"arrayPushBack"}) | _DIGEST_CALLS | {"concat"}
 _FRESH_CONTAINERS = (ast.Dict, ast.Array, ast.Tuple)
 _COMPARISONS = (ast.CompareOperation, ast.BetweenExpr)
+# Names the worker sets as globals for some function type. A table must not share one, so that no read
+# of the name can reach the global.
+_HOG_GLOBALS = frozenset(TEMPLATE_GLOBALS | TRANSFORMATION_LOG_AVAILABLE_GLOBALS)
 # A regex the worker cannot compile fails with the pattern in the error.
 _REGEX_OPS = frozenset(
     {
@@ -132,11 +139,20 @@ class SecretOriginsAnalysis:
 
 
 def analyze_secret_origins(
-    hog: str, inputs: dict[str, Any], mapping_input_sets: list[dict[str, Any]], secret_keys: set[str]
+    hog: str,
+    inputs: dict[str, Any],
+    mapping_input_sets: list[dict[str, Any]],
+    secret_keys: set[str],
+    integration_configs: Optional[Mapping[str, Mapping[str, Any]]] = None,
 ) -> SecretOriginsAnalysis:
+    """With `integration_configs`, the keys are integration inputs and each maps to the config the worker
+    resolves it to, so that `inputs.<key>.<field>` reads a value from it. The worker's by-name fetch
+    options read the stored inputs, where an integration input holds only its id, so a string naming an
+    integration key does not reach its credentials."""
     reason: UnanalyzableReason
     try:
-        return SecretOriginsAnalysis(origins=_Analysis(hog, [inputs, *mapping_input_sets], secret_keys).run())
+        analysis = _Analysis(hog, [inputs, *mapping_input_sets], secret_keys, integration_configs)
+        return SecretOriginsAnalysis(origins=analysis.run())
     except _CannotAnalyze as error:
         reason = error.reason
     except BaseHogQLError:
@@ -148,9 +164,13 @@ def analyze_secret_origins(
 
 
 def secret_origins(
-    hog: str, inputs: dict[str, Any], mapping_input_sets: list[dict[str, Any]], secret_keys: set[str]
+    hog: str,
+    inputs: dict[str, Any],
+    mapping_input_sets: list[dict[str, Any]],
+    secret_keys: set[str],
+    integration_configs: Optional[Mapping[str, Mapping[str, Any]]] = None,
 ) -> dict[str, SecretOrigins]:
-    return analyze_secret_origins(hog, inputs, mapping_input_sets, secret_keys).origins
+    return analyze_secret_origins(hog, inputs, mapping_input_sets, secret_keys, integration_configs).origins
 
 
 def mapping_inputs(mappings: Any) -> list[dict[str, Any]]:
@@ -334,14 +354,28 @@ def _assignment_base(left: ast.Expr) -> tuple[str, int]:
 
 
 class _Analysis:
-    def __init__(self, hog: str, input_sets: list[dict[str, Any]], secret_keys: set[str]) -> None:
+    def __init__(
+        self,
+        hog: str,
+        input_sets: list[dict[str, Any]],
+        secret_keys: set[str],
+        integration_configs: Optional[Mapping[str, Mapping[str, Any]]],
+    ) -> None:
         self.secret_keys = frozenset(secret_keys)
         self.evaluations_left = _MAX_EVALUATIONS
+        self.resolvable_by_name = integration_configs is None
+        self.integration_configs = integration_configs or {}
+        self.indexed_names: set[int] = set()
+        # Each name read by index, with the top-level statement the read is in.
+        self.table_reads: list[tuple[str, int]] = []
+        self.declared_names: list[str] = []
+        self.statement_index = 0
+        self.other_name_uses: set[str] = set()
+        self.tables: dict[str, _Values] = {}
         self.values: dict[str, _Values] = {}
         self.taints: dict[str, _Taint] = {}
         self.return_values: dict[str, _Values] = {}
         self.return_taints: dict[str, _Taint] = {}
-        self.declarations: set[str] = set()
         self.assignments: list[tuple[str, ast.Expr]] = []
         self.member_assignments: list[tuple[str, int, ast.Expr]] = []
         self.shared_assignments: list[ast.Expr] = []
@@ -374,11 +408,14 @@ class _Analysis:
         for key in self.definitions:
             self._input(key, set())
 
-        self._collect(parse_program(hog), None)
+        statements = parse_program(hog).declarations
+        for index, statement in enumerate(statements):
+            self.statement_index = index
+            self._collect(statement, None)
         self.fed_names += [(arg, self._call_arguments(name)) for arg, name in self.named_lambda_args]
         bound_elsewhere = {name for name, _ in self.fed_names}
         bound_elsewhere |= {param for params in self.functions.values() for param in params}
-        variables = {name for name, _ in self.assignments} | self.declarations | bound_elsewhere
+        variables = {name for name, _ in self.assignments} | set(self.declared_names) | bound_elsewhere
         fresh = self._fresh_container_names() - bound_elsewhere
         self.shared_assignments = [
             expr for base, depth, expr in self.member_assignments if depth > 1 or base not in fresh
@@ -386,7 +423,7 @@ class _Analysis:
         if self._rebinds_an_interpreted_name(variables) or self._hands_on_a_callee() or self._can_replace_inputs():
             raise _CannotAnalyze("unsupported_code")
 
-        local = self.declarations | bound_elsewhere | set(self.functions)
+        local = set(self.declared_names) | bound_elsewhere | set(self.functions)
         self.lambdas_only = self._lambda_only_names() - bound_elsewhere - set(self.functions)
         self.exits += [expr for base, _, expr in self.member_assignments if base not in local]
         self.exits += [expr for name, expr in self.assignments if name not in local]
@@ -396,6 +433,7 @@ class _Analysis:
         self.exits += [
             arg for call in self.calls if call.name not in quiet and not _calls_back_inline(call) for arg in call.args
         ]
+        self.tables = self._constant_tables(statements, bound_elsewhere | set(self.functions))
 
     def _rebinds_an_interpreted_name(self, variables: set[str]) -> bool:
         functions = set(self.functions)
@@ -414,6 +452,35 @@ class _Analysis:
     def _lambda_only_names(self) -> set[str]:
         assigned = {name for name, _ in self.assignments}
         return assigned - {name for name, expr in self.assignments if not isinstance(expr, ast.Lambda)}
+
+    def _constant_tables(self, statements: list[ast.Declaration], bound_elsewhere: set[str]) -> dict[str, _Values]:
+        """Names declared once, as a top-level statement, with a dictionary of string constants, and only
+        read by index after that statement, such as a region-to-host map. Hog resolves a name by block
+        scope and then falls back to the globals, so a declaration in a block or function, or a read
+        before the declaration, can reach a value the event controls. Any other use of the name could
+        change or alias the dictionary."""
+        declarations = collections.Counter(self.declared_names)
+        assignments = collections.Counter(name for name, _ in self.assignments)
+        changed = {name for name, _, _ in self.member_assignments} | bound_elsewhere | self.other_name_uses
+        tables: dict[str, _Values] = {}
+        for index, statement in enumerate(statements):
+            if not isinstance(statement, ast.VariableDeclaration) or not isinstance(statement.expr, ast.Dict):
+                continue
+            name = statement.name
+            values = [value for _, value in statement.expr.items]
+            constants = [value.value for value in values if isinstance(value, ast.Constant)]
+            if (
+                not values
+                or len(constants) != len(values)
+                or not all(isinstance(constant, str) for constant in constants)
+                or name in changed | _HOG_GLOBALS
+                or declarations[name] != 1
+                or assignments[name] != 1
+                or any(read == name and read_index <= index for read, read_index in self.table_reads)
+            ):
+                continue
+            tables[name] = _normalize(frozenset((constant, True) for constant in constants))
+        return tables
 
     def _call_arguments(self, lambda_name: str) -> list[ast.Expr] | None:
         """Every argument of every call to a name that only declarations of lambdas bind, or None when the
@@ -455,7 +522,7 @@ class _Analysis:
             return _UNKNOWN, taint
         if not isinstance(value, str):
             return _UNKNOWN, frozenset()
-        mentioned = frozenset(key for key in self.secret_keys if key in value)
+        mentioned = frozenset(key for key in self.secret_keys if key in value and self.resolvable_by_name)
         if templating == "liquid":
             dynamic = [index for index in (value.find("{{"), value.find("{%")) if index >= 0]
             if not dynamic:
@@ -536,7 +603,7 @@ class _Analysis:
     def _collect(self, node: ast.AST, function: str | None) -> None:
         """`function` is the enclosing `fun`, or empty inside a lambda and None at the top level."""
         if isinstance(node, ast.VariableDeclaration):
-            self.declarations.add(node.name)
+            self.declared_names.append(node.name)
             if node.expr is not None:
                 self.assignments.append((node.name, node.expr))
             if isinstance(node.expr, ast.Lambda):
@@ -583,9 +650,14 @@ class _Analysis:
         elif isinstance(node, ast.ArrayAccess) and isinstance(node.array, ast.Field) and node.array.chain == ["inputs"]:
             self._collect(node.property, function)
             return
+        elif isinstance(node, ast.ArrayAccess) and isinstance(node.array, ast.Field) and len(node.array.chain) == 1:
+            self.indexed_names.add(id(node.array))
+            self.table_reads.append((str(node.array.chain[0]), self.statement_index))
         elif isinstance(node, ast.Field):
             self.field_heads.add(str(node.chain[0]))
             self.reads_all_inputs |= node.chain == ["inputs"]
+            if id(node) not in self.indexed_names:
+                self.other_name_uses.add(str(node.chain[0]))
         for child in _children(node):
             self._collect(child, function)
 
@@ -662,7 +734,7 @@ class _Analysis:
     def _fetch_carries(self, call: ast.Call, taint: _Taint) -> frozenset[str]:
         """The secrets a fetch sends: those its arguments hold or were derived from, and every secret
         when its options can name one."""
-        if len(call.args) > 1 and not _names_no_input(call.args[1]):
+        if self.resolvable_by_name and len(call.args) > 1 and not _names_no_input(call.args[1]):
             return self.secret_keys
         return _reached(taint)
 
@@ -705,8 +777,12 @@ class _Analysis:
             return frozenset({(node.value, True)}) if isinstance(node.value, str) else _UNKNOWN
         input_key = _input_key(node)
         if input_key is not None:
-            is_member = isinstance(node, ast.Field) and len(node.chain) > 2
-            return _UNKNOWN if is_member else self.inputs.get(input_key, (_UNKNOWN,))[0]
+            if isinstance(node, ast.Field) and len(node.chain) > 2:
+                field = self.integration_configs.get(input_key, {}).get(str(node.chain[2]))
+                return frozenset({(field, True)}) if len(node.chain) == 3 and isinstance(field, str) else _UNKNOWN
+            return self.inputs.get(input_key, (_UNKNOWN,))[0]
+        if isinstance(node, ast.ArrayAccess) and isinstance(node.array, ast.Field) and len(node.array.chain) == 1:
+            return self.tables.get(str(node.array.chain[0]), _UNKNOWN)
         if isinstance(node, ast.Field) and len(node.chain) == 1:
             return self.values.get(str(node.chain[0]), _UNKNOWN)
         if isinstance(node, ast.Call):
@@ -723,7 +799,9 @@ class _Analysis:
     def _taint(self, node: ast.AST) -> _Taint:
         self._spend_evaluation()
         if isinstance(node, ast.Constant):
-            return frozenset({node.value}) & self.secret_keys if isinstance(node.value, str) else frozenset()
+            if not self.resolvable_by_name or not isinstance(node.value, str):
+                return frozenset()
+            return frozenset({node.value}) & self.secret_keys
         input_key = _input_key(node)
         if input_key is not None:
             return self.inputs.get(input_key, (_UNKNOWN, frozenset()))[1]
