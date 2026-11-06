@@ -57,8 +57,6 @@ _PURE_CALLS = frozenset(
         "notEquals",
         "replaceAll",
         "substring",
-        "toFloat",
-        "toInt",
         "toString",
         "trim",
         "upper",
