@@ -9,6 +9,7 @@ from uuid import UUID
 
 from django.db.models import Q, QuerySet
 
+from products.warehouse_sources.backend.facade.contracts import LegacyHistoryTableError
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import HISTORY_NAMING_OPTION, PH_HISTORY_NAMING, DataWarehouseTable
@@ -81,6 +82,16 @@ def registered_history_naming(schema: ExternalDataSchema) -> HistoryNaming | Non
     A stamped `_history` table wins over a table under the legacy name, which a source table can also
     carry. A legacy table predates the stamp and the marker, so its name is all it has.
     """
+    return _naming_of_registered(_registered_history_tables(schema))
+
+
+def registered_stamped_history_table(schema: ExternalDataSchema) -> DataWarehouseTable | None:
+    """The schema's registered `_history` table with the `_ph_` validity names, also once its mode stops writing it."""
+    table = _registered_history_tables(schema).get(HISTORY_NAMING)
+    return table if table is not None and table.has_ph_history_naming else None
+
+
+def _registered_history_tables(schema: ExternalDataSchema) -> dict[HistoryNaming, DataWarehouseTable]:
     source = schema.source
     names = {
         build_table_name(source, companion_resource_name(schema.name, naming)): naming
@@ -92,7 +103,7 @@ def registered_history_naming(schema: ExternalDataSchema) -> HistoryNaming | Non
         ),
         schema.id,
     )
-    return _naming_of_registered({names[table.name]: table for table in tables})
+    return {names[table.name]: table for table in tables}
 
 
 def _naming_of_registered(tables_by_naming: dict[HistoryNaming, DataWarehouseTable]) -> HistoryNaming | None:
@@ -135,10 +146,32 @@ class SourceHistoryNamings:
         if registered is not None:
             return registered
         naming = pinned_history_naming(schema) or self._naming_for_new_tables()
+        self._refuse_taken_name(schema, naming)
+        return naming
+
+    def incremental_naming(self, schema: ExternalDataSchema) -> HistoryNaming:
+        """The naming of an incremental schema's history table, which is `HISTORY_NAMING` whatever the flag or pin.
+
+        Raises `LegacyHistoryTableError` when the schema's registered history table uses the legacy naming, and
+        `HistoryTableNameTakenError` as `naming` does.
+        """
+        tables = self._registered_tables(schema)
+        registered = _naming_of_registered(tables)
+        # An unmarked `_cdc` table can be an ordinary source table, and incremental history never writes that name.
+        if registered == LEGACY_HISTORY_NAMING and tables[LEGACY_HISTORY_NAMING].is_history_table:
+            legacy_name = tables[LEGACY_HISTORY_NAMING].name
+            raise LegacyHistoryTableError(
+                f"{schema.name} has an older history table, {legacy_name}, that incremental syncs can't add to. "
+                f"Choose the consolidated table only, or sync {schema.name} with change data capture."
+            )
+        if registered != HISTORY_NAMING:
+            self._refuse_taken_name(schema, HISTORY_NAMING)
+        return HISTORY_NAMING
+
+    def _refuse_taken_name(self, schema: ExternalDataSchema, naming: HistoryNaming) -> None:
         new_name = build_table_name(self._source, companion_resource_name(schema.name, naming))
         if self._tables_by_name.get(new_name) or self._synced_schema_ids_by_name.get(new_name, set()) - {schema.id}:
             raise HistoryTableNameTakenError(f"{new_name} is already the name of another table of this source")
-        return naming
 
     def naming_unless_taken(self, schema: ExternalDataSchema) -> HistoryNaming | None:
         try:
@@ -147,8 +180,11 @@ class SourceHistoryNamings:
             return None
 
     def _registered(self, schema: ExternalDataSchema) -> HistoryNaming | None:
+        return _naming_of_registered(self._registered_tables(schema))
+
+    def _registered_tables(self, schema: ExternalDataSchema) -> dict[HistoryNaming, DataWarehouseTable]:
         # A table another schema syncs into is that schema's own, as `orders_cdc` next to `orders` is.
-        tables_by_naming = {
+        return {
             naming: table
             for naming in (HISTORY_NAMING, LEGACY_HISTORY_NAMING)
             for table in self._tables_by_name.get(
@@ -156,7 +192,6 @@ class SourceHistoryNamings:
             )
             if self._schema_ids_by_table.get(table.id, set()) <= {schema.id}
         }
-        return _naming_of_registered(tables_by_naming)
 
     def _naming_for_new_tables(self) -> HistoryNaming:
         if self._new_naming is None:
@@ -167,6 +202,19 @@ class SourceHistoryNamings:
 def history_naming(schema: ExternalDataSchema) -> HistoryNaming:
     """`SourceHistoryNamings.naming` for one schema."""
     return SourceHistoryNamings(schema.source).naming(schema)
+
+
+def incremental_history_naming(schema: ExternalDataSchema) -> HistoryNaming:
+    """`SourceHistoryNamings.incremental_naming` for one schema."""
+    return SourceHistoryNamings(schema.source).incremental_naming(schema)
+
+
+def incremental_history_naming_unless_taken(schema: ExternalDataSchema) -> HistoryNaming | None:
+    """`incremental_history_naming`, or None when the new name belongs to another table of the source."""
+    try:
+        return incremental_history_naming(schema)
+    except HistoryTableNameTakenError:
+        return None
 
 
 def new_history_names_taken(
@@ -203,7 +251,10 @@ def is_another_schemas_history_table(schema: ExternalDataSchema) -> bool:
         source, resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name).table_storage_name
     )
     siblings = ExternalDataSchema.objects.filter(
-        team_id=schema.team_id, source_id=schema.source_id, deleted=False, sync_type=ExternalDataSchema.SyncType.CDC
+        team_id=schema.team_id,
+        source_id=schema.source_id,
+        deleted=False,
+        sync_type__in=[ExternalDataSchema.SyncType.CDC, ExternalDataSchema.SyncType.INCREMENTAL],
     ).exclude(id=schema.id)
     # Only a sibling whose history name under some naming matches pays for the registration lookup.
     candidates = [
@@ -261,10 +312,6 @@ def history_tables(source: ExternalDataSource) -> list[DataWarehouseTable]:
     return [table for table in candidates if table.is_history_table or own_tables.get(table.id) != table.name]
 
 
-def history_table_ids(source: ExternalDataSource) -> list[UUID]:
-    return [table.id for table in history_tables(source)]
-
-
 def history_table_name(schema: ExternalDataSchema) -> str | None:
     """The name of the history table the schema's mode writes, or None when it writes none.
 
@@ -272,5 +319,8 @@ def history_table_name(schema: ExternalDataSchema) -> str | None:
     """
     if not schema.keeps_history:
         return None
-    naming = registered_history_naming(schema) or pinned_history_naming(schema) or new_history_naming(schema.source)
+    if schema.is_incremental:
+        naming = HISTORY_NAMING
+    else:
+        naming = registered_history_naming(schema) or pinned_history_naming(schema) or new_history_naming(schema.source)
     return build_table_name(schema.source, companion_resource_name(schema.name, naming))
