@@ -16,11 +16,7 @@ describe('hog', () => {
             ['-o', 'json', 'help', 'query', 'run'],
             'Usage: hog query run',
         ],
-        [
-            'command help lists examples and scopes',
-            ['query', 'run', '--help'],
-            'Needs a personal API key with: query:read',
-        ],
+        ['command help lists examples and scopes', ['query', 'run', '--help'], 'Needs the scopes: query:read'],
     ])('%s', async (_name, argv, stdout) => {
         const result = await runHog(argv)
         expect(result.exitCode).toBe(0)

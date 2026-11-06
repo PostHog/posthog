@@ -867,7 +867,10 @@ describe('hog auth login', () => {
             }),
         })
 
-        expect(result.error()).toMatchObject({ code: 'scopes_not_granted' })
+        expect(result.error()).toMatchObject({
+            code: 'scopes_not_granted',
+            hint: expect.stringContaining(`\`hog auth add --host ${EU} insight:write\``),
+        })
         expect(result.keychain[EU]).toBe(OAUTH_LOGIN.keychain[EU])
         const revoke = result.requests.find((request) => request.url.endsWith('/oauth/revoke/'))
         expect((revoke?.body as { token?: string } | undefined)?.token).toBe(STEPPED_UP_REFRESH)
@@ -893,7 +896,7 @@ describe('hog auth login', () => {
 
         expect(result.error()).toMatchObject({
             code,
-            hint: expect.stringContaining('`hog auth add insight:write dashboard:write`'),
+            hint: expect.stringContaining(`\`hog auth add --host ${EU} insight:write dashboard:write\``),
         })
         expect(result.keychain[EU]).toBe(OAUTH_LOGIN.keychain[EU])
         expect(result.files[ADD_PENDING_FILE]).toBeUndefined()
@@ -943,5 +946,79 @@ describe('hog auth login', () => {
 
         expect(result.json()).toMatchObject({ status: 'already_granted' })
         expect(result.requests).toEqual([])
+    })
+
+    const CHALLENGE = 'Bearer error="insufficient_scope", scope="insight:read query:read dashboard:write"'
+    const ROWS = { columns: ['total'], results: [[1]], hasMore: false }
+
+    const flow = deviceFlow(0, {
+        status: 200,
+        body: {
+            ...APPROVED,
+            access_token: STEPPED_UP_ACCESS,
+            refresh_token: STEPPED_UP_REFRESH,
+            scope: 'openid insight:read query:read dashboard:write',
+        },
+    })
+    const challengedQuery = (
+        url: string,
+        _body: unknown,
+        authorization: string | null
+    ): { status: number; body: unknown; headers?: Record<string, string> } =>
+        !url.endsWith('/query')
+            ? flow(url)
+            : authorization === `Bearer ${STEPPED_UP_ACCESS}`
+              ? { status: 200, body: ROWS }
+              : { status: 403, body: { detail: 'missing scope' }, headers: { 'WWW-Authenticate': CHALLENGE } }
+
+    test('an agent at a terminal gets the step-up command for the scopes a request lacks, without a prompt', async () => {
+        const result = await runHog(['query', 'run', 'select 1'], {
+            env: { CLAUDECODE: '1' },
+            stdoutIsTTY: true,
+            ...OAUTH_LOGIN,
+            respond: challengedQuery,
+        })
+
+        expect(result.error()).toMatchObject({
+            code: 'step_up_required',
+            scopes: ['query:read', 'dashboard:write'],
+            command: `hog auth add --host ${EU} query:read dashboard:write`,
+            hint: expect.stringContaining(`hog auth add --host ${EU} query:read dashboard:write`),
+        })
+        expect(result.requests.map((request) => request.url)).toEqual([`${EU}/api/environments/42/query`])
+    })
+
+    test('at a terminal, a yes adds the scopes and sends the request again with the new token', async () => {
+        const result = await runHog(['query', 'run', 'select 1'], {
+            stdoutIsTTY: true,
+            answers: ['yes'],
+            ...OAUTH_LOGIN,
+            respond: challengedQuery,
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.requests.find((request) => request.url.endsWith('/device-authorization/'))?.body).toEqual({
+            client_id: HOG_CLIENT_ID,
+            scope: 'openid insight:read query:read dashboard:write',
+            required_scopes: 'query:read dashboard:write',
+        })
+        expect(result.requests.filter((request) => request.url.endsWith('/query'))).toHaveLength(2)
+        expect(readJson(result.files[SETTINGS_FILE] ?? '{}')).toMatchObject({
+            logins: { [EU]: { loginId: 'login-1' } },
+        })
+    })
+
+    test('status treats a challenged 403 as a missing detail and asks nothing', async () => {
+        const result = await runHog(['auth', 'status'], {
+            stdoutIsTTY: true,
+            ...OAUTH_LOGIN,
+            respond: (url) =>
+                url.endsWith('/api/users/@me/')
+                    ? { status: 403, body: { detail: 'missing scope' }, headers: { 'WWW-Authenticate': CHALLENGE } }
+                    : { status: 200, body: { name: 'Hedgebox' } },
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('Hedgebox')
     })
 })

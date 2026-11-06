@@ -99,7 +99,7 @@ export default defineCommand({
         readOnly: {
             type: 'boolean',
             description:
-                'Ask only for read access. To change something later, run `hog auth login` again without this flag',
+                'Ask only for read access. To change something later, run `hog auth add` with the write scopes you need',
         },
     },
     notes: [

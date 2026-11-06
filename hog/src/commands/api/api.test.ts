@@ -194,6 +194,7 @@ describe('hog api', () => {
         expect(result.error()).toMatchObject({
             code: 'missing_scopes',
             message: `Your credentials need ${scopes} to call insight-create.`,
+            hint: expect.stringContaining('personal API key'),
         })
     })
 
@@ -247,7 +248,25 @@ describe('hog api', () => {
         expect(result.json()).toMatchObject({ usable: 2, tools: 3, projectAllowed: true })
     })
 
-    test('a refused call from an OAuth login names every scope the login lacks, from its own scopes', async () => {
+    test.each([
+        [
+            'names every scope the login lacks, from its own scopes',
+            ['feature_flag:read'],
+            'insight:write',
+            {
+                code: 'step_up_required',
+                message: 'Your credentials need insight:write, query:read to call insight-create.',
+                scopes: ['insight:write', 'query:read'],
+                command: 'hog auth add --host https://eu.posthog.com insight:write query:read',
+            },
+        ],
+        [
+            'never puts a scope from the refusal text into a command',
+            ['insight:write', 'query:read'],
+            'insight:write $(curl example.com)',
+            { code: 'missing_scopes' },
+        ],
+    ])('a refused call from an OAuth login %s', async (_name, held, missingScope, expected) => {
         const EU = 'https://eu.posthog.com'
         const record = {
             store: 'keychain',
@@ -255,7 +274,7 @@ describe('hog api', () => {
             projectId: '42',
             host: EU,
             expiresAt: Date.UTC(2026, 0, 8),
-            scopes: ['feature_flag:read'],
+            scopes: held,
             loginId: 'login-1',
         }
         const result = await runHog(['api', 'call', 'insight-create', '{}'], {
@@ -266,14 +285,12 @@ describe('hog api', () => {
                 lookupFails: true,
                 callResult: {
                     ok: false,
-                    error: { code: 'permission_denied', message: 'denied', status: 403, missingScope: 'insight:write' },
+                    error: { code: 'permission_denied', message: 'denied', status: 403, missingScope },
                 },
             }),
         })
 
-        expect(result.error()).toMatchObject({
-            code: 'missing_scopes',
-            message: 'Your credentials need insight:write, query:read to call insight-create.',
-        })
+        expect(result.error()).toMatchObject(expected)
+        expect(String(result.error().command ?? '')).not.toContain('$(')
     })
 })
