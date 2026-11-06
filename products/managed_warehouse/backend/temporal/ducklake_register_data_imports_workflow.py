@@ -439,20 +439,15 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
                         cancel_requested=cancel_requested,
                     )
         except _StalePreparedGenerationError:
-            get_ducklake_register_data_imports_stale_metric(
-                team_id=inputs.team_id, schema_id=schema_id, stage="publish"
-            ).add(1)
-            logger.info("Skipping stale prepared Parquet generation before catalog swap")
+            _record_stale_generation_skip(team_id=inputs.team_id, schema_id=schema_id, logger=logger)
             return False
 
-        get_ducklake_register_data_imports_files_metric(team_id=inputs.team_id, schema_id=schema_id).record(
-            float(len(landing_paths))
-        )
-        get_ducklake_register_data_imports_rows_metric(team_id=inputs.team_id, schema_id=schema_id).record(
-            float(registered_rows)
-        )
-        get_ducklake_register_data_imports_bytes_metric(team_id=inputs.team_id, schema_id=schema_id).record(
-            float(copied_bytes)
+        _record_registration_metrics(
+            team_id=inputs.team_id,
+            schema_id=schema_id,
+            file_count=len(landing_paths),
+            row_count=registered_rows,
+            copied_bytes=copied_bytes,
         )
 
         logger.info(
@@ -462,6 +457,19 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
             landing_uri=landing_uri,
         )
         return True
+
+
+def _record_stale_generation_skip(*, team_id: int, schema_id: str, logger: typing.Any) -> None:
+    get_ducklake_register_data_imports_stale_metric(team_id=team_id, schema_id=schema_id, stage="publish").add(1)
+    logger.info("Skipping stale prepared Parquet generation before catalog swap")
+
+
+def _record_registration_metrics(
+    *, team_id: int, schema_id: str, file_count: int, row_count: int, copied_bytes: int
+) -> None:
+    get_ducklake_register_data_imports_files_metric(team_id=team_id, schema_id=schema_id).record(float(file_count))
+    get_ducklake_register_data_imports_rows_metric(team_id=team_id, schema_id=schema_id).record(float(row_count))
+    get_ducklake_register_data_imports_bytes_metric(team_id=team_id, schema_id=schema_id).record(float(copied_bytes))
 
 
 def _registration_engine_for_team(team_id: int) -> str:
@@ -538,20 +546,15 @@ def _copy_and_register_through_trino(
                 cancel_after_seconds=_duckgres_cancel_delay(activity_started_monotonic),
             )
         if not result.published:
-            get_ducklake_register_data_imports_stale_metric(
-                team_id=inputs.team_id, schema_id=schema_id, stage="publish"
-            ).add(1)
-            logger.info("Skipping stale prepared Parquet generation before catalog swap")
+            _record_stale_generation_skip(team_id=inputs.team_id, schema_id=schema_id, logger=logger)
             return False
 
-        get_ducklake_register_data_imports_files_metric(team_id=inputs.team_id, schema_id=schema_id).record(
-            float(len(landing_paths))
-        )
-        get_ducklake_register_data_imports_rows_metric(team_id=inputs.team_id, schema_id=schema_id).record(
-            float(result.row_count)
-        )
-        get_ducklake_register_data_imports_bytes_metric(team_id=inputs.team_id, schema_id=schema_id).record(
-            float(copied_bytes)
+        _record_registration_metrics(
+            team_id=inputs.team_id,
+            schema_id=schema_id,
+            file_count=len(landing_paths),
+            row_count=result.row_count,
+            copied_bytes=copied_bytes,
         )
         logger.info(
             "Copied, verified, and registered prepared Parquet files in DuckLake through Trino",
