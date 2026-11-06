@@ -1029,7 +1029,10 @@ def _string_list(raw: str | None) -> list[str]:
         value = json.loads(raw) if raw else []
     except (ValueError, RecursionError):
         return []
-    return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
+    if not isinstance(value, list):
+        return []
+    # isprintable() also drops lone surrogates, which the JSON renderer cannot encode.
+    return [item for item in value if isinstance(item, str) and item.strip() and item.isprintable()]
 
 
 def _parse_int(value: str | int | None) -> int | None:

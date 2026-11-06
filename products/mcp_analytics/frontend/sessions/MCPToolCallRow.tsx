@@ -126,8 +126,11 @@ function execCommandLabel({ tool_name, exec_verb, exec_target_tool }: MCPToolCal
     if (tool_name !== 'exec' || !exec_verb) {
         return null
     }
-    return exec_verb === 'unrecognized'
-        ? 'unrecognized command'
+    if (exec_verb === 'unrecognized') {
+        return 'unrecognized command'
+    }
+    return exec_target_tool === 'unrecognized'
+        ? `${exec_verb} unknown tool`
         : [exec_verb, exec_target_tool].filter(Boolean).join(' ')
 }
 

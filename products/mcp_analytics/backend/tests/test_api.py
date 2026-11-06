@@ -1276,6 +1276,11 @@ class TestListMCPToolCalls(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
             ("nothing_captured", {}, ("", "", [], "", "", "")),
             ("malformed_input_keys", {"$mcp_input_keys": "query"}, ("", "", [], "", "", "")),
             ("deeply_nested_input_keys", {"$mcp_input_keys": [[[["query"]]]]}, ("", "", [], "", "", "")),
+            (
+                "unrenderable_input_keys",
+                {"$mcp_input_keys": ["query", "", "  ", "\ud800", "line\nbreak"]},
+                ("", "", ["query"], "", "", ""),
+            ),
         ]
     )
     def test_returns_exec_input_and_error_details(
