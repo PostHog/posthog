@@ -698,7 +698,7 @@ export class ToolExecutor {
                     ...wrapperInputShape,
                     ...errorAnalyticsProperties(classifyToolError(rejection, 'exec'), rejection),
                 },
-                { ...analyticsMeta, response: rejected }
+                { ...analyticsMeta, parameters: undefined }
             )
             return rejected
         }
@@ -719,14 +719,12 @@ export class ToolExecutor {
         // the analytics event names the tool the agent was reaching for, so its failure
         // counts against that tool rather than hiding in the `exec` bucket.
         const analyticsToolName = (): string => execMetrics.innerToolName ?? attemptedCallTarget(execShape) ?? 'exec'
-        // The event names the inner tool, so its arguments are the inner tool's, not the command string.
-        const execAnalyticsMeta = (response: unknown): ToolCallAnalyticsMeta => ({
-            ...analyticsMeta,
-            parameters: execMetrics.innerToolName
-                ? parseExecCallInnerArgs(validation.data.command)
-                : analyticsMeta?.parameters,
-            response,
-        })
+        // Only a resolved inner tool has a name to apply the capture policy to. Otherwise the
+        // arguments are the agent's raw command string, which key-based redaction can't see into.
+        const execAnalyticsMeta = (response: unknown): ToolCallAnalyticsMeta =>
+            execMetrics.innerToolName
+                ? { ...analyticsMeta, parameters: parseExecCallInnerArgs(validation.data.command), response }
+                : { ...analyticsMeta, parameters: undefined }
 
         // Which stored skill an exec-routed read returned. Success only, unlike the
         // verb above: that records what the agent attempted, this records what it got.

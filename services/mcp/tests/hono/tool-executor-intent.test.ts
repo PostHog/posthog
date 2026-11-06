@@ -252,6 +252,29 @@ describe('ToolExecutor analytics capture', () => {
         }
     )
 
+    // An unresolved exec command is the agent's raw string: no tool name to apply the
+    // capture policy to, and key-based redaction can't see inside it.
+    it.each([
+        ['an unknown tool', 'call no-such-tool {"password":"canary-secret"}'],
+        ['a disconnected vendor tool', 'call linear__create_issue {"description":"canary-secret"}'],
+        ['malformed arguments', 'call switch-project {"password":"canary-secret"'],
+        ['an unknown verb', 'bogus {"password":"canary-secret"}'],
+    ])('sends no arguments or result for exec with %s', async (_case, command) => {
+        const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+        const state = makeToolExecutorState([{ name: 'switch-project' }], {
+            useSingleExec: true,
+            suppressAnalytics: false,
+        })
+
+        await executor.handleToolCall({ name: 'exec', arguments: { command } }, state)
+
+        await vi.waitFor(() => expect(capture).toHaveBeenCalledOnce())
+        const event = capture.mock.calls[0]![0]
+        expect(event.parameters).toBeUndefined()
+        expect(event.response).toBeUndefined()
+        capture.mockRestore()
+    })
+
     it.each([true, false])('isolates intent descriptions with single exec=%s', async (useSingleExec) => {
         const tool = catalog.getFilteredTools({ scopes: ['*'] }).find((entry) => entry.name === 'projects-get')!
         const state = makeToolExecutorState([tool], { useSingleExec })
