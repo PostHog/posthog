@@ -6654,7 +6654,6 @@ class HogFlowViewSet(
                 name=configuration.get("name") or (hog_flow.name if hog_flow else None),
                 actions=actions,
                 current_action_id=payload.get("current_action_id"),
-                # The stored flow's secrets live apart from its actions; an override replaces them.
                 encrypted_inputs=hog_flow.encrypted_inputs if hog_flow and "actions" not in configuration else None,
             )
 
