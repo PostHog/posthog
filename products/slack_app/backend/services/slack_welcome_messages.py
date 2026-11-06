@@ -177,8 +177,10 @@ def _member_welcome_tail(integration: WorkspaceIntegration) -> list[dict[str, An
 
 def onboarding_intro_text(slack_user_id: str) -> str:
     return (
-        f":wave: Hey <@{slack_user_id}>, I'm PostHog, your team's AI agent in Slack.\n"
-        ":bar_chart: Ask me about your product data · :hammer_and_wrench: I'll open PRs with fixes\n"
+        f":wave: Hey <@{slack_user_id}>, I'm PostHog, your team's AI agent in Slack. I can:\n"
+        "• :bar_chart: Answer questions about your product data\n"
+        "• :bug: Dig into bugs and errors\n"
+        "• :hammer_and_wrench: Open pull requests with fixes\n"
         "Let's get you set up, it takes about 2 minutes :point_down:"
     )
 
