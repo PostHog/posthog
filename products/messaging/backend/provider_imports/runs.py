@@ -79,6 +79,9 @@ def start_run(
         raise ProviderImportAlreadyRunning(f"A {provider.label} import is already running.")
 
     credentials = provider.check_credentials(team_id, api_key)
+    progress = {step: _new_step_progress() for step in ordered_steps}
+    if provider.resumes_after_failure:
+        _continue_failed_steps(team_id, provider.key, progress)
     try:
         with transaction.atomic():
             # Create the run before storing the credentials. A concurrent start then waits on the active-run index
@@ -88,7 +91,7 @@ def start_run(
                 provider=provider.key,
                 steps=ordered_steps,
                 created_by_id=created_by_id,
-                progress={step: _new_step_progress() for step in ordered_steps},
+                progress=progress,
             )
             if provider.retains_credentials:
                 run.integration_id = provider.store_credentials(team_id, credentials, created_by_id)
@@ -184,6 +187,14 @@ def _order_steps(provider: ImportProvider, steps: list[str]) -> list[str]:
     if not steps:
         raise InvalidImportSteps("Select at least one thing to import.")
     return [key for key in known if key in steps]
+
+
+def _continue_failed_steps(team_id: int, provider_key: str, progress: dict[str, dict[str, Any]]) -> None:
+    latest = _runs(team_id).filter(provider=provider_key).order_by("-created_at").first()
+    if latest is None or latest.status != ProviderImportStatus.FAILED:
+        return
+    for step, step_progress in progress.items():
+        step_progress["checkpoint"] = latest.progress.get(step, {}).get("checkpoint")
 
 
 def _fail_stale_runs(team_id: int) -> None:

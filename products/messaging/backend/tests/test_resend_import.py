@@ -215,6 +215,41 @@ class TestResendImport(BaseTest):
         assert run.progress["suppressions"]["processed"] == len(FIXTURES["suppressions"])
         assert len(self.resend.calls) == 2
 
+    def test_topic_choices_are_read_when_the_unsubscribes_step_did_not_run(self) -> None:
+        self._run(["topic_opt_outs"])
+
+        assert "/contacts/c0000000-0000-4000-8000-000000000001/topics" in self.resend.calls
+
+    def test_a_new_import_continues_the_step_that_failed(self) -> None:
+        self.resend.page_size = 2
+        run = runs.start_run(self.team.id, "resend", ["suppressions"], API_KEY, self.user.id)
+        read = self.resend.get
+
+        def fail_second_page(url: str, params: dict | None = None, **kwargs: Any) -> MagicMock:
+            if params and params.get("after"):
+                return FakeResend._response(503, {"name": "service_unavailable", "message": "Down"})
+            return read(url, params, **kwargs)
+
+        with patch("products.messaging.backend.services.resend_client.requests.get", fail_second_page):
+            with self.assertRaises(ImportProviderUnavailable):
+                runs.run_step(self.team.id, run.id, "suppressions", attempt=1)
+        runs.finish_run(self.team.id, run.id)
+        self.resend.calls.clear()
+
+        self._run(["suppressions"])
+
+        assert len([call for call in self.resend.calls if call == "/suppressions"]) == 2
+
+    def test_opt_outs_reach_a_row_another_request_inserted_first(self) -> None:
+        MessageRecipientPreference.objects.create(
+            team_id=self.team.id, identifier="unsubscribed@example.com", preferences={}
+        )
+
+        self._run(["opt_outs"])
+
+        row = MessageRecipientPreference.objects.get(team_id=self.team.id, identifier="unsubscribed@example.com")
+        assert row.preferences == {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: "OPTED_OUT"}
+
     def test_importing_again_keeps_every_change_made_in_posthog(self) -> None:
         self._run()
         remove_suppression(self.team.id, "gone@example.com")

@@ -8,10 +8,7 @@ from collections import Counter
 from collections.abc import Iterable, Mapping
 from datetime import datetime
 
-from django.db import models, transaction
-from django.db.models import F, Value
-from django.db.models.expressions import CombinedExpression
-from django.db.models.functions import Coalesce
+from django.db import transaction
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -124,32 +121,31 @@ def import_opt_outs(team_id: int, opt_outs: Mapping[str, Iterable[str]], created
         return 0
     preferences = MessageRecipientPreference.objects.filter(team_id=team_id)
     with transaction.atomic():
-        existing = {row.identifier: row for row in preferences.filter(identifier__in=list(patches))}
+        stored = set(preferences.filter(identifier__in=list(patches)).values_list("identifier", flat=True))
         new_rows = [
             MessageRecipientPreference(
                 team_id=team_id, identifier=identifier, preferences=patch, created_by_id=created_by_id
             )
             for identifier, patch in sorted(patches.items())
-            if identifier not in existing
+            if identifier not in stored
         ]
+        # ignore_conflicts covers a row another request inserts after the read above. The merge below still reaches it.
         MessageRecipientPreference.objects.bulk_create(new_rows, batch_size=500, ignore_conflicts=True)
-        changed = len(new_rows)
-        for identifier, row in existing.items():
-            patch = patches[identifier]
-            stored = row.preferences or {}
-            if row.deleted or all(key in stored for key in patch):
+        inserted = preferences.filter(pk__in=[row.pk for row in new_rows]).count()
+
+        now = timezone.now()
+        merged = []
+        for row in preferences.select_for_update().filter(identifier__in=list(patches)).order_by("identifier"):
+            current = row.preferences or {}
+            patch = patches[row.identifier]
+            if row.deleted or all(key in current for key in patch):
                 continue
-            # The stored side of the merge wins. A choice made after the read above is kept too.
-            preferences.filter(pk=row.pk).update(
-                preferences=CombinedExpression(
-                    Value(patch, output_field=models.JSONField()),
-                    "||",
-                    Coalesce(F("preferences"), Value({}, output_field=models.JSONField())),
-                ),
-                updated_at=timezone.now(),
-            )
-            changed += 1
-    return changed
+            # The stored side wins, so a choice already made here is kept.
+            row.preferences = {**patch, **current}
+            row.updated_at = now
+            merged.append(row)
+        MessageRecipientPreference.objects.bulk_update(merged, ["preferences", "updated_at"], batch_size=500)
+    return inserted + len(merged)
 
 
 def import_categories(

@@ -107,6 +107,8 @@ class ImportProvider(ABC):
     steps: ClassVar[tuple[ImportStepSpec, ...]]
     # A provider whose key can do more than read keeps it only on the run, which clears it when it ends.
     retains_credentials: ClassVar[bool] = True
+    # A new run continues each failed step of the run before it, when a step's checkpoint stays valid between runs.
+    resumes_after_failure: ClassVar[bool] = False
     # Hides the provider unless this flag is on for the team.
     feature_flag: ClassVar[str | None] = None
     api_key_label: ClassVar[str] = "API key"
