@@ -1,7 +1,7 @@
 from django.conf import settings
 
 from posthog.integrations import IntegrationManager
-from posthog.models.integration import SANDBOX_EMAIL_INTEGRATION_ID, SANDBOX_EMAIL_PROVIDER
+from posthog.models.integration import SANDBOX_EMAIL_INTEGRATION_ID, SANDBOX_EMAIL_PROVIDER, is_sandbox_sender_domain
 from posthog.models.team import Team
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
@@ -30,11 +30,10 @@ def _sandbox_sender_config(organization_name: str) -> dict[str, str | bool]:
 
 
 def _sandbox_sender_configured() -> bool:
-    return bool(
-        settings.WORKFLOWS_SANDBOX_SENDER_DOMAIN
-        and settings.SES_SANDBOX_FROM_ADDRESS
-        and settings.SES_SANDBOX_TENANT_NAME
-    )
+    # The domain guard only covers WORKFLOWS_SANDBOX_SENDER_DOMAIN, so a from address elsewhere would
+    # send from a domain that teams can still claim as their own sender.
+    from_domain = settings.SES_SANDBOX_FROM_ADDRESS.rpartition("@")[2]
+    return bool(settings.SES_SANDBOX_TENANT_NAME) and is_sandbox_sender_domain(from_domain)
 
 
 def _sandbox_sender_enabled(team: Team) -> bool:
