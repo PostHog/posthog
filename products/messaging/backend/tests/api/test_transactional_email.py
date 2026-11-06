@@ -20,7 +20,7 @@ from structlog.testing import capture_logs
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership, ProjectSecretAPIKey, Team, User
-from posthog.models.integration import Integration
+from posthog.models.integration import SANDBOX_EMAIL_INTEGRATION_ID, SANDBOX_EMAIL_PROVIDER, Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
 
@@ -36,7 +36,11 @@ from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_EMAIL_API_FLAG,
 )
 from products.messaging.backend.services import transactional_email
-from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
+from products.messaging.backend.services.transactional_email import (
+    SANDBOX_SENDER_TRANSACTIONAL_MESSAGE,
+    TransactionalEmailStage,
+    make_transactional,
+)
 from products.messaging.backend.tests.test_code_send_fields import ADDRESS_VERDICTS
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.models import HogFlow
@@ -1034,11 +1038,12 @@ class TestTransactionalEmail(APIBaseTest):
             ("template_without_subject", "template_not_sendable"),
             ("template_without_body", "template_not_sendable"),
             ("unverified_sender", "sender_unavailable"),
+            ("sandbox_sender", "sender_unavailable", SANDBOX_SENDER_TRANSACTIONAL_MESSAGE),
             ("custom_address_off_the_chosen_senders_domain", "template_not_sendable"),
         ]
     )
     def test_rejects_making_a_template_transactional_it_cannot_send(
-        self, mock_post, _flag, _capture, case, expected_code
+        self, mock_post, _flag, _capture, case, expected_code, expected_detail=None
     ):
         template = self._template()
         body: dict[str, Any] = {}
@@ -1057,6 +1062,8 @@ class TestTransactionalEmail(APIBaseTest):
         elif case == "unverified_sender":
             self.sender.config = {"verified": False}
             self.sender.save()
+        elif case == "sandbox_sender":
+            body = {"from_integration_id": self._sandbox_sender().id}
         elif case == "custom_address_off_the_chosen_senders_domain":
             self.sender.config = {"verified": True, "email": "hello@example.com", "domain": "example.com"}
             self.sender.save()
@@ -1077,6 +1084,8 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["code"] == expected_code
+        if expected_detail:
+            assert response.json()["detail"] == expected_detail
         template.refresh_from_db()
         assert template.transactional_hog_flow_id is None
 
@@ -1177,6 +1186,7 @@ class TestTransactionalEmail(APIBaseTest):
         [
             ("marketing_category", "marketing_template"),
             ("unverified_sender", "sender_unavailable"),
+            ("sandbox_sender", "sender_unavailable", SANDBOX_SENDER_TRANSACTIONAL_MESSAGE),
             ("another_projects_sender", "invalid_input"),
             ("custom_address_off_the_senders_domain", "invalid_input"),
             ("custom_address_that_is_not_an_address", "invalid_input"),
@@ -1185,7 +1195,7 @@ class TestTransactionalEmail(APIBaseTest):
         ]
     )
     def test_rejects_an_update_that_would_stop_a_transactional_template_sending(
-        self, mock_post, _flag, _capture, case, expected_code
+        self, mock_post, _flag, _capture, case, expected_code, expected_detail=None
     ):
         before = MessageTemplate.objects.get(id=self.template.id)
         if case == "marketing_category":
@@ -1195,6 +1205,9 @@ class TestTransactionalEmail(APIBaseTest):
             body: dict[str, Any] = {"message_category": str(category.id)}
         elif case == "sender_without_an_id":
             body = {"content": {"email": {**before.content["email"], "from": {"name": "Security"}}}}
+        elif case == "sandbox_sender":
+            email = {**before.content["email"], "from": {"integrationId": self._sandbox_sender().id}}
+            body = {"content": {"email": email}}
         elif case.startswith("custom_address"):
             self.sender.config = {"verified": True, "email": "hello@example.com", "domain": "example.com"}
             self.sender.save()
@@ -1221,9 +1234,19 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["code"] == expected_code
+        if expected_detail:
+            assert response.json()["detail"] == expected_detail
         after = MessageTemplate.objects.get(id=self.template.id)
         assert (after.message_category_id, after.content) == (None, before.content)
         assert self._workflow(self.hog_flow_id)["version"] == 1
+
+    def _sandbox_sender(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id=SANDBOX_EMAIL_INTEGRATION_ID,
+            config={"provider": SANDBOX_EMAIL_PROVIDER, "verified": True},
+        )
 
     def _sender_client(self, sender: str) -> APIClient:
         if sender == "personal_api_key":
