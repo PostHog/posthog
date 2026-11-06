@@ -175,7 +175,6 @@ export async function resolveCredentials(
     const workloadProvider = detectWorkloadProvider(runtime.env, options.workloadProviders)
     const workloadProjectId = runtime.env.HOG_PROJECT_ID
     if (!options.envOnly && workloadProvider && workloadProjectId) {
-        // The audience must be the address people open PostHog at, not the ingestion host.
         const key = await exchangeWorkloadToken(runtime, {
             host: options.host ?? cloudRegion(options.configHost) ?? REGIONS.us,
             projectId: parseProjectId(workloadProjectId, { code: 'invalid_credentials' }),
