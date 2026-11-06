@@ -18,6 +18,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import AccessControlPermission, APIScopePermission, TeamMemberAccessPermission
 
@@ -319,6 +320,7 @@ class InsightExplanationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             user_id=cast(User, request.user).id,
             data=request.validated_data["data"],
         )
+        self._report_saved(request, explanation, updated=False)
         return Response(ChartExplanationSerializer(instance=explanation).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
@@ -335,7 +337,22 @@ class InsightExplanationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         )
         if explanation is None:
             raise NotFound("You saved no explanation of this insight with this id.")
+        self._report_saved(request, explanation, updated=True)
         return Response(ChartExplanationSerializer(instance=explanation).data)
+
+    def _report_saved(self, request: Request, explanation: ChartExplanation, *, updated: bool) -> None:
+        # Each save hands the agent a link, so this counts the links people are given, split by MCP client.
+        report_user_action(
+            cast(User, request.user),
+            "explain chart link saved",
+            {
+                "explanation_id": str(explanation.id),
+                "insight_id": self.insight.short_id,
+                "updated": updated,
+            },
+            team=self.team,
+            request=request,
+        )
 
     @extend_schema(responses={200: ChartExplanationSerializer})
     def retrieve(self, request: Request, pk: UUID, **kwargs: Any) -> Response:

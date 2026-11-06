@@ -66,6 +66,7 @@ class SettlementOutcome(StrEnum):
     ATTEMPTS_EXHAUSTED = "attempts_exhausted"
     CONTRACT_ERROR = "contract_error"
     CONTRACT_ERROR_REPEAT = "contract_error_repeat"
+    INSUFFICIENT_CREDITS = "insufficient_credits"
 
 
 _CONTRACT_ERROR_OUTCOMES = frozenset({SettlementOutcome.CONTRACT_ERROR, SettlementOutcome.CONTRACT_ERROR_REPEAT})
@@ -167,6 +168,7 @@ def build_settlement_body(session: SandboxSession, run: TaskRun, cost: SandboxCo
             "billable": is_billable_sandbox_session(session),
             "detail": detail,
             "reason": "sandbox compute",
+            "strict": True,
         }
     )
     return body
@@ -190,6 +192,7 @@ _METRIC_LABELS: dict[SettlementOutcome, ComputeSettlementOutcome] = {
     SettlementOutcome.ATTEMPTS_EXHAUSTED: "attempts_exhausted",
     SettlementOutcome.CONTRACT_ERROR: "contract_error",
     SettlementOutcome.CONTRACT_ERROR_REPEAT: "contract_error",
+    SettlementOutcome.INSUFFICIENT_CREDITS: "insufficient_credits",
 }
 
 
@@ -313,6 +316,13 @@ def settle_sandbox_session(session: SandboxSession) -> SettlementOutcome:
         return _record(SettlementOutcome.RETRY)
     if status == 400:
         return _mark_contract_error(session, response)
+    if status == 402 and (response.body or {}).get("code") == "insufficient_credits":
+        error_text = _error_text(response)
+        logger.error(
+            "compute_settlement.insufficient_credits", session_id=str(session.id), status=status, error=error_text
+        )
+        _mark_conflict(session, error_text, ParkReason.HTTP_402)
+        return _record(SettlementOutcome.INSUFFICIENT_CREDITS)
     if status == 409:
         logger.error("compute_settlement.conflict", session_id=str(session.id), status=status)
         _mark_conflict(session, _error_text(response), ParkReason.HTTP_409)
@@ -362,8 +372,18 @@ def _push_sweep_gauges(now: datetime) -> None:
         if settings.GATEWAY_COMPUTE_DEBIT_ENABLED
         else 0
     )
+    parked_counts = {
+        row["compute_settle_park_reason"]: row["rows"]
+        for row in SandboxSession.objects.unscoped()
+        .filter(compute_settled_at__isnull=True, compute_settle_conflict_at__isnull=False)
+        .order_by()
+        .values("compute_settle_park_reason")
+        .annotate(rows=Count("id"))
+    }
     push_compute_settlement_sweep_gauges(
-        hogland_open_over_day=hogland_open_over_day, unsettled_over_hour=unsettled_over_hour
+        hogland_open_over_day=hogland_open_over_day,
+        unsettled_over_hour=unsettled_over_hour,
+        parked_by_reason={reason: parked_counts.get(reason, 0) for reason in ParkReason.values},
     )
 
 
