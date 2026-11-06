@@ -10,6 +10,7 @@ import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { groupsModel } from '~/models/groupsModel'
 import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
+import type { ExperimentHealthSetupApi } from '../generated/api.schemas'
 import { exposureAnswerComputedAt } from './exposureHealth'
 import { HealthCheckDetail } from './HealthCheckDetail'
 import { HealthCheckList } from './HealthCheckList'
@@ -24,6 +25,7 @@ import { type HealthPanelSelection, healthFindingKey, resolveHealthPanelSelectio
 export function HealthChecksPanel({
     checks,
     findings,
+    setup,
     exposures,
     isDraft,
     exposureChecksMissing,
@@ -32,6 +34,7 @@ export function HealthChecksPanel({
     checks: HealthPanelCheck[]
     /** Issues first, as `healthPanelFindings` sorts them. */
     findings: HealthPanelFinding[]
+    setup: ExperimentHealthSetupApi | null
     /** The exposure answer that the exposure checks come from. Null for a draft and before it loads. */
     exposures: ExperimentExposureQueryResponse | null
     isDraft: boolean
@@ -165,7 +168,7 @@ export function HealthChecksPanel({
                             checkedAt={checkedAt(selection.check.key)}
                         />
                     ) : (
-                        <HealthOverviewDetail checks={checks} findings={findings} />
+                        <HealthOverviewDetail checks={checks} findings={findings} setup={setup} />
                     )}
                 </section>
             </div>

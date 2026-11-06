@@ -5,7 +5,11 @@ import { type ExperimentExposureQueryResponse, NodeKind } from '~/queries/schema
 
 import { userEvent } from 'storybook/test'
 
-import type { ExperimentHealthCheckResultApi, ExperimentHealthCheckRuleApi } from '../generated/api.schemas'
+import type {
+    ExperimentHealthCheckResultApi,
+    ExperimentHealthCheckRuleApi,
+    ExperimentHealthSetupApi,
+} from '../generated/api.schemas'
 import { HealthChecksPanel } from './HealthChecksPanel'
 import type { HealthPanelCheck } from './healthPanelChecks'
 import type { HealthPanelFinding } from './healthPanelFindings'
@@ -56,6 +60,15 @@ const FLAG_SETUP_CHECKS = [
     passed('forced_variant_release_condition', 'Release conditions that force a variant'),
 ]
 
+const SETUP: ExperimentHealthSetupApi = {
+    release_conditions: [{ rollout_percentage: 50, property_count: 1 }],
+    bucketing_identifier: 'distinct_id',
+    aggregation_group_type_index: null,
+    evaluation_runtime: 'all',
+    evaluation_contexts: ['web-app'],
+    ensure_experience_continuity: false,
+}
+
 const meta: Meta<typeof HealthChecksPanel> = {
     title: 'Experiments/HealthChecksPanel',
     component: HealthChecksPanel,
@@ -64,7 +77,7 @@ const meta: Meta<typeof HealthChecksPanel> = {
         mockDate: '2026-11-03 12:00:00',
         testOptions: { snapshotBrowsers: ['chromium'] },
     },
-    args: { onFindingActedOn: () => {}, exposures: null },
+    args: { onFindingActedOn: () => {}, exposures: null, setup: SETUP },
     decorators: [
         (Story) => (
             <div className="w-[60rem]">

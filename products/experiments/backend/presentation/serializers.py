@@ -360,6 +360,45 @@ class ExperimentHealthCheckResultSerializer(serializers.Serializer):
     )
 
 
+class ExperimentHealthReleaseConditionSerializer(serializers.Serializer):
+    rollout_percentage = serializers.FloatField(
+        help_text="The share of the users matching the condition set's filters who get the flag, from 0 to 100.",
+    )
+    property_count = serializers.IntegerField(
+        help_text="The number of filters a user must match, such as properties and cohorts. 0 matches all users.",
+    )
+
+
+class ExperimentHealthSetupSerializer(serializers.Serializer):
+    release_conditions = ExperimentHealthReleaseConditionSerializer(
+        many=True,
+        help_text="The flag's condition sets, in the order the flag evaluates them.",
+    )
+    bucketing_identifier = serializers.ChoiceField(
+        choices=FeatureFlag.BUCKETING_IDENTIFIER_CHOICES,
+        help_text="The flag's `bucketing_identifier`. Null on the flag reads as distinct_id.",
+    )
+    aggregation_group_type_index = serializers.IntegerField(
+        allow_null=True,
+        help_text="The group type the flag assigns variants by. Null when it assigns them by user.",
+    )
+    evaluation_runtime = serializers.ChoiceField(
+        choices=FeatureFlag.EVALUATION_RUNTIME_CHOICES,
+        help_text="The flag's `evaluation_runtime`. Null on the flag reads as all.",
+    )
+    evaluation_contexts = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The names of the flag's evaluation contexts. When PostHog evaluates the flag, an SDK that sends evaluation "
+            "contexts gets it only when it sends one of these, and an SDK that sends none gets it. Empty when the flag "
+            "has none."
+        ),
+    )
+    ensure_experience_continuity = serializers.BooleanField(
+        help_text="The flag's 'Persist flag across authentication steps' setting.",
+    )
+
+
 class ExperimentHealthSerializer(serializers.Serializer):
     findings = ExperimentHealthFindingSerializer(
         many=True,
@@ -373,6 +412,14 @@ class ExperimentHealthSerializer(serializers.Serializer):
         help_text=(
             "The result of each health check, in the order the checks run. The checks that read the exposure "
             "counts are not here: the exposure query returns them as `health_checks`."
+        ),
+    )
+    setup = ExperimentHealthSetupSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The settings of the experiment's flag that decide which variant a user gets. Null when the experiment "
+            "has no flag."
         ),
     )
 

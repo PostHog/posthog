@@ -2751,11 +2751,45 @@ export interface ExperimentHealthCheckResultApi {
     rule: ExperimentHealthCheckRuleApi | null
 }
 
+export interface ExperimentHealthReleaseConditionApi {
+    /** The share of the users matching the condition set's filters who get the flag, from 0 to 100. */
+    rollout_percentage: number
+    /** The number of filters a user must match, such as properties and cohorts. 0 matches all users. */
+    property_count: number
+}
+
+export interface ExperimentHealthSetupApi {
+    /** The flag's condition sets, in the order the flag evaluates them. */
+    release_conditions: ExperimentHealthReleaseConditionApi[]
+    /** The flag's `bucketing_identifier`. Null on the flag reads as distinct_id.
+     *
+     * * `distinct_id` - User ID (default)
+     * * `device_id` - Device ID */
+    bucketing_identifier: BucketingIdentifierEnumApi
+    /**
+     * The group type the flag assigns variants by. Null when it assigns them by user.
+     * @nullable
+     */
+    aggregation_group_type_index: number | null
+    /** The flag's `evaluation_runtime`. Null on the flag reads as all.
+     *
+     * * `server` - Server
+     * * `client` - Client
+     * * `all` - All */
+    evaluation_runtime: EvaluationRuntimeEnumApi
+    /** The names of the flag's evaluation contexts. When PostHog evaluates the flag, an SDK that sends evaluation contexts gets it only when it sends one of these, and an SDK that sends none gets it. Empty when the flag has none. */
+    evaluation_contexts: string[]
+    /** The flag's 'Persist flag across authentication steps' setting. */
+    ensure_experience_continuity: boolean
+}
+
 export interface ExperimentHealthApi {
     /** Problems that the health checks found in the experiment's configuration and its feature flag. Empty when no check found a problem. An empty list does not mean that every check ran: read `checks`. */
     findings: ExperimentHealthFindingApi[]
     /** The result of each health check, in the order the checks run. The checks that read the exposure counts are not here: the exposure query returns them as `health_checks`. */
     checks: ExperimentHealthCheckResultApi[]
+    /** The settings of the experiment's flag that decide which variant a user gets. Null when the experiment has no flag. */
+    setup?: ExperimentHealthSetupApi | null
 }
 
 /**
