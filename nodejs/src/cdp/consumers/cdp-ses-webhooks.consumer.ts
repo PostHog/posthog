@@ -1,6 +1,8 @@
 import { Message } from 'node-rdkafka'
+import { Counter } from 'prom-client'
 
 import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
+import type { RdKafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { logger, serializeError } from '~/common/utils/logger'
 
@@ -11,22 +13,45 @@ import { SnsEnvelope, parseSnsEnvelope } from '../services/messaging/helpers/ses
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 
+const replayedDeadLettersCounter = new Counter({
+    name: 'cdp_ses_webhooks_dlq_replay_total',
+    help: 'Dead-lettered SES notifications the replay worker read, by outcome',
+    labelNames: ['outcome'],
+})
+
 // A notification that fails to record goes to the dead-letter topic, so one bad message cannot hold its partition.
+// The replay mode reads that topic and throws on a failure instead, because dead-lettering it again would loop.
 export class CdpSesWebhooksConsumer extends CdpConsumerBase {
     protected name = 'CdpSesWebhooksConsumer'
     private kafkaConsumer: KafkaConsumerInterface
 
-    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
+    constructor(
+        config: PluginsServerConfig,
+        deps: CdpConsumerBaseDeps,
+        private options: { replayDeadLetters?: boolean } = {}
+    ) {
         super(config, deps)
-        this.kafkaConsumer = createKafkaConsumer({
-            groupId: 'cdp-ses-webhooks-consumer',
-            topic: config.CDP_SES_WEBHOOKS_TOPIC,
-        })
+        this.kafkaConsumer = options.replayDeadLetters
+            ? // A fixed group stops a second replay; earliest, because the worker starts after what it drains.
+              createKafkaConsumer(
+                  { groupId: 'cdp-ses-webhooks-dlq-replay', topic: config.CDP_SES_WEBHOOKS_DLQ_TOPIC },
+                  { 'auto.offset.reset': 'earliest' } as RdKafkaConsumerConfig
+              )
+            : createKafkaConsumer({ groupId: 'cdp-ses-webhooks-consumer', topic: config.CDP_SES_WEBHOOKS_TOPIC })
     }
 
     public async processBatch(messages: Message[]): Promise<void> {
         for (const message of messages) {
-            if (!(await this.record(message))) {
+            const recorded = await this.record(message)
+            if (this.options.replayDeadLetters) {
+                replayedDeadLettersCounter.labels({ outcome: recorded ? 'recorded' : 'failed' }).inc()
+                if (!recorded) {
+                    throw new Error(
+                        `SES notification at ${message.topic}:${message.partition}:${message.offset} still fails to ` +
+                            'record, so the replay stops before committing past it'
+                    )
+                }
+            } else if (!recorded) {
                 await this.deadLetter(message)
             }
         }

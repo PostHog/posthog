@@ -50,6 +50,7 @@ export enum PluginServerMode {
     cdp_data_warehouse_events = 'cdp-data-warehouse-events',
     cdp_internal_events = 'cdp-internal-events',
     cdp_ses_webhooks = 'cdp-ses-webhooks',
+    cdp_ses_webhooks_dlq_replay = 'cdp-ses-webhooks-dlq-replay',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     // TODO: remove once charts stop setting PLUGIN_SERVER_MODE=cdp-precalculated-filters.
     // The consumer is gone; an unknown mode would throw at boot, so keep the member until then.

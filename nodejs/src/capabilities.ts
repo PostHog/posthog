@@ -196,6 +196,10 @@ export function getPluginServerCapabilities(
             return {
                 cdpDlqReplay: true,
             }
+        case PluginServerMode.cdp_ses_webhooks_dlq_replay:
+            return {
+                cdpSesWebhooksDlqReplay: true,
+            }
         case PluginServerMode.ingestion_v2:
         case PluginServerMode.ingestion_v2_combined:
             throw new Error(`Mode ${mode} is handled by IngestionGeneralServer, not PluginServer`)

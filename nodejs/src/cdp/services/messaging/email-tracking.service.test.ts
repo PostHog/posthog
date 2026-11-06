@@ -905,16 +905,20 @@ describe('EmailTrackingService', () => {
                     expect(res.status).toBe(500)
                 })
 
-                it('records a queued notification', async () => {
+                it.each<[string, { replayDeadLetters?: boolean }]>([
+                    ['the consumer', {}],
+                    ['the dead-letter replay', { replayDeadLetters: true }],
+                ])('records a notification in %s', async (_, options) => {
                     await postBounce({ functionId: hogFunction.id })
+                    const reader = new CdpSesWebhooksConsumer(hub, createCdpConsumerDeps(hub), options)
 
-                    await consumer.processBatch(queuedNotifications())
+                    await reader.processBatch(queuedNotifications())
 
                     expect(recordedMetrics()).toEqual(bounceMetrics)
                     expect(deadLettered()).toEqual([])
                 })
 
-                it.each<[string, () => Promise<Message>]>([
+                const failingMessages: [string, () => Promise<Message>][] = [
                     ['is not JSON', () => Promise.resolve(rawMessage('not json'))],
                     ['is not an SNS envelope', () => Promise.resolve(rawMessage('{}'))],
                     [
@@ -936,16 +940,35 @@ describe('EmailTrackingService', () => {
                             return queuedNotifications()[0]
                         },
                     ],
-                ])('dead-letters a message that %s and records the rest of the batch', async (_, failingMessage) => {
-                    const failing = await failingMessage()
-                    await postBounce({ functionId: hogFunction.id })
-                    const recordable = queuedNotifications().at(-1)!
+                ]
 
-                    await consumer.processBatch([failing, recordable])
+                it.each(failingMessages)(
+                    'dead-letters a message that %s and records the rest of the batch',
+                    async (_, failingMessage) => {
+                        const failing = await failingMessage()
+                        await postBounce({ functionId: hogFunction.id })
+                        const recordable = queuedNotifications().at(-1)!
 
-                    expect(deadLettered()).toEqual([failing.value?.toString()])
-                    expect(recordedMetrics()).toEqual(bounceMetrics)
-                })
+                        await consumer.processBatch([failing, recordable])
+
+                        expect(deadLettered()).toEqual([failing.value?.toString()])
+                        expect(recordedMetrics()).toEqual(bounceMetrics)
+                    }
+                )
+
+                it.each(failingMessages)(
+                    'fails the replay batch at a message that %s and dead-letters nothing',
+                    async (_, failingMessage) => {
+                        const failing = await failingMessage()
+                        const replay = new CdpSesWebhooksConsumer(hub, createCdpConsumerDeps(hub), {
+                            replayDeadLetters: true,
+                        })
+
+                        await expect(replay.processBatch([failing])).rejects.toThrow('still fails to record')
+
+                        expect(deadLettered()).toEqual([])
+                    }
+                )
 
                 it('fails the batch so it replays when the dead-letter produce fails', async () => {
                     mockProducerObserver.produceSpy.mockRejectedValueOnce(new Error('broker unavailable'))

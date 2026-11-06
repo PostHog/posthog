@@ -100,6 +100,7 @@ export class PluginServer implements NodeServer {
             capabilities.cdpDataWarehouseEvents ||
             capabilities.cdpInternalEvents ||
             capabilities.cdpSesWebhooks ||
+            capabilities.cdpSesWebhooksDlqReplay ||
             capabilities.cdpPersonUpdates ||
             capabilities.cdpLegacyOnEvent ||
             capabilities.cdpApi ||
@@ -323,6 +324,14 @@ export class PluginServer implements NodeServer {
         if (capabilities.cdpSesWebhooks) {
             serviceLoaders.push(async () => {
                 const consumer = new CdpSesWebhooksConsumer(this.config, cdpDeps!)
+                await consumer.start()
+                return consumer.service
+            })
+        }
+
+        if (capabilities.cdpSesWebhooksDlqReplay) {
+            serviceLoaders.push(async () => {
+                const consumer = new CdpSesWebhooksConsumer(this.config, cdpDeps!, { replayDeadLetters: true })
                 await consumer.start()
                 return consumer.service
             })
