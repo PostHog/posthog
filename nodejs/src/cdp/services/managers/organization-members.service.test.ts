@@ -420,12 +420,14 @@ describe('OrganizationMembersService', () => {
                 .mockResolvedValueOnce({ rows: [memberRow('member@example.com')] })
                 .mockRejectedValue(new Error('primary unavailable'))
             const service = new OrganizationMembersService(routerFor(query))
+            const blocked = async (address: string): Promise<unknown> =>
+                memberCheck(await service.checkRecipients(1, [address], { fresh: false })).blocked
             try {
-                expect((await service.checkRecipients(1, ['member@example.com'], { fresh: false })).blocked).toEqual([])
+                expect(await blocked('member@example.com')).toEqual([])
                 clock.mockReturnValue(start + 5_001)
 
-                await expect(service.checkRecipients(1, ['outside@example.com'], { fresh: false })).rejects.toThrow()
-                expect((await service.checkRecipients(1, ['member@example.com'], { fresh: false })).blocked).toEqual([])
+                await expect(blocked('outside@example.com')).rejects.toThrow()
+                expect(await blocked('member@example.com')).toEqual([])
                 expect(query).toHaveBeenCalledTimes(2)
             } finally {
                 clock.mockRestore()
