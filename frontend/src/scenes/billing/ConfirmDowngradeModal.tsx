@@ -5,6 +5,7 @@ import { LemonButton, LemonModal, LemonTable, LemonTableColumns, Link } from '@p
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { keepsEventsRetentionMonths } from 'lib/logic/billing/eventsRetentionMonths'
 
 import { BillingInvoiceItemRow, BillingProductV2AddonType } from '~/types'
 
@@ -15,6 +16,7 @@ import { EventsRetentionDowngradeNotice } from './EventsRetentionDowngradeNotice
 export function ConfirmDowngradeModal({ product }: { product: BillingProductV2AddonType }): JSX.Element | null {
     const {
         currentPlatformAddon,
+        currentPlatformAddonPlan,
         unusedPlatformAddonAmount,
         switchPlanLoading,
         billing,
@@ -112,10 +114,13 @@ export function ConfirmDowngradeModal({ product }: { product: BillingProductV2Ad
                 </p>
 
                 <AddonFeatureLossNotice product={currentPlatformAddon} targetProduct={product} />
-                <EventsRetentionDowngradeNotice
-                    plansAfterChange={[targetPlan, productAnalyticsPlanAfterPackageDowngrade]}
-                    className="mt-2"
-                />
+                {/* Teams to Boost keeps the package level, so billing keeps grandfathered retention. */}
+                {!keepsEventsRetentionMonths(currentPlatformAddonPlan, targetPlan) && (
+                    <EventsRetentionDowngradeNotice
+                        plansAfterChange={[targetPlan, productAnalyticsPlanAfterPackageDowngrade]}
+                        className="mt-2"
+                    />
+                )}
 
                 <LemonTable dataSource={rows} columns={columns} className="mt-4" uppercaseHeader={false} />
 

@@ -44,6 +44,7 @@ from products.data_warehouse.backend.facade.api import (
     update_external_job_status,
 )
 from products.warehouse_sources.backend.facade.api import schema_needs_webhook, sources_missing_webhook
+from products.warehouse_sources.backend.facade.column_sensitivity import classify_column_sensitivity
 from products.warehouse_sources.backend.facade.contracts import ConfigValueError, UndecryptedConfigError
 from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
@@ -109,6 +110,7 @@ from products.warehouse_sources.backend.facade.types import (
     IncrementalFieldType,
     IncrementalSyncBlockedReason,
     SettableSyncFrequency,
+    WarehouseColumnSensitivity,
 )
 from products.warehouse_sources.backend.presentation.history_tracking import report_history_change
 from products.warehouse_sources.backend.presentation.views.destination_links import (
@@ -563,6 +565,14 @@ def _source_column_names(instance: ExternalDataSchema) -> set[str]:
     if not isinstance(columns, list):
         return set()
     return {column["name"] for column in columns if isinstance(column, dict) and isinstance(column.get("name"), str)}
+
+
+SENSITIVITY_SCHEMA = {
+    "type": "string",
+    "nullable": True,
+    "enum": [*WarehouseColumnSensitivity.values, None],
+    "description": "The kind of personal or secret data the column's name and type suggest, or null.",
+}
 
 
 MASKING_KEY_UNAVAILABLE_ERROR = (
@@ -1096,6 +1106,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     "name": {"type": "string"},
                     "data_type": {"type": "string"},
                     "is_nullable": {"type": "boolean"},
+                    "sensitivity": SENSITIVITY_SCHEMA,
                 },
                 "required": ["name"],
             },
@@ -1107,9 +1118,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if isinstance(columns, list):
             sql_columns = [
                 {
-                    "name": column.get("name"),
+                    "name": column["name"],
                     "data_type": column.get("data_type"),
                     "is_nullable": column.get("is_nullable"),
+                    "sensitivity": classify_column_sensitivity(column["name"], column.get("data_type")),
                 }
                 for column in columns
                 if isinstance(column, dict) and isinstance(column.get("name"), str)
@@ -1122,7 +1134,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # or not yet reloaded. Fall back to the synced table's universal column store so the Descriptions
         # UI can still list columns (and surface their existing annotations) and let users edit them.
         table = schema.table
-        return table.get_user_facing_columns() if table is not None else []
+        return [
+            {**column, "sensitivity": classify_column_sensitivity(column["name"], column.get("data_type"))}
+            for column in (table.get_user_facing_columns() if table is not None else [])
+        ]
 
     def get_source_column_metadata_available(self, schema: ExternalDataSchema) -> bool:
         metadata = schema.schema_metadata or {}
@@ -3061,7 +3076,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "supports_webhooks": schema.supports_webhooks,
             "webhook_only": schema.webhook_only,
             "available_columns": [
-                {"field": col_name, "label": col_name, "type": col_type, "nullable": nullable}
+                {
+                    "field": col_name,
+                    "label": col_name,
+                    "type": col_type,
+                    "nullable": nullable,
+                    "sensitivity": classify_column_sensitivity(col_name, col_type),
+                }
                 for col_name, col_type, nullable in schema.columns
             ],
             "detected_primary_keys": schema.detected_primary_keys,
