@@ -123,7 +123,6 @@ export function policyRequestFlow(
             }
         },
         reuse: same,
-        // An admin may have approved or rejected the request since, and the person may be an admin now.
         refresh: async (existing) => {
             const current = await readRequest(api, existing)
             return current.status === 'pending'

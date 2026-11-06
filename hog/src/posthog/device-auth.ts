@@ -15,8 +15,7 @@ const DEVICE_CODE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code'
 
 // What a new login asks for. hog sends this list explicitly, because a request without `scope`
 // gets every scope hog's client may hold.
-// `workload_trust_policy_request` lets `hog ci setup` ask for a policy without a step-up. A request
-// grants nothing until an admin approves it in the browser.
+// `workload_trust_policy_request` grants nothing until an admin approves a request in the browser.
 const LOGIN_WRITE_SCOPES = [
     'action',
     'alert',

@@ -32,8 +32,7 @@ export type AuthStatus =
           // personal API key, which has no expiry and whose scopes PostHog doesn't report.
           scopes: string[] | null
           expiresAt: string | null
-          // Null when the key lacks the user:read scope, so hog can't tell whose key it is, and for a
-          // workload token, which acts for a CI job.
+          // Null when the key lacks the user:read scope, so hog can't tell whose key it is.
           user: { email: string; name: string | null } | null
       }
 
@@ -67,7 +66,6 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
             projectId,
             source,
             error: rejected,
-            // A CI job can't log in. A person widens its access by asking for a trust policy again.
             next: kind === 'workload' ? 'hog ci setup' : 'hog auth login',
         }
     }

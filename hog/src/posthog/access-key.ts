@@ -22,7 +22,6 @@ export interface AccessKeyStatus {
     expiresAt: number | null
     // What hog says when PostHog rejects the key.
     rejected: string
-    // The CI provider whose OIDC token hog exchanged for the key. Null for a key a person holds.
     provider: string | null
 }
 
