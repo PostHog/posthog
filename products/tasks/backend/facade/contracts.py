@@ -181,6 +181,7 @@ class TaskRunSpend:
     complete: bool
     is_terminal: bool
     stage: str
+    accounting_failed: bool
 
 
 @dataclass(frozen=True)
