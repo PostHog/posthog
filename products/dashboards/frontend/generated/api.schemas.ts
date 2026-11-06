@@ -7282,6 +7282,8 @@ export interface HogQLQueryApi {
     modifiers?: HogQLQueryModifiersApi | null
     /** Client provided name of the query */
     name?: string | null
+    /** Rows to skip before the default row limit applies. Rejected when the query sets its own LIMIT, uses UNION, or runs as raw SQL. */
+    offset?: number | null
     query: string
     response?: HogQLQueryResponseApi | null
     /** Run the selected connection query directly without translating it through HogQL first */
