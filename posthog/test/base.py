@@ -1691,7 +1691,7 @@ def count_organization_access_cache_round_trips() -> Iterator[Callable[..., int]
         ) as get_many,
     ):
 
-        def count(key_prefix: str | None = None) -> int:
+        def count(key_prefix: str | None = "organization_access:") -> int:
             if key_prefix is None:
                 return get.call_count + get_many.call_count
             return sum(call.args[0].startswith(key_prefix) for call in get.call_args_list) + sum(
