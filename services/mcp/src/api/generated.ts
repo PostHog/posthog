@@ -35571,9 +35571,9 @@ export namespace Schemas {
       is_verified: boolean;
       /** The scopes the token will carry if the person approves. */
       scopes: string[];
-      /** The requested scopes the person can't leave out: the client's required scopes and identity scopes such as `openid`. */
+      /** The requested scopes the person can't leave out: the client's required scopes, the scopes the client marked as required when it started the grant, such as the new scopes of a step-up, and identity scopes such as `openid`. */
       required_scopes: string[];
-      /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones, and the page lists only the new ones. */
+      /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones. */
       granted_scopes: GrantedScopes[];
       /** When the code expires. */
       expires_at: string;
