@@ -39,6 +39,7 @@ export function MCPToolCallRow({
     dateFilter: DateFilter
 }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
+    const failure = toolCall.is_error ? errorContext(toolCall, sessionId) : null
 
     return (
         <li
@@ -120,23 +121,18 @@ export function MCPToolCallRow({
                                 View event
                             </LemonButton>
                         ) : null}
-                        {toolCall.is_error ? (
+                        {failure ? (
                             <>
                                 <LemonButton
                                     size="xsmall"
                                     icon={<IconCopy />}
                                     tooltip="Copy the failure, arguments and links for a coding agent"
-                                    onClick={() =>
-                                        void copyToClipboard(
-                                            formatErrorContext(errorContext(toolCall, sessionId)),
-                                            'error context'
-                                        )
-                                    }
+                                    onClick={() => void copyToClipboard(formatErrorContext(failure), 'error context')}
                                     data-attr="mcp-session-tool-call-copy-context"
                                 >
                                     Copy context
                                 </LemonButton>
-                                <CreateFixTaskButton context={errorContext(toolCall, sessionId)} />
+                                <CreateFixTaskButton context={failure} />
                             </>
                         ) : null}
                     </div>
