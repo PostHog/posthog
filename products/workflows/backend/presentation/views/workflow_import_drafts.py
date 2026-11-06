@@ -14,6 +14,7 @@ from rest_framework.request import Request
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.models import Team, User
+from posthog.models.scoping import team_scope
 from posthog.permissions import get_authenticator_scopes
 from posthog.scopes import scopes_not_covered
 
@@ -26,11 +27,13 @@ from products.workflows.backend.facade.contracts import (
     ImportNote,
     ImportOptions,
     PreviousImport,
+    ProviderAutomationResult,
     SnippetRoom,
+    TranslatedWorkflow,
     WorkflowActor,
     WorkflowStale,
 )
-from products.workflows.backend.facade.enums import HogFlowState, WorkflowImportNoteLevel
+from products.workflows.backend.facade.enums import HogFlowState, WorkflowImportNoteLevel, WorkflowImportSource
 from products.workflows.backend.facade.workflow_imports import (
     import_content,
     previous_import,
@@ -239,6 +242,56 @@ def import_campaign(
     return {**result, "status": status, "workflow_id": str(workflow_id)}
 
 
+def save_provider_draft(
+    team_id: int, user_id: int | None, translated: TranslatedWorkflow, source: WorkflowImportSource
+) -> ProviderAutomationResult:
+    """Saves one translated automation as a new draft. An earlier import of it stays as it is, edits included."""
+    team = Team.objects.get(id=team_id)
+    user = User.objects.filter(id=user_id).first()
+    notes = tuple(note.message for note in translated.notes)
+    if user is None:
+        return ProviderAutomationResult(
+            status="failed", workflow_id=None, notes=("The person who started this import no longer exists.",)
+        )
+    previous = previous_import(team, translated.source_id, source)
+    if previous.record_id is not None:
+        return ProviderAutomationResult(
+            status="skipped",
+            workflow_id=str(previous.hog_flow_id) if previous.hog_flow_id else None,
+            notes=("You imported this automation before, so PostHog left it as it is.",),
+        )
+    validated, errors = _validated_draft(team, translated.workflow, None)
+    if validated is None:
+        return ProviderAutomationResult(status="failed", workflow_id=None, notes=tuple(errors))
+    try:
+        # This runs in a Temporal activity, which has no request to set the team scope.
+        with team_scope(team.id), transaction.atomic():
+            created = create_workflow(team_id=team.id, user_id=user.id, validated_data=validated)
+            workflow_id = cast(UUID, created.current["id"])
+            record_import(
+                team=team,
+                user=user,
+                record_id=None,
+                source_id=translated.source_id,
+                name=translated.name,
+                hog_flow_id=workflow_id,
+                notes=translated.notes,
+                source=source,
+            )
+    except IntegrityError:
+        return ProviderAutomationResult(
+            status="failed", workflow_id=None, notes=("Another import of this automation ran at the same time.",)
+        )
+    log_workflow_activity(
+        actor=WorkflowActor(organization_id=team.organization_id, team_id=team.id, user=user, was_impersonated=False),
+        workflow_id=workflow_id,
+        name=cast("str | None", created.current.get("name")),
+        activity="created",
+        detail_type="standard",
+    )
+    return ProviderAutomationResult(status="created", workflow_id=str(workflow_id), notes=notes)
+
+
 _NO_LONGER_DRAFT = (
     "This automation was imported before and that workflow is no longer a draft, so it was left unchanged."
 )
@@ -267,7 +320,9 @@ def _can_edit(access: UserAccessControl, team: Team, previous: PreviousImport) -
     return access.check_access_level_for_ref(ref, "editor")
 
 
-def _validated_draft(team: Team, workflow: dict[str, Any], request: Request) -> tuple[dict[str, Any] | None, list[str]]:
+def _validated_draft(
+    team: Team, workflow: dict[str, Any], request: Request | None
+) -> tuple[dict[str, Any] | None, list[str]]:
     try:
         return checked_draft(team, workflow, EventSource.API, request), []
     except ValidationError as error:

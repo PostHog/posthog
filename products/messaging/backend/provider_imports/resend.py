@@ -56,6 +56,8 @@ from products.messaging.backend.services.resend_client import (
     ResendKeyRejected,
     ResendRateLimited,
 )
+from products.workflows.backend.facade.contracts import ImportedEmail
+from products.workflows.backend.facade.workflow_imports import import_resend_automation
 
 # The key check runs on the request path, so it gets a short timeout and doesn't wait out a rate limit.
 CREDENTIAL_CHECK_TIMEOUT_SECONDS = 10
@@ -161,6 +163,19 @@ class ResendImportProvider(ImportProvider):
             ),
         ),
         ImportStepSpec(
+            key="automations",
+            label="Automations",
+            description=(
+                "Creates a draft workflow from each Resend automation, with notes on what to set before you enable "
+                "it. Drafts never send on their own."
+            ),
+            count_labels=(
+                ("created", "New draft workflows"),
+                ("already_present", "Imported before, left as they are"),
+                ("failed", "Couldn't be imported"),
+            ),
+        ),
+        ImportStepSpec(
             key="domains",
             label="Sending domains",
             description=(
@@ -197,6 +212,8 @@ class ResendImportProvider(ImportProvider):
                     yield from _fetch_topic_opt_outs(client, context, checkpoint)
                 case "templates":
                     yield from _fetch_templates(client, context, checkpoint)
+                case "automations":
+                    yield from _fetch_automations(client, context, checkpoint)
                 case "domains":
                     yield from _fetch_domains(client, context, checkpoint)
                 case _:
@@ -499,6 +516,88 @@ def _email_content(
     if not sender.config.get("verified"):
         return email, (f"{address} isn't verified in PostHog yet, so this template can't send until it is.",)
     return email, ()
+
+
+def _fetch_automations(
+    client: ResendClient, context: ImportContext, checkpoint: StepCheckpoint | None
+) -> Iterator[ImportPage]:
+    # Automations often share templates, and each read costs one request against the customer's rate limit.
+    templates: dict[str, dict[str, Any] | None] = {}
+    for page in client.pages("/automations", _after(checkpoint)):
+        automations = [client.get(f"/automations/{item['id']}") for item in page.data if item.get("id")]
+        references = {reference for automation in automations for reference in _template_references(automation)}
+        for reference in references:
+            if reference not in templates:
+                templates[reference] = _read_template(client, reference)
+        yield ImportPage(
+            processed=len(page.data),
+            save=partial(_save_automations, context, automations, {ref: templates[ref] for ref in references}),
+            checkpoint=_next_checkpoint(page.next_after),
+        )
+
+
+def _template_references(automation: dict[str, Any]) -> set[str]:
+    references = set()
+    for step in automation.get("steps") or []:
+        if isinstance(step, dict) and step.get("type") == "send_email":
+            reference = ((step.get("config") or {}).get("template") or {}).get("id")
+            if reference:
+                references.add(str(reference))
+    return references
+
+
+def _read_template(client: ResendClient, reference: str) -> dict[str, Any] | None:
+    try:
+        return client.get(f"/templates/{reference}")
+    except ResendAPIError as e:
+        # A step can name a deleted template. Its draft gets a note, and the rest of the import carries on.
+        if e.status_code == 404:
+            return None
+        raise
+
+
+def _save_automations(
+    context: ImportContext, automations: list[dict[str, Any]], templates: dict[str, dict[str, Any] | None]
+) -> SavedPage:
+    senders = _senders(context.team_id)
+    emails = {
+        reference: _imported_email(template, senders) if template else None for reference, template in templates.items()
+    }
+    items: list[ImportItem] = []
+    counts: Counter[str] = Counter()
+    for automation in automations:
+        result = import_resend_automation(context.team_id, context.created_by_id, automation, emails)
+        counts[{"created": "created", "skipped": "already_present"}.get(result.status, "failed")] += 1
+        items.append(
+            ImportItem(
+                label=str(automation.get("name") or automation.get("id")),
+                status="created"
+                if result.status == "created"
+                else "skipped"
+                if result.status == "skipped"
+                else "failed",
+                url=f"/workflows/{result.workflow_id}/workflow" if result.workflow_id else None,
+                notes=result.notes,
+            )
+        )
+    return SavedPage(imported=counts["created"], counts=dict(counts), items=tuple(items))
+
+
+def _imported_email(template: dict[str, Any], senders: Mapping[str, IntegrationRecord]) -> ImportedEmail:
+    converted = convert_template(template)
+    email, sender_notes = _email_content(template, converted, senders)
+    display_name, address = parseaddr(str(template.get("from") or ""))
+    sender = email.get("from") or {}
+    return ImportedEmail(
+        subject=converted.subject,
+        html=converted.html,
+        text=converted.text,
+        from_email=address,
+        from_name=display_name,
+        sender_integration_id=sender.get("integrationId"),
+        reply_to=email.get("replyTo", ""),
+        notes=(*converted.notes, *sender_notes),
+    )
 
 
 def _fetch_domains(

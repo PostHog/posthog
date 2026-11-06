@@ -1065,6 +1065,30 @@ class TranslatedWorkflow:
 
 
 @frozen
+class ImportedEmail:
+    """An email another tool's automation sends, already converted to Liquid."""
+
+    subject: str
+    html: str
+    text: str = ""
+    from_email: str = ""
+    from_name: str = ""
+    # The team's PostHog sender with that address, when it has one.
+    sender_integration_id: int | None = None
+    reply_to: str = ""
+    # What to review about the email.
+    notes: tuple[str, ...] = ()
+
+
+@frozen
+class ProviderAutomationResult:
+    # `created`, `skipped` when an earlier import of it exists, or `failed`.
+    status: str
+    workflow_id: str | None
+    notes: tuple[str, ...]
+
+
+@frozen
 class CampaignSource:
     """A Customer.io automation as its Journeys UI API returns it, with the templates its messages use."""
 
