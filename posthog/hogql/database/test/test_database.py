@@ -4488,8 +4488,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             qualified_name = f"posthog.{table_name}"
             assert database.has_table(qualified_name), f"Table {qualified_name} should be resolvable"
 
-            table = database.get_table(qualified_name)
-            assert table is not None, f"Table {qualified_name} should return a valid table"
+            assert database.get_table(qualified_name) is database.get_table(table_name), (
+                f"Table {qualified_name} should be the same table as {table_name}"
+            )
 
     def test_posthog_qualified_table_names_resolve_in_select(self):
         database = Database.create_for(team=self.team)

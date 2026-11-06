@@ -576,9 +576,6 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
 
 
 def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
-    def clone_root_tables() -> dict[str, TableNode]:
-        return {name: table_node.model_copy(deep=True) for name, table_node in ROOT_TABLES__DO_NOT_ADD_ANY_MORE.items()}
-
     children: dict[str, TableNode] = {
         "numbers": TableNode(name="numbers", table=NumbersTable()),
         "range": TableNode(name="range", table=RangeTable()),
@@ -595,13 +592,17 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
             name="system", children={"information_schema": direct_connection_information_schema_node()}
         )
     else:
-        root_tables = clone_root_tables()
+        # The root and `posthog` share each node. `create_for` changes a table through its root name, such as the
+        # persons-on-events mode on `events`, and `posthog.events` must read the same fields.
+        root_tables = {
+            name: table_node.model_copy(deep=True) for name, table_node in ROOT_TABLES__DO_NOT_ADD_ANY_MORE.items()
+        }
         children = {
             **root_tables,
             "posthog": TableNode(
                 name="posthog",
                 children={
-                    **clone_root_tables(),
+                    **root_tables,
                     # Add new tables here
                     "logs_volume_buckets": TableNode(name="logs_volume_buckets", table=LogsVolumeBucketsTable()),
                     "logs_pattern_buckets": TableNode(name="logs_pattern_buckets", table=LogsPatternBucketsTable()),
