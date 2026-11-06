@@ -21,14 +21,7 @@ export function DashboardCardsMenu({ cardsWithoutData }: { cardsWithoutData: Mcp
     return (
         <DropdownMenu>
             <DropdownMenuTrigger
-                render={
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        className="whitespace-nowrap"
-                        data-attr="mcp-dashboard-customize"
-                    />
-                }
+                render={<Button variant="outline" className="whitespace-nowrap" data-attr="mcp-dashboard-customize" />}
             >
                 {hiddenCards.length > 0 ? `${hiddenCards.length} hidden` : 'Customize'}
                 <IconChevronDown />

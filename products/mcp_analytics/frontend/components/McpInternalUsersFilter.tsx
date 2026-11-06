@@ -29,7 +29,7 @@ export function McpInternalUsersFilter({ dataAttr }: { dataAttr: string }): JSX.
 
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger render={<Button variant="outline" size="sm" data-attr={dataAttr} />}>
+            <DropdownMenuTrigger render={<Button variant="outline" data-attr={dataAttr} />}>
                 {excluded ? 'Internal users excluded' : 'Internal users included'}
                 <IconChevronDown />
             </DropdownMenuTrigger>
