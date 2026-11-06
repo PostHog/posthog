@@ -1643,6 +1643,8 @@ def update_activity_context(row: ActivityLog, **fields: Any) -> None:
     """
     try:
         detail = cast(Detail, row.detail)
+        if detail.context is None:
+            raise ValueError(f"{row.scope} activity row has no context to update")
         row.detail = dataclasses.replace(detail, context=dataclasses.replace(detail.context, **fields))
         row.save(update_fields=["detail"])
     except Exception as e:
