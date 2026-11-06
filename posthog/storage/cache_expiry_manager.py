@@ -457,7 +457,7 @@ def _refresh_one_team(config: HyperCacheManagementConfig, team: Team) -> Refresh
 
 
 def _retrack_if_still_stored(
-    hypercache: HyperCache, identifier: str | int, score: float, redis_client: redis.Redis
+    hypercache: HyperCache, identifier: str | int, score: float, redis_client: redis.Redis, sorted_set_key: str
 ) -> bool:
     """Re-add the member to the sorted set when any tier holds the entry after the delete.
 
@@ -470,7 +470,7 @@ def _retrack_if_still_stored(
     secondary = hypercache.secondary_cache_client
 
     def retrack() -> None:
-        redis_client.zadd(hypercache.expiry_sorted_set_key, {str(identifier): score}, nx=True)
+        redis_client.zadd(sorted_set_key, {str(identifier): score}, nx=True)
 
     try:
         still_stored = (
@@ -510,15 +510,16 @@ def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
         Number of stale entries deleted
     """
     hypercache = config.hypercache
+    sorted_set_key = hypercache.expiry_sorted_set_key
 
-    if not hypercache.expiry_sorted_set_key:
+    if not sorted_set_key:
         logger.warning(f"No expiry sorted set configured for {config.log_prefix}")
         return 0
 
     try:
         redis_client = get_client(hypercache.redis_url)
 
-        scored_members = redis_client.zrange(hypercache.expiry_sorted_set_key, 0, -1, withscores=True)
+        scored_members = redis_client.zrange(sorted_set_key, 0, -1, withscores=True)
 
         if not scored_members:
             logger.info(f"No {config.log_prefix} expiry entries to check")
@@ -545,7 +546,7 @@ def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
         for identifier, score in stale:
             try:
                 hypercache.delete_cache_entry(identifier, strict_mirror=True, tracked_expiry_score=score)
-                if _retrack_if_still_stored(hypercache, identifier, score, redis_client):
+                if _retrack_if_still_stored(hypercache, identifier, score, redis_client, sorted_set_key):
                     retracked += 1
                 else:
                     removed += 1
