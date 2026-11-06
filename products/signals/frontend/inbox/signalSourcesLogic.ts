@@ -2360,9 +2360,13 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     })
                     captureSignalSourceAlertScopeChanged({ alertScope, previousAlertScope, success: true })
                     lemonToast.success(
-                        alertScope === SignalAlertScope.AllFiringAlerts
-                            ? 'Product analytics now turns every firing alert into a signal.'
-                            : 'Product analytics now turns only investigated alerts into signals.'
+                        {
+                            [SignalAlertScope.AllFiringAlerts]:
+                                'Product analytics now turns every firing alert into a signal.',
+                            [SignalAlertScope.InvestigatedOnly]:
+                                'Product analytics now turns only investigated alerts into signals.',
+                            [SignalAlertScope.Off]: 'Product analytics no longer turns alerts into signals.',
+                        }[alertScope]
                     )
                 } catch (error: any) {
                     captureSignalSourceAlertScopeChanged({ alertScope, previousAlertScope, success: false })

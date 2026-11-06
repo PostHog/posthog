@@ -150,6 +150,16 @@ impl<'a> Tap<'a> {
 
 /// Running out of data is not an error here, because the caller sees it through `is_valid`.
 pub(crate) fn read_value(tap: &mut Tap<'_>, schema: &Schema) -> Result<AvroValue, AvroError> {
+    let start = tap.pos;
+    let value = read_schema_value(tap, schema)?;
+    // Any value can expand into many empty children, so every value that reads no bytes is charged, at every depth.
+    if tap.pos == start {
+        tap.count_empty_value()?;
+    }
+    Ok(value)
+}
+
+fn read_schema_value(tap: &mut Tap<'_>, schema: &Schema) -> Result<AvroValue, AvroError> {
     Ok(match schema {
         Schema::Null => AvroValue::Null,
         Schema::Boolean => AvroValue::Boolean(tap.byte() != 0),
@@ -227,11 +237,7 @@ pub(crate) fn read_value(tap: &mut Tap<'_>, schema: &Schema) -> Result<AvroValue
                 // A capacity hint only: a count can claim more items than the data holds.
                 out.reserve((n as usize).min(tap.remaining()).min(4096));
                 for _ in 0..n as u64 {
-                    let start = tap.pos;
                     out.push(read_value(tap, items)?);
-                    if tap.pos == start {
-                        tap.count_empty_value()?;
-                    }
                     if !tap.is_valid() {
                         return Ok(AvroValue::Array(out));
                     }
@@ -433,11 +439,8 @@ pub fn decode_container(buf: &[u8]) -> Result<Container, AvroError> {
             if !block.is_valid() {
                 return Err(AvroError::Decode("truncated block".to_string()));
             }
-            if block.pos == start {
-                block.count_empty_value()?;
-                if remaining < 0 {
-                    return Err(AvroError::Decode("too many empty records".to_string()));
-                }
+            if block.pos == start && remaining < 0 {
+                return Err(AvroError::Decode("too many empty records".to_string()));
             }
             records.push(value);
         }

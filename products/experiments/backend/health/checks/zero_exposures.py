@@ -3,11 +3,12 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.checks.exposure_criteria import exposure_criteria_cannot_match
 from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.delays import LAST_CALLED_AT_LAG, ZERO_EXPOSURES_GRACE_HOURS
-from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckOutcome, not_applicable
+from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckOutcome, CheckValues, not_applicable
 
 # pinned: the finding's subcodes. The page sends them as `finding_subcode` on the health finding events.
 EXPERIMENT_PAUSED = "experiment_paused"
@@ -24,6 +25,17 @@ def reads_exposed_without_test_account_filter(ctx: HealthContext) -> bool:
     exposure events."""
     outcome = zero_exposures(ctx)
     return isinstance(outcome, ExperimentHealthFinding) and outcome.subcode == CALLS_NOT_COUNTED
+
+
+def zero_exposures_values(ctx: HealthContext) -> CheckValues:
+    exposures = ctx.exposures
+    if exposures is None:
+        return {}
+    hours = exposures.hours_since_launch
+    return {
+        ExperimentHealthValueKey.EXPOSED_COUNT: exposures.total,
+        ExperimentHealthValueKey.SINCE_LAUNCH_HOURS: None if hours is None else round(hours, 1),
+    }
 
 
 def zero_exposures(ctx: HealthContext) -> CheckOutcome:
