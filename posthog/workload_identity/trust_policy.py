@@ -66,6 +66,7 @@ from posthog.workload_identity.custom_issuer import (
     validate_custom_issuer_url,
 )
 from posthog.workload_identity.providers import (
+    WILDCARD_CHARACTERS,
     ConditionPreset,
     WorkloadProvider,
     WorkloadProviderKey,
@@ -79,7 +80,6 @@ from products.access_control.backend.facade.subject_access_control import restri
 
 # A policy matches claim values exactly, so a character that reads as a pattern is refused rather than
 # taken literally: an admin who types `acme/*` expects every workload under `acme` to match, and none would.
-WILDCARD_CHARACTERS = frozenset("*?[]")
 DUPLICATE_POLICY_MESSAGE = "A policy for this workload with the same conditions already exists."
 UNSUPPORTED_ISSUER_MESSAGE = "This issuer isn't a supported workload provider."
 CUSTOM_ISSUER_NEEDS_SUBJECT_CLAIM = (
@@ -218,7 +218,7 @@ def _validate_custom_policy(attrs: dict[str, Any], instance: Any | None) -> dict
         )
     if instance is None or "issuer" in attrs and attrs["issuer"] != instance.issuer:
         try:
-            discover_custom_issuer(issuer, refresh=True)
+            discover_custom_issuer(issuer, retry_failure=True)
         except CustomIssuerError as e:
             raise serializers.ValidationError({"issuer": str(e)})
     return attrs
@@ -855,11 +855,25 @@ class WorkloadTrustPolicyRequestResolutionPermission(BasePermission):
         return membership.level >= OrganizationMembership.Level.ADMIN
 
 
+def _warm_custom_issuer(team_id: int, request_id: str) -> None:
+    """Fetch a custom request's issuer before approval locks the row, so the network call happens outside the
+    transaction. Approval checks the issuer again from the cache and reports any failure."""
+    policy_request = WorkloadTrustPolicyRequest.objects.for_team(team_id).filter(pk=request_id).first()
+    if policy_request is None or not policy_request.subject_claim:
+        return
+    try:
+        discover_custom_issuer(policy_request.issuer, retry_failure=True)
+    except CustomIssuerError:
+        pass
+
+
 def resolve_workload_trust_policy_request(
     *, team_id: int, request_id: str, approve: bool, resolver: User, policy_serializer_context: dict[str, Any]
 ) -> WorkloadTrustPolicyRequest:
     """Approve or reject a pending request. Approving creates the policy from the request's own values,
     checked again against today's rules, in the same transaction that marks the request approved."""
+    if approve:
+        _warm_custom_issuer(team_id, request_id)
     with transaction.atomic():
         policy_request = WorkloadTrustPolicyRequest.objects.select_for_update().get(pk=request_id, team_id=team_id)
         if policy_request.effective_status != WorkloadTrustPolicyRequest.Status.PENDING:

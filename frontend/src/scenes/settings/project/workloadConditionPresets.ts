@@ -85,6 +85,10 @@ export function rowsFromConditions(
     return rows
 }
 
+export function emptyCustomConditionRow(): WorkloadConditionRow {
+    return { preset: CUSTOM_CONDITION, claim: '', value: '' }
+}
+
 export function rowForPreset(preset: WorkloadProviderApi['condition_presets'][number]): WorkloadConditionRow {
     return { preset: preset.key, value: preset.default_value }
 }

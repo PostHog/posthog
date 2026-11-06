@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
-import { CUSTOM_CONDITION, type WorkloadConditionRow } from './workloadConditionPresets'
+import { emptyCustomConditionRow, type WorkloadConditionRow } from './workloadConditionPresets'
 import { workloadTrustPoliciesLogic } from './workloadTrustPoliciesLogic'
 
 export function WorkloadCustomConditionRows(): JSX.Element {
@@ -44,9 +44,7 @@ export function WorkloadCustomConditionRows(): JSX.Element {
                     type="secondary"
                     size="small"
                     icon={<IconPlus />}
-                    onClick={() =>
-                        setConditionRows([...conditionRows, { preset: CUSTOM_CONDITION, claim: '', value: '' }])
-                    }
+                    onClick={() => setConditionRows([...conditionRows, emptyCustomConditionRow()])}
                     data-attr="workload-trust-policy-condition-add"
                 >
                     Add condition

@@ -1003,7 +1003,10 @@ class WorkloadAccessTokenAuthentication(ActivityCredentialMixin, authentication.
 
         def workload_trigger() -> Trigger:
             # Deferred because `posthog.api.oauth` imports its views, which import this module.
-            from posthog.workload_identity.providers import get_workload_provider_by_key  # noqa: PLC0415
+            from posthog.workload_identity.providers import (  # noqa: PLC0415
+                WorkloadProviderKey,
+                get_workload_provider_by_key,
+            )
 
             provider = get_workload_provider_by_key(verified.workload_provider)
             claims = verified.workload_claims
@@ -1023,7 +1026,11 @@ class WorkloadAccessTokenAuthentication(ActivityCredentialMixin, authentication.
                 job_id=verified.policy_id,
                 payload={
                     "provider": verified.workload_provider,
-                    "provider_name": provider.name if provider else verified.workload_provider,
+                    "provider_name": provider.name
+                    if provider
+                    else str(WorkloadProviderKey(verified.workload_provider).label)
+                    if verified.workload_provider in WorkloadProviderKey.values
+                    else verified.workload_provider,
                     "actor_label": actor_label,
                     "subject_name": subject_name,
                     "claims": claims,

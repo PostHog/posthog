@@ -43,9 +43,10 @@ from posthog.models.workload_trust_policy import (
 )
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
 from posthog.workload_identity.custom_issuer import (
+    CUSTOM_TOKEN_MAX_LIFETIME_SECONDS,
     CustomIssuerError,
     CustomIssuerUnavailable,
-    custom_workload_provider,
+    custom_checked_claims,
     discover_custom_issuer,
 )
 from posthog.workload_identity.providers import (
@@ -350,9 +351,17 @@ def _verify_custom_token(subject_token: str, issuer: str) -> tuple[dict[str, Any
         raise WorkloadExchangeError(
             WorkloadExchangeErrorCode.TOKEN_INVALID, "The OIDC token uses an algorithm its issuer doesn't sign with."
         )
-    return _decode_subject_token(
-        subject_token, key, issuer=issuer, required=[], provider_key=WorkloadProviderKey.CUSTOM
+    claims, expires_at = _decode_subject_token(
+        subject_token, key, issuer=issuer, required=["iat"], provider_key=WorkloadProviderKey.CUSTOM
     )
+    issued_at = claims["iat"]
+    if not isinstance(issued_at, int | float) or expires_at - issued_at > CUSTOM_TOKEN_MAX_LIFETIME_SECONDS:
+        raise WorkloadExchangeError(
+            WorkloadExchangeErrorCode.TOKEN_INVALID,
+            f"The OIDC token lives longer than {CUSTOM_TOKEN_MAX_LIFETIME_SECONDS // 60} minutes. Ask the issuer for "
+            "a shorter-lived token, so a leaked one can't keep minting PostHog tokens.",
+        )
+    return claims, expires_at
 
 
 def _custom_workload(
@@ -360,33 +369,35 @@ def _custom_workload(
 ) -> VerifiedWorkload | None:
     """What the token says about the workload under one custom policy's claim names, or None when it doesn't
     match. Every condition must equal the token's flat claim, like a registry provider's."""
-    provider = custom_workload_provider(
-        policy.issuer,
-        subject_claim=policy.subject_claim,
-        subject_name_claim=policy.subject_name_claim,
-        condition_claims=tuple(policy.conditions),
-    )
     subject = _claim_string(claims.get(policy.subject_claim))
     subject_name = (
         _claim_string(claims.get(policy.subject_name_claim)) if policy.subject_name_claim else policy.subject_name
     )
-    condition_claims = _claims_by_name(claims, provider.condition_claims)
-    if subject != policy.subject or subject_name != policy.subject_name:
+    if subject is None or subject != policy.subject or subject_name != policy.subject_name:
         return None
-    if any(condition_claims.get(name) != value for name, value in policy.conditions.items()):
+    condition_claims = {name: _claim_string(claims.get(name)) for name in policy.conditions}
+    if any(condition_claims[name] != value for name, value in policy.conditions.items()):
         return None
+    recorded = [policy.subject_claim, policy.subject_name_claim, *policy.conditions]
     return VerifiedWorkload(
         subject=subject,
-        subject_name=subject_name,
-        condition_claims=condition_claims,
-        recorded_claims=_claims_by_name(claims, provider.recorded_claims),
+        subject_name=policy.subject_name,
+        condition_claims={name: value for name, value in condition_claims.items() if value is not None},
+        recorded_claims={name: value for name in recorded if name and (value := _claim_string(claims.get(name)))},
     )
 
 
-def _best_custom_match(candidates: list[Any], claims: dict[str, Any]) -> tuple[Any, VerifiedWorkload] | None:
-    matches = [(candidate, workload) for candidate in candidates if (workload := _custom_workload(candidate, claims))]
-    matches.sort(key=lambda match: (-len(match[0].conditions), match[0].created_at))
-    return matches[0] if matches else None
+def _most_specific(candidates: list[Any]) -> list[Any]:
+    """More conditions first, then the oldest, so adding a broader policy never changes which one a workload
+    runs under."""
+    return sorted(candidates, key=lambda candidate: (-len(candidate.conditions), candidate.created_at))
+
+
+def _first_custom_match(candidates: list[Any], claims: dict[str, Any]) -> tuple[Any, VerifiedWorkload] | None:
+    return next(
+        ((candidate, workload) for candidate in candidates if (workload := _custom_workload(candidate, claims))),
+        None,
+    )
 
 
 def _charge_exchange(policy: WorkloadTrustPolicy) -> None:
@@ -413,8 +424,7 @@ def find_matching_policy(team_id: int, issuer: str, workload: VerifiedWorkload) 
     never changes which policy an existing workload runs under.
     """
     candidates = WorkloadTrustPolicy.objects.for_team(team_id).filter(**workload.match_filter(issuer), enabled=True)
-    matching = list(candidates)
-    matching.sort(key=lambda policy: (-len(policy.conditions), policy.created_at))
+    matching = _most_specific(list(candidates))
     return matching[0] if matching else None
 
 
@@ -483,28 +493,40 @@ def exchange_workload_token(*, subject_token: str, subject_token_type: str, reso
             pending = _pending_request_for(team.id, issuer, workload)
     else:
         provider_key = WorkloadProviderKey.CUSTOM
-        # Only an issuer an enabled policy of this project names is ever fetched, so a token can't point
-        # PostHog at an arbitrary URL.
-        candidates = (
-            list(
+        # Only an issuer an enabled policy or a pending request of this project names is ever fetched, so a
+        # token can't point PostHog at an arbitrary URL. A request passed the same discovery check, throttled,
+        # when a member filed it.
+        policies: list[WorkloadTrustPolicy] = []
+        requests: list[WorkloadTrustPolicyRequest] = []
+        if team is not None:
+            policies = list(
                 WorkloadTrustPolicy.objects.for_team(team.id)
                 .filter(issuer=token_issuer, enabled=True)
                 .exclude(subject_claim="")
             )
-            if team is not None
-            else []
-        )
-        if not candidates:
+            requests = list(
+                WorkloadTrustPolicyRequest.objects.for_team(team.id)
+                .filter(
+                    issuer=token_issuer,
+                    status=WorkloadTrustPolicyRequest.Status.PENDING,
+                    expires_at__gt=timezone.now(),
+                )
+                .exclude(subject_claim="")
+                .order_by("-created_at")
+            )
+        if not policies and not requests:
             raise _issuer_not_allowed(token_issuer)
         claims, oidc_expires_at = _verify_custom_token(subject_token, token_issuer)
-        match = _best_custom_match(candidates, claims)
+        match = _first_custom_match(_most_specific(policies), claims)
         policy, workload = match if match else (None, None)
-        claims_sent = {"provider": provider_key, "issuer": token_issuer}
-        if team is not None and policy is None:
-            pending_requests = WorkloadTrustPolicyRequest.objects.for_team(team.id).filter(
-                issuer=token_issuer, status=WorkloadTrustPolicyRequest.Status.PENDING, expires_at__gt=timezone.now()
-            )
-            pending_match = _best_custom_match(list(pending_requests.exclude(subject_claim="")), claims)
+        checked = {name for candidate in [*policies, *requests] for name in custom_checked_claims(candidate)}
+        claims_sent = {
+            "provider": provider_key,
+            "issuer": token_issuer,
+            "claims": {name: _claim_string(claims.get(name)) for name in sorted(checked)},
+        }
+        if policy is None:
+            pending_match = _first_custom_match(requests, claims)
             pending = pending_match[0] if pending_match else None
 
     if team is None or policy is None or workload is None:

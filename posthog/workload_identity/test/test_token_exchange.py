@@ -627,6 +627,13 @@ class TestCustomIssuerExchange(APIBaseTest):
                 status.HTTP_400_BAD_REQUEST,
                 "workload_token_invalid",
             ),
+            ("no_issued_at", {"iat": None}, status.HTTP_400_BAD_REQUEST, "workload_token_invalid"),
+            (
+                "living_a_day",
+                {"exp": int(time.time()) + 86_400},
+                status.HTTP_400_BAD_REQUEST,
+                "workload_token_invalid",
+            ),
         ]
     )
     def test_a_custom_policy_matches_only_the_claims_it_names(
@@ -638,6 +645,22 @@ class TestCustomIssuerExchange(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         assert response.json().get("error_code") == error_code
+
+    def test_a_pending_custom_request_hands_the_job_its_approval_link(self) -> None:
+        WorkloadTrustPolicyRequest.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Deploy bot",
+            issuer=_CUSTOM_ISSUER,
+            subject_claim="sub",
+            subject="deploy-bot",
+            subject_name="Deploy bot",
+            conditions={"env": "prod"},
+            scopes=["annotation:write"],
+        )
+
+        response = self._exchange(_custom_token())
+
+        assert response.json()["error_code"] == "workload_policy_request_pending", response.json()
 
     def test_a_token_signed_by_a_rotated_key_fetches_the_keys_once_more(self) -> None:
         self._policy()

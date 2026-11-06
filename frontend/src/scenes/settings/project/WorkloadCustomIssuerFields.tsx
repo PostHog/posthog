@@ -7,12 +7,14 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { workloadTrustPoliciesLogic } from './workloadTrustPoliciesLogic'
 
 export function WorkloadCustomIssuerFields(): JSX.Element {
-    const { editingPolicy, issuerCheck, issuerCheckLoading, issuerCheckError, providers } =
+    const { editingPolicy, issuerCheck, issuerCheckLoading, issuerCheckError, checkedIssuer, providers } =
         useValues(workloadTrustPoliciesLogic)
     const { checkIssuer } = useActions(workloadTrustPoliciesLogic)
 
-    const checked = issuerCheck && issuerCheck.issuer === editingPolicy.issuer.trim() ? issuerCheck : null
-    const audience = providers?.job_settings.host
+    const current = editingPolicy.issuer.trim()
+    const checked = issuerCheck && issuerCheck.issuer === current ? issuerCheck : null
+    const checkError = issuerCheckError && checkedIssuer === current ? issuerCheckError : null
+    const audience = checked?.audience ?? providers?.job_settings.host
 
     return (
         <div className="deprecated-space-y-4">
@@ -48,8 +50,8 @@ export function WorkloadCustomIssuerFields(): JSX.Element {
                     PostHog found the issuer. It checks tokens with the keys at {checked.jwks_uri}
                     {checked.signing_algorithms.length ? `, signed with ${checked.signing_algorithms.join(', ')}` : ''}.
                 </LemonBanner>
-            ) : issuerCheckError ? (
-                <LemonBanner type="error">{issuerCheckError}</LemonBanner>
+            ) : checkError ? (
+                <LemonBanner type="error">{checkError}</LemonBanner>
             ) : null}
             <LemonBanner type="info">
                 Jobs send a token from this issuer with the audience <code>{audience}</code>, and hog reads it from

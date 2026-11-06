@@ -680,7 +680,7 @@ class TestCustomIssuerPolicyAPI(APIBaseTest):
         assert response.json()["claim_labels"]["subject"] == "sub"
         policy = WorkloadTrustPolicy.objects.for_team(self.team.id).get()
         assert (policy.subject_claim, policy.conditions) == ("sub", {"env": "prod"})
-        self.discovery.assert_called_once_with(CUSTOM_ISSUER, refresh=True)
+        self.discovery.assert_called_once_with(CUSTOM_ISSUER, retry_failure=True)
 
     @parameterized.expand(
         [

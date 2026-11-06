@@ -19,6 +19,7 @@ from django.core.cache import cache
 from posthog.dataclasses import frozen
 from posthog.jwt import ASYMMETRIC_SIGNING_ALGORITHMS
 from posthog.workload_identity.providers import (
+    WILDCARD_CHARACTERS,
     AudienceCheck,
     WorkloadClaim,
     WorkloadProvider,
@@ -26,7 +27,7 @@ from posthog.workload_identity.providers import (
     get_workload_provider_by_issuer,
 )
 
-CUSTOM_PROVIDER_NAME = "Custom OIDC provider"
+CUSTOM_PROVIDER_NAME = str(WorkloadProviderKey.CUSTOM.label)
 CUSTOM_PROVIDER_DOCS_URL = "https://posthog.com/docs/api/workload-identity/custom"
 DEFAULT_SUBJECT_CLAIM = "sub"
 DISCOVERY_PATH = "/.well-known/openid-configuration"
@@ -34,10 +35,13 @@ DISCOVERY_MAX_BYTES = 64 * 1024
 DISCOVERY_CACHE_TTL_SECONDS = 60 * 60
 # A failed discovery is remembered briefly, so tokens naming a broken issuer can't turn each exchange into a fetch.
 DISCOVERY_FAILURE_TTL_SECONDS = 60
+# Another issuer's ID tokens can live for hours or longer. A leaked one keeps minting PostHog tokens until it
+# expires, so the exchange refuses a token meant to live longer than this.
+CUSTOM_TOKEN_MAX_LIFETIME_SECONDS = 60 * 60
 # Registered JWT claims that say how a token is valid, not who sent it, so a policy can't check them.
 RESERVED_CLAIMS = frozenset({"iss", "aud", "exp", "iat", "nbf", "jti", "azp", "nonce"})
 # Printable ASCII without spaces, as claim names such as https://example.com/claims/team need.
-_CLAIM_NAME = re.compile(r"^[\x21-\x7e]{1,100}$")
+_CLAIM_NAME = re.compile(r"[\x21-\x7e]{1,100}")
 
 
 class CustomIssuerError(Exception):
@@ -86,7 +90,7 @@ def validate_custom_issuer_url(issuer: str) -> str:
 
 
 def validate_claim_name(name: Any, what: str) -> str:
-    if not isinstance(name, str) or not _CLAIM_NAME.match(name) or any(char in "*?[]" for char in name):
+    if not isinstance(name, str) or not _CLAIM_NAME.fullmatch(name) or WILDCARD_CHARACTERS & set(name):
         raise CustomIssuerError(f"The {what} must be a claim name of up to 100 printable characters, without spaces.")
     if name in RESERVED_CLAIMS:
         raise CustomIssuerError(f"The {what} can't be {name}, which says how a token is valid, not who sent it.")
@@ -137,11 +141,14 @@ def _fetch_metadata(issuer: str) -> CustomIssuerMetadata:
     return CustomIssuerMetadata(issuer=issuer, jwks_uri=jwks_uri, signing_algorithms=algorithms)
 
 
-def discover_custom_issuer(issuer: str, *, refresh: bool = False) -> CustomIssuerMetadata:
-    """The issuer's keys and algorithms from its discovery document, cached for an hour."""
+def discover_custom_issuer(issuer: str, *, refresh: bool = False, retry_failure: bool = False) -> CustomIssuerMetadata:
+    """The issuer's keys and algorithms from its discovery document, cached for an hour. `refresh` always
+    fetches, and `retry_failure` fetches again only when the cached answer is a failure."""
     validate_custom_issuer_url(issuer)
     key = _cache_key(issuer)
     cached = None if refresh else cache.get(key)
+    if isinstance(cached, dict) and "error" in cached and retry_failure:
+        cached = None
     if isinstance(cached, dict):
         if "error" in cached:
             error_class = CustomIssuerUnavailable if cached.get("unavailable") else CustomIssuerError
@@ -161,6 +168,11 @@ def discover_custom_issuer(issuer: str, *, refresh: bool = False) -> CustomIssue
         timeout=DISCOVERY_CACHE_TTL_SECONDS,
     )
     return metadata
+
+
+def custom_checked_claims(policy: Any) -> tuple[str, ...]:
+    """The claims a custom policy or request checks: its subject claim, name claim and condition claims."""
+    return tuple(name for name in (policy.subject_claim, policy.subject_name_claim, *policy.conditions) if name)
 
 
 def custom_workload_provider(
