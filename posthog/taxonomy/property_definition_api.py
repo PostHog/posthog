@@ -24,7 +24,7 @@ from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import EventProperty, PropertyDefinition, User
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
@@ -41,6 +41,7 @@ from posthog.taxonomy.taxonomy import (
     QUERY_DEPRECATED_EVENT_PROPERTIES,
 )
 
+from products.event_definitions.backend.models import EventProperty, PropertyDefinition
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 tracer = trace.get_tracer(__name__)

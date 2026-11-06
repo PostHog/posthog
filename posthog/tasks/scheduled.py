@@ -121,6 +121,7 @@ from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.facade.tasks import (
+    enqueue_signals_rated_usage,
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     reconcile_report_inbox_state_cache,
@@ -455,6 +456,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="refresh prebaked dev-stack VM image on base change",
         expires_seconds=2 * 60,
     )
+
+    if settings.CLOUD_DEPLOYMENT:
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(hour="3", minute="17"),
+            enqueue_signals_rated_usage.s(),
+            name="report self-driving rated usage",
+        )
 
     add_periodic_task_with_expiry(
         sender,
