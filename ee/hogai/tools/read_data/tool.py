@@ -44,6 +44,7 @@ from products.business_knowledge.backend.constants import BK_DRILLDOWN_DEFAULT_R
 from products.business_knowledge.backend.logic import get_document_window, has_ready_sources
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.posthog_ai.backend.models.assistant import AgentArtifact
+from products.warehouse_sources.backend.facade.api import column_sensitivity, column_sensitivity_enabled
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 
 from ee.hogai.artifacts.types import ModelArtifactResult
@@ -652,11 +653,6 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         rendered_column_description = False
         rendered_sensitivity = False
-        from products.warehouse_sources.backend.facade.api import (  # noqa: PLC0415
-            column_sensitivity,
-            column_sensitivity_enabled,
-        )
-
         tag_sensitivity = table.type == "data_warehouse" and column_sensitivity_enabled(self._team.pk)
         for field in table.fields.values():
             line = self._format_schema_field(field, raw_fields.get(field.name))
