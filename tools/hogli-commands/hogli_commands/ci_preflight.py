@@ -846,6 +846,10 @@ def _emit_telemetry(summary: dict[str, Any]) -> None:
     )
     props: dict[str, Any] = {k: summary[k] for k in keys if k in summary}
     props["results"] = {r["check"]: r["status"] for r in summary["results"]}
+    props["durations"] = {r["check"]: r["duration_s"] for r in summary["results"]}
+    # A check that could not run reports itself as skipped, so the reason is the only
+    # trace of an error in telemetry.
+    props["skip_reasons"] = {r["check"]: r["detail"][:200] for r in summary["results"] if r["status"] == "skipped"}
     # Registries are read directly by design (see hogli.hooks). Merge the same
     # dev-context props the command lifecycle attaches to command_completed
     # (incl. git_branch, so a run ties back to its PR).
@@ -910,7 +914,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool,
     for chk in DIFF_CHECKS:
         chk.matched = [f for f in files if matches_globs(f, chk.triggers)]
         # A check that can only warn is not worth its run time in the pre-push hook.
-        if chk.matched and not (strict and chk.soft and chk.run is not None):
+        if chk.matched and not (strict and chk.soft):
             triggered.append(chk)
     depot_mirrors_triggered = any(matches_globs(path, DEPOT_MIRROR_TRIGGERS) for path in files)
 
@@ -923,25 +927,39 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool,
     # Always-on branch-health check, independent of which files changed: a stale
     # branch breaks CI on merge no matter what the diff touches. Advisory only —
     # it never counts toward `failures` (a merge is the human/agent's call).
+    def record(check: str, status: Status, detail: str, files_count: int, started: float) -> None:
+        results.append(
+            {
+                "check": check,
+                "status": status,
+                "files": files_count,
+                "detail": detail,
+                "duration_s": round(time.perf_counter() - started, 2),
+            }
+        )
+
+    started = time.perf_counter()
     stale_status, stale_detail, stale_props = _staleness(files)
-    results.append({"check": "staleness", "status": stale_status, "files": 0, "detail": stale_detail})
+    record("staleness", stale_status, stale_detail, 0, started)
     if not as_json:
         click.secho(f"   {_ICON[stale_status]} [staleness] branch freshness vs master", fg=_COLOR[stale_status])
         click.echo(f"       {stale_detail}")
 
+    started = time.perf_counter()
     depth_status, depth_detail = check_stack_depth()
     failures += depth_status == "fail"
-    results.append({"check": "stack-depth", "status": depth_status, "files": 0, "detail": depth_detail})
+    record("stack-depth", depth_status, depth_detail, 0, started)
     if not as_json and depth_status != "skipped":
         click.secho(f"   {_ICON[depth_status]} [stack-depth] open layers in this gh stack", fg=_COLOR[depth_status])
         click.echo(f"       {depth_detail}")
 
     if depot_mirrors_triggered:
+        started = time.perf_counter()
         violations = mirror_violations(REPO_ROOT, set(files))
         drift_status: Status = "fail" if violations else "pass"
         drift_detail = " · ".join(violations[:3]) if violations else "depot mirrors in sync"
         failures += drift_status == "fail"
-        results.append({"check": "depot-mirrors", "status": drift_status, "files": 1, "detail": drift_detail})
+        record("depot-mirrors", drift_status, drift_detail, 1, started)
         if not as_json:
             click.secho(
                 f"   {_ICON[drift_status]} [depot-mirrors] depot action mirrors (.depot/actions)",
@@ -950,12 +968,13 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool,
             click.echo(f"       {drift_detail}")
 
     for chk in triggered:
+        started = time.perf_counter()
         status, detail = _run_diff_check(chk, do_fix, against, strict, files)
         failures += status == "fail"
         # Nudges say "consider this", not "this is drift" — counting them would cry wolf in
         # the footer on every matching push and cost the detected advisories their weight.
         advisories += status == "advisory" and chk.measures
-        results.append({"check": chk.key, "status": status, "files": len(chk.matched), "detail": detail})
+        record(chk.key, status, detail, len(chk.matched), started)
         if not as_json:
             click.secho(f"   {_ICON[status]} [{chk.key}] {chk.label}", fg=_COLOR[status])
             click.echo(f"       {len(chk.matched)} file(s) · {detail}")
@@ -975,9 +994,6 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool,
         if not triggered and not depot_mirrors_triggered:
             click.secho("   ✓ Nothing in this diff maps to a known CI failure class.", fg="green")
         click.echo()
-        click.echo(
-            f"  summary {json.dumps({k: summary[k] for k in ('changed_files', 'triggered', 'failures', 'mode')})}"
-        )
         if advisories:
             # Non-blocking, so agents skip these as pre-existing. Restate ownership.
             click.secho(

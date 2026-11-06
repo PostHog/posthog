@@ -304,7 +304,8 @@ def _semgrep_findings(contents: dict[str, bytes], command: list[str], *, deadlin
     findings: dict[Finding, list[int]] = {}
     for item in report["results"]:
         path = item["path"]
-        if item["extra"]["severity"] == "ERROR" and matches_globs(path, SEMGREP_ERROR_EXCLUDED):
+        # The first segment is the side the caller filed the copy under, not a repo path.
+        if item["extra"]["severity"] == "ERROR" and matches_globs(path.partition("/")[2], SEMGREP_ERROR_EXCLUDED):
             continue
         start, end = item["start"]["line"], item["end"]["line"]
         lines = contents[path].decode(errors="replace").splitlines()[start - 1 : end]
@@ -313,6 +314,19 @@ def _semgrep_findings(contents: dict[str, bytes], command: list[str], *, deadlin
         rule = item["check_id"].rsplit(".", 1)[-1]
         findings.setdefault((rule, path, "\n".join(line.strip() for line in lines)), []).append(start)
     return findings
+
+
+# The two sides of the comparison, as top-level directories of the one scanned tree.
+_AFTER = "after/"
+_BEFORE = "before/"
+
+
+def _findings_on(findings: dict[Finding, list[int]], side: str) -> dict[Finding, list[int]]:
+    return {
+        (rule, path.removeprefix(side), matched): lines
+        for (rule, path, matched), lines in findings.items()
+        if path.startswith(side)
+    }
 
 
 def _check_semgrep_devex(scope: Scope, command: list[str], *, deadline: float) -> Outcome:
@@ -326,19 +340,16 @@ def _check_semgrep_devex(scope: Scope, command: list[str], *, deadline: float) -
     _semgrep_remaining(deadline)
     if not after_contents:
         return "skipped", "no file to scan"
-    after = _semgrep_findings(after_contents, command, deadline=deadline)
-    _semgrep_remaining(deadline)
-    if not after:
-        return "pass", "no new findings"
 
     # CI blocks only on findings the branch introduced, and gets them from `--baseline-commit`.
     # That flag is not usable here: on a clean checkout semgrep runs `git reset --hard` to the
     # baseline and back, and otherwise it checks the whole repository out again. Scanning the
-    # merge-base copies of the flagged files gives the same comparison without touching the checkout.
+    # merge-base copies of the files gives the same comparison without touching the checkout.
+    # Both copies go into one scan, because semgrep's startup costs more than a second copy.
     renames = _renamed_from(scope, timeout=_semgrep_remaining(deadline))
     before_contents = {
         path: content
-        for path in {path for _, path, _ in after}
+        for path in after_contents
         if (
             content := _git(
                 "show", f"{scope.merge_base}:{renames.get(path, path)}", timeout=_semgrep_remaining(deadline)
@@ -347,8 +358,15 @@ def _check_semgrep_devex(scope: Scope, command: list[str], *, deadline: float) -
         is not None
     }
     _semgrep_remaining(deadline)
-    before = _semgrep_findings(before_contents, command, deadline=deadline) if before_contents else {}
-    _semgrep_remaining(deadline)
+    findings = _semgrep_findings(
+        {
+            **{f"{_AFTER}{path}": content for path, content in after_contents.items()},
+            **{f"{_BEFORE}{path}": content for path, content in before_contents.items()},
+        },
+        command,
+        deadline=deadline,
+    )
+    after, before = _findings_on(findings, _AFTER), _findings_on(findings, _BEFORE)
 
     introduced = [
         f"{rule} at {path}:{line}"

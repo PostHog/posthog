@@ -36,8 +36,14 @@ def no_diff_reading_checks() -> Iterator[None]:
 
 class TestDiffReadingChecks:
     @pytest.mark.parametrize(
-        "status,warn_only,expected_exit",
-        [("fail", False, 1), ("advisory", False, 0), (None, False, 0), ("warning", True, 0)],
+        "status,warn_only,runs_a_command,expected_exit",
+        [
+            ("fail", False, False, 1),
+            ("advisory", False, False, 0),
+            (None, False, False, 0),
+            ("warning", True, False, 0),
+            ("warning", True, True, 0),
+        ],
     )
     @patch("hogli_commands.ci_preflight._merge_base", return_value="abc123")
     @patch("hogli_commands.ci_preflight._emit_telemetry")
@@ -53,6 +59,7 @@ class TestDiffReadingChecks:
         mock_merge_base: MagicMock,
         status: Status | None,
         warn_only: bool,
+        runs_a_command: bool,
         expected_exit: int,
     ) -> None:
         def run(scope: Scope) -> tuple[Status, str]:
@@ -60,7 +67,11 @@ class TestDiffReadingChecks:
                 raise KeyError("unexpected tool output")
             return status, "detail"
 
-        check = DiffCheck(key="probe", label="probe", triggers=["frontend/*"], verify=None, run=run, soft=warn_only)
+        check = (
+            DiffCheck(key="probe", label="probe", triggers=["frontend/*"], verify=["echo", "finding"], soft=warn_only)
+            if runs_a_command
+            else DiffCheck(key="probe", label="probe", triggers=["frontend/*"], verify=None, run=run, soft=warn_only)
+        )
         with patch("hogli_commands.ci_preflight.DIFF_CHECKS", [check]):
             result = runner.invoke(cli, ["ci:preflight", "--strict"])
 

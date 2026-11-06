@@ -63,7 +63,13 @@ const externalizePackages = {
                     importer: args.importer,
                     pluginData: { resolvingAlias: true },
                 })
-                if (!resolved.errors.length && !resolved.path.includes('/node_modules/')) {
+                // A workspace package whose exports point at its build output resolves to whatever was
+                // built last, so a stale dist/ fails the whole bundle. Built output has no layer anyway.
+                if (
+                    !resolved.errors.length &&
+                    !resolved.path.includes('/node_modules/') &&
+                    !resolved.path.includes('/dist/')
+                ) {
                     return resolved
                 }
             }

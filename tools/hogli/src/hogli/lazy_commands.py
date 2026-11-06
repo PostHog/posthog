@@ -58,6 +58,22 @@ def _parse_import_string(command_name: str, import_string: Any) -> tuple[str, st
     return module_path, attr
 
 
+def _borrowed_checkout_hint() -> str:
+    """A worktree borrows the main checkout's venv, whose .pth files load hogli and the
+    packages it imports from that checkout, while the command modules load from the
+    worktree. An import that fails only there means the two checkouts are on different
+    commits, which `git pull` in the main checkout heals."""
+    from hogli.manifest import REPO_ROOT
+
+    hogli_checkout = Path(__file__).resolve().parents[4]
+    if hogli_checkout == REPO_ROOT.resolve() or not (hogli_checkout / "hogli.yaml").is_file():
+        return ""
+    return (
+        f"\nhogli loads its shared packages from {hogli_checkout}, not from this worktree. "
+        f"Bring both checkouts to the same commit (`git -C {hogli_checkout} pull`), then retry."
+    )
+
+
 def resolve_click_command(command_name: str, import_string: Any) -> click.Command:
     """Resolve a lazy ``click:`` manifest entry to its ``click.Command`` object.
 
@@ -70,7 +86,10 @@ def resolve_click_command(command_name: str, import_string: Any) -> click.Comman
     try:
         module = importlib.import_module(module_path)
     except Exception as exc:
-        raise click.ClickException(f"hogli: command {command_name!r} could not import {module_path!r}: {exc}") from exc
+        hint = _borrowed_checkout_hint() if isinstance(exc, ImportError) else ""
+        raise click.ClickException(
+            f"hogli: command {command_name!r} could not import {module_path!r}: {exc}{hint}"
+        ) from exc
 
     try:
         command = getattr(module, attr)

@@ -96,7 +96,7 @@ fi
 if command -v hogli >/dev/null 2>&1
 then
     HOGLI_GIT_HOOK=pre-push hogli ci:preflight --strict || {
-        echo "pre-push: ci:preflight found failures — run 'hogli ci:preflight --fix', resolve, and push again."
+        echo "pre-push: ci:preflight did not pass. Fix what it reported above, or run 'hogli ci:preflight --fix', then push again."
         exit 1
     }
 fi

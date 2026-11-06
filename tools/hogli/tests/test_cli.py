@@ -145,6 +145,23 @@ class TestLazyClickCommands:
             assert hidden_command not in cli.list_commands(ctx)
             assert isinstance(cli.get_command(ctx, hidden_command), click.Command)
 
+    @pytest.mark.parametrize("borrowed", [True, False])
+    def test_import_failure_names_the_checkout_hogli_runs_from(
+        self, borrowed: bool, tmp_path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from hogli import lazy_commands
+        from hogli.manifest import REPO_ROOT
+
+        hogli_checkout = str(lazy_commands.__file__).split("/tools/hogli/")[0]
+        monkeypatch.setattr("hogli.manifest.REPO_ROOT", tmp_path if borrowed else REPO_ROOT)
+
+        with pytest.raises(click.ClickException) as error:
+            lazy_commands.resolve_click_command("probe", "hogli_commands.no_such_module:cmd")
+
+        assert ("could not import" in error.value.message) and (
+            (f"git -C {hogli_checkout} pull" in error.value.message) == borrowed
+        )
+
 
 class TestHelpText:
     """Test command help text generation."""

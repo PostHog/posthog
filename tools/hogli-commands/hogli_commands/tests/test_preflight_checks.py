@@ -189,7 +189,7 @@ class TestSemgrepDevex:
 
     @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/uv")
     @patch("hogli_commands.preflight_checks._semgrep_spec", lambda: "semgrep==1.0.0")
-    def test_baseline_scan_uses_only_the_remaining_check_budget(self, mock_which: MagicMock) -> None:
+    def test_a_scan_past_the_check_budget_skips(self, mock_which: MagicMock) -> None:
         clock = [100.0]
         scans = 0
         finding = {
@@ -213,7 +213,7 @@ class TestSemgrepDevex:
             if command[0] == "git":
                 return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
             scans += 1
-            duration = 14.0 if scans == 1 else 2.0
+            duration = 16.0
             clock[0] += min(duration, timeout)
             if duration > timeout:
                 raise subprocess.TimeoutExpired(command, timeout)
@@ -231,6 +231,7 @@ class TestSemgrepDevex:
 
         assert status == "skipped"
         assert "timed out" in detail
+        assert scans == 1
         assert clock[0] == 115.0
 
     @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/uv")
@@ -244,7 +245,12 @@ class TestSemgrepDevex:
         (tmp_path / "posthog").mkdir()
         (tmp_path / "posthog/a.py").write_text("value = 1\n")
 
-        def run(command: list[str], *, env: dict[str, str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        def run(
+            command: list[str], *, env: dict[str, str] | None = None, **kwargs: object
+        ) -> subprocess.CompletedProcess[str]:
+            if command[0] == "git":
+                return subprocess.CompletedProcess(command, 0, stdout="" if "diff" in command else b"", stderr="")
+            env = env or {}
             tools = Path(env.get("UV_TOOL_DIR", "/home-paths-forbidden/uv-tools"))
             tools.mkdir(parents=True, exist_ok=True)
             for key in ("SEMGREP_LOG_FILE", "SEMGREP_SETTINGS_FILE"):
@@ -293,6 +299,8 @@ class TestSemgrepDevex:
             monkeypatch.setenv(name, value)
 
         def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[object]:
+            if command[0] == "git" and "diff" in command:
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
             if command[0] == "git":
                 return subprocess.CompletedProcess(command, 0, stdout=b"download-marker\n", stderr=b"")
             if cached and "--version" in command:
