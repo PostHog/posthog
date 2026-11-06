@@ -143,9 +143,11 @@ class _WebhookTransports:
 
 def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     """Sends what one evaluation decided, to every destination configured for it."""
-    team = Team.objects.filter(id=request.team_id).first()
     # A source that still owns its alert sends its own message, so the platform sends nothing for it.
-    if team is None or not request.owned_by_platform:
+    if not request.owned_by_platform:
+        return DeliveryOutcome(live=False, sent=0, skipped_without_transport=0)
+    team = Team.objects.filter(id=request.team_id).first()
+    if team is None:
         return DeliveryOutcome(live=False, sent=0, skipped_without_transport=0)
     if delivery_holds.blocks_delivery(request.team_id, request.configuration_id, request.evaluation_key):
         logger.info(
@@ -371,9 +373,6 @@ def _split_by_path(
     platform_destinations: "_PlatformDestinations | None",
 ) -> tuple[EvaluationAnnouncement, tuple[LegacyEventEmission, ...]]:
     """The transitions HogFunction destinations receive natively, and the ones the source emits for them.
-
-    Only an alert the platform owns can take the HogFunction path. While the source owns it, its
-    own stack emits those events, and emitting them here too would send every message twice.
 
     A transition inside a firing takes the path its firing took first, so a firing and its resolve
     never split across paths. Any other transition takes the path its destinations allow now.

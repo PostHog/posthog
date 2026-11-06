@@ -188,11 +188,11 @@ class TestDeliverEvaluation(APIBaseTest):
         transports: dict[DestinationType, type] | None = None,
         sends_messages: bool = True,
         incident_actions: dict[str, IncidentAction] | None = None,
-        owned_by_platform: bool = True,
         overflowed: int = 0,
         overflow_is_lower_bound: bool = False,
         parts: int = 1,
         part: int = 0,
+        source_alert_url: str | None = None,
         kinds: dict[str, AlertEventKind] | None = None,
     ) -> Any:
         def groups(*, team_id: int, alert_id: str, allowed_event_ids: list[str]) -> list[AlertDestinationGroup]:
@@ -214,18 +214,16 @@ class TestDeliverEvaluation(APIBaseTest):
                 },
             ),
         ):
-            return deliver_evaluation(
-                _request(
-                    self.team.id,
-                    sends_messages=sends_messages,
-                    incident_actions=incident_actions,
-                    owned_by_platform=owned_by_platform,
-                    overflowed=overflowed,
-                    overflow_is_lower_bound=overflow_is_lower_bound,
-                    parts=parts,
-                    part=part,
-                )
+            request = _request(
+                self.team.id,
+                sends_messages=sends_messages,
+                incident_actions=incident_actions,
+                overflowed=overflowed,
+                overflow_is_lower_bound=overflow_is_lower_bound,
+                parts=parts,
+                part=part,
             )
+            return deliver_evaluation(replace(request, source_alert_url=source_alert_url))
 
     def test_a_destination_hears_only_about_the_kinds_it_subscribed_to(self) -> None:
         # One group fires while another resolves. A destination that asked for firings must not
@@ -476,14 +474,9 @@ class TestDeliverEvaluation(APIBaseTest):
     def test_every_message_links_to_the_alert_page_the_request_names_and_to_its_project(self) -> None:
         url = "https://app.example.com/project/7/logs/alerts/legacy-1"
 
-        with (
-            patch(f"{_MODULE}.announcement", return_value=_announcement(_transition(AlertEventKind.FIRING))),
-            patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(SLACK)]),
-            patch(f"{_MODULE}.DatabaseThreadStore"),
-            patch.dict(delivery_paths._emitters, clear=True),
-            patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: RecordingTransport}),
-        ):
-            deliver_evaluation(replace(_request(self.team.id), source_alert_url=url))
+        self._run(
+            _announcement(_transition(AlertEventKind.FIRING)), {FIRING_EVENT: [_group(SLACK)]}, source_alert_url=url
+        )
 
         assert [(m.alert_url, m.project) for _, m in RecordingTransport.sends] == [
             (url, MessageLink(label=self.team.name, url=absolute_uri(f"/project/{self.team.id}")))
@@ -579,9 +572,7 @@ class TestDeliverEvaluation(APIBaseTest):
         assert [m.incident_action for channel, m in RecordingTransport.sends if channel == "R-1"] == incident
 
     def test_an_alert_its_source_still_owns_is_not_contacted(self) -> None:
-        outcome = self._run(
-            _announcement(_transition(AlertEventKind.FIRING)), {FIRING_EVENT: [_group(SLACK)]}, owned_by_platform=False
-        )
+        outcome = deliver_evaluation(_request(self.team.id, owned_by_platform=False))
 
         assert RecordingTransport.sends == []
         assert outcome.live is False
