@@ -18,6 +18,7 @@ import {
     HogFunctionType,
     IntegrationType,
     MessageAssetRow,
+    MinimalAppMetric,
 } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
@@ -1042,37 +1043,26 @@ export class EmailService {
         // Test sends (from the editor's "Run test") must not record metrics — keep them out of the
         // workflow's Metrics tab, mirroring the isTest skip the SES webhook applies to delivery/open/click.
         if (!isTest) {
-            result.metrics.push({
-                team_id: invocation.teamId,
-                app_source_id: invocation.parentRunId ?? invocation.functionId,
-                instance_id: invocation.state.actionId || invocation.id,
-                metric_kind: 'email',
-                metric_name: success ? 'email_sent' : 'email_failed',
-                count: 1,
-            })
+            const pushEmailMetric = (metric_name: MinimalAppMetric['metric_name']): void => {
+                result.metrics.push({
+                    team_id: invocation.teamId,
+                    app_source_id: invocation.parentRunId ?? invocation.functionId,
+                    instance_id: invocation.state.actionId || invocation.id,
+                    metric_kind: 'email',
+                    metric_name,
+                    count: 1,
+                })
+            }
+            pushEmailMetric(success ? 'email_sent' : 'email_failed')
 
             // Untracked sends can never produce opens/clicks, so record them separately: open/click
             // rates are computed against (delivered - untracked) to avoid deflation.
             if (success && !trackingEnabled) {
-                result.metrics.push({
-                    team_id: invocation.teamId,
-                    app_source_id: invocation.parentRunId ?? invocation.functionId,
-                    instance_id: invocation.state.actionId || invocation.id,
-                    metric_kind: 'email',
-                    metric_name: 'email_untracked',
-                    count: 1,
-                })
+                pushEmailMetric('email_untracked')
             }
 
             if (success && isSandbox) {
-                result.metrics.push({
-                    team_id: invocation.teamId,
-                    app_source_id: invocation.parentRunId ?? invocation.functionId,
-                    instance_id: invocation.state.actionId || invocation.id,
-                    metric_kind: 'email',
-                    metric_name: 'email_sandbox_sent',
-                    count: 1,
-                })
+                pushEmailMetric('email_sandbox_sent')
             }
 
             if (success && assetRow) {

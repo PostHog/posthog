@@ -1047,7 +1047,9 @@ describe('EmailService', () => {
                     })
                     sendEmailSpy.mockRejectedValueOnce(error)
 
-                    expect((await send(false)).error).toContain('Failed to send email via SES')
+                    const failed = await send(false)
+                    expect(failed.error).toContain('Failed to send email via SES')
+                    expect(failed.metrics.map((metric) => metric.metric_name)).toEqual(['email_failed'])
                     const next = await send(false)
 
                     if (returned) {
