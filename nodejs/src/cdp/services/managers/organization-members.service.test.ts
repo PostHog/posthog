@@ -351,25 +351,34 @@ describe('OrganizationMembersService', () => {
             }
         })
 
+        type Lookup = { member: string; blockedTeamIds: number[] }
+
         it.each([
-            ['the member is removed', [{ address: 'member@example.com', unverifiedMember: false }]],
-            ['staff block the organization', 'organization blocked'],
+            [
+                'the member is removed',
+                (lookup: Lookup): void => {
+                    lookup.member = 'new-member@example.com'
+                },
+                [{ address: 'member@example.com', unverifiedMember: false }],
+            ],
+            [
+                'staff block the organization',
+                (lookup: Lookup): void => {
+                    lookup.blockedTeamIds = [1]
+                },
+                'organization blocked',
+            ],
         ] as const)(
             'reloads a fresh check inside the minute when %s, and blocks later cached checks as well',
-            async (_change, expected) => {
-                let member = 'member@example.com'
-                let blockedTeamIds: number[] = []
-                const query = jest.fn(() => Promise.resolve({ rows: [memberRow(member)] }))
-                const service = new OrganizationMembersService(routerFor(query, () => blockedTeamIds))
+            async (_case, change, expected) => {
+                const lookup: Lookup = { member: 'member@example.com', blockedTeamIds: [] }
+                const query = jest.fn(() => Promise.resolve({ rows: [memberRow(lookup.member)] }))
+                const service = new OrganizationMembersService(routerFor(query, () => lookup.blockedTeamIds))
                 const outcome = (check: RecipientCheck): unknown =>
                     check.organizationBlocked ? 'organization blocked' : check.blocked
 
                 expect(outcome(await service.checkRecipients(1, ['member@example.com'], { fresh: false }))).toEqual([])
-                if (expected === 'organization blocked') {
-                    blockedTeamIds = [1]
-                } else {
-                    member = 'new-member@example.com'
-                }
+                change(lookup)
 
                 expect(outcome(await service.checkRecipients(1, ['member@example.com'], { fresh: true }))).toEqual(
                     expected
