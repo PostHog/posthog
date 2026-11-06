@@ -130,6 +130,7 @@ type CacheEntry<T> = {
 export class LazyLoader<T> {
     private cache: Record<string, CacheEntry<T> | undefined>
     private pendingLoads: Record<string, Promise<void> | undefined>
+    private pendingReloads: Record<string, Promise<void> | undefined>
 
     private refreshAgeMs: number
     private refreshNullAgeMs: number
@@ -154,6 +155,7 @@ export class LazyLoader<T> {
         // instead of missing, and writing through it mutates a builtin the whole process shares.
         this.cache = Object.create(null)
         this.pendingLoads = Object.create(null)
+        this.pendingReloads = Object.create(null)
 
         this.refreshAgeMs = this.options.refreshAgeMs ?? 1000 * 60 * 5 // 5 minutes
         this.refreshNullAgeMs = this.options.refreshNullAgeMs ?? this.refreshAgeMs
@@ -187,12 +189,21 @@ export class LazyLoader<T> {
     }
 
     /**
-     * Loads the key in a load that starts after this call, so a value written before the call is
-     * seen. It waits out `bufferMs` and joins only a buffered load that has not started, so reloads
-     * called together share one load. The cached value changes only when that load succeeds.
+     * Joins a reload of the key already in flight, so concurrent reloads share one load. Otherwise
+     * starts a load after this call, so a value written before the first reload is seen.
      */
     public async reload(key: string): Promise<void> {
-        await this.load([key], { startAfterNow: true })
+        const inFlight = this.pendingReloads[key]
+        if (inFlight) {
+            return await inFlight
+        }
+        const reloadLoad: Promise<void> = this.load([key], { startAfterNow: true }).finally(() => {
+            if (this.pendingReloads[key] === reloadLoad) {
+                delete this.pendingReloads[key]
+            }
+        })
+        this.pendingReloads[key] = reloadLoad
+        await reloadLoad
     }
 
     public markForRefresh(key: string | string[]): void {

@@ -344,21 +344,15 @@ type BoundedTreeAdapter = TreeAdapter<DefaultTreeAdapterMap> & {
     readonly attributeLimit: (tagName: string) => number
 }
 
-function isBoundedTreeAdapter(adapter: TreeAdapter<DefaultTreeAdapterMap> | undefined): adapter is BoundedTreeAdapter {
-    return typeof (adapter as Partial<BoundedTreeAdapter> | undefined)?.attributeLimit === 'function'
-}
-
 export class AttributeBoundedParser extends Parser<DefaultTreeAdapterMap> {
+    protected static readonly styledRoots: boolean = false
+
     constructor(
         options?: ParserOptions<DefaultTreeAdapterMap>,
         document?: DefaultTreeAdapterMap['document'],
         fragmentContext?: DefaultTreeAdapterMap['element'] | null
     ) {
-        const given = options?.treeAdapter
-        const treeAdapter = given && given !== defaultTreeAdapter ? given : boundedTreeAdapter()
-        const attributeLimit = isBoundedTreeAdapter(treeAdapter)
-            ? treeAdapter.attributeLimit
-            : (): number => MAX_ATTRIBUTES_PER_TAG
+        const treeAdapter = boundedTreeAdapter({ styledRoots: new.target.styledRoots })
         super({ ...options, treeAdapter }, document, fragmentContext)
         const tokenizer = this.tokenizer as unknown as {
             currentToken: { tagName: string; attrs: unknown[] } | null
@@ -367,12 +361,16 @@ export class AttributeBoundedParser extends Parser<DefaultTreeAdapterMap> {
         const leaveAttrName = tokenizer._leaveAttrName.bind(tokenizer)
         tokenizer._leaveAttrName = () => {
             const token = tokenizer.currentToken
-            if (token && token.attrs.length >= attributeLimit(token.tagName)) {
+            if (token && token.attrs.length >= treeAdapter.attributeLimit(token.tagName)) {
                 throw new FooterNotRetained()
             }
             leaveAttrName()
         }
     }
+}
+
+class BuiltEmailParser extends AttributeBoundedParser {
+    protected static override readonly styledRoots = true
 }
 
 const templateOwners = new WeakMap<DefaultTreeAdapterMap['parentNode'], DefaultTreeAdapterMap['template']>()
@@ -430,27 +428,18 @@ function boundedTreeAdapter({ styledRoots = false } = {}): BoundedTreeAdapter {
 }
 
 function parseBounded(html: string, scriptingEnabled = false): DefaultTreeAdapterMap['document'] {
-    return AttributeBoundedParser.parse<DefaultTreeAdapterMap>(html, {
-        scriptingEnabled,
-        treeAdapter: boundedTreeAdapter(),
-    })
+    return AttributeBoundedParser.parse<DefaultTreeAdapterMap>(html, { scriptingEnabled })
 }
 
 function parseBuiltEmail(html: string, scriptingEnabled = false): DefaultTreeAdapterMap['document'] {
-    return AttributeBoundedParser.parse<DefaultTreeAdapterMap>(html, {
-        scriptingEnabled,
-        treeAdapter: boundedTreeAdapter({ styledRoots: true }),
-    })
+    return BuiltEmailParser.parse<DefaultTreeAdapterMap>(html, { scriptingEnabled })
 }
 
 function parseBoundedFragment(
     html: string,
     context: DefaultTreeAdapterMap['element'] | null
 ): DefaultTreeAdapterMap['documentFragment'] {
-    const parser = AttributeBoundedParser.getFragmentParser<DefaultTreeAdapterMap>(context, {
-        scriptingEnabled: false,
-        treeAdapter: boundedTreeAdapter(),
-    })
+    const parser = AttributeBoundedParser.getFragmentParser<DefaultTreeAdapterMap>(context, { scriptingEnabled: false })
     parser.tokenizer.write(html, true)
     return parser.getFragment()
 }
