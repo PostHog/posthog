@@ -62,8 +62,6 @@ tools:
     integrations-email-sandbox-sender-create:
         operation: integrations_email_sandbox_sender_create
         enabled: true
-        scopes:
-            - integration:write
         annotations:
             readOnly: false
             destructive: false
