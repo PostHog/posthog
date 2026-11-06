@@ -1243,7 +1243,6 @@ CREATE TABLE posthog.sharded_mcp_intent_assignments (
   is_outlier UInt8,
   intent_text String,
   calls_in_run UInt32,
-  tool LowCardinality(String),
   timestamp DateTime64(3, 'UTC')
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_mcp_intent_assignments', '{replica}', timestamp) ORDER BY (team_id, intent_hash) PARTITION BY toYYYYMM(timestamp) TTL toDateTime(timestamp) + toIntervalMonth(3) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_mcp_intent_calls_hourly (
@@ -2013,7 +2012,6 @@ CREATE TABLE posthog.writable_mcp_intent_assignments (
   is_outlier UInt8,
   intent_text String,
   calls_in_run UInt32,
-  tool LowCardinality(String),
   timestamp DateTime64(3, 'UTC')
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_mcp_intent_assignments', cityHash64(intent_hash));
 CREATE TABLE posthog.writable_mcp_intent_calls_hourly (
@@ -2848,7 +2846,6 @@ CREATE TABLE posthog.distributed_mcp_intent_assignments (
   is_outlier UInt8,
   intent_text String,
   calls_in_run UInt32,
-  tool LowCardinality(String),
   timestamp DateTime64(3, 'UTC')
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_mcp_intent_assignments', cityHash64(intent_hash));
 CREATE TABLE posthog.distributed_mcp_intent_calls_hourly (
