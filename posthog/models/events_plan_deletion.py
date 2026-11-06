@@ -170,8 +170,7 @@ def _row(team_id: int, state: PlanDeletionState) -> TeamEventsPlanDeletion:
 
 
 def apply_events_retention_change(organization: Organization, previous_months: int | None) -> None:
-    """Align the organization's teams with its plan period. After a downgrade, push their passes and tell the admins
-    when the first one deletes past the shorter period.
+    """Align the organization's teams with its plan period. After a downgrade, push their passes and tell the admins.
 
     The first billing sync has no previous period. It moves teams off the 84-month fallback, which is no downgrade.
     """
@@ -188,8 +187,6 @@ def apply_events_retention_change(organization: Organization, previous_months: i
         (state.next_deletion_on for state in states.values() if state.downgraded_from_months is not None),
         default=None,
     )
-    if deletion_on is None:
-        return
     _notify_admins(RETENTION_SHORTENED_EVENT, {organization.id: _notice(organization, previous_months, deletion_on)})
 
 
@@ -220,12 +217,12 @@ def report_upcoming_deletions() -> int:
     return len(notices)
 
 
-def _notice(organization: Organization, previous_months: int, deletion_on: date) -> dict[str, object]:
+def _notice(organization: Organization, previous_months: int, deletion_on: date | None) -> dict[str, object]:
     return {
         "organization_name": organization.name,
         "previous_retention_months": previous_months,
         "retention_months": organization_events_retention_months(organization),
-        "deletion_scheduled_on": deletion_on.isoformat(),
+        "deletion_scheduled_on": deletion_on.isoformat() if deletion_on else None,
     }
 
 

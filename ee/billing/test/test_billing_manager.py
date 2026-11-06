@@ -625,14 +625,14 @@ class TestBillingManager(BaseTest):
 
     @parameterized.expand(
         [
-            ("downgrade_from_the_features_sync", True, _SURVEYS, _FREE_RETENTION, 84, 12, True, True),
-            ("downgrade_from_the_org_details_sync", False, _SURVEYS, _FREE_RETENTION, 84, 12, True, True),
-            ("downgrade_without_deletion", False, _SURVEYS, _FREE_RETENTION, 84, 12, False, False),
-            ("first_billing_sync", False, None, _FREE_RETENTION, 84, 12, True, False),
-            ("upgrade", False, _FREE_RETENTION, _SURVEYS, 12, 84, True, False),
-            ("teams_already_reconciled", False, _SURVEYS, _FREE_RETENTION, 12, 12, True, False),
+            ("downgrade_from_the_features_sync", True, _SURVEYS, _FREE_RETENTION, 84, 12, True),
+            ("downgrade_from_the_org_details_sync", False, _SURVEYS, _FREE_RETENTION, 84, 12, True),
+            ("first_billing_sync", False, None, _FREE_RETENTION, 84, 12, False),
+            ("upgrade", False, _FREE_RETENTION, _SURVEYS, 12, 84, False),
+            ("teams_already_reconciled", False, _SURVEYS, _FREE_RETENTION, 12, 12, False),
         ]
     )
+    @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
     @patch("posthog.models.events_plan_deletion.is_cloud", return_value=True)
     @patch("posthog.models.events_plan_deletion.ph_scoped_capture")
     def test_billing_sync_reconciles_events_retention_and_reports_a_downgrade(
@@ -643,7 +643,6 @@ class TestBillingManager(BaseTest):
         features: list[dict],
         team_months: int,
         expected_team_months: int,
-        deleting: bool,
         reported: bool,
         mock_scoped_capture: MagicMock,
         _mock_is_cloud: MagicMock,
@@ -661,15 +660,14 @@ class TestBillingManager(BaseTest):
             valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
 
-        with override_settings(EVENTS_DATA_RETENTION_ENFORCED=deleting):
-            if features_sync:
-                with patch("ee.billing.billing_manager.http_session.get") as mock_get:
-                    mock_get.return_value.status_code = 200
-                    mock_get.return_value.json.return_value = {"available_product_features": features}
-                    BillingManager(license).update_available_product_features(organization)
-            else:
-                billing_status = {"customer": {"available_product_features": features}}
-                BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
+        if features_sync:
+            with patch("ee.billing.billing_manager.http_session.get") as mock_get:
+                mock_get.return_value.status_code = 200
+                mock_get.return_value.json.return_value = {"available_product_features": features}
+                BillingManager(license).update_available_product_features(organization)
+        else:
+            billing_status = {"customer": {"available_product_features": features}}
+            BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
 
         self.team.refresh_from_db()
         assert self.team.event_retention_months == expected_team_months
