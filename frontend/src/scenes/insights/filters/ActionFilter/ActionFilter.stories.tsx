@@ -14,17 +14,10 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { AnyEntityNode, NodeKind } from '~/queries/schema/schema-general'
-import {
-    ChartDisplayType,
-    EntityTypes,
-    FilterLogicalOperator,
-    FilterType,
-    InsightLogicProps,
-    InsightType,
-} from '~/types'
+import { ChartDisplayType, FilterLogicalOperator, InsightLogicProps, InsightType } from '~/types'
 
 import __trendsLineBreakdown from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'
-import { ActionFilter, ActionFilterProps, SeriesActionFilter, SeriesActionFilterProps } from './ActionFilter'
+import { SeriesActionFilter, SeriesActionFilterProps } from './ActionFilter'
 import { MathAvailability } from './ActionFilterRow/types'
 import { SeriesNode } from './seriesNode'
 
@@ -331,46 +324,5 @@ export const FunnelsGroupCustomName: Story = {
             mathAvailability: MathAvailability.FunnelsOnly,
         }
     ),
-    args: {},
-}
-
-/**
- * The legacy-persisted surfaces (CDP, workflows, heatmaps, usage metrics, dashboard templates,
- * retention) keep the `filters`/`setFilters` props through the wrapper.
- */
-const renderLegacyActionFilter = ({ ...props }: Partial<ActionFilterProps>): JSX.Element => {
-    useMountedLogic(cohortsModel)
-    const id = useRef(uuid())
-    const [filters, setFilters] = useState<FilterType>({
-        insight: InsightType.TRENDS,
-        events: [
-            {
-                id: '$pageview',
-                name: '$pageview',
-                order: 0,
-                type: EntityTypes.EVENTS,
-                properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'person' }],
-            },
-        ],
-    } as FilterType)
-    const insightProps = useStoryInsightProps()
-
-    return (
-        <BindLogic logic={insightLogic} props={insightProps}>
-            <ActionFilter
-                filters={filters}
-                setFilters={(payload: FilterType) => setFilters({ ...filters, ...payload })}
-                typeKey={`legacy_${id.current}`}
-                buttonCopy="Add graph series"
-                showSeriesIndicator
-                mathAvailability={MathAvailability.None}
-                {...props}
-            />
-        </BindLogic>
-    )
-}
-
-export const LegacyFilters: Story = {
-    render: renderLegacyActionFilter as any,
     args: {},
 }

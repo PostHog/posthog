@@ -621,6 +621,17 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         self.assertEqual(OrganizationInvite.objects.count(), count)
 
+    def test_invite_creation_rejects_message_over_length_limit(self):
+        count = OrganizationInvite.objects.count()
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/",
+            {"target_email": "x@posthog.com", "message": "a" * 1001},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "message")
+        self.assertEqual(response.json()["code"], "max_length")
+        self.assertEqual(OrganizationInvite.objects.count(), count)
+
     @parameterized.expand(
         [
             ("plus_addressed", "newperson+alias@posthog.com", "plus_addressing_not_allowed"),
@@ -1869,18 +1880,16 @@ class TestOnboardingSkipAPI(APIBaseTest):
         self.assertEqual(self.user.onboarding_skipped_at, first_ts)
 
     @patch("posthog.api.user.posthoganalytics.capture")
-    def test_skip_captures_one_event_with_flow_variant(self, mock_capture):
+    def test_skip_captures_one_event(self, mock_capture):
         for _ in range(2):
             with self.captureOnCommitCallbacks(execute=True):
-                response = self.client.post(
-                    self._skip_url(), {"reason": "later", "step_at_skip": "mcp", "flow_variant": "simple"}
-                )
+                response = self.client.post(self._skip_url(), {"reason": "later", "step_at_skip": "install"})
             self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
         skip_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "onboarding skipped"]
         self.assertEqual(
             [c.kwargs["properties"] for c in skip_calls],
-            [{"step_at_skip": "mcp", "reason": "later", "flow_variant": "simple"}],
+            [{"step_at_skip": "install", "reason": "later"}],
         )
         self.assertEqual(skip_calls[0].kwargs["groups"]["project"], str(self.team.uuid))
         self.assertEqual(skip_calls[0].kwargs["groups"]["organization"], str(self.organization.id))

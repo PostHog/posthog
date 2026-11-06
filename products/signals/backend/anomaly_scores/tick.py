@@ -59,7 +59,10 @@ from products.signals.backend.anomaly_scores.queue import (
     InsightPick,
     TeamCensus,
     mark_attempted,
+    mark_too_expensive,
+    reset_too_expensive,
     select_insights,
+    too_expensive_cooldown,
 )
 from products.signals.backend.anomaly_scores.scoring import (
     SCORING_QUERY_BUDGET_SECONDS,
@@ -80,7 +83,8 @@ STATUS_SCORED = "scored"
 STATUS_UP_TO_DATE = "up_to_date"
 STATUS_UNSUPPORTED = "unsupported"
 STATUS_MISSING = "missing"
-# The scoring query hit a ClickHouse time or memory limit. A retry in an hour hits it again.
+# The scoring query hit a ClickHouse time or memory limit. A retry in an hour hits it again, so the cooldown
+# grows with each consecutive one.
 STATUS_TOO_EXPENSIVE = "too_expensive"
 # The insight's creator cannot read a table of the query.
 STATUS_ACCESS_DENIED = "access_denied"
@@ -98,7 +102,7 @@ _PLAN_TIMEOUT = datetime.timedelta(minutes=2)
 # A timed-out attempt does not stop its thread, so a plan that ends in time also keeps its retry from overlapping it.
 _PLAN_LOAD_BUDGET = _PLAN_TIMEOUT / 2
 # All the scoring queries of one insight stop within their budget. The rest is detection, the capture request,
-# and the failure classification. A query timeout must reach the classification, so that it gets the 1 day cooldown.
+# and the failure classification. A query timeout must reach the classification, so that its cooldown grows.
 _INSIGHT_TIMEOUT = datetime.timedelta(seconds=SCORING_QUERY_BUDGET_SECONDS) + datetime.timedelta(seconds=90)
 _INSIGHT_HEARTBEAT_TIMEOUT = datetime.timedelta(minutes=1)
 _CAPTURE_TIMEOUT = datetime.timedelta(minutes=1)
@@ -129,6 +133,7 @@ class AnomalyScoringTickPlan:
     picked_score: int = 0
     picked_train: int = 0
     scored_stale_model: int = 0
+    stale_candidates: int = 0
     train_backlog_soft: int = 0
     train_backlog_hard: int = 0
     active: int = 0
@@ -137,6 +142,7 @@ class AnomalyScoringTickPlan:
     enrolled_organizations: int = 0
     teams_planned: int = 0
     teams_skipped: int = 0
+    long_cooldown: int = 0
     self_driving_organization_percentage: float = 0.0
     due_insights: int | None = None
     oldest_due_seconds: int | None = None
@@ -183,8 +189,10 @@ class AnomalyScoringTickResult:
     # Planned picks of the score pass and of the train pass, started or not.
     picked_score: int = 0
     picked_train: int = 0
-    # Planned score pass picks with a model due for a soft retrain, and the due train candidates left unpicked.
+    # Planned score pass picks with a model due for a soft retrain, the stale models that the score pass could take,
+    # and the due train candidates left unpicked.
     scored_stale_model: int = 0
+    stale_candidates: int = 0
     train_backlog_soft: int = 0
     train_backlog_hard: int = 0
     # Active insights of the eligible teams, and how many of them have each activity reason.
@@ -202,6 +210,8 @@ class AnomalyScoringTickResult:
     # The plan activity failed, and the tick scored nothing. `plan_error` is the error class.
     plan_failed: bool = False
     plan_error: str | None = None
+    # Insights in a cooldown after two or more consecutive too-expensive visits.
+    long_cooldown: int = 0
     # Due rows that the plan read from the stored due list, the time since the oldest of them became due, and
     # the time since the oldest row refresh. None when the plan does not read the due list.
     due_insights: int | None = None
@@ -248,6 +258,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         picked_score=selection.picked_score,
         picked_train=selection.picked_train,
         scored_stale_model=selection.scored_stale_model,
+        stale_candidates=selection.stale_candidates,
         train_backlog_soft=selection.train_backlog_soft,
         train_backlog_hard=selection.train_backlog_hard,
         active=selection.active,
@@ -256,6 +267,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         enrolled_organizations=selection.enrolled_organizations,
         teams_planned=selection.teams_planned,
         teams_skipped=selection.teams_skipped,
+        long_cooldown=selection.long_cooldown,
         self_driving_organization_percentage=config.self_driving_organization_percentage,
         due_insights=selection.due_insights,
         oldest_due_seconds=selection.oldest_due_seconds,
@@ -332,17 +344,33 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
             error=str(error)[:200],
             duration_ms=duration_ms,
         )
-        record_pick(status=status or STATUS_ERRORED, interval=interval, duration_ms=duration_ms, events=0, run=pick.run)
-        capture_pick(pick, status=status or STATUS_ERRORED, interval=interval, duration_ms=duration_ms, run=pick.run)
+        too_expensive = pick.too_expensive
+        cooldown = ATTEMPT_COOLDOWN
+        if status == STATUS_TOO_EXPENSIVE:
+            too_expensive = mark_too_expensive(pick.insight_id, pick.too_expensive)
+            cooldown = too_expensive_cooldown(too_expensive)
         # A full cluster is not a fault of the insight, so it keeps the attempt cooldown.
-        cooldown = SKIP_COOLDOWN if status not in (None, STATUS_AT_CAPACITY) else ATTEMPT_COOLDOWN
+        elif status is not None and status != STATUS_AT_CAPACITY:
+            cooldown = SKIP_COOLDOWN
+            mark_attempted(pick.insight_id, cooldown)
+        record_pick(status=status or STATUS_ERRORED, interval=interval, duration_ms=duration_ms, events=0, run=pick.run)
+        capture_pick(
+            pick,
+            status=status or STATUS_ERRORED,
+            interval=interval,
+            duration_ms=duration_ms,
+            run=pick.run,
+            too_expensive=too_expensive,
+        )
         record_failed(pick.team_id, pick.insight_id, now, cooldown)
         if status is None:
             raise
-        if cooldown == SKIP_COOLDOWN:
-            mark_attempted(pick.insight_id, SKIP_COOLDOWN)
         return ScoreInsightResult(status=status, events=0)
     duration_ms = round((time.monotonic() - started) * 1000)
+    too_expensive = pick.too_expensive
+    if too_expensive and result.status in (STATUS_SCORED, STATUS_UP_TO_DATE):
+        reset_too_expensive(pick.insight_id)
+        too_expensive = 0
     logger.info(
         "anomaly_scoring_insight_scored",
         team_id=pick.team_id,
@@ -365,6 +393,7 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         run=result.run,
         series=result.series,
         events=result.events,
+        too_expensive=too_expensive,
     )
     return result
 
@@ -378,6 +407,7 @@ def capture_pick(
     run: ScoringRun | None,
     series: int = 0,
     events: int = 0,
+    too_expensive: int = 0,
 ) -> None:
     """One event per pick, with the ids that the SDK metrics leave out, so cost and outcome break down per project."""
     ph_background_capture()(
@@ -394,6 +424,7 @@ def capture_pick(
             "series": series,
             "events": events,
             "queries": pick.query_cost,
+            "too_expensive_streak": too_expensive,
         },
     )
 
@@ -525,6 +556,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         picked_score=result.picked_score,
         picked_train=result.picked_train,
         scored_stale_model=result.scored_stale_model,
+        stale_candidates=result.stale_candidates,
         train_backlog_soft=result.train_backlog_soft,
         train_backlog_hard=result.train_backlog_hard,
         active=result.active,
@@ -537,6 +569,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         self_driving_organization_percentage=result.self_driving_organization_percentage,
         plan_failed=result.plan_failed,
         plan_error=result.plan_error,
+        long_cooldown=result.long_cooldown,
         due_insights=result.due_insights,
         oldest_due_seconds=result.oldest_due_seconds,
         oldest_refresh_seconds=result.oldest_refresh_seconds,
@@ -566,6 +599,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "picked_score": result.picked_score,
             "picked_train": result.picked_train,
             "scored_stale_model": result.scored_stale_model,
+            "stale_candidates": result.stale_candidates,
             "train_backlog_soft": result.train_backlog_soft,
             "train_backlog_hard": result.train_backlog_hard,
             "active_insights": result.active,
@@ -578,6 +612,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "self_driving_organization_percentage": result.self_driving_organization_percentage,
             "plan_failed": result.plan_failed,
             "plan_error": result.plan_error,
+            "long_cooldown": result.long_cooldown,
             "due_insights": result.due_insights,
             "oldest_due_seconds": result.oldest_due_seconds,
             "oldest_refresh_seconds": result.oldest_refresh_seconds,
@@ -674,6 +709,7 @@ class AnomalyScoringTickWorkflow:
             picked_score=plan.picked_score,
             picked_train=plan.picked_train,
             scored_stale_model=plan.scored_stale_model,
+            stale_candidates=plan.stale_candidates,
             train_backlog_soft=plan.train_backlog_soft,
             train_backlog_hard=plan.train_backlog_hard,
             active=plan.active,
@@ -683,6 +719,7 @@ class AnomalyScoringTickWorkflow:
             plan_ms=plan_ms,
             teams_planned=plan.teams_planned,
             teams_skipped=plan.teams_skipped,
+            long_cooldown=plan.long_cooldown,
             self_driving_organization_percentage=plan.self_driving_organization_percentage,
             due_insights=plan.due_insights,
             oldest_due_seconds=plan.oldest_due_seconds,

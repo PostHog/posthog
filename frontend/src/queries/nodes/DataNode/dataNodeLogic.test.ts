@@ -369,6 +369,30 @@ describe('dataNodeLogic', () => {
             .toMatchValues({ responseLoading: false, response: partial({ results: results3 }) })
     })
 
+    it.each([
+        ['runs a query with a valid regex filter', '^/api/.*', false, 1],
+        ['skips a query with an invalid regex filter', '(?=lookahead)', false, 0],
+        ['skips a query cancelled during the load', '^/api/cancelled', true, 0],
+    ])('%s once the RE2 engine loads', async (_name, pattern, cancel, expectedCalls) => {
+        mockedQuery.mockResolvedValueOnce({ results: [] })
+        logic = dataNodeLogic({
+            key: `regex-${pattern}`,
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.EventsQuery,
+                select: ['*', 'event', 'timestamp'],
+                properties: [{ type: 'event', key: '$current_url', operator: 'regex', value: pattern }],
+            }),
+        })
+        logic.mount()
+        if (cancel) {
+            logic.actions.cancelQuery()
+        }
+
+        await expectLogic(logic).toFinishAllListeners()
+        await waitFor(() => expect(logic.values.responseLoading).toBe(false))
+        expect(performQuery).toHaveBeenCalledTimes(expectedCalls)
+    })
+
     it('reports the query kind to its collection when the query arrives after mount', async () => {
         mockedQuery.mockResolvedValueOnce({ results: [] })
         const collection = dataNodeCollectionLogic({ key: 'test-collection' })

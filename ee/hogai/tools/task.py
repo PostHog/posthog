@@ -1,5 +1,5 @@
 import uuid
-from typing import Literal, Self, cast
+from typing import Any, Literal, Self, cast
 
 import structlog
 from langchain_core.runnables import RunnableConfig
@@ -237,7 +237,7 @@ class TaskTool(MaxTool):
             "SubAgentArgsWithModes",
             __base__=TaskToolArgs,
             agent_mode=(
-                Literal[*modes_list],
+                cast(Any, Literal[*modes_list]),
                 Field(description=TaskToolArgs.model_fields["agent_mode"].description),
             ),
         )

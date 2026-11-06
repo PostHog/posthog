@@ -5,7 +5,7 @@ from typing import cast
 from rest_framework import exceptions
 from rest_framework.request import Request
 
-from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.permissions import get_authenticator_scopes
 from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
@@ -14,27 +14,11 @@ from products.dashboards.backend.widget_catalog import get_widget_product_access
 from products.dashboards.backend.widget_registry import WidgetRegistryEntry, get_widget_registry_entry
 
 
-def _get_request_api_key_scopes(request: Request) -> list[str] | None:
-    authenticator = request.successful_authenticator
-    if isinstance(authenticator, PersonalAPIKeyAuthentication):
-        return list(authenticator.personal_api_key.scopes or [])
-    if isinstance(authenticator, OAuthAccessTokenAuthentication):
-        token_scope_string = authenticator.access_token.scope
-        return token_scope_string.split() if token_scope_string else []
-    if isinstance(authenticator, IDJagAccessTokenAuthentication):
-        return list(authenticator.scopes)
-    return None
-
-
-def is_api_key_or_oauth_request(request: Request) -> bool:
-    return _get_request_api_key_scopes(request) is not None
-
-
 def get_widget_api_scope_error(
     registry_entry: WidgetRegistryEntry,
     request: Request,
 ) -> str | None:
-    key_scopes = _get_request_api_key_scopes(request)
+    key_scopes = get_authenticator_scopes(request.successful_authenticator)
     if key_scopes is None:
         return None
 

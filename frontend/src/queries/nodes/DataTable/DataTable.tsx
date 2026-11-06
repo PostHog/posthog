@@ -8,6 +8,7 @@ import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -24,6 +25,7 @@ import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { SupportTracesFilters } from '~/queries/nodes/DataNode/SupportTracesFilters'
 import { TestAccountFilters } from '~/queries/nodes/DataNode/TestAccountFilters'
 import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
+import { buildSampleTable } from '~/queries/nodes/DataTable/buildSampleTable'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { DataTableCount } from '~/queries/nodes/DataTable/DataTableCount'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
@@ -194,6 +196,7 @@ export function DataTable({
         newDataLoading,
         highlightedRows,
         backToSourceQuery,
+        canLoadNextData,
     } = useValues(dataNodeLogic(dataNodeLogicProps))
     const { loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
 
@@ -286,6 +289,15 @@ export function DataTable({
                 return !col?.queryContextColumn?.hidden
             }),
         [allColumns, contextColumns]
+    )
+    const sampleRowsSource = context?.dataTableSampleRows
+    const hasRows = !!dataTableRows?.length
+    const sampleTable = useMemo(
+        () =>
+            sampleRowsSource && !hasRows
+                ? buildSampleTable(sampleRowsSource, columnsInLemonTable, query, context, dayjs())
+                : undefined,
+        [sampleRowsSource, hasRows, columnsInLemonTable, query, context]
     )
     const orderByForKey = useCallback(
         (key: string): string => {
@@ -988,6 +1000,7 @@ export function DataTable({
                 fileNameForExport={context?.fileNameForExport}
                 excludedColumns={context?.dataTableExportExcludedColumns}
                 downloadQuery={context?.dataTableExportQuery}
+                iconOnly={context?.dataTableExportIconOnly}
             />
         ) : null,
         showExport && showOpenEditorButton ? (
@@ -1028,7 +1041,12 @@ export function DataTable({
                     {context?.compactDataTableToolbar ? (
                         <>
                             {compactToolbarLeft.length > 0 || compactToolbarRight.length > 0 ? (
-                                <div className="flex gap-2 items-center flex-wrap">
+                                <div
+                                    className={clsx(
+                                        'flex gap-2 items-center flex-wrap',
+                                        context?.dataTableToolbarClassName
+                                    )}
+                                >
                                     {compactToolbarLeft}
                                     {compactToolbarLeft.length > 0 && compactToolbarRight.length > 0 ? (
                                         <div className="flex-1" />
@@ -1145,6 +1163,7 @@ export function DataTable({
                                             detail={context?.emptyStateDetail}
                                             icon={context?.emptyStateIcon}
                                             sampleDataVariant="table"
+                                            sampleTable={sampleTable}
                                             insightProps={insightProps}
                                         />
                                     )
@@ -1165,7 +1184,10 @@ export function DataTable({
                                 footer={
                                     (dataTableRows ?? []).length > 0 &&
                                     (context?.showLoadNextButton ||
-                                        !sourceFeatures.has(QueryFeature.hideLoadNextButton)) ? (
+                                        !sourceFeatures.has(QueryFeature.hideLoadNextButton)) &&
+                                    (!context?.dataTableHideLoadNextWhenComplete ||
+                                        canLoadNextData ||
+                                        nextDataLoading) ? (
                                         <LoadNext
                                             query={query.source}
                                             nouns={context?.dataTableNouns}

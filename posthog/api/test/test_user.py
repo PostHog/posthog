@@ -2898,6 +2898,7 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
             ("unknown_analytics_list_sort", {"version": 1, "analytics_list": {"default_sort": "name"}}),
             ("unknown_analytics_list_key", {"version": 1, "analytics_list": {"columns": ["owner"]}}),
             ("non_boolean_hide_insights", {"version": 1, "analytics_list": {"hide_insights": "nope"}}),
+            ("non_list_ticket_sidebar_order", {"version": 1, "ticket_sidebar": {"order": "activity"}}),
         ]
     )
     def test_invalid_ui_configuration_is_rejected(self, _name, value):
@@ -2914,6 +2915,14 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
             (
                 "analytics_list",
                 {"version": 1, "analytics_list": {"hide_insights": True, "default_sort": "-created_at"}},
+            ),
+            (
+                # A layout can name a widget that a later release removed. Rejecting it would block every later save.
+                "ticket_sidebar_with_removed_widget",
+                {
+                    "version": 1,
+                    "ticket_sidebar": {"order": ["removed_widget", "activity"], "hidden": ["removed_widget"]},
+                },
             ),
             (
                 # Sidebar settings an older client stored. Rejecting them would block every later save.

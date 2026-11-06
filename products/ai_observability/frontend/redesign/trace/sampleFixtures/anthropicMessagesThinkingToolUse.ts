@@ -145,8 +145,6 @@ export const anthropicMessagesThinkingToolUse: SampleTraceFixture = {
     header: {
         name: 'run-budget-rollup',
         hasError: false,
-        olderHref: '/older',
-        newerHref: '/newer',
         backLink: { label: 'Back to traces', href: '/traces' },
     },
     summary: {

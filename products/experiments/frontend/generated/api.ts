@@ -737,15 +737,13 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * warning in every state, `filter_on_property_not_ingested` also reports after the end, and
  * the other findings stop at the end.
  *
- * `exposure_filters` reads the cohort and event property filters of the exposure criteria and
- * of the activation, not the test account filters. `exposure_filter_on_dynamic_cohort` is a
- * warning in every state: the results use the members of a dynamic cohort at the calculation,
- * not at exposure. Its subcode is `cohort_forces_variant` when a release condition of the flag
- * that matches the cohort's members gives one variant, `cohort_in_release_conditions` when the
- * release conditions match its members otherwise, and `evidence.cohort_ids` names the cohorts.
- * Both subcodes need the exposure criteria to keep the members too, not to leave them out.
- * `exposure_filter_excludes_events` is info: a negated filter on an event property leaves out
- * events, not users (`evidence.properties`).
+ * `exposure_filters` reads the cohort filters of the exposure criteria and of the activation,
+ * not the test account filters. `exposure_filter_on_dynamic_cohort` is a warning in every
+ * state: the results use the members of a dynamic cohort at the calculation, not at exposure.
+ * Its subcode is `cohort_forces_variant` when a release condition of the flag that matches the
+ * cohort's members gives one variant, `cohort_in_release_conditions` when the release
+ * conditions match its members otherwise, and `evidence.cohort_ids` names the cohorts. Both
+ * subcodes need the exposure criteria to keep the members too, not to leave them out.
  *
  * `metric_cannot_compile` builds and compiles the query of each metric without running it, as
  * the caller, so a metric that every calculation fails on shows before launch. A metric that
@@ -827,10 +825,14 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * `running_but_flag_disabled`, as a warning. A caller who can't view the linked flag's
  * history gets the warning, because the pause is not read. A draft whose flag is already
  * active with multiple variants gets `not_started_but_multiple_variants_rolled_out` as info.
- * An ended experiment whose flag is still active with multiple variants gets
- * `ended_but_multiple_variants_rolled_out` as a warning, or `ended_flag_not_called` as info
- * when the flag's `last_called_at` shows no call in the 3 days after the end. The info waits
- * an extra hour, because `last_called_at` trails a call.
+ * An ended experiment whose flag is still active with multiple variants gets no finding when
+ * another experiment on the flag is running or launched after the end. Otherwise it gets
+ * `ended_flag_shared_with_draft` as info when a draft experiment uses the flag,
+ * `ended_but_multiple_variants_rolled_out` as a warning when the flag's `last_called_at` is
+ * after the end and within the last 3 days, and `ended_flag_not_called` as info when it is
+ * not, from 3 days and an hour after the end, because `last_called_at` trails a call. Until
+ * then without such a call, or when the organization's flag calls can't be read, it gets
+ * `ended_flag_calls_unknown` as info.
  *
  * A running experiment whose first primary metric is a funnel gets the info
  * `early_significance` (subcode `below_detectable_effect`) when a significant variant's
