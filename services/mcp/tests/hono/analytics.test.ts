@@ -67,6 +67,9 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
             mcpConsumer: 'request-consumer',
             mode: 'cli',
             region: 'us',
+            features: ['insights', 'product_analytics', 'insights', 'bad\nvalue'],
+            tools: ['dashboard-get', 'x'.repeat(200)],
+            excludeTools: ['insight-delete'],
             mcpVendorClient: 'ClaudeAI',
         },
         sessionContext: {
@@ -244,6 +247,9 @@ describe('Hono MCP analytics contexts', () => {
             mcp_session_protocol_version: '2025-03-26',
             mcp_session_consumer: 'session-consumer',
             mcp_session_vendor_client: 'ClaudeCode',
+            requested_features: ['insights', 'product_analytics'],
+            requested_tools: ['dashboard-get'],
+            requested_exclude_tools: ['insight-delete'],
         })
     })
 
@@ -561,6 +567,25 @@ describe('Hono MCP analytics contexts', () => {
                 { id: '1', method: 'GET', path: 'api/projects/1/persons/' },
                 false,
             ],
+            [
+                'an email log search by recipient',
+                'workflows-transactional-emails-list',
+                { search: 'jane@example.com' },
+                false,
+            ],
+            [
+                'one email log entry',
+                'workflows-transactional-email-get',
+                { id: '01a19f0e-9fd0-0001-a1d4-3a2b4579b763' },
+                false,
+            ],
+            [
+                'an email log search through exec',
+                'exec',
+                { command: 'call workflows-transactional-emails-list {"search":"jane@example.com"}' },
+                false,
+            ],
+            ['email delivery stats', 'workflows-transactional-email-stats', { group_by: 'template' }, true],
             [
                 'preparing an email send',
                 'workflows-send-email-prepare',
