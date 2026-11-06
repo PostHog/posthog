@@ -5,6 +5,7 @@ import { LemonTable } from '@posthog/lemon-ui'
 
 import { CountCell } from 'lib/components/DotMatrix/CountCell'
 import { dayjs } from 'lib/dayjs'
+import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 
 import type { BookActivityMatrixResult } from '~/queries/schema/schema-general'
 
@@ -34,11 +35,17 @@ export function ProductUsageUsersTable({
         useValues(productUsageGridLogic)
     const { togglePeople, setUserPage } = useActions(productUsageGridLogic)
     const page = Math.min(userPage, Math.max(1, Math.ceil(matrix.rows.length / 5)))
-    const rows = productUsageRows(
-        { ...matrix, rows: matrix.rows.slice((page - 1) * 5, page * 5) },
-        controls.selected,
-        'users'
-    )
+    const accountsOnPage = matrix.rows.slice((page - 1) * 5, page * 5)
+    const pagination = usePagination(accountsOnPage, {
+        controlled: true,
+        useUrl: false,
+        pageSize: 5,
+        currentPage: page,
+        entryCount: matrix.rows.length,
+        onForward: page * 5 < matrix.rows.length ? () => setUserPage(page + 1) : undefined,
+        onBackward: page > 1 ? () => setUserPage(page - 1) : undefined,
+    })
+    const rows = productUsageRows({ ...matrix, rows: accountsOnPage }, controls.selected, 'users')
     const counts = useMemo(() => indexProductUsageCounts(matrix, controls.selected), [matrix, controls.selected])
     const breadth = useMemo(() => indexProductUsageBreadth(matrix, controls.selected), [matrix, controls.selected])
     const totals = useMemo(
@@ -79,14 +86,6 @@ export function ProductUsageUsersTable({
             <LemonTable<ProductUsageTableRow>
                 dataSource={rows}
                 rowKey="key"
-                pagination={{
-                    controlled: true,
-                    pageSize: 5,
-                    currentPage: page,
-                    entryCount: matrix.rows.length,
-                    onForward: page * 5 < matrix.rows.length ? () => setUserPage(page + 1) : undefined,
-                    onBackward: page > 1 ? () => setUserPage(page - 1) : undefined,
-                }}
                 nouns={['account', 'accounts']}
                 firstColumnSticky
                 columns={[
@@ -145,6 +144,7 @@ export function ProductUsageUsersTable({
                     })),
                 ]}
             />
+            <PaginationControl {...pagination} nouns={['account', 'accounts']} />
         </div>
     )
 }

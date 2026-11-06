@@ -534,6 +534,11 @@
         "params": [],
         "scope": "project"
     },
+    "customerAnalyticsProductActivity": {
+        "template": "/customer_analytics/product-activity",
+        "params": [],
+        "scope": "project"
+    },
     "customerAnalyticsTasks": {
         "template": "/customer_analytics/tasks",
         "params": [],
