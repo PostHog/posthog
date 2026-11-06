@@ -1831,8 +1831,11 @@ describe('Hog Executor', () => {
                 | 'secret_headers'
                 | 'aws_sigv4'
                 | 'standard_webhooks'
+                | 'body_beside_bound_secret'
                 | 'dictionary_entry'
                 | 'plain_value_of_dictionary_entry'
+                | 'hardcoded_value_of_dictionary_entry'
+                | 'mapping_value_of_dictionary_entry'
 
             const secretInvocation = async (
                 url: string,
@@ -1847,10 +1850,18 @@ describe('Hog Executor', () => {
                     {
                         params: Partial<CyclotronInvocationQueueParametersFetchType>
                         inputs: Record<string, unknown>
-                        plainInputs?: Record<string, unknown>
+                        boundInputs?: Record<string, unknown>
+                        hogFunction?: Partial<HogFunctionType>
                     }
                 > = {
                     body: { params: { body: JSON.stringify({ key: secret }) }, inputs: { api_key: secret } },
+                    body_beside_bound_secret: {
+                        params: { body: JSON.stringify({ key: secret }) },
+                        inputs: { api_key: secret },
+                        boundInputs: {
+                            other_key: { value: 'unsent_secret_value', allowed_origins: ['https://elsewhere.example'] },
+                        },
+                    },
                     secret_headers: {
                         params: { secret_headers_input: 'api_key' },
                         inputs: { api_key: { Authorization: `Bearer ${secret}` } },
@@ -1880,17 +1891,44 @@ describe('Hog Executor', () => {
                     plain_value_of_dictionary_entry: {
                         params: { headers: { 'Content-Type': 'application/json' } },
                         inputs: { api_key: { 'Content-Type': 'application/json', Authorization: secret } },
-                        plainInputs: { headers: { value: { 'Content-Type': 'application/json' } } },
+                        hogFunction: { inputs: { headers: { value: { 'Content-Type': 'application/json' } } } },
+                    },
+                    hardcoded_value_of_dictionary_entry: {
+                        params: { headers: { 'Content-Type': 'application/json' } },
+                        inputs: { api_key: { 'Content-Type': 'application/json', Authorization: secret } },
+                        // The bytecode of `{'headers': {'Content-Type': 'application/json'}}`.
+                        hogFunction: {
+                            bytecode: [
+                                '_H',
+                                1,
+                                32,
+                                'headers',
+                                32,
+                                'Content-Type',
+                                32,
+                                'application/json',
+                                42,
+                                1,
+                                42,
+                                1,
+                            ],
+                        },
+                    },
+                    mapping_value_of_dictionary_entry: {
+                        params: { headers: { 'Content-Type': 'application/json' } },
+                        inputs: { api_key: { 'Content-Type': 'application/json', Authorization: secret } },
+                        hogFunction: {
+                            mappings: [{ inputs: { headers: { value: { 'Content-Type': 'application/json' } } } }],
+                        },
                     },
                 }
-                const { params, inputs, plainInputs } = byCarry[carry]
+                const { params, inputs, boundInputs, hogFunction: overrides } = byCarry[carry]
                 const invocation = await createFetchInvocation({ url, method: 'POST', body: '{}', ...params })
-                invocation.hogFunction.encrypted_inputs = Object.fromEntries(
-                    Object.entries(inputs).map(([key, value]) => [key, bind(value)])
-                ) as any
-                if (plainInputs) {
-                    invocation.hogFunction.inputs = plainInputs as any
-                }
+                Object.assign(invocation.hogFunction, overrides)
+                invocation.hogFunction.encrypted_inputs = {
+                    ...Object.fromEntries(Object.entries(inputs).map(([key, value]) => [key, bind(value)])),
+                    ...boundInputs,
+                } as any
                 return invocation
             }
 
@@ -1910,22 +1948,15 @@ describe('Hog Executor', () => {
                 {
                     case: 'a secret saved before binding beside a bound one',
                     allowed: undefined,
-                    carry: 'body',
+                    carry: 'body_beside_bound_secret',
                     outcome: 'unbound_missing',
-                    boundBeside: true,
                 },
-            ] as const)('observe: sends and counts $case', async ({ allowed, carry, outcome, ...row }) => {
+            ] as const)('observe: sends and counts $case', async ({ allowed, carry, outcome }) => {
                 const invocation = await secretInvocation(
                     `${baseUrl}/`,
                     allowed === 'own' ? [new URL(baseUrl).origin] : allowed,
                     carry
                 )
-                if ('boundBeside' in row) {
-                    invocation.hogFunction.encrypted_inputs!.other_key = {
-                        value: 'unsent_secret_value',
-                        allowed_origins: ['https://elsewhere.example'],
-                    } as any
-                }
                 const before = await readCount(outcome, 'observe')
 
                 const result = await executor.executeFetch(invocation)
@@ -1941,31 +1972,47 @@ describe('Hog Executor', () => {
                     config: { secretOriginCheckObserveTeams: '', secretOriginCheckEnforceTeams: '' },
                     allowed: [],
                     attempts: 0,
+                    isTest: false,
+                    warns: false,
                 },
-                { case: 'a retry', config: {}, allowed: [], attempts: 1 },
-                { case: 'secrets saved before binding', config: {}, allowed: undefined, attempts: 0 },
-            ])('sends and counts nothing when $case', async ({ config, allowed, attempts }) => {
+                { case: 'a retry', config: {}, allowed: [], attempts: 1, isTest: false, warns: true },
+                {
+                    case: 'secrets saved before binding',
+                    config: {},
+                    allowed: undefined,
+                    attempts: 0,
+                    isTest: false,
+                    warns: false,
+                },
+                {
+                    case: 'a test invocation of an enforced team',
+                    config: { secretOriginCheckEnforceTeams: '*' },
+                    allowed: [],
+                    attempts: 0,
+                    isTest: true,
+                    warns: false,
+                },
+            ])('sends and counts nothing when $case', async ({ config, allowed, attempts, isTest, warns }) => {
+                const warn = jest.spyOn(logger, 'warn')
                 const invocation = await secretInvocation(`${baseUrl}/`, allowed)
                 invocation.state.attempts = attempts
                 const before = await readTotal()
 
-                const result = await createExecutor(hub.encryptedFields, config).executeFetch(invocation)
+                const result = await createExecutor(hub.encryptedFields, config).executeFetch(invocation, { isTest })
 
                 expect(mockRequest).toHaveBeenCalledTimes(1)
                 expect(result.error).toBeUndefined()
                 expect(await readTotal()).toBe(before)
+                expect(warn.mock.calls.some(([, message]) => String(message).includes('not saved for'))).toBe(warns)
             })
 
-            it.each([
-                { case: 'a team outside the enforce list', teams: '999999', isTest: false },
-                { case: 'a test invocation of an enforced team', teams: '*', isTest: true },
-            ])('sends and counts under observe for $case', async ({ teams, isTest }) => {
+            it('sends and counts under observe for a team outside the enforce list', async () => {
                 const invocation = await secretInvocation(`${baseUrl}/`, ['https://elsewhere.example'])
                 const before = await readCount('mismatch', 'observe')
 
                 const result = await createExecutor(hub.encryptedFields, {
-                    secretOriginCheckEnforceTeams: teams,
-                }).executeFetch(invocation, { isTest })
+                    secretOriginCheckEnforceTeams: '999999',
+                }).executeFetch(invocation)
 
                 expect(mockRequest).toHaveBeenCalledTimes(1)
                 expect(result.error).toBeUndefined()
@@ -2022,6 +2069,18 @@ describe('Hog Executor', () => {
                     case: 'a dictionary entry whose value the function also holds in plain inputs',
                     allowed: ['https://elsewhere.example'],
                     carry: 'plain_value_of_dictionary_entry',
+                    sent: true,
+                },
+                {
+                    case: 'a dictionary entry whose value the hog code also hardcodes',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'hardcoded_value_of_dictionary_entry',
+                    sent: true,
+                },
+                {
+                    case: "a dictionary entry whose value a mapping's plain inputs also hold",
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'mapping_value_of_dictionary_entry',
                     sent: true,
                 },
                 { case: 'a secret saved before binding', allowed: undefined, carry: 'body', sent: true },
