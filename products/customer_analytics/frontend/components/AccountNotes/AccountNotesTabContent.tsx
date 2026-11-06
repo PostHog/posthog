@@ -36,7 +36,7 @@ export function AccountNotesTabContent(): JSX.Element {
         tagsFilter,
         sorting,
         pagination,
-        updatingNoteShortId,
+        pendingNoteTags,
     } = useValues(accountNotesLogic)
     const {
         setSearch,
@@ -119,7 +119,7 @@ export function AccountNotesTabContent(): JSX.Element {
                             tags={tags}
                             onChange={(newTags) => updateNoteTags(note, newTags)}
                             onEdit={loadTagsIfNeeded}
-                            saving={updatingNoteShortId === note.short_id || tagsLoading}
+                            saving={!!pendingNoteTags[note.short_id] || tagsLoading}
                             tagsAvailable={(tagsAvailable || []).filter((tag) => !tags.includes(tag))}
                             data-attr="account-note-tags"
                         />
@@ -168,7 +168,6 @@ export function AccountNotesTabContent(): JSX.Element {
     return (
         <div className="space-y-4">
             <div className="flex flex-wrap gap-2 items-center">
-                <AccountNotesViewSelector />
                 <LemonInput
                     type="search"
                     placeholder="Search notes"
@@ -178,6 +177,7 @@ export function AccountNotesTabContent(): JSX.Element {
                     className="min-w-64"
                     data-attr="account-notes-search"
                 />
+                <AccountNotesViewSelector />
                 <AccountPicker />
                 <NotesTagsFilter
                     value={tagsFilter}

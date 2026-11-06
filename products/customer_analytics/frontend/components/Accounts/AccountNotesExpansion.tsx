@@ -52,7 +52,7 @@ export function AccountNotesExpansion({
         pagination,
         tagsFilter,
         createdByFilter,
-        updatingShortId,
+        pendingNotebookTags,
     } = useValues(logic)
     const { setSearchTerm, setSorting, createNote, setTagsFilter, setCreatedByFilter, updateNotebook } =
         useActions(logic)
@@ -102,7 +102,7 @@ export function AccountNotesExpansion({
                         tags={tags}
                         onChange={(newTags) => updateNotebook(notebook.short_id, { tags: newTags })}
                         onEdit={loadTagsIfNeeded}
-                        saving={updatingShortId === notebook.short_id || tagsLoading}
+                        saving={!!pendingNotebookTags[notebook.short_id] || tagsLoading}
                         tagsAvailable={(tagsAvailable || []).filter((tag) => !tags.includes(tag))}
                         data-attr="account-note-tags"
                     />
