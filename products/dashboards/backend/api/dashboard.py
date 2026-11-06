@@ -1233,8 +1233,9 @@ class InsightResultSerializer(InsightSerializer):
         # Skip InsightSerializer.to_representation which references fields
         # (dashboard_tiles, dashboards, etc.) we've excluded from this narrow serializer,
         # but keep its dashboard-context access check so a restricted insight never renders a result.
-        if self.context.get("dashboard"):
-            user_access_level = self.get_user_access_level(instance)
+        user_access_control = self.user_access_control
+        if self.context.get("dashboard") and user_access_control:
+            user_access_level = user_access_control.get_user_access_level(instance)
             if user_access_level and not access_level_satisfied_for_resource("insight", user_access_level, "viewer"):
                 return {
                     "id": instance.id,
