@@ -2,10 +2,11 @@
 Thin client for the PandaDoc public API.
 
 We hit these endpoints:
-    POST  /public/v1/documents              -> create a document from a template
-    GET   /public/v1/documents/{id}         -> read an envelope's current status
-    POST  /public/v1/documents/{id}/send    -> email the signing envelope
-    PATCH /public/v1/documents/{id}/status  -> move an envelope to voided (no longer signable)
+    POST  /public/v1/documents                -> create a document from a template
+    GET   /public/v1/documents/{id}           -> read an envelope's current status
+    GET   /public/v1/documents/{id}/download  -> the current PDF rendition of a document
+    POST  /public/v1/documents/{id}/send      -> email the signing envelope
+    PATCH /public/v1/documents/{id}/status    -> move an envelope to voided (no longer signable)
 
 Keeping this file free of Django/DRF imports so it's straightforward to unit test.
 """
@@ -251,6 +252,29 @@ class PandaDocClient:
         if data is None:
             return None
         return data.get("status", "")
+
+    def get_document(self, *, document_id: str) -> dict[str, Any] | None:
+        """The document's status record (`id`, `name`, `status`, `date_modified`, ...), or None
+        when PandaDoc no longer has it."""
+        return self._get(f"/public/v1/documents/{document_id}", allow_missing=True)
+
+    def download_document(self, *, document_id: str, max_bytes: int) -> bytes:
+        """
+        The current PDF rendition of any document, signed or not. PandaDoc renders drafts and
+        sent documents on request, so this works before a signature exists.
+
+        Reads at most `max_bytes` into memory and raises PandaDocError past that, because the
+        caller serves the bytes from a web worker rather than streaming them to storage.
+        """
+        chunks: list[bytes] = []
+        size = 0
+        with self._get_stream(f"/public/v1/documents/{document_id}/download") as stream:
+            while chunk := stream.read(64 * 1024):
+                size += len(chunk)
+                if size > max_bytes:
+                    raise PandaDocError(f"PandaDoc document {document_id} exceeds {max_bytes} bytes")
+                chunks.append(chunk)
+        return b"".join(chunks)
 
     def void_document(self, *, document_id: str, notify_recipients: bool = True) -> None:
         """

@@ -50,6 +50,8 @@ from products.customer_analytics.backend.facade.contracts import (
     AccountAssignment,
     AccountChannelSummaryView,
     AccountDetails,
+    AccountDocumentView,
+    AccountLegalDocumentView,
     AccountNotebookView,
     AccountNoteView,
     AccountPresence,
@@ -82,6 +84,9 @@ from products.customer_analytics.backend.facade.contracts import (
     MeetingView,
 )
 from products.customer_analytics.backend.facade.enums import (
+    AccountDocumentSource,
+    AccountDocumentStatus,
+    AccountDocumentType,
     AccountPropertyPinKind,
     AccountRelationshipSource,
     AccountViewVisibility,
@@ -2497,3 +2502,174 @@ class EventStreamTestMessageSerializer(serializers.Serializer):
     channel_id = serializers.CharField(
         read_only=True, help_text="Slack channel ID the test message was posted to (e.g. C0123ABC)."
     )
+
+
+class AccountDocumentSerializer(DataclassSerializer):
+    """A document registered on an account: a quote, an order form, a contract, or a link to one (read-only)."""
+
+    id = serializers.UUIDField(read_only=True, help_text="UUID of the document record.")
+    account_id = serializers.UUIDField(read_only=True, help_text="UUID of the account the document belongs to.")
+    document_type = serializers.ChoiceField(
+        choices=AccountDocumentType.choices,
+        read_only=True,
+        help_text="Kind of document: quote, order form, MSA, DPA, BAA, NDA, security questionnaire, or other.",
+    )
+    title = serializers.CharField(
+        read_only=True,
+        help_text="Display title. A PandaDoc document registered without a title takes the PandaDoc document name.",
+    )
+    status = serializers.ChoiceField(
+        choices=AccountDocumentStatus.choices,
+        read_only=True,
+        help_text="Lifecycle state: draft, sent, signed, expired, or voided. A PandaDoc document's state follows "
+        "PandaDoc after each sync.",
+    )
+    source = serializers.ChoiceField(
+        choices=AccountDocumentSource.choices,
+        read_only=True,
+        help_text="'pandadoc' when the record references a PandaDoc document, 'link' when it points at a URL "
+        "held elsewhere.",
+    )
+    external_url = serializers.CharField(
+        read_only=True, allow_blank=True, help_text="URL of a linked document; empty for a PandaDoc document."
+    )
+    pandadoc_document_id = serializers.CharField(
+        read_only=True, allow_blank=True, help_text="PandaDoc document id; empty for a linked document."
+    )
+    pandadoc_status = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Raw PandaDoc status (for example 'document.sent') as of the last sync; empty before the first sync.",
+    )
+    pandadoc_synced_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the PandaDoc status was last read; null before the first sync."
+    )
+    pandadoc_url = serializers.URLField(
+        read_only=True,
+        allow_null=True,
+        help_text="Link that opens the document in the PandaDoc editor; null for a linked document.",
+    )
+    effective_date = serializers.DateField(
+        read_only=True, allow_null=True, help_text="Date the document takes effect, when known."
+    )
+    end_date = serializers.DateField(
+        read_only=True, allow_null=True, help_text="Date the document ends or expires, when known."
+    )
+    amount = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        read_only=True,
+        allow_null=True,
+        help_text="Monetary value of the document, when known. No currency is stored; the team's currency applies.",
+    )
+    created_by_id = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="ID of the user who registered the document."
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the document was registered.")
+    updated_at = serializers.DateTimeField(read_only=True, help_text="When the record was last changed.")
+
+    class Meta:
+        dataclass = AccountDocumentView
+        ref_name = "AccountDocument"
+        fields = [
+            "id",
+            "account_id",
+            "document_type",
+            "title",
+            "status",
+            "source",
+            "external_url",
+            "pandadoc_document_id",
+            "pandadoc_status",
+            "pandadoc_synced_at",
+            "pandadoc_url",
+            "effective_date",
+            "end_date",
+            "amount",
+            "created_by_id",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class AccountDocumentWriteSerializer(serializers.Serializer):
+    """Request body for registering or updating an account document."""
+
+    title = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=512,
+        help_text="Display title. Required for a linked document. Optional for a PandaDoc document, which takes the "
+        "PandaDoc document name when left empty.",
+    )
+    document_type = serializers.ChoiceField(
+        choices=AccountDocumentType.choices,
+        required=False,
+        help_text="Kind of document: quote, order_form, msa, dpa, baa, nda, security_questionnaire, or other. "
+        "Defaults to other.",
+    )
+    status = serializers.ChoiceField(
+        choices=AccountDocumentStatus.choices,
+        required=False,
+        help_text="Lifecycle state: draft, sent, signed, expired, or voided. Defaults to draft. A PandaDoc "
+        "document's state is replaced on the next sync.",
+    )
+    source = serializers.ChoiceField(
+        choices=AccountDocumentSource.choices,
+        required=False,
+        help_text="'pandadoc' to reference a PandaDoc document by link or id, 'link' (default) to store a URL.",
+    )
+    url = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        max_length=2048,
+        help_text="For a PandaDoc document: a PandaDoc document link or the document id. For a linked document: "
+        "the http(s) URL of the document. Required when registering a document.",
+    )
+    effective_date = serializers.DateField(
+        required=False, allow_null=True, help_text="Date the document takes effect (YYYY-MM-DD)."
+    )
+    end_date = serializers.DateField(
+        required=False, allow_null=True, help_text="Date the document ends or expires (YYYY-MM-DD)."
+    )
+    amount = serializers.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        required=False,
+        allow_null=True,
+        help_text="Monetary value of the document, in the team's currency.",
+    )
+
+    def validate_title(self, value: str) -> str:
+        return value.strip()
+
+
+class AccountLegalDocumentSerializer(DataclassSerializer):
+    """A legal document the customer's organization signed self-serve in PostHog (read-only)."""
+
+    id = serializers.UUIDField(read_only=True, help_text="UUID of the legal document.")
+    document_type = serializers.CharField(read_only=True, help_text="'DPA', 'BAA', or 'MSA'.")
+    status = serializers.CharField(read_only=True, help_text="'submitted_for_signature' or 'signed'.")
+    company_name = serializers.CharField(read_only=True, help_text="Legal company name the document names.")
+    representative_email = serializers.CharField(
+        read_only=True, help_text="Email address of the customer representative who signs for the company."
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the customer generated the document.")
+    download_available = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the signed PDF can be downloaded. False until the document is signed and the PDF is "
+        "archived.",
+    )
+
+    class Meta:
+        dataclass = AccountLegalDocumentView
+        ref_name = "AccountLegalDocument"
+        fields = [
+            "id",
+            "document_type",
+            "status",
+            "company_name",
+            "representative_email",
+            "created_at",
+            "download_available",
+        ]

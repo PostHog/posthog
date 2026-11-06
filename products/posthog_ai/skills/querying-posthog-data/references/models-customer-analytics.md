@@ -35,6 +35,7 @@ Lazy-joined fields:
 - `custom_properties_history.values`: numeric value history keyed by immutable definition ID.
 - `relationships.values`: active user IDs keyed by immutable relationship-definition ID.
 - `meetings`: meeting count, latest start time, and the newest 10 meeting summaries.
+- `documents`: count of registered documents (quotes, order forms, contracts), when the newest was registered, and the newest 10 with their type, status, source, dates and amount.
 - `slack_summaries`: summary count, latest generation time, and the newest 10 Slack summaries.
 - `feature_requests`: active request count, latest update time, and the newest 10 linked requests.
 - `support_tickets`: ticket count, latest message time, and the newest 10 linked tickets. Requires ticket access.

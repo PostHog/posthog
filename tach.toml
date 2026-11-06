@@ -1063,6 +1063,7 @@ depends_on = [
     "products.conversations",
     "products.data_modeling",
     "products.data_warehouse",
+    "products.legal_documents",
     "products.notebooks",
     "products.notifications",
     "products.product_analytics",

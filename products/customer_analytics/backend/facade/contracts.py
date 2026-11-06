@@ -15,6 +15,7 @@ from dataclasses import (
     field,
 )
 from datetime import date, datetime
+from decimal import Decimal
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
 from uuid import UUID
@@ -1578,3 +1579,77 @@ class KeyMetric:
     this_week: float
     last_week: float
     node: dict[str, Any]
+
+
+@frozen
+class AccountDocumentView:
+    """A document registered on an account: a quote, an order form, a contract, or a link to one."""
+
+    id: UUID
+    account_id: UUID
+    document_type: str
+    title: str
+    status: str
+    source: str
+    external_url: str
+    pandadoc_document_id: str
+    pandadoc_status: str
+    pandadoc_synced_at: datetime | None
+    pandadoc_url: str | None
+    effective_date: date | None
+    end_date: date | None
+    amount: Decimal | None
+    created_by_id: int | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@frozen
+class AccountLegalDocumentView:
+    """A legal document (DPA, BAA, MSA) the customer organization holds in the legal_documents product."""
+
+    id: UUID
+    document_type: str
+    status: str
+    company_name: str
+    representative_email: str
+    created_at: datetime
+    download_available: bool
+
+
+@stdlib_dataclass(frozen=True)
+class CreateAccountDocumentInput:
+    title: str
+    document_type: str
+    status: str
+    source: str
+    external_url: str
+    pandadoc_document_id: str
+    effective_date: date | None = None
+    end_date: date | None = None
+    amount: Decimal | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class UpdateAccountDocumentInput:
+    """Each ``*_provided`` flag says whether the matching field was in the request, because
+    ``None`` is a valid value for the dates and the amount."""
+
+    title: str | None = None
+    document_type: str | None = None
+    status: str | None = None
+    source: str | None = None
+    external_url: str | None = None
+    pandadoc_document_id: str | None = None
+    effective_date: date | None = None
+    end_date: date | None = None
+    amount: Decimal | None = None
+    title_provided: bool = False
+    document_type_provided: bool = False
+    status_provided: bool = False
+    source_provided: bool = False
+    external_url_provided: bool = False
+    pandadoc_document_id_provided: bool = False
+    effective_date_provided: bool = False
+    end_date_provided: bool = False
+    amount_provided: bool = False

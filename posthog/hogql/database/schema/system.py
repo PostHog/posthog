@@ -54,6 +54,7 @@ from products.customer_analytics.backend.facade.hogql import (
     account_channel_summaries,
     account_custom_property_values,
     account_custom_property_values_history,
+    account_documents,
     account_email_thread_links,
     account_email_threads,
     account_meetings,
@@ -4259,6 +4260,7 @@ class SystemTables(TableNode):
             name="_account_resource_notebooks", table=account_resource_notebooks, hidden=True
         ),
         "_account_meetings": TableNode(name="_account_meetings", table=account_meetings, hidden=True),
+        "_account_documents": TableNode(name="_account_documents", table=account_documents, hidden=True),
         "_account_channel_summaries": TableNode(
             name="_account_channel_summaries", table=account_channel_summaries, hidden=True
         ),

@@ -408,6 +408,118 @@ export const AccountsCustomPropertyValuesCreateBody = /* @__PURE__ */ zod.object
         ),
 })
 
+export const accountsDocumentsCreateBodyTitleMax = 512
+
+export const accountsDocumentsCreateBodyUrlMax = 2048
+
+export const accountsDocumentsCreateBodyAmountRegExp = new RegExp('^-?\\d{0,12}(?:\\.\\d{0,2})?$')
+
+export const AccountsDocumentsCreateBody = /* @__PURE__ */ zod
+    .object({
+        title: zod
+            .string()
+            .max(accountsDocumentsCreateBodyTitleMax)
+            .optional()
+            .describe(
+                'Display title. Required for a linked document. Optional for a PandaDoc document, which takes the PandaDoc document name when left empty.'
+            ),
+        document_type: zod
+            .enum(['quote', 'order_form', 'msa', 'dpa', 'baa', 'nda', 'security_questionnaire', 'other'])
+            .describe(
+                '\* `quote` - Quote\n\* `order_form` - Order form\n\* `msa` - Master service agreement\n\* `dpa` - Data processing agreement\n\* `baa` - Business associate agreement\n\* `nda` - Non-disclosure agreement\n\* `security_questionnaire` - Security questionnaire\n\* `other` - Other'
+            )
+            .optional()
+            .describe(
+                'Kind of document: quote, order_form, msa, dpa, baa, nda, security_questionnaire, or other. Defaults to other.\n\n\* `quote` - Quote\n\* `order_form` - Order form\n\* `msa` - Master service agreement\n\* `dpa` - Data processing agreement\n\* `baa` - Business associate agreement\n\* `nda` - Non-disclosure agreement\n\* `security_questionnaire` - Security questionnaire\n\* `other` - Other'
+            ),
+        status: zod
+            .enum(['draft', 'sent', 'signed', 'expired', 'voided'])
+            .describe(
+                '\* `draft` - Draft\n\* `sent` - Sent\n\* `signed` - Signed\n\* `expired` - Expired\n\* `voided` - Voided'
+            )
+            .optional()
+            .describe(
+                "Lifecycle state: draft, sent, signed, expired, or voided. Defaults to draft. A PandaDoc document's state is replaced on the next sync.\n\n\* `draft` - Draft\n\* `sent` - Sent\n\* `signed` - Signed\n\* `expired` - Expired\n\* `voided` - Voided"
+            ),
+        source: zod
+            .enum(['pandadoc', 'link'])
+            .describe('\* `pandadoc` - PandaDoc\n\* `link` - Link')
+            .optional()
+            .describe(
+                "'pandadoc' to reference a PandaDoc document by link or id, 'link' (default) to store a URL.\n\n\* `pandadoc` - PandaDoc\n\* `link` - Link"
+            ),
+        url: zod
+            .string()
+            .max(accountsDocumentsCreateBodyUrlMax)
+            .optional()
+            .describe(
+                'For a PandaDoc document: a PandaDoc document link or the document id. For a linked document: the http(s) URL of the document. Required when registering a document.'
+            ),
+        effective_date: zod.iso.date().nullish().describe('Date the document takes effect (YYYY-MM-DD).'),
+        end_date: zod.iso.date().nullish().describe('Date the document ends or expires (YYYY-MM-DD).'),
+        amount: zod
+            .stringFormat('decimal', accountsDocumentsCreateBodyAmountRegExp)
+            .nullish()
+            .describe("Monetary value of the document, in the team's currency."),
+    })
+    .describe('Request body for registering or updating an account document.')
+
+export const accountsDocumentsPartialUpdateBodyTitleMax = 512
+
+export const accountsDocumentsPartialUpdateBodyUrlMax = 2048
+
+export const accountsDocumentsPartialUpdateBodyAmountRegExp = new RegExp('^-?\\d{0,12}(?:\\.\\d{0,2})?$')
+
+export const AccountsDocumentsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        title: zod
+            .string()
+            .max(accountsDocumentsPartialUpdateBodyTitleMax)
+            .optional()
+            .describe(
+                'Display title. Required for a linked document. Optional for a PandaDoc document, which takes the PandaDoc document name when left empty.'
+            ),
+        document_type: zod
+            .enum(['quote', 'order_form', 'msa', 'dpa', 'baa', 'nda', 'security_questionnaire', 'other'])
+            .describe(
+                '\* `quote` - Quote\n\* `order_form` - Order form\n\* `msa` - Master service agreement\n\* `dpa` - Data processing agreement\n\* `baa` - Business associate agreement\n\* `nda` - Non-disclosure agreement\n\* `security_questionnaire` - Security questionnaire\n\* `other` - Other'
+            )
+            .optional()
+            .describe(
+                'Kind of document: quote, order_form, msa, dpa, baa, nda, security_questionnaire, or other. Defaults to other.\n\n\* `quote` - Quote\n\* `order_form` - Order form\n\* `msa` - Master service agreement\n\* `dpa` - Data processing agreement\n\* `baa` - Business associate agreement\n\* `nda` - Non-disclosure agreement\n\* `security_questionnaire` - Security questionnaire\n\* `other` - Other'
+            ),
+        status: zod
+            .enum(['draft', 'sent', 'signed', 'expired', 'voided'])
+            .describe(
+                '\* `draft` - Draft\n\* `sent` - Sent\n\* `signed` - Signed\n\* `expired` - Expired\n\* `voided` - Voided'
+            )
+            .optional()
+            .describe(
+                "Lifecycle state: draft, sent, signed, expired, or voided. Defaults to draft. A PandaDoc document's state is replaced on the next sync.\n\n\* `draft` - Draft\n\* `sent` - Sent\n\* `signed` - Signed\n\* `expired` - Expired\n\* `voided` - Voided"
+            ),
+        source: zod
+            .enum(['pandadoc', 'link'])
+            .describe('\* `pandadoc` - PandaDoc\n\* `link` - Link')
+            .optional()
+            .describe(
+                "'pandadoc' to reference a PandaDoc document by link or id, 'link' (default) to store a URL.\n\n\* `pandadoc` - PandaDoc\n\* `link` - Link"
+            ),
+        url: zod
+            .string()
+            .max(accountsDocumentsPartialUpdateBodyUrlMax)
+            .optional()
+            .describe(
+                'For a PandaDoc document: a PandaDoc document link or the document id. For a linked document: the http(s) URL of the document. Required when registering a document.'
+            ),
+        effective_date: zod.iso.date().nullish().describe('Date the document takes effect (YYYY-MM-DD).'),
+        end_date: zod.iso.date().nullish().describe('Date the document ends or expires (YYYY-MM-DD).'),
+        amount: zod
+            .stringFormat('decimal', accountsDocumentsPartialUpdateBodyAmountRegExp)
+            .nullish()
+            .describe("Monetary value of the document, in the team's currency."),
+    })
+    .describe('Request body for registering or updating an account document.')
+
 export const accountsNotebooksCreateBodyTitleMax = 256
 
 export const AccountsNotebooksCreateBody = /* @__PURE__ */ zod.object({
