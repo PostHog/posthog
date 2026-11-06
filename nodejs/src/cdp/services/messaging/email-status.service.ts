@@ -129,7 +129,6 @@ export interface EmailStatusUpdate {
     recipient?: string
     functionId?: string
     sendingDomain?: string
-    // When a scheduled send is due.
     scheduledAt?: Date
 }
 

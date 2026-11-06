@@ -142,10 +142,9 @@ function transactionalWaitStart(invocation: CyclotronJobInvocationHogFunction): 
     return DateTime.max(invocation.queueCreatedAt, scheduledAt)
 }
 
-// A transactional API job is created on the email queue, so its wait starts when the caller got its 202, or at its
-// scheduled time when that is later. A workflow job can join the email queue long after it was created, so its wait
-// starts at the time it became due. All three come from fields a clone keeps: running the email step clones the
-// invocation and resets queueScheduledAt.
+// A transactional API job is created on the email queue, so its wait starts at the caller's 202, or later at its
+// scheduled time. A workflow job's starts when it became due. Both come from fields a clone keeps: running the email
+// step clones the invocation and resets queueScheduledAt.
 function emailQueueWait(invocation: CyclotronJobInvocationHogFunction): EmailQueueWait | undefined {
     const source =
         invocation.state.globals.event?.event === TRANSACTIONAL_EMAIL_EVENT ? 'transactional_api' : 'workflow'
