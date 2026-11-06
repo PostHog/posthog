@@ -102,6 +102,31 @@ describe('CustomerAnalyticsScene', () => {
         expect(screen.getByText(label).closest('a')).toHaveAttribute('href', `/project/997${destination}`)
     })
 
+    it('hides the tab bar in the Today rail and keeps the open tab', () => {
+        featureFlagLogic.actions.setFeatureFlags(
+            [
+                FEATURE_FLAGS.TODAY_RAIL_NAV,
+                FEATURE_FLAGS.CUSTOMER_ANALYTICS,
+                FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS,
+            ],
+            {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+                [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true,
+                [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]: true,
+            }
+        )
+
+        render(
+            <Provider>
+                <CustomerAnalyticsScene />
+            </Provider>
+        )
+
+        expect(document.querySelector('[data-attr="customer-analytics-tabs"]')).not.toBeInTheDocument()
+        expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+        expect(document.querySelector('[data-attr="tasks-inbox"]')).toBeInTheDocument()
+    })
+
     it('shows the Tasks tab and inbox only when the tasks flag is enabled', () => {
         featureFlagLogic.actions.setFeatureFlags(
             [FEATURE_FLAGS.CUSTOMER_ANALYTICS, FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS],

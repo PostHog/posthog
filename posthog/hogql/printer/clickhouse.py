@@ -15,6 +15,7 @@ from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     DatabaseField,
+    EventsRetentionTable,
     SavedQuery,
     StringJSONDatabaseField,
     StructDatabaseField,
@@ -27,7 +28,12 @@ from posthog.hogql.database.schema.util.where_clause_extractor import (
     get_events_session_id_table_type,
 )
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
-from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
+from posthog.hogql.escape_sql import (
+    escape_clickhouse_identifier,
+    escape_clickhouse_json_path,
+    escape_clickhouse_string,
+    safe_identifier,
+)
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
@@ -76,8 +82,10 @@ def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLCon
     )
 
 
-def retention_floor_for_table(table_type: ast.TableOrSelectType, retention_months: int) -> ast.Expr:
-    """Floor an events-table scan to ``timestamp > now() - toIntervalMonth(retention_months)``.
+def retention_floor_for_table(
+    table_type: ast.TableOrSelectType, retention_months: int, field_name: str = "timestamp"
+) -> ast.Expr:
+    """Floor an events-derived scan to ``<field_name> > now() - toIntervalMonth(retention_months)``.
 
     Sibling to ``team_id_guard_for_table``: a mandatory, context-derived guard added at the lowest level on the
     events table, so the events-data-retention cap can't be bypassed by query-supplied date filters or modifiers.
@@ -86,7 +94,7 @@ def retention_floor_for_table(table_type: ast.TableOrSelectType, retention_month
     field_table_type = _table_filter_type(table_type)
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Gt,
-        left=ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=field_table_type)),
+        left=ast.Field(chain=[field_name], type=ast.FieldType(name=field_name, table_type=field_table_type)),
         right=ast.ArithmeticOperation(
             op=ast.ArithmeticOperationOp.Sub,
             left=ast.Call(name="now", args=[]),
@@ -1253,16 +1261,12 @@ class ClickHousePrinter(BasePrinter):
         table_type: ast.TableType | ast.LazyTableType,
         node_type: ast.TableOrSelectType | None,
     ) -> ast.Expr | None:
-        from posthog.hogql.database.schema.events import EventsTable
-        from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
-
         months = self.context.events_retention_months
         if months is None or node_type is None or not isinstance(table_type, ast.TableType):
             return None
-        # flag_evaluations holds flag calls that are events too, and a query on events can read them from there.
-        if not isinstance(table_type.table, (EventsTable, FlagEvaluationsTable)):
+        if not isinstance(table_type.table, EventsRetentionTable):
             return None
-        return retention_floor_for_table(node_type, months)
+        return retention_floor_for_table(node_type, months, field_name=table_type.table.events_retention_field)
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         table = table_type.table
@@ -1523,9 +1527,9 @@ class ClickHousePrinter(BasePrinter):
         # dot inside one key must not read as a path separator.
         keys = [key.replace(".", "%2E") for key in node.keys]
 
-        # An empty key is not a valid SQL identifier, and a `%` would break the SQL's own parameter placeholders,
-        # so those paths go to getSubcolumn as bound values.
-        if any(not key or "%" in key for key in keys):
+        # An empty key is not a valid SQL identifier, so that path goes to getSubcolumn as a bound value. Every
+        # other key prints as a direct subcolumn read: getSubcolumn() reads every subcolumn and filters afterwards.
+        if any(not key for key in keys):
             if node.access_type == "sub_object":
                 # getSubcolumn's path parser reads a backslash-escaped backtick, not SQL's doubled backtick.
                 escaped_keys = (key.replace("\\", "\\\\").replace("`", "\\`") for key in keys)
@@ -1538,5 +1542,5 @@ class ClickHousePrinter(BasePrinter):
 
         for index, key in enumerate(keys):
             separator = ".^" if node.access_type == "sub_object" and index == 0 else "."
-            expr = f"{expr}{separator}{escape_clickhouse_identifier(key)}"
+            expr = f"{expr}{separator}{escape_clickhouse_json_path(key)}"
         return expr

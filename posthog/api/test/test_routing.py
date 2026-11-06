@@ -1,3 +1,4 @@
+import re
 import random
 import pathlib
 import importlib
@@ -7,12 +8,14 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, count_organization_access_cache_round_trips
 
 from django.core.exceptions import ImproperlyConfigured
+from django.db import connection
 from django.db.models import Count
 from django.db.models.functions import Lower
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import include, path
 from django.utils import timezone
 
@@ -34,11 +37,13 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
 from posthog.models.scoping import get_current_team_id
 from posthog.models.team.team import Team
+from posthog.models.user_facet_settings import UserFacetSettings
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.permissions import APIScopePermission
 from posthog.products import product_app_names
 from posthog.queryset_paging import stable_queryset_ordering
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.annotations.backend.api.annotation import AnnotationSerializer
 from products.annotations.backend.models.annotation import Annotation
 
@@ -51,6 +56,11 @@ class FooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=False, methods=["get"])
     def current_scope(self, request, **kwargs):
         return Response({"team_id": get_current_team_id()})
+
+    @action(detail=False, methods=["get"])
+    def facet_products(self, request: Request, **kwargs: Any) -> Response:
+        facet_settings = UserFacetSettings.objects.for_team(self.team_id)
+        return Response({"products": list(facet_settings.values_list("product", flat=True))})
 
 
 class ScopedFooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -236,6 +246,47 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 2)  # Both current_team_annotation and other_team_annotation
 
+    @parameterized.expand(
+        [
+            ("project_view", "projects", False),
+            ("team_view", "team_nested", False),
+            ("child_environment", "team_nested", True),
+        ]
+    )
+    def test_scoped_request_reads_the_team_row_once(self, _name: str, prefix: str, child_environment: bool) -> None:
+        UserFacetSettings.objects.unscoped().create(
+            team=self.team, user=self.user, product=UserFacetSettings.Product.LOGS
+        )
+        url_team = (
+            Team.objects.create(organization=self.organization, project=self.project, parent_team=self.team)
+            if child_environment
+            else self.team
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/{prefix}/{url_team.id}/foos/facet_products/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"products": [UserFacetSettings.Product.LOGS]})
+        tables_read = [match.group(1) for q in queries if (match := re.search(r'FROM "(\w+)"', q["sql"]))]
+        self.assertEqual(tables_read.count("posthog_team"), 1, tables_read)
+        self.assertNotIn("posthog_project", tables_read)
+
+    @parameterized.expand([("missing_project", False), ("child_environment_id", True)])
+    def test_project_view_for_an_id_that_names_no_project_is_not_found(
+        self, _name: str, child_environment: bool
+    ) -> None:
+        url_id = (
+            Team.objects.create(organization=self.organization, project=self.project, parent_team=self.team).id
+            if child_environment
+            else self.team.id + 10_000
+        )
+
+        response = self.client.get(f"/api/projects/{url_id}/foos/")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Project not found.")
+
     def test_organization_nested_filtering(self):
         response = self.client.get(f"/api/organizations/{self.organization.id}/foos/")
         self.assertEqual(response.status_code, 200)
@@ -268,6 +319,21 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["team_id"], self.team.id)
+
+    @override_settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True)
+    def test_scoped_request_reads_membership_once_and_skips_access_controls_without_the_feature(self) -> None:
+        url = f"/api/scoped_projects/{self.team.id}/scoped_foos/"
+        self.client.get(url)
+
+        with (
+            count_organization_access_cache_round_trips() as cache_round_trips,
+            CaptureQueriesContext(connection) as queries,
+        ):
+            response = self.client.get(url)
+
+        assert response.status_code == 200
+        assert cache_round_trips() == 1
+        assert not [query for query in queries.captured_queries if AccessControl._meta.db_table in query["sql"]]
 
     @parameterized.expand(
         [
