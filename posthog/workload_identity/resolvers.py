@@ -61,6 +61,7 @@ def _through_integration(team_id: int, repository: str) -> tuple[ResolvedWorkloa
             continue
         if response.status_code == 200:
             return _github_subject(_repository_json(response), "your GitHub integration"), unavailable
+        unavailable = unavailable or response.status_code != 404
     return None, unavailable
 
 

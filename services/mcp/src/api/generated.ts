@@ -118078,6 +118078,11 @@ export namespace Schemas {
       placeholder: string;
     }
 
+    /**
+     * Condition claims that a policy may set only together with at least one of the listed claims.
+     */
+    export type WorkloadProviderConditionClaimCompanions = {[key: string]: string[]};
+
     export interface WorkloadProvider {
       /** Stable identifier of the provider. */
       key: string;
@@ -118095,6 +118100,8 @@ export namespace Schemas {
       condition_claims: WorkloadClaim[];
       /** Common choices of conditions to offer before the raw claims, in display order. */
       condition_presets: ConditionPreset[];
+      /** Condition claims that a policy may set only together with at least one of the listed claims. */
+      readonly condition_claim_companions: WorkloadProviderConditionClaimCompanions;
       /** Whether PostHog can look up the subject from its name with resolve_subject. */
       readonly can_resolve_subject: boolean;
       /** The CI config a job of this project needs, empty when the provider has none. */

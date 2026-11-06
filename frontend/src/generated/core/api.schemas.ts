@@ -5934,6 +5934,11 @@ export interface ConditionPresetApi {
     default_value: string
 }
 
+/**
+ * Condition claims that a policy may set only together with at least one of the listed claims.
+ */
+export type WorkloadProviderApiConditionClaimCompanions = { [key: string]: string[] }
+
 export interface WorkloadProviderApi {
     /** Stable identifier of the provider. */
     key: string
@@ -5951,6 +5956,8 @@ export interface WorkloadProviderApi {
     condition_claims: WorkloadClaimApi[]
     /** Common choices of conditions to offer before the raw claims, in display order. */
     condition_presets: ConditionPresetApi[]
+    /** Condition claims that a policy may set only together with at least one of the listed claims. */
+    readonly condition_claim_companions: WorkloadProviderApiConditionClaimCompanions
     /** Whether PostHog can look up the subject from its name with resolve_subject. */
     readonly can_resolve_subject: boolean
     /** The CI config a job of this project needs, empty when the provider has none. */
