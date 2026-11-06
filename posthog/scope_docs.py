@@ -10,7 +10,6 @@ the public `/oauth/scopes/` endpoint, and the scope reference on posthog.com.
 """
 
 from collections.abc import Iterable
-from functools import lru_cache
 from typing import Literal, get_args
 
 from posthog.dataclasses import frozen
@@ -348,8 +347,14 @@ def collect_scope_docs(declarations: Iterable[Iterable[ScopeDoc]]) -> dict[APISc
     return dict(sorted(collected.items()))
 
 
-@lru_cache(maxsize=1)
+_scope_docs: dict[APIScopeObject, ScopeDoc] | None = None
+
+
 def get_scope_docs() -> dict[APIScopeObject, ScopeDoc]:
-    """Every declared ScopeDoc: core's and each installed product's."""
-    product_declarations = [getattr(module, "SCOPE_DOCS", ()) for module in load_product_modules("scopes")]
-    return collect_scope_docs([CORE_SCOPE_DOCS, *product_declarations])
+    """Every declared ScopeDoc: core's and each installed product's. The declarations are fixed at
+    import time, so they are collected once per process."""
+    global _scope_docs
+    if _scope_docs is None:
+        product_declarations = [getattr(module, "SCOPE_DOCS", ()) for module in load_product_modules("scopes")]
+        _scope_docs = collect_scope_docs([CORE_SCOPE_DOCS, *product_declarations])
+    return _scope_docs
