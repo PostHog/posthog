@@ -3,8 +3,9 @@ import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
 import type { AccessKey } from '@/posthog/access-key'
 import { stepUpRequired } from '@/posthog/api'
+import type { Credentials } from '@/posthog/credentials'
 import type { OAuthLogin } from '@/posthog/oauth'
-import { addToKeyHint, canStepUp } from '@/posthog/scope-challenge'
+import { addToKeyHint, canStepUp, isScopeName } from '@/posthog/scope-challenge'
 import { scopesNotCovered } from '@/posthog/scopes'
 
 import { ADD_COMMAND, loginFlow, saveLogin } from './flow'
@@ -54,23 +55,27 @@ export async function promptStepUp(ctx: Context, scopes: readonly string[]): Pro
     return true
 }
 
-// At a terminal this waits for the approval and saves the login. Agents get the link.
 // The scopes the login holds and the wanted ones it lacks. Undefined when the credentials can't step up.
 async function loginScopes(
     ctx: Context,
+    credentials: Credentials | undefined,
     wanted: readonly string[]
 ): Promise<{ key: AccessKey; held: string[]; missing: string[] } | undefined> {
+    if (!canStepUp(credentials)) {
+        return undefined
+    }
     // The session, not the credentials, holds the login an earlier step-up in this command saved.
     const key = (await ctx.session()).current
     const held = key.status().scopes
-    if (!canStepUp(await ctx.credentials()) || held === null) {
+    if (held === null) {
         return undefined
     }
     return { key, held, missing: scopesNotCovered(held, wanted) }
 }
 
+// At a terminal this waits for the approval and saves the login. Agents get the link.
 export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<StepUpResult> {
-    const login = await loginScopes(ctx, wanted)
+    const login = await loginScopes(ctx, await ctx.credentials(), wanted)
     if (!login) {
         throw keyCantStepUp(wanted)
     }
@@ -96,9 +101,15 @@ export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<S
 }
 
 // Only a login knows its scopes without asking PostHog, so a personal API key meets the 403 instead.
-export async function ensureScopes(ctx: Context, scopes: readonly string[]): Promise<void> {
-    const missing = (await loginScopes(ctx, scopes))?.missing ?? []
-    if (missing.length > 0 && !(await ctx.stepUp(missing))) {
-        throw stepUpRequired(missing)
+export async function ensureScopes(ctx: Context, scopes: readonly string[], action = 'for this'): Promise<void> {
+    // Without credentials the command reports that itself, where it would have anyway.
+    const credentials = await ctx.credentials().catch(() => undefined)
+    const missing = (await loginScopes(ctx, credentials, scopes))?.missing ?? []
+    // A name hog can't put in a command leaves the check to PostHog's 403.
+    if (missing.length === 0 || !missing.every(isScopeName)) {
+        return
+    }
+    if (!(await ctx.stepUp(missing))) {
+        throw stepUpRequired(missing, `Your login needs ${missing.join(', ')} ${action}.`)
     }
 }

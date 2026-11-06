@@ -226,10 +226,6 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
             ctx = new Context(commandRuntime, globals, mode, COMMANDS, config, telemetry)
             let result: unknown
             try {
-                if (node.checksScopesFirst && node.scopes?.length && options.dryRun !== true) {
-                    const { ensureScopes } = await import('@/posthog/login/step-up')
-                    await ensureScopes(ctx, node.scopes)
-                }
                 result = await node.run({ args, options, ctx })
             } catch (error) {
                 throw await withScopeHint(error, node.scopes, ctx)

@@ -47,6 +47,13 @@ export class Context {
         return this.api
     }
 
+    // A command that writes in steps, like an upload, calls this once it knows what it will write, so a
+    // login without the scopes steps up before the first write instead of failing halfway.
+    async ensureScopes(scopes: readonly string[], action?: string): Promise<void> {
+        const { ensureScopes } = await import('@/posthog/login/step-up')
+        await ensureScopes(this, scopes, action)
+    }
+
     // Requests sent at once can all hit a missing scope, and they share one prompt.
     stepUp(scopes: readonly string[]): Promise<boolean> {
         this.stepUpRunning ??= import('@/posthog/login/step-up')

@@ -988,13 +988,24 @@ describe('hog auth login', () => {
     })
 
     test.each([
-        [['error-tracking', 'upload', 'dist'], 'error_tracking:write'],
-        [['endpoints', 'push', 'endpoints/'], 'endpoint:write insight_variable:write'],
-        [['error-tracking', 'process', 'dist'], 'error_tracking:write'],
-    ])('hog %j checks the login has %s before it starts', async (argv, scope) => {
-        const result = await runHog(argv, { env: { CLAUDECODE: '1' }, ...OAUTH_LOGIN, respond: deviceFlow(0) })
+        ['an endpoint', 'name: daily\nquery: SELECT 1\n', 'hog auth add endpoint:write'],
+        [
+            'an endpoint with a variable PostHog lacks',
+            'name: daily\nquery: SELECT {variables.day}\nvariables:\n  - name: day\n    type: String\n',
+            'hog auth add endpoint:write insight_variable:write',
+        ],
+    ])('push checks the login can create %s before it writes anything', async (_name, yaml, command) => {
+        const result = await runHog(['endpoints', 'push', 'daily.yaml', '--yes'], {
+            env: { CLAUDECODE: '1' },
+            files: { ...OAUTH_LOGIN.files, '/work/daily.yaml': yaml },
+            keychain: OAUTH_LOGIN.keychain,
+            respond: (url) =>
+                /\/(endpoints|insight_variables)\/(\?.*)?$/.test(url)
+                    ? { status: 200, body: { results: [] } }
+                    : { status: 404, body: { detail: 'Not found.' } },
+        })
 
-        expect(result.error()).toMatchObject({ code: 'step_up_required', command: `hog auth add ${scope}` })
-        expect(result.requests).toEqual([])
+        expect(result.error()).toMatchObject({ code: 'step_up_required', command })
+        expect(result.requests.filter((request) => request.method !== 'GET')).toEqual([])
     })
 })

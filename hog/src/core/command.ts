@@ -80,8 +80,6 @@ interface CommandDefinition<Args, Options, Result> {
     allowsInvalidConfig?: boolean
     // Personal API key scopes the command needs. `hog commands` lists them, and a 403 names them.
     scopes?: readonly string[]
-    // Checks a login holds `scopes` before a long or multi-step command starts, so it can't fail halfway.
-    checksScopesFirst?: boolean
     notes?: string
     examples?: readonly string[]
     // Does the work and returns data. It never prints: `human` and `agent` decide how the data

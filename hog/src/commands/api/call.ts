@@ -72,8 +72,7 @@ export default defineCommand({
             )
         }
 
-        const { ensureScopes } = await import('@/posthog/login/step-up')
-        await ensureScopes(ctx, tool.requiredScopes)
+        await ctx.ensureScopes(tool.requiredScopes, `to call ${tool.name}`)
         const result = await withApiConnection(ctx, options, tool.readOnly || tool.idempotent, (connection) =>
             library.call(tool.name, validation.input, connection, options.confirm === true)
         )

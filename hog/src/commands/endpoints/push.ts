@@ -51,7 +51,6 @@ export default defineCommand({
     },
     options: CONFIRM_OPTIONS,
     scopes: SCOPES_WRITE,
-    checksScopesFirst: true,
     notes: 'hog shows the changes and asks before it makes them. Agents and scripts pass --yes. hog creates the insight variables a file uses that the project lacks. Exits with code 1 when a file is invalid, PostHog would reject it, or an endpoint fails to save.',
     examples: [
         'hog endpoints push endpoints/',
@@ -89,6 +88,10 @@ export default defineCommand({
         if (!(await confirm(ctx, options, pushPlanLines(pending, style), question))) {
             return { status: 'cancelled', plan, outcomes: [], problems }
         }
+        const createsVariables = items.some(
+            (item) => item.action !== 'skip' && (item.file.variables ?? []).some(({ name }) => !known.found.has(name))
+        )
+        await ctx.ensureScopes(createsVariables ? ['endpoint:write', 'insight_variable:write'] : ['endpoint:write'])
         return { status: 'applied', plan, outcomes: await applyPush(api, items, variables), problems }
     },
 
