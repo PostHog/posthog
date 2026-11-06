@@ -159,6 +159,29 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertTemplateUsed(response, "message_preferences/error.html")
         self.assertContains(response, STYLESHEET_LINK, status_code=400)
 
+    @parameterized.expand(
+        [
+            ("page_view", "get", "", {}),
+            ("one_click_unsubscribe", "post", "?one_click_unsubscribe=1", {"List-Unsubscribe": "One-Click"}),
+        ]
+    )
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
+    def test_preferences_page_rejects_token_of_deleted_team(
+        self, _name, method, query, body, mock_validate_messaging_preferences_token
+    ):
+        deleted_team_id = self.team.id + 100_000
+        mock_validate_messaging_preferences_token.return_value = mock_response(
+            200, {"valid": True, "team_id": deleted_team_id, "identifier": self.recipient.identifier}
+        )
+
+        response = getattr(self.client, method)(
+            reverse("message_preferences", kwargs={"token": self.token}) + query, body
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTemplateUsed(response, "message_preferences/error.html")
+        self.assertFalse(MessageRecipientPreference.objects.filter(team_id=deleted_team_id).exists())
+
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_update_preferences_valid(self, mock_validate_messaging_preferences_token):
         data = {"token": self.token, "preferences[]": [f"{self.category.id}:true", f"{self.category2.id}:false"]}
