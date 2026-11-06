@@ -248,6 +248,26 @@ class PromptSetDomain:
 
 
 @frozen
+class PromptSetSearchPrompt:
+    """A prompt whose answers ran a search, with its text as it last ran."""
+
+    id: str
+    text: str
+
+
+@frozen
+class PromptSetSearch:
+    """A web search the engines ran while answering, across the set in the window."""
+
+    query: str
+    prompts: int
+    answers: int
+    cited: int
+    engines: tuple[str, ...]
+    top_prompts: tuple[PromptSetSearchPrompt, ...]
+
+
+@frozen
 class PromptSetOverview:
     """How the whole prompt set did over the last `days` days, against the `days` days before."""
 
@@ -263,6 +283,7 @@ class PromptSetOverview:
     engines: tuple[PromptSetEngineCounts, ...]
     topics: tuple[PromptSetTopicCounts, ...]
     top_domains: tuple[PromptSetDomain, ...]
+    top_searches: tuple[PromptSetSearch, ...]
 
 
 class PromptOrigin(LabeledStrEnum):

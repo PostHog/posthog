@@ -47,6 +47,8 @@ from products.aeo.backend.facade.contracts import (
     PromptSetDomain,
     PromptSetEngineCounts,
     PromptSetOverview,
+    PromptSetSearch,
+    PromptSetSearchPrompt,
     PromptSetTopicCounts,
     PromptStats,
     PromptSuggestionJob,
@@ -217,6 +219,8 @@ def list_prompt_checks(
 
 
 MAX_OVERVIEW_DOMAINS = 20
+MAX_OVERVIEW_SEARCHES = 20
+MAX_SEARCH_PROMPTS = 5
 
 
 def _check_counts(target_domains: list[str], *, prompts: bool = False) -> dict[str, Aggregate]:
@@ -370,6 +374,86 @@ def _top_domains(
     )
 
 
+# One row per answered check and distinct search it ran, with the search normalized the way
+# `_PromptWindowReport` does it: case folded and whitespace collapsed.
+_WINDOW_SEARCHES_SQL = """
+    SELECT DISTINCT check_row.id, check_row.prompt_id, check_row.engine, check_row.cited,
+        lower(btrim(regexp_replace(query, '\\s+', ' ', 'g'))) AS query
+    FROM posthog_aeo_citation_check AS check_row, jsonb_array_elements_text(check_row.search_queries) AS query
+    WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
+        AND jsonb_typeof(check_row.search_queries) = 'array'
+"""
+_TOP_SEARCHES_SQL = (
+    "WITH searches AS ("
+    + _WINDOW_SEARCHES_SQL
+    + """)
+    SELECT query, count(DISTINCT prompt_id), count(*), count(*) FILTER (WHERE cited),
+        array_agg(DISTINCT engine ORDER BY engine)
+    FROM searches
+    WHERE query <> ''
+    GROUP BY query
+    ORDER BY count(DISTINCT prompt_id) DESC, count(*) DESC, query
+    LIMIT %s
+"""
+)
+_SEARCH_PROMPTS_SQL = (
+    "WITH searches AS ("
+    + _WINDOW_SEARCHES_SQL
+    + """)
+    SELECT query, prompt_id, count(*)
+    FROM searches
+    WHERE query = ANY(%s)
+    GROUP BY query, prompt_id
+    ORDER BY query, count(*) DESC, prompt_id
+"""
+)
+
+
+def _top_searches(team_id: int, *, since: dt.datetime) -> tuple[PromptSetSearch, ...]:
+    """The searches the engines ran while answering, ranked by how many prompts triggered them,
+    each with the prompts that ran it most."""
+    team_id = resolve_effective_team_id(team_id)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            _TOP_SEARCHES_SQL,
+            [team_id, since, MAX_OVERVIEW_SEARCHES],
+        )
+        rows = cursor.fetchall()
+        if not rows:
+            return ()
+        cursor.execute(
+            _SEARCH_PROMPTS_SQL,
+            [team_id, since, [row[0] for row in rows]],
+        )
+        prompt_rows = cursor.fetchall()
+
+    prompt_ids: dict[str, list[uuid.UUID]] = defaultdict(list)
+    for query, prompt_id, _ in prompt_rows:
+        if len(prompt_ids[query]) < MAX_SEARCH_PROMPTS:
+            prompt_ids[query].append(prompt_id)
+    texts = {
+        row["id"]: row["prompt"]
+        for row in AEOPrompt.objects.for_team(team_id)
+        .filter(id__in={prompt_id for ids in prompt_ids.values() for prompt_id in ids})
+        .values("id", "prompt")
+    }
+    return tuple(
+        PromptSetSearch(
+            query=query,
+            prompts=prompts,
+            answers=answers,
+            cited=cited,
+            engines=tuple(engines),
+            top_prompts=tuple(
+                PromptSetSearchPrompt(id=str(prompt_id), text=texts[prompt_id])
+                for prompt_id in prompt_ids[query]
+                if prompt_id in texts
+            ),
+        )
+        for query, prompts, answers, cited, engines in rows
+    )
+
+
 def get_prompt_set_overview(team_id: int, *, timezone_name: str, days: int) -> PromptSetOverview:
     """Checks across the whole prompt set over the last `days` days in the team's timezone, the same
     counts for the `days` days before, and the current window split per engine and per topic."""
@@ -429,6 +513,7 @@ def get_prompt_set_overview(team_id: int, *, timezone_name: str, days: int) -> P
             answers=current_counts.checks - current_counts.failed,
             target_domains=target_domains,
         ),
+        top_searches=_top_searches(team_id, since=window_start),
     )
 
 

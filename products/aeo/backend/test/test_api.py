@@ -680,13 +680,41 @@ class TestAEOPromptAPI(APIBaseTest):
         ours = "https://docs.example.com/funnels"
         rival = "https://rival.example.org/funnels"
         self._record_check(
-            ids["funnels?"], "claude-web-search", minutes_ago=10, cited=True, position=1, cited_urls=[ours, rival]
+            ids["funnels?"],
+            "claude-web-search",
+            minutes_ago=10,
+            cited=True,
+            position=1,
+            cited_urls=[ours, rival],
+            search_queries=["Funnel  tools", "example funnels"],
         )
-        self._record_check(ids["funnels?"], "openai-web-search", minutes_ago=10, check_failed=True)
-        self._record_check(ids["retention?"], "exa-answer", minutes_ago=day, answer_text="Example has retention.")
-        self._record_check(ids["replay?"], "claude-web-search", minutes_ago=2 * day, cited_urls=[rival, rival])
-        self._record_check(ids["flags?"], "exa-answer", minutes_ago=3 * day, cited=True, position=1, cited_urls=[ours])
-        self._record_check(ids["funnels?"], "claude-web-search", minutes_ago=35 * day)
+        self._record_check(
+            ids["funnels?"], "openai-web-search", minutes_ago=10, check_failed=True, search_queries=["funnel tools"]
+        )
+        self._record_check(
+            ids["retention?"],
+            "exa-answer",
+            minutes_ago=day,
+            answer_text="Example has retention.",
+            search_queries=["funnel tools", "FUNNEL TOOLS"],
+        )
+        self._record_check(
+            ids["replay?"],
+            "claude-web-search",
+            minutes_ago=2 * day,
+            cited_urls=[rival, rival],
+            search_queries=["session replay", " "],
+        )
+        self._record_check(
+            ids["flags?"],
+            "exa-answer",
+            minutes_ago=3 * day,
+            cited=True,
+            position=1,
+            cited_urls=[ours],
+            search_queries=["funnel tools"],
+        )
+        self._record_check(ids["funnels?"], "claude-web-search", minutes_ago=35 * day, search_queries=["funnel tools"])
         self._record_check(ids["replay?"], "exa-answer", minutes_ago=40 * day, cited=True, position=4)
         self._record_check(ids["funnels?"], "claude-web-search", minutes_ago=70 * day, cited=True)
 
@@ -747,6 +775,21 @@ class TestAEOPromptAPI(APIBaseTest):
         ] == [
             ("docs.example.com", 2, 0.5, True),
             ("rival.example.org", 2, 0.5, False),
+        ]
+        assert [
+            (
+                row["query"],
+                row["prompts"],
+                row["answers"],
+                row["cited"],
+                row["engines"],
+                sorted(prompt["text"] for prompt in row["top_prompts"]),
+            )
+            for row in overview["top_searches"]
+        ] == [
+            ("funnel tools", 3, 3, 2, ["claude-web-search", "exa-answer"], ["flags?", "funnels?", "retention?"]),
+            ("example funnels", 1, 1, 1, ["claude-web-search"], ["funnels?"]),
+            ("session replay", 1, 1, 0, ["claude-web-search"], ["replay?"]),
         ]
         child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
         via_child = get_prompt_set_overview(child.id, timezone_name="UTC", days=7)
