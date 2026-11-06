@@ -51,12 +51,12 @@ export class SandboxSenderStateService {
     }
 
     private currentRead(fresh: boolean, giveUpAt: number): Promise<boolean> {
-        if (!fresh && this.cached && performance.now() < this.cached.expiresAt) {
+        if (!fresh && this.cached && Date.now() < this.cached.expiresAt) {
             return this.cached.paused
         }
         const read: CachedRead = {
             paused: this.readWithRetry(giveUpAt),
-            expiresAt: performance.now() + REFRESH_AGE_MS + Math.random() * REFRESH_JITTER_MS,
+            expiresAt: Date.now() + REFRESH_AGE_MS + Math.random() * REFRESH_JITTER_MS,
         }
         this.cached = read
         read.paused.catch(() => {
