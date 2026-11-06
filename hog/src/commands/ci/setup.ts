@@ -1,16 +1,20 @@
 import { CI_SETUP_COMMAND, policyRequestFlow, policyRequestWait, resolveSubject } from '@/ci/policy-request'
-import { WORKLOAD_PROVIDERS, type WorkloadConditions, type WorkloadProvider } from '@/ci/providers'
+import { WORKLOAD_PROVIDERS, type WorkloadConditions, type WorkloadProvider } from '@/ci/providers/registry'
 import { detectRepositoryProvider, pickProviderHint, readRepository } from '@/ci/repository'
 import { clearPending, printPending, resumeApproval, runApproval, type ApprovalResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls, type Output } from '@/core/output'
-import type { Host } from '@/posthog/host'
+import { cloudRegion, type Host } from '@/posthog/host'
 import type { ProjectId } from '@/posthog/ids'
 
 interface Setup {
     provider: string
+    // What to add to posthog.json. A job reads a host from it only for PostHog Cloud.
+    posthogJson: { host?: Host; projectId: number }
     snippet: string
+    // What the job sets instead of posthog.json, or as well as it for a self-hosted PostHog.
+    env: { HOG_HOST: Host; HOG_PROJECT_ID: string }
     docsUrl: string
 }
 
@@ -32,7 +36,19 @@ function providerByKey(key: string): WorkloadProvider {
 }
 
 function setupFor(provider: WorkloadProvider, target: { host: Host; projectId: ProjectId }): Setup {
-    return { provider: provider.name, snippet: provider.snippet(target), docsUrl: provider.docsUrl }
+    const cloud = cloudRegion(target.host)
+    return {
+        provider: provider.name,
+        posthogJson: { ...(cloud ? { host: cloud } : {}), projectId: Number(target.projectId) },
+        snippet: provider.snippet(target),
+        env: { HOG_HOST: target.host, HOG_PROJECT_ID: String(target.projectId) },
+        docsUrl: provider.docsUrl,
+    }
+}
+
+function scopesFrom(raw: readonly string[] | undefined): string[] {
+    const scopes = (raw ?? []).flatMap((value) => value.split(',')).map((scope) => scope.trim())
+    return [...new Set(scopes.filter(Boolean))].sort()
 }
 
 function conditionsFrom(
@@ -63,9 +79,19 @@ function conditionsFrom(
 
 function printSnippet(out: Output, result: Setup): void {
     out.line('')
-    out.line(`Add this to the ${result.provider} job that runs hog:`)
+    out.line('Add this to posthog.json in the repository:')
+    out.line('')
+    out.line(escapeControls(JSON.stringify(result.posthogJson, null, 4)))
+    out.line('')
+    out.line(`Then add this to the ${result.provider} job that runs hog:`)
     out.line('')
     out.line(escapeControls(result.snippet))
+    out.line('')
+    out.line(
+        result.posthogJson.host
+            ? `Or, instead of posthog.json, set HOG_HOST=${result.env.HOG_HOST} and HOG_PROJECT_ID=${result.env.HOG_PROJECT_ID} in the job.`
+            : `This PostHog isn't PostHog Cloud, so the job also needs HOG_HOST=${result.env.HOG_HOST}.`
+    )
     out.line(out.style(`More in ${result.docsUrl}`, 'dim'))
 }
 
@@ -95,7 +121,8 @@ export default defineCommand({
         scope: {
             type: 'string',
             multiple: true,
-            description: 'A scope the job gets, like error_tracking:write. Repeat for more',
+            description:
+                'The scopes the job gets, like error_tracking:write. Separate several with commas, as in --scope error_tracking:write,query:read, or repeat the flag',
         },
         name: { type: 'string', description: 'What to call the policy in PostHog' },
         wait: { type: 'boolean', description: 'Wait for the request an earlier run started to be approved' },
@@ -108,7 +135,7 @@ export default defineCommand({
     ].join('\n'),
     examples: [
         'hog ci setup --branch main --scope error_tracking:write',
-        'hog ci setup --environment production --scope endpoint:write --scope query:read',
+        'hog ci setup --environment production --scope endpoint:write,query:read',
         'hog ci setup --wait',
     ],
 
@@ -126,12 +153,12 @@ export default defineCommand({
         }
 
         // The checks that need no PostHog run first, so a usage mistake never waits on the keychain.
-        const scopes = [...new Set(options.scope ?? [])].sort()
+        const scopes = scopesFrom(options.scope)
         if (scopes.length === 0) {
             throw new HogError(
                 'missing_scopes',
                 'Say which scopes the job gets.',
-                'Pass --scope for each, like --scope error_tracking:write for source map uploads.',
+                'Pass --scope with the scopes, like --scope error_tracking:write for source map uploads, or --scope endpoint:write,query:read for several.',
                 EXIT_USAGE
             )
         }

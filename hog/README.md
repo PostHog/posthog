@@ -202,10 +202,10 @@ hog's folder is `~/Library/Application Support/hog` on macOS, `$XDG_CONFIG_HOME/
 A CI job can trade the OIDC token its provider issues for a PostHog token, so no key is stored in the CI provider.
 An organization admin trusts the repository once, and each run of the job then gets a token that lives a few minutes.
 
-1. In the repository, logged in with `hog auth login`, run `hog ci setup --branch main --scope error_tracking:write`. Pass `--environment production` instead of, or as well as, `--branch` to trust only deploy jobs, and repeat `--scope` for each scope the job needs.
+1. In the repository, logged in with `hog auth login`, run `hog ci setup --branch main --scope error_tracking:write`. Pass `--environment production` instead of, or as well as, `--branch` to trust only deploy jobs, and list every scope the job needs, separated by commas, like `--scope error_tracking:write,query:read`.
 2. hog finds the CI provider and the repository from the origin remote, and asks PostHog to trust it in your project. PostHog looks up the repository's ID, so a deleted and re-created repository with the same name doesn't match.
 3. An organization admin approves the request in the browser. When you are one, hog opens the page and waits. Otherwise it names the admins and prints the link to send them. `hog ci setup --wait` checks on the request later.
-4. Add the snippet hog prints to the job. It gives the job an OIDC token and names the host and the project.
+4. Add the `host` and `projectId` hog prints to `posthog.json`, and the snippet it prints to the job, which gives the job an OIDC token. Setting `HOG_HOST` and `HOG_PROJECT_ID` in the job works too, and a self-hosted PostHog needs `HOG_HOST`.
 
 In the job:
 

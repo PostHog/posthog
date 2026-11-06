@@ -6,7 +6,7 @@ import { ApiError, type PostHogApi } from '@/posthog/api'
 import { HostSchema, type Host } from '@/posthog/host'
 import { ProjectIdSchema, type ProjectId } from '@/posthog/ids'
 
-import type { WorkloadConditions, WorkloadProvider } from './providers'
+import type { WorkloadConditions, WorkloadProvider } from './providers/registry'
 
 export const CI_SETUP_COMMAND = 'hog ci setup'
 const POLL_INTERVAL_SECONDS = 5
