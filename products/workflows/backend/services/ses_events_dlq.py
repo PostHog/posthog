@@ -52,6 +52,9 @@ HEARTBEAT_SECONDS = 60
 MAX_RUN_SECONDS = 11 * 3600
 # Bounds the renewal work of one heartbeat to 100 batch calls.
 MAX_HELD_MESSAGES = 1000
+# SQS can answer a receive with no messages while the queue still holds some, so only this many
+# receives in a row that bring nothing new end the drain.
+EMPTY_RECEIVES_TO_STOP = 3
 TRACKING_CODE_HEADER = "x-posthog-tracking-code"
 VERSIONED_TRACKING_CODE_MARKER = "v2"
 
@@ -395,7 +398,8 @@ def _receive_unseen(
     queue: DlqQueue, options: ReplayOptions, sqs: "SQSClient", held: dict[str, str]
 ) -> Iterator[dict[str, Any]]:
     seen: set[str] = set()
-    while len(seen) < options.limit:
+    empty_receives = 0
+    while len(seen) < options.limit and empty_receives < EMPTY_RECEIVES_TO_STOP:
         messages = sqs.receive_message(
             QueueUrl=queue.url,
             MaxNumberOfMessages=min(RECEIVE_BATCH_SIZE, options.limit - len(seen)),
@@ -409,8 +413,7 @@ def _receive_unseen(
             if str(received["MessageId"]) in held:
                 held[str(received["MessageId"])] = str(received["ReceiptHandle"])
         unseen = [dict(m) for m in messages if m["MessageId"] not in seen]
-        if not unseen:
-            return
+        empty_receives = 0 if unseen else empty_receives + 1
         for message in unseen:
             seen.add(str(message["MessageId"]))
             held[str(message["MessageId"])] = str(message["ReceiptHandle"])
