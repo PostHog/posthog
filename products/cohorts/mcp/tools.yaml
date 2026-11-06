@@ -152,9 +152,9 @@ tools:
 
 
             To add more people to an existing STATIC cohort in bulk, set a 'query' (HogQLQuery or ActorsQuery) on it —
-            the server runs the query and inserts every newly matched person (existing members are skipped), with no row
-            limit. The query must expose the person id under one of these column names, checked in order: 'person_id',
-            'actor_id', 'id', or 'distinct_id' (selecting from the 'events' or 'persons' tables resolves the actor
+            the server runs the query and inserts every newly matched person, with no row limit. Existing members are
+            kept, including people the query no longer matches. The query must expose the person id under one of these
+            column names, checked in order: 'person_id', 'actor_id', 'id', or 'distinct_id' (selecting from the 'events' or 'persons' tables resolves the actor
             automatically). Validate the query before saving it — run a HogQLQuery through 'execute-sql' and an
             ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one that
             returned successfully. Prefer this over 'cohorts-add-persons-to-static-cohort-partial-update' for anything

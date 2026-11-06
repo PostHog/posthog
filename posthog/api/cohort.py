@@ -1390,6 +1390,15 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "condition_type",
             "realtime",
         ]
+        extra_kwargs = {
+            "query": {
+                "help_text": (
+                    "Query that populates a static cohort, as a HogQLQuery or ActorsQuery. Setting it runs the query "
+                    "and adds every newly matched person to the cohort. Existing members are kept, including people "
+                    "the query no longer matches, so membership only grows. Can't be combined with filters."
+                ),
+            },
+        }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
