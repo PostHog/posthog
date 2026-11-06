@@ -1,6 +1,7 @@
 import { renderFeedbackWidgetPreview, renderSurveysPreview } from 'posthog-js/dist/surveys-preview'
 import { useEffect, useMemo, useRef } from 'react'
 
+import { objectClean } from 'lib/utils/objects'
 import { sanitizeSurvey } from 'scenes/surveys/utils'
 
 import { Survey } from '~/types'
@@ -38,17 +39,18 @@ export function SurveyAppearancePreview({
     const surveyPreviewRef = useRef<HTMLDivElement>(null)
     const feedbackWidgetPreviewRef = useRef<HTMLDivElement>(null)
 
-    const sanitizedSurvey = useMemo(
-        () =>
-            sanitizeSurvey({
-                ...survey,
-                appearance: {
-                    ...survey.appearance,
-                    zIndex: '1',
-                },
-            }),
-        [survey]
-    )
+    const sanitizedSurvey = useMemo(() => {
+        const sanitized = sanitizeSurvey({
+            ...survey,
+            appearance: {
+                ...survey.appearance,
+                zIndex: '1',
+            },
+        })
+        // posthog-js spreads the appearance over its defaults, so an unset color left as an explicit
+        // undefined would erase the default and render a transparent survey with unreadable text.
+        return sanitized.appearance ? { ...sanitized, appearance: objectClean(sanitized.appearance) } : sanitized
+    }, [survey])
 
     useEffect(() => {
         if (surveyPreviewRef.current) {
