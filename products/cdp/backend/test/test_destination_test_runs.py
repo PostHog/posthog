@@ -37,7 +37,19 @@ class TestDestinationTestRunContext(SimpleTestCase):
                 "https://xn--bcher-geheimnis-zvb.example.com",
                 "https://***REDACTED***.example.com",
             ),
-            ("secret_too_short_to_be_a_credential", "eu", "https://eu.example.com", "https://eu.example.com"),
+            ("short_secret_inside_a_longer_label", "eu", "https://europe.example.com", "https://europe.example.com"),
+            (
+                "short_secret_that_fills_a_label",
+                "s3cret7",
+                "https://s3cret7.example.com",
+                "https://***REDACTED***.example.com",
+            ),
+            (
+                "secret_that_uts46_keeps_and_idna2003_maps",
+                "paßwörter",
+                "https://xn--pawrter-1va2s.example.com",
+                "https://***REDACTED***.example.com",
+            ),
             (
                 "secret_that_names_the_registrable_domain",
                 "evil-attacker.com",

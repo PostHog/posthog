@@ -12,6 +12,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Optional, cast
 from urllib.parse import urlsplit
 
+import idna
 import requests
 import structlog
 import tldextract
@@ -47,7 +48,7 @@ _REDACTED = "***REDACTED***"
 _ORIGIN_PARTS = re.compile(r"^([a-z][a-z0-9+.-]*://)([^/:\[\]]+)(:\d+)?$")
 # The bundled suffix list, so a test run never fetches it over the network.
 _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
-# A shorter value matches ordinary host fragments, so it would hide where requests went, and is no credential.
+# A shorter value matches ordinary host fragments, so it is redacted only where it fills a whole label.
 _MIN_SECRET_LENGTH = 8
 
 _CONTEXT_FIELDS = ("hog", "inputs", "inputs_schema", "mappings")
@@ -209,13 +210,14 @@ def _host_forms(secret: str) -> set[str]:
     # reaches the origin in those forms.
     forms = {secret.lower()}
     try:
-        forms.add(secret.encode("idna").decode("ascii").lower())
-    except UnicodeError:
+        # UTS 46 without transitional mapping, as the WHATWG URL parser in the worker applies it.
+        forms.add(idna.encode(secret, uts46=True, transitional=False).decode("ascii"))
+    except idna.IDNAError:
         pass
-    return {form for form in forms if len(form) >= _MIN_SECRET_LENGTH}
+    return {form for form in forms if form}
 
 
-def _redact_subdomain(origin: str, pattern: re.Pattern[str]) -> str:
+def _redact_subdomain(origin: str, pattern: Optional[re.Pattern[str]], short_forms: set[str]) -> str:
     # The registrable domain is never redacted. The caller can store any value as a secret, so redacting
     # the domain would let them hide where the requests went.
     parts = _ORIGIN_PARTS.match(origin)
@@ -231,7 +233,10 @@ def _redact_subdomain(origin: str, pattern: re.Pattern[str]) -> str:
         subdomain, _, kept = host.rpartition(".")
     if not subdomain:
         return origin
-    return f"{scheme}{pattern.sub(_REDACTED, subdomain)}.{kept}{port or ''}"
+    if pattern is not None:
+        subdomain = pattern.sub(_REDACTED, subdomain)
+    subdomain = ".".join(_REDACTED if label in short_forms else label for label in subdomain.split("."))
+    return f"{scheme}{subdomain}.{kept}{port or ''}"
 
 
 def _is_ip_address(host: str) -> bool:
@@ -246,9 +251,14 @@ def redact_secrets_in_origins(origins: list[str], secrets: Iterable[str]) -> lis
     forms = set().union(*(_host_forms(secret) for secret in secrets))
     if not forms:
         return origins
+    long_forms = {form for form in forms if len(form) >= _MIN_SECRET_LENGTH}
     # One pass, longest first, so a secret inside a longer one cannot leave part of the longer one behind.
-    pattern = re.compile("|".join(re.escape(form) for form in sorted(forms, key=len, reverse=True)), re.IGNORECASE)
-    return [_redact_subdomain(origin, pattern) for origin in origins]
+    pattern = (
+        re.compile("|".join(re.escape(form) for form in sorted(long_forms, key=len, reverse=True)), re.IGNORECASE)
+        if long_forms
+        else None
+    )
+    return [_redact_subdomain(origin, pattern, forms - long_forms) for origin in origins]
 
 
 def _stored_secrets(row: ActivityLog, secret_inputs: Any) -> list[str]:
