@@ -50,6 +50,7 @@ chart.yAxisLabelElement() // optional y-axis label SVG element
 chart.hasRightAxis // boolean
 chart.referenceLines() // [{ label, position, color, orientation }, …]
 chart.valueLabels() // [{ text, color }, …]
+chart.valueBands() // [{ top, left, width, height, color }, …]
 chart.anomalyPoints() // [{ element, color }, …] (TimeSeriesLineChart)
 chart.legend() // legend container in the render scope, null when hidden
 chart.legendItems() // [{ label, secondaryLabel }, …] legend rows in the render scope, empty when hidden
@@ -59,6 +60,8 @@ chart.slope.seriesLabels() // slope series names, after collision avoidance
 chart.sankey.nodeLabels() // ['/home', '/pricing', …] Sankey node labels in layout order, after overlap hiding
 chart.sankey.columnLabels() // ['Step 1', 'Step 2', …] Sankey column headers, left to right
 chart.pie.sliceLabels() // [{ text, lines }, …] on-slice labels, one entry per slice
+chart.gauge.text() // { value, label, min, max } text a Gauge shows, null for other charts
+chart.gauge.valueColor() // CSS color of the Gauge value text, null for other charts
 ```
 
 Gestures work under any wrapper, because the chart records its label count on its root:

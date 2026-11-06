@@ -1,0 +1,109 @@
+from unittest import mock
+
+from products.warehouse_sources.sources.healthchecks._config import HealthchecksSourceConfig
+from products.warehouse_sources.sources.healthchecks.source import HealthchecksSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
+
+
+class TestHealthchecksSource:
+    def setup_method(self):
+        self.source = HealthchecksSource()
+        self.team_id = 123
+        self.config = HealthchecksSourceConfig(api_key="key", base_url=None)
+
+    def test_connection_host_fields_cover_base_url(self):
+        # The base URL decides where the stored API key gets sent.
+        assert self.source.connection_host_fields == ["base_url"]
+
+    def test_lists_tables_without_credentials(self):
+        # get_schemas is a static catalog with no I/O, so the public docs table list can render.
+        assert self.source.lists_tables_without_credentials is True
+
+    @mock.patch.object(HealthchecksSource, "is_database_host_valid")
+    def test_validate_credentials_rejects_unsafe_host(self, mock_host_valid):
+        mock_host_valid.return_value = (False, "Host is not allowed")
+
+        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+
+        assert is_valid is False
+        assert error_message == "Host is not allowed"
+
+    @mock.patch.object(HealthchecksSource, "is_database_host_valid")
+    def test_validate_credentials_rejects_invalid_url(self, mock_host_valid):
+        config = HealthchecksSourceConfig(api_key="key", base_url="ftp://nope")
+
+        is_valid, error_message = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is False
+        assert error_message == "Invalid Healthchecks base URL"
+
+    @mock.patch("products.warehouse_sources.sources.healthchecks.source.is_cloud")
+    @mock.patch.object(HealthchecksSource, "is_database_host_valid")
+    def test_validate_credentials_rejects_http_on_cloud(self, mock_host_valid, mock_is_cloud):
+        # On Cloud the required API key would travel in cleartext to a customer-supplied http:// host.
+        mock_host_valid.return_value = (True, None)
+        mock_is_cloud.return_value = True
+        config = HealthchecksSourceConfig(api_key="key", base_url="http://hc.internal:8000")
+
+        is_valid, error_message = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is False
+        assert error_message == "Healthchecks base URL must use https"
+
+    @mock.patch("products.warehouse_sources.sources.healthchecks.source.validate_healthchecks_credentials")
+    @mock.patch("products.warehouse_sources.sources.healthchecks.source.is_cloud")
+    @mock.patch.object(HealthchecksSource, "is_database_host_valid")
+    def test_validate_credentials_allows_http_when_self_hosted(self, mock_host_valid, mock_is_cloud, mock_validate):
+        # Self-hosted deployments may reach their instance over http on their own network.
+        mock_host_valid.return_value = (True, None)
+        mock_is_cloud.return_value = False
+        mock_validate.return_value = (True, None)
+        config = HealthchecksSourceConfig(api_key="key", base_url="http://hc.internal:8000")
+
+        is_valid, error_message = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is True
+        assert error_message is None
+
+    @mock.patch("products.warehouse_sources.sources.healthchecks.source.healthchecks_source")
+    @mock.patch.object(HealthchecksSource, "is_database_host_valid")
+    def test_source_for_pipeline_plumbs_arguments(self, mock_host_valid, mock_healthchecks_source):
+        mock_host_valid.return_value = (True, None)
+        inputs = mock.MagicMock()
+        inputs.schema_name = "flips"
+        inputs.team_id = self.team_id
+        inputs.should_use_incremental_field = True
+        inputs.db_incremental_field_last_value = 1700000000
+        manager = mock.MagicMock()
+
+        self.source.source_for_pipeline(self.config, manager, inputs)
+
+        kwargs = mock_healthchecks_source.call_args.kwargs
+        assert kwargs["base_url"] is None
+        assert kwargs["api_key"] == "key"
+        assert kwargs["endpoint"] == "flips"
+        assert kwargs["resumable_source_manager"] is manager
+        assert kwargs["should_use_incremental_field"] is True
+        assert kwargs["db_incremental_field_last_value"] == 1700000000
+
+    def test_source_for_pipeline_omits_cursor_when_not_incremental(self):
+        result = SourceDriver(self.source, self.config).run(
+            "flips",
+            [
+                ScriptedResponse(json={"checks": [{"uuid": "u-1"}]}),
+                ScriptedResponse(json=[]),
+            ],
+            db_incremental_field_last_value=1700000000,
+        )
+
+        assert result.raised is None
+        assert result.requests[1].param("start") is None
+
+    @mock.patch.object(HealthchecksSource, "is_database_host_valid")
+    def test_source_for_pipeline_rejects_unsafe_host(self, mock_host_valid):
+        mock_host_valid.return_value = (False, "Host is not allowed")
+
+        result = SourceDriver(self.source, self.config).run("flips", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert "Host is not allowed" in str(result.raised)

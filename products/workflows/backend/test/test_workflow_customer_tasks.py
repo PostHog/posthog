@@ -15,6 +15,7 @@ from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.team.team import DEPRECATED_ATTRS
+from posthog.paging import PageRequest
 from posthog.test.authentication_checks import covers_authentication
 from posthog.test.db_context_capturing import capture_db_queries
 
@@ -54,25 +55,22 @@ class TestWorkflowCustomerTasks(APIBaseTest):
         return UserAccessControl(user=self.user, team=team or self.team)
 
     def _get_task_count(self) -> int:
-        _, total = api.list_customer_tasks(
+        return api.list_customer_tasks(
             team_id=self.team.id,
             user_access_control=self._get_user_access_control(),
             filters=contracts.CustomerTaskListFilters(archive_state="all"),
-            offset=0,
-            limit=1,
-        )
-        return total
+            page=PageRequest(limit=1),
+        ).count
 
     def _get_task_activity_count(self, task_id: UUID | str) -> int:
         result = api.list_customer_task_activities(
             team_id=self.team.id,
             task_id=task_id,
             user_access_control=self._get_user_access_control(),
-            offset=0,
-            limit=1,
+            page=PageRequest(limit=1),
         )
         assert result is not None
-        return result[1]
+        return result.count
 
     def _token(self, **claims: Any) -> str:
         return encode_jwt(

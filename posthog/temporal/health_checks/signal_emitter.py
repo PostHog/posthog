@@ -10,7 +10,7 @@ from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.alerts import _check_class_for_kind
 from posthog.temporal.health_checks.framework import _SEVERITY_PRIORITY
 
-from products.signals.backend.contracts import SignalRemediation
+from products.signals.backend.facade.taxonomy import SignalRemediation
 
 logger = structlog.get_logger(__name__)
 
