@@ -177,13 +177,16 @@ def run_metrics_table_widget(
     present: set[tuple[str, int]] = set()
     series_counts = [0] * len(columns)
     for item in series:
-        key = item.labels.get(group_by)
-        if key is None or item.clause is None:
+        if item.clause is None:
             continue
         index = int(item.clause.removeprefix("c"))
+        # The series cap counts every series of the clause, also one without the label.
+        series_counts[index] += 1
+        key = item.labels.get(group_by)
+        if key is None:
+            continue
         units[index] = units[index] or item.unit
         present.add((key, index))
-        series_counts[index] += 1
         row = rows_by_key.setdefault(
             key, {"key": key, "values": [None] * len(columns), "sparklines": [[] for _ in columns]}
         )

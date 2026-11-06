@@ -118,6 +118,27 @@ describe('editMetricsTableWidgetModalLogic', () => {
         expect(logic.values.columns[0]).toEqual({ label: 'p95', metricName: 'other_metric', aggregation: expected })
     })
 
+    it.each([
+        ['sum', 'rate'],
+        ['gauge', 'avg'],
+    ])('gives a new column a fitting calculation when the user picks a %s metric', (type, expected) => {
+        const { logic } = mountLogic({ groupBy: 'http.route' })
+
+        logic.actions.addColumn()
+        logic.actions.selectColumnMetric(0, 'some_metric', type)
+
+        expect(logic.values.columns[0]).toEqual({ label: 'Value', metricName: 'some_metric', aggregation: expected })
+    })
+
+    it('keeps an average the user chose when they pick a sum metric for the column again', () => {
+        const queue = { label: 'Queue size', metricName: 'queue_size', aggregation: 'avg' as const }
+        const { logic } = mountLogic({ groupBy: 'queue', columns: [queue] })
+
+        logic.actions.selectColumnMetric(0, 'queue_size', 'sum')
+
+        expect(logic.values.columns[0]).toEqual(queue)
+    })
+
     it('keeps the calculation when the picked metric has no known type', () => {
         const { logic } = mountLogic({ groupBy: 'http.route', columns: [LATENCY] })
 
