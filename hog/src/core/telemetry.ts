@@ -8,6 +8,7 @@ import { VERSION } from '@/version'
 import type { Mode } from './agent'
 import { parseJsonOrUndefined } from './json'
 import type { Env, Runtime } from './runtime'
+import type { Schema } from './schema'
 
 // PostHog's own project, where posthog-cli release builds send their events too.
 export const DEFAULT_TELEMETRY_TOKEN = 'sTMFPsFhdP1Ssg'
@@ -255,7 +256,7 @@ export class Telemetry {
     }
 
     private async lookup(key: AccessKey): Promise<Identity> {
-        const get = async <S extends z.ZodType>(path: string, schema: S): Promise<z.output<S> | undefined> => {
+        const get = async <T>(path: string, schema: Schema<T>): Promise<T | undefined> => {
             try {
                 const response = await this.runtime.fetch(new URL(path, key.host), {
                     headers: { Authorization: `Bearer ${key.token}` },

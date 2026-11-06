@@ -38,6 +38,13 @@ export interface EventsRetentionUpdateApi {
     retention_months: number | null
 }
 
+export interface EventsDeletedApi {
+    /** The period in months that was counted for. */
+    readonly retention_months: number
+    /** How many queryable events are older than the cutoff for this period. The endpoint says which deletion sets the cutoff. The count can be up to a day old. */
+    readonly events_deleted: number
+}
+
 /**
  * * `private` - Private (only visible to creator)
  * * `shared` - Shared with team
@@ -3713,6 +3720,11 @@ export interface WebAnalyticsSamplingApi {
     forceSamplingRate?: SamplingRateApi | null
 }
 
+export interface WebAnalyticsQueryModifiersApi {
+    /** Serve web overview and stats table queries from the dimensional precompute tables when they hold ready data for the whole date range. Falls back to the normal path otherwise. */
+    useDimensionalTables?: boolean | null
+}
+
 export interface WebStatsTableQueryApi {
     /** Groups aggregation - not used in Web Analytics but required for type compatibility */
     aggregation_group_type_index?: number | null
@@ -3754,6 +3766,8 @@ export interface WebStatsTableQueryApi {
     useWebAnalyticsPrecompute?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
 export type WebAnalyticsItemKindApi = (typeof WebAnalyticsItemKindApi)[keyof typeof WebAnalyticsItemKindApi]
@@ -3839,6 +3853,8 @@ export interface WebOverviewQueryApi {
     useWebAnalyticsPrecompute?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
 export interface ActionsPieApi {
@@ -4085,6 +4101,8 @@ export interface HogQLMetadataResponseApi {
     errors: HogQLNoticeApi[]
     /** One entry per property filter, in query order. */
     index_usage?: PredicateIndexUsageApi[] | null
+    /** The validator raised an internal error, such as a database failure, so the errors do not prove that the query is invalid. */
+    internalError?: boolean | null
     isUsingIndices?: QueryIndexUsageApi | null
     isValid?: boolean | null
     notices: HogQLNoticeApi[]
@@ -6267,6 +6285,8 @@ export interface WebExternalClicksTableQueryApi {
     useSessionsTable?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
 export type WebBotsBreakdownApi = (typeof WebBotsBreakdownApi)[keyof typeof WebBotsBreakdownApi]
@@ -6336,6 +6356,8 @@ export interface WebBotsTableQueryApi {
     useSessionsTable?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
 export interface WebGoalsQueryResponseApi {
@@ -6407,6 +6429,8 @@ export interface WebGoalsQueryApi {
     useWebAnalyticsPrecompute?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
 export interface WebVitalsQueryApi {
@@ -6450,6 +6474,8 @@ export interface WebVitalsQueryApi {
     useSessionsTable?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
 export type WebVitalsMetricApi = (typeof WebVitalsMetricApi)[keyof typeof WebVitalsMetricApi]
@@ -6542,6 +6568,8 @@ export interface WebVitalsPathBreakdownQueryApi {
     useWebAnalyticsPrecompute?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
 export interface FiltersApi {
@@ -7158,6 +7186,8 @@ export interface MarketingAnalyticsTableQueryApi {
     useSessionsTable?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
 export type MarketingAnalyticsAggregatedQueryResponseApiResults = { [key: string]: MarketingAnalyticsItemApi }
@@ -7229,6 +7259,8 @@ export interface MarketingAnalyticsAggregatedQueryApi {
     useSessionsTable?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
 export type ErrorTrackingOrderByApi = (typeof ErrorTrackingOrderByApi)[keyof typeof ErrorTrackingOrderByApi]
@@ -10120,6 +10152,24 @@ export interface PathsV2SegmentToFunnelResponseApi {
     funnels_query: unknown
 }
 
+export type OrganizationEventsRetentionDeletionCountParams = {
+    /**
+     * The period in months to count for, at most 1200. Only events older than this period are counted.
+     * @minimum 1
+     * @maximum 1200
+     */
+    retention_months: number
+}
+
+export type OrganizationEventsRetentionDowngradeDeletionCountParams = {
+    /**
+     * The period in months to count for, at most 1200. Only events older than this period are counted.
+     * @minimum 1
+     * @maximum 1200
+     */
+    retention_months: number
+}
+
 export type ColumnConfigurationsListParams = {
     /**
      * Return saved views for this context only.
@@ -10195,6 +10245,15 @@ export type ElementsValuesListParams = {
      * Optional substring to filter values by (case-sensitive contains match).
      */
     value?: string
+}
+
+export type EventsRetentionDeletionCountParams = {
+    /**
+     * The period in months to count for, at most 1200. Only events older than this period are counted.
+     * @minimum 1
+     * @maximum 1200
+     */
+    retention_months: number
 }
 
 export type InsightsListParams = {

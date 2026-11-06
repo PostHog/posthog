@@ -21,6 +21,8 @@ An expired session cannot authenticate an unregister request. Until the device s
 
 The app saves a newly issued token before its registration POST, because a lost response does not prove the server rejected it. Registration and unregistration requests have bounded deadlines. A failed storage read lets the launch gate settle with default push state.
 
+Fetching the Expo push token has a 15-second deadline. If the device or Expo does not respond, Settings stops spinning and shows an error with **Try again**. A late response cannot overwrite a later retry. Sign-out can continue once the token request times out.
+
 Push is unavailable, and the app skips it without errors, on the web, in simulators and emulators, and in Expo Go.
 Settings shows which one applies.
 

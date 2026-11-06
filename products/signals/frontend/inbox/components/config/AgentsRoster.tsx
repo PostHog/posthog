@@ -125,6 +125,13 @@ interface SourceAlertScope {
     disabledReason?: string
 }
 
+/** Product analytics only: whether anomaly scoring runs while the source is on. */
+interface SourceAnomalyScoring {
+    enabled: boolean
+    onChange: (enabled: boolean) => void
+    saving: boolean
+}
+
 // Replaces the source detail while the alert scope control shows, since the default copy only covers investigated alerts.
 const ALERT_SCOPE_SOURCE_DETAIL = 'Fires when an insight alert goes off. Choose which alerts count below.'
 
@@ -246,8 +253,6 @@ function EntityRow({
 
 interface ExpansionProps {
     agent: AgentRosterDefinition
-    /** A second line under the detail, for a setting that only some projects have. */
-    note?: string
     state: AgentSourceState
     product?: SourceProductStatus
     enablingProduct: boolean
@@ -255,6 +260,8 @@ interface ExpansionProps {
     onToggleEntity: (entityId: string) => void
     filters?: SourceFilters
     alertScope?: SourceAlertScope
+    /** Only set while the source is on for a project the anomaly scoring rollout covers. */
+    anomalyScoring?: SourceAnomalyScoring
     /** Opens the steering form. Only set for steerable sources that are on with a persisted config row. */
     onSteer?: () => void
     onRetryData: () => void
@@ -318,7 +325,6 @@ function ProductDataStatus({
 
 function Expansion({
     agent,
-    note,
     state,
     product,
     enablingProduct,
@@ -326,6 +332,7 @@ function Expansion({
     onToggleEntity,
     filters,
     alertScope,
+    anomalyScoring,
     onSteer,
     onRetryData,
 }: ExpansionProps): JSX.Element {
@@ -367,7 +374,6 @@ function Expansion({
                     <span>{alertScope ? ALERT_SCOPE_SOURCE_DETAIL : agent.detail}</span>
                     {!hasMetaLine && docsLink ? <span> {docsLink}</span> : null}
                 </p>
-                {note && <p className="mb-0 text-xs text-secondary">{note}</p>}
 
                 {hasMetaLine && (
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -445,6 +451,24 @@ function Expansion({
                                 Turn on this source to choose which alerts become signals.
                             </span>
                         )}
+                    </div>
+                )}
+                {anomalyScoring && (
+                    <div className="flex items-start justify-between gap-3 pt-1">
+                        <div className="flex min-w-0 flex-col gap-0.5">
+                            <span className="text-xs font-semibold text-default">Anomaly scoring</span>
+                            <span className="text-xs text-secondary">
+                                Checks your active trends insights for anomalies and saves the results as $anomaly_score
+                                events, which are not billed. Turn it off to keep alert signals without scoring.
+                            </span>
+                        </div>
+                        <LemonSwitch
+                            checked={anomalyScoring.enabled}
+                            onChange={anomalyScoring.onChange}
+                            loading={anomalyScoring.saving}
+                            aria-label="Score active trends insights for anomalies"
+                            data-attr="signals-anomaly-scoring-enabled"
+                        />
                     </div>
                 )}
             </div>
@@ -527,7 +551,6 @@ function Expansion({
 
 interface AgentRowProps {
     agent: AgentRosterDefinition
-    note?: string
     state: AgentSourceState
     product?: SourceProductStatus
     expanded: boolean
@@ -538,13 +561,13 @@ interface AgentRowProps {
     onEnableProduct: (product: SourceProductStatus) => void
     filters?: SourceFilters
     alertScope?: SourceAlertScope
+    anomalyScoring?: SourceAnomalyScoring
     onSteer?: () => void
     onRetryData: () => void
 }
 
 const AgentRow = memo(function AgentRow({
     agent,
-    note,
     state,
     product,
     expanded,
@@ -555,6 +578,7 @@ const AgentRow = memo(function AgentRow({
     onEnableProduct,
     filters,
     alertScope,
+    anomalyScoring,
     onSteer,
     onRetryData,
 }: AgentRowProps): JSX.Element {
@@ -672,7 +696,6 @@ const AgentRow = memo(function AgentRow({
             {expanded && (
                 <Expansion
                     agent={agent}
-                    note={note}
                     state={state}
                     product={product}
                     enablingProduct={enablingProduct}
@@ -680,6 +703,7 @@ const AgentRow = memo(function AgentRow({
                     onToggleEntity={(entityId) => onToggleEntity(agent.source, entityId)}
                     filters={filters}
                     alertScope={alertScope}
+                    anomalyScoring={anomalyScoring}
                     onSteer={onSteer}
                     onRetryData={onRetryData}
                 />
@@ -696,11 +720,9 @@ function AgentRosterGroupHeader({ group }: { group: AgentRosterGroup }): JSX.Ele
     return <h4 className="m-0 text-sm font-semibold text-default">{group.label}</h4>
 }
 
-const ANOMALY_SCORING_NOTE =
-    'This source also checks your active trends insights for anomalies and saves the results as $anomaly_score events, which are free.'
-
 export function AgentsRoster(): JSX.Element {
-    const { anomalyScoringAvailable } = useValues(signalTeamConfigLogic)
+    const { anomalyScoringAvailable, anomalyScoringEnabled, teamConfigUpdating } = useValues(signalTeamConfigLogic)
+    const { patchTeamConfig } = useActions(signalTeamConfigLogic)
     const {
         externalSourceStates,
         rosterGroups,
@@ -995,6 +1017,20 @@ export function AgentsRoster(): JSX.Element {
         isAnomalyInvestigationToggling,
     ])
 
+    // `anomaly_scoring_available` only reports the rollout, so the source state gates the switch here.
+    const analyticsArmed = stateFor('analytics').armed
+    const anomalyScoring = useMemo(
+        (): SourceAnomalyScoring | undefined =>
+            analyticsArmed && anomalyScoringAvailable
+                ? {
+                      enabled: anomalyScoringEnabled,
+                      onChange: (enabled) => patchTeamConfig({ anomaly_scoring_enabled: enabled }),
+                      saving: teamConfigUpdating,
+                  }
+                : undefined,
+        [analyticsArmed, anomalyScoringAvailable, anomalyScoringEnabled, patchTeamConfig, teamConfigUpdating]
+    )
+
     const renderAgent = useCallback(
         (agent: AgentRosterDefinition): JSX.Element => {
             const state = stateFor(agent.source)
@@ -1026,7 +1062,6 @@ export function AgentsRoster(): JSX.Element {
                 <AgentRow
                     key={agent.source}
                     agent={agent}
-                    note={agent.source === 'analytics' && anomalyScoringAvailable ? ANOMALY_SCORING_NOTE : undefined}
                     state={state}
                     product={productStatusBySource[agent.source]}
                     expanded={expandedSource === agent.source}
@@ -1039,6 +1074,7 @@ export function AgentsRoster(): JSX.Element {
                     onEnableProduct={(product) => product.enablement && enableSourceProduct(product.enablement)}
                     filters={filters}
                     alertScope={agent.source === 'analytics' ? alertScope : undefined}
+                    anomalyScoring={agent.source === 'analytics' ? anomalyScoring : undefined}
                     onSteer={
                         steeringConfigs
                             ? () => setSteeringTarget({ configs: steeringConfigs, label: agent.label })
@@ -1051,7 +1087,6 @@ export function AgentsRoster(): JSX.Element {
         [
             stateFor,
             linearIssuesConfig,
-            anomalyScoringAvailable,
             openLinearTeamsPicker,
             isLinearIssuesToggling,
             sourceConfigsLoading,
@@ -1063,6 +1098,7 @@ export function AgentsRoster(): JSX.Element {
             enableSourceProduct,
             loadProductDataEvents,
             alertScope,
+            anomalyScoring,
         ]
     )
 

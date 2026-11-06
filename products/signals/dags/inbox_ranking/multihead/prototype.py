@@ -78,6 +78,9 @@ class ExampleTable:
     labels: np.ndarray
     # (rows, heads) bool, the head's own `holdout_mask`.
     holdout: np.ndarray
+    # (rows, heads) float32 loss weights, or None for a weight of one everywhere. A pair table sets
+    # a broadcast head's weight to 1/pairs of the report, so each report weighs one in that head.
+    weights: np.ndarray | None = None
 
     def network_train_rows(self) -> np.ndarray:
         """Rows with a label for some head and in no head's holdout."""
