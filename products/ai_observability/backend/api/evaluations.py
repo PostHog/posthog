@@ -1686,14 +1686,17 @@ def update_evaluation(
 
     Shared by the evaluations API and applied eval suggestion fixes, which add the suggestion to the event.
     """
+    existing = serializer.instance
+    if existing is None:
+        raise ValueError("update_evaluation needs a serializer bound to an evaluation")
     previously_supported_reports = evaluation_supports_reports(
-        serializer.instance.output_type, serializer.instance.target, serializer.instance.output_config
+        existing.output_type, existing.target, existing.output_config
     )
     # Check if this is a deletion (soft delete)
-    is_deletion = serializer.validated_data.get("deleted") is True and not serializer.instance.deleted
+    is_deletion = serializer.validated_data.get("deleted") is True and not existing.deleted
 
     # Capture old enabled state before save (for deletion tracking)
-    old_enabled_value = serializer.instance.enabled
+    old_enabled_value = existing.enabled
 
     # Track changes before update
     changed_fields: list[str] = []
@@ -1716,7 +1719,7 @@ def update_evaluation(
         "deleted",
     ]:
         if field in serializer.validated_data:
-            old_value = getattr(serializer.instance, field)
+            old_value = getattr(existing, field)
             new_value = serializer.validated_data[field]
             if old_value != new_value:
                 changed_fields.append(field)
@@ -1728,7 +1731,7 @@ def update_evaluation(
                     condition_count_changed = True
                     condition_count_new = len(new_value) if new_value else 0
                 elif field == "evaluation_config":
-                    eval_type = serializer.validated_data.get("evaluation_type", serializer.instance.evaluation_type)
+                    eval_type = serializer.validated_data.get("evaluation_type", existing.evaluation_type)
                     config_key = get_evaluation_config_content_key(eval_type)
                     old_content = old_value.get(config_key, "") if config_key and isinstance(old_value, dict) else ""
                     new_content = new_value.get(config_key, "") if config_key and isinstance(new_value, dict) else ""
