@@ -1,11 +1,13 @@
 from parameterized import parameterized
 
 from products.ai_observability.backend.eval_suggestions.profile import (
+    MAX_SEGMENT_KEYS,
     StructuredOutput,
     find_structured_gaps,
     gap_holds,
     normalize_segment_value,
     parse_structured,
+    segments_from_rows,
     short_string_fields,
 )
 
@@ -102,3 +104,8 @@ class TestStructuredGaps:
 @parameterized.expand([("security-2", "security"), ("lens_10", "lens"), ("performance", "performance")])
 def test_segment_values_drop_numeric_suffixes(raw: str, expected: str) -> None:
     assert normalize_segment_value(raw) == expected
+
+
+def test_gap_search_keeps_only_the_busiest_segment_keys() -> None:
+    rows = [(f"key_{i:02}", value, 100 + i) for i in range(MAX_SEGMENT_KEYS + 5) for value in ("a", "b")]
+    assert sorted(segments_from_rows(rows)) == [f"key_{i:02}" for i in range(5, MAX_SEGMENT_KEYS + 5)]

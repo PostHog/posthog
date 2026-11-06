@@ -24,6 +24,10 @@ from .stats import wilson_interval
 DISPATCHER_SHARE = 0.8
 # A custom property is a segment when it splits traffic into a few named parts.
 MAX_SEGMENT_VALUES = 20
+# Gap search tests every segment key against every enum field in Python, so a team that sends thousands of
+# custom properties or output fields must not set its cost. The keys and fields with the most data stay.
+MAX_SEGMENT_KEYS = 10
+MAX_ENUM_FIELDS = 10
 # Absolute rather than a share of traffic: a property one AI feature sends, such as its review stage,
 # segments that feature even when other features send most of the team's generations.
 MIN_SEGMENT_GENERATIONS = 50
@@ -215,11 +219,13 @@ def segments_from_rows(rows: Iterable[tuple[Any, ...]]) -> dict[str, dict[str, i
     by_key: defaultdict[str, dict[str, int]] = defaultdict(dict)
     for key, value, count in rows:
         by_key[str(key)][str(value)] = int(count)
-    return {
+    segments = {
         key: values
         for key, values in by_key.items()
         if 2 <= len(values) <= MAX_SEGMENT_VALUES and sum(values.values()) >= MIN_SEGMENT_GENERATIONS
     }
+    kept = sorted(segments, key=lambda key: (-sum(segments[key].values()), key))[:MAX_SEGMENT_KEYS]
+    return {key: segments[key] for key in kept}
 
 
 def fetch_profile(team: Team, window: ProfileWindow) -> TeamProfile:
@@ -371,7 +377,7 @@ def _enum_fields(outputs: Sequence[StructuredOutput]) -> dict[str, FieldMeaning]
     for output in outputs:
         for field, values in output.fields.items():
             totals[field].update(values)
-    return {
+    fields = {
         field: meaning
         for field, counts in totals.items()
         if (meaning := field_meaning(field)) is not None
@@ -379,6 +385,8 @@ def _enum_fields(outputs: Sequence[StructuredOutput]) -> dict[str, FieldMeaning]
         and 2 <= len(counts) <= MAX_ENUM_VALUES
         and all(ENUM_VALUE.match(value) for value in counts)
     }
+    kept = sorted(fields, key=lambda field: (-sum(totals[field].values()), field))[:MAX_ENUM_FIELDS]
+    return {field: fields[field] for field in kept}
 
 
 @frozen
