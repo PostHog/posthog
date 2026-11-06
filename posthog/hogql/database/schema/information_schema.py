@@ -807,6 +807,7 @@ class _Introspection:
                             None,
                             None,
                             None,
+                            None,
                         ]
                     )
                     ordinal += 1
