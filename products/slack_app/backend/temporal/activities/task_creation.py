@@ -23,7 +23,7 @@ from products.slack_app.backend.services.slack_messages import (
     thread_permalink,
 )
 from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
-from products.slack_app.backend.task_profiles import SLACK
+from products.slack_app.backend.task_profiles import REPORT_IMPLEMENTATION, SLACK
 from products.slack_app.backend.temporal.attachments import (
     PreparedSlackAttachments,
     SlackAttachmentBudget,
@@ -798,23 +798,26 @@ def create_posthog_code_task_for_repo_activity(
     )
     conversation_type = resolve_conversation_type(slack, event, channel)
 
+    if inputs.report_implementation_message_ts and signal_report_id is None:
+        return False
+
+    def admit_report_implementation() -> None:
+        if signal_report_id is not None:
+            report_tasks.enforce_report_task_cap(
+                team_id=integration.team_id,
+                report_id=signal_report_id,
+                relationship=None,
+                created_by_id=user_id,
+            )
+
     # 1. Create task + run WITHOUT starting the workflow
     try:
         with transaction.atomic():
-            if inputs.report_implementation_message_ts:
-                if signal_report_id is None:
-                    return False
-                report_tasks.enforce_report_task_cap(
-                    team_id=integration.team_id,
-                    report_id=signal_report_id,
-                    relationship=None,
-                    created_by_id=user_id,
-                )
             created = tasks_facade.create_and_run_task(
                 team=integration.team,
                 title=title,
                 description=description,
-                profile=SLACK,
+                profile=REPORT_IMPLEMENTATION if inputs.report_implementation_message_ts else SLACK,
                 user_id=user_id,
                 repository=repository,
                 options=TaskRunOptions(
@@ -832,6 +835,7 @@ def create_posthog_code_task_for_repo_activity(
                 channel_id=personal_channel_id,
                 extra_run_state=own_plan_state,
                 signal_report_id=signal_report_id if inputs.report_implementation_message_ts else None,
+                before_task_create=admit_report_implementation if inputs.report_implementation_message_ts else None,
             )
             if inputs.report_implementation_message_ts and signal_report_id:
                 report_tasks.record_report_task(
