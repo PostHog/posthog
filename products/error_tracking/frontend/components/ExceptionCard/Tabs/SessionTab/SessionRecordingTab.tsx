@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconExternal } from '@posthog/icons'
+import { IconExternal, IconSparkles } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
@@ -13,6 +13,7 @@ import { SessionRecordingPlayer } from 'scenes/session-recordings/player/Session
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
+import { exceptionCardLogic } from '../../exceptionCardLogic'
 import { RecordingEmptyState } from '../RecordingEmptyState'
 import { SubHeader } from '../SubHeader'
 import { sessionTabLogic } from './sessionTabLogic'
@@ -29,6 +30,7 @@ export function SessionRecordingContent(): JSX.Element {
     const { recordingStatus } = useValues(errorPropertiesLogic)
     const { recordingProps, recordingTimestamp, isTimestampOutsideRecording, sessionId } = useValues(sessionTabLogic)
     const { getRecordingExists } = useValues(sessionRecordingInfoLogic)
+    const { onSetUpVisionScanner } = useValues(exceptionCardLogic)
     const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
 
     useEffect(() => {
@@ -59,7 +61,19 @@ export function SessionRecordingContent(): JSX.Element {
 
     return (
         <div className="flex h-full min-w-0 flex-col overflow-hidden">
-            <SubHeader className="shrink-0 justify-end">
+            {/* Two buttons do not fit one row in a narrow pane, so the header grows instead of clipping. */}
+            <SubHeader className="shrink-0 flex-wrap justify-end h-auto min-h-9 py-1">
+                {onSetUpVisionScanner ? (
+                    <Button
+                        variant="default"
+                        size="sm"
+                        onClick={onSetUpVisionScanner}
+                        data-attr="error-tracking-recording-tab-scan-with-vision"
+                    >
+                        <IconSparkles className="text-ai" />
+                        Watch every new session with this error
+                    </Button>
+                ) : null}
                 <Button variant="default" size="sm" render={<LinkPrimitive to={replayUrl} target="_blank" />}>
                     Open in session replay
                     <IconExternal />

@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react'
+import { fireEvent, render } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
@@ -48,7 +48,7 @@ jest.mock('./sessionTabLogic', () => {
     }
 })
 
-function renderTab(recordingStatus?: string): HTMLElement {
+function renderTab(recordingStatus?: string, onSetUpVisionScanner?: () => void): HTMLElement {
     const properties = {
         $session_id: SESSION_ID,
         $recording_status: recordingStatus,
@@ -56,7 +56,7 @@ function renderTab(recordingStatus?: string): HTMLElement {
 
     const { container } = render(
         <Provider>
-            <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id', loading: false }}>
+            <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id', loading: false, onSetUpVisionScanner }}>
                 <BindLogic logic={errorPropertiesLogic} props={{ id: 'exception-uuid', properties }}>
                     <SessionRecordingContent />
                 </BindLogic>
@@ -68,6 +68,9 @@ function renderTab(recordingStatus?: string): HTMLElement {
 
 const playerIn = (container: HTMLElement): Element | null =>
     container.querySelector('[data-attr="session-recording-player"]')
+
+const visionButtonIn = (container: HTMLElement): HTMLElement | null =>
+    container.querySelector('[data-attr="error-tracking-recording-tab-scan-with-vision"]')
 
 describe('SessionRecordingContent', () => {
     beforeEach(() => {
@@ -105,5 +108,31 @@ describe('SessionRecordingContent', () => {
         const container = renderTab('disabled')
 
         expect(playerIn(container)).not.toBeNull()
+    })
+
+    it('offers to watch every new session when the issue page passes the hand-off', () => {
+        mockRecordingExists.value = true
+        const onSetUpVisionScanner = jest.fn()
+        const container = renderTab(undefined, onSetUpVisionScanner)
+
+        const button = visionButtonIn(container)
+        expect(button?.textContent).toContain('Watch every new session with this error')
+
+        fireEvent.click(button!)
+        expect(onSetUpVisionScanner).toHaveBeenCalledTimes(1)
+    })
+
+    it('has no vision button where no hand-off is passed', () => {
+        mockRecordingExists.value = true
+        const container = renderTab(undefined)
+
+        expect(visionButtonIn(container)).toBeNull()
+    })
+
+    it('has no vision button when the exception has no recording', () => {
+        mockRecordingExists.value = false
+        const container = renderTab(undefined, jest.fn())
+
+        expect(visionButtonIn(container)).toBeNull()
     })
 })
