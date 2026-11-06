@@ -37,6 +37,7 @@ from products.ai_observability.backend.models.eval_suggestions import (
     EvalSuggestion,
     EvalSuggestionRun,
     EvalSuggestionRunStatus,
+    EvalSuggestionStatus,
 )
 from products.ai_observability.backend.models.evaluations import Evaluation
 
@@ -351,6 +352,18 @@ class TestRunRecords(BaseTest):
         run.refresh_from_db()
         assert run.status == EvalSuggestionRunStatus.FAILED
         assert not EvalSuggestion.objects.for_team(self.team.pk).exists()
+
+    def test_a_card_dismissed_while_the_run_works_is_not_published_again(self) -> None:
+        earlier = create_run(self.team, "scheduled")
+        publish(earlier, [_candidate("check:unrecovered_errors", [])], {})
+        card = EvalSuggestion.objects.for_team(self.team.pk).get(run=earlier)
+        run = create_run(self.team, "scheduled")
+        # The new run read the team's dismissals before this one.
+        EvalSuggestion.objects.for_team(self.team.pk).filter(id=card.id).update(
+            status=EvalSuggestionStatus.DISMISSED, decided_at=timezone.now()
+        )
+
+        assert publish(run, [_candidate("check:unrecovered_errors", [])], {}) == []
 
     def test_a_run_past_its_deadline_stops_before_publishing(self) -> None:
         run = create_run(self.team, "scheduled")

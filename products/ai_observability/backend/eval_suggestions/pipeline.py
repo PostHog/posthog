@@ -38,7 +38,7 @@ from . import (
 from .adapters import AdaptedCheck, compile_check
 from .applicability import applicable, content_profile
 from .config import SuggestionSettings
-from .coverage import Coverage
+from .coverage import Coverage, dismissed_dedupe_keys
 from .measure import Measurement, Outcome, TraceSample, fetch_sample, measure, run_check, structured_outputs
 from .profile import ProfileWindow, StructuredGap, TeamProfile, fetch_profile, find_structured_gaps, gap_holds
 from .ranking import Proposal
@@ -379,7 +379,14 @@ def publish(run: EvalSuggestionRun, proposals: Sequence[Proposal], stages: dict[
         # The run was given up on while this attempt still ran, so its cards must not replace last week's.
         if locked.status == EvalSuggestionRunStatus.FAILED:
             return []
-        rows = EvalSuggestion.objects.for_team(run.team_id).bulk_create(
+        suggestions = EvalSuggestion.objects.for_team(run.team_id)
+        # Expiring first locks the open cards, so a dismissal in flight commits before the dismissed keys are read.
+        suggestions.filter(status=EvalSuggestionStatus.PROPOSED).exclude(run=run).update(
+            status=EvalSuggestionStatus.EXPIRED, updated_at=timezone.now()
+        )
+        # The team can dismiss a card while the run works, after it read the dismissals.
+        dismissed = dismissed_dedupe_keys(run.team)
+        rows = suggestions.bulk_create(
             [
                 EvalSuggestion(
                     team_id=run.team_id,
@@ -405,11 +412,9 @@ def publish(run: EvalSuggestionRun, proposals: Sequence[Proposal], stages: dict[
                     similar_evaluation_id=p.similar_evaluation_id,
                 )
                 for p in proposals
+                if p.dedupe_key not in dismissed
             ]
         )
-        EvalSuggestion.objects.for_team(run.team_id).filter(status=EvalSuggestionStatus.PROPOSED).exclude(
-            run=run
-        ).update(status=EvalSuggestionStatus.EXPIRED, updated_at=timezone.now())
         # cost_usd stays out of this save, because drafting updates it on the row and the value held here is stale.
         run.status = EvalSuggestionRunStatus.COMPLETED
         run.stages = stages
@@ -437,7 +442,7 @@ def create_run(team: Team, trigger: str, batch_id: str = "", run_id: str | None 
 
 
 def fail_run(run_id: str, error: str) -> None:
-    """Mark a run failed when its attempts ran out outside the process, unless an attempt already published."""
+    """Mark a run failed unless an attempt already published, so a late failure never hides published cards."""
     EvalSuggestionRun.objects.unscoped().filter(id=run_id).exclude(status=EvalSuggestionRunStatus.COMPLETED).update(
         status=EvalSuggestionRunStatus.FAILED, error=error[:2000], completed_at=timezone.now()
     )
@@ -458,10 +463,5 @@ def execute_run(run_id: str, *, include_paid: bool, settings: SuggestionSettings
     try:
         return len(run_pipeline(run.team, run, include_paid=include_paid, settings=settings, deadline=deadline))
     except Exception as error:
-        # An attempt that fails after another attempt published must not hide that attempt's suggestions.
-        EvalSuggestionRun.objects.unscoped().filter(id=run.id).exclude(status=EvalSuggestionRunStatus.COMPLETED).update(
-            status=EvalSuggestionRunStatus.FAILED,
-            error=f"{type(error).__name__}: {error}"[:2000],
-            completed_at=timezone.now(),
-        )
+        fail_run(str(run.id), f"{type(error).__name__}: {error}")
         raise

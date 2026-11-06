@@ -91,15 +91,17 @@ class EvalSuggestionsTeamWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: TeamRunInputs) -> int:
         info = workflow.info()
-        run_id = await workflow.execute_activity(
-            start_eval_suggestions_run_activity,
-            StartRunInputs(run=inputs, run_id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"{info.workflow_id}/{info.run_id}"))),
-            start_to_close_timeout=timedelta(minutes=1),
-            # Each activity has a schedule-to-close deadline, so worker queue time cannot outlast the workflow.
-            schedule_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        # Known before the start activity runs, so a start that created the row and then failed is cleaned up too.
+        run_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{info.workflow_id}/{info.run_id}"))
         try:
+            await workflow.execute_activity(
+                start_eval_suggestions_run_activity,
+                StartRunInputs(run=inputs, run_id=run_id),
+                start_to_close_timeout=timedelta(minutes=1),
+                # Each activity has a schedule-to-close deadline, so worker queue time cannot outlast the workflow.
+                schedule_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
             return await workflow.execute_activity(
                 execute_eval_suggestions_run_activity,
                 ExecuteRunInputs(run_id=run_id, include_paid=inputs.include_paid),
