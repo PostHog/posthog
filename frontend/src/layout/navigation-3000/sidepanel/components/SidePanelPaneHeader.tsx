@@ -1,4 +1,5 @@
 import { useActions } from 'kea'
+import { createContext, useContext } from 'react'
 
 import { IconX } from '@posthog/icons'
 
@@ -6,6 +7,9 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
+
+/** True inside the Today context panel, whose own header already shows the tab title and a close button. */
+export const SidePanelPaneHeaderHiddenContext = createContext(false)
 
 export type SidePanelPaneHeaderProps = {
     title?: string | JSX.Element
@@ -21,8 +25,15 @@ export function SidePanelPaneHeader({
     className,
     onClose,
     showCloseButton = false,
-}: SidePanelPaneHeaderProps): JSX.Element {
+}: SidePanelPaneHeaderProps): JSX.Element | null {
     const { closeSidePanel } = useActions(sidePanelStateLogic)
+    const hidden = useContext(SidePanelPaneHeaderHiddenContext)
+
+    if (hidden) {
+        return children ? (
+            <div className={cn('flex shrink-0 items-center gap-1 px-2 py-1', className)}>{children}</div>
+        ) : null
+    }
 
     return (
         <header

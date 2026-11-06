@@ -8,9 +8,7 @@ import { exportedAssetBlob } from 'lib/components/ExportButton/exporter'
 import { getExportDisabledReason, getExportPendingLabel } from 'lib/components/ExportButton/exportStatus'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
@@ -215,12 +213,9 @@ const ExportsContent = (): JSX.Element => {
 }
 
 export const SidePanelExports = (): JSX.Element => {
-    const { featureFlags } = useValues(featureFlagLogic)
-
     return (
         <div className="flex flex-col overflow-hidden flex-1">
-            {/* Under today-rail-nav the context panel header already shows the tab title. */}
-            {!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] && <SidePanelPaneHeader title="Exports" />}
+            <SidePanelPaneHeader title="Exports" />
             <p className="m-4">
                 Retrieve your exports here. Exports are generated asynchronously and may take a few seconds to complete.{' '}
                 <Link to={urls.exports()} data-attr="side-panel-exports-view-all">

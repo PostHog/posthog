@@ -7,6 +7,7 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { SidePanelPaneHeaderHiddenContext } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
 import { SIDE_PANEL_TABS } from '~/layout/navigation-3000/sidepanel/sidePanelTabs'
 import { CoreFilterDefinitionsGate } from '~/taxonomy/CoreFilterDefinitionsGate'
 import { SidePanelTab } from '~/types'
@@ -60,7 +61,9 @@ export const TodayContextPanelContent = memo(function TodayContextPanelContent({
                 <ChunkLoadErrorBoundary>
                     <Suspense fallback={<Spinner className="mx-auto mt-16" />}>
                         <CoreFilterDefinitionsGate>
-                            <Content />
+                            <SidePanelPaneHeaderHiddenContext.Provider value={true}>
+                                <Content />
+                            </SidePanelPaneHeaderHiddenContext.Provider>
                         </CoreFilterDefinitionsGate>
                     </Suspense>
                 </ChunkLoadErrorBoundary>
