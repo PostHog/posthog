@@ -3454,11 +3454,47 @@ class TestUserGitHubIntegrationScopedAccessToken(BaseTest):
         self, mock_github_request: MagicMock, mock_client_request: MagicMock
     ) -> None:
         mock_github_request.return_value = self._user_repositories([])
+        self.integration.repository_cache = [{"id": 1, "name": "old-repo", "full_name": "acme/old-repo"}]
+        self.integration.repository_cache_updated_at = timezone.now() - timedelta(days=1)
+        self.integration.save()
 
         with pytest.raises(GitHubIntegrationError):
             self._github().get_access_token()
+        repositories, _ = self._github().list_cached_repositories()
 
+        assert repositories == []
+        assert self._github().installation_can_access_repository("acme/old-repo", raise_on_transient=True) is False
         mock_client_request.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("user_can_open_it", 200, {"total_count": 1, "repositories": [{"name": "visible-a"}]}, True),
+            ("user_cannot_open_it", 200, {"total_count": 1, "repositories": [{"name": "other"}]}, False),
+            ("user_must_reconnect", 401, {"message": "Bad credentials"}, False),
+        ]
+    )
+    @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
+    @patch("posthog.models.user_integration.requests.post")
+    @patch("posthog.models.github_integration_base.github_request")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_repository_probe_reports_only_repositories_the_user_can_open(
+        self,
+        _name: str,
+        listing_status: int,
+        listing_body: dict[str, Any],
+        expected: bool,
+        mock_user_request: MagicMock,
+        mock_client_request: MagicMock,
+        mock_installation_request: MagicMock,
+        mock_oauth_post: MagicMock,
+    ) -> None:
+        mock_user_request.return_value = self._response(listing_status, listing_body)
+        mock_client_request.return_value = self._response(201, {"token": "SCOPED_TOKEN"})
+        mock_installation_request.return_value = self._response(200, {"full_name": "acme/visible-a"})
+        mock_oauth_post.return_value = self._response(200, {"error": "bad_refresh_token"})
+
+        assert self._github().installation_can_access_repository("acme/visible-a", raise_on_transient=True) is expected
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")

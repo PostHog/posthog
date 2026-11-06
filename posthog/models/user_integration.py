@@ -48,6 +48,10 @@ _USER_REPOSITORIES_PAGE_SIZE = 100
 _TRANSIENT_STATUS_CODES = {502, 503, 504}
 
 
+class NoAccessibleRepositories(GitHubIntegrationError):
+    pass
+
+
 def user_integration_kind_choices() -> list[tuple[str, str | Promise]]:
     return list(UserIntegration.IntegrationKind.choices)
 
@@ -395,6 +399,24 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         name = repository.rsplit("/", 1)[-1].casefold()
         return any(name == allowed.casefold() for allowed in repositories)
 
+    def list_all_repositories(self, *, priority: Priority | None = None) -> list[dict]:
+        try:
+            return super().list_all_repositories(priority=priority)
+        except NoAccessibleRepositories:
+            return []
+
+    def installation_can_access_repository(self, repository: str, *, raise_on_transient: bool = False) -> bool:
+        try:
+            if not self.user_can_open_repository(repository):
+                return False
+        except (ReauthorizationRequired, NoAccessibleRepositories):
+            return False
+        except GitHubIntegrationError:
+            if raise_on_transient:
+                raise
+            return False
+        return super().installation_can_access_repository(repository, raise_on_transient=raise_on_transient)
+
     def refresh_access_token(self) -> None:
         super().refresh_access_token()
         cache.delete(self._scoped_access_token_cache_key())
@@ -415,7 +437,7 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         names, total_count = listing
         repositories: list[str] | None
         if total_count == 0:
-            raise GitHubIntegrationError("The GitHub user cannot access any repository in this installation.")
+            raise NoAccessibleRepositories("The GitHub user cannot access any repository in this installation.")
         if total_count > MAX_SCOPED_TOKEN_REPOSITORIES:
             token = self._installation_token_if_user_sees_every_repository(total_count)
             repositories = None
