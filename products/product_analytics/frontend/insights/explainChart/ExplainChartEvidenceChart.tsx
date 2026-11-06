@@ -40,7 +40,10 @@ export function ExplainChartEvidenceChart({ item }: { item: StoryEvidence }): JS
         source: {
             kind: NodeKind.TrendsQuery,
             ...item.query,
-            trendsFilter: evidenceTrendsFilter(item.query),
+            // A trends query may leave out `kind`. Other kinds reject `trendsFilter`.
+            ...((item.query.kind ?? NodeKind.TrendsQuery) === NodeKind.TrendsQuery
+                ? { trendsFilter: evidenceTrendsFilter(item.query) }
+                : {}),
         } as unknown as InsightVizNode['source'],
         full: false,
         showHeader: false,
