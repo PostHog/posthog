@@ -137,18 +137,22 @@ function applyCaptureOptions(options: unknown, properties: Properties, headers: 
         count('req_lib', 'invalid_type')
         return
     }
-    if (properties.$lib == null) {
+    if (!isNonEmptyString(properties.$lib)) {
         properties.$lib = lib
         properties.$lib_version = libVersion
         count('req_lib', 'filled')
     } else if (properties.$lib !== lib) {
         count('req_lib', 'kept')
-    } else if (properties.$lib_version == null) {
+    } else if (!isNonEmptyString(properties.$lib_version)) {
         properties.$lib_version = libVersion
         count('req_lib', 'version_filled')
     } else {
         count('req_lib', properties.$lib_version === libVersion ? 'same' : 'kept')
     }
+}
+
+function isNonEmptyString(value: unknown): value is string {
+    return typeof value === 'string' && value !== ''
 }
 
 function parsePipelineEvent(raw: Record<string, unknown>): PipelineEvent {

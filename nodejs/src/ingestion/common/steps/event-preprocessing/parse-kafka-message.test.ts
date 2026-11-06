@@ -608,8 +608,28 @@ describe('createParseKafkaMessageStep', () => {
                 { $lib: 'custom', $lib_version: undefined },
                 'kept',
             ],
-            ['an empty string', { $lib: '' }, { $lib: '', $lib_version: undefined }, 'kept'],
-            ['not a string', { $lib: 5 }, { $lib: 5, $lib_version: undefined }, 'kept'],
+            [
+                'set by the client with an empty version',
+                { $lib: 'custom', $lib_version: '' },
+                { $lib: 'custom', $lib_version: '' },
+                'kept',
+            ],
+            [
+                'equal to the header with an empty version',
+                { $lib: 'posthog-rs', $lib_version: '' },
+                { $lib: 'posthog-rs', $lib_version: '1.0.0' },
+                'version_filled',
+            ],
+            [
+                'equal to the header with a non-string version',
+                { $lib: 'posthog-rs', $lib_version: 1 },
+                { $lib: 'posthog-rs', $lib_version: '1.0.0' },
+                'version_filled',
+            ],
+            ['an empty string', { $lib: '' }, { $lib: 'posthog-rs', $lib_version: '1.0.0' }, 'filled'],
+            ['a number', { $lib: 5 }, { $lib: 'posthog-rs', $lib_version: '1.0.0' }, 'filled'],
+            ['a boolean', { $lib: true }, { $lib: 'posthog-rs', $lib_version: '1.0.0' }, 'filled'],
+            ['an object', { $lib: {} }, { $lib: 'posthog-rs', $lib_version: '1.0.0' }, 'filled'],
         ])('handles $lib that is %s', async (_label, clientProperties, expected, outcome) => {
             const properties = await parseProperties(
                 { properties: clientProperties },
