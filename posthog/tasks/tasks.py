@@ -1084,6 +1084,13 @@ def report_upcoming_events_deletions() -> None:
     report_upcoming_deletions()
 
 
+@shared_task(ignore_result=True)
+def report_events_retention_shortened(organization_id: str, notice: dict[str, object]) -> None:
+    from posthog.models.events_plan_deletion import report_retention_shortened
+
+    report_retention_shortened(UUID(organization_id), notice)
+
+
 @shared_task(ignore_result=False, track_started=True, max_retries=0)
 def check_async_migration_health() -> None:
     from posthog.tasks.async_migrations import check_async_migration_health

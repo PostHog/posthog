@@ -1,3 +1,4 @@
+from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import replace
 from datetime import date, datetime, timedelta
@@ -6,7 +7,6 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import models, transaction
-from django.db.models import Max
 
 from dateutil.relativedelta import relativedelta
 
@@ -24,6 +24,7 @@ from posthog.models.team.event_retention import (
     team_plan,
 )
 from posthog.ph_client import ph_scoped_capture
+from posthog.utils import get_instance_region
 
 PASS_INTERVAL_MONTHS = 3
 CLEANUP_DAY_OF_MONTH = 3
@@ -174,6 +175,8 @@ def apply_events_retention_change(organization: Organization, previous_months: i
 
     The first billing sync has no previous period. It moves teams off the 84-month fallback, which is no downgrade.
     """
+    from posthog.tasks.tasks import report_events_retention_shortened
+
     with transaction.atomic():
         lock_organization_retention(organization.id)
         if not reconcile_organization_events_retention(organization):
@@ -187,7 +190,11 @@ def apply_events_retention_change(organization: Organization, previous_months: i
         (state.next_deletion_on for state in states.values() if state.downgraded_from_months is not None),
         default=None,
     )
-    _notify_admins(RETENTION_SHORTENED_EVENT, {organization.id: _notice(organization, previous_months, deletion_on)})
+    report_events_retention_shortened.delay(str(organization.id), _notice(organization, previous_months, deletion_on))
+
+
+def report_retention_shortened(organization_id: UUID, notice: dict[str, object]) -> None:
+    _notify_admins(RETENTION_SHORTENED_EVENT, {organization_id: notice})
 
 
 def report_upcoming_deletions() -> int:
@@ -195,26 +202,26 @@ def report_upcoming_deletions() -> int:
     deletion_on = next_cleanup_on()
     if deletion_on - cleanup_date() > timedelta(days=DELETION_NOTICE_DAYS):
         return 0
-    candidates = TeamEventsPlanDeletion.objects.filter(
+    marked = TeamEventsPlanDeletion.objects.filter(
         downgraded_from_months__isnull=False, next_deletion_on__lte=deletion_on
     )
-    deleting = deleting_plans(Team.objects.filter(id__in=candidates.values("team_id")))
-    rows = candidates.filter(team_id__in=[plan.team_id for plan in deleting])
-    previous_months: dict[UUID, int] = dict(
-        rows.values("team__organization_id")
-        .annotate(months=Max("downgraded_from_months"))
-        .values_list("team__organization_id", "months")
-    )
-    notices = {
-        organization.id: _notice(organization, previous_months[organization.id], deletion_on)
-        for organization in Organization.objects.filter(id__in=previous_months).only(
-            "id", "name", "available_product_features"
-        )
-        if organization_events_retention_months(organization) < previous_months[organization.id]
-    }
-    _notify_admins(DELETION_UPCOMING_EVENT, notices, raise_on_error=True)
-    rows.update(downgraded_from_months=None)
-    return len(notices)
+    plans = deleting_plans(Team.objects.filter(id__in=marked.values("team_id")))
+    with transaction.atomic():
+        states = reschedule_plan_deletions(plans, cleanup_date())
+    markers: dict[UUID, dict[int, int]] = defaultdict(dict)
+    for plan in plans:
+        state = states[plan.team_id]
+        if state.downgraded_from_months is not None and state.next_deletion_on <= deletion_on:
+            markers[plan.organization_id][plan.team_id] = state.downgraded_from_months
+    notified = 0
+    for organization in Organization.objects.filter(id__in=markers).only("id", "name", "available_product_features"):
+        previous_months = max(markers[organization.id].values())
+        if organization_events_retention_months(organization) < previous_months:
+            notice = _notice(organization, previous_months, deletion_on)
+            _notify_admins(DELETION_UPCOMING_EVENT, {organization.id: notice}, raise_on_error=True)
+            notified += 1
+        marked.filter(team_id__in=markers[organization.id]).update(downgraded_from_months=None)
+    return notified
 
 
 def _notice(organization: Organization, previous_months: int, deletion_on: date | None) -> dict[str, object]:
@@ -232,7 +239,7 @@ def _notify_admins(event: str, notices: dict[UUID, dict[str, object]], raise_on_
     admins = OrganizationMembership.objects.filter(
         organization_id__in=notices, level__gte=OrganizationMembership.Level.ADMIN, user__is_active=True
     ).values_list("organization_id", "user__distinct_id")
-    with ph_scoped_capture(raise_on_error=raise_on_error) as capture:
+    with ph_scoped_capture(raise_on_error=raise_on_error, event_region=get_instance_region()) as capture:
         for organization_id, distinct_id in admins:
             capture(
                 distinct_id=distinct_id,
