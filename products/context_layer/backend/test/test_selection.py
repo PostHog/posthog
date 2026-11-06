@@ -340,8 +340,12 @@ class TestSelection(SimpleTestCase):
             return parse_system_one_response({"model": "test", "answers": answers}, questions)
 
         self.model.decide.side_effect = decide
-        with patch("products.context_layer.backend.selection.posthoganalytics.capture") as capture:
+        with (
+            patch("products.context_layer.backend.selection.posthoganalytics.capture") as capture,
+            patch("products.context_layer.backend.selection.is_privacy_mode_enabled") as privacy_mode,
+        ):
             result = self.selector.prepare(time.monotonic() + 60)
+        privacy_mode.assert_not_called()
         self.assertEqual(result.context, "")
         self.assertEqual(result.mode, "treatment")
         self.assertEqual(result.reason, reason)
