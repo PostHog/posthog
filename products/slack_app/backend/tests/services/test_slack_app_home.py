@@ -27,6 +27,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
+from products.slack_app.backend.logic.feature_tips.state import get_state, set_tips_enabled
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
     SlackSettings,
@@ -42,6 +43,7 @@ from products.slack_app.backend.services.slack_app_home import (
     ACTION_RESET_PROJECT_PERSONAL,
     ACTION_SET_AUTO_MODEL_CHOICE,
     ACTION_SET_CHANNEL_WELCOME_MODE,
+    ACTION_SET_FEATURE_TIPS,
     ACTION_SET_PROJECT_WORKSPACE,
     ACTION_SET_THREAD_JOIN_MODE,
     ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
@@ -52,6 +54,7 @@ from products.slack_app.backend.services.slack_app_home import (
     AUTO_MODEL_CHOICE_VALUE,
     BLOCK_TASKS_CONTROLS,
     EDIT_MODAL_PERSONAL_CALLBACK_ID,
+    FEATURE_TIPS_VALUE,
     HOME_ACTION_IDS,
     MODAL_ACTION_MODEL,
     MODAL_ACTION_REASONING_EFFORT,
@@ -481,6 +484,7 @@ class TestRenderHomeView:
             auto_model_choice=auto_model_choice,
             own_plan=OwnPlanState(connected=True, settings_url="https://app.example.com/settings"),
             thread_join_mode=ThreadJoinMode.ASK_PER_THREAD,
+            feature_tips_enabled=auto_model_choice,
         )
 
     @pytest.mark.parametrize(
@@ -618,6 +622,24 @@ class TestAutoModelChoiceToggle:
 
         row = SlackSettings.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001").first()
         assert (row.auto_model_choice if row else None) == expected
+        assert mock_slack_client.views_publish.called
+
+
+class TestFeatureTipsToggle:
+    @pytest.mark.parametrize("checked", [True, False])
+    def test_toggle_is_stored_for_the_clicking_user(self, slack_integration, mock_slack_client, checked):
+        set_tips_enabled(SLACK_WORKSPACE_ID, "U001", not checked)
+        selected = [{"value": FEATURE_TIPS_VALUE}] if checked else []
+        payload = {
+            "type": "block_actions",
+            "team": {"id": SLACK_WORKSPACE_ID},
+            "user": {"id": "U001"},
+            "actions": [{"action_id": ACTION_SET_FEATURE_TIPS, "selected_options": selected}],
+        }
+        with patch("products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin", return_value=False):
+            handle_ai_preferences_block_action(payload, payload["actions"][0])
+
+        assert (get_state(SLACK_WORKSPACE_ID, "U001").opted_out_at is None) is checked
         assert mock_slack_client.views_publish.called
 
 
