@@ -62877,13 +62877,31 @@ export namespace Schemas {
     }
 
     /**
+     * * `created` - Created
+     * * `skipped` - Left as it is
+     * * `failed` - Failed
+     * * `listed` - Listed
+     */
+    export type ImportItemStatusEnum = typeof ImportItemStatusEnum[keyof typeof ImportItemStatusEnum];
+
+
+    export const ImportItemStatusEnum = {
+      Created: 'created',
+      Skipped: 'skipped',
+      Failed: 'failed',
+      Listed: 'listed',
+    } as const;
+
+    /**
      * * `customerio` - Customer.io
+     * * `resend` - Resend
      */
     export type ImportProviderKeyEnum = typeof ImportProviderKeyEnum[keyof typeof ImportProviderKeyEnum];
 
 
     export const ImportProviderKeyEnum = {
       Customerio: 'customerio',
+      Resend: 'resend',
     } as const;
 
     export interface ImportStepOption {
@@ -62898,12 +62916,56 @@ export namespace Schemas {
     export interface ImportProviderOption {
       /** Provider key to send when starting an import.
        *
-       * * `customerio` - Customer.io */
+       * * `customerio` - Customer.io
+       * * `resend` - Resend */
       key: ImportProviderKeyEnum;
       /** Display name of the provider. */
       label: string;
       /** What the provider can import, in the order the steps run. */
       steps: ImportStepOption[];
+      /** Whether PostHog stores the API key for later imports. When false, PostHog deletes the key when the run ends, so each import needs it again. */
+      retains_credentials: boolean;
+      /** Display name of the API key this provider asks for. */
+      api_key_label: string;
+      /** What kind of key to create, and how PostHog handles it. */
+      api_key_help: string;
+      /**
+         * The page in the provider's app where the person can create the key.
+         * @nullable
+         */
+      api_key_url: string | null;
+      /** What the import can't bring over. Empty when there is nothing to say. */
+      not_imported: string;
+      /** What the person does once the import has finished, in order. */
+      next_steps: string[];
+    }
+
+    export interface ImportStepCount {
+      /** What the step counted, for example `complained`. */
+      key: string;
+      /** Display text for the count, including what it means for sends. */
+      label: string;
+      /** The count so far. */
+      value: number;
+    }
+
+    export interface ImportStepItem {
+      /** The object's name, for example a template name or a domain. */
+      label: string;
+      /** `created` when the step made it, `skipped` when it already existed and stayed as it was, `failed` when it could not be made, `listed` when the step only reports it.
+       *
+       * * `created` - Created
+       * * `skipped` - Left as it is
+       * * `failed` - Failed
+       * * `listed` - Listed */
+      status: ImportItemStatusEnum;
+      /**
+         * Where to open the object in PostHog, as an app path.
+         * @nullable
+         */
+      url: string | null;
+      /** What to review, or what did not carry over exactly. */
+      notes: string[];
     }
 
     /**
@@ -62945,6 +63007,14 @@ export namespace Schemas {
          * @nullable
          */
       last_error: string | null;
+      /** A breakdown of what the step did. Only counts above zero appear. */
+      counts: ImportStepCount[];
+      /** The objects the step handled, with anything to review. */
+      items: ImportStepItem[];
+      /** How many more warnings there were than `warnings` holds. */
+      warnings_omitted: number;
+      /** How many more objects there were than `items` holds. */
+      items_omitted: number;
     }
 
     /**
@@ -92602,6 +92672,7 @@ export namespace Schemas {
        * * `Africa/Juba` - Africa/Juba
        * * `Africa/Kampala` - Africa/Kampala
        * * `Africa/Khartoum` - Africa/Khartoum
+       * * `America/Coyhaique` - America/Coyhaique
        * * `Africa/Kigali` - Africa/Kigali
        * * `Africa/Kinshasa` - Africa/Kinshasa
        * * `Africa/Lagos` - Africa/Lagos
@@ -92672,7 +92743,6 @@ export namespace Schemas {
        * * `America/Coral_Harbour` - America/Coral_Harbour
        * * `America/Cordoba` - America/Cordoba
        * * `America/Costa_Rica` - America/Costa_Rica
-       * * `America/Coyhaique` - America/Coyhaique
        * * `America/Creston` - America/Creston
        * * `America/Cuiaba` - America/Cuiaba
        * * `America/Curacao` - America/Curacao
@@ -99082,6 +99152,7 @@ export namespace Schemas {
        * * `Africa/Juba` - Africa/Juba
        * * `Africa/Kampala` - Africa/Kampala
        * * `Africa/Khartoum` - Africa/Khartoum
+       * * `America/Coyhaique` - America/Coyhaique
        * * `Africa/Kigali` - Africa/Kigali
        * * `Africa/Kinshasa` - Africa/Kinshasa
        * * `Africa/Lagos` - Africa/Lagos
@@ -99152,7 +99223,6 @@ export namespace Schemas {
        * * `America/Coral_Harbour` - America/Coral_Harbour
        * * `America/Cordoba` - America/Cordoba
        * * `America/Costa_Rica` - America/Costa_Rica
-       * * `America/Coyhaique` - America/Coyhaique
        * * `America/Creston` - America/Creston
        * * `America/Cuiaba` - America/Cuiaba
        * * `America/Curacao` - America/Curacao
@@ -99954,6 +100024,7 @@ export namespace Schemas {
        * * `Africa/Juba` - Africa/Juba
        * * `Africa/Kampala` - Africa/Kampala
        * * `Africa/Khartoum` - Africa/Khartoum
+       * * `America/Coyhaique` - America/Coyhaique
        * * `Africa/Kigali` - Africa/Kigali
        * * `Africa/Kinshasa` - Africa/Kinshasa
        * * `Africa/Lagos` - Africa/Lagos
@@ -100024,7 +100095,6 @@ export namespace Schemas {
        * * `America/Coral_Harbour` - America/Coral_Harbour
        * * `America/Cordoba` - America/Cordoba
        * * `America/Costa_Rica` - America/Costa_Rica
-       * * `America/Coyhaique` - America/Coyhaique
        * * `America/Creston` - America/Creston
        * * `America/Cuiaba` - America/Cuiaba
        * * `America/Curacao` - America/Curacao
@@ -101704,7 +101774,8 @@ export namespace Schemas {
       id: string;
       /** The provider the run imports from.
        *
-       * * `customerio` - Customer.io */
+       * * `customerio` - Customer.io
+       * * `resend` - Resend */
       provider: ImportProviderKeyEnum;
       /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
        *
@@ -117755,7 +117826,8 @@ export namespace Schemas {
     export interface StartProviderImport {
       /** The provider to import from.
        *
-       * * `customerio` - Customer.io */
+       * * `customerio` - Customer.io
+       * * `resend` - Resend */
       provider: ImportProviderKeyEnum;
       /**
          * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
@@ -117763,7 +117835,10 @@ export namespace Schemas {
          * @items.maxLength 64
          */
       steps: string[];
-      /** The provider's API key. For Customer.io, an App API key. Leave it out to reuse the stored key. */
+      /**
+         * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time.
+         * @maxLength 512
+         */
       api_key?: string;
     }
 
@@ -126460,11 +126535,21 @@ export namespace Schemas {
      */
     export type WorkflowImportRequestLayouts = {[key: string]: string};
 
+    /**
+     * * `customerio` - Customer.io
+     */
+    export type WorkflowImportSourceEnum = typeof WorkflowImportSourceEnum[keyof typeof WorkflowImportSourceEnum];
+
+
+    export const WorkflowImportSourceEnum = {
+      Customerio: 'customerio',
+    } as const;
+
     export interface WorkflowImportRequest {
       /** The tool the automations come from.
        *
        * * `customerio` - Customer.io */
-      source: ImportProviderKeyEnum;
+      source: WorkflowImportSourceEnum;
       /** The automations to import, at most 50. People are never read from these objects. */
       campaigns: CustomerioCampaign[];
       /** Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too. */
