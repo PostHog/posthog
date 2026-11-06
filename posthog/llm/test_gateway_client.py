@@ -576,6 +576,7 @@ class TestBuildAIGatewayOpenAIClient:
         result = build_ai_gateway_openai_client(
             api_key="pha_user_token",
             ai_product="custom_image_scans",
+            session_id="session-42",
             properties={"team_id": "42"},
             distinct_id="team-42",
         )
@@ -587,6 +588,7 @@ class TestBuildAIGatewayOpenAIClient:
         headers = kwargs["default_headers"]
         assert headers["X-PostHog-Product"] == "custom_image_scans"
         assert headers["X-PostHog-Distinct-Id"] == "team-42"
+        assert headers["X-PostHog-Session-Id"] == "session-42"
         assert json.loads(headers["X-PostHog-Properties"]) == {"ai_product": "custom_image_scans", "team_id": "42"}
         assert result is mock_openai.return_value
 

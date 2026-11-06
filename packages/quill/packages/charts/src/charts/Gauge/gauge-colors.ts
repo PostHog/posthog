@@ -27,15 +27,11 @@ const TRACK_ALPHA = 0.1
 
 const isVar = (color: string): boolean => color.trim().startsWith('var(')
 
-/** A `var(--…)` that does not resolve would reach the canvas as an invalid color, which the canvas
- *  ignores, so it paints with whatever color the previous stroke left behind. */
 function resolveColor(color: string, fallback: string, root: HTMLElement): string {
-    let resolved = resolveCssColor(color, root).trim()
-    // jsdom and other non-browser hosts do not inherit custom properties down to the wrapper.
-    if (isVar(resolved)) {
-        resolved = resolveCssColor(color).trim()
-    }
-    return resolved && !isVar(resolved) ? resolved : fallback
+    // jsdom and other non-browser hosts do not inherit custom properties down to the wrapper, so
+    // a miss on the wrapper retries against the body.
+    const resolved = resolveCssColor(color, { root, fallback: '' }) || resolveCssColor(color, { fallback })
+    return resolved.trim() || fallback
 }
 
 function inkTint(ink: string, theme: ChartTheme): string {

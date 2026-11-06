@@ -51,7 +51,11 @@ from products.signals.backend.models import (
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_IMPLEMENTATION
-from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
+from products.signals.backend.quota import (
+    capture_signal_report_quota_paused,
+    self_driving_limit_name,
+    self_driving_quota_gate,
+)
 from products.signals.backend.report_assignments import release_claim
 from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_generation.research import (
@@ -563,7 +567,6 @@ SKIP_REQUIRES_HUMAN_INPUT = "requires_human_input"
 SKIP_ALREADY_ADDRESSED = "already_addressed"
 SKIP_NO_PRIORITY = "no_priority"
 SKIP_AUTOSTART_DISABLED = "autostart_disabled"
-SKIP_QUOTA_EXHAUSTED = "quota_exhausted"
 SKIP_NO_RUNNER = "no_runner"
 SKIP_FREE_TRIAL = "free_trial"
 
@@ -935,6 +938,8 @@ def _create_implementation_task_if_absent(
             branch=base_branch,
             signal_report_id=report_id,
             implementation_spend_kind=implementation_spend_kind,
+            # Research increments run_count after admission; scouts create READY reports directly.
+            continue_admitted_pipeline=report.run_count > 0 or report.status == SignalReport.Status.READY,
             # Resolved by the caller outside this lock, like `agent_runtime` above, so the
             # create-time free-trial gate makes no flag request while the report row is locked.
             free_trial_enabled=free_trial_enabled,
@@ -1015,7 +1020,6 @@ def start_requested_implementation(
         return "already_started"
     if task_run_usage_limited(user, request.team_id):
         raise RequestedImplementationUnavailable("The requested user cannot start another task run")
-    tasks_facade.enforce_self_driving_pr_quota(team, report_id=request.report_id, stage="manual_rerun")
     if pending_replacement(request.team_id, request.report_id) is not None:
         raise RequestedImplementationUnavailable("A replacement is already in progress")
     actionability_row = (
@@ -1526,9 +1530,6 @@ async def maybe_autostart_implementation_task(
     unresolved_issues = await database_sync_to_async(resolve_issue_dependencies, thread_sensitive=False)(
         team_id=team_id, report_id=report_id, ch_user=ch_user
     )
-    # Between the team's master switch and the quota gate. A team that opted out of auto-start
-    # entirely gets no artefact and no gate reason, and a duplicate or a plan parent never counts
-    # as quota-held work, because the work was never this report's to do.
     link_skip = await database_sync_to_async(_evaluate_link_gates, thread_sensitive=False)(team_id, report_id)
     if link_skip is None and unresolved_issues:
         link_skip = unresolved_dependency_skip(unresolved_issues)
@@ -1543,25 +1544,7 @@ async def maybe_autostart_implementation_task(
         await database_sync_to_async(_record_link_gate_skip, thread_sensitive=False)(team_id, report_id, link_skip)
         return AutostartOutcome(status="blocked", reason=link_skip.detail)
 
-    # Quota gate: the implementation task is the step that leads to the billable PR, so a team
-    # whose org is over its self-driving credits quota starts none, on any path (pipeline, custom agent, scout, or
-    # a user's reviewer edit). The report stays ready; the next new-signal research cycle after
-    # the quota lifts re-evaluates auto-start.
     team = await Team.objects.select_related("organization").aget(pk=team_id)
-    quota_gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
-    if quota_gate.limited:
-        capture_signal_report_quota_paused(team, report_id=report_id, stage="autostart", enforced=quota_gate.enforced)
-    if quota_gate.enforced:
-        logger.info(
-            "self-driving auto-start skipped",
-            report_id=report_id,
-            team_id=team_id,
-            reason="org over self-driving credits quota",
-        )
-        await database_sync_to_async(_capture_autostart_skipped, thread_sensitive=False)(
-            team_id=team_id, report_id=report_id, skip_reason=SKIP_QUOTA_EXHAUSTED
-        )
-        return AutostartOutcome(status="blocked", reason="Self-driving quota is exhausted")
 
     # A user-triggered auto-start runs as the triggering user; otherwise resolve a trusted
     # (commit-authorship) reviewer. Either way the task's user is never an attacker-named colleague.
@@ -1754,6 +1737,7 @@ async def maybe_autostart_from_report_artefacts(
     *,
     team_id: int,
     report_id: str,
+    triggering_user_id: int | None = None,
     implementation_spend_kind: str = "reviewer_triggered_implementation",
     remaining_retries: int = 2,
     dispatch: ImplementationDispatch | None = None,
@@ -1772,7 +1756,31 @@ async def maybe_autostart_from_report_artefacts(
 
     A report that a background-enrolled scout authored never auto-starts. Nobody on the project
     asked for that scout, so its findings must not open pull requests on their own.
+
+    A report a member filed by hand (`user_authored`) never auto-starts either, on creation or on any
+    later reviewer edit, repository edit, or dispatcher retry. Its create endpoint needs only
+    `inbox:write`, while every other write that automatic start reads needs `task:write`. A person
+    who wants a run presses Implement, which carries its own authorization.
     """
+    # A fresh user edit admits new work. Persisted reviewer attribution is only the execution
+    # identity: reusing it as this gate would also block an already-admitted pipeline.
+    if triggering_user_id is not None:
+        team = await Team.objects.select_related("organization").aget(id=team_id)
+        gate = await database_sync_to_async(self_driving_quota_gate)(team)
+        if gate.limited:
+            await database_sync_to_async(capture_signal_report_quota_paused)(
+                team, report_id=report_id, stage="reviewer_edit", enforced=gate.enforced
+            )
+        if gate.enforced:
+            return AutostartOutcome(status="blocked", reason=f"Self-driving {self_driving_limit_name(team)} reached")
+    if await SignalReport.objects.filter(id=report_id, team_id=team_id, user_authored=True).aexists():
+        logger.info(
+            "signals auto-start re-eval skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason="user-authored report",
+        )
+        return AutostartOutcome(status="blocked", reason="Reports filed by a person do not auto-start")
     if await database_sync_to_async(report_is_from_background_scout)(team_id, report_id):
         logger.info(
             "signals auto-start re-eval skipped",

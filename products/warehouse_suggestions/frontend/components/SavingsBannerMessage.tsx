@@ -1,13 +1,22 @@
-import { SavingsSummary, bannerSavings, countOf, summarySavings } from '../suggestionCopy'
+import { SavingsSummary, bannerSavings, countOf, summarySavings, unusedViewsNote } from '../suggestionCopy'
 
 export interface SavingsBannerMessageProps {
     summary: SavingsSummary
+    unusedViews: number
 }
 
-export function SavingsBannerMessage({ summary }: SavingsBannerMessageProps): JSX.Element {
+export function SavingsBannerMessage({ summary, unusedViews }: SavingsBannerMessageProps): JSX.Element {
+    if (summary.views === 0) {
+        return (
+            <span translate="no">
+                <strong>{countOf(unusedViews, 'unused view', 'unused views')}</strong>
+                <span> to mark deprecated</span>
+            </span>
+        )
+    }
     const savings = summarySavings(summary)
     if (!savings) {
-        return <LegacySavingsMessage summary={summary} />
+        return <LegacySavingsMessage summary={summary} unusedViews={unusedViews} />
     }
     return (
         <span className="flex flex-col gap-0.5">
@@ -23,13 +32,13 @@ export function SavingsBannerMessage({ summary }: SavingsBannerMessageProps): JS
                 <span translate="no">{savings.headline}</span>
             )}
             <span translate="no" className="text-xs text-secondary">
-                {savings.detail}
+                {`${savings.detail}${unusedViewsNote(unusedViews)}`}
             </span>
         </span>
     )
 }
 
-function LegacySavingsMessage({ summary }: SavingsBannerMessageProps): JSX.Element {
+function LegacySavingsMessage({ summary, unusedViews }: SavingsBannerMessageProps): JSX.Element {
     return (
         <>
             <strong translate="no">{countOf(summary.views, 'view', 'views')}</strong>
@@ -44,6 +53,7 @@ function LegacySavingsMessage({ summary }: SavingsBannerMessageProps): JSX.Eleme
                 </span>
             ))}
             <span> a month</span>
+            <span translate="no">{unusedViewsNote(unusedViews)}</span>
         </>
     )
 }

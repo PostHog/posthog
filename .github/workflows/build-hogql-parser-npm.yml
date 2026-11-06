@@ -34,6 +34,11 @@ jobs:
               with:
                   fetch-depth: 0
                   filter: blob:none
+                  sparse-checkout: |
+                      /common/hogql_parser/package.json
+                      /.github/scripts/post-reminder-section.mjs
+                      /frontend/bin/ci-report/update-ci-report.mjs
+                  sparse-checkout-cone-mode: false
 
             - name: Check if common/hogql_parser/ has changed
               id: changed-files

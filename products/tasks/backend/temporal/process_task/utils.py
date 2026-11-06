@@ -5,7 +5,7 @@ import logging
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -51,7 +51,7 @@ from products.tasks.backend.exceptions import (
     ProcessTaskTransientError,
 )
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
-from products.tasks.backend.facade.profiles import TaskProfile
+from products.tasks.backend.facade.profiles import MAX_MCP_EXCLUDE_TOOLS, GithubAccess, TaskProfile
 from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.desktop_gateway_token import (
@@ -77,6 +77,7 @@ from products.tasks.backend.logic.services.run_actor import (
     loop_owner_eligible_for_credentials,
 )
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
+from products.tasks.backend.metrics import observe_mcp_exclude_tools_over_cap
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     AI_GATEWAY_TOKEN_MINTS,
@@ -96,7 +97,7 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
     from products.slack_app.backend.models import SlackThreadTaskMapping
-    from products.tasks.backend.models import Task, TaskRun
+    from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun
     from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
         TaskProcessingContext,
     )
@@ -600,6 +601,20 @@ def unmounted_mcp_installations_log_fields(unmounted: Sequence[UnmountedInstalla
     ]
 
 
+def include_personal_mcp_for_task(task: Task) -> bool:
+    """Whether a run may pull the task creator's *personal* MCP installations.
+
+    Internal/autonomous runs (support reply, signals) must never pull a
+    resolved member's personal creds. Agent-specific grant filtering happens
+    in the MCP Store facade.
+    User-initiated Code runs get shared + the creator's personal installs.
+    """
+    profile = task.stored_profile
+    if profile is not None:
+        return profile.personal_mcp
+    return not task.internal
+
+
 def get_user_mcp_server_configs(
     token: str,
     team_id: int,
@@ -613,6 +628,7 @@ def get_user_mcp_server_configs(
     task_agent_key: str | None = None,
     credential_owner_id: int | None = None,
     allowed_gateway_server_ids: list[str] | None = None,
+    profile: TaskProfile | None = None,
 ) -> UserMcpServerConfigs:
     """Fetch MCP Store installations for sandbox use and return configs.
 
@@ -646,9 +662,14 @@ def get_user_mcp_server_configs(
 
     ``unmounted`` carries the installations the run reached but left out, with the reason.
 
+    A task whose stored ``profile`` turns off ``mcp_store_servers`` gets no Store installations,
+    and the profile's ``mcp_agent`` replaces the origin mapping.
+
     Returns no configs on errors (non-fatal).
     """
     if origin_product == "account_audit":
+        return UserMcpServerConfigs(configs=[])
+    if profile is not None and not profile.mcp_store_servers:
         return UserMcpServerConfigs(configs=[])
 
     resolution = resolve_installations_for_sandbox(
@@ -657,6 +678,8 @@ def get_user_mcp_server_configs(
         include_personal=include_personal,
         task_origin=origin_product,
         task_agent_key=task_agent_key,
+        has_profile=profile is not None,
+        profile_agent_key=cast("MCPBuiltInAgentKey | None", profile.mcp_agent) if profile is not None else None,
         credential_owner_id=credential_owner_id,
         allowed_installation_ids=allowed_installation_ids,
         allowed_gateway_server_ids=allowed_gateway_server_ids,
@@ -829,12 +852,9 @@ POSTHOG_MCP_DESCRIPTION = (
 )
 
 _MCP_EXCLUDE_TOOL_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
-_MAX_MCP_EXCLUDE_TOOLS = 32
 
 
-def sanitize_mcp_exclude_tools(names: Sequence[str] | None) -> list[str]:
-    if not names:
-        return []
+def _unique_mcp_exclude_tools(names: Iterable[str]) -> list[str]:
     seen: set[str] = set()
     cleaned: list[str] = []
     for name in names:
@@ -843,16 +863,44 @@ def sanitize_mcp_exclude_tools(names: Sequence[str] | None) -> list[str]:
             continue
         seen.add(token)
         cleaned.append(token)
-        if len(cleaned) >= _MAX_MCP_EXCLUDE_TOOLS:
-            break
     return cleaned
 
 
-def mcp_exclude_tools_from_state(state: dict[str, Any] | None) -> list[str]:
+def sanitize_mcp_exclude_tools(names: Sequence[str] | None) -> list[str]:
+    if not names:
+        return []
+    return _unique_mcp_exclude_tools(names)[:MAX_MCP_EXCLUDE_TOOLS]
+
+
+def _mcp_exclude_tool_names_in_state(state: dict[str, Any] | None) -> list[str]:
     raw = (state or {}).get("mcp_exclude_tools")
     if not isinstance(raw, list):
         return []
-    return sanitize_mcp_exclude_tools([name for name in raw if isinstance(name, str)])
+    return [name for name in raw if isinstance(name, str)]
+
+
+def mcp_exclude_tools_from_state(state: dict[str, Any] | None) -> list[str]:
+    return sanitize_mcp_exclude_tools(_mcp_exclude_tool_names_in_state(state))
+
+
+def mcp_exclude_tools_for_task(task: Task, state: dict[str, Any] | None) -> list[str]:
+    profile = task.stored_profile
+    if profile is None:
+        return mcp_exclude_tools_from_state(state)
+    excluded = _unique_mcp_exclude_tools([*profile.mcp_exclude_tools, *_mcp_exclude_tool_names_in_state(state)])
+    if len(excluded) > MAX_MCP_EXCLUDE_TOOLS:
+        over_cap = excluded[MAX_MCP_EXCLUDE_TOOLS:]
+        logger.warning(
+            "task_mcp_exclude_tools_over_cap",
+            extra={"task_id": str(task.id), "profile": profile.key, "over_cap_tools": over_cap},
+        )
+        observe_mcp_exclude_tools_over_cap(profile=profile.key)
+        raise ProcessTaskFatalError(
+            "The task hides more MCP tools than the sandbox can hide",
+            {"task_id": str(task.id), "profile": profile.key, "excluded_tool_count": len(excluded)},
+            cause=ValueError(f"{len(excluded)} hidden MCP tools exceed the limit of {MAX_MCP_EXCLUDE_TOOLS}"),
+        )
+    return excluded
 
 
 def get_sandbox_ph_mcp_configs(
@@ -1251,6 +1299,8 @@ def resolve_user_github_integration_for_task(
     allow_refresh: bool = False,
 ) -> UserGitHubIntegration | None:
     """Resolve the UserIntegration that should author a task's GitHub writes."""
+    if task.github_access_limit == GithubAccess.NONE:
+        return None
     user = actor_user or task.created_by
     if user is None:
         return None
@@ -1399,6 +1449,8 @@ def _resolve_sandbox_github_token(
     ``BOT`` authorship falls through to the team's ``Integration`` installation token.
     """
     pr_authorship_mode: PrAuthorshipMode | None
+    if task is not None and task.github_access_limit == GithubAccess.NONE:
+        return None
     slack_interaction = is_slack_interaction_state(state)
     created_by = actor_user or created_by
     if task is not None:
@@ -1600,7 +1652,7 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
         gateway_url = settings.SANDBOX_AI_GATEWAY_URL
         if not gateway_url:
             raise GatewayNotConfiguredError("Scout trials require SANDBOX_AI_GATEWAY_URL")
-        token = mint_private_gateway_token(team_id=ctx.team_id, user=ctx.distinct_id)
+        token = mint_private_gateway_token(team_id=ctx.team_id, user=ctx.distinct_id, run_id=str(ctx.run_id))
         try:
             record_gateway_routing(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=True)
         except Exception:
@@ -1650,6 +1702,7 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
             state=ctx.state,
             model=ctx.model,
             runtime=ctx.task_runtime,
+            run_id=str(ctx.run_id),
         )
         pinned = env_vars.pop(_PIN_KEY_ENV, None) or env_vars.get("AI_GATEWAY_PRODUCT")
         if not _record_pinned_gateway_product(ctx.run_id, ctx.state, pinned):
@@ -1754,6 +1807,7 @@ def ai_gateway_env_vars(
     runtime: str | None = None,
     prior_slack_run: bool = False,
     profile_billing_product: str | None = None,
+    run_id: str | None = None,
 ) -> dict[str, str]:
     """Env vars routing listed products to the Go ai-gateway, shared by every
     injection site so the both-or-nothing guard cannot drift per site. Both
@@ -1861,6 +1915,8 @@ def ai_gateway_env_vars(
                 if free_pin is not None:
                     mint_kwargs["allowed_models"] = free_pin
                 mint_kwargs["limit_tier"] = posthog_code_limit_tier(team_id, distinct_id)
+            if run_id:
+                mint_kwargs["run_id"] = run_id
             token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id, **mint_kwargs)
             if token:
                 env_vars["AI_GATEWAY_TOKEN"] = token

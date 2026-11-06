@@ -766,8 +766,8 @@ class TestResolveIntentThemes(SimpleTestCase):
 class TestLLMConsentGate(APIBaseTest):
     @parameterized.expand(
         [
-            ("session_summary", intent_generation.summarize_intents, "OpenAI"),
-            ("project_digest", intent_generation.summarize_project_intents, "genai"),
+            ("session_summary", intent_generation.summarize_intents, "build_openai_client"),
+            ("project_digest", intent_generation.summarize_project_intents, "build_gemini_client"),
         ]
     )
     def test_refuses_without_ai_data_processing_consent(self, _name, summarize, client_attr: str) -> None:
@@ -775,12 +775,12 @@ class TestLLMConsentGate(APIBaseTest):
         self.organization.save()
 
         with (
-            self.settings(OPENAI_API_KEY="sk-test", GEMINI_API_KEY="gem-test"),
+            self.settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="phs_test"),
             patch.object(intent_generation, client_attr) as mock_client,
             self.assertRaises(contracts.IntentGenerationUnavailable),
         ):
             summarize([("find the signups funnel", "query_run")], self.team)
-        mock_client.assert_not_called()
+        assert mock_client.return_value.mock_calls == []
 
 
 class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
@@ -910,12 +910,14 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
 
     @parameterized.expand(
         [
-            ("same_request_is_served_from_cache", 1, False, "never", 0, 1),
-            ("empty_result_is_not_cached", 0, False, "never", 0, 2),
-            ("other_filters_query_again", 1, True, "never", 0, 2),
-            ("other_property_restrictions_query_again", 1, False, "between_requests", 0, 2),
-            ("unrestricted_entry_outlives_a_poll_interval", 1, False, "never", 61, 1),
-            ("restricted_entry_expires_before_the_next_poll", 1, False, "before_requests", 21, 2),
+            ("same_request_is_served_from_cache", 1, False, "never", 0, False, 1),
+            ("empty_result_is_not_cached", 0, False, "never", 0, False, 2),
+            ("other_filters_query_again", 1, True, "never", 0, False, 2),
+            ("other_property_restrictions_query_again", 1, False, "between_requests", 0, False, 2),
+            ("unrestricted_entry_outlives_a_poll_interval", 1, False, "never", 61, False, 1),
+            ("restricted_entry_expires_before_the_next_poll", 1, False, "before_requests", 21, False, 2),
+            ("refresh_within_the_cooldown_is_served_from_cache", 1, False, "never", 0, True, 1),
+            ("refresh_after_the_cooldown_skips_the_cache", 1, False, "never", 6, True, 2),
         ]
     )
     def test_caches_overview_per_filters_and_property_restrictions(
@@ -925,6 +927,7 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
         change_filters: bool,
         restrict_a_property: Literal["never", "before_requests", "between_requests"],
         seconds_later: int,
+        refresh: bool,
         expected_calls: int,
     ) -> None:
         self.team.test_account_filters = TEST_ACCOUNT_FILTERS
@@ -938,7 +941,9 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
         if restrict_a_property == "between_requests":
             self._restrict_a_property()
         with time_machine.travel(datetime.now(tz=UTC) + timedelta(seconds=seconds_later), tick=False):
-            overview = api.get_activity_overview(self.team, filter_test_accounts=change_filters, user=self.user)
+            overview = api.get_activity_overview(
+                self.team, filter_test_accounts=change_filters, user=self.user, refresh=refresh
+            )
 
         assert overview.stats.total_calls == expected_calls
 
