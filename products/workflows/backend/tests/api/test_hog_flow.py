@@ -141,6 +141,7 @@ def _valid_email_inputs() -> dict:
 _SECRET_TEMPLATE_ID = "template-secret-webhook"
 _SECRET_HEADERS_ENTERED = {"secret_headers": {"value": {"X-Token": "NEW"}}}
 _HOST_URL = "https://{variables.host}/hook"
+_SECRET_ATTR = "actions__action_1__inputs__api_key"
 _HOST_VARIABLES = [{"key": "host", "type": "string", "default": "example.com"}]
 
 
@@ -8209,33 +8210,58 @@ class TestHogFlowSecretInputs(APIBaseTest):
             headers={"authorization": f"Bearer {producer_key}"},
         )
 
+    def _stage(self, flow_id: str, actions: list[dict]):
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}"
+        return self.client.patch(url, {"actions": actions, "stage_draft": True}, format="json")
+
     @parameterized.expand(
         [
-            ("stage_draft", "stage_draft", True, 400),
-            ("proposal", "proposal", True, 400),
-            ("proposal_with_the_flag_off", "proposal", False, 201),
+            ("stage_draft", lambda self, flow_id, moved: self._stage(flow_id, moved), True, 400, _SECRET_ATTR),
+            ("proposal", lambda self, flow_id, moved: self._propose(flow_id, moved), True, 400, "content"),
+            (
+                "proposal_with_the_flag_off",
+                lambda self, flow_id, moved: self._propose(flow_id, moved),
+                False,
+                201,
+                None,
+            ),
         ]
     )
     def test_a_staged_or_suggested_move_of_a_secret_needs_it_entered_again(
-        self, _name, write, flag_on, expected_status
+        self, _name, write, flag_on, expected_status, expected_attr
     ):
         flow_id = self._active_flow("https://example.com")
-        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}"
         moved = self._actions("https://evil.example.com", {"secret": True})
 
         with patch("products.cdp.backend.secret_binding.posthoganalytics.feature_enabled", return_value=flag_on):
-            if write == "stage_draft":
-                res = self.client.patch(url, {"actions": moved, "stage_draft": True}, format="json")
-            else:
-                res = self._propose(flow_id, moved)
+            res = write(self, flow_id, moved)
 
         assert res.status_code == expected_status, res.json()
         if expected_status == 400:
-            assert res.json()["attr"] == ("content" if write == "proposal" else "actions__action_1__inputs__api_key")
+            assert res.json()["attr"] == expected_attr
             assert HogFlow.objects.get(id=flow_id).draft is None
 
-    @parameterized.expand([("live_save",), ("test_run",)])
-    def test_a_secret_kept_from_an_unchanged_draft_cannot_follow_a_moved_live_step(self, write):
+    def _save(self, url: str, actions: list[dict]):
+        return self.client.patch(url, {"actions": actions}, format="json")
+
+    def _test_run(self, url: str, actions: list[dict]):
+        return self.client.post(
+            f"{url}/invocations/",
+            {
+                "configuration": {"actions": actions},
+                "globals": {"event": {"event": "$pageview"}},
+                "mock_async_functions": False,
+            },
+            format="json",
+        )
+
+    @parameterized.expand(
+        [
+            ("live_save", lambda self, url, actions: self._save(url, actions)),
+            ("test_run", lambda self, url, actions: self._test_run(url, actions)),
+        ]
+    )
+    def test_a_secret_kept_from_an_unchanged_draft_cannot_follow_a_moved_live_step(self, _name, write):
         flow_id = self._active_flow("https://example.com")
         url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}"
         stage = self.client.patch(
@@ -8253,19 +8279,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
                 "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
             ) as mock_invoke,
         ):
-            evil_with_kept_secret = self._actions("https://evil.example.com", {"secret": True})
-            if write == "live_save":
-                res = self.client.patch(url, {"actions": evil_with_kept_secret}, format="json")
-            else:
-                res = self.client.post(
-                    f"{url}/invocations/",
-                    {
-                        "configuration": {"actions": evil_with_kept_secret},
-                        "globals": {"event": {"event": "$pageview"}},
-                        "mock_async_functions": False,
-                    },
-                    format="json",
-                )
+            res = write(self, url, self._actions("https://evil.example.com", {"secret": True}))
 
         assert res.status_code == 400, res.json()
         assert SECRET_REENTRY_MESSAGE in str(res.json())
@@ -8528,54 +8542,97 @@ class TestHogFlowSecretInputs(APIBaseTest):
         assert flow.encrypted_inputs == secrets
         assert expected_line in out.getvalue()
 
+    def _publish_draft(self, url: str):
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
+            side_effect=Exception("down"),
+        ):
+            token = self.client.post(f"{url}/publish", {}).json()["confirm_token"]
+        return self.client.post(f"{url}/publish", {"confirm": True, "confirm_token": token})
+
+    def _test_run_draft(self, url: str):
+        return self.client.post(
+            f"{url}/invocations/",
+            {"globals": {"event": {"event": "$pageview"}}, "mock_async_functions": False, "use_draft": True},
+            format="json",
+        )
+
     @parameterized.expand(
         [
-            ("moved_by_publish", "https://example.com", "https://evil.example.com", {"secret": True}, "publish", 400),
-            ("moved_by_a_live_save", "https://example.com", "https://evil.example.com", {"secret": True}, "save", 400),
+            (
+                "moved_by_publish",
+                "https://example.com",
+                "https://evil.example.com",
+                {"secret": True},
+                lambda self, url: self._publish_draft(url),
+                400,
+                "SUPER-SECRET",
+                0,
+            ),
+            (
+                "moved_by_a_live_save",
+                "https://example.com",
+                "https://evil.example.com",
+                {"secret": True},
+                lambda self, url: self._save(url, self._actions("https://evil.example.com", {"secret": True})),
+                400,
+                "SUPER-SECRET",
+                0,
+            ),
             (
                 "entered_again_at_the_new_host",
                 "https://example.com",
                 "https://evil.example.com",
                 {"value": "RE-ENTERED"},
-                "publish",
+                lambda self, url: self._publish_draft(url),
                 200,
+                "RE-ENTERED",
+                0,
             ),
             (
                 "entered_again_for_an_unbound_address",
                 "https://{variables.host}/hook",
                 "https://{variables.host}/hook",
                 {"value": "RE-ENTERED"},
-                "publish",
+                lambda self, url: self._publish_draft(url),
                 200,
+                "RE-ENTERED",
+                0,
             ),
             (
                 "entered_again_for_a_moved_unbound_address",
                 "https://{variables.host}/hook",
                 "https://{variables.host}/other",
                 {"value": "RE-ENTERED"},
-                "publish",
+                lambda self, url: self._publish_draft(url),
                 200,
+                "RE-ENTERED",
+                0,
             ),
             (
                 "test_run_of_a_moved_unbound_address_entered_again",
                 "https://{variables.host}/hook",
                 "https://{variables.host}/other",
                 {"value": "RE-ENTERED"},
-                "test_run",
+                lambda self, url: self._test_run_draft(url),
                 200,
+                "SUPER-SECRET",
+                1,
             ),
             (
                 "test_run_of_a_move",
                 "https://example.com",
                 "https://evil.example.com",
                 {"secret": True},
-                "test_run",
+                lambda self, url: self._test_run_draft(url),
                 400,
+                "SUPER-SECRET",
+                0,
             ),
         ]
     )
     def test_a_staged_secret_is_checked_against_the_live_step_when_it_goes_live(
-        self, _name, live_url, staged_url, api_key, write, expected_status
+        self, _name, live_url, staged_url, api_key, write, expected_status, expected_live_value, expected_runs
     ):
         flow_id = self._active_flow(live_url, [{"key": "host", "type": "string", "default": "example.com"}])
         url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}"
@@ -8594,32 +8651,15 @@ class TestHogFlowSecretInputs(APIBaseTest):
                 return_value=MagicMock(status_code=200, json=lambda: {}),
             ) as mock_invoke,
         ):
-            if write == "publish":
-                with patch(
-                    "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
-                    side_effect=Exception("down"),
-                ):
-                    token = self.client.post(f"{url}/publish", {}).json()["confirm_token"]
-                res = self.client.post(f"{url}/publish", {"confirm": True, "confirm_token": token})
-            elif write == "test_run":
-                res = self.client.post(
-                    f"{url}/invocations/",
-                    {"globals": {"event": {"event": "$pageview"}}, "mock_async_functions": False, "use_draft": True},
-                    format="json",
-                )
-            else:
-                res = self.client.patch(url, {"actions": self._actions(staged_url, {"secret": True})}, format="json")
+            res = write(self, url)
 
         assert res.status_code == expected_status, res.json()
         live = HogFlow.objects.get(id=flow_id).encrypted_inputs["action_1"]["api_key"]
+        assert live["value"] == expected_live_value
+        assert mock_invoke.call_count == expected_runs
         if expected_status == 400:
             assert res.json()["code"] == "secret_reentry_required"
             assert live == live_before
-            mock_invoke.assert_not_called()
-        elif write == "test_run":
-            mock_invoke.assert_called_once()
-        else:
-            assert live["value"] == "RE-ENTERED"
 
     @parameterized.expand(
         [
