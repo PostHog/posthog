@@ -2,19 +2,17 @@ import time
 from typing import Any, cast
 
 import structlog
+import posthoganalytics
 from celery import Task, shared_task
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from posthog.comment.formatting import slack_files_to_placeholder_lines, slack_to_content_and_rich_content
 from posthog.event_usage import groups
-from posthog.helpers.slack_thread_mirror import (
-    evaluate_discussions_slack_sync_flag,
-    post_comment_to_slack_thread,
-    slack_author_from_user,
-)
+from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
 from posthog.models.comment import Comment, CommentSlackThread
 from posthog.models.comment.comment import COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API, OBSERVATION_COMMENT_SCOPES
+from posthog.models.comment.slack_thread import DISCUSSIONS_SLACK_SYNC_FLAG
 from posthog.models.integration import SlackIntegration
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -38,6 +36,23 @@ SLACK_SYNCED_TS_KEY = "slack_synced_ts"
 BACKFILL_BATCH_SIZE = 25
 BACKFILL_SLEEP_BUDGET_SECONDS = 60
 BACKFILL_RESCHEDULE_COUNTDOWN_SECONDS = 60
+
+
+def evaluate_discussions_slack_sync_flag(user: User | None, team: Team) -> bool | None:
+    """The flag's raw value for this person, or None when evaluation fails.
+
+    The creation gate and the kill switch must evaluate the flag the same way, but they apply
+    opposite failure policies, so each caller decides what None means.
+    """
+    distinct_id = str(user.distinct_id) if user and user.distinct_id else str(team.uuid)
+    try:
+        return posthoganalytics.feature_enabled(
+            DISCUSSIONS_SLACK_SYNC_FLAG,
+            distinct_id,
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+        )
+    except Exception:
+        return None
 
 
 def _sync_killed(mirror: CommentSlackThread, team: Team) -> bool:

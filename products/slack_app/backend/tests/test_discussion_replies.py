@@ -251,7 +251,7 @@ class TestIngestDiscussionReply(APIBaseTest):
         reply = Comment.objects.get(source_comment=self.root)
         assert reply.content == "📎 Attachment"
 
-    @patch("posthog.helpers.slack_thread_mirror.posthoganalytics.feature_enabled", return_value=False)
+    @patch("posthog.tasks.comment_slack_sync.posthoganalytics.feature_enabled", return_value=False)
     @patch(RESOLVE, return_value={"name": "X", "email": None, "avatar": None, "team_id": "T1"})
     def test_kill_switch_stops_ingestion(self, _resolve, _flag):
         # Turning the flag explicitly off halts inbound sync on existing mirrors too.
