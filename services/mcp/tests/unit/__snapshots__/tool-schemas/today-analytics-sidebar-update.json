@@ -333,24 +333,17 @@
                                                     "type": "string"
                                                 },
                                                 "label": {
-                                                    "anyOf": [
-                                                        {
-                                                            "maxLength": 60,
-                                                            "minLength": 1,
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Name of the number. Defaults to the insight's name."
+                                                    "description": "Short name of the number, such as Signups.",
+                                                    "maxLength": 60,
+                                                    "minLength": 1,
+                                                    "type": "string"
                                                 },
                                                 "type": {
                                                     "const": "metric",
                                                     "type": "string"
                                                 }
                                             },
-                                            "required": ["type", "insight"],
+                                            "required": ["type", "insight", "label"],
                                             "type": "object"
                                         },
                                         {

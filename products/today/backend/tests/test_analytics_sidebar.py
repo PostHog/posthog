@@ -81,8 +81,13 @@ class TestAnalyticsSidebarLayout(SimpleTestCase):
             ),
             (
                 "a short id that is a path",
-                _item({"type": "metric", "insight": "../../x"}),
+                _item({"type": "metric", "insight": "../../x", "label": "Signups"}),
                 "sections.0.items.0.metric.insight",
+            ),
+            (
+                "a metric without a label",
+                _item({"type": "metric", "insight": "aB3dE5fG"}),
+                "sections.0.items.0.metric.label",
             ),
             ("a color in place of an icon", _with(["sections", 0, "icon"], "#ff0000"), "sections.0.icon"),
             ("a section id with spaces", _with(["sections", 0, "id"], "Growth team"), "sections.0.id"),
@@ -97,7 +102,7 @@ class TestAnalyticsSidebarLayout(SimpleTestCase):
             ),
             (
                 "more metrics than fit",
-                _with(["sections", 1, "items"], [{"type": "metric", "insight": "aB3dE5fG"}] * 4),
+                _with(["sections", 1, "items"], [{"type": "metric", "insight": "aB3dE5fG", "label": "Signups"}] * 4),
                 "layout",
             ),
         ]

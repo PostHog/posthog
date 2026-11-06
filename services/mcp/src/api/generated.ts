@@ -14113,8 +14113,12 @@ export namespace Schemas {
          * @pattern ^[A-Za-z0-9]{8}$
          */
       insight: string;
-      /** Name of the number. Defaults to the insight's name. */
-      label?: string | null;
+      /**
+         * Short name of the number, such as Signups.
+         * @minLength 1
+         * @maxLength 60
+         */
+      label: string;
     }
 
     export type SidebarListSource = typeof SidebarListSource[keyof typeof SidebarListSource];

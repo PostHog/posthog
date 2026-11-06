@@ -60,7 +60,7 @@ export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemTwoVar
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemThreeInsightRegExp = new RegExp(
     '^[A-Za-z0-9]{8}$'
 )
-export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemThreeLabelOneMax = 60
+export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemThreeLabelMax = 60
 
 export const todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsMax = 12
 
@@ -322,17 +322,12 @@ export const TodayAnalyticsSidebarUpdateBody = () => zod.strictObject({
                                                 )
                                                 .describe('Short ID of a trends insight.'),
                                             label: zod
-                                                .union([
-                                                    zod
-                                                        .string()
-                                                        .min(1)
-                                                        .max(
-                                                            todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemThreeLabelOneMax
-                                                        ),
-                                                    zod.null(),
-                                                ])
-                                                .optional()
-                                                .describe("Name of the number. Defaults to the insight's name."),
+                                                .string()
+                                                .min(1)
+                                                .max(
+                                                    todayAnalyticsSidebarUpdateBodyLayoutOneSectionsItemItemsItemThreeLabelMax
+                                                )
+                                                .describe('Short name of the number, such as Signups.'),
                                         })
                                         .describe(
                                             'The latest value of a trends insight, with a sparkline of its first series. Opens the insight.'

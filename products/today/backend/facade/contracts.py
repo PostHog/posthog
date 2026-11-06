@@ -411,7 +411,7 @@ class SidebarMetric(_SidebarModel):
 
     type: Literal["metric"]
     insight: str = Field(pattern=SIDEBAR_SHORT_ID_PATTERN, description="Short ID of a trends insight.")
-    label: SidebarLabel | None = Field(default=None, description="Name of the number. Defaults to the insight's name.")
+    label: SidebarLabel = Field(description="Short name of the number, such as Signups.")
 
 
 class SidebarList(_SidebarModel):
