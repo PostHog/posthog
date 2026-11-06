@@ -607,6 +607,7 @@ class TestOrganizationAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/",
             {"ip_restrictions": ["203.0.113.4", "10.0.0.0/8"]},
             format="json",
+            REMOTE_ADDR="203.0.113.4",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -749,14 +750,15 @@ class TestOrganizationAPI(APIBaseTest):
         ]
     )
     @override_settings(MCP_CLIENT_IP_SIGNING_KEYS=["ip-restriction-test-key"])
-    def test_warns_when_restrictions_would_lock_out_current_session(
-        self, forwarded_ip: str | None, peer_ip: str, warns: bool
+    def test_rejects_restrictions_that_would_lock_out_current_session(
+        self, forwarded_ip: str | None, peer_ip: str, blocks: bool
     ) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.organization.available_product_features = [{"key": AvailableFeature.IP_RESTRICTIONS}]
         self.organization.save()
 
+        original_name = self.organization.name
         headers = {}
         if forwarded_ip is not None:
             timestamp = str(int(timezone.now().timestamp()))
@@ -769,17 +771,27 @@ class TestOrganizationAPI(APIBaseTest):
             }
         response = self.client.patch(
             f"/api/organizations/{self.organization.id}/",
-            {"ip_restrictions": ["203.0.113.4"]},
+            {"name": "Example organization", "ip_restrictions": ["203.0.113.4"]},
             format="json",
             REMOTE_ADDR=peer_ip,
             headers=headers,
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        if warns:
-            self.assertIn(forwarded_ip or peer_ip, response.json()["ip_restrictions_warning"])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST if blocks else status.HTTP_200_OK)
+        if blocks:
+            self.assertEqual(response.json()["code"], "would_block_self")
+            self.assertIn(forwarded_ip or peer_ip, response.json()["detail"])
+            self.assertFalse(OrganizationIPRestrictions.objects.filter(organization=self.organization).exists())
+            self.organization.refresh_from_db()
+            self.assertEqual(self.organization.name, original_name)
         else:
             self.assertIsNone(response.json()["ip_restrictions_warning"])
+        self.assertEqual(
+            self.client.get(
+                f"/api/organizations/{self.organization.id}/", REMOTE_ADDR=peer_ip, headers=headers
+            ).status_code,
+            status.HTTP_200_OK,
+        )
 
     def test_can_toggle_ip_restrictions_with_feature(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -1857,6 +1869,78 @@ class TestOrganizationDataFreshnessAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         mock_freshness.assert_called_once()
         assert [team.id for team in mock_freshness.call_args.args[1]] == []
+
+
+class TestOrganizationIPRestrictionsValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("initial_excludes_client", None, True, {"ip_restrictions": ["198.51.100.7"]}, "203.0.113.4", False),
+            ("initial_includes_client", None, True, {"ip_restrictions": ["203.0.113.0/24"]}, "203.0.113.4", True),
+            (
+                "add_another_rule",
+                ["203.0.113.0/24"],
+                True,
+                {"ip_restrictions": ["203.0.113.0/24", "198.51.100.7"]},
+                "203.0.113.4",
+                True,
+            ),
+            (
+                "remove_covering_rule",
+                ["203.0.113.4"],
+                True,
+                {"ip_restrictions": ["198.51.100.7"]},
+                "203.0.113.4",
+                False,
+            ),
+            ("enable_excluding_list", ["198.51.100.7"], False, {"ip_restrictions_enabled": True}, "203.0.113.4", False),
+            ("enable_covering_list", ["203.0.113.0/24"], False, {"ip_restrictions_enabled": True}, "203.0.113.4", True),
+            (
+                "enable_with_replacement",
+                ["198.51.100.7"],
+                False,
+                {"ip_restrictions": ["203.0.113.4"], "ip_restrictions_enabled": True},
+                "203.0.113.4",
+                True,
+            ),
+            (
+                "disable_with_replacement",
+                ["203.0.113.4"],
+                True,
+                {"ip_restrictions": ["198.51.100.7"], "ip_restrictions_enabled": False},
+                "203.0.113.4",
+                True,
+            ),
+            ("edit_disabled_list", ["198.51.100.7"], False, {"ip_restrictions": ["192.0.2.1"]}, "203.0.113.4", True),
+            ("clear_list", ["203.0.113.4"], True, {"ip_restrictions": []}, "203.0.113.4", True),
+            ("unrelated_edit", ["198.51.100.7"], True, {"name": "Example organization"}, "203.0.113.4", True),
+            ("unknown_client", None, True, {"ip_restrictions": ["203.0.113.4"]}, None, False),
+            ("ipv6_client", None, True, {"ip_restrictions": ["2001:db8::/32"]}, "2001:db8::4", True),
+        ]
+    )
+    @override_settings(IS_BEHIND_PROXY=False, TRUST_ALL_PROXIES=False)
+    def test_resulting_policy_keeps_client_access(
+        self,
+        _name: str,
+        saved_restrictions: list[str] | None,
+        enabled: bool,
+        payload: dict[str, object],
+        client_ip: str | None,
+        is_valid: bool,
+    ) -> None:
+        organization = Organization(available_product_features=[{"key": AvailableFeature.IP_RESTRICTIONS}])
+        organization._state.fields_cache["ip_restrictions_config"] = (
+            OrganizationIPRestrictions(organization=organization, ip_restrictions=saved_restrictions, enabled=enabled)
+            if saved_restrictions is not None
+            else None
+        )
+        request = APIRequestFactory().patch("/", REMOTE_ADDR=client_ip or "")
+        request.user = User(email="admin@example.com")
+        serializer = OrganizationSerializer(organization, data=payload, partial=True, context={"request": request})
+
+        self.assertEqual(serializer.is_valid(), is_valid, serializer.errors)
+        if not is_valid:
+            field = "ip_restrictions" if "ip_restrictions" in payload else "ip_restrictions_enabled"
+            self.assertEqual(serializer.errors[field][0].code, "would_block_self")
 
 
 class TestOrganizationMemberNoticeValidation(SimpleTestCase):

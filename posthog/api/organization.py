@@ -503,6 +503,32 @@ class OrganizationSerializer(
                 )
         return value
 
+    def _validate_ip_restrictions_access(self, attrs: dict[str, Any]) -> None:
+        if not {"ip_restrictions", "ip_restrictions_enabled"}.intersection(attrs):
+            return
+        config = getattr(self.instance, "ip_restrictions_config", None) if self.instance else None
+        enabled = attrs.get("ip_restrictions_enabled", config.enabled if config else True)
+        restrictions = attrs.get("ip_restrictions", config.ip_restrictions if config else [])
+        if not enabled or not restrictions:
+            return
+        request = self.context.get("request")
+        request = getattr(request, "_request", request)
+        if request is not None and is_impersonated_session(request):
+            return
+        ip = get_restriction_client_ip(request) if request is not None else None
+        if ip is not None and is_ip_allowed(ip, restrictions):
+            return
+        field = "ip_restrictions" if "ip_restrictions" in attrs else "ip_restrictions_enabled"
+        raise serializers.ValidationError(
+            {
+                field: (
+                    f"This change would block your current IP address ({ip or 'unknown'}). "
+                    "Include your current IP address in the allowlist before saving."
+                )
+            },
+            code="would_block_self",
+        )
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # A blocked admin gets through the domain gates only to use the escape hatch: turning
         # `enforce_verified_domains` off. Reject anything else they try to change on the way.
@@ -515,6 +541,7 @@ class OrganizationSerializer(
         ):
             if set(attrs) != {"enforce_verified_domains"} or attrs["enforce_verified_domains"]:
                 raise exceptions.PermissionDenied(VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")
+        self._validate_ip_restrictions_access(attrs)
         return attrs
 
     def validate_enforce_verified_domains(self, value: bool | None) -> bool | None:
