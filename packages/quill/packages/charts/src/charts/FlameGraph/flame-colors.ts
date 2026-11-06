@@ -1,5 +1,3 @@
-import { rgb } from 'd3-color'
-
 import type { LegendItem } from '../../components/Legend/Legend'
 import { mixColors, prefersLightText, toSrgbColor } from '../../core/color-utils'
 import { DEFAULT_CHART_COLORS } from '../../core/theme'
@@ -21,7 +19,6 @@ const FILL_STRENGTH = { light: 0.45, dark: 0.6 }
 const ANCESTOR_FADE = 0.45
 const FALLBACK_BACKGROUND = '#ffffff'
 const FALLBACK_INK = '#1d2330'
-const MIN_INK_CONTRAST = 4.5
 
 export interface FlameInk {
     background: string
@@ -40,8 +37,7 @@ export function resolveInk(theme: ChartTheme): FlameInk {
     const dark = prefersLightText(background)
     // A host tooltip with inverted colors hands over an ink close to the background.
     const themeInk = toSrgbColor(theme.tooltipColor ?? FALLBACK_INK)
-    const ink =
-        contrastRatio(themeInk, background) >= MIN_INK_CONTRAST ? themeInk : dark ? FALLBACK_BACKGROUND : FALLBACK_INK
+    const ink = prefersLightText(themeInk) !== dark ? themeInk : dark ? FALLBACK_BACKGROUND : FALLBACK_INK
     return {
         background,
         dark,
@@ -173,28 +169,9 @@ export function createFlameShades(ink: FlameInk): FlameShades {
     return {
         searchMiss: mixColors(ink.neutral, ink.background, 0.4),
         searchMissText: mixColors(ink.ink, ink.background, 0.55),
-        textOn: (fill) =>
-            cached(text, fill, () =>
-                contrastRatio(fill, ink.ink) >= contrastRatio(fill, ink.background) ? ink.ink : ink.background
-            ),
+        textOn: (fill) => cached(text, fill, () => (prefersLightText(fill) === ink.dark ? ink.ink : ink.background)),
         ancestorOf: (fill) => cached(ancestor, fill, () => mixColors(fill, ink.background, ANCESTOR_FADE)),
     }
-}
-
-function relativeLuminance(color: string): number {
-    const { r, g, b } = rgb(color)
-    const channel = (v: number): number => {
-        const c = (Number.isNaN(v) ? 0 : v) / 255
-        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-    }
-    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
-}
-
-/** WCAG 2 is enough here: ink and background sit at the ends of the lightness range, where it agrees with APCA. */
-function contrastRatio(a: string, b: string): number {
-    const la = relativeLuminance(a)
-    const lb = relativeLuminance(b)
-    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
 }
 
 function cached(map: Map<string, string>, key: string, make: () => string): string {
