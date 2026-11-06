@@ -419,7 +419,7 @@ class TestMCPToolFailureOccurrencesQueryRunner(_MCPAnalyticsTeamScopedTestMixin,
 def _emit_tool_call(
     team: Any,
     *,
-    tool_name: str = "query_run",
+    tool_name: str | None = "query_run",
     distinct_id: str = "d1",
     source: str | None = NEW_SDK_SOURCE,
     is_error: bool = False,
@@ -723,6 +723,8 @@ class TestMCPToolNeighborsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhou
             "conv2": ["query_run", "tool_c"],
             # Never calls the target, so its pairs must not leak into the counts.
             "conv3": ["tool_b", "tool_d"],
+            # A call with no tool name is not a neighbor, so it must not take a top-five slot as a blank.
+            "conv4": [None, "query_run", None],
         }
         for session_id, tools in conversations.items():
             for position, tool in enumerate(tools):
