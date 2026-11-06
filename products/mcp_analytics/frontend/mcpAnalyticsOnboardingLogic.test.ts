@@ -114,6 +114,31 @@ describe('mcpAnalyticsOnboardingLogic', () => {
         expect(productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS }).values.status).toBe('has-data')
     })
 
+    it.each<{ state: string; row: unknown[]; queries: number }>([
+        { state: 'not instrumented', row: [0, 0, 0, '1970-01-01T00:00:00Z'], queries: 4 },
+        { state: 'connected without calls', row: [1, 0, 0, '1970-01-01T00:00:00Z'], queries: 4 },
+        { state: 'onboarded at the activity stage', row: [1, 1, 1, '2026-07-01T00:00:00Z'], queries: 1 },
+        { state: 'onboarded at the metrics stage', row: [1, 300, 0, '2026-07-01T00:00:00Z'], queries: 1 },
+    ])('a project $state sends $queries signal queries across three poll intervals', async ({ row, queries }) => {
+        const liveIntervals = new Map<number, () => void>()
+        let nextIntervalId = 0
+        jest.spyOn(window, 'setInterval').mockImplementation(((callback: () => void) => {
+            liveIntervals.set(++nextIntervalId, callback)
+            return nextIntervalId
+        }) as typeof window.setInterval)
+        jest.spyOn(window, 'clearInterval').mockImplementation(((id: number) => {
+            liveIntervals.delete(id)
+        }) as typeof window.clearInterval)
+
+        const logic = mountWith([row])
+        await expectLogic(logic).toFinishAllListeners()
+        for (let tick = 0; tick < 3; tick++) {
+            liveIntervals.forEach((callback) => callback())
+            await expectLogic(logic).toFinishAllListeners()
+        }
+        expect(mockApi.query).toHaveBeenCalledTimes(queries)
+    })
+
     it.each(['success', 'failure'] as const)(
         'ignores a signal query %s from a previous project without completing the new setup attempt',
         async (outcome) => {
