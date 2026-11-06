@@ -41,6 +41,9 @@ async function queryHandler({ request }: { request: Request }): Promise<[number,
 
 const meta: Meta = {
     title: 'Scenes-App/PostHog AI/Quill comparison',
+    // Three live threads with charts: a snapshot of this page would be slow and flaky, and the story is a
+    // review surface, not a regression gate.
+    tags: ['test-skip'],
     decorators: [
         mswDecorator({
             get: {
@@ -66,9 +69,9 @@ const meta: Meta = {
                     results: [comparisonRun()],
                 },
                 [`/api/projects/:team_id/tasks/${COMPARISON_TASK_ID}/runs/${COMPARISON_RUN_ID}/`]: comparisonRun(),
-                [`/api/projects/:team_id/tasks/${COMPARISON_TASK_ID}/runs/${COMPARISON_RUN_ID}/logs`]: () =>
+                [`/api/projects/:team_id/tasks/${COMPARISON_TASK_ID}/runs/${COMPARISON_RUN_ID}/log_entries`]: () =>
                     new HttpResponse(comparisonRunLogBody()),
-                [`/api/projects/:team_id/tasks/${COMPARISON_TASK_ID}/runs/${COMPARISON_RUN_ID}/logs/`]: () =>
+                [`/api/projects/:team_id/tasks/${COMPARISON_TASK_ID}/runs/${COMPARISON_RUN_ID}/log_entries/`]: () =>
                     new HttpResponse(comparisonRunLogBody()),
                 '/api/users/@me/': () => [200, { ...MOCK_DEFAULT_BASIC_USER, is_staff: false }],
             },
@@ -82,9 +85,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2024-03-15T14:10:00Z',
-        // Three live threads with charts: a snapshot of this page would be slow and flaky, and the story is a
-        // review surface, not a regression gate.
-        testOptions: { skip: true },
     },
 }
 export default meta

@@ -1,4 +1,5 @@
 from dataclasses import asdict
+from functools import partial
 from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
@@ -15,8 +16,10 @@ from rest_framework.throttling import BaseThrottle
 
 from posthog.api.mixins import TypedRequest, ValidatedRequest, validated_request
 from posthog.api.monitoring import monitor
+from posthog.event_usage import report_user_action
 from posthog.permissions import is_service_auth
 
+from products.ai_observability.backend.api.analytics import report_on_commit
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.api.offline_evaluation_base import OfflineEvaluationViewSet
 from products.ai_observability.backend.api.offline_experiment_access import (
@@ -153,6 +156,31 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
     def _reference_access_control(self) -> "UserAccessControl | None":
         return None if is_service_auth(self.request) else self.user_access_control
 
+    def _report_experiment_action(self, event: str, receipt: ExperimentReceipt) -> None:
+        experiment = receipt.experiment
+        if experiment.dataset_revision_id is not None:
+            dataset_source = "posthog"
+        elif experiment.dataset_source:
+            dataset_source = "external"
+        else:
+            dataset_source = "unknown"
+        report_on_commit(
+            partial(
+                report_user_action,
+                self.request.user,
+                event,
+                {
+                    "experiment_id": str(experiment.id),
+                    "dataset_source": dataset_source,
+                    "run_source": experiment.run_source,
+                    "status": experiment.status,
+                    **asdict(receipt.counts),
+                },
+                team=self.team,
+                request=self.request,
+            )
+        )
+
     def handle_exception(self, exc: Exception) -> Response:
         action_name = getattr(self, "action", None)
         if action_name in self.scope_object_read_actions or action_name in {"metadata", "partial_update"}:
@@ -203,6 +231,8 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
             request.validated_data,
             created_by_id=None if is_service_auth(request) else request.user.pk,
         )
+        if receipt.created:
+            self._report_experiment_action("llma offline experiment created", receipt)
         return _experiment_response(receipt, status=201 if receipt.created else 200)
 
     def _experiment_id(self) -> UUID:
@@ -211,18 +241,36 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
     @validated_request(
         UploadSubmissionSerializer,
         parameters=[EXPERIMENT_ID_PARAMETER],
-        responses={200: UploadReceiptSerializer, **ERROR_RESPONSES},
+        responses={200: UploadReceiptSerializer, 402: OfflineEvaluationErrorSerializer, **ERROR_RESPONSES},
     )
     @action(detail=True, methods=["post"])
     @llma_track_latency("aio_offline_experiment_upload")
     @monitor(feature=None, endpoint="aio_offline_experiment_upload", method="POST")
     def upload(self, request: TypedRequest[UploadSubmission], **kwargs: object) -> Response:
+        experiment_id = self._experiment_id()
         receipt = OfflineEvaluationIngestionService(
             team_id=self.team_id, user_access_control=self._reference_access_control()
-        ).upload(self._experiment_id(), request.validated_data)
+        ).upload(experiment_id, request.validated_data)
         for created in (True, False):
             OFFLINE_UPLOAD_RESULTS.labels(outcome="created" if created else "duplicate").inc(
                 sum(result.created == created for result in receipt.results)
+            )
+        created_item_count = sum(item.created for item in receipt.items)
+        created_result_count = sum(result.created for result in receipt.results)
+        if created_item_count or created_result_count:
+            report_on_commit(
+                partial(
+                    report_user_action,
+                    request.user,
+                    "llma offline experiment results uploaded",
+                    {
+                        "experiment_id": str(experiment_id),
+                        "created_item_count": created_item_count,
+                        "created_result_count": created_result_count,
+                    },
+                    team=self.team,
+                    request=request,
+                )
             )
         return Response(UploadReceiptSerializer(receipt).data)
 
@@ -235,11 +283,12 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
     @llma_track_latency("aio_offline_experiment_complete")
     @monitor(feature=None, endpoint="aio_offline_experiment_complete", method="POST")
     def complete(self, request: Request, **kwargs: object) -> Response:
-        return _experiment_response(
-            OfflineExperimentService(team_id=self.team_id, user_access_control=self._reference_access_control()).close(
-                self._experiment_id(), status="completed"
-            )
-        )
+        receipt = OfflineExperimentService(
+            team_id=self.team_id, user_access_control=self._reference_access_control()
+        ).close(self._experiment_id(), status="completed")
+        if receipt.status_changed:
+            self._report_experiment_action("llma offline experiment completed", receipt)
+        return _experiment_response(receipt)
 
     @validated_request(
         EmptyOfflineExperimentSerializer,
@@ -250,8 +299,9 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
     @llma_track_latency("aio_offline_experiment_fail")
     @monitor(feature=None, endpoint="aio_offline_experiment_fail", method="POST")
     def fail(self, request: Request, **kwargs: object) -> Response:
-        return _experiment_response(
-            OfflineExperimentService(team_id=self.team_id, user_access_control=self._reference_access_control()).close(
-                self._experiment_id(), status="failed"
-            )
-        )
+        receipt = OfflineExperimentService(
+            team_id=self.team_id, user_access_control=self._reference_access_control()
+        ).close(self._experiment_id(), status="failed")
+        if receipt.status_changed:
+            self._report_experiment_action("llma offline experiment failed", receipt)
+        return _experiment_response(receipt)

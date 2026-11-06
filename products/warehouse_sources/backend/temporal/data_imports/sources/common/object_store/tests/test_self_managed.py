@@ -18,9 +18,6 @@ import structlog
 from fsspec.implementations.local import LocalFileSystem
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_s3.source import AmazonS3Source
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_blob.source import AzureBlobSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare_r2.source import CloudflareR2Source
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import source_base
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import CsvOptions
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.csv_types import (
@@ -58,14 +55,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     SelfManagedLocation,
     UnmappableTableError,
     needs_preserved_column_names,
+    nested_text_columns,
     parse_self_managed_url,
+    refuse_columns_an_import_changes,
     source_format_for,
     table_definition_for,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_cloud_storage.source import (
-    GoogleCloudStorageSource,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.tests.fake_source import (
+    FakeObjectStorageConfig,
+    FakeObjectStorageSource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 
 R2_ACCOUNT = "0123456789abcdef0123456789abcdef"
 LOGGER = structlog.get_logger()
@@ -501,11 +501,26 @@ class TestTableDefinition:
             )
         ]
     )
-    def test_nested_columns_are_refused(self, _name: str, table_format: str, column_type: str, url: str) -> None:
+    def test_nested_columns_can_be_linked(self, _name: str, table_format: str, column_type: str, url: str) -> None:
         columns = {"id": "Int64", "items": {"clickhouse": column_type, "hogql": "StringJSONDatabaseField"}}
 
-        with pytest.raises(UnmappableTableError, match="'items'"):
-            table_definition_for("orders", parse_self_managed_url(url), table_format, columns, None)
+        definition = table_definition_for("orders", parse_self_managed_url(url), table_format, columns, None)
+
+        assert definition.kind == ("delta" if table_format == "Delta" else "files")
+
+    @parameterized.expand(
+        [
+            ("array", {"items": "Array(String)"}, {"items": "Array(String)"}),
+            ("nullable_array", {"items": "Nullable(Array(String))"}, {"items": "Nullable(Array(String))"}),
+            ("map", {"items": "Map(String, Int64)"}, {"items": "Map(String, Int64)"}),
+            ("tuple", {"items": "Tuple(Int64, String)"}, {"items": "Tuple(Int64, String)"}),
+            ("plain_string", {"items": "String"}, {}),
+            ("no_columns", None, {}),
+            ("invalid_column", {"items": {"clickhouse": "Array(String)", "valid": False}}, {}),
+        ]
+    )
+    def test_nested_text_columns(self, _name: str, columns: dict[str, Any] | None, expected: dict[str, str]) -> None:
+        assert nested_text_columns(columns) == expected
 
     def test_an_invalid_nested_column_does_not_block_the_table(self) -> None:
         location = parse_self_managed_url("https://storage.googleapis.com/lake/orders/*.parquet")
@@ -539,11 +554,23 @@ class TestTableDefinition:
             table_definition_for("orders", parse_self_managed_url(url), table_format, columns, None)
 
     @parameterized.expand([("Date",), ("Nullable(Date32)",), ("DateTime",), ("Nullable(DateTime64(9))",)])
-    def test_json_dates_and_times_are_refused(self, column_type: str) -> None:
+    def test_json_dates_and_times_are_cast_not_refused(self, column_type: str) -> None:
         location = parse_self_managed_url("https://storage.googleapis.com/lake/orders/*.jsonl")
+        columns = {"id": "Int64", "created": column_type}
 
-        with pytest.raises(UnmappableTableError, match="'created'"):
-            table_definition_for("orders", location, "JSONEachRow", {"id": "Int64", "created": column_type}, None)
+        refuse_columns_an_import_changes(columns, "jsonl")
+        definition = table_definition_for("orders", location, "JSONEachRow", columns, None)
+
+        assert [column.name for column in definition.csv.column_types] == ["created"]
+
+    def test_json_nested_columns_can_be_linked(self) -> None:
+        location = parse_self_managed_url("https://storage.googleapis.com/lake/orders/*.jsonl")
+        columns = {"tags": "Array(String)", "day": "Date"}
+
+        refuse_columns_an_import_changes(columns, "jsonl")
+        definition = table_definition_for("orders", location, "JSONEachRow", columns, None)
+
+        assert [column.name for column in definition.csv.column_types] == ["day"]
 
     def test_csv_header_names_with_surrounding_spaces_are_refused(self) -> None:
         location = parse_self_managed_url("https://storage.googleapis.com/lake/orders/*.csv")
@@ -904,8 +931,13 @@ class TestCsvColumnTypes:
         assert table.schema.types == [pa.string()]
 
 
-def _credential(access_key: str = "AKIAEXAMPLE", access_secret: str = "c2VjcmV0") -> SelfManagedCredential:
-    return SelfManagedCredential(access_key=access_key, access_secret=access_secret)
+S3_CONNECTION_INPUTS = {
+    "url_pattern": "https://s3.us-east-1.amazonaws.com/exports/",
+    "access_key_id": "AKIAEXAMPLE",
+    "secret_access_key": "c2VjcmV0",
+}
+EXPORTS_LOCATION = parse_self_managed_url("https://exports.s3.us-east-1.amazonaws.com/a.csv")
+CREDENTIAL = SelfManagedCredential(access_key="AKIAEXAMPLE", access_secret="c2VjcmV0")
 
 
 @pytest.fixture
@@ -914,99 +946,43 @@ def resolvable_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(source_base, "validate_warehouse_table_url_pattern", lambda _url: (True, ""))
 
 
+def _refusing_builder(error: Exception) -> Any:
+    def build(_values: dict[str, Any]) -> Any:
+        raise error
+
+    return build
+
+
 @pytest.mark.usefixtures("resolvable_hosts")
 class TestJobInputsForSelfManaged:
-    @parameterized.expand(
-        [
-            (
-                "s3",
-                AmazonS3Source,
-                "https://exports.s3.eu-west-1.amazonaws.com/a.csv",
-                {"url_pattern": "https://s3.eu-west-1.amazonaws.com/exports/", "access_key_id": "AKIAEXAMPLE"},
-            ),
-            (
-                "gcs",
-                GoogleCloudStorageSource,
-                "https://storage.googleapis.com/exports/a.csv",
-                {"url_pattern": "https://storage.googleapis.com/exports/", "access_key_id": "AKIAEXAMPLE"},
-            ),
-            (
-                "r2",
-                CloudflareR2Source,
-                f"https://{R2_ACCOUNT}.r2.cloudflarestorage.com/exports/a.csv",
-                {
-                    "url_pattern": f"https://{R2_ACCOUNT}.r2.cloudflarestorage.com/exports/",
-                    "access_key_id": "AKIAEXAMPLE",
-                },
-            ),
-        ]
-    )
-    def test_maps_the_bucket_and_credential(
-        self, _name: str, source_class: type, url: str, expected: dict[str, str]
-    ) -> None:
-        job_inputs = source_class().job_inputs_for_self_managed(parse_self_managed_url(url), _credential())
+    def test_adds_the_default_file_options_to_the_connection_inputs(self) -> None:
+        source = FakeObjectStorageSource(connection_inputs=S3_CONNECTION_INPUTS)
 
-        assert {key: job_inputs[key] for key in expected} == expected
-        assert job_inputs["secret_access_key"] == "c2VjcmV0"
-        file_format = job_inputs["file_format"]
-        selection = file_format["selection"] if isinstance(file_format, dict) else file_format
-        assert selection == "infer"
+        job_inputs = source.job_inputs_for_self_managed(EXPORTS_LOCATION, CREDENTIAL)
 
-    def test_azure_takes_the_account_from_the_url_and_the_key_from_the_secret(self) -> None:
-        location = parse_self_managed_url("https://examplestore.blob.core.windows.net/exports/a.csv")
-
-        job_inputs = AzureBlobSource().job_inputs_for_self_managed(location, _credential(access_key="ExampleStore"))
-
-        assert (job_inputs["url_pattern"], job_inputs["account_key"]) == (
-            "https://examplestore.blob.core.windows.net/exports/",
-            "c2VjcmV0",
-        )
+        assert job_inputs == {**S3_CONNECTION_INPUTS, "file_format": "infer", "csv_allow_double_quotes": "true"}
 
     @parameterized.expand(
         [
-            ("s3_without_region", AmazonS3Source, "https://exports.s3.amazonaws.com/a.csv", _credential()),
-            ("s3_bucket_name_too_short", AmazonS3Source, "https://s3.us-east-1.amazonaws.com/ab/a.csv", _credential()),
-            (
-                "s3_empty_secret",
-                AmazonS3Source,
-                "https://exports.s3.us-east-1.amazonaws.com/a.csv",
-                _credential(access_secret=" "),
-            ),
-            (
-                "azure_key_for_another_account",
-                AzureBlobSource,
-                "https://examplestore.blob.core.windows.net/exports/a.csv",
-                _credential(access_key="otherstore"),
-            ),
-            (
-                "azure_key_that_is_not_base64",
-                AzureBlobSource,
-                "https://examplestore.blob.core.windows.net/exports/a.csv",
-                _credential(access_key="examplestore", access_secret="a;EndpointSuffix=example.com"),
-            ),
+            ("invalid_config", ObjectStorageError("Invalid configuration")),
+            ("type_error", TypeError("missing field")),
+            ("value_error", ValueError("bad value")),
         ]
     )
-    def test_refuses_what_the_source_would_refuse(
-        self, _name: str, source_class: type, url: str, credential: SelfManagedCredential
-    ) -> None:
+    def test_refuses_what_the_source_would_refuse(self, _name: str, error: Exception) -> None:
+        source = FakeObjectStorageSource(_refusing_builder(error), connection_inputs=S3_CONNECTION_INPUTS)
+
         with pytest.raises(UnmappableTableError):
-            source_class().job_inputs_for_self_managed(parse_self_managed_url(url), credential)
+            source.job_inputs_for_self_managed(EXPORTS_LOCATION, CREDENTIAL)
 
 
 class TestSourceForPipeline:
     @parameterized.expand([("preserved", True), ("normalized", False)])
     def test_the_response_carries_the_column_name_choice(self, _name: str, preserve: bool) -> None:
-        source = AmazonS3Source()
+        source = FakeObjectStorageSource()
         location = parse_self_managed_url("https://exports.s3.us-east-1.amazonaws.com/orders/*.csv")
         definition = table_definition_for("orders", location, "CSVWithNames", {}, None)
         metadata = {**definition.schema_metadata(), "preserve_column_names": preserve}
-        config = source.parse_config(
-            {
-                "url_pattern": "https://s3.us-east-1.amazonaws.com/exports/",
-                "access_key_id": "AKIAEXAMPLE",
-                "secret_access_key": "c2VjcmV0",
-            }
-        )
         inputs = SourceInputs(
             schema_name="orders",
             schema_id=str(uuid.uuid4()),
@@ -1024,6 +1000,6 @@ class TestSourceForPipeline:
         )
         source.open_store = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
 
-        response = source.source_for_pipeline(config, inputs)
+        response = source.source_for_pipeline(FakeObjectStorageConfig(values=S3_CONNECTION_INPUTS), inputs)
 
         assert response.preserve_column_names is preserve

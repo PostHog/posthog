@@ -39,6 +39,38 @@ const sessionRecordingBulkDelete = (): ToolBase<
     },
 })
 
+const SessionRecordingConsoleLogsListSchema = () => {
+    const SessionRecordingsConsoleLogsRetrieveParams = orvalSchemas.SessionRecordingsConsoleLogsRetrieveParams()
+    const SessionRecordingsConsoleLogsRetrieveQueryParams =
+        orvalSchemas.SessionRecordingsConsoleLogsRetrieveQueryParams()
+    return SessionRecordingsConsoleLogsRetrieveParams.omit({ project_id: true }).extend(
+        SessionRecordingsConsoleLogsRetrieveQueryParams.shape
+    )
+}
+
+const sessionRecordingConsoleLogsList = (): ToolBase<
+    ReturnType<typeof SessionRecordingConsoleLogsListSchema>,
+    Schemas.SessionRecordingConsoleLogsResponse
+> => ({
+    name: 'session-recording-console-logs-list',
+    schema: SessionRecordingConsoleLogsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SessionRecordingConsoleLogsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SessionRecordingConsoleLogsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/${encodeURIComponent(String(params.id))}/console_logs/`,
+            query: {
+                after: params.after,
+                before: params.before,
+                level: params.level,
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return result
+    },
+})
+
 const SessionRecordingDeleteSchema = () => {
     const SessionRecordingsDestroyParams = orvalSchemas.SessionRecordingsDestroyParams()
     return SessionRecordingsDestroyParams.omit({ project_id: true })
@@ -662,6 +694,7 @@ const AssistantRecordingsQuery = z.object({
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'session-recording-bulk-delete': sessionRecordingBulkDelete,
+    'session-recording-console-logs-list': sessionRecordingConsoleLogsList,
     'session-recording-delete': sessionRecordingDelete,
     'session-recording-get': sessionRecordingGet,
     'session-recording-playlist-create': sessionRecordingPlaylistCreate,

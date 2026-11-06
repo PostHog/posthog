@@ -15,8 +15,6 @@ import {
     filterColumnOptions,
     normalizeAccountColumns,
     relationshipAlias,
-    roleKeyToDefinitionMap,
-    translateSelectColumns,
 } from './accountsColumnConfigLogic'
 
 function definition(
@@ -97,13 +95,16 @@ describe('accountsColumnConfigLogic column groups and translation', () => {
         expect(extractDisplayLabel(group.options[0].expression)).toBe(customPropertyAlias(id))
     })
 
-    it('relationships group offers legacy names for seeded definitions and rel_ aliases for others', () => {
+    it('relationships group uses definition IDs for every relationship', () => {
         const seeded = relationshipDefinition('11111111-2222-3333-4444-555555555555', 'CSM')
         const custom = relationshipDefinition('66666666-7777-8888-9999-000000000000', 'Onboarding manager')
         const group = buildAccountColumnGroups({}, [], [seeded, custom]).find((g) => g.key === 'relationships')!
 
         expect(group.options).toEqual([
-            { name: 'CSM', expression: 'csm' },
+            {
+                name: 'CSM',
+                expression: `accounts.relationships.values.\`${seeded.id}\` AS ${relationshipAlias(seeded.id)}`,
+            },
             {
                 name: 'Onboarding manager',
                 expression: `accounts.relationships.values.\`${custom.id}\` AS ${relationshipAlias(custom.id)}`,
@@ -174,19 +175,6 @@ describe('accountsColumnConfigLogic column groups and translation', () => {
                 ACCOUNTS_TAGS_COLUMN,
             ])
         ).toEqual(['name', ACCOUNTS_TAGS_COLUMN])
-    })
-
-    it('translateSelectColumns resolves legacy roles through the lazy join and drops unmatched ones', () => {
-        const csm = relationshipDefinition('11111111-2222-3333-4444-555555555555', 'CSM')
-        const map = roleKeyToDefinitionMap([
-            csm,
-            relationshipDefinition('99999999-0000-1111-2222-333333333333', 'Renamed'),
-        ])
-
-        expect(translateSelectColumns(['name', 'csm', 'account_owner'], map)).toEqual([
-            'name',
-            `accounts.relationships.values.\`${csm.id}\` AS csm`,
-        ])
     })
 
     it('applyColumnDisplayToSelect swaps only configured custom property columns to the history join', () => {

@@ -2,10 +2,11 @@ jest.mock('../src/shared-image-command')
 
 import * as core from '@actions/core'
 import * as path from 'path'
-import {mkdtempSync, rmSync, writeFileSync} from 'fs'
+import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'fs'
 import {tmpdir} from 'os'
 import {command} from '../src/shared-image-command'
 import {run} from '../src/inspect'
+import {POLICY_PATH} from '../src/shared-image-releases'
 import * as publisher from '../src/shared-image-publisher'
 
 jest.mock('@actions/core', () => ({getInput: jest.fn(), setOutput: jest.fn(), setFailed: jest.fn()}))
@@ -42,15 +43,25 @@ describe('inspect action inputs and outputs', () => {
   })
 
   test('an empty configured channel set emits false and the resolved empty map', async () => {
-    jest.mocked(core.getInput).mockImplementation(name => {
-      if (name === 'working-directory') return path.join(__dirname, '../../../..')
-      if (name === 'shared-image-policy') return ''
-      return inputs[name] || ''
-    })
-    await run()
-    expect(core.setFailed).not.toHaveBeenCalled()
-    expect(core.setOutput).toHaveBeenCalledWith('channels', 'false')
-    expect(core.setOutput).toHaveBeenCalledWith('bindings', '{"posthog-cloud":{}}')
+    const scratch = mkdtempSync(path.join(tmpdir(), 'shared-image-empty-'))
+    try {
+      const policyFile = path.join(scratch, POLICY_PATH)
+      mkdirSync(path.dirname(policyFile), {recursive: true})
+      writeFileSync(policyFile, JSON.stringify({
+        version: 1, filters: {}, images: {'posthog-cloud': {channels: {}}}
+      }))
+      jest.mocked(core.getInput).mockImplementation(name => {
+        if (name === 'working-directory') return scratch
+        if (name === 'shared-image-policy') return ''
+        return inputs[name] || ''
+      })
+      await run()
+      expect(core.setFailed).not.toHaveBeenCalled()
+      expect(core.setOutput).toHaveBeenCalledWith('channels', 'false')
+      expect(core.setOutput).toHaveBeenCalledWith('bindings', '{"posthog-cloud":{}}')
+    } finally {
+      rmSync(scratch, {recursive: true, force: true})
+    }
   })
 
   test.each([

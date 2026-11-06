@@ -45,6 +45,8 @@ export const OBSERVATION_LIST_FILTER_KEYS: readonly (keyof VisionObservationsRet
     'session_id',
     'recording_subject',
     'labeled',
+    'watch_group',
+    'watch_category',
     'order_by',
 ]
 
@@ -67,6 +69,8 @@ export const OBSERVATION_LIST_URL_PARAM_KEYS = [
     'date_to',
     'backfill_id',
     'variant',
+    'watch_group',
+    'watch_category',
 ] as const
 
 export type ObservationsUrlParams = Partial<Record<(typeof OBSERVATION_LIST_URL_PARAM_KEYS)[number], string>>

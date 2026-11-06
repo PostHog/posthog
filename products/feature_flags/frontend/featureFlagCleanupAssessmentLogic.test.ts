@@ -5,12 +5,14 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { FEATURE_FLAG_CLEANUP_SKILL } from 'scenes/feature-flags/featureFlagAiContext'
-import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
 import { maxMocks } from 'scenes/max/testUtils'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -22,7 +24,7 @@ import {
     SidePanelTab,
 } from '~/types'
 
-import { attachedContextLogic, composerSeedLogic, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+import { composerSeedLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { featureFlagCleanupAssessmentLogic } from './featureFlagCleanupAssessmentLogic'
 

@@ -46,7 +46,25 @@ const parseUpdatedAttributeName = (attr: keyof TeamType | null): string => {
         return 'Session recording minimum duration'
     }
 
+    if (attr === 'feature_flag_policy_config') {
+        return 'Feature flag settings'
+    }
+
     return attr ? identifierToHuman(attr) : 'Project'
+}
+
+/** Blocklist entries are third-party IP addresses and domains, so analytics gets only their counts. */
+function featureFlagPolicyConfigForAnalytics(
+    config: TeamType['feature_flag_policy_config']
+): Record<string, boolean | number | undefined> | undefined {
+    if (!config) {
+        return undefined
+    }
+    return {
+        require_tags: config.require_tags,
+        blocked_hosts_count: config.blocked_hosts?.length,
+        blocked_ips_count: config.blocked_ips?.length,
+    }
 }
 
 /** Return whether the provided value is a full TeamType object that's only available when authenticated. */
@@ -112,6 +130,7 @@ export interface teamLogicValues {
     customerAnalyticsConfig: CustomerAnalyticsConfig
     demoOnlyProject: boolean
     hasOnboardedAnyProduct: boolean
+    isCurrentProjectAccessDenied: boolean
     isCurrentTeamUnavailable: boolean
     isTeamTokenResetAvailable: boolean
     teamBeingDeleted: TeamType | null
@@ -147,6 +166,21 @@ export interface teamLogicActions {
         destination: string | undefined
         teamId: number | string
     } // userLogic
+    addFullStageTeamFields: (fields: Partial<TeamType>) => Partial<TeamType>
+    addFullStageTeamFieldsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    addFullStageTeamFieldsSuccess: (
+        currentTeam: TeamPublicType | TeamType | null,
+        payload?: Partial<TeamType>
+    ) => {
+        currentTeam: TeamPublicType | TeamType | null
+        payload?: Partial<TeamType>
+    }
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties
     addProductIntentFailure: (
         error: string,
@@ -200,6 +234,9 @@ export interface teamLogicActions {
             name: string
             is_demo: boolean
         }
+    }
+    currentProjectAccessDenied: () => {
+        value: true
     }
     deleteSecretTokenBackup: () => any
     deleteSecretTokenBackupFailure: (
@@ -359,11 +396,13 @@ export const teamLogic = kea<teamLogicType>([
         ],
     })),
     actions({
+        currentProjectAccessDenied: true,
         deleteTeam: (team: TeamType) => ({ team }),
         deleteTeamSuccess: true,
         deleteTeamFailure: true,
     }),
     reducers({
+        isCurrentProjectAccessDenied: [false, { currentProjectAccessDenied: () => true }],
         teamBeingDeleted: [
             null as TeamType | null,
             {
@@ -394,6 +433,9 @@ export const teamLogic = kea<teamLogicType>([
                         return values.currentTeam
                     }
                 },
+                // No listeners, so the late fields do not rerun what a team load triggers.
+                addFullStageTeamFields: (fields: Partial<TeamType>): TeamType | TeamPublicType | null =>
+                    values.currentTeam ? ({ ...values.currentTeam, ...fields } as TeamType | TeamPublicType) : null,
                 refreshCurrentTeam: async () => {
                     const projectId = values.currentTeam?.project_id
                     if (!projectId) {
@@ -471,7 +513,10 @@ export const teamLogic = kea<teamLogicType>([
                     Object.keys(payload).forEach((property) => {
                         posthog.capture(`${property} team setting updated`, {
                             setting: property,
-                            value: payload[property as keyof TeamType],
+                            value:
+                                property === 'feature_flag_policy_config'
+                                    ? featureFlagPolicyConfigForAnalytics(payload.feature_flag_policy_config)
+                                    : payload[property as keyof TeamType],
                         })
                     })
 

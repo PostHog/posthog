@@ -70,6 +70,20 @@ describe('modelPickerLogic', () => {
                                       ],
                                   ]
                                 : [200, []],
+                        '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) =>
+                            params.key_id
+                                ? [
+                                      200,
+                                      [
+                                          {
+                                              id: model,
+                                              name: model,
+                                              provider: 'System One',
+                                              is_recommended: true,
+                                          },
+                                      ],
+                                  ]
+                                : [200, []],
                     },
                 })
                 logic = modelPickerLogic()
@@ -99,6 +113,12 @@ describe('modelPickerLogic', () => {
                         }
                         return [200, []]
                     },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        if (params.key_id === 'key-1') {
+                            return [200, BYOK_OPENAI_MODELS]
+                        }
+                        return [200, []]
+                    },
                 },
             })
 
@@ -115,6 +135,7 @@ describe('modelPickerLogic', () => {
                     isRecommended: true,
                     supportsDecisions: false,
                     supportsChat: true,
+                    supportsReasoning: false,
                     providerKeyId: 'key-1',
                 }))
             )
@@ -130,6 +151,21 @@ describe('modelPickerLogic', () => {
                     '/api/llm_proxy/models/': ({ request }) => [
                         200,
                         new URL(request.url).searchParams.get('provider_key_id')
+                            ? [
+                                  { id: 'typesafe/jev-1.13', provider: 'OpenRouter', supports_decisions: true },
+                                  { id: 'typesafe/jev-router', provider: 'OpenRouter', supports_decisions: false },
+                                  {
+                                      id: 'example/dual-model',
+                                      provider: 'OpenRouter',
+                                      supports_decisions: true,
+                                      supports_chat: true,
+                                  },
+                              ]
+                            : [],
+                    ],
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => [
+                        200,
+                        params.key_id
                             ? [
                                   { id: 'typesafe/jev-1.13', provider: 'OpenRouter', supports_decisions: true },
                                   { id: 'typesafe/jev-router', provider: 'OpenRouter', supports_decisions: false },
@@ -161,6 +197,8 @@ describe('modelPickerLogic', () => {
                 'typesafe/jev-router',
                 'example/dual-model',
             ])
+            // The playground asks decisions only through a System One connection, never through OpenRouter.
+            expect(logic.values.playgroundSystemOneModelGroups).toEqual([])
         })
 
         it('should map is_recommended correctly for both true and false values', async () => {
@@ -174,6 +212,12 @@ describe('modelPickerLogic', () => {
                     },
                     '/api/llm_proxy/models/': ({ request }) => {
                         if (new URL(request.url).searchParams.get('provider_key_id') === 'key-1') {
+                            return [200, BYOK_OPENAI_MODELS_MIXED]
+                        }
+                        return [200, []]
+                    },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        if (params.key_id === 'key-1') {
                             return [200, BYOK_OPENAI_MODELS_MIXED]
                         }
                         return [200, []]
@@ -237,6 +281,16 @@ describe('modelPickerLogic', () => {
                         }
                         return [200, []]
                     },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        const keyId = params.key_id
+                        if (keyId === 'key-1') {
+                            return [200, BYOK_OPENAI_MODELS]
+                        }
+                        if (keyId === 'key-2') {
+                            return [200, BYOK_ANTHROPIC_MODELS]
+                        }
+                        return [200, []]
+                    },
                 },
             })
 
@@ -273,6 +327,16 @@ describe('modelPickerLogic', () => {
                         }
                         return [200, []]
                     },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        const keyId = params.key_id
+                        if (keyId === 'key-1') {
+                            return key1Fails ? [500, { error: 'Internal error' }] : [200, BYOK_OPENAI_MODELS]
+                        }
+                        if (keyId === 'key-2') {
+                            return [200, BYOK_ANTHROPIC_MODELS]
+                        }
+                        return [200, []]
+                    },
                 },
             })
 
@@ -291,6 +355,7 @@ describe('modelPickerLogic', () => {
                     providerKeyId: 'key-2',
                     supportsDecisions: false,
                     supportsChat: true,
+                    supportsReasoning: false,
                 }))
             )
             expect(logic.values.providerModelGroups.find((g) => g.providerKeyId === 'key-1')).toEqual({
@@ -343,6 +408,7 @@ describe('modelPickerLogic', () => {
                         active_provider_key: null,
                     },
                     '/api/llm_proxy/models/': () => [200, models],
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': () => [200, models],
                 },
             })
 
@@ -446,6 +512,16 @@ describe('modelPickerLogic', () => {
                         }
                         return [200, []]
                     },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        const keyId = params.key_id
+                        if (keyId === 'key-1') {
+                            return [200, BYOK_OPENAI_MODELS]
+                        }
+                        if (keyId === 'key-2') {
+                            return [200, BYOK_ANTHROPIC_MODELS]
+                        }
+                        return [200, []]
+                    },
                 },
             })
 
@@ -488,6 +564,10 @@ describe('modelPickerLogic', () => {
                         const keyId = new URL(request.url).searchParams.get('provider_key_id')
                         return [200, keyId === 'key-1' ? BYOK_OPENAI_MODELS : []]
                     },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        const keyId = params.key_id
+                        return [200, keyId === 'key-1' ? BYOK_OPENAI_MODELS : []]
+                    },
                 },
             })
 
@@ -518,6 +598,13 @@ describe('modelPickerLogic', () => {
                     },
                     '/api/llm_proxy/models/': ({ request }) => {
                         const keyId = new URL(request.url).searchParams.get('provider_key_id')
+                        if (keyId === 'key-1' || keyId === 'key-2') {
+                            return [200, BYOK_OPENAI_MODELS]
+                        }
+                        return [200, []]
+                    },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        const keyId = params.key_id
                         if (keyId === 'key-1' || keyId === 'key-2') {
                             return [200, BYOK_OPENAI_MODELS]
                         }

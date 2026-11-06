@@ -1,11 +1,10 @@
 import { useActions } from 'kea'
 import { memo } from 'react'
 
-import { IconArrowRight, IconFilter, IconFolder, IconPerson, IconSparkles } from '@posthog/icons'
+import { IconArrowRight, IconChevronDown, IconFilter, IconFolder, IconPerson, IconSparkles } from '@posthog/icons'
 import { Button, Skeleton, cn } from '@posthog/quill'
 
 import { getIconForItem, getItemTypeDisplayName } from 'lib/components/Search/searchItemDisplay'
-import { formatRelativeTimeShort } from 'lib/components/Search/utils'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -13,6 +12,7 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { commandKSearchLogic } from './commandKSearchLogic'
 import { CommandKSearchRankedItem } from './CommandKSearchRankedItem'
+import { CommandKSearchTime } from './CommandKSearchTime'
 import { CommandKRow } from './commandKSections'
 
 export const rowDomId = (key: string): string => `command-k-row-${key.replace(/[^a-zA-Z0-9_-]/g, '_')}`
@@ -88,19 +88,10 @@ function RowContent({ row }: { row: CommandKRow }): JSX.Element | null {
                     {item.productCategory && (
                         <span className="shrink-0 text-xs text-muted-foreground">{item.productCategory}</span>
                     )}
-                    {item.matchedSearchKeyword && (
-                        <span className="ml-auto truncate text-xxs text-muted-foreground">
-                            Matches "{item.matchedSearchKeyword}"
-                        </span>
-                    )}
+                    {item.keybinding && <span className="ml-auto shrink-0">{item.keybinding}</span>}
                     {item.lastViewedAt && (
-                        <span
-                            className={cn(
-                                'shrink-0 whitespace-nowrap text-xs text-muted-foreground',
-                                item.matchedSearchKeyword ? 'ml-2' : 'ml-auto'
-                            )}
-                        >
-                            {formatRelativeTimeShort(item.lastViewedAt)}
+                        <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                            <CommandKSearchTime time={item.lastViewedAt} tooltipLabel="Last used" />
                         </span>
                     )}
                 </>
@@ -110,6 +101,13 @@ function RowContent({ row }: { row: CommandKRow }): JSX.Element | null {
             return (
                 <>
                     <IconArrowRight className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate text-muted-foreground">{row.label}</span>
+                </>
+            )
+        case 'expand':
+            return (
+                <>
+                    <IconChevronDown className="size-4 shrink-0 text-muted-foreground" />
                     <span className="truncate text-muted-foreground">{row.label}</span>
                 </>
             )
@@ -135,6 +133,7 @@ const rowContent = (row: CommandKRow): unknown => {
         case 'ask-ai':
             return row.question
         case 'scope':
+        case 'expand':
             return row.label
         case 'notice':
             return row.key

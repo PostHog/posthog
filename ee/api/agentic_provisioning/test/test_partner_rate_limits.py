@@ -19,6 +19,7 @@ from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.ratelimits import FLAT_MULTIPLIERS, charge_partner, registered_budgets
 from ee.api.agentic_provisioning.test.base import (
     TEST_PARTNER_CLIENT_SECRET,
+    TEST_PARTNER_JWKS_URI,
     ProvisioningTestBase,
     patched_budget,
     provisioning_config,
@@ -55,8 +56,9 @@ class TestPartnerRateLimits(ProvisioningTestBase):
         self.partner_app = OAuthApplication.objects.create(
             client_id=PARTNER_CLIENT_ID,
             name="Rate Limit Test Partner",
-            client_secret=TEST_PARTNER_CLIENT_SECRET,
+            client_secret="",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            jwks_uri=TEST_PARTNER_JWKS_URI,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://partner.example.com/callback",
             algorithm="RS256",
@@ -166,7 +168,7 @@ class TestPartnerRateLimits(ProvisioningTestBase):
                 "grant_type": "authorization_code",
                 "code": code,
                 "code_verifier": code_verifier,
-                **self._client_credentials(self.partner_app),
+                **self._client_auth(self.partner_app),
             }
         ).encode()
         res = self.client.post(
@@ -208,7 +210,7 @@ class TestPartnerRateLimits(ProvisioningTestBase):
             {
                 "grant_type": "refresh_token",
                 "refresh_token": "test_refresh_token_1",
-                **self._client_credentials(self.partner_app),
+                **self._client_auth(self.partner_app),
             }
         ).encode()
         res = self.client.post(

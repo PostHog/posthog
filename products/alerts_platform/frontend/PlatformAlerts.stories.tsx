@@ -12,6 +12,8 @@ const CONFIGURATION: PlatformAlertConfigurationApi = {
     id: '0192a5b0-0000-7000-8000-000000000001',
     name: 'Checkout errors above 100',
     enabled: true,
+    labels: {},
+    annotations: {},
     source_kind: 'logs',
     source_config: {
         filters: { serviceNames: ['checkout'], severityLevels: ['error'] },

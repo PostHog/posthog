@@ -41,6 +41,9 @@ class FeatureTipsState(BaseModel):
     shown: dict[str, TipRecord] = {}
     opted_out_at: datetime | None = None
     last_shown_at: datetime | None = None
+    # Interview invitations share this row so they need no migration. They have their own limit.
+    interview_invited_at: datetime | None = None
+    interview_opted_out_at: datetime | None = None
 
 
 def parse_state(raw: object) -> FeatureTipsState:
@@ -105,6 +108,13 @@ def record_feature_used(slack_workspace_id: str, slack_user_id: str | None, feat
         mark_used(slack_workspace_id, slack_user_id, feature)
     except Exception:
         logger.warning("slack_app_feature_tips_record_used_failed", feature=feature, exc_info=True)
+
+
+def set_tips_enabled(slack_workspace_id: str, slack_user_id: str, enabled: bool) -> None:
+    def change(state: FeatureTipsState) -> None:
+        state.opted_out_at = None if enabled else (state.opted_out_at or timezone.now())
+
+    update_state(slack_workspace_id, slack_user_id, change)
 
 
 def mark_shown(slack_workspace_id: str, slack_user_id: str, feature: str, source: TipSource) -> None:

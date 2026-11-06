@@ -1,4 +1,4 @@
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Iterator
 from typing import Any
 from uuid import UUID
 
@@ -13,6 +13,7 @@ from products.workflows.backend.facade.contracts import (
     EmailDomainCheck,
     EmailDomainDnsRecord,
     EmailDomainVerification,
+    FlowUtmUpdate,
     RecentWorkflow,
     TeamUtmDefaults,
     TierDecision,
@@ -24,6 +25,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowNotFound,
     WorkflowSummary,
     WorkflowTaskDailyLimits,
+    WorkflowViewAccess,
     WorkflowVisionScanDailyLimits,
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
@@ -69,6 +71,8 @@ __all__ = [
     "filter_hog_flow_references_by_access_level",
     "get_email_sending_state",
     "get_email_sending_tier_limits",
+    "get_viewable_workflow_ids",
+    "get_workflow_view_access",
     "get_hog_flows_referencing_template_input_keys",
     "list_owned_workflow_health",
     "max_email_sending_tier",
@@ -221,6 +225,30 @@ def get_workflow_names(*, team_id: int, workflow_ids: Iterable[str]) -> dict[str
     }
 
 
+def get_viewable_workflow_ids(*, team_id: int, user_access_control: UserAccessControl) -> set[str]:
+    """The ids, as strings, of the team's workflows the reader may view."""
+    return {
+        str(pk)
+        for pk in user_access_control.filter_queryset_by_access_level(
+            HogFlow.objects.filter(team_id=team_id)
+        ).values_list("id", flat=True)
+    }
+
+
+def get_workflow_view_access(*, team_id: int, user_access_control: UserAccessControl) -> WorkflowViewAccess:
+    """What the reader may view, for records that outlive their workflow. A denial outlives the workflow it names, so a
+    deleted workflow stays hidden from a reader denied it, and otherwise follows their access to workflows as a whole."""
+    viewable = get_viewable_workflow_ids(team_id=team_id, user_access_control=user_access_control)
+    existing = {str(pk) for pk in HogFlow.objects.filter(team_id=team_id).values_list("id", flat=True)}
+    return WorkflowViewAccess(
+        viewable_ids=frozenset(viewable),
+        blocked_ids=frozenset(
+            (existing | user_access_control.blocked_resource_ids_by_scope.get("hog_flow", frozenset())) - viewable
+        ),
+        can_view_deleted=user_access_control.has_resource_access("hog_flow"),
+    )
+
+
 def get_workflow_summary(*, team_id: int, workflow_id: str) -> WorkflowSummary:
     row = HogFlow.objects.filter(team_id=team_id, id=workflow_id).values("id", "name", "status").first()
     if row is None:
@@ -302,13 +330,15 @@ def team_has_active_workflows_using_cohorts(*, team_id: int) -> bool:
     return team_has_active_hog_flows_mentioning_cohorts(team_id)
 
 
-def recompute_email_sending_tier(team_id: int) -> TierDecision | None:
+def recompute_email_sending_tier(
+    team_id: int, *, user_id: int | None = None, was_impersonated: bool = False
+) -> TierDecision | None:
     # Deferred to keep the ClickHouse metrics client off the facade import path.
     from products.workflows.backend.services.email_sending_tier import (  # noqa: PLC0415
         recompute_email_sending_tier_for_team,
     )
 
-    return recompute_email_sending_tier_for_team(team_id)
+    return recompute_email_sending_tier_for_team(team_id, user_id=user_id, was_impersonated=was_impersonated)
 
 
 # The provider helpers look the provider class up on the providers package at call time, which
@@ -361,6 +391,13 @@ def delete_ses_identity(identity: str) -> None:
     providers.SESProvider().delete_identity(identity)
 
 
+def list_ses_bounce_suppressions() -> Iterator[list[str]]:
+    """Yield the addresses on the SES account-level suppression list for a bounce, one page at a time."""
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    yield from providers.SESProvider().list_bounce_suppressions()
+
+
 def get_maildev_mock_dns_records() -> list[EmailDomainDnsRecord]:
     from products.workflows.backend import providers  # noqa: PLC0415
 
@@ -383,6 +420,10 @@ def load_team_utm_defaults(team_id: int) -> TeamUtmDefaults:
     return email_utm_defaults.load_team_utm_defaults(team_id)
 
 
+def flow_ids_with_active_schedule(team_id: int) -> set[UUID]:
+    return email_utm_defaults.flow_ids_with_active_schedule(team_id)
+
+
 def seed_new_email_steps_with_utm_defaults(
     actions: list[dict[str, Any]], existing_action_ids: Iterable[str], defaults: TeamUtmDefaults
 ) -> None:
@@ -398,3 +439,13 @@ def release_edited_email_utm_keys(
     saving_draft: bool,
 ) -> None:
     email_utm_defaults.release_edited_keys(actions, stored_actions, stored_draft, defaults, saving_draft=saving_draft)
+
+
+def is_utm_apply_eligible(flow: HogFlow, has_active_schedule: bool) -> bool:
+    return email_utm_defaults.is_apply_eligible(flow, has_active_schedule)
+
+
+def plan_flow_utm_update(
+    actions: list[Any], draft: dict[str, Any] | None, defaults: TeamUtmDefaults, enable_where_off: bool
+) -> FlowUtmUpdate | None:
+    return email_utm_defaults.plan_flow_update(actions, draft, defaults, enable_where_off)

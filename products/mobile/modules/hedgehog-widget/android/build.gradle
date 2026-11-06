@@ -1,0 +1,15 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.posthog.code.mobile'
+version = '1.0.0'
+
+android {
+  namespace "com.posthog.code.mobile.hedgehog"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}

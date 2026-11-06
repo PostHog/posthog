@@ -65,10 +65,19 @@ This is the recommended option for most developers.
 ### Prerequisites
 
 **GitHub access.**
-Before your first push, set up an [SSH key and commit signing](https://posthog.com/handbook/engineering/security#github) using Secretive or 1Password.
+Before your first push, set up an [SSH key and commit signing](https://posthog.com/handbook/engineering/security#github).
 Signing is required: an org-wide ruleset rejects unsigned commits in every PostHog repository, so an unsigned push fails with `GH013: Commits must have verified signatures`.
+The signing key must live in your Mac's Secure Enclave.
+A signing key in 1Password doesn't meet this, because 1Password syncs it off the Mac.
+On macOS 26 or later, `hogli git:signing-key` creates a Secure Enclave signing key. Secretive works too.
+It's an SSH key used only for signing, so no GPG key is involved, and SSH logins and pushes keep using your current agent.
+The key can't be copied off the Mac, so each Mac needs its own key.
+It signs without a prompt, also while the screen is locked, so agents can commit while you're away.
+If you commit from a devbox, keep your previous signing key on GitHub.
+A devbox signs through your forwarded SSH agent, which can't hold a Secure Enclave key, so it keeps signing with the previous key.
+Otherwise, once no repository signs with your previous key, remove it from your GitHub settings, so it can't sign verified commits anymore. Commits you already pushed stay verified.
 
-PR evidence uploads (`hogli pr:upload-image` and `hogli pr:upload-video`) prefer your stored GitHub CLI login over `GITHUB_TOKEN` from `.env.local`. Set `GH_TOKEN` to override the account; `GITHUB_TOKEN` remains the fallback when no CLI login exists.
+PR evidence uploads (`hogli pr:upload-image` and `hogli pr:upload-video`) attach to the PR description through `gh pr edit --attach` when the branch has an open PR and your gh supports `--attach`. Otherwise they upload to the public PostHog/pr-assets repo, and prefer your stored GitHub CLI login over `GITHUB_TOKEN` from `.env.local`. Set `GH_TOKEN` to override the account; `GITHUB_TOKEN` remains the fallback when no CLI login exists.
 
 #### macOS
 
@@ -330,11 +339,14 @@ You can narrow the run down to only files under matching paths:
 hogli test frontend/src/lib/components/DateFilter/DateFilter.test.tsx
 ```
 
-To update all visual regression test snapshots, make sure Storybook is running on your machine (you can start it with `hogli storybook` in a separate Terminal tab). You may also need to install Playwright with `pnpm exec playwright install`. And then run:
+CI takes the visual regression snapshots of every Storybook story, and you approve changed ones in the visual review run on your PR.
+To look at stories locally, run `pnpm storybook`. Set `STORYBOOK_STORIES` to a directory or a story file to load only those:
 
 ```bash
-hogli storybook:test
+STORYBOOK_STORIES=frontend/src/toolbar pnpm storybook
 ```
+
+The [Storybook README](https://github.com/PostHog/posthog/blob/master/common/storybook/README.md) covers the local snapshot runner, writing stories, and mocking data.
 
 ### Backend
 

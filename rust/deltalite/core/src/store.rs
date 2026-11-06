@@ -45,6 +45,7 @@ use object_store::{
 };
 use uuid::Uuid;
 
+use crate::deadline::{io_deadline, with_deadline};
 use crate::logprobe::{commit_path, probe_log, LogAnchor, LogProbe};
 use crate::table::MultipartConfig;
 
@@ -81,10 +82,16 @@ const DELETE_CONCURRENCY: usize = 16;
 /// Neither rewrite adds memory: the parts of an upload are slices of the payload the
 /// caller already holds, and a split read streams each request into its place in one
 /// buffer of the size that a single request returns.
+///
+/// Plain-overwrite uploads and ranged reads of data files run under the deadline of
+/// [`crate::deadline`]. Conditional puts (the commits) do not: a commit that fails on
+/// the client side after the store accepted it would make the caller write the batch a
+/// second time.
 #[derive(Debug)]
 pub struct MultipartPutStore {
     inner: Arc<dyn ObjectStore>,
     config: MultipartConfig,
+    deadline: Option<std::time::Duration>,
 }
 
 impl MultipartPutStore {
@@ -100,7 +107,14 @@ impl MultipartPutStore {
                 range_concurrency: config.range_concurrency.max(1),
                 ..config
             },
+            deadline: io_deadline(),
         }
+    }
+
+    #[cfg(test)]
+    fn with_io_deadline(mut self, deadline: Option<std::time::Duration>) -> Self {
+        self.deadline = deadline;
+        self
     }
 
     /// Split `payload` into parts of at most `part_size` bytes, zero-copy (`Bytes`
@@ -135,19 +149,26 @@ impl MultipartPutStore {
     /// order does not change the assembled object.
     ///
     /// After a part fails no new part starts, and the parts already started run to the
-    /// end: S3 may still store a part whose request was dropped, after the abort.
+    /// end: S3 may still store a part whose request was dropped, after the abort. The
+    /// exception is a part that passes its deadline, which is dropped so that a stuck
+    /// request cannot keep the upload open.
     async fn upload_parts(
         &self,
+        location: &Path,
         upload: &mut Box<dyn MultipartUpload>,
         parts: Vec<PutPayload>,
     ) -> object_store::Result<()> {
-        let mut parts = parts.into_iter();
+        let mut parts = parts.into_iter().enumerate();
         let mut in_flight = FuturesUnordered::new();
         let mut first_error = None;
         loop {
             while first_error.is_none() && in_flight.len() < self.config.concurrency {
-                let Some(part) = parts.next() else { break };
-                in_flight.push(upload.put_part(part));
+                let Some((i, part)) = parts.next() else { break };
+                in_flight.push(with_deadline(
+                    self.deadline,
+                    move || format!("upload of part {} of {location}", i + 1),
+                    upload.put_part(part),
+                ));
             }
             match in_flight.next().await {
                 Some(Err(e)) => {
@@ -195,8 +216,13 @@ impl MultipartPutStore {
             .flat_map(move |(range, buf)| {
                 buf.chunks_mut(piece).enumerate().map(move |(i, dst)| {
                     let start = range.start + (i * piece) as u64;
-                    self.read_into(location, start..start + dst.len() as u64, dst)
-                        .boxed()
+                    let end = start + dst.len() as u64;
+                    with_deadline(
+                        self.deadline,
+                        move || format!("ranged read of {location} for bytes {start}..{end}"),
+                        self.read_into(location, start..end, dst),
+                    )
+                    .boxed()
                 })
             })
             .collect();
@@ -205,6 +231,19 @@ impl MultipartPutStore {
             .try_collect::<()>()
             .await?;
         Ok(bufs.into_iter().map(Bytes::from).collect())
+    }
+
+    async fn abort(
+        &self,
+        location: &Path,
+        upload: &mut Box<dyn MultipartUpload>,
+    ) -> object_store::Result<()> {
+        with_deadline(
+            self.deadline,
+            || format!("abort of the multipart upload of {location}"),
+            upload.abort(),
+        )
+        .await
     }
 
     async fn read_into(
@@ -314,11 +353,16 @@ impl ObjectStore for MultipartPutStore {
         // Only rewrite the plain overwrite path (data-file uploads). Conditional puts
         // (PutMode::Create -- Delta log commits -- or Update) must keep their exact
         // semantics, so they are forwarded untouched.
-        if self.config.threshold == 0
-            || !matches!(opts.mode, PutMode::Overwrite)
-            || payload.content_length() < self.config.threshold
-        {
+        if !matches!(opts.mode, PutMode::Overwrite) {
             return self.inner.put_opts(location, payload, opts).await;
+        }
+        if self.config.threshold == 0 || payload.content_length() < self.config.threshold {
+            return with_deadline(
+                self.deadline,
+                || format!("upload of {location}"),
+                self.inner.put_opts(location, payload, opts),
+            )
+            .await;
         }
 
         let multipart_opts = PutMultipartOptions {
@@ -326,22 +370,30 @@ impl ObjectStore for MultipartPutStore {
             attributes: opts.attributes,
             extensions: opts.extensions,
         };
-        let mut upload = self
-            .inner
-            .put_multipart_opts(location, multipart_opts)
-            .await?;
+        let mut upload = with_deadline(
+            self.deadline,
+            || format!("start of the multipart upload of {location}"),
+            self.inner.put_multipart_opts(location, multipart_opts),
+        )
+        .await?;
         let parts = self.split_parts(&payload);
-        if let Err(e) = self.upload_parts(&mut upload, parts).await {
+        if let Err(e) = self.upload_parts(location, &mut upload, parts).await {
             // Best-effort cleanup of the incomplete upload; the original error is what
             // the caller needs to see. The parts in flight finished above, and without
             // `complete` no object is created.
-            drop(upload.abort().await);
+            drop(self.abort(location, &mut upload).await);
             return Err(e);
         }
-        match upload.complete().await {
+        match with_deadline(
+            self.deadline,
+            || format!("completion of the multipart upload of {location}"),
+            upload.complete(),
+        )
+        .await
+        {
             Ok(result) => Ok(result),
             Err(e) => {
-                drop(upload.abort().await);
+                drop(self.abort(location, &mut upload).await);
                 Err(e)
             }
         }
@@ -368,13 +420,23 @@ impl ObjectStore for MultipartPutStore {
         location: &Path,
         ranges: &[std::ops::Range<u64>],
     ) -> object_store::Result<Vec<Bytes>> {
-        if !self.splits_reads_of(location) || ranges.iter().any(|r| r.start >= r.end) {
+        if location.parts().any(|p| p.as_ref() == "_delta_log") {
             return self.inner.get_ranges(location, ranges).await;
+        }
+        let unsplit = || {
+            with_deadline(
+                self.deadline,
+                || format!("ranged read of {location}"),
+                self.inner.get_ranges(location, ranges),
+            )
+        };
+        if !self.splits_reads_of(location) || ranges.iter().any(|r| r.start >= r.end) {
+            return unsplit().await;
         }
         let merged = merge_ranges(ranges);
         let split_above = self.config.range_part_size as u64;
         if merged.iter().all(|m| m.end - m.start <= split_above) {
-            return self.inner.get_ranges(location, ranges).await;
+            return unsplit().await;
         }
         let fetched = self.get_split(location, &merged).await?;
         Ok(ranges
@@ -729,6 +791,7 @@ mod tests {
         probe: Arc<Probe>,
         next: usize,
         fail_part: Option<usize>,
+        stuck_part: Option<usize>,
     }
 
     #[async_trait]
@@ -737,9 +800,13 @@ mod tests {
             let idx = self.next;
             self.next += 1;
             let fail = self.fail_part == Some(idx);
+            let stuck = self.stuck_part == Some(idx);
             let probe = self.probe.clone();
             let put = self.inner.put_part(data);
             Box::pin(async move {
+                if stuck {
+                    return std::future::pending().await;
+                }
                 probe.enter();
                 yield_times(16usize.saturating_sub(idx)).await;
                 probe.leave();
@@ -768,6 +835,7 @@ mod tests {
         inner: Arc<InMemory>,
         probe: Arc<Probe>,
         fail_part: Option<usize>,
+        stuck_part: Option<usize>,
     }
 
     impl ProbedStore {
@@ -776,6 +844,17 @@ mod tests {
                 inner: Arc::new(InMemory::new()),
                 probe: Arc::default(),
                 fail_part,
+                stuck_part: None,
+            })
+        }
+
+        /// A store whose upload part `stuck_part` (0-based) never completes.
+        fn with_stuck_part(stuck_part: usize) -> Arc<Self> {
+            Arc::new(Self {
+                inner: Arc::new(InMemory::new()),
+                probe: Arc::default(),
+                fail_part: None,
+                stuck_part: Some(stuck_part),
             })
         }
     }
@@ -806,6 +885,7 @@ mod tests {
                 probe: self.probe.clone(),
                 next: 0,
                 fail_part: self.fail_part,
+                stuck_part: self.stuck_part,
             }))
         }
         async fn get_opts(
@@ -923,6 +1003,30 @@ mod tests {
             assert!(
                 matches!(store.inner.head(&path).await, Err(object_store::Error::NotFound { .. })),
                 "no object may exist after a failed upload (part {fail_part}, concurrency {concurrency})"
+            );
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_stuck_part_fails_the_upload_after_the_deadline() {
+        for concurrency in [1, 4] {
+            let store = ProbedStore::with_stuck_part(1);
+            let wrapped = MultipartPutStore::new(store.clone(), config(1024, 5 * MIB, concurrency))
+                .with_io_deadline(Some(std::time::Duration::from_secs(60)));
+            let path = Path::from("stuck");
+            let err = wrapped
+                .put(&path, payload_of(20 * MIB))
+                .await
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("upload of part 2 of stuck"), "{err}");
+            assert!(store.probe.aborted(), "the upload must be aborted");
+            assert!(
+                matches!(
+                    store.inner.head(&path).await,
+                    Err(object_store::Error::NotFound { .. })
+                ),
+                "no object may exist after a stuck upload (concurrency {concurrency})"
             );
         }
     }

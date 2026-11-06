@@ -12,10 +12,12 @@ from django.db.models import Count, F, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.db.models.expressions import RawSQL
 from django.db.models.functions import Coalesce
 
-from django_filters import BooleanFilter, FilterSet
+from django_filters import BooleanFilter, CharFilter, FilterSet
 
 from posthog.api.tagged_item import current_tag_names
 from posthog.models import TaggedItem
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.workflows.backend.facade.contracts import (
     Workflow,
@@ -26,14 +28,13 @@ from products.workflows.backend.facade.contracts import (
     WorkflowListFiltersInvalid,
     WorkflowListQuery,
     WorkflowNotFound,
-    WorkflowPage,
     WorkflowRef,
 )
 from products.workflows.backend.facade.enums import HogFlowScheduleStatus, WorkflowProposalStatus
 from products.workflows.backend.models.hog_flow.hog_flow import MESSAGING_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
-from products.workflows.backend.services.batch_jobs import hog_flow_ids_with_broadcast_status
+from products.workflows.backend.services.batch_jobs import annotate_latest_send, filter_by_broadcast_status
 from products.workflows.backend.services.hog_flow_schedules import list_schedules_oldest_first
 from products.workflows.backend.services.hog_flow_secrets import TemplateCache, mask_workflow_fields
 from products.workflows.backend.services.publish_impact import build_publish_impact
@@ -203,7 +204,9 @@ WORKFLOW_FIELD_FILTER_PARAMS: Final[tuple[str, ...]] = (
     "updated_at",
     "status",
     "origin_product",
+    "source_record",
     "optimization_enabled",
+    "name",
 )
 
 
@@ -213,23 +216,17 @@ def list_workflows(
     query: WorkflowListQuery,
     user_access_control: "UserAccessControl | None",
     include_all_if_admin: bool,
-    offset: int,
-    limit: int,
-) -> WorkflowPage:
+    page: PageRequest,
+) -> Page[Workflow]:
     """One page of the team's workflows that match `query` and that the reader may see. Pass None
     for `user_access_control` to skip the access filter, as a service credential does. Raises
     WorkflowListFiltersInvalid when a field filter does not parse."""
     queryset = _list_queryset(team_id, query, user_access_control, include_all_if_admin)
-    count = queryset.count()
-    # The same bounds LimitOffsetPagination applies to a queryset.
-    flows = [] if count == 0 or offset > count else list(queryset[offset : offset + limit])
-    if user_access_control is not None and flows:
-        user_access_control.preload_object_access_controls(cast("list[models.Model]", flows))
+    flows = select_page(queryset, page)
+    if user_access_control is not None and flows.results:
+        user_access_control.preload_object_access_controls(cast("list[models.Model]", flows.results))
     template_cache: TemplateCache = {}
-    return WorkflowPage(
-        count=count,
-        results=[_to_workflow(flow, user_access_control, template_cache, with_schedules=False) for flow in flows],
-    )
+    return flows.map(lambda flow: _to_workflow(flow, user_access_control, template_cache, with_schedules=False))
 
 
 def _list_queryset(
@@ -238,8 +235,9 @@ def _list_queryset(
     user_access_control: "UserAccessControl | None",
     include_all_if_admin: bool,
 ) -> QuerySet:
-    queryset = (
+    queryset: QuerySet = (
         HogFlow.objects.filter(team_id=team_id)
+        .exclude(origin_product__in=HIDDEN_ORIGIN_PRODUCTS)
         .select_related("created_by")
         # _to_workflow reads prefetched_tags, so a page costs one tag query rather than one per row.
         .prefetch_related(
@@ -265,6 +263,10 @@ def _list_queryset(
     # otherwise repeat on one page and never appear on another.
     if query.suggestions_first:
         queryset = queryset.order_by("-pending_suggestions", "-updated_at", "-id")
+    elif query.latest_send_first:
+        queryset = annotate_latest_send(queryset).order_by(
+            F("_latest_send_at").desc(nulls_last=True), "-updated_at", "-id"
+        )
     else:
         queryset = queryset.order_by("-updated_at", "-id")
 
@@ -286,9 +288,7 @@ def _list_queryset(
         )
 
     if query.broadcast_statuses:
-        queryset = queryset.filter(
-            id__in=hog_flow_ids_with_broadcast_status(team_id=team_id, statuses=query.broadcast_statuses)
-        )
+        queryset = filter_by_broadcast_status(queryset, query.broadcast_statuses)
 
     # `?type=loop` and `?type=broadcast` return the same rows, but Desktop's Loops list sends
     # this param and ships on its own release cadence, so installed builds keep sending it.
@@ -419,6 +419,7 @@ OWNED_WORKFLOW_TYPES: Final[dict[str, str]] = {
     "broadcast": HogFlow.OriginProduct.BROADCASTS,
     "transactional_email": HogFlow.OriginProduct.TRANSACTIONAL_EMAILS,
 }
+HIDDEN_ORIGIN_PRODUCTS: Final[tuple[str, ...]] = (HogFlow.OriginProduct.TRANSACTIONAL_EMAIL_KEYS,)
 
 
 def workflow_type_q(requested: set[str]) -> Q:
@@ -430,7 +431,7 @@ def workflow_type_q(requested: set[str]) -> Q:
     messaging = Q()
     for action_type in MESSAGING_ACTION_TYPES:
         messaging |= Q(actions__contains=[{"type": action_type}])
-    unowned = ~Q(origin_product__in=list(OWNED_WORKFLOW_TYPES.values()))
+    unowned = ~Q(origin_product__in=[*OWNED_WORKFLOW_TYPES.values(), *HIDDEN_ORIGIN_PRODUCTS])
     if behavioural == {"messaging", "automation"}:
         return owned | unowned
     return owned | (unowned & (messaging if behavioural == {"messaging"} else ~messaging))
@@ -480,7 +481,7 @@ def annotate_broadcast_shape(queryset: QuerySet) -> QuerySet:
     )
 
 
-BROADCAST_STATUSES = ("draft", "scheduled", "sending", "sent", "failed", "archived")
+BROADCAST_STATUSES = ("draft", "scheduled", "sending", "sent", "partially_sent", "failed", "archived")
 
 
 class _WorkflowFilterSet(FilterSet):
@@ -489,12 +490,17 @@ class _WorkflowFilterSet(FilterSet):
         method="filter_optimization_enabled",
         label="Only workflows someone turned suggestions on for.",
     )
+    name = CharFilter(
+        field_name="name",
+        lookup_expr="icontains",
+        label="Only workflows whose name contains this text, ignoring case.",
+    )
 
     class Meta:
         model = HogFlow
         # `created_by` is filtered by uuid in _list_queryset (the list UI's member picker keys on
         # uuid, not pk), so it's deliberately not an exact-match field here.
-        fields = ["id", "created_at", "updated_at", "status", "origin_product"]
+        fields = ["id", "created_at", "updated_at", "status", "origin_product", "source_record"]
 
     def filter_optimization_enabled(self, queryset, name: str, value: bool):
         # Off keeps its row, so "on" is a row still enabled. Archived workflows drop out: nothing runs there.

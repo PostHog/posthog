@@ -44,6 +44,7 @@ class SharingQuery:
     context_key: str = field(repr=False)
     output_columns: tuple[str, ...] | None = None
     sharing_enabled: bool = False
+    default_limit: int | None = None
 
 
 class ResultRouter(Protocol):
@@ -102,6 +103,12 @@ class _UnwrapHiddenAliases(CloningVisitor):
         return super().visit_alias(node)
 
 
+def _with_default_limit(query: SharingQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+    if query.default_limit is None or not isinstance(query.query, ast.SelectQuery) or query.query.limit is not None:
+        return query.query
+    return replace(query.query, limit=ast.Constant(value=query.default_limit))
+
+
 class MultiQueryPlanner:
     """Plan within caller-validated contexts; this class does not authorize or execute queries."""
 
@@ -152,7 +159,7 @@ class MultiQueryPlanner:
         groups.extend(
             ExecutionGroup(
                 query_ids=(q.query_id,),
-                query=q.query,
+                query=_with_default_limit(q),
                 rule="separate",
                 router=SingleResultRouter(query_id=q.query_id),
             )

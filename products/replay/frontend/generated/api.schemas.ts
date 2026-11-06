@@ -271,13 +271,15 @@ export interface SessionRecordingApi {
     readonly event_count: number | null
 }
 
-export interface PaginatedSessionRecordingListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
+export interface SessionRecordingListResponseApi {
+    /** Recordings on this page. */
     results: SessionRecordingApi[]
+    /** Whether more recordings match the query after this page. */
+    has_next: boolean
+    /** Version of the listing response format. */
+    version: number
+    /** Cursor for the next page. Send it back as `after` to load the next page. Absent when the query does not page by cursor or there is no next page. */
+    next_cursor?: string
 }
 
 export type PatchedSessionRecordingApiExternalReferencesItem = { [key: string]: unknown }
@@ -341,6 +343,45 @@ export interface PatchedSessionRecordingApi {
     readonly event_count?: number | null
 }
 
+/**
+ * * `info` - Info
+ * * `warn` - Warn
+ * * `error` - Error
+ */
+export type ConsoleLogLevelEnumApi = (typeof ConsoleLogLevelEnumApi)[keyof typeof ConsoleLogLevelEnumApi]
+
+export const ConsoleLogLevelEnumApi = {
+    Info: 'info',
+    Warn: 'warn',
+    Error: 'error',
+} as const
+
+export interface SessionRecordingConsoleLogEntryApi {
+    /** When the browser logged the message. */
+    timestamp: string
+    /** Console level of the message.
+     *
+     * * `info` - Info
+     * * `warn` - Warn
+     * * `error` - Error */
+    level: ConsoleLogLevelEnumApi
+    /** The logged text. String arguments are joined with spaces, and non-string arguments are left out. Cut to 3000 characters. */
+    message: string
+    /** True when the message was cut to fit the length limit. */
+    truncated: boolean
+}
+
+export interface SessionRecordingConsoleLogsResponseApi {
+    /** Console log entries in chronological order. */
+    results: SessionRecordingConsoleLogEntryApi[]
+    /** True when more entries exist after this page. */
+    has_more: boolean
+    /** Whether the project captures console logs now. When false, an empty result means that nothing was captured, not that the session had no console output. */
+    console_log_capture_enabled: boolean
+    /** True when the recording started longer ago than the console log retention period. The recording can still exist after its console log entries are deleted. Entries expire one at a time, so a recording close to the retention period can already miss its earliest entries while this is false. */
+    logs_expired: boolean
+}
+
 export interface SessionRecordingBulkDeleteRequestApi {
     /**
      * Session IDs of the recordings to delete (max 100 per call).
@@ -370,6 +411,7 @@ export type SessionRecordingPlaylistsListParams = {
     created_by?: number
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**
@@ -389,3 +431,43 @@ export type SessionRecordingsListParams = {
      */
     offset?: number
 }
+
+export type SessionRecordingsConsoleLogsRetrieveParams = {
+    /**
+     * Only return entries at or after this ISO 8601 timestamp. The results never extend outside the recording's own start and end time.
+     */
+    after?: string
+    /**
+     * Only return entries at or before this ISO 8601 timestamp. The results never extend outside the recording's own start and end time.
+     */
+    before?: string
+    /**
+     * Only return entries at this level. Omit to return every level.
+     *
+     * * `info` - Info
+     * * `warn` - Warn
+     * * `error` - Error
+     * @minLength 1
+     */
+    level?: SessionRecordingsConsoleLogsRetrieveLevel
+    /**
+     * Maximum number of entries to return (1-500, default 100).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of entries to skip. Use with `limit` to page through a long recording.
+     * @minimum 0
+     */
+    offset?: number
+}
+
+export type SessionRecordingsConsoleLogsRetrieveLevel =
+    (typeof SessionRecordingsConsoleLogsRetrieveLevel)[keyof typeof SessionRecordingsConsoleLogsRetrieveLevel]
+
+export const SessionRecordingsConsoleLogsRetrieveLevel = {
+    Info: 'info',
+    Warn: 'warn',
+    Error: 'error',
+} as const

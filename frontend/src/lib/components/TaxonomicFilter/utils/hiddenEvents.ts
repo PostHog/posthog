@@ -1,7 +1,7 @@
 import { ExcludedProperties, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, deriveFromCoreFilterDefinitions } from '~/taxonomy/taxonomy'
 
 const EVENTS_MODE = FlagEvaluationsModeEnumApi.Number0
 
@@ -13,19 +13,21 @@ const EVENTS_MODE = FlagEvaluationsModeEnumApi.Number0
  * The label is in there because lists render core events by their label, so "Feature flag called" is
  * a string the user has actually seen and is as likely to type as the raw key.
  */
-const EVENTS_HIDDEN_IN_QUERY_BUILDERS: { name: string; searchTerms: string[] }[] = Object.entries(
-    CORE_FILTER_DEFINITIONS_BY_GROUP.events
+const eventsHiddenInQueryBuilders = deriveFromCoreFilterDefinitions((): { name: string; searchTerms: string[] }[] =>
+    Object.entries(CORE_FILTER_DEFINITIONS_BY_GROUP.events)
+        // The "All Events" remap in the taxonomy leaves the '' key holding no definition, so read defensively.
+        .filter(([, definition]) => definition?.hidden_in_query_builders)
+        .map(([name, definition]) => ({
+            name,
+            searchTerms: [name, definition.label]
+                .filter((term): term is string => typeof term === 'string' && term.length > 0)
+                .map((term) => term.toLowerCase()),
+        }))
 )
-    // The "All Events" remap in the taxonomy leaves the '' key holding no definition, so read defensively.
-    .filter(([, definition]) => definition?.hidden_in_query_builders)
-    .map(([name, definition]) => ({
-        name,
-        searchTerms: [name, definition.label]
-            .filter((term): term is string => typeof term === 'string' && term.length > 0)
-            .map((term) => term.toLowerCase()),
-    }))
 
-const HIDDEN_EVENT_NAMES = EVENTS_HIDDEN_IN_QUERY_BUILDERS.map(({ name }) => name)
+const hiddenEventNamesInTaxonomy = deriveFromCoreFilterDefinitions((): string[] =>
+    eventsHiddenInQueryBuilders().map(({ name }) => name)
+)
 
 /**
  * Names the Events group adds to its own exclusions.
@@ -43,7 +45,7 @@ export function hiddenEventNames(
     if (includeHiddenEvents || (flagEvaluationsMode ?? EVENTS_MODE) === EVENTS_MODE) {
         return []
     }
-    return HIDDEN_EVENT_NAMES
+    return hiddenEventNamesInTaxonomy()
 }
 
 /** The https link in the move notices flag's payload, or null while there is no announcement to link to. */
@@ -65,7 +67,9 @@ export function eventsWithMoveNotice(
     flagEvaluationsMode: FlagEvaluationsModeEnumApi | undefined,
     moveNoticesEnabled: boolean
 ): string[] {
-    return moveNoticesEnabled && (flagEvaluationsMode ?? EVENTS_MODE) === EVENTS_MODE ? HIDDEN_EVENT_NAMES : []
+    return moveNoticesEnabled && (flagEvaluationsMode ?? EVENTS_MODE) === EVENTS_MODE
+        ? hiddenEventNamesInTaxonomy()
+        : []
 }
 
 /**
@@ -88,7 +92,7 @@ export function hiddenEventMatchingSearch(
     if (!query) {
         return null
     }
-    const match = EVENTS_HIDDEN_IN_QUERY_BUILDERS.find(({ searchTerms }) => searchTerms.includes(query))
+    const match = eventsHiddenInQueryBuilders().find(({ searchTerms }) => searchTerms.includes(query))
     return match && excludedEventNames.includes(match.name) ? match.name : null
 }
 

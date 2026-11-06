@@ -7,11 +7,13 @@ from django.utils import timezone
 
 from posthog.models.integration import Integration
 from posthog.models.integration_repository_cache import IntegrationRepositoryCacheEntry
+from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.business_knowledge.backend.github_repos import MAX_GITHUB_REPOS
-from products.business_knowledge.backend.models import TeamBusinessKnowledgeConfig
+from products.business_knowledge.backend.logic import has_sources
+from products.business_knowledge.backend.models import KnowledgeSource, SourceType, TeamBusinessKnowledgeConfig
 
 BILLING = "acme/billing"
 OTHER = "acme/other"
@@ -99,6 +101,23 @@ class TestBusinessKnowledgeGithubRepos(APIBaseTest):
         response = self._connect(other.id)
         assert response.status_code == 400
         assert get_or_create_team_extension(self.team, TeamBusinessKnowledgeConfig).github_integration_id is None
+
+    def test_availability_reports_own_sources_and_selected_repos(self, _capture, _flag) -> None:
+        url = f"/api/projects/{self.team.id}/business_knowledge/sources/availability/"
+        other = self._other_team()
+        with team_scope(other.id, canonical=True):
+            KnowledgeSource.objects.create(team=other, name="other", source_type=SourceType.TEXT)
+        assert self.client.get(url).json() == {"has_sources": False, "has_repositories": False}
+
+        with team_scope(self.team.id, canonical=True):
+            KnowledgeSource.objects.create(team=self.team, name="own", source_type=SourceType.TEXT)
+        self._connect()
+        self._select([BILLING])
+        assert self.client.get(url).json() == {"has_sources": True, "has_repositories": True}
+        child = Team.objects.create(
+            organization=self.organization, parent_team=self.team, project=self.team.project, name="Child"
+        )
+        assert has_sources(child.id)
 
     def test_select_stores_lowercased_names(self, _capture, _flag) -> None:
         self._connect()

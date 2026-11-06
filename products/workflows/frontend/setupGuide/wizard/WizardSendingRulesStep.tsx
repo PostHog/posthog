@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
@@ -56,17 +55,12 @@ export function WizardSendingRulesStep(): JSX.Element {
         useActions(workflowsOnboardingWizardLogic)
     const disabledReason = canEditSendingRules ? undefined : ADMIN_ONLY_REASON
     const { maxMessages, windowDays } = shownCustomFrequencyCap
-    const showSendCalendar = useFeatureFlag('WORKFLOWS_SEND_CALENDAR')
 
     return (
         <div className="flex flex-col gap-6">
             <SendingRule
                 title="Frequency cap"
-                description={`The most marketing emails one person gets across all workflows and broadcasts. Transactional email is never capped.${
-                    showSendCalendar
-                        ? ' When you schedule a broadcast, its calendar suggests a day within this cap. With no cap, it keeps sends to the same people 2 days apart.'
-                        : ''
-                }`}
+                description="The most marketing emails one person gets across all workflows and broadcasts. Transactional email is never capped. When you schedule a broadcast, its calendar suggests a day within this cap. With no cap, it keeps sends to the same people 2 days apart."
             >
                 <LemonRadio
                     value={shownFrequencyCapChoice}

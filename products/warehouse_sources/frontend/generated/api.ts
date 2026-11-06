@@ -18,11 +18,16 @@ import type {
     CredentialAccountsRequestApi,
     DatabaseSchemaRequestApi,
     DeleteWebhookResponseApi,
+    DestinationConnectCompleteRequestApi,
+    DestinationConnectLinkApi,
+    DestinationConnectStatusApi,
     DestinationConnectionTestResponseApi,
     DirectConnectionSourceOptionApi,
     DraftCustomManifestRequestApi,
     DraftCustomManifestResponseApi,
     ExternalDataDestinationApi,
+    ExternalDataDestinationsConnectLinkRetrieveParams,
+    ExternalDataDestinationsConnectLinkStatusRetrieveParams,
     ExternalDataDestinationsListParams,
     ExternalDataJobSerializersApi,
     ExternalDataSchemaApi,
@@ -33,6 +38,7 @@ import type {
     ExternalDataSourceConnectionOptionApi,
     ExternalDataSourceCreateApi,
     ExternalDataSourceCreateResponseApi,
+    ExternalDataSourceExistsApi,
     ExternalDataSourceSerializersApi,
     ExternalDataSourcesConnectLinkRetrieveParams,
     ExternalDataSourcesJobsListParams,
@@ -62,6 +68,9 @@ import type {
     SourceSetupApi,
     SourceSetupResponseApi,
     UpdateWebhookInputsResponseApi,
+    WarehouseAlertCreateDestinationApi,
+    WarehouseAlertDeleteDestinationApi,
+    WarehouseAlertDestinationApi,
     WarehouseColumnStatisticsApi,
     WarehouseColumnStatisticsListParams,
     WebhookInfoResponseApi,
@@ -272,6 +281,103 @@ export const externalDataDestinationsTestConnectionCreate = async (
         {
             ...options,
             method: 'POST',
+        }
+    )
+}
+
+export const getExternalDataDestinationsConnectLinkRetrieveUrl = (
+    projectId: string,
+    params: ExternalDataDestinationsConnectLinkRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_destinations/connect_link/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_destinations/connect_link/`
+}
+
+/**
+ * Return a secure browser link where the user connects the credentials for a destination.
+ *
+ * The page saves an integration and does not create the destination, so secrets never pass
+ * through the agent. The link carries a connect token. The agent reads the saved integration's id
+ * with the token from the connect link status endpoint, then creates the destination with it.
+ */
+export const externalDataDestinationsConnectLinkRetrieve = async (
+    projectId: string,
+    params: ExternalDataDestinationsConnectLinkRetrieveParams,
+    options?: RequestInit
+): Promise<DestinationConnectLinkApi> => {
+    return apiMutator<DestinationConnectLinkApi>(getExternalDataDestinationsConnectLinkRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExternalDataDestinationsConnectLinkCompleteCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_destinations/connect_link_complete/`
+}
+
+/**
+ * Report the integration the user saved on the connect page, so the agent that sent them can read it.
+ *
+ * The connect page calls this. Repeating the call with the same integration is safe.
+ */
+export const externalDataDestinationsConnectLinkCompleteCreate = async (
+    projectId: string,
+    destinationConnectCompleteRequestApi: DestinationConnectCompleteRequestApi,
+    options?: RequestInit
+): Promise<DestinationConnectStatusApi> => {
+    return apiMutator<DestinationConnectStatusApi>(getExternalDataDestinationsConnectLinkCompleteCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(destinationConnectCompleteRequestApi),
+    })
+}
+
+export const getExternalDataDestinationsConnectLinkStatusRetrieveUrl = (
+    projectId: string,
+    params: ExternalDataDestinationsConnectLinkStatusRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_destinations/connect_link_status/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_destinations/connect_link_status/`
+}
+
+/**
+ * Return whether the user saved a connection through a connect link, and which integration it is.
+ *
+ * Never returns credentials or integration config.
+ */
+export const externalDataDestinationsConnectLinkStatusRetrieve = async (
+    projectId: string,
+    params: ExternalDataDestinationsConnectLinkStatusRetrieveParams,
+    options?: RequestInit
+): Promise<DestinationConnectStatusApi> => {
+    return apiMutator<DestinationConnectStatusApi>(
+        getExternalDataDestinationsConnectLinkStatusRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
         }
     )
 }
@@ -1260,6 +1366,23 @@ export const externalDataSourcesDraftCustomManifestCreate = async (
     })
 }
 
+export const getExternalDataSourcesExistsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/exists/`
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const externalDataSourcesExistsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ExternalDataSourceExistsApi> => {
+    return apiMutator<ExternalDataSourceExistsApi>(getExternalDataSourcesExistsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getExternalDataSourcesOauthAccountsRetrieveUrl = (
     projectId: string,
     params: ExternalDataSourcesOauthAccountsRetrieveParams
@@ -1467,6 +1590,66 @@ export const externalDataSourcesWizardRetrieve = async (
     return apiMutator<SourceConfigMapResponseApi>(getExternalDataSourcesWizardRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getWarehouseAlertsDestinationsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_alerts/${id}/destinations/`
+}
+
+/**
+ * List the notification destinations of a warehouse alert.
+ */
+export const warehouseAlertsDestinationsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WarehouseAlertDestinationApi[]> => {
+    return apiMutator<WarehouseAlertDestinationApi[]>(getWarehouseAlertsDestinationsListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseAlertsDestinationsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_alerts/${id}/destinations/`
+}
+
+/**
+ * Add a notification destination to a warehouse alert.
+ */
+export const warehouseAlertsDestinationsCreate = async (
+    projectId: string,
+    id: string,
+    warehouseAlertCreateDestinationApi: WarehouseAlertCreateDestinationApi,
+    options?: RequestInit
+): Promise<WarehouseAlertDestinationApi> => {
+    return apiMutator<WarehouseAlertDestinationApi>(getWarehouseAlertsDestinationsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warehouseAlertCreateDestinationApi),
+    })
+}
+
+export const getWarehouseAlertsDestinationsDeleteCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_alerts/${id}/destinations/delete/`
+}
+
+/**
+ * Delete notification destinations of a warehouse alert.
+ */
+export const warehouseAlertsDestinationsDeleteCreate = async (
+    projectId: string,
+    id: string,
+    warehouseAlertDeleteDestinationApi: WarehouseAlertDeleteDestinationApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWarehouseAlertsDestinationsDeleteCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warehouseAlertDeleteDestinationApi),
     })
 }
 

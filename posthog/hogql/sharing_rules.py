@@ -85,6 +85,48 @@ class SameAggregationTopNRule:
     scalar_functions = frozenset(
         {"toDate", "toDateTime", "toString", "if", "ifNull", "coalesce", "isNull", "isNotNull"}
     )
+    identifier_fields = frozenset(
+        {
+            "distinct_id",
+            "person_id",
+            "uuid",
+            "id",
+            "session_id",
+            "$session_id",
+            "$window_id",
+            "$device_id",
+            "$user_id",
+            "$anon_distinct_id",
+            "$insert_id",
+        }
+    )
+
+    @classmethod
+    def _groups_by_identifier(cls, node: ast.SelectQuery) -> bool:
+        # The fused query fully sorts the aggregate, which runs out of memory at one group per user or event.
+        aliases: dict[str, ast.Expr] = {}
+        source: ast.SelectQuery | None = node
+        while source is not None:
+            for selected in source.select:
+                if isinstance(selected, ast.Alias):
+                    aliases.setdefault(selected.alias, selected.expr)
+            table = source.select_from.table if source.select_from else None
+            source = table if isinstance(table, ast.SelectQuery) else None
+        pending: list[ast.Expr] = list(node.group_by or [])
+        expanded: set[str] = set()
+        while pending:
+            for child in _nodes(pending.pop()):
+                if not isinstance(child, ast.Field):
+                    continue
+                names = [part for part in child.chain if isinstance(part, str)]
+                if not names:
+                    continue
+                if names[-1] in cls.identifier_fields:
+                    return True
+                if len(names) == 1 and names[0] in aliases and names[0] not in expanded:
+                    expanded.add(names[0])
+                    pending.append(aliases[names[0]])
+        return False
 
     @classmethod
     def _candidate(cls, query: SharingQuery) -> _TopNQuery | str:
@@ -194,6 +236,8 @@ class SameAggregationTopNRule:
                 return f"unsupported expression: {type(child).__name__}"
         if not node.select_from or not found_aggregate:
             return "requires an events aggregation"
+        if cls._groups_by_identifier(node):
+            return "grouping by a per-user or per-event identifier is not supported"
         body = clone_expr(node)
         body.order_by = None
         body.limit = None

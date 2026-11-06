@@ -11,7 +11,13 @@ python -c "import grpc_tools" 2>/dev/null || { echo "Error: grpcio-tools is not 
 echo "Cleaning old generated files..."
 rm -rf "$OUT_DIR/personhog"
 
-mapfile -d '' PROTO_FILES < <(find "$PROTO_DIR/personhog/service" "$PROTO_DIR/personhog/types" -name '*.proto' -print0)
+# The facade, the lifecycle sagas and the types they share. Django never talks to the leader or
+# the replica directly, and it reaches the identity server only through the lifecycle service, so
+# those protos stay out: with no identity stubs the ingestion RPCs cannot be called from Python.
+mapfile -d '' PROTO_FILES < <(
+    find "$PROTO_DIR/personhog/service" "$PROTO_DIR/personhog/lifecycle" "$PROTO_DIR/personhog/types" \
+        -name '*.proto' -print0 | sort -z
+)
 
 echo "Generating Python protobuf and gRPC stubs..."
 python -m grpc_tools.protoc \

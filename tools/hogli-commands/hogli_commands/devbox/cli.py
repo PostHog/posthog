@@ -24,7 +24,11 @@ import click
 from hogli import telemetry
 from hogli.manifest import get_manifest
 
-from . import mutagen
+from ..git_signing import DEVBOX_FEEDBACK_HINT, DEVBOX_SIGNING_NOTE, signs_with_secure_enclave_key
+from . import (
+    herdr as herdr_app,
+    mutagen,
+)
 from .coder import (
     CLAUDE_CODE_OAUTH_ENV,
     DEFAULT_PRESET,
@@ -33,6 +37,7 @@ from .coder import (
     EXPECTED_TAILNET,
     GIT_SIGNING_KEY_SECRET,
     REGIONS,
+    REMOTE_REPO_PATH,
     _diagnose_unreachable_coder,
     _fail,
     _ssh_host_alias,
@@ -46,6 +51,7 @@ from .coder import (
     delete_workspace,
     ensure_coder_authenticated,
     ensure_coder_installed,
+    ensure_coder_on_path,
     ensure_coder_reachable,
     ensure_runtime_ready,
     exec_replace,
@@ -78,6 +84,7 @@ from .coder import (
     print_setup_summary,
     region_from_workspace_name,
     restart_workspace,
+    run_with_capacity_fallback,
     server_supports_user_secrets,
     share_workspace,
     ssh_replace,
@@ -95,7 +102,11 @@ from .config import (
     clear_dotfiles_uri,
     clear_git_identity,
     clear_region,
+    clear_worktree_auto_sources,
+    clear_worktree_box_cleanup,
+    clear_worktree_provider,
     load_config,
+    load_worktree_boxes,
     save_dotfiles_uri,
     save_git_identity,
     save_region,
@@ -398,10 +409,10 @@ def _start_existing_workspace(
     if status == "stopped":
         if workspace.get("outdated"):
             click.echo(f"Starting devbox '{name}' on the latest template...")
-            update_workspace(name, verbose=verbose)
+            run_with_capacity_fallback(name, lambda: update_workspace(name, verbose=verbose))
         else:
             click.echo(f"Starting devbox '{name}'...")
-            start_workspace(name, verbose=verbose)
+            run_with_capacity_fallback(name, lambda: start_workspace(name, verbose=verbose))
         _wait_until_ready(name)
         click.echo("Started.")
         _resume_sync(name)
@@ -410,7 +421,7 @@ def _start_existing_workspace(
 
     click.echo(f"Devbox '{name}' is in state: {status}")
     click.echo("Attempting to start...")
-    start_workspace(name, verbose=verbose)
+    run_with_capacity_fallback(name, lambda: start_workspace(name, verbose=verbose))
     _wait_until_ready(name)
     _resume_sync(name)
     _print_connection_info(name)
@@ -572,7 +583,7 @@ def _resolve_local_signing_key() -> str | None:
 
     Git accepts three formats: a literal ``ssh-... / ecdsa-... / sk-...``
     string, the same with a ``key::`` prefix (used by tools like Secretive),
-    or a path to a public-key file. All are normalized here. Returns ``None``
+    or a path to a key file. All are normalized here. Returns ``None``
     when the value is unset or the referenced file can't be read.
     """
     result = subprocess.run(
@@ -589,10 +600,17 @@ def _resolve_local_signing_key() -> str | None:
         value = value.removeprefix("key::")
     if value.startswith(("ssh-", "ecdsa-", "sk-")):
         return value
-    try:
-        return Path(os.path.expanduser(value)).read_text().strip() or None
-    except OSError:
-        return None
+    key_path = Path(os.path.expanduser(value))
+    # git also accepts a private key path. The returned value goes into a Coder secret, so
+    # only public key content is returned, and a private key path falls back to its .pub file.
+    for candidate in (key_path, key_path.with_name(f"{key_path.name}.pub")):
+        try:
+            content = candidate.read_text().strip()
+        except OSError:
+            continue
+        if content.startswith(("ssh-", "ecdsa-", "sk-")):
+            return content
+    return None
 
 
 def _read_identity_agent(host: str, *, config_path: str | None = None) -> str | None:
@@ -715,6 +733,20 @@ def maybe_configure_git_signing(
         return
 
     if configure_git_signing is None and already_set:
+        return
+
+    # Pushing this public key would make the devbox ask the forwarded agent for a key it can't hold.
+    if signs_with_secure_enclave_key():
+        click.echo()
+        click.echo(click.style("Git commit signing (Secure Enclave keys not supported yet)", bold=True))
+        if already_set:
+            lines = DEVBOX_SIGNING_NOTE
+        else:
+            lines = (
+                "Devbox commits won't be signed, because the forwarded SSH agent can't hold a Secure Enclave key.",
+            )
+        for line in (*lines, DEVBOX_FEEDBACK_HINT):
+            click.echo(f"  {line}")
         return
 
     public_key = _resolve_local_signing_key()
@@ -1052,6 +1084,36 @@ def _reset_dotfiles() -> bool:
     return True
 
 
+def _reset_worktree_box_cleanup() -> bool:
+    config = load_config()
+    if not config.get("worktree_box_cleanup"):
+        click.echo("Nothing to clear: worktree box cleanup was not set.")
+        return False
+    clear_worktree_box_cleanup(config)
+    click.echo("Cleared worktree box cleanup. `hogli worktrees:clean` now leaves devboxes alone by default.")
+    return True
+
+
+def _reset_worktree_auto_sources() -> bool:
+    config = load_config()
+    if not config.get("worktree_auto_box"):
+        click.echo("Nothing to clear: automatic worktree boxes were off.")
+        return False
+    clear_worktree_auto_sources(config)
+    click.echo("Turned off automatic worktree boxes. New worktrees no longer get a devbox.")
+    return True
+
+
+def _reset_worktree_provider() -> bool:
+    config = load_config()
+    if not config.get("worktree_provider"):
+        click.echo("Nothing to clear: worktree boxes already run on coder.")
+        return False
+    clear_worktree_provider(config)
+    click.echo("Worktree boxes run on coder again.")
+    return True
+
+
 def _git_identity_status(config: DevboxConfig, _: set[str]) -> str | None:
     name = config.get("git_name")
     email = config.get("git_email")
@@ -1122,6 +1184,27 @@ _CONFIG_ITEMS: tuple[_ConfigItem, ...] = (
         needs_secrets=True,
         status=_secret_status(CLAUDE_CODE_OAUTH_ENV),
         reset=lambda: _reset_user_secret(CLAUDE_CODE_OAUTH_ENV),
+    ),
+    _ConfigItem(
+        cli_key="worktree-boxes",
+        label="Worktree box cleanup",
+        needs_secrets=False,
+        status=_field_status("worktree_box_cleanup"),
+        reset=_reset_worktree_box_cleanup,
+    ),
+    _ConfigItem(
+        cli_key="worktree-auto",
+        label="Automatic worktree boxes",
+        needs_secrets=False,
+        status=_field_status("worktree_auto_box"),
+        reset=_reset_worktree_auto_sources,
+    ),
+    _ConfigItem(
+        cli_key="worktree-provider",
+        label="Worktree box provider",
+        needs_secrets=False,
+        status=_field_status("worktree_provider"),
+        reset=_reset_worktree_provider,
     ),
 )
 
@@ -1255,6 +1338,7 @@ def devbox_setup(
     click.echo(click.style("Configuring devbox CLI access...", bold=True))
     ensure_coder_reachable("rerun `hogli devbox:setup`.")
     ensure_coder_installed(verbose=verbose)
+    ensure_coder_on_path()
     ensure_coder_authenticated()
 
     # One `coder secret list` round trip fuels the status block and both
@@ -1518,17 +1602,20 @@ def devbox_start(
     config = load_config()
 
     click.echo(f"Creating devbox '{name}' (template={template}, preset={preset}, region={effective_region})...")
-    create_workspace(
+    run_with_capacity_fallback(
         name,
-        disk,
-        git_name=config.get("git_name"),
-        git_email=config.get("git_email"),
-        dotfiles_uri=config.get("dotfiles_uri"),
-        region=effective_region,
-        template=template,
-        preset=preset,
-        start_app=start_app,
-        verbose=verbose,
+        lambda: create_workspace(
+            name,
+            disk,
+            git_name=config.get("git_name"),
+            git_email=config.get("git_email"),
+            dotfiles_uri=config.get("dotfiles_uri"),
+            region=effective_region,
+            template=template,
+            preset=preset,
+            start_app=start_app,
+            verbose=verbose,
+        ),
     )
     _wait_until_ready(name)
     click.echo("Created.")
@@ -1657,7 +1744,7 @@ def devbox_restart(workspace: str | None, verbose: bool) -> None:
     name, workspaces = resolve_workspace_name(workspace)
     _get_workspace_or_fail(name, workspaces)
     click.echo(f"Restarting '{name}'...")
-    restart_workspace(name, verbose=verbose)
+    run_with_capacity_fallback(name, lambda: restart_workspace(name, verbose=verbose))
     _wait_until_ready(name)
     click.echo("Restarted.")
     _print_connection_info(name)
@@ -1675,7 +1762,7 @@ def devbox_update(workspace: str | None, verbose: bool) -> None:
         click.echo(f"Devbox '{name}' is already up to date.")
         return
     click.echo(f"Updating '{name}' to the latest template...")
-    update_workspace(name, verbose=verbose)
+    run_with_capacity_fallback(name, lambda: update_workspace(name, verbose=verbose))
     _wait_until_ready(name)
     click.echo("Updated.")
     click.echo(
@@ -1721,32 +1808,56 @@ def devbox_remote_exec(workspace_name: str | None, command: tuple[str, ...]) -> 
     exec_replace(name, list(command))
 
 
-@click.command(name="devbox:open", help="Open devbox in browser, VS Code, or Cursor")
+def _sync_warning(name: str, editor: str) -> str:
+    worktree = next((path for path, record in load_worktree_boxes().items() if record.workspace == name), None)
+    if worktree is None:
+        return f"⚠ Sync is active for '{name}'. Editing in {editor} can conflict with the local source of truth."
+    return (
+        f"⚠ '{name}' mirrors the worktree at {worktree}. Edit files in that worktree, "
+        f"and use {editor} to run the stack and tests. Files edited on the devbox conflict with the mirror."
+    )
+
+
+def _open_in_herdr(name: str, workspaces: list[dict[str, Any]] | None) -> None:
+    ws = _get_workspace_or_fail(name, workspaces)
+    status = get_workspace_status(ws)
+    if status != "running":
+        _fail(
+            f"Devbox '{name}' is {status}. Start it with `hogli devbox:start{_workspace_arg_suffix(name)}`, then retry.",
+            cause="herdr_workspace_not_running",
+        )
+    if not coder_ssh_alias_configured(name):
+        _fail(
+            "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry.",
+            cause="herdr_ssh_not_configured",
+        )
+    herdr_app.open_in_herdr(name, folder=REMOTE_REPO_PATH)
+
+
+@click.command(name="devbox:open", help="Open devbox in browser, VS Code, Cursor, or Herdr")
 @workspace_argument
 @click.option("--vscode", is_flag=True, help="Open in VS Code Desktop via SSH")
 @click.option("--cursor", is_flag=True, help="Open in Cursor via SSH")
 @click.option("--web", is_flag=True, help="Open code-server (VS Code in browser)")
-def devbox_open(workspace: str | None, vscode: bool, cursor: bool, web: bool) -> None:
+@click.option("--herdr", is_flag=True, help="Add the devbox to Herdr as a machine and open a space on it")
+def devbox_open(workspace: str | None, vscode: bool, cursor: bool, web: bool, herdr: bool) -> None:
     """Open the devbox in a browser or editor."""
-    chosen = sum([vscode, cursor, web])
+    chosen = sum([vscode, cursor, web, herdr])
     if chosen > 1:
-        raise click.UsageError("Choose one of `--vscode`, `--cursor`, or `--web`.")
+        raise click.UsageError("Choose one of `--vscode`, `--cursor`, `--web`, or `--herdr`.")
 
     ensure_runtime_ready()
-    name, _ = resolve_workspace_name(workspace)
+    name, workspaces = resolve_workspace_name(workspace)
 
-    if (vscode or cursor) and mutagen.sync_list(label_selector=mutagen.workspace_label_selector(name)):
-        ide = "VS Code" if vscode else "Cursor"
-        click.echo(
-            click.style(
-                f"⚠ Sync is active for '{name}'. Editing in {ide} Remote can conflict with the local source of truth.",
-                fg="yellow",
-            )
-        )
+    if (vscode or cursor or herdr) and mutagen.sync_list(label_selector=mutagen.workspace_label_selector(name)):
+        editor = "VS Code Remote" if vscode else "Cursor Remote" if cursor else "Herdr terminals on the devbox"
+        click.echo(click.style(_sync_warning(name, editor), fg="yellow"))
 
-    target = "vscode" if vscode else "cursor" if cursor else "web" if web else "browser"
+    target = "vscode" if vscode else "cursor" if cursor else "web" if web else "herdr" if herdr else "browser"
     telemetry.add_command_properties(devbox_open_target=target)
-    if vscode:
+    if herdr:
+        _open_in_herdr(name, workspaces)
+    elif vscode:
         click.echo(f"Opening '{name}' in VS Code...")
         open_vscode(name)
     elif cursor:
@@ -1862,7 +1973,8 @@ def devbox_config_rm(keys: tuple[str, ...], reset_all: bool) -> None:
     """Remove one or more saved devbox configuration items.
 
     Valid keys mirror the matching ``--configure-*`` flags on ``devbox:setup``:
-    ``git-identity``, ``git-signing``, ``region``, ``dotfiles``, ``claude``.
+    ``git-identity``, ``git-signing``, ``region``, ``dotfiles``, ``claude``, ``worktree-boxes``,
+    ``worktree-auto``, ``worktree-provider``.
     """
     by_key = _config_items_by_key()
     valid_keys = tuple(by_key)
@@ -1917,6 +2029,7 @@ def devbox_destroy(workspace: str | None, verbose: bool) -> None:
             click.echo(click.style("Warning: failed to terminate sync session; continuing.", fg="yellow"))
 
     delete_workspace(name, verbose=verbose)
+    herdr_app.forget_machine(name)
     click.echo("Destroyed.")
 
 

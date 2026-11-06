@@ -36,10 +36,13 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.batch import BatchQueryResult
-from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings
+from posthog.hogql.compilation import COMPILATION_TIMEOUT_SECONDS
+from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings, LimitContext, get_default_limit_for_context
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.multi_query import MultiQueryPlanner
+from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
@@ -140,15 +143,24 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         else:
             self.assertEqual(split["0"].rows, (("action_a", 2, 1),))
             self.assertEqual(split["1"].rows, (("action_b", 2, 2), ("action_a", 2, 1)))
-        incompatible = HogQLQueryExecutor(
-            query=queries[1],
-            team=self.team,
-            placeholders={"excluded": ast.Constant(value=excluded)},
-            settings=HogQLGlobalSettings(max_execution_time=1),
-        ).prepare_for_sharing(query_id="different-budget", scope_key="test-refresh")
-        self.assertEqual(
-            len(MultiQueryPlanner([SameAggregationTopNRule()]).plan([prepared[0], incompatible]).groups), 2
-        )
+        for incompatible_executor in (
+            HogQLQueryExecutor(
+                query=queries[1],
+                team=self.team,
+                placeholders={"excluded": ast.Constant(value=excluded)},
+                settings=HogQLGlobalSettings(max_execution_time=1),
+            ),
+            HogQLQueryExecutor(
+                query=queries[1],
+                team=self.team,
+                placeholders={"excluded": ast.Constant(value=excluded)},
+                context=HogQLContext(team_id=self.team.pk, apply_events_retention_floor=False),
+            ),
+        ):
+            incompatible = incompatible_executor.prepare_for_sharing(query_id="incompatible", scope_key="test-refresh")
+            self.assertEqual(
+                len(MultiQueryPlanner([SameAggregationTopNRule()]).plan([prepared[0], incompatible]).groups), 2
+            )
         flag.side_effect = None
         flag.return_value = False
         disabled = executors[1].prepare_for_sharing(query_id="disabled", scope_key="test-refresh")
@@ -169,15 +181,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 query_id=str(index), scope_key="test-refresh"
             )
             for index, query in enumerate(
-                ("SELECT count() FROM events", "SELECT count() FROM events WHERE event = 'signup'")
+                (
+                    "SELECT count() FROM events",
+                    "SELECT count() FROM events WHERE event = 'signup'",
+                    "SELECT event FROM events",
+                )
             )
         ]
 
         plan = MultiQueryPlanner([CountFusionRule()]).plan(prepared)
 
-        self.assertEqual(len(plan.groups), 1, plan.rejections)
-        self.assertEqual(plan.groups[0].query_ids, ("0", "1"))
+        self.assertEqual([group.query_ids for group in plan.groups], [("0", "1"), ("2",)], plan.rejections)
         self.assertIsNone(plan.groups[0].query.limit)
+        self.assertEqual(
+            plan.groups[1].query.limit, ast.Constant(value=get_default_limit_for_context(LimitContext.QUERY))
+        )
 
     @parameterized.expand(
         [
@@ -531,6 +549,22 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             checked_source,
             required_level="viewer",
         )
+
+    def test_preparation_deadline_includes_initial_parse(self) -> None:
+        parsed = parse_select("SELECT 1")
+        with (
+            patch("posthog.hogql.compilation.time.monotonic", return_value=0.0) as clock,
+            patch("posthog.hogql.query.sync_execute") as execute,
+        ):
+
+            def slow_parse(*args: object, **kwargs: object) -> ast.SelectQuery | ast.SelectSetQuery:
+                clock.return_value = COMPILATION_TIMEOUT_SECONDS + 1
+                return parsed
+
+            with patch("posthog.hogql.query.parse_select", side_effect=slow_parse):
+                with self.assertRaisesRegex(QueryError, "compilation exceeded its time limit"):
+                    execute_hogql_query("SELECT 1", team=self.team)
+        execute.assert_not_called()
 
     @patch("posthog.hogql.query.sync_execute")
     def test_execute_hogql_query_rejects_non_direct_connection_before_clickhouse(self, mock_sync_execute):
@@ -1307,8 +1341,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.results,
                 [
                     (
-                        # The native-JSON table treats an empty value as absent, like a materialized column does.
-                        None if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "",
+                        "",
                         None,  # null
                         None,  # undefined
                         "0",  # zero string
@@ -2551,6 +2584,61 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 execute_hogql_query("SELECT 1", team=self.team)
 
         self.assertEqual(mock_sync_execute.call_count, 2)
+
+    def test_invalid_utf8_string_results_raise_an_actionable_error(self):
+        with self.assertRaises(QueryError) as error:
+            execute_hogql_query(
+                "SELECT unhex('41FF') AS invalid_scalar, [unhex('42FF')] AS invalid_array, "
+                "map('key', unhex('43FF')) AS invalid_map",
+                team=self.team,
+                query_type="HogQLQuery",
+            )
+
+        self.assertEqual(
+            str(error.exception),
+            "Query result column(s) 'invalid_scalar', 'invalid_array', 'invalid_map' contain raw bytes that cannot "
+            "be returned as JSON. Encode the affected values with `hex()` or `base64Encode()` in your query to "
+            "preserve the original bytes.",
+        )
+
+        response = execute_hogql_query(
+            "SELECT hex(unhex('41FF')) AS hex_value, base64Encode(unhex('41FF')) AS base64_value", team=self.team
+        )
+
+        self.assertEqual(response.results, [("41FF", "Qf8=")])
+
+    @parameterized.expand(
+        [
+            (
+                "sql_query",
+                "HogQLQuery",
+                "Query result column(s) 'invalid_map_keys' contain raw bytes that cannot be returned as JSON. "
+                "Encode the affected values with `hex()` or `base64Encode()` in your query to preserve the original "
+                "bytes.",
+                False,
+            ),
+            (
+                "built_query",
+                "hogql_query",
+                "Some values in these results aren't valid text, so the results can't be shown. "
+                "Check the event and person properties used here for values with invalid characters.",
+                True,
+            ),
+        ]
+    )
+    @patch("posthog.hogql.query.capture_exception")
+    def test_invalid_utf8_map_keys_raise_an_actionable_error(
+        self, _name: str, query_type: str, expected_error: str, captured: bool, mock_capture_exception: mock.MagicMock
+    ) -> None:
+        with self.assertRaises(QueryError) as error:
+            execute_hogql_query(
+                "SELECT map(unhex('FF'), 1, unhex('FE'), 2) AS invalid_map_keys",
+                team=self.team,
+                query_type=query_type,
+            )
+
+        self.assertEqual(str(error.exception), expected_error)
+        self.assertEqual(mock_capture_exception.called, captured)
 
     def test_non_transient_errors_are_not_retried(self):
         with (

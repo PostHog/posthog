@@ -13,6 +13,7 @@ from .model_configuration import LLMModelConfiguration
 from .offline_evaluations import (
     OfflineEvaluationResult,
     OfflineEvaluationResultPayload,
+    OfflineEvaluationUsageLedger,
     OfflineExperiment,
     OfflineExperimentItem,
     OfflineExperimentItemPayload,
@@ -44,6 +45,7 @@ __all__ = [
     "LLMPromptLabel",
     "OfflineEvaluationResult",
     "OfflineEvaluationResultPayload",
+    "OfflineEvaluationUsageLedger",
     "OfflineExperiment",
     "OfflineExperimentItem",
     "OfflineExperimentItemPayload",

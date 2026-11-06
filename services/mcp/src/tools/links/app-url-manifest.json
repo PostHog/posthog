@@ -249,6 +249,11 @@
         "params": [],
         "scope": "project"
     },
+    "applicationObservability": {
+        "template": "/application-observability",
+        "params": [],
+        "scope": "project"
+    },
     "approval": {
         "template": "/approvals/{id}",
         "params": ["id"],
@@ -317,6 +322,11 @@
     "broadcasts": {
         "template": "/broadcasts",
         "params": [],
+        "scope": "project"
+    },
+    "broadcastsTemplate": {
+        "template": "/broadcasts/library/templates/{id}",
+        "params": ["id"],
         "scope": "project"
     },
     "businessIntelligence": {
@@ -1309,6 +1319,11 @@
         "params": [],
         "scope": "global"
     },
+    "oauthDeviceAuthorize": {
+        "template": "/device",
+        "params": [],
+        "scope": "global"
+    },
     "onboarding": {
         "template": "/onboarding",
         "params": [],
@@ -1609,11 +1624,6 @@
         "params": [],
         "scope": "global"
     },
-    "simpleOnboarding": {
-        "template": "/onboarding/simple",
-        "params": [],
-        "scope": "project"
-    },
     "site": {
         "template": "/site/{url}",
         "params": ["url"],
@@ -1632,6 +1642,11 @@
     "skillsCategoryTab": {
         "template": "/skills/{categoryTab}",
         "params": ["categoryTab"],
+        "scope": "project"
+    },
+    "slackAppWorkspaceSetup": {
+        "template": "/integrations/slack/{integrationId}/setup",
+        "params": ["integrationId"],
         "scope": "project"
     },
     "slackTaskContext": {
@@ -1770,7 +1785,7 @@
         "scope": "project"
     },
     "taskNewSession": {
-        "template": "/spaces/new",
+        "template": "/ai/new",
         "params": [],
         "scope": "project"
     },
@@ -1832,6 +1847,36 @@
     "tracingRetentionNew": {
         "template": "/tracing/retention-rules/new",
         "params": [],
+        "scope": "project"
+    },
+    "transactional": {
+        "template": "/transactional",
+        "params": [],
+        "scope": "project"
+    },
+    "transactionalEmailLogEntry": {
+        "template": "/transactional/log/{messageId}",
+        "params": ["messageId"],
+        "scope": "project"
+    },
+    "transactionalLog": {
+        "template": "/transactional/log",
+        "params": [],
+        "scope": "project"
+    },
+    "transactionalMetrics": {
+        "template": "/transactional/metrics",
+        "params": [],
+        "scope": "project"
+    },
+    "transactionalNew": {
+        "template": "/transactional/new",
+        "params": [],
+        "scope": "project"
+    },
+    "transactionalTemplate": {
+        "template": "/transactional/library/templates/{id}",
+        "params": ["id"],
         "scope": "project"
     },
     "transformations": {
@@ -2047,6 +2092,11 @@
     "workflowsLibraryTemplateNew": {
         "template": "/workflows/library/templates/new",
         "params": [],
+        "scope": "project"
+    },
+    "workloadTrustPolicyRequest": {
+        "template": "/workload-trust-policy-requests/{id}",
+        "params": ["id"],
         "scope": "project"
     }
 }

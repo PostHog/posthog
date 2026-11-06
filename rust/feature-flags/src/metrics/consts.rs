@@ -383,6 +383,12 @@ pub const FLAG_DEFINITIONS_CACHE_MISS_COUNTER: &str = "flags_flag_definitions_ca
 // redis_error = the etag read failed or the stored value did not decode)
 pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_total";
 
+// Billing decision for a /flags/definitions 304. Labels: outcome (billable, not_billable,
+// unknown = the payload was unreadable, slow, or not served from Redis, so the poll went
+// unbilled). Compare with the etag `hit` counter to see how many 304s went unbilled.
+pub const FLAG_DEFINITIONS_NOT_MODIFIED_BILLING_COUNTER: &str =
+    "flags_flag_definitions_not_modified_billing_total";
+
 // Per-pod resolved cluster for the /flags/definitions reader: 1 on the dedicated flags Redis,
 // 0 on the shared one. Every emission carries a `reason` label, so
 // `{reason="no_dedicated_client"}` separates a pod that wanted the dedicated cluster and could
@@ -417,8 +423,16 @@ pub const LEGACY_TOKEN_MIRROR_SHADOW_COUNTER: &str = "flags_legacy_token_mirror_
 // Loki.
 pub const FLAG_BOT_DETECTED_COUNTER: &str = "flags_bot_detected_total";
 
+// Requests refused by the team's request blocklist. Labeled only by `reason`
+// (`host` or `ip`). The blocked host and IP are unbounded, so they go to the
+// canonical log line, never to a label.
+pub const FLAG_REQUEST_BLOCKED_COUNTER: &str = "flags_request_blocked_total";
+
 // Request-level timeout (tower TimeoutLayer killed the request before completion)
 pub const FLAG_REQUEST_TIMEOUT_COUNTER: &str = "flags_request_timeout_total";
+
+// One count per /flags request, labeled `outcome` and `needs_persons`.
+pub const FLAG_REQUEST_OUTCOME_COUNTER: &str = "flags_request_outcome_total";
 
 // Timeout tracking and classification
 pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";

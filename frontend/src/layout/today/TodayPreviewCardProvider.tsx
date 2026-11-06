@@ -93,7 +93,7 @@ export function TodayPreviewCardProvider({
                                                 <TodayChatHoverCard preview={payload} onAction={close} />
                                             ) : payload.kind === 'object' ? (
                                                 <TodayObjectHoverCard preview={payload} onAction={close} />
-                                            ) : payload.kind === 'product' ? (
+                                            ) : payload.kind === 'product' || payload.kind === 'explainer' ? (
                                                 <TodayProductHoverCard preview={payload} onAction={close} />
                                             ) : (
                                                 <TodaySessionHoverCard preview={payload} onAction={close} />

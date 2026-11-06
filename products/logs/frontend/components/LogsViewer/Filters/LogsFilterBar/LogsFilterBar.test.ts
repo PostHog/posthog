@@ -7,7 +7,7 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 import { addLogsValueFilter } from './LogsFilterBar'
 
 // The Logs group's getValue returns option.key, so `value` is 'message' while the searched-for text
-// lives on item.value. See buildTaxonomicGroups' localItemsSearch for the Logs group.
+// lives on item.value. See the Logs group's localItemsSearch in taxonomicFilterLogic.tsx.
 const LOGS_GROUP = { name: 'Logs', type: TaxonomicFilterGroupType.Logs } as TaxonomicFilterGroup
 const messageSearchItem = (query: string): Record<string, any> => ({
     key: 'message',

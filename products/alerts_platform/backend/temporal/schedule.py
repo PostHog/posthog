@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 SCHEDULE_ID = "alerts-platform-check-due-schedule"
 INVENTORY_SCHEDULE_ID = "alerts-platform-record-inventory-schedule"
+EXPIRED_HOLDS_SCHEDULE_ID = "alerts-platform-release-expired-holds-schedule"
 
 
 async def create_alerts_platform_tick_schedule(client: "Client") -> None:
@@ -48,6 +49,23 @@ async def create_alerts_platform_inventory_schedule(client: "Client") -> None:
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=dt.timedelta(minutes=1)),
     )
     await _create_or_update(client, INVENTORY_SCHEDULE_ID, schedule)
+
+
+async def create_alerts_platform_expired_holds_schedule(client: "Client") -> None:
+    """Sends held deliveries nothing released. A skipped run is harmless, because the next finds the same holds."""
+    schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "alerts-platform-release-expired-holds",
+            {},
+            id=EXPIRED_HOLDS_SCHEDULE_ID,
+            task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+            execution_timeout=dt.timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        ),
+        spec=ScheduleSpec(cron_expressions=["* * * * *"]),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=dt.timedelta(minutes=1)),
+    )
+    await _create_or_update(client, EXPIRED_HOLDS_SCHEDULE_ID, schedule)
 
 
 async def _create_or_update(client: "Client", schedule_id: str, schedule: Schedule) -> None:

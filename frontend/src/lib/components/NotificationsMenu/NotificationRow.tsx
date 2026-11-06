@@ -81,9 +81,17 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Workflow suggestions',
         description: 'When PostHog suggests a change to a workflow you set up',
     },
+    warehouse_suggestion_assigned: {
+        label: 'Warehouse suggestions',
+        description: 'When a suggestion for a view or table is assigned to you',
+    },
     first_report_completed: {
         label: 'First Self-Driving investigation',
         description: 'When your first Self-Driving investigation finishes, including when it has no report.',
+    },
+    report_claim_taken_over: {
+        label: 'Self-Driving report takeovers',
+        description: 'When someone takes over a Self-Driving report you were working on',
     },
     feature_flag_failure: {
         label: 'Feature flag failures',

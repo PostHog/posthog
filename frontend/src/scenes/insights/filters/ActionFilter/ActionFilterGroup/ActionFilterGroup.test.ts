@@ -6,9 +6,8 @@ import { entityFilterLogic, seriesNodeToGroupNode } from 'scenes/insights/filter
 import { useMocks } from '~/mocks/jest'
 import { AnyEntityNode, GroupNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { EntityTypes, FilterLogicalOperator, FilterType } from '~/types'
+import { FilterLogicalOperator } from '~/types'
 
-import { legacyFiltersToSeries } from '../legacyFilters'
 import { SeriesNode } from '../seriesNode'
 import { actionFilterGroupLogic } from './actionFilterGroupLogic'
 
@@ -280,58 +279,6 @@ describe('ActionFilterGroup - Combining and Splitting Events', () => {
             expect(logic.values.series[0].kind).toBe(NodeKind.GroupNode)
 
             logic.unmount()
-        })
-    })
-
-    describe('legacyFiltersToSeries with groups', () => {
-        it('includes group filters in the series', () => {
-            const series = legacyFiltersToSeries({
-                events: [{ id: '$pageview', type: EntityTypes.EVENTS, name: '$pageview', order: 0 }],
-                groups: [
-                    {
-                        id: null,
-                        type: EntityTypes.GROUPS,
-                        name: 'group',
-                        order: 1,
-                        operator: FilterLogicalOperator.Or,
-                        nestedFilters: [{ id: '$exception', type: EntityTypes.EVENTS, name: '$exception', order: 0 }],
-                    },
-                ],
-            } as FilterType)
-
-            expect(series).toHaveLength(2)
-            expect(series[0]).toEqual(expect.objectContaining({ kind: NodeKind.EventsNode, event: '$pageview' }))
-            expect(series[1]).toEqual(
-                expect.objectContaining({
-                    kind: NodeKind.GroupNode,
-                    nodes: [expect.objectContaining({ kind: NodeKind.EventsNode, event: '$exception' })],
-                })
-            )
-        })
-
-        it('maintains order across mixed filters and groups', () => {
-            const series = legacyFiltersToSeries({
-                events: [
-                    { id: '$pageview', type: EntityTypes.EVENTS, name: '$pageview', order: 0 },
-                    { id: '$pageleave', type: EntityTypes.EVENTS, name: '$pageleave', order: 2 },
-                ],
-                groups: [
-                    {
-                        id: null,
-                        type: EntityTypes.GROUPS,
-                        name: 'group',
-                        order: 1,
-                        operator: FilterLogicalOperator.Or,
-                        nestedFilters: [{ id: '$exception', type: EntityTypes.EVENTS, name: '$exception', order: 0 }],
-                    },
-                ],
-            } as FilterType)
-
-            expect(series.map((node) => node.kind)).toEqual([
-                NodeKind.EventsNode,
-                NodeKind.GroupNode,
-                NodeKind.EventsNode,
-            ])
         })
     })
 

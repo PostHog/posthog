@@ -16,16 +16,89 @@ demand map). The HogQL system-table model classes cross the boundary as objects 
 ``facade/hogql.py``, and temporal/source wiring via ``facade/temporal.py`` — not here.
 """
 
+from collections.abc import Sequence
 from dataclasses import field
 from datetime import datetime, time, timedelta
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+from posthog.integrations import IntegrationUsage
+
+# The request flag that confirms an edit of credentials that other sources or products also use.
+UPDATE_SHARED_CREDENTIALS_PARAM = "update_shared_credentials"
+
+# The `job_inputs` key of a source API edit that points the source at another credentials row. The API
+# moves the value to the source's `credentials_integration_id` column. The store never saves it in `job_inputs`.
+CREDENTIALS_REFERENCE_INPUT_KEY = "credentials_integration_id"
+
+# The `IntegrationUsage.type` of a warehouse source that uses an integration row.
+WAREHOUSE_SOURCE_USAGE_TYPE = "warehouse_source"
+# A source whose inputs do not decode, so it may use the row. It blocks a delete of the row only.
+UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE = "unreadable_warehouse_source"
+
+
+class SharedCredentialsError(Exception):
+    """An edit would change a credentials row that other sources or products also use.
+
+    `usages` holds the other users, as the integrations SDK reports them. The API returns them in a
+    409 response, and the request can confirm with `update_shared_credentials`.
+    """
+
+    def __init__(self, integration_id: int, usages: Sequence[IntegrationUsage]) -> None:
+        super().__init__(f"Integration {integration_id} is also used by {len(usages)} other objects")
+        self.integration_id = integration_id
+        self.usages = tuple(usages)
+
+
+class UnusableCredentialsReferenceError(ValueError):
+    """An edit points a source at a credentials row that the source cannot use: a row of another team,
+    another kind or another auth type, or a row that no warehouse source made."""
+
+
+class SharedCredentialsEdit(StrEnum):
+    """What a write of a source's inputs does when other sources or products also use its credentials row."""
+
+    # Keep the shared row as it is. Internal writes use this, so they never change credentials of other users.
+    SKIP = "skip"
+    # Raise `SharedCredentialsError`, so the API can ask the person for a confirmation.
+    REFUSE = "refuse"
+    # The person confirmed the edit: write the shared row.
+    CONFIRMED = "confirmed"
+
 
 class UnsupportedSyncTypeError(ValueError):
     """The stored sync type is not a mode PostHog can run."""
+
+
+class UnreadableSourceInputsError(ValueError):
+    """A source's stored inputs do not decode to a mapping. The message never holds the value, because the
+    value can hold credentials."""
+
+
+# Set in `job_inputs` when the store has moved the connection fields of a source to its credentials row and
+# removed them from `job_inputs`. The value is the time of the strip, as an ISO 8601 string.
+CONNECTION_FIELDS_STRIPPED_KEY = "connection_fields_stripped_at"
+# Keeps a stripped typed-in source typed-in when, without its connection fields, it would read as OAuth (Slack).
+CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY = "connection_fields_stripped_typed_in"
+STRIPPED_STORE_KEYS: frozenset[str] = frozenset(
+    {CONNECTION_FIELDS_STRIPPED_KEY, CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY}
+)
+
+SOURCE_CREDENTIALS_MISSING_ERROR = "The credentials of this source are missing or cannot be read"
+
+
+class SourceCredentialsMissingError(UnreadableSourceInputsError):
+    """The connection fields of a stripped source are not in its credentials row. `job_inputs` holds no copy,
+    so nothing can replace them: the user must enter the credentials again."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            f"{SOURCE_CREDENTIALS_MISSING_ERROR}. Enter the credentials of the source again, or reconnect its "
+            "account, then enable the sync again."
+        )
 
 
 class UndecryptedConfigError(ValueError):
@@ -47,11 +120,34 @@ class ConfigValueError(ValueError):
 
 
 @dataclass(frozen=True)
+class SyncedWarehouseTable:
+    table_id: UUID
+    name: str
+
+
+@dataclass(frozen=True)
 class RevenueViewSyncInput:
     team_id: int
     source_id: UUID
     source_type: str
     schema_name: str
+
+
+@dataclass(frozen=True)
+class PersonPropertySyncProgress:
+    """One produced chunk's counts for one person-property source."""
+
+    team_id: int
+    binding_kind: str
+    binding_id: str
+    source_id: str
+    job_id: str | None
+    trigger: str
+    rows_read: int
+    changed: int
+    existing: int
+    produced: int
+    skipped_missing_person: int
 
 
 @dataclass(frozen=True)
@@ -210,6 +306,18 @@ class TableNames:
     queryable_key: str
 
 
+@dataclass(frozen=True)
+class TableAwaitingFirstSync:
+    """A table that a synced schema will create, but whose first sync has not created yet.
+
+    ``names`` holds the names a query can write for it once it exists.
+    ``first_sync_failed`` is true when the latest sync attempt failed.
+    """
+
+    names: TableNames
+    first_sync_failed: bool
+
+
 WAREHOUSE_OBJECT_TABLE = "table"
 WAREHOUSE_OBJECT_VIEW = "view"
 
@@ -338,3 +446,12 @@ class UploadReadSettings:
 
     columns: dict[str, Any]
     allow_double_quotes: bool | None = None
+
+
+@dataclass(frozen=True)
+class SourceReferencingIntegration:
+    id: UUID
+    source_type: str
+    prefix: str | None
+    # The inputs did not decode, so the source may point at the row. The search counts it as a user.
+    unreadable: bool = False
