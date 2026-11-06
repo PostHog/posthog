@@ -4,6 +4,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import OperationalError, connection
+
 from disposable_email_domains import blocklist as disposable_email_domains_list
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
@@ -81,6 +83,38 @@ class TestEmailIntegrationDomainValidation(BaseTest):
 
         assert second.config["mail_from_subdomain"] == expected
         assert mock_create_email_domain.call_args.kwargs["mail_from_subdomain"] == expected
+
+    @parameterized.expand(
+        [("same_domain", "second@locked.example.com", True), ("other_domain", "second@unlocked.example.com", False)]
+    )
+    @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_create_waits_for_a_create_in_progress_on_the_same_domain(
+        self, _name, email, waits, mock_create_email_domain, _mock_get_mail_from
+    ):
+        other = connection.get_new_connection(connection.get_connection_params())
+        try:
+            with other.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext('email_sender_domain'), hashtext('locked.example.com'))"
+                )
+            with connection.cursor() as cursor:
+                cursor.execute("SET LOCAL lock_timeout = '200ms'")
+            create = lambda: EmailIntegration.create_native_integration(
+                {"email": email, "name": "Second", "provider": "ses"},
+                team_id=self.team.id,
+                organization_id=str(self.organization.id),
+                created_by=self.user,
+            )
+            if waits:
+                with pytest.raises(OperationalError, match="lock timeout"):
+                    create()
+                mock_create_email_domain.assert_not_called()
+            else:
+                assert create().integration_id == email
+        finally:
+            other.rollback()
+            other.close()
 
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     def test_sender_created_during_the_provider_call_is_refused_not_upserted(self, mock_create_email_domain):
