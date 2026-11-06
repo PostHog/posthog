@@ -1,8 +1,20 @@
 from pathlib import Path
 
+from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
-from posthog.checks import check_encryption_salt_keys, check_object_storage_public_endpoint, check_product_db_routes
+from parameterized import parameterized
+
+from posthog.checks import (
+    check_allowed_ip_blocks,
+    check_cron_schedules,
+    check_encryption_salt_keys,
+    check_object_storage_public_endpoint,
+    check_oidc_signing_key,
+    check_product_db_routes,
+    check_temporal_client_tls,
+    check_trusted_proxies,
+)
 from posthog.product_db_router import get_product_db_routes
 from posthog.settings.utils import get_list
 
@@ -84,3 +96,68 @@ class TestProductDBRouteChecks(SimpleTestCase):
         self.addCleanup(get_product_db_routes.cache_clear)
 
         self.assertEqual(check_product_db_routes(None), [])
+
+
+class TestSettingWarnings(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "oidc_key_set",
+                {"OAUTH2_PROVIDER": {**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": "key"}},
+                check_oidc_signing_key,
+                [],
+            ),
+            (
+                "oidc_key_missing",
+                {"OAUTH2_PROVIDER": {**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": ""}},
+                check_oidc_signing_key,
+                ["posthog.oauth.W001"],
+            ),
+            ("ip_blocks_valid", {"ALLOWED_IP_BLOCKS": ["10.0.0.0/8", "192.168.1.5"]}, check_allowed_ip_blocks, []),
+            (
+                "ip_blocks_invalid",
+                {"ALLOWED_IP_BLOCKS": ["10.0.0.0/8", "10.0.0/8"]},
+                check_allowed_ip_blocks,
+                ["posthog.access.W001"],
+            ),
+            (
+                "trusted_proxies_valid",
+                {"TRUSTED_PROXIES": "10.0.0.1, 2001:db8::1,", "TRUST_ALL_PROXIES": False},
+                check_trusted_proxies,
+                [],
+            ),
+            (
+                "trusted_proxies_cidr",
+                {"TRUSTED_PROXIES": "10.0.0.1,10.0.0.0/8", "TRUST_ALL_PROXIES": False},
+                check_trusted_proxies,
+                ["posthog.access.W002"],
+            ),
+            (
+                "cron_valid",
+                {"CALCULATE_COHORTS_DAY_SCHEDULE": "*/2 6-17 * * *", "MATERIALIZE_COLUMNS_SCHEDULE_CRON": ""},
+                check_cron_schedules,
+                [],
+            ),
+            (
+                "cron_unparseable",
+                {"CALCULATE_COHORTS_DAY_SCHEDULE": "*/2 6-17 * *", "MATERIALIZE_COLUMNS_SCHEDULE_CRON": "0 25 * * *"},
+                check_cron_schedules,
+                ["posthog.schedules.W001", "posthog.schedules.W001"],
+            ),
+            (
+                "temporal_tls_pair_complete",
+                {"TEMPORAL_CLIENT_CERT": "cert", "TEMPORAL_CLIENT_KEY": "key"},
+                check_temporal_client_tls,
+                [],
+            ),
+            (
+                "temporal_tls_key_missing",
+                {"TEMPORAL_CLIENT_CERT": "cert", "TEMPORAL_CLIENT_KEY": None},
+                check_temporal_client_tls,
+                ["posthog.temporal.W001"],
+            ),
+        ]
+    )
+    def test_warns_only_on_a_bad_value(self, _name, overrides, check, expected_ids) -> None:
+        with override_settings(**overrides):
+            assert [message.id for message in check(None)] == expected_ids
