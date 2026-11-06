@@ -5,11 +5,13 @@ import { expectLogic } from 'kea-test-utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { phaiAiComposerSeedLogic } from 'scenes/max/phaiAiComposerSeedLogic'
 import { urls } from 'scenes/urls'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
+import { PENDING_AI_PROMPT_KEY } from '~/layout/ai/pendingAiPrompt'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -413,10 +415,16 @@ describe('taskTrackerSceneLogic', () => {
     )
 
     // A page can still show 2.0 after the server stopped allowing it. The refused message must reach classic
-    // PostHog AI instead of bouncing back into a composer that cannot send.
-    it('hands a send the server refuses to classic PostHog AI', async () => {
+    // PostHog AI without passing through the URL, and the switch must also hold in an OAuth session, which
+    // has no server-rendered app context.
+    it.each([
+        ['with the server-rendered decision', true],
+        ['without an app context', false],
+    ])('hands a send the server refuses to classic PostHog AI %s', async (_, hasAppContext) => {
         const originalAppContext = window.POSTHOG_APP_CONTEXT
-        window.POSTHOG_APP_CONTEXT = { ...originalAppContext, posthog_ai_access: true } as AppContext
+        window.POSTHOG_APP_CONTEXT = hasAppContext
+            ? ({ ...originalAppContext, posthog_ai_access: true } as AppContext)
+            : undefined
         useMocks({
             post: {
                 '/api/projects/:team/tasks/': () => [
@@ -432,10 +440,14 @@ describe('taskTrackerSceneLogic', () => {
             await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
 
             expect(featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE]).toBe(false)
-            expect(router.values.location.pathname).toBe('/project/997/ai')
-            expect(router.values.searchParams).toEqual({ ask: 'Explain the example chart' })
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/ai')
+            expect(router.values.searchParams).toEqual({})
+            expect(JSON.parse(sessionStorage.getItem(PENDING_AI_PROMPT_KEY) ?? '{}')).toMatchObject({
+                prompt: 'Explain the example chart',
+            })
         } finally {
             window.POSTHOG_APP_CONTEXT = originalAppContext
+            sessionStorage.clear()
         }
     })
 

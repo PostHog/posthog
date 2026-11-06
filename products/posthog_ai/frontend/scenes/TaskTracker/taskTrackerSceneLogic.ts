@@ -8,9 +8,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { type FeatureFlagsSet, featureFlagLogic, revokePostHogAIAccess } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
@@ -19,6 +18,7 @@ import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { attachedContextItemKey } from '~/layout/ai/attachedContext'
 import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
+import { stashPendingAiPrompt } from '~/layout/ai/pendingAiPrompt'
 import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
@@ -513,18 +513,25 @@ export type taskTrackerSceneLogicType = MakeLogicType<
 
 /**
  * The server refused 2.0 to a page that still shows it, such as one rendered before a flag outage.
- * Classic PostHog AI takes over for the rest of the session, with the user's message.
+ * Classic PostHog AI takes over for the rest of the session, with the user's message as its draft.
  */
-function moveToClassicPostHogAI(featureFlags: FeatureFlagsSet, message: string, navigate: boolean): void {
-    const appContext = getAppContext()
-    if (appContext) {
-        appContext.posthog_ai_access = false
+function moveToClassicPostHogAI(featureFlags: FeatureFlagsSet, message: string, panelId: string | undefined): void {
+    revokePostHogAIAccess()
+    // A side panel or the AI scene swaps to classic in place, so its host takes the message. The message never
+    // goes in the URL, because pageview events record the full URL.
+    const swapsInPlace = !!panelId || removeProjectIdIfPresent(router.values.location.pathname) === urls.ai()
+    if (message.trim()) {
+        if (swapsInPlace) {
+            runnerPanelLogic({ panelId }).actions.handOffToClassic(message)
+        } else {
+            stashPendingAiPrompt(message)
+        }
     }
-    // featureFlagLogic reads the server decision from the app context, so resending the current flags applies it.
+    // featureFlagLogic applies the revocation when it computes the flags, so resending the current flags applies it.
     const currentFlags: Record<string, string | boolean> = JSON.parse(JSON.stringify(featureFlags))
     featureFlagLogic.findMounted()?.actions.setFeatureFlags(Object.keys(currentFlags), currentFlags)
-    if (navigate) {
-        router.actions.push(urls.ai(), message.trim() ? { ask: message } : {})
+    if (!swapsInPlace) {
+        router.actions.push(urls.ai())
     }
 }
 
@@ -1319,7 +1326,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     actions.clearActiveCreation()
                 }
                 if (error instanceof ApiError && error.code === 'task_unavailable') {
-                    moveToClassicPostHogAI(values.featureFlags, values.newTaskData.description, !props.panelId)
+                    moveToClassicPostHogAI(values.featureFlags, values.newTaskData.description, props.panelId)
                 }
                 if (error instanceof ApiError && error.code === 'warm_run_activation_unavailable') {
                     lemonToast.error("Couldn't start this run yet. Please try again.")
