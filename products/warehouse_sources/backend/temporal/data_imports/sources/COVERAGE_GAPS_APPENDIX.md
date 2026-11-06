@@ -10894,14 +10894,14 @@ Diffed against: <https://developer.servicem8.com/llms.txt>
 
 - [x] `Materials (GET /api_1.0/material.json)` — resolve JobMaterial.material_uuid and Staff.labour_material_uuid to inventory records, labour rates, costs, and stock levels (high)
 - [x] `Tax Rates (GET /api_1.0/taxrate.json)` — resolve tax_rate_uuid on job materials and clients to named tax rates (high)
-- [ ] `Job Queues (GET /api_1.0/queue.json)` — resolve Job.queue_uuid to queue names for backlog and dispatch analysis (high)
-- [ ] `Badges (GET /api_1.0/badge.json)` — resolve badge UUIDs on jobs and clients to meaningful business classifications (high)
-- [ ] `Job Material Bundles (GET /api_1.0/jobmaterialbundle.json)` — resolve JobMaterial.job_material_bundle_uuid and analyze the bundled work sold on each job (high)
+- [x] `Job Queues (GET /api_1.0/queue.json)` — resolve Job.queue_uuid to queue names for backlog and dispatch analysis (high)
+- [x] `Badges (GET /api_1.0/badge.json)` — resolve badge UUIDs on jobs and clients to meaningful business classifications (high)
+- [x] `Job Material Bundles (GET /api_1.0/jobmaterialbundle.json)` — resolve JobMaterial.job_material_bundle_uuid and analyze the bundled work sold on each job (high)
 - [x] `Staff Time Events (GET /api_1.0/stafftimeevent.json)` — measure working hours and breaks beyond time recorded against individual jobs (high)
 - [x] `Feedback (GET /api_1.0/feedback.json)` — measure customer satisfaction and connect feedback to completed jobs (high)
 - [ ] `Job Allocations (GET /api_1.0/joballocation.json)` — compare scheduled work, staff assignments, and actual job activity (medium)
 - [ ] `Forms and Form Responses (GET /api_1.0/form.json; GET /api_1.0/formresponse.json)` — analyze inspection results and completed forms by job, staff member, and asset (medium)
-- [ ] `Job Contacts (GET /api_1.0/jobcontact.json)` — connect job and billing contacts to jobs instead of relying on company contacts alone (medium)
+- [x] `Job Contacts (GET /api_1.0/jobcontact.json)` — connect job and billing contacts to jobs instead of relying on company contacts alone (medium)
 
 Note: Fetched the official llms index and parsed the OpenAPI definitions embedded in its collection-reference Markdown pages. Checked job, material, client, and staff fields for missing ID lookups. These additions use flat collections with record UUIDs, rather than requests for each job. Excluded templates, webhook plumbing, attachment transfers, and write operations.
 
@@ -10954,62 +10954,70 @@ Note: Diffed Microsoft's v1.0 references for drive items, list items, sites, and
 
 ## Shipmail — **thin**
 
-Today (4): `domains`, `mailboxes`, `messages`, `suppressions`
+Today (8): `audience_subscribers`, `domains`, `mailboxes`, `members`, `messages`, `newsletters`, `suppressions`, `threads`
 
 Diffed against: <https://shipmail.to/openapi.json>
 
-- [ ] `Threads (GET /api/v1/threads)` — resolve message thread_id values and compare conversation volumes, message counts, and recent activity (high)
-- [ ] `Newsletters (GET /api/v1/newsletters)` — measure newsletter deliveries, opens, clicks, bounces, and complaints, which the current message projection does not expose (high)
+- [x] `Threads (GET /api/v1/threads)` — resolve message thread_id values and compare conversation volumes, message counts, and recent activity (high)
+- [x] `Newsletters (GET /api/v1/newsletters)` — measure newsletter deliveries, opens, clicks, bounces, and complaints, which the current message projection does not expose (high)
 - [ ] `Audiences (GET /api/v1/audiences)` — analyze audience growth, subscription counts, and consent sources (medium)
-- [ ] `Audience subscribers (GET /api/v1/audiences/{id}/subscribers)` — analyze audience membership and subscriber status alongside newsletter results (medium)
+- [x] `Audience subscribers (GET /api/v1/audiences/{id}/subscribers)` — analyze audience membership and subscriber status alongside newsletter results (medium)
 - [ ] `Mailbox inbox thread attention states (GET /api/v1/mailboxes/{id}/inbox/threads)` — measure unanswered conversations, follow-up dates, assignments, and completed threads (medium)
-- [ ] `Members (GET /api/v1/members)` — analyze person roles and mailbox access alongside team email activity (medium)
+- [x] `Members (GET /api/v1/members)` — analyze person roles and mailbox access alongside team email activity (medium)
 - [ ] `Calendar events (GET /api/v1/calendar/events)` — connect meeting activity and recurring appointments to mailbox communication (medium)
 
 Note: Parsed all GET paths and relevant response schemas in the official OpenAPI JSON. The messages table uses /messages/analytics, whose projection omits newsletter engagement counters and thread attention states. Threads, subscriber lists, inbox states, and calendars need mailbox or audience inputs; attention states can change during pagination. Excluded credentials, DNS configuration, routing rules, webhooks, uploads, and message-body field differences.
 
+Threads and audience subscribers use paginated mailbox and audience listings as parents. Audiences remain an internal lookup, without a separate table. All four additions use full refresh because their list endpoints have no time filter. Threads require both `threads:read` and `mailboxes:read`; subscribers require `audiences:read`. Member mailbox access lists can omit mailboxes outside the API key's access.
+
 ## Shippo — gaps
 
-Today (9): `addresses`, `carrier_accounts`, `customs_declarations`, `customs_items`, `orders`, `parcels`, `refunds`, `shipments`, `transactions`
+Today (13): `addresses`, `carrier_accounts`, `customs_declarations`, `customs_items`, `manifests`, `orders`, `parcels`, `rates`, `refunds`, `shipments`, `shippo_accounts`, `tracks`, `transactions`
 
 Diffed against: <https://docs.goshippo.com/spec/shippoapi/public-api.yaml>
 
-- [ ] `GET /shipments/{ShipmentId}/rates (and /rates/{CurrencyCode})` — All quoted rates per shipment, not just the purchased one — the only way to analyze rate shopping and how much was saved or overspent per label (high)
-- [ ] `GET /manifests` — End-of-day carrier manifests; the batch handoff record that groups transactions and is missing entirely (medium)
-- [ ] `GET /tracks/{Carrier}/{TrackingNumber}` — Delivery status and tracking-event history for the transactions already synced — turns labels into a delivery-performance fact table (medium)
+- [x] `GET /shipments/{ShipmentId}/rates (and /rates/{CurrencyCode})`: The `rates` table imports all quotes for each available shipment. Currency conversion is excluded because it re-queues the shipment (high).
+- [x] `GET /manifests`: The `manifests` table imports carrier handoff records and their transaction identifiers (medium).
+- [x] `GET /tracks/{Carrier}/{TrackingNumber}`: The `tracks` table imports delivery status and tracking history for trackable transactions. Carrier accounts supply the carrier tokens (medium).
 - [ ] `GET /parcel-templates and GET /user-parcel-templates` — Lookup resolving the parcel template tokens referenced by parcels and shipments (low)
-- [ ] `GET /shippo-accounts` — Platform sub-account lookup; needed to attribute shipments when operating Shippo on behalf of multiple merchants (low)
+- [x] `GET /shippo-accounts`: The `shippo_accounts` table imports managed accounts for platform customers with access (low).
 - [ ] `GET /v2/reporting/runs` — Reporting API run history (added Sep 2026); returns job metadata for the most recent runs only, not report rows, so it was skipped (low)
 
-Note: Coverage is proportionate for the core objects: 9 of roughly 15 listable collections are synced, including all the transactional ones (transactions, shipments, orders, refunds, parcels, addresses, customs). Batches are only retrievable by ID (no list endpoint), so they are not syncable as a table. The rates sub-resource is the one materially valuable analytical gap.
+Note: Verified against the official OpenAPI spec on 2026-11-06. The four added tables use full refresh because their endpoints have no server-side timestamp filters. Rates are limited to shipments that Shippo returns within its 390-day retention period. Tracking covers trackable transactions available to the configured token. Transactions with expired rates are skipped because their carrier cannot be resolved. The managed account table does not expand shipment imports across those accounts. Batches have no list endpoint.
 
 Note on `/v2/reporting/runs`: skipped deliberately. Each row is a report job the account created (`report_type`, `interval`, `status`, `result.row_count`), not the invoices, charges or refunds the report contains. The list has no pagination or date filter and returns at most the 500 most recent runs, so a table of it cannot hold full history. It also omits the download URL. The report data itself needs a different design: create a run (`POST /v2/reporting/runs`), poll it, then download the CSV or Parquet file. That is a write on the customer's account, and each interval can span 92 days at most.
 
 ## ShipStation — gaps
 
-Today (8): `batches`, `carriers`, `labels`, `manifests`, `pickups`, `shipments`, `tags`, `warehouses`
+API v2 (11): `batches`, `carriers`, `labels`, `manifests`, `packages`, `pickups`, `services`, `shipments`, `tags`, `users`, `warehouses`.
 
-Diffed against: <https://www.shipstation.com/docs/api/ (V1 API reference index; the source targets ssapi.shipstation.com, i.e. V1, not the api.shipstation.com V2 API)>
+API v1 (11): `customers`, `fulfillments`, `marketplaces`, `orders`, `packages`, `products`, `services`, `shipments`, `stores`, `users`, `warehouses`.
+
+Verified against the [v1 reference](https://www.shipstation.com/docs/api/) and [v2 OpenAPI specification](https://github.com/shipstation/mcp-shipstation-api/blob/master/openapi.yaml) on 2026-11-06.
 
 - [x] `GET /carriers (List Carriers)` — Lookup resolving the carrierCode carried on every synced order, shipment and fulfillment row (high)
-- [ ] `GET /carriers/listservices (List Services)` — Lookup resolving serviceCode on shipments and orders — required to report shipping cost by service level (high)
+- [x] `GET /carriers/listservices (List Services)` — Carrier service lookup in v1; v2 uses `/carriers/{carrier_id}/services` (high)
 - [x] `GET /accounts/listtags (List Tags)` — Lookup resolving the tagIds array on orders; without it order tags are opaque integers (high)
-- [ ] `GET /users (List Users)` — Lookup resolving the userId assigned to orders and shipments, enabling per-picker/per-agent throughput analysis (high)
-- [ ] `GET /carriers/listpackages (List Packages)` — Lookup resolving packageCode on shipments for packaging-mix analysis (medium)
-- [ ] `GET /stores/marketplaces (List Marketplaces)` — Lookup resolving marketplaceId on the stores table, giving a clean sales-channel dimension (medium)
+- [x] `GET /users (List Users)` — Account user lookup in both versions; v1 includes inactive users (high)
+- [x] `GET /carriers/listpackages (List Packages)` — Carrier package lookup in v1; v2 uses `/carriers/{carrier_id}/packages` (medium)
+- [x] `GET /stores/marketplaces (List Marketplaces)` — Lookup for the marketplaceId on v1 stores (medium)
 
-Note: The seven synced tables cover every V1 collection that holds transactional data (orders, shipments, fulfillments, products, customers, stores, warehouses). Everything genuinely missing is a lookup/dimension table, which is exactly the highest-leverage kind of gap here. Note the vendor also ships a separate V2 API (api.shipstation.com, OpenAPI at https://github.com/shipstation/mcp-shipstation-api/blob/master/openapi.yaml) with batches, manifests, labels, inventory and pickups — a different product surface from the V1 API this source uses, so those are not counted as gaps.
+The source supports both API versions and defaults new connections to v2.
+All four added lookup tables use full refresh because their endpoints have no date filter.
+Services and packages read each connected carrier and use a key that includes the carrier identifier.
+The v2 user list uses pagination with a maximum page size of 100.
+Marketplaces remains v1-only because the v2 specification has no equivalent endpoint.
 
 ## ShopWired — **thin**
 
-Today (8): `brands`, `categories`, `customers`, `order_statuses`, `orders`, `products`, `tags`, `vouchers`
+Today (12): `brands`, `categories`, `customers`, `incomplete_orders`, `order_statuses`, `orders`, `payouts`, `product_variations`, `products`, `tags`, `transactions`, `vouchers`
 
 Diffed against: <https://help.shopwired.co.uk/api>
 
-- [ ] `transactions (GET /transactions, listtransactions)` — payment transactions per order — required to reconcile gross revenue against captured payments (high)
-- [ ] `product-variations (GET /products/{id}/variations, listproductvariations)` — SKU-level rows that order line items reference; without it product-level revenue can't be split by variant (high)
-- [ ] `incomplete-orders (GET /incomplete-orders, listincompleteorders)` — abandoned carts — the denominator for any checkout conversion funnel (high)
-- [ ] `payouts (GET /payouts, listpayouts)` — settlement records for reconciling store revenue to money actually received (high)
+- [x] `transactions (GET /shopwired-payments/transactions, listtransactions)` - successful transactions through ShopWired Payments ([reference](https://shopwired.readme.io/reference/listtransactions))
+- [x] `product_variations (GET /products/{product_id}/variations, listproductvariations)` - variations with parent product IDs ([reference](https://shopwired.readme.io/reference/listproductvariations))
+- [x] `incomplete_orders (GET /incomplete-orders, listincompleteorders)` - incomplete orders with optional incremental sync on `created` ([reference](https://shopwired.readme.io/reference/listincompleteorders))
+- [x] `payouts (GET /shopwired-payments/payouts, listpayouts)` - payouts through ShopWired Payments ([reference](https://shopwired.readme.io/reference/listpayouts))
 - [ ] `disputes (GET /disputes, listdisputes)` — chargebacks and their outcomes, a direct revenue leak metric (medium)
 - [ ] `payment-methods (GET /payment-methods, listpaymentmethods)` — lookup table resolving the payment method referenced on synced orders (medium)
 - [ ] `sales (GET /sales, listsales)` — discount campaigns; lookup that explains discounted line prices on synced orders (medium)
@@ -11019,7 +11027,7 @@ Diffed against: <https://help.shopwired.co.uk/api>
 - [ ] `wishlists (GET /wishlists, get_wishlists)` — purchase-intent signal joinable to customers and products already synced (medium)
 - [ ] `newsletter-subscribers (GET /newsletter-subscribers, listnewslettersubscribers)` — marketing list membership joined to customers (medium)
 
-Note: No dynamic table discovery — products/warehouse_sources/sources/shopwired/settings.py hardcodes 8 static paths. The ShopWired ReadMe reference exposes ~45 list/collection endpoints, so PostHog covers roughly a sixth of the API. `tags` maps to /tags (product tags); the separate blog tag/category/post endpoints are unsynced too but are low-value content objects.
+Verified the four completed entries against the official V1 reference on 2026-11-06. Other entries still need verification. Transactions and payouts support full refresh. Product variations use an unpaginated request per product, with resumable pagination of the product list. The table catalog is static. `tags` maps to `/tags`; blog tags, categories, and posts remain unsynced.
 
 ## Shortcut — gaps
 
@@ -11027,13 +11035,13 @@ Today (15): `categories`, `custom_fields`, `entity_templates`, `epics`, `files`,
 
 Diffed against: <https://developer.shortcut.com/api/rest/v3/shortcut.swagger.json>
 
-- [ ] `epic-workflow (GET /api/v3/epic-workflow)` — lookup that resolves epic_state_id on the epics we already sync; without it epic state is an opaque integer (high)
-- [ ] `stories/{id}/history (GET)` — per-story state transition log — the only way to compute cycle time, lead time, or time-in-state (high)
+- [x] `epic-workflow (GET /api/v3/epic-workflow)` - `epic_workflow` retains the workflow object and its nested epic states (high)
+- [x] `stories/{id}/history (GET)` - `story_history` reads each story's changes and adds `story_id` (high)
 - [ ] `milestones (GET /api/v3/milestones)` — lookup resolving milestone_id carried on synced epics; the objectives table does not cover legacy milestones (medium)
 - [ ] `stories/{id}/comments (GET)` — collaboration volume and response latency per story (medium)
 - [ ] `key-results/{id} (GET)` — resolves key_result_ids already present on synced objectives; hydrate by id since there is no list endpoint (medium)
-- [ ] `documents (GET /api/v3/documents)` — docs collection with epic linkage via /documents/{id}/epics (medium)
-- [ ] `epics/{id}/comments (GET)` — epic-level discussion volume (medium)
+- [x] `documents (GET /api/v3/documents)` - document IDs, titles, and application URLs; content and epic links require separate endpoints (medium)
+- [x] `epics/{id}/comments (GET)` - `epic_comments` retains nested replies and adds `epic_id` (medium)
 - [ ] `epics/{id}/health-history (GET)` — epic health status transitions over time (low)
 - [ ] `objectives/{id}/health-history (GET)` — objective health status transitions over time (low)
 
@@ -11041,14 +11049,14 @@ Note: Coverage of the flat top-level collections is complete — every un-pagina
 
 ## Shortio — **thin**
 
-Today (1): `domains`
+Today (5): `domains`, `links`, `link_clicks`, `last_clicks`, `link_by_interval`
 
 Diffed against: <https://api.short.io/openapi.json>
 
-- [ ] `links (GET /api/links)` — the core entity; syncing domains without links leaves nothing to analyze (high)
-- [ ] `statistics/domain/{domainId}/last_clicks (POST, statistics.short.io)` — raw click event stream — event-level grain everything else aggregates from (high)
-- [ ] `statistics/domain/{domainId}/link_clicks (GET/POST, statistics.short.io)` — clicks per link, the headline metric of the product (high)
-- [ ] `statistics/link/{linkId}/by_interval (POST, statistics.short.io)` — per-link click time series for trend analysis (high)
+- [x] `links (GET /api/links)` — paginated links for every domain (high)
+- [x] `statistics/domain/{domainId}/last_clicks (POST, statistics.short.io)` — paginated raw clicks for every domain (high)
+- [x] `statistics/domain/{domainId}/link_clicks (GET/POST, statistics.short.io)` — click counts by link ID through GET (high)
+- [x] `statistics/link/{linkId}/by_interval (POST, statistics.short.io)` — daily click counts by link (high)
 - [ ] `statistics/domain/{domainId}/by_interval (POST, statistics.short.io)` — domain-level click time series (medium)
 - [ ] `statistics/domain/{domainId}/top (POST, statistics.short.io)` — breakdown dimensions (country, referrer, device, browser) ordered by clicks (medium)
 - [ ] `statistics/link/{linkId}/top (POST, statistics.short.io)` — same breakdown dimensions scoped to a single link (medium)
@@ -11057,28 +11065,35 @@ Diffed against: <https://api.short.io/openapi.json>
 - [ ] `statistics/domain/{domainId}/paths (GET, statistics.short.io)` — most popular link paths in a time window (low)
 - [ ] `links/bundle/{id}/links (GET)` — link-in-bio bundle membership (low)
 
-Note: Only `domains` is synced (settings.py has a single endpoint, no dynamic discovery). Short.io splits its API across two hosts: the management API at api.short.io (spec fetched above) and a separate statistics API at https://statistics.short.io, documented at https://developers.short.io/reference (endpoint titles and URLs verified page by page). The click data — the whole point of a link shortener — lives entirely on the statistics host and is completely unsynced.
+Verified on 2026-11-06 against the management spec and the official statistics reference pages: [link clicks](https://developers.short.io/reference/getdomaindomainidlink_clicks), [raw clicks](https://developers.short.io/reference/postdomaindomainidlast_clicks), and [link intervals](https://developers.short.io/reference/postlinklinkidby_interval).
+Short.io splits its API across api.short.io and statistics.short.io.
+All five tables use full refresh.
+The links endpoint filters by creation date, which cannot capture updates to existing links.
+Raw clicks have no unique event ID, so the source preserves separate clicks rather than merging on visitor fields.
+Statistics request all history available to the account; intervals use daily UTC buckets.
+Links and raw clicks support resume within a domain.
+The shared REST framework restarts the two-level link statistics walk after an interrupted attempt.
 
 ## Shutterstock — gaps
 
-Today (9): `image_categories`, `image_collections`, `image_licenses`, `images_updated`, `subscriptions`, `video_categories`, `video_collections`, `video_licenses`, `videos_updated`
+Today (15): `audio_genres`, `audio_instruments`, `audio_licenses`, `audio_moods`, `image_categories`, `image_collection_items`, `image_collections`, `image_licenses`, `images_updated`, `subscriptions`, `video_categories`, `video_collection_items`, `video_collections`, `video_licenses`, `videos_updated`
 
 Diffed against: <https://api-reference.shutterstock.com/>
 
-- [ ] `images/collections/{id}/items and videos/collections/{id}/items (GET)` — the join table for collections we already sync — without it a collection row has no members (high)
-- [ ] `audio/licenses (GET /v2/audio/licenses)` — audio licensing transactions, the same analytical shape as the image and video licenses already synced (high)
-- [ ] `images/licenses/{id}/downloads, videos/licenses/{id}/downloads, audio/licenses/{id}/downloads (GET)` — actual download events per license — usage grain under the license rows we sync (high)
+- [x] `images/collections/{id}/items and videos/collections/{id}/items (GET)` - added `image_collection_items` and `video_collection_items`, with `collection_id` on each member.
+- [x] `audio/licenses (GET /v2/audio/licenses)` - added `audio_licenses`, with incremental sync on `download_time`.
+- [x] `images/licenses/{id}/downloads, videos/licenses/{id}/downloads, audio/licenses/{id}/downloads (GET)` - skipped: the official v2 reference documents POST actions that generate download URLs. These paths do not list download events.
 - [ ] `editorial/licenses (GET /v2/editorial/licenses)` — editorial licensing transactions, missing from the licensing picture entirely (medium)
 - [ ] `sfx/licenses (GET /v2/sfx/licenses)` — sound-effects licensing transactions (medium)
 - [ ] `contributors/{contributor_id} (GET /v2/contributors)` — lookup resolving the contributor id carried on every synced asset; accepts comma-separated ids (medium)
 - [ ] `audio/collections and audio/collections/{id}/items (GET)` — audio collection membership, mirroring image and video collections (medium)
 - [ ] `editorial/images/updated and editorial/videos/updated (GET)` — editorial catalog deltas alongside the images_updated and videos_updated feeds already synced (medium)
-- [ ] `audio/genres, audio/instruments, audio/moods (GET)` — taxonomy lookup tables for audio, equivalent to the image and video category tables (medium)
+- [x] `audio/genres, audio/instruments, audio/moods (GET)` - added `audio_genres`, `audio_instruments`, and `audio_moods` as full-refresh tables.
 - [ ] `editorial/images/categories and editorial/videos/categories (GET)` — editorial taxonomy lookups (medium)
 - [ ] `catalog/collections and catalog/collections/{collection_id}/items (GET)` — the customer's own asset catalog and its membership (medium)
 - [ ] `images/collections/featured and videos/collections/featured (GET, plus /items)` — Shutterstock-curated collections and their contents (low)
 
-Note: Coverage is solid for the images and videos verticals (categories, collections, licenses, updated feeds) but the audio, SFX, and editorial verticals are entirely absent, and collection membership is never resolved.
+Note: Image and video collections include their members. Audio licenses and taxonomy tables are available. Audio collections, SFX, and editorial data remain gaps.
 
 ## SigmaComputing — gaps
 
@@ -11118,27 +11133,30 @@ Diffed against: <https://docs.sim.ai/openapi.json>
 
 Note: Parsed every GET operation in the official OpenAPI specification and compared paths with the two static tables. Workflow versions resolve deployment identifiers already present in logs; rows and memberships require requests for each parent. Organization usage requires administrator access and Usage Monitoring; audit logs require Enterprise access. Excluded secrets, credentials, upload operations, and overlapping run lists.
 
-## SimFin — gaps
+## SimFin — covered
 
-Today (9): `balance_sheets`, `cash_flow_statements`, `common_shares_outstanding`, `companies`, `company_details`, `derived_ratios`, `income_statements`, `share_prices`, `weighted_shares_outstanding`
+Today (12): `balance_sheets`, `cash_flow_statements`, `common_shares_outstanding`, `companies`, `company_details`, `derived_ratios`, `income_statements`, `share_prices`, `weighted_shares_outstanding`, `filings`, `data_change_log`, `changed_companies`
 
 Diffed against: <https://simfin.readme.io/reference/1-1>
 
-- [ ] `filings/list (GET /api/v3/filings/list) and filings/by-company (GET /api/v3/filings/by-company)` — the SEC filing index — filing dates and types are what make a statement period's data auditable and tell you when a figure became public (high)
-- [ ] `companies/data-change-log (GET /api/v3/companies/data-change-log)` — restatement and revision history for figures already synced; also the natural driver for incremental refresh (medium)
-- [ ] `companies/changed-companies (GET /api/v3/companies/changed-companies)` — list of companies whose data moved in a window, useful as a change-detection lookup (low)
+- [x] `filings/by-company (GET /api/v3/filings/by-company)` - `filings` reads filing metadata for each configured ticker. The global `filings/list` overlaps this data and is omitted.
+- [x] `companies/data-change-log (GET /api/v3/companies/data-change-log)` - `data_change_log` reads database changes across all companies, with pagination.
+- [x] `companies/changed-companies (GET /api/v3/companies/changed-companies)` - `changed_companies` reads companies with modified data across SimFin.
 
-Note: The v3 API is small (14 paths total) and PostHog covers the whole fundamentals surface: companies/list, general/compact, statements/compact (income, balance, cash flow, derived ratios), prices/compact, and both shares-outstanding endpoints. Only the filings resource and the two change-tracking endpoints are unsynced. The /verbose variants of general, prices, and statements return the same data with richer metadata, so they are not separate tables.
+Verified against the official [filing reference](https://simfin.readme.io/reference/2-1), [change log reference](https://simfin.readme.io/reference/11-1), and [changed companies reference](https://simfin.readme.io/reference/12). All three tables use full refresh and are disabled by default. The change log has no date filter. Changed companies accepts `start`, but the reference specifies no response field for an incremental cursor. The utility tables ignore the configured tickers.
+
+Note: Filing document downloads return HTML or PDF, so they are excluded. The verbose variants of general, prices, and statements overlap the compact datasets and are not separate tables.
 
 ## Similarweb — **thin**
 
-Today (8): `average_visit_duration`, `bounce_rate`, `global_rank`, `page_views`, `pages_per_visit`, `traffic_by_country`, `traffic_sources`, `visits`
+Today (12): `average_visit_duration`, `bounce_rate`, `conversion_analysis`, `deduplicated_audience`, `global_rank`, `page_views`, `pages_per_visit`, `traffic_by_country`, `traffic_sources`, `visits`, `visits_split`, `website_keywords`
 
 Diffed against: <https://developers.similarweb.com/llms.txt>
 
-- [ ] `Website Keywords (GET /v4/website-analysis/keywords)` — identify search terms that drive traffic and compare organic and paid acquisition (high)
-- [ ] `Deduplicated Audience (GET /v1/website/{domain_name}/dedup/deduplicated-audiences)` — measure unique visitors across devices without counting the same person twice (high)
-- [ ] `Conversion Analysis - Desktop (GET /v1/segment/{conversion_segment_id}/conversion-analysis/query)` — compare conversion rates and converted visits for configured website segments (high)
+- [x] `Website Keywords (GET /v4/website-analysis/keywords)` - `website_keywords` requests one month at a time and resumes offset pagination.
+- [x] `Deduplicated Audience (GET /v1/website/{domain_name}/dedup/deduplicated-audiences)` - `deduplicated_audience` provides monthly audience size and device overlap.
+- [x] `Conversion Analysis - Desktop (GET /v1/segment/{conversion_segment_id}/conversion-analysis/query)` - `conversion_analysis` discovers account segments for configured domains. Requires a two-letter country code.
+- [x] `Desktop vs. Mobile Split (GET /v1/website/{domain_name}/total-traffic-and-engagement/visits-split)` - `visits_split` provides aggregate device shares with full refresh.
 - [ ] `Popular Pages (GET /v5/website-content/pages/popular-pages/aggregated)` — identify pages that attract the most traffic and track their traffic share (medium)
 - [ ] `Demographics 2.0: Groups (GET /v4/website/{domain_name}/demographics_v2/groups)` — compare audience composition and engagement by age and gender (medium)
 - [ ] `Referrals - Desktop (GET /v4/website/{domain_name}/traffic-sources/referrals)` — identify referring websites behind the aggregate referral channel (medium)

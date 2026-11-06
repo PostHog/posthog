@@ -268,23 +268,27 @@ const pinEditorViewport = (): (() => void) => {
 }
 
 // Monaco takes focus when it mounts, so open the menu only after the editor is ready.
-const openSaveMenu: Story['play'] = async ({ canvasElement }) => {
+const openSaveMenu = async (canvasElement: HTMLElement, menuText = 'Save query as'): Promise<void> => {
     await waitForEditor(canvasElement)
     const body = within(canvasElement.ownerDocument.body)
-    const trigger = canvasElement.querySelector<HTMLElement>('[data-attr="sql-editor-save-options-button"]')
-    expect(trigger).toBeTruthy()
-    await userEvent.click(trigger!)
-    await waitFor(() => expect(body.getByText('Save query as')).toBeVisible())
+    await waitFor(async () => {
+        if (!body.queryByText(menuText)) {
+            const trigger = canvasElement.querySelector<HTMLElement>('[data-attr="sql-editor-save-options-button"]')
+            expect(trigger).toBeVisible()
+            await userEvent.click(trigger!)
+        }
+        expect(body.getByText(menuText)).toBeVisible()
+    })
 }
 
 // Waits for the insight to load and show its unsaved edit before it opens the save menu.
-const openEditedInsightSaveMenu: Story['play'] = async (context) => {
-    const canvas = within(context.canvasElement)
+const openEditedInsightSaveMenu = async (canvasElement: HTMLElement, menuText = 'Save query as'): Promise<void> => {
+    const canvas = within(canvasElement)
     await waitFor(
         () => expect(canvas.getByRole('button', { name: 'Discard changes' })).toHaveAttribute('aria-disabled', 'false'),
         { timeout: 30000 }
     )
-    await openSaveMenu(context)
+    await openSaveMenu(canvasElement, menuText)
 }
 
 export const SaveAsFlowQuill: Story = {
@@ -300,7 +304,7 @@ export const SaveAsFlowQuill: Story = {
             },
         },
     },
-    play: openSaveMenu,
+    play: async ({ canvasElement }) => openSaveMenu(canvasElement),
 }
 
 export const CustomerImages: Story = {
@@ -508,9 +512,8 @@ export const EditedInsight: Story = {
         await waitFor(() => expect(canvas.getByText('Edited')).toBeVisible())
         await expect(canvas.getByRole('button', { name: 'Update insight' })).toHaveAttribute('aria-disabled', 'false')
         await expect(canvas.getByRole('button', { name: 'Continue in a notebook' })).toBeVisible()
-        await userEvent.click(canvasElement.querySelector('[data-attr="sql-editor-save-options-button"]')!)
+        await openSaveMenu(canvasElement)
         const menu = within(canvasElement.ownerDocument.body)
-        await menu.findByText('Save query as')
         await expect(menu.queryByRole('menuitem', { name: 'Continue in a notebook' })).not.toBeInTheDocument()
         await expect(
             canvasElement.ownerDocument.querySelector('[data-attr="sql-editor-save-as-insight"]')
@@ -543,7 +546,7 @@ export const EditedInsightSaveAsFlow: Story = {
         pageUrl: `${urls.sqlEditor({ insightShortId: DISCARD_INSIGHT.short_id })}#q=SELECT%202`,
         msw: { mocks: discardMocks },
     },
-    play: openEditedInsightSaveMenu,
+    play: async ({ canvasElement }) => openEditedInsightSaveMenu(canvasElement),
 }
 
 export const EditedInsightSaveAsFlowQuill: Story = {
@@ -553,7 +556,7 @@ export const EditedInsightSaveAsFlowQuill: Story = {
         pageUrl: `${urls.sqlEditor({ insightShortId: DISCARD_INSIGHT.short_id })}#q=SELECT%202`,
         msw: { mocks: discardMocks },
     },
-    play: openEditedInsightSaveMenu,
+    play: async ({ canvasElement }) => openEditedInsightSaveMenu(canvasElement),
 }
 
 export const EditedInsightLegacySaveMenu: Story = {
@@ -564,10 +567,7 @@ export const EditedInsightLegacySaveMenu: Story = {
         msw: { mocks: discardMocks },
     },
     play: async ({ canvasElement }) => {
-        await waitForEditor(canvasElement)
-        const canvas = within(canvasElement)
-        await canvas.findByRole('button', { name: 'Discard changes' }, { timeout: 15000 })
-        await userEvent.click(canvasElement.querySelector('[data-attr="sql-editor-save-options-button"]')!)
+        await openEditedInsightSaveMenu(canvasElement, 'Save as new insight...')
         const menu = within(canvasElement.ownerDocument.body)
         await expect(await menu.findByRole('menuitem', { name: 'Save as new insight...' })).toHaveAttribute(
             'aria-disabled',
