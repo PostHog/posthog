@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from parameterized import parameterized
 
 from posthog.schema import LLMTrace
@@ -14,6 +16,7 @@ def _sampled(trace_id: str, product: str, held_out: bool = False, earlier: tuple
         spans_days=False,
         segments={"ai_product": product},
         segment_values={"ai_product": frozenset({product, *earlier})},
+        raw_segment_values={"ai_product": frozenset({product, *earlier})},
         raw_segments={"ai_product": product},
         final_text="answer",
         turn_text="",
@@ -198,6 +201,8 @@ def test_judge_rollout_stays_near_the_weekly_budget(
         ("last_generation_matches", "batch", (), True),
         ("an_earlier_generation_matches", "chat", ("batch",), True),
         ("no_generation_matches", "chat", (), False),
+        # batch-2 normalizes to the same segment, but the live filter compares the exact value.
+        ("only_a_sibling_value_matches", "batch-2", (), False),
     ]
 )
 def test_a_filtered_check_runs_where_any_generation_matches(
@@ -218,3 +223,17 @@ def test_a_screened_judge_counts_runs_in_its_own_unit(target: str, weekly_units:
     )
 
     assert proposal is not None and proposal.estimated_weekly_runs == weekly_units
+
+
+@parameterized.expand(
+    [
+        ("generation_reads_its_own_input", "generation", [5000.0], 1200.0),
+        ("trace_reads_its_generations", "trace", [5000.0, 7000.0], 6000.0),
+        ("trace_stops_at_the_transcript_cap", "trace", [400_000.0], 37_500.0),
+        ("session_reads_its_traces", "session", [5000.0], 50_000.0),
+    ]
+)
+def test_judge_tokens_per_run(_name: str, target: str, trace_tokens: list[float], expected: float) -> None:
+    traces = [replace(_sampled(f"t{i}", "chat"), input_tokens=tokens) for i, tokens in enumerate(trace_tokens)]
+    # PROFILE holds 1,000 traces in 100 sessions, 10 traces each.
+    assert ranking.mean_unit_tokens(target, PROFILE, TraceSample(main=traces, held_out=[])) == expected

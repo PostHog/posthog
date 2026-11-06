@@ -411,10 +411,13 @@ def find_fixes(
                 )
             )
 
+    # Runs before an edit judged an older version, so an evaluation edited within the window waits for clean runs.
     suspicious = {
         evaluation_id: counts
         for evaluation_id, counts in runs.items()
-        if counts[0] >= SUSPICIOUS_MIN_RUNS and max(counts[1], counts[2]) / counts[0] > SUSPICIOUS_SHARE
+        if counts[0] >= SUSPICIOUS_MIN_RUNS
+        and max(counts[1], counts[2]) / counts[0] > SUSPICIOUS_SHARE
+        and now - enabled[evaluation_id].updated_at >= DEAD_LOOKBACK
     }
     if suspicious:
         shared = {

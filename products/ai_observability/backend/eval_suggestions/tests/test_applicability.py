@@ -106,6 +106,7 @@ def _trace_calling(trace_id: str, *tools: str) -> SampledTrace:
         spans_days=False,
         segments={},
         segment_values={},
+        raw_segment_values={},
         raw_segments={},
         final_text="",
         turn_text="",
