@@ -133,10 +133,21 @@ class BillingPanel(Panel):
         limited = QuotaLimits.limited(obj)
         if not limited:
             return [Fact(label="Limited products", value="None", tone=Tone.SUCCESS)]
+        ordered = sorted(limited.items(), key=lambda item: item[0].value)
+        # Past the panel's fact limit, the last fact counts the rest, so a long list never looks complete when it is not.
+        shown = ordered if len(ordered) <= MAX_FACTS_PER_PANEL else ordered[: MAX_FACTS_PER_PANEL - 1]
         facts = []
-        for resource, until in sorted(limited.items(), key=lambda item: item[0].value)[:MAX_FACTS_PER_PANEL]:
+        for resource, until in shown:
             when = datetime.fromtimestamp(until, tz=UTC).strftime("%b %-d, %Y") if until else "no end date"
             facts.append(Fact(label=resource.value, value=f"Limited until {when}", tone=Tone.WARNING))
+        if len(shown) < len(ordered):
+            facts.append(
+                Fact(
+                    label="More limits",
+                    value=f"{len(ordered) - len(shown)} more products are limited. The raw record in Django admin lists every one.",
+                    tone=Tone.WARNING,
+                )
+            )
         return facts
 
     def operations(self, obj: Model) -> list[Operation]:

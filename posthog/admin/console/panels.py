@@ -45,7 +45,8 @@ class Fact:
         if isinstance(self.label, SafeData) or isinstance(self.value, SafeData):
             raise ValueError(f"Fact {self.label!r} must be plain text, not markup")
         # Facts link within PostHog only, so a value that came from customer data cannot become an outside link.
-        if self.href is not None and (not self.href.startswith("/") or self.href.startswith("//")):
+        # Browsers read a leading "/\\" like "//", so both would leave the site.
+        if self.href is not None and (not self.href.startswith("/") or self.href.startswith(("//", "/\\"))):
             raise ValueError(f"Fact {self.label!r} links to {self.href!r}. Link to a PostHog path that starts with /.")
 
 

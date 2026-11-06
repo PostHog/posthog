@@ -1,4 +1,5 @@
-from io import StringIO
+from collections import deque
+from io import TextIOBase
 
 from django import forms
 from django.contrib import messages
@@ -27,11 +28,36 @@ class ResaveCohortsForm(forms.Form):
     )
 
 
+class OutputTail(TextIOBase):
+    """Keeps the last lines a command prints and counts them all, so a run across every team stays small in memory."""
+
+    def __init__(self, keep: int) -> None:
+        super().__init__()
+        self.lines: deque[str] = deque(maxlen=keep)
+        self.line_count = 0
+        self._partial = ""
+
+    def write(self, text: str) -> int:
+        *complete, self._partial = (self._partial + text).split("\n")
+        for line in complete:
+            if line.strip():
+                self.lines.append(line)
+                self.line_count += 1
+        return len(text)
+
+    def finish(self) -> list[str]:
+        if self._partial.strip():
+            self.lines.append(self._partial)
+            self.line_count += 1
+            self._partial = ""
+        return list(self.lines)
+
+
 class ResaveCohorts:
-    """Runs the `resave_cohorts` management command from the console and keeps what it printed."""
+    """Runs the `resave_cohorts` management command from the console and keeps the end of what it printed."""
 
     @staticmethod
-    def run(form: forms.Form) -> tuple[str, CommandError | None]:
+    def run(form: forms.Form) -> tuple[OutputTail, CommandError | None]:
         command_kwargs: dict[str, object] = {
             "batch_size": form.cleaned_data["batch_size"],
             "dry_run": form.cleaned_data["dry_run"],
@@ -42,13 +68,13 @@ class ResaveCohorts:
             # "no team given" would widen the run to every team. `call_command` skips argparse coercion for
             # keyword options, so the list that `--team-id` builds is passed already built.
             command_kwargs["team_id"] = [team_id]
-        output = StringIO()
+        output = OutputTail(keep=MAX_OUTPUT_LINES)
         try:
             call_command("resave_cohorts", stdout=output, no_color=True, **command_kwargs)
         except IncompleteResaveError as error:
             # The run finished and kept its saves, so this is a result with problems, not a failure to start.
-            return output.getvalue(), error
-        return output.getvalue(), None
+            return output, error
+        return output, None
 
 
 def resave_cohorts(request: HttpRequest, form: forms.Form | None) -> HttpResponse | Page | None:
@@ -58,17 +84,16 @@ def resave_cohorts(request: HttpRequest, form: forms.Form | None) -> HttpRespons
     except CommandError as error:
         messages.error(request, f"The re-save did not start: {error}")
         return HttpResponse(status=400)
-    lines = output.strip().splitlines()
+    lines = output.finish()
     summary = lines[-1] if lines else "The command printed nothing."
     if problem is not None:
         messages.warning(request, f"The re-save finished with problems: {problem}")
     if form.cleaned_data["dry_run"]:
         # Nothing was saved, so a reload that runs it again is harmless.
-        shown = lines[-MAX_OUTPUT_LINES:]
         notice = "Dry run, nothing was saved."
-        if len(shown) < len(lines):
-            notice += f" Showing the last {MAX_OUTPUT_LINES} of {len(lines)} lines."
-        return Page(blocks=(Notice(text=notice), Output(text="\n".join(shown))))
+        if len(lines) < output.line_count:
+            notice += f" Showing the last {len(lines)} of {output.line_count} lines."
+        return Page(blocks=(Notice(text=notice), Output(text="\n".join(lines))))
     messages.success(request, summary)
     return None
 

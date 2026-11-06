@@ -1,3 +1,5 @@
+from io import TextIOBase
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -7,6 +9,8 @@ from django.core.management import CommandError
 from parameterized import parameterized
 
 from posthog.management.commands.resave_cohorts import UnclassifiedCohortsError
+
+from products.cohorts.backend.console import MAX_OUTPUT_LINES
 
 RUN_URL = "/admin/console/tools/resave-cohorts/run/"
 CALL_COMMAND = "products.cohorts.backend.console.call_command"
@@ -65,8 +69,31 @@ class TestResaveCohortsTool(BaseTest):
         assert response.status_code == expected_status
         assert any(level == expected_level and str(error) in text for level, text in self._messages(response))
 
-    def test_the_old_admin_page_redirects_to_the_tool(self) -> None:
+    @parameterized.expand(
+        [
+            ("staff", True, "/admin/console/tools/resave-cohorts/?team_id=7"),
+            ("signed_out", False, "/admin/login/"),
+        ]
+    )
+    def test_the_old_admin_page_redirects_staff_to_the_tool(self, _name: str, signed_in: bool, expected: str) -> None:
+        if not signed_in:
+            self.client.logout()
+
         response = self.client.get("/admin/resave-cohorts/?team_id=7")
 
         assert response.status_code == 302
-        assert response["Location"] == "/admin/console/tools/resave-cohorts/?team_id=7"
+        assert response["Location"].startswith(expected)
+
+    @patch(CALL_COMMAND)
+    def test_a_long_dry_run_keeps_only_the_last_lines(self, call_command: MagicMock) -> None:
+        def print_teams(*args: object, stdout: TextIOBase, **kwargs: object) -> None:
+            for team in range(1, MAX_OUTPUT_LINES + 51):
+                stdout.write(f"Processing team {team}\n")
+
+        call_command.side_effect = print_teams
+
+        content = self.client.post(RUN_URL, {"batch_size": 500, "dry_run": "on"}).content.decode()
+
+        assert f"Showing the last {MAX_OUTPUT_LINES} of {MAX_OUTPUT_LINES + 50} lines." in content
+        assert f"Processing team {MAX_OUTPUT_LINES + 50}" in content
+        assert content.count("Processing team ") == MAX_OUTPUT_LINES

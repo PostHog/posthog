@@ -15,13 +15,14 @@ from django.utils.html import format_html
 
 from parameterized import parameterized
 
-from posthog.admin.console.organization_panels import QuotaLimits
+from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Owner, Panel, ReasonForm
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.tools import Cell, ConsoleTool, Page, Row, Table
 from posthog.csp_middleware import CSPMiddleware
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
+from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -152,6 +153,11 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 lambda: Fact(label="Docs", value="Read", href="//example.com/phish"),
                 "starts with /",
             ),
+            (
+                "fact_linking_off_site_with_a_backslash",
+                lambda: Fact(label="Docs", value="Read", href="/\\example.com/phish"),
+                "starts with /",
+            ),
             ("unknown_tool_block", lambda: Page(blocks=(Fact(label="a", value="b"),)), "not a console block"),  # type: ignore[arg-type]
             (
                 "table_row_missing_a_cell",
@@ -165,6 +171,22 @@ class TestAdminConsoleAssets(SimpleTestCase):
     ) -> None:
         with self.assertRaisesRegex(ValueError, message):
             contribute()
+
+    @parameterized.expand(
+        [
+            ("fits", MAX_FACTS_PER_PANEL, MAX_FACTS_PER_PANEL, False),
+            ("overflows", MAX_FACTS_PER_PANEL + 1, MAX_FACTS_PER_PANEL, True),
+        ]
+    )
+    def test_billing_facts_count_the_limits_past_the_panel_cap(
+        self, _name: str, limited_count: int, expected_facts: int, mentions_more: bool
+    ) -> None:
+        limited: dict[QuotaResource, int | None] = dict.fromkeys(list(QuotaResource)[:limited_count])
+        with patch.object(QuotaLimits, "limited", return_value=limited):
+            facts = BillingPanel().facts(Organization(name="Many limits"))
+
+        assert len(facts) == expected_facts
+        assert (facts[-1].label == "More limits") == mentions_more
 
 
 class TestAdminConsoleTheme(SimpleTestCase):

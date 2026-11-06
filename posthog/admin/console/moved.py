@@ -1,6 +1,6 @@
 from collections.abc import Callable
 
-from django.contrib import messages
+from django.contrib import admin, messages
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.urls import reverse
@@ -25,7 +25,8 @@ class MovedToConsole:
             query = request.META.get("QUERY_STRING", "")
             return HttpResponseRedirect(url + (f"?{query}" if query else ""))
 
-        return view
+        # Like every console route, an old URL answers only to signed-in staff.
+        return admin.site.admin_view(view)
 
     @staticmethod
     def record_redirect(plural: str, target: str) -> Callable[..., HttpResponse]:
