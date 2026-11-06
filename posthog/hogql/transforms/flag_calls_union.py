@@ -90,11 +90,9 @@ _COMPARED_VALUES_BUDGET = 100_000
 # events table, so each of these names shadows a CTE in every query.
 _EVENTS_FIELDS = frozenset(EventsTable().fields)
 
-# The value the flag-call finder gives a CTE whose value is not a constant or a list of constants. Such a value can
-# read a name that binds in the scope around the WITH, which the finder does not track, or compute
-# `$feature_flag_called`. So the finder treats the CTE as one that names flag calls. A scan that the union can read
-# then costs a second table read. On mode 2, a scan that the union refuses then fails the query. `_swap_applies` skips
-# a top-level query that holds no `$feature_flag_called` constant, so such a query never reaches this finder.
+# The value the flag-call finder gives a CTE whose value is not a constant or a list of constants, because such a value
+# can compute `$feature_flag_called` or read a name the finder does not track. A scan that the union can read then
+# costs a second table read. On mode 2, a scan that the union refuses then fails the query.
 _MAY_NAME_FLAG_CALLS = ast.Constant(value=FLAG_CALLED_EVENT)
 
 # The value the flag-call finder gives a read of a lambda argument. It is not a field, so the finder never reads the
@@ -523,7 +521,6 @@ class _FlagCallScan:
     position: int
     scan: EventsScan
     literals: list[ast.Constant]
-    # The CTE values whose `$feature_flag_called` constants also name the scan's flag calls.
     with_values: list["_WithValue"]
 
     @property
@@ -885,8 +882,7 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         self.lambda_names: ChainMap[str, ast.Expr] | None = None
         self.values_left = _COMPARED_VALUES_BUDGET
         self.literals: list[ast.Constant] = []
-        # The CTE values with a `$feature_flag_called` constant that the scan reads, by id. A CTE's list can be read by
-        # many scans, so each finder keeps the cached value, not a copy of its literals.
+        # A CTE's list can be read by many scans, so each finder keeps the cached value, not a copy of its literals.
         self.with_values_read: dict[int, _WithValue] = {}
 
     @property
@@ -996,7 +992,6 @@ class _UnionRenamer(ScanVisitor):
         self.refusals: list[UnionRefusal] = []
         self.with_values = _WithValues()
         self.literal_spans: set[tuple[int, int]] = set()
-        # The CTE values whose literal spans `literal_spans` already holds.
         self.spanned_with_values: set[int] = set()
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
