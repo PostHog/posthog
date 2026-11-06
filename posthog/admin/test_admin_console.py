@@ -23,9 +23,11 @@ from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Table
 from posthog.csp_middleware import CSPMiddleware
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
+from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+from posthog.models.tophog.queries import TopHogFilterOptions
 from posthog.models.user import User
 
 from products.ai_gateway.backend.facade.contracts import TeamCreditAdded, TeamCreditRefused
@@ -515,3 +517,58 @@ class TestAdminConsoleViews(BaseTest):
         assert f"/admin/console/teams/{self.team.pk}/" in content
         assert "Organization default" in content
         assert "September 2025" in content
+
+    @patch("posthog.admin.console.tophog_tool.query_tophog_filter_options")
+    @patch("posthog.admin.console.tophog_tool.query_tophog_metrics")
+    def test_tophog_links_each_entry_to_the_restrictions_of_its_token(
+        self, query_metrics: MagicMock, query_filter_options: MagicMock
+    ) -> None:
+        query_filter_options.return_value = TopHogFilterOptions(pipelines=["analytics"], lanes=["main"])
+        query_metrics.return_value = [
+            {
+                "metric": "emitted_events",
+                "type": "sum",
+                "key": {"team_id": str(self.team.pk), "distinct_id": "did"},
+                "total": 1200,
+                "obs": 3,
+                "pipelines": ["analytics"],
+                "lanes": ["main"],
+            }
+        ]
+
+        response = self.client.get("/admin/tophog/?preset=1h&pipeline=analytics", follow=True)
+
+        assert response.redirect_chain == [("/admin/console/tools/tophog/?preset=1h&pipeline=analytics", 302)]
+        assert query_metrics.call_args.kwargs == {"pipeline": "analytics", "lane": None}
+        content = response.content.decode()
+        assert "TopHog moved to PostHog Admin" in content
+        assert "emitted_events (sum)" in content
+        entry_url = (
+            f"/admin/console/tools/tophog/?token={self.team.api_token}"
+            f"&amp;team_id={self.team.pk}&amp;distinct_id=did&amp;pipelines=analytics"
+        )
+        assert entry_url in content
+
+    @parameterized.expand(
+        [
+            ("with_reason", {"reason": "Event flood"}, 302, ["existing", "new-id"]),
+            ("without_reason", {"reason": "  "}, 400, ["existing"]),
+        ]
+    )
+    def test_tophog_extends_a_restriction_to_cover_an_entry(
+        self, _name: str, data: dict[str, str], expected_status: int, expected_distinct_ids: list[str]
+    ) -> None:
+        restriction = EventIngestionRestrictionConfig.objects.create(
+            token="phc_tophog", restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION, distinct_ids=["existing"]
+        )
+        page = self.client.get("/admin/tophog/restrictions/?token=phc_tophog&distinct_id=new-id", follow=True)
+        assert page.redirect_chain == [("/admin/console/tools/tophog/?token=phc_tophog&distinct_id=new-id", 302)]
+        assert "Extend the drop event from ingestion restriction" in page.content.decode()
+
+        response = self.client.post(
+            f"/admin/console/tools/tophog/extend-{restriction.pk}/?token=phc_tophog&distinct_id=new-id", data
+        )
+
+        assert response.status_code == expected_status
+        restriction.refresh_from_db()
+        assert restriction.distinct_ids == expected_distinct_ids
