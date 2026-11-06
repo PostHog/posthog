@@ -169,17 +169,12 @@ def _stored_email_values(context: dict[str, Any]) -> list[object]:
     return stored
 
 
-def _matches_stored_sender(email_value: dict, context: dict[str, Any]) -> bool:
-    stored = [*_stored_email_values(context), *(context.get("existing_action_email_values") or [])]
-    return any(isinstance(value, dict) and email_value["from"] == value.get("from") for value in stored)
-
-
-def _matches_stored_email(email_value: dict, context: dict[str, Any]) -> bool:
+def _matches_stored_email(email_value: dict, stored_values: list[object]) -> bool:
     return any(
         isinstance(stored, dict)
         and email_value["from"] == stored.get("from")
         and (email_value.get("replyTo") or "") == (stored.get("replyTo") or "")
-        for stored in _stored_email_values(context)
+        for stored in stored_values
     )
 
 
@@ -203,7 +198,8 @@ def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) 
     if len(integration_ids) > MAX_WORKFLOW_EMAIL_SENDERS:
         raise serializers.ValidationError({"input": f"At most {MAX_WORKFLOW_EMAIL_SENDERS} email senders are allowed."})
     sandbox_ids = _sandbox_email_sender_ids(context)
-    if templated_sender and sandbox_ids and not _matches_stored_sender(email_value, context):
+    stored_step_values = [*_stored_email_values(context), *(context.get("existing_action_email_values") or [])]
+    if templated_sender and sandbox_ids and not _matches_stored_email(email_value, stored_step_values):
         raise serializers.ValidationError(
             {
                 "input": "A templated sender is not supported while the project has the sandbox sender. "
@@ -222,7 +218,7 @@ def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) 
                 "input": "The sandbox sender cannot send transactional email. Select a sender on your own verified domain."
             }
         )
-    if _matches_stored_email(email_value, context):
+    if _matches_stored_email(email_value, _stored_email_values(context)):
         return
     is_test_send = getattr(context.get("view"), "action", None) == "invocations"
     if context.get("workflow_action_type") != "function_email" and not is_test_send:

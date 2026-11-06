@@ -33,7 +33,7 @@ Staff turn the sandbox sender off for one organization by adding a `SandboxSende
 While the block exists, the endpoint returns 404 for the organization's projects. Existing sandbox senders stay.
 The email worker, not this endpoint, skips their sends while the block exists, so keep `workflows-sandbox-sender` on test projects until the worker reads the block in every region.
 Set `WORKFLOWS_SANDBOX_SENDER_DOMAIN`, `SES_SANDBOX_FROM_ADDRESS`, and `SES_SANDBOX_TENANT_NAME` in Django; any empty value, or a from address that is not an address on the sandbox domain or its subdomains, leaves the endpoint unavailable.
-While the flag is on for a project, each request with such settings reports `SandboxSenderMisconfigured` to error tracking.
+While the flag is on for a project whose organization isn't blocked, each request with such settings reports `SandboxSenderMisconfigured` to error tracking.
 Teams can't register an integration on `WORKFLOWS_SANDBOX_SENDER_DOMAIN` or its subdomains while that setting has a value, even when the other two are empty.
 The worker sends from the same `SES_SANDBOX_FROM_ADDRESS`, so set it once for Django and the worker. The address the UI shows is then the address the worker sends from.
 With the flag on, any project member who opens the Channels page, or the push step of the workflows setup guide, creates the sender. Channels shows it in its own row.
