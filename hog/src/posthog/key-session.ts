@@ -10,8 +10,7 @@ export class KeySession {
     // PostHog also answers 401 for a valid token when the account can't act. Once a renewed token
     // gets 401 too, renewing again for every request would only rotate the login for nothing.
     private renewalHelps = true
-    // One renewal at a time, so concurrent requests that find the key about to expire, or rejected,
-    // share it instead of each renewing.
+    // One renewal at a time, so concurrent requests share it instead of each renewing.
     private renewal: Promise<AccessKey> | undefined
 
     constructor(

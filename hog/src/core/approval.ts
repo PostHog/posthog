@@ -46,18 +46,14 @@ export interface ApprovalFlow<Pending extends PendingApproval, Value> {
     // Whether a pending item from an earlier run can stand in for a new one, so an agent that
     // retries hands the person the link it already shared.
     reuse?: (existing: Pending) => boolean
-    // Asks PostHog about a pending item `reuse` accepted, for a request someone can resolve in the
-    // browser while hog isn't waiting. Resolves to the item to keep, or undefined to start a new one.
+    // Rechecks a reused item someone may have resolved in the browser. Undefined starts a new one.
     refresh?: (existing: Pending) => Promise<Pending | undefined>
-    // Who has to approve it when the person who started it can't, like an organization admin. hog
-    // then hands them the link to send on and exits instead of waiting.
+    // Who approves when the person at the terminal can't, so hog hands over the link instead of waiting.
     approver?: (pending: Pending) => string | undefined
     // `timeoutMs` is how long the poll request may take before the request expires.
     poll: (pending: Pending, timeoutMs: number) => Promise<PollOutcome<Value>>
-    // The longest one wait lasts, for a request that can stay open for days. hog then stops with
-    // `<noun>_still_pending` and keeps the item, so an agent is never blocked on a person for long.
+    // Caps one wait for a request that stays open for days, so an agent never blocks on a person for long.
     maxWaitMs?: number
-    // Throws when `--wait` can't resume the item with the current credentials, before hog polls.
     checkResumable?: (pending: Pending) => void
 }
 

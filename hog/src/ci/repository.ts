@@ -72,8 +72,6 @@ export function pickProviderHint(providers: readonly WorkloadProvider[] = WORKLO
     return `Pass --provider with one of: ${providers.map((provider) => provider.key).join(', ')}.`
 }
 
-// The provider whose CI config the repository has and whose forge hosts its remote. When that is
-// not exactly one provider, the person picks one with --provider.
 export async function detectRepositoryProvider(
     runtime: Runtime,
     repository: Repository | undefined,

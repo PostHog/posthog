@@ -16,7 +16,6 @@ import { exchangeWorkloadToken } from './workload'
 // posthog-cli falls back to this host when neither --host nor the credentials name one.
 export const DEFAULT_HOST = parseHost('https://us.i.posthog.com')
 
-// `storage` is how hog renews the key, and null for a key it can't renew.
 export type Credentials = { key: AccessKey } & (
     | { source: 'env'; storage: null }
     | { source: 'dotenv-file'; path: string; storage: null }
@@ -120,8 +119,7 @@ export function posthogFile(runtime: Runtime, name: string): string {
 // when the key belongs to another host.
 export async function resolveCredentials(
     runtime: Runtime,
-    // `envOnly` reads only the environment and --dotenv-file, for callers that must never open the
-    // keychain or get a token, like telemetry for a command that needed no credentials.
+    // `envOnly` is for callers that must never open the keychain or get a token, like telemetry.
     options: {
         host?: Host
         dotenvFile?: string
@@ -177,8 +175,7 @@ export async function resolveCredentials(
     const workloadProvider = detectWorkloadProvider(runtime.env, options.workloadProviders)
     const workloadProjectId = runtime.env.HOG_PROJECT_ID
     if (!options.envOnly && workloadProvider && workloadProjectId) {
-        // The audience must be the address people open PostHog at, so the default isn't the ingestion
-        // host personal API keys use.
+        // The audience must be the address people open PostHog at, not the ingestion host.
         const key = await exchangeWorkloadToken(runtime, {
             host: options.host ?? cloudRegion(options.configHost) ?? REGIONS.us,
             projectId: parseProjectId(workloadProjectId, { code: 'invalid_credentials' }),
