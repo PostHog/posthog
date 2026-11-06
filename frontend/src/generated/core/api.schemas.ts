@@ -5901,6 +5901,17 @@ export interface PatchedWorkloadTrustPolicyApi {
  */
 export type WorkloadProvidersResponseApiRiskyScopes = { [key: string]: string }
 
+/**
+ * * `github_actions` - GitHub Actions
+ * * `gitlab` - GitLab
+ */
+export type WorkloadProviderKeyEnumApi = (typeof WorkloadProviderKeyEnumApi)[keyof typeof WorkloadProviderKeyEnumApi]
+
+export const WorkloadProviderKeyEnumApi = {
+    GithubActions: 'github_actions',
+    Gitlab: 'gitlab',
+} as const
+
 export interface WorkloadClaimApi {
     /** The claim's name in the provider's OIDC token. */
     name: string
@@ -5908,11 +5919,47 @@ export interface WorkloadClaimApi {
     label: string
     /** A hint that says where to find the claim's value. */
     help_text: string
+    /** An example value to show in an empty field. */
+    placeholder: string
+}
+
+/**
+ * Claim name to value. {value} stands for what the person types into the preset's field.
+ */
+export type ConditionPresetApiConditions = { [key: string]: string }
+
+export interface ConditionPresetApi {
+    /** Stable identifier of the preset within its provider. */
+    key: string
+    /** What the UI calls the preset, like Pushes to a branch. */
+    label: string
+    /** What runs the preset matches. */
+    help_text: string
+    /** Claim name to value. {value} stands for what the person types into the preset's field. */
+    readonly conditions: ConditionPresetApiConditions
+    /** Whether the preset has a field to type a value into. */
+    takes_value: boolean
+    /** An example value for the preset's field. */
+    placeholder: string
+    /** The value the preset's field starts with. */
+    default_value: string
+}
+
+export interface ConditionCompanionsApi {
+    /** Condition claims a policy may set only with a companion. */
+    claims: string[]
+    /** Claims of which a policy must set at least one beside them. */
+    companions: string[]
+    /** Why the claims need a companion, to show the person. */
+    reason: string
 }
 
 export interface WorkloadProviderApi {
-    /** Stable identifier of the provider. */
-    key: string
+    /** Stable identifier of the provider.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `gitlab` - GitLab */
+    key: WorkloadProviderKeyEnumApi
     /** Display name of the provider. */
     name: string
     /** OIDC issuer a policy for this provider uses. */
@@ -5925,11 +5972,32 @@ export interface WorkloadProviderApi {
     subject_name_claim: WorkloadClaimApi
     /** The claims a policy can require an exact value for, in display order. */
     condition_claims: WorkloadClaimApi[]
+    /** Common choices of conditions to offer before the raw claims, in display order. */
+    condition_presets: ConditionPresetApi[]
+    /** Rules for condition claims that a policy may set only together with another claim. */
+    condition_companions: ConditionCompanionsApi[]
+    /** Whether PostHog can look up the subject from its name with resolve_subject. */
+    readonly can_resolve_subject: boolean
+    /** The CI config a job of this project needs, empty when the provider has none. */
+    readonly setup_snippet: string
+}
+
+export interface WorkloadJobSettingsApi {
+    /** The PostHog address a job sends its token to, which is its audience. */
+    host: string
+    /** The project a job's token works in. */
+    project_id: number
+    /** Whether hog reads the host from posthog.json. It does only for PostHog Cloud, so other hosts need HOG_HOST. */
+    host_in_posthog_json: boolean
+    /** The posthog.json keys a job needs, as JSON. */
+    posthog_json: string
 }
 
 export interface WorkloadProvidersResponseApi {
     /** Providers a policy can trust. */
     supported: WorkloadProviderApi[]
+    /** Where a job's host and project come from: posthog.json first, or HOG_HOST and HOG_PROJECT_ID. */
+    job_settings: WorkloadJobSettingsApi
     /** Every scope a policy's ceiling may hold. */
     grantable_scopes: string[]
     /** What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care. */
@@ -6042,6 +6110,15 @@ export interface PaginatedWorkloadTrustPolicyRequestListApi {
     /** @nullable */
     previous?: string | null
     results: WorkloadTrustPolicyRequestApi[]
+}
+
+export interface ResolvedWorkloadSubjectApi {
+    /** The workload's immutable ID, for the policy's subject. */
+    subject: string
+    /** The provider's exact spelling of the name, which the token carries, for the policy's subject name. */
+    subject_name: string
+    /** Where PostHog found the workload, to show the user. */
+    found_via: string
 }
 
 export interface LeakedKeyReportApi {
@@ -7604,6 +7681,21 @@ export type WorkloadTrustPolicyRequestsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type WorkloadTrustPolicyRequestsResolveSubjectRetrieveParams = {
+    /**
+     * The OIDC issuer of the workload provider, from the list of supported providers.
+     * @minLength 1
+     * @maxLength 255
+     */
+    issuer: string
+    /**
+     * The name people know the workload by, from the provider's subject name claim, for example owner/repo.
+     * @minLength 1
+     * @maxLength 255
+     */
+    subject_name: string
 }
 
 export type UsersListParams = {

@@ -10,17 +10,20 @@ import json
 import functools
 from typing import Any, cast
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import mixins, serializers, viewsets
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from rest_framework import mixins, serializers, status, viewsets
+from rest_framework.exceptions import APIException, NotFound
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -44,15 +47,22 @@ from posthog.permissions import (
     get_organization_from_view,
     get_required_organization_membership,
 )
-from posthog.rate_limit import WorkloadTrustPolicyRequestBurstThrottle, WorkloadTrustPolicyRequestSustainedThrottle
+from posthog.rate_limit import (
+    WorkloadSubjectLookupThrottle,
+    WorkloadTrustPolicyRequestBurstThrottle,
+    WorkloadTrustPolicyRequestSustainedThrottle,
+)
 from posthog.scopes import RISKY_SCOPE_WARNINGS
 from posthog.tasks.email import WorkloadTrustPolicyChange, send_workload_trust_policy_changed
 from posthog.workload_identity.providers import (
+    ConditionPreset,
     WorkloadProvider,
+    WorkloadProviderKey,
     get_supported_workload_providers,
     get_workload_provider_by_issuer,
     normalize_issuer,
 )
+from posthog.workload_identity.subjects import WorkloadSubjectLookupUnavailable, WorkloadSubjectNotFound
 
 from products.access_control.backend.facade.subject_access_control import restricted_visible_membership_ids
 
@@ -60,6 +70,7 @@ from products.access_control.backend.facade.subject_access_control import restri
 # taken literally: an admin who types `acme/*` expects every workload under `acme` to match, and none would.
 WILDCARD_CHARACTERS = frozenset("*?[]")
 DUPLICATE_POLICY_MESSAGE = "A policy for this workload with the same conditions already exists."
+UNSUPPORTED_ISSUER_MESSAGE = "This issuer isn't a supported workload provider."
 FALLBACK_SUBJECT_LABEL = "Subject"
 FALLBACK_SUBJECT_NAME_LABEL = "Name"
 
@@ -73,6 +84,13 @@ def _validate_exact_value(value: str, field_label: str) -> str:
     if any(character in WILDCARD_CHARACTERS for character in value):
         raise serializers.ValidationError(f"{field_label} must be an exact value. Wildcards are not supported.")
     return value
+
+
+def validate_supported_issuer(value: str) -> str:
+    provider = get_workload_provider_by_issuer(value)
+    if provider is None:
+        raise serializers.ValidationError(UNSUPPORTED_ISSUER_MESSAGE)
+    return normalize_issuer(provider.issuer)
 
 
 def normalize_workload_conditions(conditions: Any, provider: WorkloadProvider) -> dict[str, str]:
@@ -110,6 +128,15 @@ def normalize_workload_conditions(conditions: Any, provider: WorkloadProvider) -
     return canonical
 
 
+def validate_condition_companions(conditions: dict[str, str], provider: WorkloadProvider) -> None:
+    labels = {claim.name: claim.label for claim in provider.condition_claims}
+    for rule in provider.condition_companions:
+        alone = next((claim for claim in rule.claims if claim in conditions), None)
+        if alone is not None and not any(name in conditions for name in rule.companions):
+            needed = " or ".join(labels[name] for name in rule.companions)
+            raise serializers.ValidationError({"conditions": f"{labels[alone]} needs {needed} too. {rule.reason}"})
+
+
 def validate_workload_trust_conditions(attrs: dict[str, Any], *, instance: Any | None = None) -> dict[str, Any]:
     """Shared by policies and policy requests, so both enforce the same conditions. Normalizes
     `attrs["conditions"]` against the issuer's provider whenever the issuer or the conditions change."""
@@ -119,9 +146,10 @@ def validate_workload_trust_conditions(attrs: dict[str, Any], *, instance: Any |
     issuer = attrs["issuer"] if "issuer" in attrs else getattr(instance, "issuer", "")
     provider = get_workload_provider_by_issuer(issuer)
     if provider is None:
-        raise serializers.ValidationError({"issuer": "This issuer isn't a supported workload provider."})
+        raise serializers.ValidationError({"issuer": UNSUPPORTED_ISSUER_MESSAGE})
     raw_conditions = attrs["conditions"] if "conditions" in attrs else getattr(instance, "conditions", {})
     attrs["conditions"] = normalize_workload_conditions(raw_conditions, provider)
+    validate_condition_companions(attrs["conditions"], provider)
     if provider.condition_claims and not attrs["conditions"]:
         labels = ", ".join(claim.label for claim in provider.condition_claims)
         raise serializers.ValidationError(
@@ -216,10 +244,7 @@ class WorkloadConditionsSerializerMixin(serializers.Serializer):
         return provider.key if provider else None
 
     def validate_issuer(self, value: str) -> str:
-        provider = get_workload_provider_by_issuer(value)
-        if provider is None:
-            raise serializers.ValidationError("This issuer isn't a supported workload provider.")
-        return normalize_issuer(provider.issuer)
+        return validate_supported_issuer(value)
 
     def validate_subject_name(self, value: str) -> str:
         return _validate_exact_value(value, FALLBACK_SUBJECT_NAME_LABEL)
@@ -299,10 +324,37 @@ class WorkloadClaimSerializer(serializers.Serializer):
     help_text = serializers.CharField(  # type: ignore[assignment]
         allow_blank=True, help_text="A hint that says where to find the claim's value."
     )
+    placeholder = serializers.CharField(allow_blank=True, help_text="An example value to show in an empty field.")
+
+
+class ConditionCompanionsSerializer(serializers.Serializer):
+    claims = serializers.ListField(
+        child=serializers.CharField(), help_text="Condition claims a policy may set only with a companion."
+    )
+    companions = serializers.ListField(
+        child=serializers.CharField(), help_text="Claims of which a policy must set at least one beside them."
+    )
+    reason = serializers.CharField(help_text="Why the claims need a companion, to show the person.")
+
+
+class ConditionPresetSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Stable identifier of the preset within its provider.")
+    label = serializers.CharField(help_text="What the UI calls the preset, like Pushes to a branch.")  # type: ignore[assignment]
+    help_text = serializers.CharField(help_text="What runs the preset matches.")  # type: ignore[assignment]
+    conditions = serializers.SerializerMethodField(
+        help_text="Claim name to value. {value} stands for what the person types into the preset's field."
+    )
+    takes_value = serializers.BooleanField(help_text="Whether the preset has a field to type a value into.")
+    placeholder = serializers.CharField(allow_blank=True, help_text="An example value for the preset's field.")
+    default_value = serializers.CharField(allow_blank=True, help_text="The value the preset's field starts with.")
+
+    @extend_schema_field(serializers.DictField(child=serializers.CharField()))
+    def get_conditions(self, preset: ConditionPreset) -> dict[str, str]:
+        return dict(preset.conditions)
 
 
 class WorkloadProviderSerializer(serializers.Serializer):
-    key = serializers.CharField(help_text="Stable identifier of the provider.")
+    key = serializers.ChoiceField(choices=WorkloadProviderKey.choices, help_text="Stable identifier of the provider.")
     name = serializers.CharField(help_text="Display name of the provider.")
     issuer = serializers.CharField(help_text="OIDC issuer a policy for this provider uses.")
     docs_url = serializers.CharField(help_text="Where to read how to set the provider up.")
@@ -311,10 +363,43 @@ class WorkloadProviderSerializer(serializers.Serializer):
     condition_claims = WorkloadClaimSerializer(
         many=True, help_text="The claims a policy can require an exact value for, in display order."
     )
+    condition_presets = ConditionPresetSerializer(
+        many=True, help_text="Common choices of conditions to offer before the raw claims, in display order."
+    )
+    condition_companions = ConditionCompanionsSerializer(
+        many=True, help_text="Rules for condition claims that a policy may set only together with another claim."
+    )
+    can_resolve_subject = serializers.SerializerMethodField(
+        help_text="Whether PostHog can look up the subject from its name with resolve_subject."
+    )
+    setup_snippet = serializers.SerializerMethodField(
+        help_text="The CI config a job of this project needs, empty when the provider has none."
+    )
+
+    def get_can_resolve_subject(self, provider: WorkloadProvider) -> bool:
+        return provider.resolve_subject is not None
+
+    def get_setup_snippet(self, provider: WorkloadProvider) -> str:
+        # The token's audience is SITE_URL, so the job has to send it there.
+        return provider.setup_snippet_for(
+            host=(settings.SITE_URL or "").rstrip("/"), project_id=self.context["project_id"]
+        )
+
+
+class WorkloadJobSettingsSerializer(serializers.Serializer):
+    host = serializers.CharField(help_text="The PostHog address a job sends its token to, which is its audience.")
+    project_id = serializers.IntegerField(help_text="The project a job's token works in.")
+    host_in_posthog_json = serializers.BooleanField(
+        help_text="Whether hog reads the host from posthog.json. It does only for PostHog Cloud, so other hosts need HOG_HOST."
+    )
+    posthog_json = serializers.CharField(help_text="The posthog.json keys a job needs, as JSON.")
 
 
 class WorkloadProvidersResponseSerializer(serializers.Serializer):
     supported = WorkloadProviderSerializer(many=True, help_text="Providers a policy can trust.")
+    job_settings = WorkloadJobSettingsSerializer(
+        help_text="Where a job's host and project come from: posthog.json first, or HOG_HOST and HOG_PROJECT_ID."
+    )
     grantable_scopes = serializers.ListField(
         child=serializers.CharField(), help_text="Every scope a policy's ceiling may hold."
     )
@@ -322,6 +407,22 @@ class WorkloadProvidersResponseSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care.",
     )
+
+
+# hog reads a host from posthog.json only for these, because the file comes with the repository.
+POSTHOG_JSON_HOSTS = ("https://us.posthog.com", "https://eu.posthog.com")
+
+
+def workload_job_settings(project_id: int) -> dict[str, Any]:
+    host = (settings.SITE_URL or "").rstrip("/")
+    in_file = host in POSTHOG_JSON_HOSTS
+    posthog_json = {**({"host": host} if in_file else {}), "projectId": project_id}
+    return {
+        "host": host,
+        "project_id": project_id,
+        "host_in_posthog_json": in_file,
+        "posthog_json": json.dumps(posthog_json, indent=4),
+    }
 
 
 def notify_admins_of_policy_change(
@@ -402,10 +503,13 @@ class WorkloadTrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         grantable = workload_trust_policy_grantable_scopes()
         payload = {
             "supported": get_supported_workload_providers(),
+            "job_settings": workload_job_settings(self.team.project_id),
             "grantable_scopes": sorted(grantable),
             "risky_scopes": {scope: warning for scope, warning in RISKY_SCOPE_WARNINGS.items() if scope in grantable},
         }
-        return Response(WorkloadProvidersResponseSerializer(payload).data)
+        # Policies live on the project's own team, which the exchange's `resource` names.
+        context = {"project_id": self.team.project_id}
+        return Response(WorkloadProvidersResponseSerializer(payload, context=context).data)
 
 
 def requesting_application(request: Request) -> OAuthApplication | None:
@@ -525,6 +629,33 @@ class WorkloadTrustPolicyRequestSerializer(WorkloadConditionsSerializerMixin, se
         return validate_workload_trust_conditions(attrs)
 
 
+class WorkloadProviderUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "The workload provider didn't answer. Try again in a minute."
+    default_code = "workload_provider_unavailable"
+
+
+class ResolveWorkloadSubjectQuerySerializer(serializers.Serializer):
+    issuer = serializers.CharField(
+        max_length=255, help_text="The OIDC issuer of the workload provider, from the list of supported providers."
+    )
+    subject_name = serializers.CharField(
+        max_length=255,
+        help_text="The name people know the workload by, from the provider's subject name claim, for example owner/repo.",
+    )
+
+    def validate_issuer(self, value: str) -> str:
+        return validate_supported_issuer(value)
+
+
+class ResolvedWorkloadSubjectSerializer(serializers.Serializer):
+    subject = serializers.CharField(help_text="The workload's immutable ID, for the policy's subject.")
+    subject_name = serializers.CharField(
+        help_text="The provider's exact spelling of the name, which the token carries, for the policy's subject name."
+    )
+    found_via = serializers.CharField(help_text="Where PostHog found the workload, to show the user.")
+
+
 class WorkloadTrustPolicyRequestResolutionPermission(BasePermission):
     """Approving or rejecting a request needs an organization admin or owner in a browser session. Asking
     for a policy is open to every member, so the check applies to the resolving actions only."""
@@ -603,6 +734,8 @@ class WorkloadTrustPolicyRequestViewSet(
     def get_throttles(self) -> list[Any]:
         if self.action == "create":
             return [WorkloadTrustPolicyRequestBurstThrottle(), WorkloadTrustPolicyRequestSustainedThrottle()]
+        if self.action == "resolve_subject":
+            return [WorkloadSubjectLookupThrottle()]
         return super().get_throttles()
 
     def get_serializer_context(self) -> dict[str, Any]:
@@ -652,6 +785,32 @@ class WorkloadTrustPolicyRequestViewSet(
                 self.team_id, str(resolved.policy.pk), resolved.policy.name, "created", self.request.user.pk
             )
         return Response(self.get_serializer(resolved).data)
+
+    @validated_request(
+        query_serializer=ResolveWorkloadSubjectQuerySerializer,
+        responses={
+            200: ResolvedWorkloadSubjectSerializer,
+            404: OpenApiResponse(description="The provider has no such workload, or PostHog can't ask it."),
+            503: OpenApiResponse(description="The provider didn't answer."),
+        },
+    )
+    @action(methods=["GET"], detail=False, required_scopes=["workload_trust_policy_request:read"])
+    def resolve_subject(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        """Find a workload's immutable ID from the name people know it by, so nobody has to look the ID up
+        to ask for or write a policy."""
+        # validate_issuer refused any issuer without a provider.
+        provider = cast(WorkloadProvider, get_workload_provider_by_issuer(request.validated_query_data["issuer"]))
+        if provider.resolve_subject is None:
+            raise NotFound(
+                f"PostHog can't look up {provider.subject_claim.label} for {provider.name}. Enter it by hand."
+            )
+        try:
+            resolved = provider.resolve_subject(self.team_id, request.validated_query_data["subject_name"])
+        except WorkloadSubjectNotFound as e:
+            raise NotFound(str(e))
+        except WorkloadSubjectLookupUnavailable as e:
+            raise WorkloadProviderUnavailable(str(e))
+        return Response(ResolvedWorkloadSubjectSerializer(resolved).data)
 
     @extend_schema(request=None, responses={200: WorkloadTrustPolicyRequestSerializer})
     @action(methods=["POST"], detail=True, required_scopes=["workload_trust_policy_request:write"])

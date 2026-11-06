@@ -61,7 +61,11 @@ export class Context {
     // Throws `not_authenticated` when there are none.
     credentials(): Promise<Credentials> {
         this.credentialsRequest ??= this.config().then((loaded) =>
-            resolveCredentials(this.runtime, { ...this.globals, configHost: loaded?.config.host })
+            resolveCredentials(this.runtime, {
+                ...this.globals,
+                configHost: loaded?.config.host,
+                configProjectId: loaded?.config.projectId?.toString(),
+            })
         )
         return this.credentialsRequest
     }
@@ -69,12 +73,7 @@ export class Context {
     // The key every client of this command sends, so they share its renewals.
     session(): Promise<KeySession> {
         this.keySession ??= this.credentials().then(
-            (credentials) =>
-                new KeySession(
-                    this.runtime,
-                    credentials.key,
-                    credentials.source === 'store' ? credentials.storage : null
-                )
+            (credentials) => new KeySession(this.runtime, credentials.key, credentials.storage)
         )
         return this.keySession
     }

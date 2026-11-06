@@ -120,8 +120,8 @@ export class PostHogApi {
 
     // Each call names the schema of the answer it expects, so a command never works with a shape
     // PostHog didn't send.
-    get<T>(path: string, schema: Schema<T>): Promise<T> {
-        return this.request('GET', path, schema)
+    get<T>(path: string, schema: Schema<T>, options: { timeoutMs?: number } = {}): Promise<T> {
+        return this.request('GET', path, schema, undefined, options.timeoutMs)
     }
 
     post<T>(path: string, body: unknown, schema: Schema<T>): Promise<T> {
@@ -132,18 +132,24 @@ export class PostHogApi {
         return this.request('PATCH', path, schema, body)
     }
 
-    private async request<T>(method: Method, path: string, schema: Schema<T>, body?: unknown): Promise<T> {
+    private async request<T>(
+        method: Method,
+        path: string,
+        schema: Schema<T>,
+        body?: unknown,
+        timeoutMs?: number
+    ): Promise<T> {
         const url = this.url(path)
         const response = await this.session.send(
-            (token) => sendRequest(this.fetchFn, url, { method, body, token }),
+            (token) => sendRequest(this.fetchFn, url, { method, body, token, timeoutMs }),
             (answer) => answer.status === 401
         )
         if (response.text && response.json === undefined) {
-            throw new HogError(
-                'unexpected_response',
-                `PostHog answered with HTTP ${response.status} and a body that isn't JSON.`,
-                response.status === 404 ? 'Check the host and the project ID.' : undefined
-            )
+            const message = `PostHog answered with HTTP ${response.status} and a body that isn't JSON.`
+            const hint = response.status === 404 ? 'Check the host and the project ID.' : undefined
+            throw response.ok
+                ? new HogError('unexpected_response', message, hint)
+                : new ApiError(response.status, undefined, 'unexpected_response', message, hint)
         }
         if (!response.ok) {
             throw this.failure(response.status, response.json)

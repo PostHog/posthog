@@ -185,7 +185,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
             let ctx: Context | undefined
             telemetry.credentials = () =>
                 ctx?.requestedCredentials ??
-                resolveCredentials({ ...runtime, writeStderr: () => {} }, { ...globals, skipStore: true })
+                resolveCredentials({ ...runtime, writeStderr: () => {} }, { ...globals, envOnly: true })
             const commandRuntime = networkRuntime(runtime, globals)
             const options = self.opts()
             // An empty value, often an unset shell variable, fails here instead of falling back to a

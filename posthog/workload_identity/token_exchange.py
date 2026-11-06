@@ -41,6 +41,7 @@ from posthog.models.workload_trust_policy import (
     workload_trust_policy_request_url,
     workload_trust_policy_version,
 )
+from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
 from posthog.workload_identity.providers import (
     AudienceCheck,
     WorkloadClaim,
@@ -62,6 +63,10 @@ WORKLOAD_IDENTITY_DOCS_URL = "https://posthog.com/docs/api/workload-identity"
 
 _RESOURCE_PATH = re.compile(r"^/api/projects/(\d+)/?$")
 
+# Per workload subject, so one repository's matrix of jobs can't crowd out the others. A CI run
+# exchanges once per hog process and again every few minutes, so a large matrix stays well inside it.
+WORKLOAD_EXCHANGE_BUDGET = Budget(burst=300, per_hour=3600)
+
 
 class WorkloadExchangeErrorCode(StrEnum):
     INVALID_REQUEST = "workload_invalid_request"
@@ -73,6 +78,7 @@ class WorkloadExchangeErrorCode(StrEnum):
     NO_OWNER = "workload_no_owner"
     NOT_CONFIGURED = "workload_not_configured"
     PROVIDER_UNAVAILABLE = "workload_provider_unavailable"
+    RATE_LIMITED = "workload_rate_limited"
 
 
 class WorkloadExchangeError(Exception):
@@ -87,6 +93,7 @@ class WorkloadExchangeError(Exception):
         oauth_error: str = "invalid_grant",
         http_status: int = status.HTTP_400_BAD_REQUEST,
         details: dict[str, Any] | None = None,
+        retry_after: int | None = None,
     ) -> None:
         super().__init__(description)
         self.code = code
@@ -94,6 +101,7 @@ class WorkloadExchangeError(Exception):
         self.oauth_error = oauth_error
         self.http_status = http_status
         self.details = details or {}
+        self.retry_after = retry_after
 
     def body(self) -> dict[str, Any]:
         return {
@@ -102,6 +110,7 @@ class WorkloadExchangeError(Exception):
             "error_code": self.code.value,
             "error_uri": f"{WORKLOAD_IDENTITY_DOCS_URL}#{self.code.value}",
             **self.details,
+            **({} if self.retry_after is None else {"retry_after": self.retry_after}),
         }
 
 
@@ -293,13 +302,38 @@ def _verify_subject_token(subject_token: str, provider: WorkloadProvider) -> tup
             WorkloadExchangeErrorCode.TOKEN_INVALID, "The OIDC token's exp claim must be numeric."
         )
 
+    subject = _required_claim(claims, provider.subject_claim)
+    for name in provider.claims_equal_to_subject:
+        if _claim_string(claims.get(name)) != subject:
+            raise WorkloadExchangeError(
+                WorkloadExchangeErrorCode.TOKEN_INVALID,
+                f"The job runs in another {provider.subject_claim.label.lower()} than the one its token names "
+                f"(claim {name}), and {provider.name} tokens from such jobs aren't trusted.",
+            )
     workload = VerifiedWorkload(
-        subject=_required_claim(claims, provider.subject_claim),
+        subject=subject,
         subject_name=_required_claim(claims, provider.subject_name_claim),
         condition_claims=_claims_by_name(claims, provider.condition_claims),
         recorded_claims=_claims_by_name(claims, provider.recorded_claims),
     )
     return workload, int(expires_at)
+
+
+def _charge_exchange(policy: WorkloadTrustPolicy) -> None:
+    """Charged per policy once a policy matched, so a run the policy doesn't trust, such as another branch of
+    the same repository, can't use up the budget of the runs it does trust."""
+    decision = consume(f"workload_exchange_rate:{policy.pk}", WORKLOAD_EXCHANGE_BUDGET)
+    match decision:
+        case BucketUnavailable():
+            logger.warning("workload_exchange_rate_limit_unavailable", error=decision.error)
+        case BucketDecision(allowed=False):
+            raise WorkloadExchangeError(
+                WorkloadExchangeErrorCode.RATE_LIMITED,
+                f"This workload exchanged too many tokens. Try again in {decision.retry_after} seconds.",
+                oauth_error="temporarily_unavailable",
+                http_status=status.HTTP_429_TOO_MANY_REQUESTS,
+                retry_after=decision.retry_after,
+            )
 
 
 def find_matching_policy(team_id: int, issuer: str, workload: VerifiedWorkload) -> WorkloadTrustPolicy | None:
@@ -386,6 +420,8 @@ def exchange_workload_token(*, subject_token: str, subject_token_type: str, reso
             f"No workload trust policy in project {team_id} matches this workload. Run `hog ci setup` to request one.",
             details={"project_id": team_id, "claims": claims_sent},
         )
+
+    _charge_exchange(policy)
 
     # Checked again at mint time so a scope that became ungrantable after the policy was saved is never issued.
     grantable = workload_trust_policy_grantable_scopes()
