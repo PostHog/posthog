@@ -240,7 +240,12 @@ from products.tasks.backend.task_profiles import (
     USER,
     WIZARD,
 )
-from products.tasks.backend.task_run_sync import collect_status_mismatches, repair_status_mismatches, sync_task_pr_urls
+from products.tasks.backend.task_run_sync import (
+    collect_status_mismatches,
+    repair_status_mismatches,
+    sync_task_pr_urls,
+    sync_task_status,
+)
 from products.tasks.backend.task_sources import apply_task_source, idempotency_key_q, source_q
 from products.tasks.backend.visibility import (
     PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
@@ -10724,6 +10729,8 @@ def run_task(
         cache_github_user_token(str(task_run.id), github_user_token)
 
     if scheduled_at is not None:
+        sync_task_status(task.id)
+        task.refresh_from_db(fields=["status", "status_reason", "status_detail"])
         return contracts.TaskRunResult(
             task=_task_detail_to_dto(task, latest_run=task_run, include_latest_run_log_url=False),
             run_id=task_run.id,

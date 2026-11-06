@@ -2227,6 +2227,27 @@ class TestTaskAPI(BaseTaskAPITest):
         assert dispatch.payload["user_id"] == self.user.id
         assert dispatch.payload["posthog_mcp_scopes"] == "read_only"
 
+    @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
+    @patch("products.tasks.backend.presentation.views.api._is_internal_debug_team", return_value=True)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_schedule_after_a_failure_returns_the_cleared_status(self, _mock_workflow, _mock_internal_team) -> None:
+        task = self.create_task()
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.FAILED, error_message="boom")
+        Task.objects.filter(pk=task.pk).update(
+            status=Task.Status.IDLE, status_reason=Task.StatusReason.UNEXPECTED_FAILURE, status_detail="boom"
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/projects/@current/tasks/{task.id}/run/",
+                {"scheduled_at": "2026-09-19T12:00:00", "pending_user_message": "Retry later.", "run_source": "agent"},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert (body["status"], body["status_reason"], body["status_detail"]) == ("idle", None, None)
+
     @parameterized.expand(
         [
             ("before_expiry", "2026-10-17T23:59:59Z", True, True),
