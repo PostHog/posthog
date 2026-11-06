@@ -226,7 +226,8 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "max_length")
-        self.assertEqual(response.json()["attr"], "steps__0__selector")
+        self.assertEqual(response.json()["attr"], "steps")
+        self.assertIn(f"The maximum is {MAX_SELECTOR_LENGTH}", response.json()["detail"])
         self.assertEqual(Action.objects.count(), count)
 
     def test_cant_create_action_with_whitespace_only_name(self, *args):
@@ -1141,10 +1142,13 @@ class TestActionStepRegexValidation(SimpleTestCase):
 class TestActionStepSelectorLength(SimpleTestCase):
     @parameterized.expand([("at_limit", MAX_SELECTOR_LENGTH, True), ("over_limit", MAX_SELECTOR_LENGTH + 1, False)])
     def test_validates_selector_length(self, _name: str, length: int, expect_valid: bool) -> None:
-        serializer = ActionStepJSONSerializer(data={"event": "$autocapture", "selector": "a" * length})
-        self.assertEqual(serializer.is_valid(), expect_valid)
-        if not expect_valid:
-            self.assertEqual(serializer.errors["selector"][0].code, "max_length")
+        steps = [{"event": "$autocapture", "selector": "a" * length}]
+        if expect_valid:
+            self.assertEqual(ActionSerializer().validate_steps(steps), steps)
+        else:
+            with self.assertRaises(ValidationError) as context:
+                ActionSerializer().validate_steps(steps)
+            self.assertEqual(context.exception.get_codes(), ["max_length"])
 
 
 class TestSelectorWarning(SimpleTestCase):

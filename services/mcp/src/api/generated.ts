@@ -5022,8 +5022,7 @@ export namespace Schemas {
          */
       properties?: ActionStepPropertyFilter[] | null;
       /**
-         * CSS selector to match the target element (e.g. 'div > button.cta'). At most 4096 characters.
-         * @maxLength 4096
+         * CSS selector to match the target element (e.g. 'div > button.cta').
          * @nullable
          */
       selector?: string | null;

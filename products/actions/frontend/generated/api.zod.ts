@@ -22,7 +22,6 @@ export const actionsCreateBodyStepsItemPropertiesItemThreeOperatorDefault = `exa
 export const actionsCreateBodyStepsItemPropertiesItemFourTypeDefault = `event`
 export const actionsCreateBodyStepsItemPropertiesItemFourOperatorDefault = `is_date_exact`
 export const actionsCreateBodyStepsItemPropertiesItemFiveTypeDefault = `event`
-export const actionsCreateBodyStepsItemSelectorMax = 4096
 
 export const ActionsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -372,11 +371,8 @@ export const ActionsCreateBody = /* @__PURE__ */ zod
                         ),
                     selector: zod
                         .string()
-                        .max(actionsCreateBodyStepsItemSelectorMax)
                         .nullish()
-                        .describe(
-                            "CSS selector to match the target element (e.g. 'div > button.cta'). At most 4096 characters."
-                        ),
+                        .describe("CSS selector to match the target element (e.g. 'div > button.cta')."),
                     selector_regex: zod
                         .string()
                         .nullable()
@@ -460,7 +456,6 @@ export const actionsUpdateBodyStepsItemPropertiesItemThreeOperatorDefault = `exa
 export const actionsUpdateBodyStepsItemPropertiesItemFourTypeDefault = `event`
 export const actionsUpdateBodyStepsItemPropertiesItemFourOperatorDefault = `is_date_exact`
 export const actionsUpdateBodyStepsItemPropertiesItemFiveTypeDefault = `event`
-export const actionsUpdateBodyStepsItemSelectorMax = 4096
 
 export const ActionsUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -810,11 +805,8 @@ export const ActionsUpdateBody = /* @__PURE__ */ zod
                         ),
                     selector: zod
                         .string()
-                        .max(actionsUpdateBodyStepsItemSelectorMax)
                         .nullish()
-                        .describe(
-                            "CSS selector to match the target element (e.g. 'div > button.cta'). At most 4096 characters."
-                        ),
+                        .describe("CSS selector to match the target element (e.g. 'div > button.cta')."),
                     selector_regex: zod
                         .string()
                         .nullable()
@@ -898,7 +890,6 @@ export const actionsPartialUpdateBodyStepsItemPropertiesItemThreeOperatorDefault
 export const actionsPartialUpdateBodyStepsItemPropertiesItemFourTypeDefault = `event`
 export const actionsPartialUpdateBodyStepsItemPropertiesItemFourOperatorDefault = `is_date_exact`
 export const actionsPartialUpdateBodyStepsItemPropertiesItemFiveTypeDefault = `event`
-export const actionsPartialUpdateBodyStepsItemSelectorMax = 4096
 
 export const ActionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -1250,11 +1241,8 @@ export const ActionsPartialUpdateBody = /* @__PURE__ */ zod
                         ),
                     selector: zod
                         .string()
-                        .max(actionsPartialUpdateBodyStepsItemSelectorMax)
                         .nullish()
-                        .describe(
-                            "CSS selector to match the target element (e.g. 'div > button.cta'). At most 4096 characters."
-                        ),
+                        .describe("CSS selector to match the target element (e.g. 'div > button.cta')."),
                     selector_regex: zod
                         .string()
                         .nullable()

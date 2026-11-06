@@ -8,14 +8,24 @@ from typing import Optional, Union
 from django.db import models
 from django.utils import timezone
 
+import re2
 from dateutil.relativedelta import relativedelta
 
 from posthog.models.team import Team
 
-# Selectors are user input, so parsing stays linear and their length is capped.
+# Selectors are user input, so they are parsed with RE2 and their length is capped.
 MAX_SELECTOR_LENGTH = 4096
-# Reference for _find_attribute_selectors, which returns the same matches.
-SELECTOR_ATTRIBUTE_REGEX = r"\[\s*([^\]\s=]+)\s*=\s*(['\"])(.*?)\2\s*\]"
+# Python's \s for str. RE2's \s is ASCII only, so the class is spelled out to keep the same parse.
+_WHITESPACE = r"\t\n\v\f\r \x{1c}-\x{1f}\x{85}\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}"
+SELECTOR_ATTRIBUTE_REGEX = re2.compile(
+    rf"\[[{_WHITESPACE}]*([^\]{_WHITESPACE}=]+)[{_WHITESPACE}]*=[{_WHITESPACE}]*"
+    rf"(?:'([^\n]*?)'|\"([^\n]*?)\")[{_WHITESPACE}]*\]"
+)
+# A dot is inside square brackets when a "]" comes after it before any "[". In the reversed tag
+# that "]" comes first, so a forward match can consume the bracketed run and its dots.
+_CLASS_SEPARATOR_IN_REVERSED_TAG_REGEX = re2.compile(r"\][^\[\]]*|\.")
+# re2 encodes text as UTF-8, which rejects lone surrogates. U+FFFD keeps every index in place.
+_SURROGATE_REGEX = re.compile("[\ud800-\udfff]")
 # The chain records an element's position as nth-child and nth-of-type, and a selector
 # can carry either or both. Matching each one lets a selector keep the rest of itself.
 POSITIONAL_PSEUDO_CLASS_REGEX = r":(nth-child|nth-of-type)\((\d+)\)"
@@ -77,93 +87,34 @@ class _AttributeMatch:
     value: str
 
 
+def _re2_text(text: str) -> str:
+    return _SURROGATE_REGEX.sub("\ufffd", text)
+
+
 def _find_attribute_selectors(tag: str) -> list[_AttributeMatch]:
-    r"""Linear-time equivalent of re.finditer(SELECTOR_ATTRIBUTE_REGEX, tag).
-
-    The end of each key run and the next closing quote are precomputed right to left, so every
-    candidate "[" is resolved in constant time.
-    """
-    n = len(tag)
-    next_non_space = [n] * (n + 1)
-    for i in range(n - 1, -1, -1):
-        next_non_space[i] = next_non_space[i + 1] if tag[i].isspace() else i
-    # key_end[i]: first index >= i holding "]", whitespace or "=" (n when there is none).
-    key_end = [n] * (n + 1)
-    for i in range(n - 1, -1, -1):
-        char = tag[i]
-        key_end[i] = i if (char == "]" or char == "=" or char.isspace()) else key_end[i + 1]
-    # next_close[quote][i]: first index j >= i where tag[j] is that quote and the next
-    # non-whitespace character after it is "]" -- the end of the lazy (.*?)\2\s*\].
-    next_close: dict[str, list[int]] = {}
-    for quote in ("'", '"'):
-        closes = [n] * (n + 1)
-        for j in range(n - 1, -1, -1):
-            after = next_non_space[j + 1]
-            closes[j] = j if tag[j] == quote and after < n and tag[after] == "]" else closes[j + 1]
-        next_close[quote] = closes
-    # (.*?) does not match a newline, so the closing quote must come before the next one.
-    next_newline = [n] * (n + 1)
-    for i in range(n - 1, -1, -1):
-        next_newline[i] = i if tag[i] == "\n" else next_newline[i + 1]
-
     matches: list[_AttributeMatch] = []
-    i = 0
-    while i < n:
-        if tag[i] != "[":
-            i += 1
-            continue
-        key_start = next_non_space[i + 1]
-        end_of_key = key_end[key_start] if key_start < n else n
-        if end_of_key == key_start:
-            i += 1
-            continue
-        equals = next_non_space[end_of_key]
-        if equals >= n or tag[equals] != "=":
-            i += 1
-            continue
-        quote_at = next_non_space[equals + 1]
-        if quote_at >= n or tag[quote_at] not in ("'", '"'):
-            i += 1
-            continue
-        quote = tag[quote_at]
-        close = next_close[quote][quote_at + 1]
-        if close >= n or close > next_newline[quote_at + 1]:
-            i += 1
-            continue
-        end = next_non_space[close + 1] + 1
+    for match in SELECTOR_ATTRIBUTE_REGEX.finditer(_re2_text(tag)):
+        value_group = 2 if match.start(2) >= 0 else 3
         matches.append(
-            _AttributeMatch(start=i, end=end, key=tag[key_start:end_of_key], value=tag[quote_at + 1 : close])
+            _AttributeMatch(
+                start=match.start(),
+                end=match.end(),
+                key=tag[match.start(1) : match.end(1)],
+                value=tag[match.start(value_group) : match.end(value_group)],
+            )
         )
-        i = end
     return matches
 
 
 def _split_classes(tag: str) -> list[str]:
-    r"""Linear-time equivalent of re.split(r"\.(?![^\[]*\])", tag).
-
-    A dot separates classes unless a "]" comes before the next "[" (it sits inside a Tailwind
-    arbitrary value such as shadow-[0_4px_6px_rgba(0,0,0,0.1)]). The regex rescans the rest
-    of the string for every dot; one right-to-left pass answers that for every position.
-    """
-    n = len(tag)
-    # inside_brackets[i]: a "]" occurs at or after i before any "[".
-    inside_brackets = [False] * (n + 1)
-    for i in range(n - 1, -1, -1):
-        char = tag[i]
-        if char == "]":
-            inside_brackets[i] = True
-        elif char == "[":
-            inside_brackets[i] = False
-        else:
-            inside_brackets[i] = inside_brackets[i + 1]
-    parts: list[str] = []
-    start = 0
-    for i, char in enumerate(tag):
-        if char == "." and not inside_brackets[i + 1]:
-            parts.append(tag[start:i])
-            start = i + 1
-    parts.append(tag[start:])
-    return parts
+    last = len(tag) - 1
+    dots = [
+        last - match.start()
+        for match in _CLASS_SEPARATOR_IN_REVERSED_TAG_REGEX.finditer(_re2_text(tag)[::-1])
+        if match.group() == "."
+    ]
+    bounds = [-1, *reversed(dots), len(tag)]
+    return [tag[start + 1 : end] for start, end in zip(bounds, bounds[1:])]
 
 
 def _excise_spans(text: str, spans: list[tuple[int, int]]) -> str:

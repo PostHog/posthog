@@ -11,10 +11,13 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models import Element
 from posthog.models.element.element import elements_to_string
 from posthog.models.event import MAX_SELECTOR_LENGTH, Selector, SelectorTooLongError
-from posthog.models.event.event import SELECTOR_ATTRIBUTE_REGEX, _find_attribute_selectors, _split_classes
+from posthog.models.event.event import _find_attribute_selectors, _split_classes
 from posthog.models.event.util import bulk_create_events, create_event, events_only_in_active_schema
 from posthog.models.property.util import build_selector_regex
 from posthog.test.test_journeys import journeys_for
+
+REFERENCE_ATTRIBUTE_REGEX = r"\[\s*([^\]\s=]+)\s*=\s*(['\"])(.*?)\2\s*\]"
+REFERENCE_CLASS_SPLIT_REGEX = r"\.(?![^\[]*\])"
 
 
 class TestSelectors(SimpleTestCase):
@@ -212,10 +215,13 @@ class TestSelectors(SimpleTestCase):
             "[title='first\nsecond']",
             "[a='x\n'][b='y']",
             "[a='x'\n]",
+            "[\x1ca\xa0=\u3000'x'\x85]",
+            "[a\u200bb='x']",
+            "[a='\ud800'][b=\"\udfff\"]",
         ]
         for selector in selectors:
             expected = [
-                (m.start(), m.end(), m.group(1), m.group(3)) for m in re.finditer(SELECTOR_ATTRIBUTE_REGEX, selector)
+                (m.start(), m.end(), m.group(1), m.group(3)) for m in re.finditer(REFERENCE_ATTRIBUTE_REGEX, selector)
             ]
             actual = [(m.start, m.end, m.key, m.value) for m in _find_attribute_selectors(selector)]
             self.assertEqual(actual, expected, selector)
@@ -228,8 +234,13 @@ class TestSelectors(SimpleTestCase):
             ".",
             "a[.]b.c",
             "a.b\n]c.d",
+            "",
+            ".a.",
+            "a.[[b.c]",
+            "]]..[[",
+            "\ud800.a",
         ]:
-            self.assertEqual(_split_classes(tag), re.split(r"\.(?![^\[]*\])", tag), tag)
+            self.assertEqual(_split_classes(tag), re.split(REFERENCE_CLASS_SPLIT_REGEX, tag), tag)
 
     def test_selector_length_is_capped(self):
         Selector("a" * MAX_SELECTOR_LENGTH)
