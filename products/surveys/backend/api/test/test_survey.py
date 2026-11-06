@@ -5900,6 +5900,13 @@ class TestSurveyAPITokens(PersonalAPIKeysBaseTest, APIBaseTest):
         data = response.json()
         self.assertEqual(data, survey_counts)
 
+    def test_site_snapshot_needs_session_recording_read(self):
+        survey = Survey.objects.create(team=self.team, name="Draft", type="popover")
+
+        response = self._do_request(f"/api/projects/{self.team.id}/surveys/{survey.id}/site-snapshot/?device=desktop")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
 
 class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries

@@ -92,6 +92,7 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
             ("older_than_the_window", {"url": "legacy"}, None),
             ("without_a_replay", {"url": "no-replay"}, None),
             ("on_another_device", {"url": "tablet"}, None),
+            ("regex_clickhouse_cannot_compile", {"url": "^(?!.*admin).*", "urlMatchType": "regex"}, None),
         ]
     )
     def test_picks_the_newest_matching_page_with_a_replay(
@@ -158,6 +159,28 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
 
         assert snapshot == SiteSnapshot(status=SnapshotStatus.UNAVAILABLE)
         assert ExportedAsset.objects.count() == 1
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_renders_again_from_another_recording_when_the_cached_one_was_deleted(
+        self, _async_connect: AsyncMock
+    ) -> None:
+        survey = self._survey(None)
+        get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+        replay_start = timezone.now() - timedelta(hours=24)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="docs",
+            distinct_id="docs",
+            first_timestamp=replay_start,
+            last_timestamp=replay_start + timedelta(minutes=1),
+            ensure_analytics_event_in_session=False,
+            is_deleted=True,
+        )
+
+        snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert (snapshot.status, snapshot.page_url) == (SnapshotStatus.RENDERING, PRICING)
+        assert ExportedAsset.objects.count() == 2
 
     @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
     def test_renders_again_when_a_render_was_abandoned(self, _async_connect: AsyncMock) -> None:
