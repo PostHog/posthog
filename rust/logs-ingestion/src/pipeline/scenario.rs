@@ -609,6 +609,7 @@ pub fn scenario_parts(
                         InternalSourcePolicy {
                             billed: flag("billed"),
                             team_rules: flag("teamRules"),
+                            rate_limited: flag("rateLimited"),
                         },
                     )
                 })

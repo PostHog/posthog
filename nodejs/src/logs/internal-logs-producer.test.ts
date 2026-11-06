@@ -89,6 +89,7 @@ describe('InternalLogsProducer', () => {
             source,
             billed: false,
             teamRules: false,
+            rateLimited: false,
             serviceName,
         })
 

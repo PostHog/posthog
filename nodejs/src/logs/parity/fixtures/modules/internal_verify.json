@@ -17,7 +17,8 @@
    "output": {
     "source": "hog_flow",
     "billed": false,
-    "teamRules": false
+    "teamRules": false,
+    "rateLimited": false
    }
   },
   {
@@ -29,7 +30,8 @@
    "output": {
     "source": "hog_flow",
     "billed": false,
-    "teamRules": false
+    "teamRules": false,
+    "rateLimited": false
    }
   },
   {
@@ -57,7 +59,8 @@
    "output": {
     "source": "billed_src",
     "billed": true,
-    "teamRules": true
+    "teamRules": true,
+    "rateLimited": false
    }
   },
   {
@@ -93,7 +96,8 @@
    "output": {
     "source": "hog_flow",
     "billed": false,
-    "teamRules": false
+    "teamRules": false,
+    "rateLimited": false
    }
   },
   {
@@ -113,7 +117,8 @@
    "output": {
     "source": "hog_flow",
     "billed": false,
-    "teamRules": false
+    "teamRules": false,
+    "rateLimited": false
    }
   },
   {

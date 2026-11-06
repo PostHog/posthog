@@ -257,6 +257,7 @@ fn text_stages() {
             InternalSourcePolicy {
                 billed: false,
                 team_rules: false,
+                rate_limited: false,
             },
         ),
         (
@@ -264,6 +265,7 @@ fn text_stages() {
             InternalSourcePolicy {
                 billed: true,
                 team_rules: true,
+                rate_limited: false,
             },
         ),
     ]);

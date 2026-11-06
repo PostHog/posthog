@@ -40,6 +40,7 @@ describe('InternalLogsVerifier', () => {
             source: SOURCE,
             billed: false,
             teamRules: false,
+            rateLimited: false,
             serviceName: 'posthog-internal-workflows',
         })
     })

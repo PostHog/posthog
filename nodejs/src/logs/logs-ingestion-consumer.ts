@@ -401,6 +401,7 @@ export class LogsIngestionConsumer {
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
     private rateLimiter: LogsRateLimiterService
+    private internalRateLimiter: LogsRateLimiterService
     private readonly backfillEnabledTeamsRaw: string
     private readonly internalLogsVerifier: InternalLogsVerifier
     private samplingService: LogsSamplingService
@@ -457,6 +458,8 @@ export class LogsIngestionConsumer {
             poolMaxSize: mergedConfig.REDIS_POOL_MAX_SIZE,
         })
         this.rateLimiter = new LogsRateLimiterService(mergedConfig, this.redis, rateLimiterName)
+        // shortcut: keyed per team and reuses the team bucket sizes, which is per source while only one source opts in. Key by team and source when a second one does.
+        this.internalRateLimiter = new LogsRateLimiterService(mergedConfig, this.redis, `${rateLimiterName}-internal`)
         this.backfillEnabledTeamsRaw = mergedConfig.LOGS_BACKFILL_ENABLED_TEAMS
         this.internalLogsVerifier = new InternalLogsVerifier(
             mergedConfig.LOGS_INTERNAL_INGESTION_SIGNING_KEYS,
@@ -742,10 +745,24 @@ export class LogsIngestionConsumer {
 
         const { backfillAllowedMessages, backfillDroppedMessages } = this.filterBackfillNotEnabledMessages(messages)
         const internalMessages: LogsIngestionMessage[] = []
+        const rateLimitedInternalMessages: LogsIngestionMessage[] = []
         const billedMessages: LogsIngestionMessage[] = []
         for (const message of backfillAllowedMessages) {
-            ;(this.isUnbilledInternal(message) ? internalMessages : billedMessages).push(message)
+            if (!this.isUnbilledInternal(message)) {
+                billedMessages.push(message)
+            } else {
+                ;(message.verifiedAsInternalLogs?.rateLimited ? rateLimitedInternalMessages : internalMessages).push(
+                    message
+                )
+            }
         }
+        // Dropped internal messages leave no usage, so they never reach the billed or internal usage stats.
+        const { rateLimiterAllowedMessages: internalAllowedMessages } = await this.filterRateLimitedMessages(
+            rateLimitedInternalMessages,
+            this.internalRateLimiter,
+            'internal_rate_limited'
+        )
+        internalMessages.push(...internalAllowedMessages)
         const { quotaAllowedMessages, quotaDroppedMessages } = await this.filterQuotaLimitedMessages(billedMessages)
         const { rateLimiterAllowedMessages, rateLimiterDroppedMessages } =
             await this.filterRateLimitedMessages(quotaAllowedMessages)
@@ -953,19 +970,23 @@ export class LogsIngestionConsumer {
         return { quotaAllowedMessages, quotaDroppedMessages }
     }
 
-    private async filterRateLimitedMessages(messages: LogsIngestionMessage[]): Promise<{
+    private async filterRateLimitedMessages(
+        messages: LogsIngestionMessage[],
+        rateLimiter: LogsRateLimiterService = this.rateLimiter,
+        reason: string = 'rate_limited'
+    ): Promise<{
         rateLimiterAllowedMessages: LogsIngestionMessage[]
         rateLimiterDroppedMessages: LogsIngestionMessage[]
     }> {
-        const { allowed, dropped } = await this.rateLimiter.filterMessages(messages)
+        const { allowed, dropped } = await rateLimiter.filterMessages(messages)
 
         const droppedCountByTeam = new Map<number, number>()
         for (const message of dropped) {
             droppedCountByTeam.set(message.teamId, (droppedCountByTeam.get(message.teamId) || 0) + 1)
         }
         for (const [teamId, count] of droppedCountByTeam) {
-            logMessageDroppedCounter.inc({ reason: 'rate_limited', team_id: teamId.toString() }, count)
-            recordLogMessageDropped('rate_limited', teamId.toString(), count)
+            logMessageDroppedCounter.inc({ reason, team_id: teamId.toString() }, count)
+            recordLogMessageDropped(reason, teamId.toString(), count)
         }
 
         return { rateLimiterAllowedMessages: allowed, rateLimiterDroppedMessages: dropped }

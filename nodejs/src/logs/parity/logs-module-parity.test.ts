@@ -408,8 +408,8 @@ function buildCases(): Record<string, Case[]> {
     const signedAt = new Date(NOW_MS - 2000)
     const created = new Date(NOW_MS).toISOString()
     const verifier = new InternalLogsVerifier(`${key},k0`, '1,2', {
-        hog_flow: { billed: false, teamRules: false, serviceName: 'posthog-internal-workflows' },
-        billed_src: { billed: true, teamRules: true, serviceName: 'billed-src' },
+        hog_flow: { billed: false, teamRules: false, rateLimited: false, serviceName: 'posthog-internal-workflows' },
+        billed_src: { billed: true, teamRules: true, rateLimited: false, serviceName: 'billed-src' },
     })
     const signatures: [string | undefined, number, string | undefined][] = [
         [undefined, 1, created],
