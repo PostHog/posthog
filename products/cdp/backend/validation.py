@@ -101,7 +101,7 @@ def _sender_integration_ids(from_value: dict) -> set[int]:
     }
 
 
-_SENDER_ID_TEXT = re.compile(r"\s*[0-9]+\s*")
+_SENDER_ID_TEXT = re.compile(r"\s*[0-9]{1,19}\s*")
 
 
 def _configured_sender_ids(from_value: dict) -> list[object]:

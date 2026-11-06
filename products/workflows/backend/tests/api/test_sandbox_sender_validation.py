@@ -161,6 +161,13 @@ class TestSandboxSenderValidation(APIBaseTest):
             ),
             ("non_ascii_digit_in_a_destination", "hog", "hog_functions/", None, lambda _sid: {"integrationId": "²"}),
             (
+                "digit_string_too_long_for_an_id_in_a_destination",
+                "hog",
+                "hog_functions/",
+                None,
+                lambda _sid: {"integrationId": "9" * 5000},
+            ),
+            (
                 "whole_from_in_a_destination",
                 "hog",
                 "hog_functions/",
