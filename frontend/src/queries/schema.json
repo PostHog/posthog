@@ -33574,8 +33574,10 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer",
-                    "description": "Default 2000, maximum 5000."
+                    "description": "Default 2000.",
+                    "maximum": 5000,
+                    "minimum": 1,
+                    "type": "integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -33753,11 +33755,18 @@
                     "type": "number"
                 },
                 "sparkline": {
-                    "description": "Calls per day across the window, oldest first. Only filled for the top topics of a tool profile.",
-                    "items": {
-                        "$ref": "#/definitions/integer"
-                    },
-                    "type": "array"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/integer"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Calls per day across the window, oldest first. Only filled for the top topics of a tool profile."
                 },
                 "summary": {
                     "type": "string"
@@ -33825,8 +33834,10 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer",
-                    "description": "Maximum topics to return, by calls. Default 20."
+                    "description": "Maximum topics to return, by calls. Default 20.",
+                    "maximum": 200,
+                    "minimum": 1,
+                    "type": "integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -34356,8 +34367,10 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer",
-                    "description": "Default 10."
+                    "description": "Default 10.",
+                    "maximum": 100,
+                    "minimum": 1,
+                    "type": "integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -35604,8 +35617,10 @@
                     "type": "string"
                 },
                 "limit": {
-                    "$ref": "#/definitions/integer",
-                    "description": "Top topics to return with sparklines. Default 5."
+                    "description": "Top topics to return with sparklines. Default 5.",
+                    "maximum": 20,
+                    "minimum": 1,
+                    "type": "integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
