@@ -20,7 +20,7 @@
                name="operation"
                value="{{ operation_form.operation.key }}" />
         {% for hidden in operation_form.form.hidden_fields %}{{ hidden }}{% endfor %}
-        <div class="quill-card__content flex flex-col gap-4"
+        <div class="quill-card__content flex flex-col gap-4 pb-4"
              data-slot="card-content">
             {% if operation_form.operation.description %}<p class="m-0">{{ operation_form.operation.description }}</p>{% endif %}
             {% if operation_form.operation.undo_hint %}
