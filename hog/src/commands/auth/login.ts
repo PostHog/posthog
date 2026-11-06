@@ -99,7 +99,7 @@ export default defineCommand({
         'Agents and scripts get a link and a code to hand to a person, then finish with `hog auth login --wait`.',
         'The person picks one project, and the token only works there. To use another project, log in again. hog renews the token by itself.',
         'hog stores the token in the system keychain. If no keychain is available, such as over SSH, it stores the token in a file only you can read.',
-        'In CI, skip login and set HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST.',
+        'In CI, skip login. Run `hog ci setup` once so jobs use their OIDC token, or set HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST.',
     ].join('\n'),
     examples: ['hog auth login', 'hog auth login --region eu', 'hog auth login --read-only', 'hog auth login --wait'],
 
@@ -122,7 +122,7 @@ export default defineCommand({
             throw new HogError(
                 'login_needs_a_person',
                 'hog auth login needs a person to approve it in a browser, so it does not run in CI.',
-                'Set HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST instead.'
+                'Run `hog ci setup` on your machine so jobs use their OIDC token, or set HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST instead.'
             )
         }
 

@@ -3,11 +3,13 @@ import { z } from 'zod'
 
 import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
 
+import type { WorkloadProvider } from '@/ci/providers'
 import { parseJson, parseJsonOrUndefined } from '@/core/json'
 import type { Prompts } from '@/core/prompts'
 import type { Env, Runtime, Secrets } from '@/core/runtime'
 
 import { run } from './cli'
+import { parseProviderIdToken } from './posthog/tokens'
 
 export interface FakeRuntimeOptions {
     env?: Env
@@ -313,4 +315,23 @@ export async function runHog(argv: string[], options: FakeRuntimeOptions = {}): 
         json: jsonReader(() => runtime.stdout()),
         error: () => readJson(runtime.stderr(), ErrorOutputSchema).error,
     }
+}
+
+// A CI provider for tests, so they don't depend on which real providers hog supports. A job is a
+// Fake CI job when FAKE_CI is "true", and its OIDC token is FAKE_CI_TOKEN.
+export const FAKE_WORKLOAD_PROVIDER: WorkloadProvider = {
+    key: 'fake_ci',
+    name: 'Fake CI',
+    issuer: 'https://ci.example.com',
+    docsUrl: 'https://example.com/docs/fake-ci',
+    detect: (env) => env.FAKE_CI === 'true',
+    fetchToken: async (runtime) =>
+        runtime.env.FAKE_CI_TOKEN ? parseProviderIdToken(runtime.env.FAKE_CI_TOKEN) : undefined,
+    missingTokenHint: 'Turn on OIDC tokens in Fake CI.',
+    configPaths: ['.fake-ci.yml'],
+    nameFromRemote: (remote) => remote.match(/ci\.example\.com[:/](.+?)(?:\.git)?$/)?.[1],
+    branchConditions: (branch) => ({ event_name: 'push', ref: `refs/heads/${branch}` }),
+    environmentConditions: (environment) => ({ environment }),
+    snippet: ({ host, projectId }) =>
+        `fake-ci:\n  oidc: true\n  env:\n    HOG_HOST: ${host}\n    HOG_PROJECT_ID: ${projectId}`,
 }

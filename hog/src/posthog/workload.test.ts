@@ -2,12 +2,11 @@ import { describe, expect, test } from 'bun:test'
 
 import type { WorkloadProvider } from '@/ci/providers'
 import { HogError } from '@/core/errors'
-import { fakeRuntime, type FakeRuntimeOptions } from '@/testing'
+import { FAKE_WORKLOAD_PROVIDER, fakeRuntime, type FakeRuntimeOptions } from '@/testing'
 
 import { resolveCredentials } from './credentials'
 import { parseHost } from './host'
 import { KeySession } from './key-session'
-import { parseProviderIdToken } from './tokens'
 
 const OIDC_TOKEN = 'eyJoZWFkZXIi.eyJwYXlsb2FkIi.c2lnbmF0dXJl'
 const WORKLOAD_TOKEN = 'eyJ3b3JrbG9hZCI.eyJ0b2tlbiI.c2lnbmVk'
@@ -33,14 +32,11 @@ const STORED_LOGIN = {
 const audiences: string[] = []
 
 const FAKE_PROVIDER: WorkloadProvider = {
-    key: 'fake_ci',
-    name: 'Fake CI',
-    detect: (env) => env.FAKE_CI === 'true',
+    ...FAKE_WORKLOAD_PROVIDER,
     fetchToken: async (runtime, audience) => {
         audiences.push(audience)
-        return runtime.env.FAKE_CI_TOKEN ? parseProviderIdToken(runtime.env.FAKE_CI_TOKEN) : undefined
+        return FAKE_WORKLOAD_PROVIDER.fetchToken(runtime, audience)
     },
-    missingTokenHint: 'Turn on OIDC tokens in Fake CI.',
 }
 
 const IN_CI = { FAKE_CI: 'true', FAKE_CI_TOKEN: OIDC_TOKEN, HOG_PROJECT_ID: '42' }
