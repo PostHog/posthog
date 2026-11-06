@@ -19,6 +19,7 @@ from posthog.models.utils import UUIDT, uuid7
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.persons_db import persons_db_connection
 from posthog.persons_seed import insert_seed_distinct_id, insert_seed_person, update_seed_person
+from posthog.run_mode import run_mode
 
 from products.mcp_analytics.backend.models import MCPSession
 
@@ -1257,6 +1258,10 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
+        if run_mode().is_deployed_cloud:
+            raise CommandError(
+                "seed_mcp_sessions writes fabricated events and persons; it does not run on PostHog Cloud."
+            )
         team_id: int = options["team_id"]
         session_count: int = options["sessions"]
         min_calls: int = options["min_calls"]

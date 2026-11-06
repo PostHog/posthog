@@ -25,7 +25,10 @@ from hogli import telemetry
 from hogli.manifest import get_manifest
 
 from ..git_signing import DEVBOX_FEEDBACK_HINT, DEVBOX_SIGNING_NOTE, signs_with_secure_enclave_key
-from . import mutagen
+from . import (
+    herdr as herdr_app,
+    mutagen,
+)
 from .coder import (
     CLAUDE_CODE_OAUTH_ENV,
     DEFAULT_PRESET,
@@ -34,6 +37,7 @@ from .coder import (
     EXPECTED_TAILNET,
     GIT_SIGNING_KEY_SECRET,
     REGIONS,
+    REMOTE_REPO_PATH,
     _diagnose_unreachable_coder,
     _fail,
     _ssh_host_alias,
@@ -47,6 +51,7 @@ from .coder import (
     delete_workspace,
     ensure_coder_authenticated,
     ensure_coder_installed,
+    ensure_coder_on_path,
     ensure_coder_reachable,
     ensure_runtime_ready,
     exec_replace,
@@ -1332,6 +1337,7 @@ def devbox_setup(
     click.echo(click.style("Configuring devbox CLI access...", bold=True))
     ensure_coder_reachable("rerun `hogli devbox:setup`.")
     ensure_coder_installed(verbose=verbose)
+    ensure_coder_on_path()
     ensure_coder_authenticated()
 
     # One `coder secret list` round trip fuels the status block and both
@@ -1801,32 +1807,51 @@ def devbox_remote_exec(workspace_name: str | None, command: tuple[str, ...]) -> 
     exec_replace(name, list(command))
 
 
-@click.command(name="devbox:open", help="Open devbox in browser, VS Code, or Cursor")
+def _open_in_herdr(name: str, workspaces: list[dict[str, Any]] | None) -> None:
+    ws = _get_workspace_or_fail(name, workspaces)
+    status = get_workspace_status(ws)
+    if status != "running":
+        _fail(
+            f"Devbox '{name}' is {status}. Start it with `hogli devbox:start{_workspace_arg_suffix(name)}`, then retry.",
+            cause="herdr_workspace_not_running",
+        )
+    if not coder_ssh_alias_configured(name):
+        _fail(
+            "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry.",
+            cause="herdr_ssh_not_configured",
+        )
+    herdr_app.open_in_herdr(name, folder=REMOTE_REPO_PATH)
+
+
+@click.command(name="devbox:open", help="Open devbox in browser, VS Code, Cursor, or Herdr")
 @workspace_argument
 @click.option("--vscode", is_flag=True, help="Open in VS Code Desktop via SSH")
 @click.option("--cursor", is_flag=True, help="Open in Cursor via SSH")
 @click.option("--web", is_flag=True, help="Open code-server (VS Code in browser)")
-def devbox_open(workspace: str | None, vscode: bool, cursor: bool, web: bool) -> None:
+@click.option("--herdr", is_flag=True, help="Add the devbox to Herdr as a machine and open a space on it")
+def devbox_open(workspace: str | None, vscode: bool, cursor: bool, web: bool, herdr: bool) -> None:
     """Open the devbox in a browser or editor."""
-    chosen = sum([vscode, cursor, web])
+    chosen = sum([vscode, cursor, web, herdr])
     if chosen > 1:
-        raise click.UsageError("Choose one of `--vscode`, `--cursor`, or `--web`.")
+        raise click.UsageError("Choose one of `--vscode`, `--cursor`, `--web`, or `--herdr`.")
 
     ensure_runtime_ready()
-    name, _ = resolve_workspace_name(workspace)
+    name, workspaces = resolve_workspace_name(workspace)
 
-    if (vscode or cursor) and mutagen.sync_list(label_selector=mutagen.workspace_label_selector(name)):
-        ide = "VS Code" if vscode else "Cursor"
+    if (vscode or cursor or herdr) and mutagen.sync_list(label_selector=mutagen.workspace_label_selector(name)):
+        editor = "VS Code Remote" if vscode else "Cursor Remote" if cursor else "Herdr terminals on the devbox"
         click.echo(
             click.style(
-                f"⚠ Sync is active for '{name}'. Editing in {ide} Remote can conflict with the local source of truth.",
+                f"⚠ Sync is active for '{name}'. Editing in {editor} can conflict with the local source of truth.",
                 fg="yellow",
             )
         )
 
-    target = "vscode" if vscode else "cursor" if cursor else "web" if web else "browser"
+    target = "vscode" if vscode else "cursor" if cursor else "web" if web else "herdr" if herdr else "browser"
     telemetry.add_command_properties(devbox_open_target=target)
-    if vscode:
+    if herdr:
+        _open_in_herdr(name, workspaces)
+    elif vscode:
         click.echo(f"Opening '{name}' in VS Code...")
         open_vscode(name)
     elif cursor:

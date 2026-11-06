@@ -50,6 +50,13 @@ const RENDER_WITH_FOOTER = renderAround('<p>old</p><p>P.S.</p>')
 const RENDERED_PAGE = renderAround('<p>page</p>')
 const RENDERED_PAGE_WITH_FOOTER = `<div>${RENDERED_PAGE}<p>footer</p></div>`
 const RENDER_WITH_IMAGE = renderAround('<p>old</p><img src="https://example.com/offer.png">')
+const UNLAYER_COLUMN_OPEN =
+    '<!--[if (mso)|(IE)]><table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center"><![endif]--><!--[if (!mso)&(!IE)]><!--><div style="height: 100%;"><!--<![endif]-->'
+const UNLAYER_COLUMN_CLOSE =
+    '<!--[if (!mso)&(!IE)]><!--></div><!--<![endif]--><!--[if (mso)|(IE)]></td></tr></table><![endif]-->'
+const RENDER_IN_OUTLOOK_COLUMN = renderAround(`${UNLAYER_COLUMN_OPEN}<p>old</p>${UNLAYER_COLUMN_CLOSE}`)
+const RENDER_WITH_OUTLOOK_FOOTER = renderAround('<p>old</p><!--[if mso]><p>footer</p><![endif]-->')
+const RENDER_WITH_NON_OUTLOOK_FOOTER = renderAround('<p>old</p><!--[if !mso]><!--><p>footer</p><!--<![endif]-->')
 
 describe('emailTemplaterLogic', () => {
     let logic: ReturnType<typeof emailTemplaterLogic.build>
@@ -493,7 +500,25 @@ describe('emailTemplaterLogic', () => {
                 RENDERED_PAGE_WITH_FOOTER,
             ],
             ['an image was added inside its Unlayer render', '<p>old</p>', RENDER_WITH_IMAGE, RENDER_WITH_IMAGE],
+            [
+                'an Outlook-only footer was added inside its Unlayer render',
+                '<p>old</p>',
+                RENDER_WITH_OUTLOOK_FOOTER,
+                RENDER_WITH_OUTLOOK_FOOTER,
+            ],
+            [
+                'a footer hidden from Outlook was added inside its Unlayer render',
+                '<p>old</p>',
+                RENDER_WITH_NON_OUTLOOK_FOOTER,
+                RENDER_WITH_NON_OUTLOOK_FOOTER,
+            ],
             ['the html is the Unlayer render of the wrap', '<p>old</p>', RENDER_OF_OLD, '<p>old</p>'],
+            [
+                'the html is the Unlayer render of the wrap in Outlook column wrappers',
+                '<p>old</p>',
+                RENDER_IN_OUTLOOK_COLUMN,
+                '<p>old</p>',
+            ],
         ])('when %s, the canvas loads a wrap of the right html', (_name, blockHtml, html, expectedBlockHtml) => {
             const loadDesign = jest.fn()
             logic = emailTemplaterLogic(

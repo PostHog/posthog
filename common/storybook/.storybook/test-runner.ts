@@ -646,22 +646,15 @@ async function takeSnapshotWithTheme(
         }
     }
 
-    // reset scroll positions to ensure consistent snapshots
+    // Inner containers keep their scroll position. Components scroll them on a timer (the settings
+    // nav scrolls to the selected item), so resetting them races that timer and flips the snapshot.
     await page.evaluate(() => {
-        // scroll main viewport to top
         window.scrollTo(0, 0)
-        // scroll the app's main content viewport (Navigation.tsx uses <main id="main-content"> as the scroll container)
+        // Navigation.tsx uses <main id="main-content"> as the scroll container
         const mainContent = document.querySelector('#main-content')
         if (mainContent instanceof HTMLElement) {
             mainContent.scrollTop = 0
         }
-        // scroll all overflow containers to top
-        document.querySelectorAll('.overflow-auto, .overflow-y-auto, .overflow-x-auto').forEach((el) => {
-            if (el instanceof HTMLElement) {
-                el.scrollTop = 0
-                el.scrollLeft = 0
-            }
-        })
     })
 
     await waitForQuiet(page, CONTENT_SETTLE_TIMEOUT_MS)
