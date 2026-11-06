@@ -379,6 +379,10 @@ ManualSelectionWithSearchConsole.play = async ({ canvasElement }: { canvasElemen
     expect(canvas.getByText('Google Search Console')).toBeVisible()
 }
 
+async function openSearchTab(canvasElement: HTMLElement): Promise<void> {
+    await userEvent.click(await within(canvasElement).findByRole('tab', { name: 'Search' }))
+}
+
 function dashboardStory(...args: Parameters<typeof useDashboardWithoutSourcesMocks>): StoryFn {
     return function DashboardScenario(): JSX.Element {
         useDashboardWithoutSourcesMocks(...args)
@@ -400,8 +404,9 @@ DashboardWithSearchConsoleOnly.parameters = {
 DashboardWithSearchConsoleOnly.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
     const canvas = within(canvasElement)
     await expect(canvas.findByText('Connect your ad platforms')).resolves.toBeVisible()
-    await expect(canvas.findByText('Search performance')).resolves.toBeVisible()
     expect(canvas.queryByRole('button', { name: 'Continue to dashboard' })).not.toBeInTheDocument()
+    await openSearchTab(canvasElement)
+    await expect(canvas.findByText('example analytics')).resolves.toBeVisible()
 }
 
 export const DashboardWithAdsOnly = dashboardStory([], false, true, undefined, 'ready')
@@ -413,9 +418,10 @@ DashboardWithAdsSyncingWithoutSearchConsole.parameters = DashboardWithAdsOnly.pa
 DashboardWithAdsOnly.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
     const canvas = within(canvasElement)
     expect((await canvas.findAllByText('Total Clicks'))[0]).toBeVisible()
-    expect((await canvas.findAllByText('Connect Google Search Console'))[0]).toBeVisible()
-    expect(canvas.getAllByRole('heading', { name: /^Search performance$/ })).toHaveLength(1)
     expect(canvas.queryByText('Connect your search sources')).not.toBeInTheDocument()
+    await openSearchTab(canvasElement)
+    expect((await canvas.findAllByText('Connect Google Search Console'))[0]).toBeVisible()
+    expect(canvasElement.querySelectorAll('[data-attr="marketing-search-performance"]')).toHaveLength(1)
 }
 
 DashboardWithAdsSyncingWithoutSearchConsole.play = async ({
@@ -427,6 +433,7 @@ DashboardWithAdsSyncingWithoutSearchConsole.play = async ({
     await expect(canvas.findByText('Your connections are getting ready')).resolves.toBeVisible()
     expect(canvas.queryByText('Total Clicks')).not.toBeInTheDocument()
     expect(canvas.queryByText('Connect your search sources')).not.toBeInTheDocument()
+    await openSearchTab(canvasElement)
     expect((await canvas.findAllByText('Connect Google Search Console'))[0]).toBeVisible()
 }
 
@@ -464,8 +471,9 @@ DashboardScanningWithSearchConsole.parameters = DashboardCheckingConnectionsWith
 DashboardScanningWithSearchConsole.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
     const canvas = within(canvasElement)
     await expect(canvas.findByText('Finding your ad platforms')).resolves.toBeVisible()
-    await expect(canvas.findByText('example analytics')).resolves.toBeVisible()
     expect(canvas.queryByText('Connect your search sources')).not.toBeInTheDocument()
+    await openSearchTab(canvasElement)
+    await expect(canvas.findByText('example analytics')).resolves.toBeVisible()
 }
 
 export const DashboardScanFailedWithSearch = dashboardStory([], true)

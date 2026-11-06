@@ -1,15 +1,12 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
-import { BindLogic, useActions, useValues } from 'kea'
-
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { BindLogic } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { MarketingAnalyticsScene } from 'scenes/marketing-analytics/MarketingAnalyticsScene'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { MarketingAnalyticsFilters } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
-import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -403,7 +400,7 @@ const meta: Meta<typeof SearchPerformanceTab> = {
         layout: 'fullscreen',
         mockDate: '2025-02-15T12:00:00Z',
         msw: { mocks: MOCKS },
-        pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&date_from=-7d`,
+        pageUrl: `${urls.marketingAnalyticsApp()}?tab=search-performance&date_from=-7d`,
         featureFlags: [
             FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
             FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS,
@@ -414,11 +411,11 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Connected: Story = {
-    parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=false` },
+    parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=search-performance&compare=false` },
 }
 export const Pagination: Story = {
     parameters: {
-        pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=true`,
+        pageUrl: `${urls.marketingAnalyticsApp()}?tab=search-performance&compare=true`,
         msw: {
             mocks: {
                 post: {
@@ -473,7 +470,7 @@ export const Pagination: Story = {
     },
 }
 export const Comparison: Story = {
-    parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=true` },
+    parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=search-performance&compare=true` },
     play: async ({ canvasElement }) => {
         await within(canvasElement).findByText('Google Search Console')
         const table = canvasElement.querySelector('.SearchPerformanceTable .LemonTable__content')!
@@ -852,7 +849,7 @@ export const SourcesError: Story = {
 export const LegacyScene: Story = {
     render: () => <MarketingAnalyticsScene />,
     parameters: {
-        pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance`,
+        pageUrl: `${urls.marketingAnalyticsApp()}?tab=search-performance`,
         featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING, FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS],
     },
 }
@@ -951,24 +948,23 @@ export const PostHogConversions: Story = {
             },
         },
     },
-    render: function Render(): JSX.Element {
-        const { includeConversionGoals } = useValues(marketingAnalyticsLogic)
-        const { setAdPerformanceConversionGoals } = useActions(marketingAnalyticsLogic)
-        return (
-            <>
-                <MarketingAnalyticsFilters tabs={<></>} />
-                <LemonSwitch
-                    className="mb-4"
-                    label="Include conversion goals"
-                    checked={includeConversionGoals}
-                    onChange={setAdPerformanceConversionGoals}
-                />
-                <SearchPerformanceTab />
-            </>
-        )
-    },
+    render: (): JSX.Element => (
+        <>
+            <MarketingAnalyticsFilters tabs={<></>} />
+            <SearchPerformanceTab />
+        </>
+    ),
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
+        const toggleConversionGoals = async (): Promise<void> => {
+            await userEvent.click(canvas.getByRole('button', { name: 'Options' }))
+            await userEvent.click(
+                await within(canvasElement.ownerDocument.body).findByRole('switch', {
+                    name: 'Include conversion goals',
+                })
+            )
+            await userEvent.click(canvas.getByRole('button', { name: 'Options' }))
+        }
         await userEvent.click(await canvas.findByRole('button', { name: 'Landing pages' }))
         await userEvent.click(await canvas.findByRole('button', { name: 'Conversions' }))
         teamLogic.actions.loadCurrentTeamSuccess({
@@ -986,12 +982,12 @@ export const PostHogConversions: Story = {
             },
         })
         await expect(canvas.findByRole('columnheader', { name: /Cost per Purchases/ })).resolves.toBeVisible()
-        await userEvent.click(canvas.getByRole('switch', { name: 'Include conversion goals' }))
+        await toggleConversionGoals()
         await waitFor(() =>
             expect(canvas.queryByRole('columnheader', { name: /Cost per Purchases/ })).not.toBeInTheDocument()
         )
         await expect(canvas.findByRole('columnheader', { name: /Reported conversions/ })).resolves.toBeVisible()
-        await userEvent.click(canvas.getByRole('switch', { name: 'Include conversion goals' }))
+        await toggleConversionGoals()
         await expect(canvas.findByRole('columnheader', { name: /Cost per Purchases/ })).resolves.toBeVisible()
     },
 }

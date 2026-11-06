@@ -35,7 +35,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
+import { marketingAnalyticsLogic, type MarketingChartBreakdown } from './marketingAnalyticsLogic'
 import { marketingAnalyticsTableLogic } from './marketingAnalyticsTableLogic'
 import { columnsForView, marketingTableDimensionColumns } from './marketingTableColumnViews'
 import {
@@ -82,6 +82,7 @@ const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => ({
 export interface marketingAnalyticsTilesLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     baseCurrency: CurrencyCode // marketingAnalyticsLogic
+    chartBreakdown: MarketingChartBreakdown // marketingAnalyticsLogic
     chartDisplayType: ChartDisplayType // marketingAnalyticsLogic
     compareFilter: CompareFilter // marketingAnalyticsLogic
     createMarketingDataWarehouseNodes: DataWarehouseNode[] // marketingAnalyticsLogic
@@ -137,7 +138,8 @@ export interface marketingAnalyticsTilesLogicMeta {
             baseCurrency: CurrencyCode,
             integrationFilter: IntegrationFilter,
             featureFlags: FeatureFlagsSet,
-            marketingChartSourceIds: string[]
+            marketingChartSourceIds: string[],
+            chartBreakdown: MarketingChartBreakdown
         ) => QueryTile
         campaignBreakdownTile: (
             campaignCostsBreakdown: DataTableNode | null,
@@ -193,6 +195,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 'sourcesInitialLoading',
                 'draftConversionGoal',
                 'chartDisplayType',
+                'chartBreakdown',
                 'tileColumnSelection',
                 'integrationFilter',
                 'shouldFilterTestAccounts',
@@ -261,6 +264,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 s.integrationFilter,
                 s.featureFlags,
                 s.marketingChartSourceIds,
+                s.chartBreakdown,
             ],
             (
                 compareFilter: CompareFilter | null,
@@ -271,7 +275,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 baseCurrency: CurrencyCode,
                 integrationFilter: IntegrationFilter,
                 featureFlags: FeatureFlagsSet,
-                marketingChartSourceIds: string[]
+                marketingChartSourceIds: string[],
+                chartBreakdown: MarketingChartBreakdown
             ): QueryTile => {
                 const tileColumnSelectionName = tileColumnSelection?.split('_').join(' ')
                 const hasSources = createMarketingDataWarehouseNodes.length > 0
@@ -313,7 +318,9 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     kind: NodeKind.DataWarehouseNode,
                     id: 'marketing_costs_precomputed',
                     name: tileColumnSelectionName,
-                    custom_name: tileColumnSelectionName,
+                    custom_name: tileColumnSelectionName
+                        ? tileColumnSelectionName.charAt(0).toUpperCase() + tileColumnSelectionName.slice(1)
+                        : undefined,
                     table_name: 'marketing_costs_precomputed',
                     id_field: 'campaign_id',
                     distinct_id_field: 'campaign_id',
@@ -352,11 +359,18 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                                 ? { series: createMarketingDataWarehouseNodes, sourceIds: marketingChartSourceIds }
                                 : undefined,
                         compareFilter: compareFilter || undefined,
-                        // The precompute path reads a single node, so split by source here; the S3 adapters
-                        // are already per-source series and need no breakdown.
+                        // The precompute path reads a single node, so split it here, by campaign when chosen;
+                        // the S3 adapters are already per-source series and have no campaign column to split on.
                         breakdownFilter:
                             costsPrecomputeEnabled && hasSources
-                                ? { breakdowns: [{ type: 'data_warehouse', property: 'source_name' }] }
+                                ? {
+                                      breakdowns: [
+                                          {
+                                              type: 'data_warehouse',
+                                              property: chartBreakdown === 'campaign' ? 'campaign_name' : 'source_name',
+                                          },
+                                      ],
+                                  }
                                 : undefined,
                         interval: dateFilter.interval,
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
@@ -381,10 +395,12 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         colSpanClassName: 'md:col-span-2 2xl:col-span-3',
                         orderWhenLargeClassName: '2xl:order-1',
                     },
-                    title: `Marketing ${tileColumnSelectionName}`,
                     query: chartQuery,
                     showIntervalSelect: true,
-                    insightProps: createInsightProps(TileId.MARKETING, `${chartDisplayType}-${tileColumnSelection}`),
+                    insightProps: createInsightProps(
+                        TileId.MARKETING,
+                        `${chartDisplayType}-${tileColumnSelection}-${costsPrecomputeEnabled ? chartBreakdown : 'platform'}`
+                    ),
                     canOpenInsight: true,
                     canOpenModal: false,
                     docs: {
