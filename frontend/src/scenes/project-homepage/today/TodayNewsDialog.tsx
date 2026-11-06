@@ -51,20 +51,25 @@ export function TodayNewsDialog(): JSX.Element | null {
                 data-attr="today-news-dialog"
             >
                 <DialogHeader>
-                    <span className="flex flex-wrap items-baseline gap-x-3">
-                        <DialogTitle className="text-2xl tracking-tight">Today</DialogTitle>
-                        <Text size="sm" variant="muted" render={<span />} translate="no">
-                            {today}
-                        </Text>
-                    </span>
-                    <DialogDescription className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                        <span>{currentTeam?.name ?? 'Your project'}</span>
-                        <span aria-hidden>·</span>
-                        <IconTelescope className="size-3.5 shrink-0" />
-                        <span>Created by the Today scout from the last 24 hours of activity.</span>
+                    <span className="flex items-start justify-between gap-4 pr-8">
+                        <span className="flex flex-col gap-1">
+                            <span className="flex flex-wrap items-baseline gap-x-3">
+                                <DialogTitle className="text-2xl tracking-tight">Today</DialogTitle>
+                                <Text size="sm" variant="muted" render={<span />} translate="no">
+                                    {today}
+                                </Text>
+                            </span>
+                            <DialogDescription className="flex items-center gap-1.5">
+                                <IconTelescope className="size-3.5 shrink-0" />
+                                <span>
+                                    Created by the Today scout from the last 24 hours of activity in{' '}
+                                    {currentTeam?.name ?? 'your project'}.
+                                </span>
+                            </DialogDescription>
+                        </span>
                         <Button
-                            variant="link"
-                            size="inline"
+                            variant="outline"
+                            size="sm"
                             nativeButton={false}
                             render={<LinkPrimitive to={urls.inbox('scouts')} />}
                             onClick={closeNews}
@@ -72,7 +77,7 @@ export function TodayNewsDialog(): JSX.Element | null {
                         >
                             Create your own custom scout
                         </Button>
-                    </DialogDescription>
+                    </span>
                 </DialogHeader>
                 <DialogBody>
                     <div className="@container flex flex-col gap-8">
