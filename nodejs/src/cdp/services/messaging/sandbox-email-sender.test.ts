@@ -116,15 +116,27 @@ describe('sandbox email content', () => {
             error.mockRestore()
         }
     })
-    it.each([0, 1.5, -5, NaN])('fails every cap check closed when a daily cap is %s', async (dailyRecipientCap) => {
-        const capSender = new SandboxEmailSender(
-            { ...sender.config, dailyRecipientCap },
-            teamManager,
-            blockedEventRedis,
-            {} as RateLimiterService
-        )
-        expect(await capSender.claimDailyCaps(1, ['member@example.com'])).toEqual({ type: 'cap_check_failed' })
-    })
+    it.each([
+        [0, 'cap_check_failed'],
+        [1.5, 'cap_check_failed'],
+        [-5, 'cap_check_failed'],
+        [NaN, 'cap_check_failed'],
+        [5, 'project_cap_reached'],
+    ])(
+        'claims the daily caps only when the recipient cap is a positive whole number: %s',
+        async (dailyRecipientCap, type) => {
+            const exhaustedLimiter = {
+                claimRefundable: () => Promise.resolve({ granted: false, deniedIndexes: [0] }),
+            } as unknown as RateLimiterService
+            const capSender = new SandboxEmailSender(
+                { ...sender.config, dailyRecipientCap },
+                teamManager,
+                blockedEventRedis,
+                exhaustedLimiter
+            )
+            expect(await capSender.claimDailyCaps(1, ['member@example.com'])).toEqual({ type })
+        }
+    )
     it('sends from the fixed address, drops the reply-to and adds the footer to the text part', async () => {
         const result = await sender.buildSandboxMessage(
             { ...params('<p>Hello</p>', 'Hello'), replyTo: 'replies@example.org' },
