@@ -29,7 +29,7 @@ export function QuillReportChecksSection({ report }: { report: SignalReport }): 
 
     if (reportChecksLoading && !reportChecks) {
         return (
-            <QuillDetailSection icon={<IconTarget />} title="Follow-up checks" collapsible>
+            <QuillDetailSection icon={<IconTarget />} title="Follow-up checks" collapsible defaultCollapsed>
                 <Skeleton className="h-12 w-full" />
             </QuillDetailSection>
         )
@@ -47,6 +47,12 @@ export function QuillReportChecksSection({ report }: { report: SignalReport }): 
             icon={<IconTarget />}
             title="Follow-up checks"
             collapsible
+            defaultCollapsed
+            summary={
+                <Text size="xs" variant="muted" className="m-0">
+                    These checks verify whether the problem is fixed.
+                </Text>
+            }
             meta={
                 <Text size="xs" render={<span />} className="text-subtle-foreground tabular-nums">
                     {reportChecksMeta(reportChecks, report.status)}
