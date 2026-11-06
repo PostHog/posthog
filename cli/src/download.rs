@@ -1,4 +1,4 @@
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 use std::{
     fs,
     path::{Component, Path, PathBuf},
@@ -93,31 +93,42 @@ fn extract_symbol_data(data: &[u8], base_name: &str, output: &Path) -> Result<()
     // Try each type — read_symbol_data returns InvalidDataType when the
     // header type field doesn't match, so we use that to fall through.
     if let Ok(parsed) = read_symbol_data::<SourceAndMap>(data) {
-        let source_path = output.join(format!("{base_name}.js"));
-        fs::write(&source_path, &parsed.minified_source).context("Failed to write source file")?;
-        info!("Wrote {}", source_path.display());
-
-        let map_path = output.join(format!("{base_name}.js.map"));
-        fs::write(&map_path, &parsed.sourcemap).context("Failed to write sourcemap file")?;
-        info!("Wrote {}", map_path.display());
+        write_output_file(
+            output,
+            format!("{base_name}.js"),
+            parsed.minified_source.as_bytes(),
+        )
+        .context("Failed to write source file")?;
+        write_output_file(
+            output,
+            format!("{base_name}.js.map"),
+            parsed.sourcemap.as_bytes(),
+        )
+        .context("Failed to write sourcemap file")?;
 
         crate::safe_println!("Extracted source and sourcemap to {}", output.display());
         return Ok(());
     }
 
     if let Ok(parsed) = read_symbol_data::<HermesMap>(data) {
-        let map_path = output.join(format!("{base_name}.hbc.map"));
-        fs::write(&map_path, &parsed.sourcemap).context("Failed to write hermes sourcemap")?;
-        info!("Wrote {}", map_path.display());
+        write_output_file(
+            output,
+            format!("{base_name}.hbc.map"),
+            parsed.sourcemap.as_bytes(),
+        )
+        .context("Failed to write hermes sourcemap")?;
 
         crate::safe_println!("Extracted hermes sourcemap to {}", output.display());
         return Ok(());
     }
 
     if let Ok(parsed) = read_symbol_data::<ProguardMapping>(data) {
-        let map_path = output.join(format!("{base_name}.txt"));
-        fs::write(&map_path, &parsed.content).context("Failed to write proguard mapping")?;
-        info!("Wrote {}", map_path.display());
+        write_output_file(
+            output,
+            format!("{base_name}.txt"),
+            parsed.content.as_bytes(),
+        )
+        .context("Failed to write proguard mapping")?;
 
         crate::safe_println!("Extracted proguard mapping to {}", output.display());
         return Ok(());
@@ -147,7 +158,6 @@ fn extract_symbol_data(data: &[u8], base_name: &str, output: &Path) -> Result<()
 /// Extract a dSYM ZIP archive (DWARF binary + optional source files).
 fn extract_dsym_zip(zip_data: &[u8], base_name: &str, output: &Path) -> Result<()> {
     let dsym_dir = output.join(base_name);
-    fs::create_dir_all(&dsym_dir).context("Failed to create dSYM output directory")?;
 
     let reader = Cursor::new(zip_data);
     let mut archive = zip::ZipArchive::new(reader).context("Failed to read dSYM ZIP archive")?;
@@ -170,16 +180,7 @@ fn extract_dsym_zip(zip_data: &[u8], base_name: &str, output: &Path) -> Result<(
             continue;
         }
 
-        let out_path = dsym_dir.join(&safe_name);
-
-        if let Some(parent) = out_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        let mut out_file = fs::File::create(&out_path)
-            .context(format!("Failed to create {}", out_path.display()))?;
-        std::io::copy(&mut file, &mut out_file)?;
-        info!("Wrote {}", out_path.display());
+        write_output_file(output, Path::new(base_name).join(&safe_name), &mut file)?;
     }
 
     crate::safe_println!(
@@ -187,6 +188,39 @@ fn extract_dsym_zip(zip_data: &[u8], base_name: &str, output: &Path) -> Result<(
         archive.len(),
         dsym_dir.display()
     );
+    Ok(())
+}
+
+/// Writes `contents` to `output/relative`, creating missing directories.
+/// An existing output directory can hold symlinks, and a write through one
+/// lands outside it. So this refuses a symlink at `output` or below it.
+/// Directories above `output` are the caller's choice and stay followed.
+fn write_output_file(
+    output: &Path,
+    relative: impl AsRef<Path>,
+    mut contents: impl Read,
+) -> Result<()> {
+    let mut path = output.to_path_buf();
+    let mut parts = relative.as_ref().components();
+    loop {
+        if path.is_symlink() {
+            anyhow::bail!(
+                "The CLI does not write through the symlink at {}. Use an output directory that is not a symlink and holds no symlinks.",
+                path.display()
+            );
+        }
+        let Some(part) = parts.next() else { break };
+        path.push(part);
+    }
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create directory {}", parent.display()))?;
+    }
+    let mut file =
+        fs::File::create(&path).with_context(|| format!("Failed to create {}", path.display()))?;
+    std::io::copy(&mut contents, &mut file)?;
+    info!("Wrote {}", path.display());
     Ok(())
 }
 
@@ -271,6 +305,106 @@ mod tests {
         assert!(!root.path().join("source.c").exists());
         assert!(output.join("symbol_set").join("dwarf").is_file());
         assert!(output.join("symbol_set").join("source.c").is_file());
+    }
+
+    fn dsym_artifact() -> Vec<u8> {
+        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for name in ["dwarf", "__source/app.c"] {
+            zip.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(b"extracted").unwrap();
+        }
+        write_symbol_data(AppleDsym {
+            data: zip.finish().unwrap().into_inner(),
+        })
+        .unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extract_does_not_write_through_symlinks_in_the_output_directory() {
+        use posthog_symbol_data::SourceAndMap;
+
+        let dsym = ("bundle.dSYM", dsym_artifact());
+        let sourcemap = (
+            "bundle.js.map",
+            write_symbol_data(SourceAndMap {
+                minified_source: "extracted".to_string(),
+                sourcemap: "extracted".to_string(),
+            })
+            .unwrap(),
+        );
+
+        // (symlink under the temp root, its target, artifact)
+        let cases = [
+            ("out", "outside", &dsym),
+            ("out/bundle", "outside", &dsym),
+            ("out/bundle/__source", "outside", &dsym),
+            ("out/bundle/dwarf", "outside/existing.txt", &dsym),
+            ("out/bundle.js.map", "outside/existing.txt", &sourcemap),
+        ];
+
+        for (link, target, (artifact_name, artifact)) in cases {
+            let root = tempfile::tempdir().unwrap();
+            let outside = root.path().join("outside");
+            fs::create_dir(&outside).unwrap();
+            fs::write(outside.join("existing.txt"), "original").unwrap();
+            let link_path = root.path().join(link);
+            fs::create_dir_all(link_path.parent().unwrap()).unwrap();
+            std::os::unix::fs::symlink(root.path().join(target), &link_path).unwrap();
+            let file = root.path().join(artifact_name);
+            fs::write(&file, artifact).unwrap();
+
+            let result = extract(&ExtractArgs {
+                file,
+                output: root.path().join("out"),
+            });
+
+            assert!(result.is_err(), "{link}");
+            let outside_files: Vec<_> = fs::read_dir(&outside)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect();
+            assert_eq!(outside_files, ["existing.txt"], "{link}");
+            assert_eq!(
+                fs::read_to_string(outside.join("existing.txt")).unwrap(),
+                "original",
+                "{link}"
+            );
+        }
+
+        let root = tempfile::tempdir().unwrap();
+        let real = root.path().join("real");
+        fs::create_dir(&real).unwrap();
+        std::os::unix::fs::symlink(&real, root.path().join("link")).unwrap();
+        let file = root.path().join(dsym.0);
+        fs::write(&file, &dsym.1).unwrap();
+
+        extract(&ExtractArgs {
+            file,
+            output: root.path().join("link").join("out"),
+        })
+        .unwrap();
+
+        assert!(real.join("out").join("bundle").join("dwarf").is_file());
+    }
+
+    #[test]
+    fn extract_overwrites_files_from_an_earlier_extraction() {
+        let root = tempfile::tempdir().unwrap();
+        let file = root.path().join("bundle.dSYM");
+        fs::write(&file, dsym_artifact()).unwrap();
+        let args = ExtractArgs {
+            file,
+            output: root.path().join("out"),
+        };
+
+        extract(&args).unwrap();
+        let dwarf = args.output.join("bundle").join("dwarf");
+        fs::write(&dwarf, "stale content from an earlier extraction").unwrap();
+        extract(&args).unwrap();
+
+        assert_eq!(fs::read_to_string(&dwarf).unwrap(), "extracted");
     }
 
     #[test]
