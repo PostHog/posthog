@@ -235,3 +235,35 @@ fn only_real_http_statuses_become_the_response_status() {
         }
     }
 }
+
+#[test]
+fn token_comes_from_the_path_then_the_header_then_the_query() {
+    for (path, auth, query, expected) in [
+        (
+            Some("phc_path"),
+            Some("Bearer phc_header"),
+            Some("phc_query"),
+            Some("phc_path"),
+        ),
+        (
+            Some(""),
+            Some("Bearer phc_header"),
+            None,
+            Some("phc_header"),
+        ),
+        (None, Some("bearer phc_header "), None, Some("phc_header")),
+        (None, Some("phc_bare"), None, Some("phc_bare")),
+        (None, Some("Bearer "), Some("phc_query"), Some("phc_query")),
+        (None, None, Some(""), None),
+    ] {
+        let mut headers = axum::http::HeaderMap::new();
+        if let Some(value) = auth {
+            headers.insert("authorization", value.parse().unwrap());
+        }
+        assert_eq!(
+            token_from_request(path, &headers, query).as_deref(),
+            expected,
+            "{path:?} / {auth:?} / {query:?}"
+        );
+    }
+}

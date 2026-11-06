@@ -1,13 +1,12 @@
-use crate::authorizer::{token_from_path_header_or_query, Signal};
-use crate::log_record::{
-    apply_timestamp_override, datetime_from_millis, hex_to_base64, KafkaLogRow,
-};
+use crate::authorizer::Signal;
+use crate::log_record::{apply_timestamp_override, datetime_from_millis, KafkaLogRow};
 use crate::service::{decode_body_if_gzip_magic, Service};
 use axum::{
     extract::{Extension, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::Json,
 };
+use base64::{prelude::BASE64_STANDARD, Engine};
 use bytes::Bytes;
 use chrono::Utc;
 use metrics::counter;
@@ -159,6 +158,40 @@ impl ParsedDelivery {
                 self.invalid += 1;
                 self.first_error.get_or_insert(e);
             }
+        }
+    }
+}
+
+/// The token from the URL path first, then the `Authorization` header (`Bearer`, `bearer` or a bare
+/// token), then `?token=`. A drain can only set its URL and custom headers.
+pub fn token_from_request(
+    path_token: Option<&str>,
+    headers: &HeaderMap,
+    query_token: Option<&str>,
+) -> Option<String> {
+    let header_token = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .map(|auth| {
+            auth.strip_prefix("Bearer ")
+                .or_else(|| auth.strip_prefix("bearer "))
+                .unwrap_or(auth)
+                .trim()
+        });
+    [path_token, header_token, query_token]
+        .into_iter()
+        .flatten()
+        .find(|token| !token.is_empty())
+        .map(str::to_string)
+}
+
+fn hex_to_base64(hex_str: &str) -> String {
+    let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+    match hex::decode(hex_str) {
+        Ok(bytes) => BASE64_STANDARD.encode(bytes),
+        Err(_) => {
+            debug!("Failed to decode hex string: {}", hex_str);
+            String::new()
         }
     }
 }
@@ -498,11 +531,17 @@ pub async fn export_vercel_logs_http(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let token = token_from_path_header_or_query(
+    let Some(token) = token_from_request(
         path_token.as_ref().map(|Path(token)| token.as_str()),
         &headers,
         query_params.token.as_deref(),
-    )?;
+    ) else {
+        error!("No token provided");
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "No token provided"})),
+        ));
+    };
 
     service.authorizer.authorize_token(&token, Signal::Logs)?;
     tracing::Span::current().record("token", &token);
