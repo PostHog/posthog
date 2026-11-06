@@ -1,6 +1,9 @@
+import structlog
 from temporalio import activity
 
 from products.slack_app.backend.temporal.types import PostHogCodeSlackMentionWorkflowInputs
+
+logger = structlog.get_logger(__name__)
 
 
 @activity.defn
@@ -18,12 +21,17 @@ def offer_slack_app_tool_connections_activity(
     integration = get_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     if integration is None:
         return False
-    return offer_tool_connections(
-        integration,
-        channel=channel,
-        thread_ts=thread_ts,
-        slack_user_id=slack_user_id,
-        user_id=user_id,
-        text=str(inputs.event.get("text") or ""),
-        workflow_id=workflow_id,
-    )
+    # The offer is optional, so a failed one starts the task without the tool instead of failing the request.
+    try:
+        return offer_tool_connections(
+            integration,
+            channel=channel,
+            thread_ts=thread_ts,
+            slack_user_id=slack_user_id,
+            user_id=user_id,
+            text=str(inputs.event.get("text") or ""),
+            workflow_id=workflow_id,
+        )
+    except Exception:
+        logger.warning("slack_app_connect_tool_offer_failed", workflow_id=workflow_id, exc_info=True)
+        return False

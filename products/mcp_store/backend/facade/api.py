@@ -49,6 +49,7 @@ from products.mcp_store.backend.models import (
     MCPMemberServerRevocation,
     MCPServerInstallation,
     MCPServerInstallationTool,
+    MCPServerTemplate,
     MCPServiceAccount,
     MCPServiceAccountServerAccess,
 )
@@ -374,6 +375,14 @@ def get_active_installations(team_id: int, user_id: int, *, include_shared: bool
     return results
 
 
+def _connects_from_a_link(template: MCPServerTemplate) -> bool:
+    # The authorize endpoint needs a shared OAuth client. A template that registers a client for each person only
+    # gets one during install_template, so a plain link to it fails before the provider's consent screen.
+    if template.auth_type != MCPAuthType.OAUTH:
+        return False
+    return bool(template.oauth_credentials_source or (template.oauth_credentials or {}).get("client_id"))
+
+
 def team_tools_not_connected(team_id: int, user_id: int) -> list[UnconnectedTeamTool]:
     """Catalog servers the team turned on for its members, minus the ones this member has a working personal
     connection to. Servers that a team only gets from the catalog default are left out, because nobody chose them."""
@@ -394,7 +403,7 @@ def team_tools_not_connected(team_id: int, user_id: int) -> list[UnconnectedTeam
         UnconnectedTeamTool(
             template_id=str(server.template.id),
             name=server.template.name,
-            connects_with_oauth=server.template.auth_type == MCPAuthType.OAUTH,
+            connects_with_oauth=_connects_from_a_link(server.template),
         )
         for server in servers
         if server.template is not None and server.url not in connected_urls

@@ -66,6 +66,7 @@ from products.slack_app.backend.logic.onboarding.actions import (
     is_onboarding_action,
 )
 from products.slack_app.backend.logic.onboarding.dispatch import request_onboarding
+from products.slack_app.backend.logic.onboarding.step import read_action_value
 from products.slack_app.backend.logic.onboarding.work_focus import (
     SUGGESTION_CLICKED_EVENT as WORK_FOCUS_SUGGESTION_CLICKED_EVENT,
     SUGGESTION_STARTED_EVENT as WORK_FOCUS_SUGGESTION_STARTED_EVENT,
