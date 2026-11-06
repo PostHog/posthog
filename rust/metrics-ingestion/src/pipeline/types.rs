@@ -7,7 +7,6 @@ pub const METRICS_OUTPUT: &str = "metrics";
 pub const DEFAULT_METRICS_RETENTION_DAYS: u32 = 30;
 pub const QUOTA_RESOURCE: &str = "metrics_mb_ingested";
 
-/// `MetricsPipelineInput`.
 #[derive(Debug, Clone)]
 pub struct MetricsPipelineInput {
     pub message: Arc<KafkaMessage>,
@@ -35,7 +34,6 @@ pub struct MetricsSizes {
     pub record_count: u64,
 }
 
-/// `MetricsIngestionMessage` with the parsed Kafka headers.
 #[derive(Debug, Clone)]
 pub struct MetricsIngestionMessage {
     pub message: Arc<KafkaMessage>,
