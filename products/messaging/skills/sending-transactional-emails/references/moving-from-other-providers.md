@@ -26,7 +26,7 @@ A PostHog send takes a template ID, one recipient, the values for the template's
 ## Check before the switch
 
 - **Sender:** The sending domain must be verified in PostHog, even if it already sends with the other provider. The app shows the DNS records to add.
-- **Suppressions:** Addresses that the old provider suppressed after bounces or complaints are not in PostHog's suppression list. Ask the user whether to add them before high-volume emails move.
+- **Suppressions:** Addresses that the old provider suppressed after bounces or complaints are not in PostHog's suppression list. Ask the user whether to add them before high-volume emails move. For Resend, the `migrating-from-email-providers` skill imports them with templates and unsubscribes.
 - **Errors:** Map the old provider's error handling to PostHog's error codes, such as `recipient_suppressed`, `recipient_unreachable`, and `quota_limited`. A code that means "don't retry" must not go back into a retry loop.
 - **Retries:** Keep one idempotency key for each email across retries, so a retry after a timeout doesn't send twice.
 - **Volume:** Transactional emails count toward the project's sending allowance and email quota. For a large volume, check the allowance with `workflows-reputation-get` before the switch.

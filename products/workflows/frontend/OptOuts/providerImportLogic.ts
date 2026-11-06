@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -363,9 +364,13 @@ export const providerImportLogic = kea<providerImportLogicType>([
             actions.loadImportRuns()
             actions.loadImportProviders()
         },
-        selectProvider: () => {
+        selectProvider: ({ providerKey }) => {
             // A key belongs to one tool, so it must not travel to the next one picked.
             actions.resetImportForm()
+            if (providerKey) {
+                // pinned: analytics event name, shared with the backend stages of the same funnel
+                posthog.capture('workflows import run', { source: providerKey, stage: 'selected', dry_run: false })
+            }
         },
         startImportSuccess: ({ startedImportRun }) => {
             // Show the new run at once, so a failed first refresh still shows progress and keeps polling.
