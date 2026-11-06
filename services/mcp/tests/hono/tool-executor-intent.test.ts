@@ -246,14 +246,11 @@ describe('ToolExecutor analytics capture', () => {
             expect(event.properties).toMatchObject({
                 $mcp_project_id: '1',
             })
-            // Exec routes name the inner tool, so they carry its arguments rather than the command string.
             expect(event.parameters).toEqual({ projectId: 2 })
             expect(event.response).toBe('Switched to project 2')
         }
     )
 
-    // Formatted text hides credential fields from key-based redaction, so the captured
-    // result is the handler's raw object.
     it.each(['direct', 'exec'])('redacts a credential the %s result returns', async (mode) => {
         const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
         const tool = {
@@ -285,8 +282,6 @@ describe('ToolExecutor analytics capture', () => {
         capture.mockRestore()
     })
 
-    // An unresolved exec command is the agent's raw string: no tool name to apply the
-    // capture policy to, and key-based redaction can't see inside it.
     it.each([
         ['an unknown tool', 'call no-such-tool {"password":"canary-secret"}'],
         ['a disconnected vendor tool', 'call linear__create_issue {"description":"canary-secret"}'],

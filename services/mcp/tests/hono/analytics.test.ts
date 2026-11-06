@@ -207,8 +207,6 @@ describe('Hono MCP analytics contexts', () => {
         }
     })
 
-    // `$mcp_tool_call` carries arguments and results under the same policy as `$ai_span`,
-    // except that execute-sql keeps its query (already on `$ai_generation`) and drops its rows.
     it.each([
         ['an ordinary tool', 'query-logs', { query: 'level:error' }, true, true],
         ['execute-sql on plain data', 'execute-sql', { query: 'SELECT count() FROM events' }, true, false],
@@ -242,7 +240,6 @@ describe('Hono MCP analytics contexts', () => {
     )
 
     it.each([
-        // Error results embed upstream error bodies; the sanitized `$mcp_error_message` covers failures.
         [
             'a failed call',
             true,

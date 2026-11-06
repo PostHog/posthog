@@ -493,9 +493,7 @@ function serializeSpanState(value: unknown): string | undefined {
     }
 }
 
-// Arguments and results follow the `$ai_span` policy and redaction; the SDK then truncates them.
-// Failed calls send no result: their text embeds upstream error bodies, which the sanitized
-// `$mcp_error_message` exists to keep out of analytics.
+// Failed calls send no result: their text embeds upstream error bodies that `$mcp_error_message` sanitizes.
 function capturedPayload(
     toolName: string,
     isError: boolean,
