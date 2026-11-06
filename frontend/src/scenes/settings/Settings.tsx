@@ -155,8 +155,10 @@ export function Settings({
         return () => vv.removeEventListener('resize', update)
     }, [isCompact])
 
-    // Scroll the active item into view in the nav, on load and whenever the selected
-    // section changes. Delayed so any auto-expanded collapsible has finished animating.
+    // Scroll the active item into view in the nav, on load and whenever the selected section or the
+    // list of sections changes. Sections arrive with async data (flags, organization, billing), and an
+    // insert above the active item pushes it out of view after the first scroll.
+    // Delayed so any auto-expanded collapsible has finished animating.
     React.useEffect(() => {
         if (isSearching || !selectedSectionId) {
             return
@@ -167,7 +169,7 @@ export function Settings({
                 ?.scrollIntoView({ block: 'nearest' })
         }, 250)
         return () => clearTimeout(timer)
-    }, [selectedSectionId, isSearching])
+    }, [selectedSectionId, isSearching, filteredSections, filteredLevels])
 
     // Only organization settings prompt for re-authentication on navigation. Everywhere else the backend gates
     // sensitive writes, and a write that fails for a stale session opens the re-auth modal and retries.
