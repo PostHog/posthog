@@ -167,7 +167,10 @@ class ExternalDataSourceJobRunsMixin(base.ExternalDataSourceViewSetBase):
         )
 
         if schemas:
-            jobs = jobs.filter(schema__name__in=schemas)
+            # Resolve names to IDs first so the job read filters on its own column. A filter on
+            # schema__name makes Postgres join every job of the source to its schema row.
+            schema_ids = list(instance.schemas.filter(name__in=schemas).values_list("id", flat=True))
+            jobs = jobs.filter(schema_id__in=schema_ids)
         if after_date:
             jobs = jobs.filter(created_at__gt=after_date)
         if before_date:
