@@ -1015,11 +1015,39 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert result is True
         _assert_quota_denial_posted(mock_slack_instance, "C123", "1234.5678")
 
+    @parameterized.expand(
+        [
+            ("ordinary", None, False),
+            ("implementation_slot_free", "implementation", False),
+            ("implementation_slot_taken", "implementation", True),
+            ("discussion_slot_taken", "discussion", True),
+        ]
+    )
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
-    def test_terminal_run_resumes_same_task(self, mock_slack_cls, mock_execute_workflow):
+    def test_terminal_run_resumes_same_task(
+        self, _name, relationship, slot_taken, mock_slack_cls, mock_execute_workflow
+    ):
+        from products.signals.backend.facade import report_tasks
+        from products.signals.backend.models import SignalReport
+
         self.task_run.status = self.TaskRun.Status.COMPLETED
         self.task_run.save()
+        if relationship:
+            report = SignalReport.objects.create(team=self.team, title="Report", summary="Summary", total_weight=1.0)
+            self.task.signal_report_id = report.id
+            self.task.save(update_fields=["signal_report_id"])
+            report_tasks.record_report_task(
+                team_id=self.team.id, report_id=str(report.id), task_id=str(self.task.id), relationship=relationship
+            )
+            if slot_taken:
+                competing_task = self.Task.objects.create(
+                    team=self.team, title="Other implementation", description="Implement report", created_by=self.user
+                )
+                self.TaskRun.objects.create(task=competing_task, team=self.team, status=self.TaskRun.Status.IN_PROGRESS)
+                report_tasks.record_report_task(
+                    team_id=self.team.id, report_id=str(report.id), task_id=str(competing_task.id)
+                )
         self._create_mapping()
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
@@ -1030,6 +1058,12 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
 
         assert result is True
+        if relationship == "implementation" and slot_taken:
+            mock_execute_workflow.assert_not_called()
+            assert self.TaskRun.objects.filter(task=self.task).count() == 1
+            mock_slack_instance.client.chat_postMessage.assert_called_once()
+            assert "already in progress" in mock_slack_instance.client.chat_postMessage.call_args.kwargs["text"]
+            return
         mock_execute_workflow.assert_called_once()
         call_kwargs = mock_execute_workflow.call_args.kwargs
         assert call_kwargs["task_id"] == str(self.task.id)
@@ -1058,6 +1092,48 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             channel="C123", timestamp="1234.5679", name="eyes"
         )
         mock_slack_instance.client.chat_postMessage.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("owner", "U_ALICE", ThreadJoinMode.NEVER, True, False),
+            ("allowed", "U_BOB", ThreadJoinMode.ALLOW, True, False),
+            ("denied", "U_BOB", ThreadJoinMode.NEVER, False, False),
+            ("ask_per_person", "U_BOB", ThreadJoinMode.ASK_PER_PERSON, False, True),
+            ("ask_per_thread", "U_BOB", ThreadJoinMode.ASK_PER_THREAD, False, True),
+        ]
+    )
+    @patch("products.slack_app.backend.api.post_thread_join_prompt")
+    def test_implementation_conversion_requires_thread_join_access(
+        self, _name, slack_user_id, mode, allowed, prompted, mock_prompt
+    ):
+        from products.signals.backend.models import SignalReport, SignalReportSlackThread, SignalReportTask
+        from products.signals.backend.slack_report_threads import record_report_slack_thread
+
+        report = SignalReport.objects.create(team=self.team, title="Report", summary="Summary", total_weight=1.0)
+        record_report_slack_thread(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            integration_id=self.integration.id,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
+        )
+        self._create_mapping()
+        SlackSettings.objects.create(slack_workspace_id="T_SLACK", slack_user_id="U_ALICE", thread_join_mode=mode)
+        clicker = self.user if slack_user_id == "U_ALICE" else User.objects.create(email="clicker@example.com")
+        OrganizationMembership.objects.create(organization=self.org, user=clicker)
+        inputs = _make_inputs(self.integration.id, clicker.id)
+        inputs = replace(
+            inputs, event={**inputs.event, "user": slack_user_id}, report_implementation_message_ts="1234.5678"
+        )
+
+        assert prepare_slack_report_implementation_activity(inputs) is allowed
+
+        self.task_run.refresh_from_db()
+        assert (self.task_run.state.get("billing_product") == "posthog_ai") is allowed
+        assert SignalReportTask.objects.filter(report=report, task=self.task).exists() is allowed
+        assert mock_prompt.called is prompted
 
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")

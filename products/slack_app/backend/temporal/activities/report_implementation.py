@@ -9,6 +9,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.slack_app.backend.logic.reply_suggestions import REPORT_IMPLEMENTATION_ACTION_ID
+from products.slack_app.backend.logic.thread_join import ThreadJoinDecision, decide_thread_join
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
 from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
@@ -40,6 +41,27 @@ def prepare_slack_report_implementation_activity(inputs: PostHogCodeSlackMention
         integration_id=integration.id, channel=channel, thread_ts=thread_ts
     ).first()
     if mapping is not None:
+        slack_user_id = inputs.event["user"]
+        if slack_user_id != mapping.mentioning_slack_user_id:
+            join = decide_thread_join(integration, mapping, slack_user_id)
+            if join != ThreadJoinDecision.ALLOW:
+                if join != ThreadJoinDecision.DENY:
+                    from products.slack_app.backend.api import post_thread_join_prompt  # noqa: PLC0415
+
+                    post_thread_join_prompt(
+                        SlackIntegration(integration),
+                        integration,
+                        inputs,
+                        channel=channel,
+                        thread_ts=thread_ts,
+                        owner_slack_user_id=mapping.mentioning_slack_user_id,
+                        joiner_slack_user_id=slack_user_id,
+                        opens_thread=join == ThreadJoinDecision.ASK_FOR_THREAD,
+                        plan_name=plan.plan_name
+                        if (plan := tasks_facade.get_run_plan(mapping.task_run.state))
+                        else None,
+                    )
+                return False
         try:
             with transaction.atomic():
                 tasks_facade.mark_slack_task_manual_billing(team_id=integration.team_id, task_id=str(mapping.task_id))

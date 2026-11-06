@@ -4270,6 +4270,7 @@ def post_thread_join_prompt(
             "event": inputs.event,
             "untagged_followup": inputs.untagged_followup,
             "untagged_followup_confirmed": inputs.untagged_followup_confirmed,
+            "report_implementation_message_ts": inputs.report_implementation_message_ts,
             "is_ext_shared_channel": inputs.is_ext_shared_channel,
         },
         timeout=THREAD_JOIN_PROMPT_MAX_AGE_SECONDS,
@@ -4435,6 +4436,7 @@ def _handle_thread_join_allow(payload: dict) -> HttpResponse:
         untagged_followup=bool(context.get("untagged_followup")),
         untagged_followup_confirmed=bool(context.get("untagged_followup_confirmed")),
         thread_join_approved=True,
+        report_implementation_message_ts=context.get("report_implementation_message_ts"),
         is_ext_shared_channel=bool(context.get("is_ext_shared_channel")),
     )
     _close_thread_join_prompt(context_token, context, response_url)

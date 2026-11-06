@@ -1514,6 +1514,9 @@ def _resume_task_with_new_run(
     model_override: SlackAppModelOverride | None = None,
 ) -> bool:
     """Create a new run on the same task when a follow-up arrives after the previous run completed."""
+    from products.signals.backend.facade import (
+        report_tasks,  # noqa: PLC0415 - keeps the signals model graph off the webhook import path
+    )
     from products.slack_app.backend.facade.run_preferences import resolve_effective_runtime_adapter
     from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415
         decode_slack_event_text,
@@ -1623,13 +1626,28 @@ def _resume_task_with_new_run(
         # The replying user, not the task creator: the safety-net default resolution and
         # its gated-model entitlement check inside `create_run` must run against whoever
         # launches this follow-up.
-        new_run = tasks_facade.create_run(
-            mapping.task_id,
-            mode="interactive",
-            extra_state=extra_state,
-            acting_user_id=run_actor.id,
-            subscription_owner_id=created_by.id if own_plan_state else None,
+        with transaction.atomic():
+            if report_id := mapping.task.signal_report_source_id:
+                report_tasks.enforce_report_implementation_rerun_cap(
+                    team_id=mapping.task.team_id,
+                    report_id=str(report_id),
+                    task_id=str(mapping.task_id),
+                )
+            new_run = tasks_facade.create_run(
+                mapping.task_id,
+                mode="interactive",
+                extra_state=extra_state,
+                acting_user_id=run_actor.id,
+                subscription_owner_id=created_by.id if own_plan_state else None,
+            )
+    except report_tasks.ReportTaskCapExceeded as exc:
+        post_slack_thread_reply(
+            slack.client,
+            channel=channel,
+            thread_ts=thread_ts,
+            text=exc.detail,
         )
+        return True
     except Exception:
         logger.exception(
             "posthog_code_resume_create_run_failed",
