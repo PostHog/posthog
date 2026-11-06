@@ -881,7 +881,6 @@ class SESProvider:
         return ses.get_identity_mail_from_domain_attributes(Identities=[domain])["MailFromDomainAttributes"].get(domain)
 
     def get_mail_from_subdomain(self, domain: str) -> str | None:
-        """The MAIL FROM subdomain SES uses for the identity now, or None when it has none."""
         mail_from_for_domain = self._read_mail_from_attributes(domain, self.ses_client)
         mail_from_domain = mail_from_for_domain.get("MailFromDomain") if mail_from_for_domain else None
         suffix = f".{domain}"

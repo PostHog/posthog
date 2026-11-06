@@ -967,7 +967,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         ):
             raise PermissionDenied("Changing push identity verification requires project admin access.")
 
-        # `create` is a POST with upsert semantics: each kind's helper does an `update_or_create`
+        # `create` is a POST with upsert semantics: each kind's helper except email's does an `update_or_create`
         # keyed on (team, kind, integration_id), so re-submitting the same resource overwrites the
         # existing integration instead of adding a new one. Adding is allowed for any project
         # member. A Google account's creator can also reconnect it because its credentials are
