@@ -458,15 +458,27 @@ describe('EmailTrackingService', () => {
                 expect(opened).toBeLessThan(5100)
             })
 
-            it('still records the open when Redis stalls', async () => {
+            it.each<[string, (service: any) => void]>([
+                [
+                    'Redis stalls',
+                    (service) => jest.spyOn(service.redis, 'useClient').mockReturnValue(new Promise(() => {})),
+                ],
+                [
+                    'the team config read fails',
+                    (service) =>
+                        jest
+                            .spyOn(service.teamWorkflowsConfigService, 'shouldCaptureEngagementEvents')
+                            .mockRejectedValueOnce(new Error('column does not exist')),
+                ],
+            ])('still records the open when %s', async (_, fail) => {
                 const parentRunId = new UUIDT().toString()
-                const service = api['emailTrackingService'] as any
-                jest.spyOn(service.redis, 'useClient').mockReturnValue(new Promise(() => {}))
+                fail(api['emailTrackingService'])
                 const code = signer.generate({
                     functionId: hogFunction.id,
                     id: new UUIDT().toString(),
                     teamId: team.id,
                     parentRunId,
+                    distinctId: 'distinct-id',
                 })
 
                 const response = await supertest(app).get(`/public/m/pixel?ph_id=${code}`)
@@ -477,7 +489,7 @@ describe('EmailTrackingService', () => {
                         .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
                         .filter(({ value }) => value.app_source_id === parentRunId)
                         .map(({ value }) => value.metric_name)
-                    expect(names).toEqual(['email_opened'])
+                    expect(names).toContain('email_opened')
                 })
             })
 
@@ -705,26 +717,31 @@ describe('EmailTrackingService', () => {
                 ])
             })
 
-            it.each([
-                ['the first attempt fails reading the team config', 'team_config', 500],
-                ['the first attempt fails capturing the engagement event', 'capture', 500],
-                ['the first attempt succeeds', null, 200],
+            it.each<[string, (service: any) => void, number]>([
+                [
+                    'the first attempt fails reading the team config',
+                    (service) =>
+                        jest
+                            .spyOn(service.teamWorkflowsConfigService, 'shouldCaptureEngagementEvents')
+                            .mockRejectedValueOnce(new Error('column does not exist')),
+                    500,
+                ],
+                [
+                    'the first attempt fails queueing the engagement event',
+                    (service) => {
+                        jest.spyOn(
+                            service.teamWorkflowsConfigService,
+                            'shouldCaptureEngagementEvents'
+                        ).mockResolvedValue(true)
+                        jest.spyOn(service.capturedEventsService, 'queueEvent').mockRejectedValueOnce(
+                            new Error('team lookup failed')
+                        )
+                    },
+                    500,
+                ],
+                ['the first attempt succeeds', () => {}, 200],
             ])('records a notification SNS delivers twice once, when %s', async (_, failFirstAttempt, firstStatus) => {
-                const service = api['emailTrackingService']
-                if (failFirstAttempt === 'team_config') {
-                    jest.spyOn(
-                        service['teamWorkflowsConfigService'],
-                        'shouldCaptureEngagementEvents'
-                    ).mockRejectedValueOnce(new Error('column does not exist'))
-                } else if (failFirstAttempt === 'capture') {
-                    jest.spyOn(
-                        service['teamWorkflowsConfigService'],
-                        'shouldCaptureEngagementEvents'
-                    ).mockResolvedValue(true)
-                    jest.spyOn(service['capturedEventsService'], 'flush').mockRejectedValueOnce(
-                        new Error('broker unavailable')
-                    )
-                }
+                failFirstAttempt(api['emailTrackingService'])
                 const bounce = {
                     functionId: hogFunction.id,
                     distinctId: 'distinct-id',

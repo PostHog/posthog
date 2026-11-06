@@ -417,25 +417,26 @@ export class EmailTrackingService {
             }
         }
 
-        // Every await that can throw runs before the first queued metric. The metric queue outlives the
-        // request, so a metric queued ahead of a throw is counted on this attempt and again when SNS
-        // redelivers the notification after the 5xx. `newEngagedPeople` never throws, and it runs after
-        // the capture so that a failed attempt does not mark the person as already counted.
-        const eventName = METRIC_NAME_TO_EVENT_NAME[metricName]
-        if (eventName && distinctId && (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(teamId))) {
-            await this.capturedEventsService.queueEvent({
-                team_id: teamId,
-                event: eventName,
-                distinct_id: distinctId,
+        // SNS retries a failed SES notification, and the metric queue outlives the request, so a metric queued
+        // before a throw would count twice. The direct pixel and redirect are never retried, so for them a lost
+        // engagement event beats a lost metric.
+        try {
+            await this.captureEngagementEvent({
+                teamId,
+                appSourceId,
+                actionId,
+                distinctId,
+                metricName,
+                properties,
                 timestamp,
-                properties: {
-                    $workflow_id: appSourceId,
-                    $workflow_action_id: actionId,
-                    ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
-                    ...properties,
-                },
+                workflowVersion,
             })
-            await this.capturedEventsService.flush()
+        } catch (error) {
+            if (source === 'ses') {
+                throw error
+            }
+            logger.error('[EmailTrackingService] trackMetric: engagement event not captured', { error })
+            emailTrackingErrorsCounter.inc({ error_type: 'engagement_event_not_captured', source })
         }
         const engagedPeople = parentRunId
             ? await this.newEngagedPeople(parentRunId, invocationId, metricName, source)
@@ -484,6 +485,48 @@ export class EmailTrackingService {
             invocationId,
             metricName,
         })
+    }
+
+    private async captureEngagementEvent({
+        teamId,
+        appSourceId,
+        actionId,
+        distinctId,
+        metricName,
+        properties,
+        timestamp,
+        workflowVersion,
+    }: {
+        teamId: number
+        appSourceId: string
+        actionId?: string
+        distinctId?: string
+        metricName: MinimalAppMetric['metric_name']
+        properties?: Record<string, unknown>
+        timestamp?: string
+        workflowVersion?: number
+    }): Promise<void> {
+        const eventName = METRIC_NAME_TO_EVENT_NAME[metricName]
+        if (
+            !eventName ||
+            !distinctId ||
+            !(await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(teamId))
+        ) {
+            return
+        }
+        await this.capturedEventsService.queueEvent({
+            team_id: teamId,
+            event: eventName,
+            distinct_id: distinctId,
+            timestamp,
+            properties: {
+                $workflow_id: appSourceId,
+                $workflow_action_id: actionId,
+                ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
+                ...properties,
+            },
+        })
+        await this.capturedEventsService.flush()
     }
 
     public async trackLogs(
@@ -573,9 +616,13 @@ export class EmailTrackingService {
                 verifySignature: true,
             })
 
-            if (snsMessageId && (await this.wasSesNotificationRecorded(snsMessageId))) {
+            const recorded = snsMessageId ? await this.wasSesNotificationRecorded(snsMessageId) : false
+            if (recorded) {
                 sesRedeliveriesSkippedCounter.inc()
                 return { status: 200, message: 'already recorded' }
+            }
+            if (recorded === null) {
+                emailTrackingErrorsCounter.inc({ error_type: 'ses_dedup_unavailable', source: 'ses' })
             }
 
             // A single SNS notification can yield several metrics (a Click emits its rollup plus a
@@ -689,7 +736,8 @@ export class EmailTrackingService {
                 emailTrackingErrorsCounter.inc({ error_type: 'suppression_update_failed', source: 'ses' })
             }
 
-            if (snsMessageId) {
+            // A Redis that could not answer the check gets no second wait for the mark.
+            if (snsMessageId && recorded !== null) {
                 await this.markSesNotificationRecorded(snsMessageId)
             }
             return { status, message: body as string }
@@ -700,12 +748,13 @@ export class EmailTrackingService {
         }
     }
 
-    // Fails open: when Redis cannot answer, recording a notification twice beats not recording it.
-    private async wasSesNotificationRecorded(snsMessageId: string): Promise<boolean> {
+    // Answers null when Redis cannot answer. The caller then records the notification, because a double count beats
+    // a lost event.
+    private async wasSesNotificationRecorded(snsMessageId: string): Promise<boolean | null> {
         const exists = await this.redisCall('ses-notification-recorded-check', (client) =>
             client.exists(sesNotificationRecordedKey(snsMessageId))
         )
-        return exists === 1
+        return exists === null ? null : exists === 1
     }
 
     private async markSesNotificationRecorded(snsMessageId: string): Promise<void> {
@@ -714,7 +763,6 @@ export class EmailTrackingService {
         )
     }
 
-    // Answers null when Redis errors or is slower than the timeout, so a slow Redis never holds a webhook open.
     private async redisCall<T>(name: string, call: (client: RedisClient) => Promise<T>): Promise<T | null> {
         if (!this.redis) {
             return null

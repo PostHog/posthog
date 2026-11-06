@@ -735,7 +735,6 @@ export class SesWebhookHandler {
         }[]
         // Status changes of transactional emails, for the email_status table.
         emailStatusUpdates?: SesEmailStatusUpdate[]
-        // The id SNS keeps across its redeliveries of one notification.
         snsMessageId?: string
     }> {
         // Payloads carry recipients and clicked links, including reset links from sensitive emails,
