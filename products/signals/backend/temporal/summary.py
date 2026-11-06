@@ -306,6 +306,9 @@ def _is_research_sandbox_unavailable(error: BaseException) -> bool:
 
 @temporalio.workflow.defn(name="signal-report-summary")
 class SignalReportSummaryWorkflow:
+    def __init__(self) -> None:
+        self._quota_admitted = False
+
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SignalReportSummaryWorkflowInputs:
         loaded = json.loads(inputs[0])
@@ -401,7 +404,9 @@ class SignalReportSummaryWorkflow:
     async def _quota_gate_pauses(self, inputs: SignalReportSummaryWorkflowInputs, stage: str) -> bool:
         return await workflow.execute_activity(
             check_report_quota_gate_activity,
-            CheckReportQuotaGateInput(team_id=inputs.team_id, report_id=inputs.report_id, stage=stage),
+            CheckReportQuotaGateInput(
+                team_id=inputs.team_id, report_id=inputs.report_id, stage=stage, admitted=self._quota_admitted
+            ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -525,6 +530,9 @@ class SignalReportSummaryWorkflow:
         ):
             log.info("Report run paused: org over self-driving credits quota", stage="summary_entry")
             return False
+        # Pending signals and the implementation buffer may cause more research passes in
+        # this same pipeline. Admission covers all of them through the final implementation.
+        self._quota_admitted = True
         claim_before_fetch = workflow.patched("signals-spend-explicit-owner")
         signal_count = 0
         source_products: list[str] = []
@@ -937,25 +945,23 @@ class SignalReportSummaryWorkflow:
             raise
 
 
-@dataclass
+@frozen
 class CheckReportQuotaGateInput:
     team_id: int
     report_id: str
     stage: str
+    admitted: bool = False
 
 
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
 async def check_report_quota_gate_activity(input: CheckReportQuotaGateInput) -> bool:
-    """Whether the summary workflow must pause at `stage`: the team's org is over its self-driving
-    credits quota with enforcement on, or the team hit its daily report limit. Emits
-    `signal_report_quota_paused` whenever the team is quota-limited, enforced or not, so the
-    dark-launch would-block volume is measurable, and `signal_report_daily_limit_paused` when the
-    daily limit binds; both fire when both limits are hit, keeping each event stream complete for
-    its own gate. Never raises: any failure resolves to False (run proceeds), matching both
-    modules' fail-open policy.
-    """
+    """Check limits before accepting a report pipeline, never between its stages."""
+    # Existing histories still schedule these activities. Returning False preserves replay
+    # compatibility while letting the admitted pass finish repository selection and research.
+    if input.admitted or input.stage in {"pre_repo_selection", "pre_research"}:
+        return False
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
         gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)

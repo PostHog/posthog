@@ -26,6 +26,12 @@ class PolarResumeConfig:
     next_url: str
 
 
+NO_READABLE_SCOPE_MESSAGE = (
+    "Your Polar Organization Access Token can't read any of the data this source syncs. "
+    "Create a token with the read scopes listed in the setup instructions, then reconnect."
+)
+
+
 class PolarPermissionError(Exception):
     pass
 
@@ -140,7 +146,7 @@ def validate_credentials(api_key: str, api_version: str, table_name: Optional[st
     session = _get_polar_session()
 
     # When called per-schema (the incremental_fields action), a 403 should surface
-    # immediately so the wizard can show "missing permissions for <endpoint>".
+    # immediately so the wizard can name the scope that endpoint needs.
     # When called at source-create (no table_name), the user may legitimately have
     # scopes for only a subset of endpoints, so we accept any single non-403
     # response as proof of a usable token. Per-endpoint scope checks are deferred
@@ -172,7 +178,10 @@ def validate_credentials(api_key: str, api_version: str, table_name: Optional[st
             if is_create_probe:
                 forbidden.append(endpoint)
                 continue
-            raise PolarPermissionError(f"Missing permissions for {endpoint}")
+            raise PolarPermissionError(
+                f"Your Polar Organization Access Token can't read {endpoint}. "
+                f"Create a token with the {endpoint}:read scope, then reconnect."
+            )
         if is_create_probe:
             # First non-403 success is proof enough — stop probing so a transient
             # 5xx on a later endpoint can't block source creation.
@@ -186,9 +195,7 @@ def validate_credentials(api_key: str, api_version: str, table_name: Optional[st
 
     if is_create_probe:
         if forbidden and not last_failure:
-            raise PolarPermissionError(
-                f"token has no readable scope for any supported endpoint ({', '.join(forbidden)})"
-            )
+            raise PolarPermissionError(NO_READABLE_SCOPE_MESSAGE)
         if last_failure is not None:
             # Only transient errors (and possibly some 403s) — no endpoint
             # confirmed the token works. Surface the underlying HTTP error so

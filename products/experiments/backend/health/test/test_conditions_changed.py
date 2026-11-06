@@ -71,7 +71,7 @@ def _context(
         flag=parse_flag_state(active=True, deleted=False, groups=now or conditions[-1], variants=variants),
         flag_history=flag_history(
             changes,
-            launched_at=LAUNCHED_AT,
+            start_date=LAUNCHED_AT,
             exposed_between={ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS: exposed_between},
             not_checked=not_checked,
             release_conditions=None if now is None else parse_release_conditions(now, variant_keys=variant_keys),
@@ -138,7 +138,7 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 _context([PRO_PINNED, EVERYONE], [PRO, EVERYONE], people_by_set={1: 300, 2: 2700}, exposed_units=4),
                 ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. The change came 3 hours after '
-                f"launch, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it. "
+                f"the start date, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it. "
                 f'Since {TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "test" with the '
                 "override in place (300 of about 1,650).",
             ),

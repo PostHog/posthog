@@ -339,7 +339,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/subscriptions/:subscriptionId': ['Subscription', 'subscription'],
     '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
     '/spaces': ['TaskSpaces', 'taskSpaces'],
-    '/spaces/new': ['TaskNewSession', 'taskNewSession'],
+    '/ai/new': ['TaskNewSession', 'taskNewSession'],
     '/spaces/:id': ['TaskSpace', 'taskSpace'],
     '/spaces/:id/canvases': ['TaskSpace', 'taskSpaceCanvases'],
     '/spaces/:id/new': ['TaskNewSession', 'taskSpaceNewSession'],
@@ -611,6 +611,7 @@ export const productRedirects: Record<
         combineUrl(urls.skills(), searchParams, hashParams).url,
     '/llm-analytics/skills/:name': (params, searchParams, hashParams) =>
         combineUrl(urls.skill(params.name), searchParams, hashParams).url,
+    '/spaces/new': (_params, searchParams, hashParams): string => combineUrl('/ai/new', searchParams, hashParams).url,
     '/visual_review': (_params, searchParams, hashParams): string =>
         combineUrl(urls.visualReviewRuns(), searchParams, hashParams).url,
     '/visual_review/*': ({ _ }, searchParams, hashParams): string =>
@@ -2009,7 +2010,7 @@ export const productUrls = {
         `/surveys/guided/${id}${template ? `?template=${encodeURIComponent(template)}` : ''}`,
     slackTaskContext: (): string => '/slack-task-context',
     taskSpaces: (): string => '/spaces',
-    taskNewSession: (): string => '/spaces/new',
+    taskNewSession: (): string => '/ai/new',
     taskSpace: (id: string): string => `/spaces/${id}`,
     taskSpaceCanvases: (id: string): string => `/spaces/${id}/canvases`,
     taskSpaceNewSession: (id: string): string => `/spaces/${id}/new`,
@@ -3462,7 +3463,16 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Page reports', href: urls.webAnalyticsPageReports() },
             { name: 'Live', href: urls.webAnalyticsLive() },
             { name: 'Installation health', href: urls.webAnalyticsHealth() },
-            { name: 'Bots', href: urls.webAnalyticsBotAnalytics(), flag: FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS },
+            {
+                name: 'AI visibility',
+                href: urls.webAnalyticsContentAutopilot(),
+                flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
+            },
+            {
+                name: 'Bots',
+                href: urls.webAnalyticsBotAnalytics(),
+                flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
+            },
             {
                 name: 'Search & AI',
                 href: urls.webAnalyticsPagePerformance(),

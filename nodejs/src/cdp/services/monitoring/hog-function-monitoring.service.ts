@@ -198,7 +198,8 @@ export class HogFunctionMonitoringService {
         metrics.forEach((metric) => this.queueAppMetric(metric, source))
     }
 
-    queueLogs(logEntries: LogEntry[], source: MetricLogSource) {
+    /** Set `aboutInternalLogs` for logs about a batch that came from the internal producer, so they never go back to it and loop. */
+    queueLogs(logEntries: LogEntry[], source: MetricLogSource, { aboutInternalLogs = false } = {}) {
         const sourcedLogEntries = logEntries.map((logEntry) => ({
             ...logEntry,
             log_source: source,
@@ -211,7 +212,12 @@ export class HogFunctionMonitoringService {
         })
         hogFunctionMonitoringPendingMessages.set(this.queuedLogMessages.length)
 
-        if (this.internalLogsSources.has(source)) {
+        if (!this.internalLogsSources.has(source)) {
+            return
+        }
+        if (aboutInternalLogs) {
+            this.internalLogsProducer?.skipLooping(source, sourcedLogEntries)
+        } else {
             this.internalLogsProducer?.enqueue(source, sourcedLogEntries)
         }
     }

@@ -830,6 +830,7 @@ class TestMCPGatewayServerAPI(APIBaseTest):
 
         assert tools_response.status_code == status.HTTP_200_OK
         assert tools_response.json()["results"][0]["is_destructive"] is True
+        assert tools_response.json()["results"][0]["is_read_only"] is False
         assert tools_response.json()["results"][0]["team_state"] == "do_not_use"
         assert active_response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -1179,9 +1180,9 @@ class TestMCPGatewayWriteScopeAPI(APIBaseTest):
         membership.level = OrganizationMembership.Level.ADMIN
         membership.save()
 
-    def _read_only_oauth_client(self) -> APIClient:
+    def _oauth_client(self, scope: str = "project:read") -> APIClient:
         application = OAuthApplication.objects.create(
-            name="Read-only MCP gateway",
+            name="Scoped MCP client",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback",
@@ -1192,9 +1193,9 @@ class TestMCPGatewayWriteScopeAPI(APIBaseTest):
         access_token = OAuthAccessToken.objects.create(
             user=self.user,
             application=application,
-            token="pha_read_only_mcp_gateway",
+            token=f"pha_mcp_{scope.replace(':', '_').replace(' ', '_')}",
             expires=timezone.now() + timedelta(hours=1),
-            scope="project:read",
+            scope=scope,
             scoped_teams=[self.team.id],
         )
         client = APIClient()
@@ -1230,11 +1231,62 @@ class TestMCPGatewayWriteScopeAPI(APIBaseTest):
             url = f"/api/projects/{self.team.id}/mcp_gateway/service_accounts/{account.id}/access/"
             data = {"gateway_server_id": str(server.id), "enabled": True}
 
-        response = self._read_only_oauth_client().post(url, data=data, format="json")
+        response = self._oauth_client().post(url, data=data, format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert not MCPToolPolicy.objects.for_team(self.team.id).filter(gateway_server=server).exists()
         assert not MCPServiceAccountServerAccess.objects.for_team(self.team.id).filter(gateway_server=server).exists()
+
+    def _installation_with_tool(self) -> tuple[MCPServerInstallation, MCPServerInstallationTool]:
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name="Scoped server",
+            url="https://mcp.scoped.example.com/mcp",
+            auth_type="api_key",
+            scope="personal",
+        )
+        tool = MCPServerInstallationTool.objects.create(
+            installation=installation, tool_name="search", last_seen_at=timezone.now()
+        )
+        return installation, tool
+
+    @parameterized.expand([("install_custom",), ("update_tool_approval",), ("destroy",)])
+    def test_read_only_oauth_token_cannot_change_installations(self, action_name: str) -> None:
+        installation, tool = self._installation_with_tool()
+        base = f"/api/environments/{self.team.id}/mcp_server_installations/"
+        client = self._oauth_client()
+
+        if action_name == "install_custom":
+            with ALLOW_URL:
+                response = client.post(
+                    f"{base}install_custom/",
+                    data={"name": "Custom", "url": "https://mcp.custom-scope.example.com/mcp", "auth_type": "api_key"},
+                    format="json",
+                )
+        elif action_name == "update_tool_approval":
+            response = client.patch(
+                f"{base}{installation.id}/tools/{tool.tool_name}/", data={"approval_state": "approved"}, format="json"
+            )
+        else:
+            response = client.delete(f"{base}{installation.id}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "project:write" in response.json()["detail"]
+        assert MCPServerInstallation.objects.filter(team=self.team).count() == 1
+        tool.refresh_from_db()
+        assert tool.approval_state == "needs_approval"
+
+    def test_write_scoped_oauth_token_can_install_custom(self) -> None:
+        with ALLOW_URL:
+            response = self._oauth_client("project:read project:write").post(
+                f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+                data={"name": "Custom", "url": "https://mcp.custom-scope.example.com/mcp", "auth_type": "api_key"},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert MCPServerInstallation.objects.filter(team=self.team, user=self.user).count() == 1
 
 
 class TestMCPServiceAccountAPI(APIBaseTest):

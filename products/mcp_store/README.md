@@ -42,6 +42,8 @@ The gateway experience has these pages and workflows:
   Agent access can be granted or revoked with a per-tool policy, and tool policies can be searched, changed individually, or changed in bulk.
   Tool discovery can be refreshed from the connected server.
   Tool descriptions and input schemas are available for inspection, while organization rules remain locked.
+  When a server has both kinds, tools are split into read-only and write or delete groups.
+  A tool counts as read-only only when the server marks it `readOnlyHint`, its name starts with a read verb, and it has no write or destructive verb.
 - **Team and agents**: Search agents and members, inspect their access at a glance, and open a detail page.
   Agent details show identity, shared servers, per-server policies, and recent calls.
   Member details show connection and access status across registered servers, with admin controls for enabling or disabling access.

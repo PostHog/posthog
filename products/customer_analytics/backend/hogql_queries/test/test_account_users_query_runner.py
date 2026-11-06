@@ -25,7 +25,7 @@ from posthog.constants import AvailableFeature
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import API_QUERIES_BUDGET_ENFORCEMENT_FLAG, ExecutionMode, get_query_runner
-from posthog.models import OrganizationMembership, PropertyDefinition, Team, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person, update_person
@@ -36,6 +36,7 @@ from products.customer_analytics.backend.logic.account_persons import AccountPer
 from products.customer_analytics.backend.models import TeamCustomerAnalyticsConfig
 from products.customer_analytics.backend.presentation.views.account_persons import AccountPersonsQuerySerializer
 from products.customer_analytics.backend.test.factories import create_account
+from products.event_definitions.backend.models import PropertyDefinition
 
 FLAG_CHECK = "products.customer_analytics.backend.logic.account_persons.posthog_feature_flag_enabled"
 

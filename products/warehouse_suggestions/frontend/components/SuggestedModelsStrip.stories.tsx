@@ -118,6 +118,21 @@ function unmaterialize(id: string, name: string): WarehouseSuggestionApi {
     }
 }
 
+function deprecate(id: string, name: string): WarehouseSuggestionApi {
+    const base = materialize(id, name, 0)
+    return {
+        ...base,
+        kind: 'deprecate',
+        payload: {
+            subject_name: name,
+            materialized: true,
+            refresh_seconds_per_month: 2700,
+            refresh_bytes_per_month: 2 * 10 ** 12,
+        },
+        evidence: { human_requests: 0, human_users: 0, human_days: 0, days_with_data: 30 },
+    }
+}
+
 const suggestions = [
     materialize('1', 'customer_monthly_revenue', 1080, { backgroundSeconds: -720, readSeconds: 45 }),
     materialize('2', 'team_usage_rollup', 32400, { backgroundSeconds: 32400, main: 'background' }),
@@ -127,6 +142,7 @@ const suggestions = [
         savedBytes: 100 * 10 ** 12,
     }),
     unmaterialize('4', 'legacy_signup_funnel'),
+    deprecate('5', 'old_campaign_rollup'),
 ]
 
 const manySuggestions = Array.from({ length: 7 }, (_, index) =>
@@ -252,5 +268,14 @@ export const MaterializeDialogIncrementalProposal: Story = {
 
 export const StopMaterializingDialog: Story = {
     args: { confirmSuggestionId: '4' },
+    parameters: DIALOG_SNAPSHOT,
+}
+
+export const BannerOnlyUnusedViews: Story = {
+    args: { results: [deprecate('5', 'old_campaign_rollup'), deprecate('6', 'q3_signup_export')] },
+}
+
+export const DeprecateDialog: Story = {
+    args: { confirmSuggestionId: '5' },
     parameters: DIALOG_SNAPSHOT,
 }

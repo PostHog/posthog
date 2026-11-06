@@ -8,6 +8,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { currencyFormatter } from 'scenes/billing/billing-utils'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
+import { urls } from 'scenes/urls'
 
 import { BillingProductV2Type } from '~/types'
 
@@ -141,6 +142,8 @@ function EditLimitModal(): JSX.Element {
 export function InboxUsageWidget(): JSX.Element | null {
     const {
         product,
+        spendProduct,
+        spendAmountUsd,
         isLoading,
         isSubscribed,
         canAccessBilling,
@@ -163,6 +166,30 @@ export function InboxUsageWidget(): JSX.Element | null {
 
     if (isLoading) {
         return <UsageCardSkeleton />
+    }
+    if (spendProduct) {
+        return (
+            <div className="flex flex-col gap-2">
+                <span className="text-[13px] font-semibold">Inbox spend</span>
+                {spendAmountUsd != null && (
+                    <span className="text-xs tabular-nums">{currencyFormatter(spendAmountUsd)}</span>
+                )}
+                {quotaLimited && (
+                    <>
+                        <LemonTag type="warning">Spending limit reached</LemonTag>
+                        <span className="text-xs text-secondary">
+                            New work is paused. Work already underway will finish.
+                            {!canAccessBilling && ' Ask an organization admin to change the limit.'}
+                        </span>
+                    </>
+                )}
+                {canAccessBilling && (
+                    <LemonButton size="small" type="secondary" to={urls.organizationBilling()}>
+                        View usage and limits
+                    </LemonButton>
+                )}
+            </div>
+        )
     }
     if (!product) {
         return null
@@ -221,8 +248,7 @@ export function InboxUsageWidget(): JSX.Element | null {
                 )}
                 {quotaLimited && (
                     <span className="text-xs font-medium text-danger">
-                        Agents are paused. They won't write new reports or open pull requests until the limit is raised
-                        or usage resets.
+                        New work is paused until the limit is raised or usage resets. Work already underway will finish.
                     </span>
                 )}
                 {canAccessBilling ? (
