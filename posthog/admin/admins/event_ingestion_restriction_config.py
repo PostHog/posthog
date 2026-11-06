@@ -92,7 +92,6 @@ class EventIngestionRestrictionConfigForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Populate the friendly args fields on edit
         if self.instance and self.instance.pk and isinstance(self.instance.args, dict):
             self.fields["topic"].initial = self.instance.args.get("topic", "")
             self.fields["max_event_bytes"].initial = self.instance.args.get("max_event_bytes")

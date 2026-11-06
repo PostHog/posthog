@@ -1592,8 +1592,7 @@ mod tests {
         assert_eq!(sink.get_events().len(), 1);
     }
 
-    /// This path checks size before it applies the token's restrictions, so
-    /// the grant has to reach it on its own.
+    /// This path checks size before restrictions, so the grant must reach it on its own.
     #[tokio::test]
     async fn an_ai_size_override_lifts_the_ceiling_for_its_token() {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")

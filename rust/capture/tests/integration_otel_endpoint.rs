@@ -948,8 +948,6 @@ async fn oversized_spans_are_shed_and_warn_while_the_export_succeeds() {
     );
 }
 
-/// A token granted a larger cap keeps the span the deployment default would
-/// shed, and no size warning is raised for it.
 #[tokio::test]
 async fn an_ai_size_override_keeps_spans_the_default_would_shed() {
     let sink = CapturingSink::new();

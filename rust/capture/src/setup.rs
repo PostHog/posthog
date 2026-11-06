@@ -429,12 +429,8 @@ fn ai_ceiling_exceeds_producer_cap(config: &Config, producer_message_max_bytes: 
     ceiling != 0 && ceiling >= producer_message_max_bytes as u64
 }
 
-/// The producer refuses a message whose key and value exceed its
-/// `message.max.bytes`, and the value carries the `CapturedEvent` envelope
-/// around the event, so an override is capped below that by the same flat
-/// envelope allowance the AI byte limiter charges. JSON-escaping of `data`
-/// adds a content-dependent amount the deployment default already leaves
-/// headroom for by configuration.
+/// The producer's limit covers the `CapturedEvent` envelope too, so an override
+/// stays below it by the allowance the AI byte limiter charges.
 fn ai_max_event_bytes_ceiling(producer_message_max_bytes: u32) -> u64 {
     (producer_message_max_bytes as u64)
         .saturating_sub(ENVELOPE_WEIGHT_BYTES as u64)

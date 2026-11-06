@@ -78,8 +78,6 @@ impl RestrictionManager {
         result
     }
 
-    /// Unclamped. Takes no event context because `from_repository` drops
-    /// override entries that carry filters.
     pub fn ai_max_event_bytes_override(&self, token: &str) -> Option<u64> {
         self.restrictions
             .get(&Pipeline::Ai)?
@@ -185,8 +183,7 @@ impl RestrictionManager {
                 let token = entry.token.clone();
                 let restriction = entry.into_restriction(restriction_type);
 
-                // Filters are refused so the cap lookup stays one read per
-                // request instead of one per event.
+                // Filters are refused so the cap lookup stays one read per request.
                 if restriction_type == RestrictionType::OverrideAiMaxEventBytes {
                     let has_valid_cap =
                         override_max_event_bytes(restriction.args.as_ref()).is_some();
@@ -248,8 +245,7 @@ pub struct EventRestrictionService {
     last_successful_refresh: Arc<AtomicI64>,
     fail_open_after: Duration,
     pipelines: Vec<Pipeline>,
-    /// `0` until [`Self::with_ai_max_event_bytes_ceiling`] sets it, and `0`
-    /// clamps every override to nothing, so an unset ceiling honours none.
+    /// `0` until set, which honours no override.
     ai_max_event_bytes_ceiling: u64,
 }
 
@@ -265,16 +261,13 @@ impl EventRestrictionService {
         }
     }
 
-    /// Set from the producer's message cap, never from admin input.
     pub fn with_ai_max_event_bytes_ceiling(mut self, ceiling: u64) -> Self {
         self.ai_max_event_bytes_ceiling = ceiling;
         self
     }
 
-    /// An override only raises the cap: a value below `default` does nothing,
-    /// so a mistyped one cannot start refusing a token's normal traffic, and a
-    /// disabled default (`0`) stays disabled. A stale cache also yields
-    /// `default`, because stale data would keep a revoked override in force.
+    /// Raise-only, so a mistyped override cannot refuse normal traffic. A stale
+    /// cache yields `default`, so a revoked override does not stay in force.
     pub async fn ai_max_event_bytes(&self, token: &str, now_ts: i64, default: u64) -> u64 {
         if default == 0 || self.is_stale_at(now_ts) {
             return default;
@@ -1047,12 +1040,7 @@ mod tests {
         );
     }
 
-    // ========================================================================
-    // override_ai_max_event_bytes
-    // ========================================================================
-
-    /// Pins the entry Django writes, so a renamed key on either side fails
-    /// here instead of as a grant that is silently never applied.
+    /// A renamed key on either side would otherwise leave the grant silently unapplied.
     #[tokio::test]
     async fn ai_size_override_loads_from_the_entry_django_writes() {
         let json = r#"[{
@@ -1080,10 +1068,12 @@ mod tests {
             Some(24_000_000)
         );
         assert_eq!(manager.ai_max_event_bytes_override("phc_other"), None);
-        // A grant is not an action on the event, so it must not surface as one.
-        assert!(manager
-            .get_restrictions("phc_big_sender", &EventContext::default(), Pipeline::Ai)
-            .is_empty());
+        assert!(
+            manager
+                .get_restrictions("phc_big_sender", &EventContext::default(), Pipeline::Ai)
+                .is_empty(),
+            "a grant must not surface as a restriction on the event"
+        );
     }
 
     #[rstest::rstest]
@@ -1162,8 +1152,7 @@ mod tests {
         );
     }
 
-    /// Restrictions fail open on a stale cache; a grant must not, or a revoked
-    /// override would stay in force for as long as Redis is unreachable.
+    /// Restrictions fail open on a stale cache; a grant must not.
     #[tokio::test]
     async fn a_stale_cache_falls_back_to_the_default_cap() {
         let service = service_with_ai_size_override("token", 24_000, 50_000).await;

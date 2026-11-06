@@ -734,8 +734,6 @@ async fn test_ai_redirect_to_topic_restriction() {
     );
 }
 
-/// A token granted a larger cap keeps the event the deployment default would
-/// answer with 413.
 #[tokio::test]
 async fn an_ai_size_override_admits_an_event_over_the_default() {
     let token = "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3";
