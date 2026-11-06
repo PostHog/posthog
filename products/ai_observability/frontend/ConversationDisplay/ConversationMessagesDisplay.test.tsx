@@ -6,7 +6,6 @@ import { Provider } from 'kea'
 import { initKeaTests } from '~/test/init'
 
 import { CompatMessage, MultiModalContentItem } from '../types'
-import { ConversationDisplayEmbeddedContext } from './conversationDisplayEmbedded'
 import {
     ConversationDisplayOption,
     ConversationMessagesDisplay,
@@ -314,33 +313,6 @@ describe('LLMMessageDisplay', () => {
         expect(container.textContent).not.toContain('input_image')
         expect(container.textContent).not.toContain('base64')
         expect(container.querySelector('img')?.getAttribute('src')).toBe(dataUri)
-    })
-
-    it.each([
-        [
-            'a remote multimodal image',
-            [{ type: 'input_image', image_url: 'https://images.example.com/pixel.png' }],
-            'https://images.example.com/pixel.png',
-            false,
-        ],
-        [
-            'a data URI image',
-            [{ type: 'input_image', image_url: 'data:image/png;base64,iVBORw0KGgo' }],
-            'data:image/png;base64,iVBORw0KGgo',
-            true,
-        ],
-    ])('loads %s while embedded only if it reaches no third party', (_name, content, src, loads) => {
-        const message = { role: 'user', content } as CompatMessage
-        const { container } = render(
-            <Provider>
-                <ConversationDisplayEmbeddedContext.Provider value={true}>
-                    <LLMMessageDisplay message={message} show />
-                </ConversationDisplayEmbeddedContext.Provider>
-            </Provider>
-        )
-
-        expect(container.querySelector(`img[src="${src}"]`) !== null).toBe(loads)
-        expect(container.querySelector(`a[href="${src}"]`) !== null).toBe(!loads)
     })
 
     it('renders an OpenAI Responses output_text content part as plain text', () => {

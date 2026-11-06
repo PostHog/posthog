@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCollapse, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
@@ -8,7 +8,6 @@ import { urls } from 'scenes/urls'
 
 import { PropertyFilterType } from '~/types'
 
-import { TicketAiTraceDetail } from './TicketAiTraceDetail'
 import { TICKET_AI_TRACES_DATE_FROM, ticketAiTracesLogic } from './ticketAiTracesLogic'
 
 export function TicketAiTracesList({ personId }: { personId: string }): JSX.Element {
@@ -42,33 +41,29 @@ export function TicketAiTracesList({ personId }: { personId: string }): JSX.Elem
             ) : result.traces.length === 0 ? (
                 <div className="text-muted-alt text-xs">No AI traces from this person in the last 30 days.</div>
             ) : (
-                <LemonCollapse
-                    size="small"
-                    panels={result.traces.map((trace) => ({
-                        key: trace.id,
-                        dataAttr: 'ticket-sidebar-ai-trace',
-                        className: 'p-2',
-                        header: (
-                            <div className="flex-1 min-w-0 py-0.5">
-                                <div className="flex items-center justify-between gap-2">
-                                    <span className="text-xs font-semibold truncate">
-                                        {trace.traceName || trace.id}
-                                    </span>
-                                    {!!trace.errorCount && (
-                                        <LemonTag type="danger" size="small">
-                                            {trace.errorCount === 1 ? '1 error' : `${trace.errorCount} errors`}
-                                        </LemonTag>
-                                    )}
-                                </div>
-                                <div className="flex items-center justify-between gap-2 text-xs text-muted-alt font-normal">
-                                    <TZLabel time={trace.createdAt} />
-                                    {!!trace.totalCost && <span>{humanFriendlyCurrency(trace.totalCost, 4)}</span>}
-                                </div>
+                <div className="space-y-2 max-h-96 overflow-auto">
+                    {result.traces.map((trace) => (
+                        <Link
+                            key={trace.id}
+                            to={urls.aiObservabilityTrace(trace.id, { timestamp: trace.createdAt })}
+                            className="block p-2 rounded border border-primary hover:bg-accent-3000 transition-colors hover:border-secondary"
+                            data-attr="ticket-sidebar-ai-trace"
+                        >
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                                <span className="text-xs font-semibold truncate">{trace.traceName || trace.id}</span>
+                                {!!trace.errorCount && (
+                                    <LemonTag type="danger" size="small">
+                                        {trace.errorCount === 1 ? '1 error' : `${trace.errorCount} errors`}
+                                    </LemonTag>
+                                )}
                             </div>
-                        ),
-                        content: <TicketAiTraceDetail traceId={trace.id} createdAt={trace.createdAt} />,
-                    }))}
-                />
+                            <div className="flex items-center justify-between gap-2 text-xs text-muted-alt">
+                                <TZLabel time={trace.createdAt} />
+                                {!!trace.totalCost && <span>{humanFriendlyCurrency(trace.totalCost, 4)}</span>}
+                            </div>
+                        </Link>
+                    ))}
+                </div>
             )}
             <div className="mt-2 pt-2 border-t flex justify-end">
                 <LemonButton

@@ -13,7 +13,6 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AccessControlLevel, AccessControlResourceType, ActivityScope, SidePanelTab } from '~/types'
 
-import { useConversationDisplayEmbedded } from './conversationDisplayEmbedded'
 import { messageActionsMenuLogic } from './messageActionsMenuLogic'
 import { useMessageActionsMenuContext } from './MessageActionsMenuProvider'
 import { TranslatePopover } from './TranslatePopover'
@@ -84,8 +83,7 @@ const ActiveMessageActionsMenu = ({
         setTimeout(() => insertQuoteIntoEditor(quotedContent), EDITOR_RETRY_DELAY_MS)
     }
 
-    const embedded = useConversationDisplayEmbedded()
-    const showDiscussions = !!traceId && !embedded
+    const showDiscussions = !!traceId
 
     const accessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.LlmAnalytics,

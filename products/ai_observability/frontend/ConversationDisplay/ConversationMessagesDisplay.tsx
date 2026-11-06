@@ -39,7 +39,6 @@ import {
     looksLikeXml,
     parseToolArgumentsForDisplay,
 } from '../utils'
-import { useConversationDisplayEmbedded } from './conversationDisplayEmbedded'
 import { HighlightedLemonMarkdown } from './HighlightedLemonMarkdown'
 import { HighlightedXMLViewer } from './HighlightedXMLViewer'
 import { MessageActionsMenu } from './MessageActionsMenu'
@@ -779,7 +778,6 @@ export const LLMMessageDisplay = React.memo(
         actionMenuKey?: string
     }): JSX.Element => {
         const { currentTeamId } = useValues(teamLogic)
-        const embedded = useConversationDisplayEmbedded()
         const { role, content, ...additionalKwargs } = message
         const parsedJsonContainer =
             !show || Array.isArray(content)
@@ -892,17 +890,11 @@ export const LLMMessageDisplay = React.memo(
                         try {
                             // pre-wrap, because especially in system prompts, we want to preserve newlines even if they aren't fully Markdown-style
                             return searchQuery?.trim() ? (
-                                <HighlightedLemonMarkdown
-                                    className="whitespace-pre-wrap"
-                                    searchQuery={searchQuery}
-                                    disableImages={embedded}
-                                >
+                                <HighlightedLemonMarkdown className="whitespace-pre-wrap" searchQuery={searchQuery}>
                                     {escapedContent}
                                 </HighlightedLemonMarkdown>
                             ) : (
-                                <LemonMarkdown className="whitespace-pre-wrap" disableImages={embedded}>
-                                    {escapedContent}
-                                </LemonMarkdown>
+                                <LemonMarkdown className="whitespace-pre-wrap">{escapedContent}</LemonMarkdown>
                             )
                         } catch {
                             // If markdown still fails, fall back to plain text
@@ -919,17 +911,11 @@ export const LLMMessageDisplay = React.memo(
                     } else {
                         // pre-wrap, because especially in system prompts, we want to preserve newlines even if they aren't fully Markdown-style
                         return searchQuery?.trim() ? (
-                            <HighlightedLemonMarkdown
-                                className="whitespace-pre-wrap"
-                                searchQuery={searchQuery}
-                                disableImages={embedded}
-                            >
+                            <HighlightedLemonMarkdown className="whitespace-pre-wrap" searchQuery={searchQuery}>
                                 {content}
                             </HighlightedLemonMarkdown>
                         ) : (
-                            <LemonMarkdown className="whitespace-pre-wrap" disableImages={embedded}>
-                                {content}
-                            </LemonMarkdown>
+                            <LemonMarkdown className="whitespace-pre-wrap">{content}</LemonMarkdown>
                         )
                     }
                 } else {
@@ -1034,7 +1020,7 @@ export const LLMMessageDisplay = React.memo(
                         {isRedactedImage ? (
                             <RedactedMediaPlaceholder kind="image" />
                         ) : minimal ? (
-                            <LemonMarkdown className="whitespace-pre-wrap" disableImages={embedded}>
+                            <LemonMarkdown className="whitespace-pre-wrap">
                                 {extractMinimalPreview(displayContent)}
                             </LemonMarkdown>
                         ) : (
