@@ -90,12 +90,20 @@ def _db() -> str:
     return settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 
 
-def KAFKA_METRICS_AVRO4_TABLE_SQL(group: str = KAFKA_METRICS4_GROUP) -> str:
+def KAFKA_METRICS_AVRO4_TABLE_SQL(
+    group: str = KAFKA_METRICS4_GROUP,
+    flush_interval_ms: int = KAFKA_METRICS4_FLUSH_INTERVAL_MS,
+    max_block_size: int = KAFKA_METRICS4_MAX_BLOCK_SIZE,
+    num_consumers: int = 8,
+    poll_max_batch_size: int = 1000,
+) -> str:
     return kafka_metrics_avro_table_sql(
         KAFKA_METRICS4_TABLE_NAME,
         group,
-        flush_interval_ms=KAFKA_METRICS4_FLUSH_INTERVAL_MS,
-        max_block_size=KAFKA_METRICS4_MAX_BLOCK_SIZE,
+        flush_interval_ms=flush_interval_ms,
+        max_block_size=max_block_size,
+        num_consumers=num_consumers,
+        poll_max_batch_size=poll_max_batch_size,
     )
 
 

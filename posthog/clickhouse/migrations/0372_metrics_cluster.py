@@ -29,6 +29,13 @@ from posthog.run_mode import run_mode
 
 METRICS_CLUSTER = settings.CLICKHOUSE_METRICS_CLUSTER
 
+# These match the ingestion_metrics role in the declarative schema. Dev runs smaller consumers.
+KAFKA_SETTINGS = (
+    {"flush_interval_ms": 3_000, "max_block_size": 10_000, "num_consumers": 4, "poll_max_batch_size": 100}
+    if run_mode().region == "DEV"
+    else {"num_consumers": 4}
+)
+
 # The metrics and ingestion-metrics nodes were created by hand and hold these objects already, so
 # every statement is a no-op on them. This records the layout and builds it on a replaced cluster.
 # The creates skip existing tables, so the column, view, and codec changes from 0370 and 0371 are
@@ -73,7 +80,7 @@ operations = (
         ),
         run_sql_with_exceptions(METRICS4_INPUT_TO_METRICS_KAFKA_METRICS_MV(), node_roles=[NodeRole.INGESTION_METRICS]),
         run_sql_with_exceptions(
-            KAFKA_METRICS_AVRO4_TABLE_SQL(group=KAFKA_METRICS4_METRICS_CLUSTER_GROUP),
+            KAFKA_METRICS_AVRO4_TABLE_SQL(group=KAFKA_METRICS4_METRICS_CLUSTER_GROUP, **KAFKA_SETTINGS),
             node_roles=[NodeRole.INGESTION_METRICS],
         ),
         run_sql_with_exceptions(KAFKA_METRICS_AVRO4_MV(), node_roles=[NodeRole.INGESTION_METRICS]),
