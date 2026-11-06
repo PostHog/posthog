@@ -1715,7 +1715,7 @@ jobs:
               with:
                   enable-cache: false
             - name: Install Python dependencies
-              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --no-dev --package posthog --package hogli
             - name: Validate changed product.yaml owners
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
