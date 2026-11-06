@@ -52,7 +52,7 @@ def _team_row(retention: ConfiguredEventsRetention, now: datetime) -> Row:
     cells = (
         Cell(
             text=f"{retention.team_name} ({retention.team_id})",
-            href=reverse("admin_console_team", kwargs={"team_id": retention.team_id}),
+            href=reverse("admin_console_team", kwargs={"pk": retention.team_id}),
         ),
         Cell(text=f"{retention.billing_months} months"),
         _months(retention.team_months),

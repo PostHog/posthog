@@ -8,7 +8,7 @@ from temporalio import activity
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from products.error_tracking.backend.facade.contracts import ErrorTrackingIssueImpact
+from products.error_tracking.backend.facade.contracts import ErrorTrackingIssueImpact, LifecycleFilterOutcome
 from products.signals.backend.facade.api import validate_signal_input
 from products.signals.backend.temporal.backfill_error_tracking import (
     BACKFILL_ISSUE_LIMIT,
@@ -133,9 +133,44 @@ async def test_emitted_signal_matches_the_error_tracking_contract():
 
     with (
         patch("posthog.models.Team.objects.aget", AsyncMock(return_value=MagicMock())),
+        patch("products.signals.backend.facade.source_configs.enabled_issue_filters", return_value=None),
         patch("products.signals.backend.facade.api.emit_signal", emit),
     ):
         await ActivityEnvironment().run(emit_backfill_signal_activity, EmitBackfillSignalInput(team_id=1, issue=issue))
 
     kwargs = {key: value for key, value in emit.call_args.kwargs.items() if key != "team"}
     validate_signal_input(**kwargs, remediation=None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcome, dispatched",
+    [
+        (LifecycleFilterOutcome.MATCH, True),
+        (LifecycleFilterOutcome.EXCLUDED_BY_FILTER, False),
+        # A filter on an exception property cannot be decided for a backfilled issue.
+        (LifecycleFilterOutcome.DATA_UNAVAILABLE, False),
+    ],
+)
+async def test_issue_filter_gates_the_backfill(outcome: LifecycleFilterOutcome, dispatched: bool) -> None:
+    issue = ErrorTrackingIssueData(issue_id=str(uuid.uuid4()), name="TypeError", description="", fingerprint="fp")
+    emit = AsyncMock(return_value=True)
+    stored_filters = {"properties": [{"key": "$environment", "value": ["production"], "type": "event"}]}
+
+    with (
+        patch("posthog.models.Team.objects.aget", AsyncMock(return_value=MagicMock(id=1))),
+        patch("products.signals.backend.facade.source_configs.enabled_issue_filters", return_value=stored_filters),
+        patch(
+            "products.error_tracking.backend.facade.alerts.stored_issue_created_filter_outcome", return_value=outcome
+        ) as filter_outcome,
+        patch("products.signals.backend.facade.source_configs.record_source_filter_drop") as record_drop,
+        patch("products.signals.backend.facade.api.emit_signal", emit),
+    ):
+        result = await ActivityEnvironment().run(
+            emit_backfill_signal_activity, EmitBackfillSignalInput(team_id=1, issue=issue)
+        )
+
+    assert filter_outcome.call_args.args == (1, issue.issue_id, "fp", stored_filters)
+    assert result is dispatched
+    assert emit.await_count == int(dispatched)
+    assert record_drop.call_count == int(not dispatched)
