@@ -1037,6 +1037,7 @@ class TestUserAPI(APIBaseTest):
                 self.user.first_name,
                 "alpha@example.com",
                 "beta@example.com",
+                distinct_id=self.user.distinct_id,
             )
 
     def _create_bearer_token(self, credential: str) -> str:
@@ -1418,6 +1419,7 @@ class TestUserAPI(APIBaseTest):
                 self.user.first_name,
                 "alpha@example.com",
                 "beta@example.com",
+                distinct_id=self.user.distinct_id,
             )
 
     @parameterized.expand(

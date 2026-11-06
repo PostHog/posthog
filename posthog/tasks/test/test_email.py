@@ -430,10 +430,14 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             user_name="https://phish.example.com",
             old_address="old@posthog.com",
             new_address="new@posthog.com",
+            distinct_id="user-distinct-id",
         )
 
-        # One for the old address, one for the new address.
-        assert len(mocked_email_messages) == 2
+        # Both notices belong to the same user, so both link to that user's person.
+        assert [message.to for message in mocked_email_messages] == [
+            [{"recipient": "old@posthog.com", "raw_email": "old@posthog.com", "distinct_id": "user-distinct-id"}],
+            [{"recipient": "new@posthog.com", "raw_email": "new@posthog.com", "distinct_id": "user-distinct-id"}],
+        ]
         for message in mocked_email_messages:
             assert "phish.example.com" not in message.html_body
             assert "Hey, there!" in message.html_body
