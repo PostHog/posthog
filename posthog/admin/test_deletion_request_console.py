@@ -57,6 +57,11 @@ class TestDeletionRequestConsole(BaseTest):
         url = f"/admin/console/deletion-requests/{obj.pk}/"
         return f"{url}{panel}/{operation}/" if operation else url
 
+    def _edit(self, obj: DataDeletionRequest, data: dict[str, str]):
+        # The form carries the revision it was opened at; tests open it at the request's current one.
+        obj.refresh_from_db()
+        return self.client.post(self._url(obj, "criteria", "edit"), {"revision": obj.updated_at.isoformat(), **data})
+
     def _preview_approval(self, obj: DataDeletionRequest, mode: ExecutionMode):
         revision = obj.criteria_updated_at.isoformat() if obj.criteria_updated_at else ""
         with patch(
@@ -444,8 +449,8 @@ class TestDeletionRequestConsole(BaseTest):
         obj = self._request(status=RequestStatus.PENDING, count=10, stats_calculated_at=timezone.now())
 
         page = self.client.get(self._url(obj, "criteria", "edit"))
-        response = self.client.post(
-            self._url(obj, "criteria", "edit"),
+        response = self._edit(
+            obj,
             {
                 "request_type": RequestType.EVENT_REMOVAL.value,
                 "start_time": "2026-10-30 12:00",
@@ -469,8 +474,8 @@ class TestDeletionRequestConsole(BaseTest):
     def test_editing_only_the_notes_keeps_a_pending_request_and_its_stats(self) -> None:
         obj = self._request(status=RequestStatus.PENDING, count=10)
 
-        response = self.client.post(
-            self._url(obj, "criteria", "edit"),
+        response = self._edit(
+            obj,
             {
                 "request_type": RequestType.EVENT_REMOVAL.value,
                 "start_time": "2026-10-30 12:00",
@@ -488,8 +493,8 @@ class TestDeletionRequestConsole(BaseTest):
         obj = self._request()
         self.user.groups.clear()
 
-        response = self.client.post(
-            self._url(obj, "criteria", "edit"),
+        response = self._edit(
+            obj,
             {
                 "request_type": RequestType.PROPERTY_REMOVAL.value,
                 "start_time": "2026-10-30 12:00",
@@ -504,11 +509,53 @@ class TestDeletionRequestConsole(BaseTest):
         obj.refresh_from_db()
         assert obj.request_type == RequestType.EVENT_REMOVAL
 
+    def test_an_edit_does_not_overwrite_a_change_made_after_the_form_opened(self) -> None:
+        obj = self._request(status=RequestStatus.PENDING)
+        opened_at = obj.updated_at.isoformat()
+        with time_machine.travel("2026-11-06T12:05:00Z", tick=False):
+            DataDeletionRequest.objects.filter(pk=obj.pk).update(events=["$autocapture"], updated_at=timezone.now())
+
+        response = self.client.post(
+            self._url(obj, "criteria", "edit"),
+            {
+                "revision": opened_at,
+                "request_type": RequestType.EVENT_REMOVAL.value,
+                "start_time": "2026-10-30 12:00",
+                "end_time": "2026-11-06 11:59",
+                "events": "$pageview",
+                "notes": "From a stale form",
+            },
+        )
+
+        assert response.status_code == 409
+        obj.refresh_from_db()
+        assert (obj.events, obj.notes) == (["$autocapture"], "")
+
+    @parameterized.expand(
+        [
+            ("property_removal", {"request_type": RequestType.PROPERTY_REMOVAL, "properties": ["$ip"]}),
+            (
+                "person_removal",
+                {"request_type": RequestType.PERSON_REMOVAL, "person_distinct_ids": ["user-1"], "events": []},
+            ),
+        ]
+    )
+    def test_staff_outside_the_clickhouse_team_cannot_duplicate_a_type_they_cannot_create(
+        self, _name: str, fields: dict
+    ) -> None:
+        obj = self._request(**fields)
+        self.user.groups.clear()
+
+        response = self.client.post(self._url(obj, "criteria", "duplicate"))
+
+        assert response.status_code == 403
+        assert DataDeletionRequest.objects.count() == 1
+
     @parameterized.expand([(status.value, status) for status in RequestStatus if status not in EDITABLE_STATUSES])
     def test_criteria_of_an_approved_or_later_request_cannot_be_edited(self, _name: str, status: RequestStatus) -> None:
         obj = self._request(status=status)
 
-        response = self.client.post(self._url(obj, "criteria", "edit"), {"events": "$autocapture"})
+        response = self._edit(obj, {"events": "$autocapture"})
 
         assert response.status_code == 404
         obj.refresh_from_db()

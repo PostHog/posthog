@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from posthog.admin.console.deletion_request_form import (
     CLICKHOUSE_TEAM_GROUP,
+    UNSUPPORTED_REQUEST_TYPES,
     DataDeletionRequestForm,
     initial_from_query,
 )
@@ -643,13 +644,18 @@ def edit_criteria(request: HttpRequest, obj: Model, form: forms.Form | None) -> 
     change_message = construct_change_message(form, [], add=False)
     with transaction.atomic():
         # The lock makes a concurrent approval wait for this save, and then miss the request it moved to draft.
-        current_status = (
-            DataDeletionRequest.objects.select_for_update().filter(pk=obj.pk).values_list("status", flat=True).first()
+        current = (
+            DataDeletionRequest.objects.select_for_update()
+            .filter(pk=obj.pk)
+            .values_list("status", "updated_at")
+            .first()
         )
-        if current_status not in EDITABLE_STATUSES:
+        if current is None or current[1].isoformat() != form.cleaned_data["revision"]:
+            messages.error(request, "Someone changed the request since you opened this form. Reload it.")
+            return HttpResponse(status=409)
+        if current[0] not in EDITABLE_STATUSES:
             messages.error(request, "The request was approved or started since you opened this form. Reload it.")
             return HttpResponse(status=409)
-        obj.status = current_status
         notices = obj.apply_staff_edit(cast(User, request.user), form.changed_data, is_new=False)
         obj.save()
     _log_change(request, obj, change_message)
@@ -710,6 +716,9 @@ class DeletionRequestCriteriaPanel(Panel):
                 label="Duplicate as a new draft",
                 handler=duplicate,
                 description="Creates a draft with the same criteria and opens it.",
+                # A copy is a new request, so only ClickHouse Team members copy types the create form does not
+                # offer everyone.
+                gate=CLICKHOUSE_TEAM if obj.request_type in UNSUPPORTED_REQUEST_TYPES else None,
             )
         )
         return operations

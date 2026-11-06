@@ -93,6 +93,9 @@ class DataDeletionRequestForm(forms.ModelForm, forms.Form):
         "For example: properties.$browser = 'Chrome'.",
     )
 
+    # The request's updated_at when staff opened the form. The edit lands only if nothing changed since.
+    revision = forms.CharField(required=False, widget=forms.HiddenInput)
+
     offer_clickhouse_team_types: ClassVar[bool] = False
     # Set by for_request, because the console builds an operation's form without an instance.
     bound_instance: ClassVar[DataDeletionRequest | None] = None
@@ -126,9 +129,13 @@ class DataDeletionRequestForm(forms.ModelForm, forms.Form):
             kwargs.setdefault("instance", self.bound_instance)
         super().__init__(*args, **kwargs)
         self.original_request_type: str | None = None
-        if not self.instance._state.adding:
+        if self.instance._state.adding:
+            del self.fields["revision"]
+        else:
             self.original_request_type = self.instance.request_type
             del self.fields["team_id"]
+            updated_at = self.instance.updated_at
+            self.fields["revision"].initial = updated_at.isoformat() if updated_at else ""
         hidden_types = set(UNSUPPORTED_REQUEST_TYPES)
         if self.offer_clickhouse_team_types:
             hidden_types -= set(CLICKHOUSE_TEAM_REQUEST_TYPES)
