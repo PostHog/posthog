@@ -188,6 +188,7 @@ def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> 
     )
 
 
+# The ids are sampled first, so the sort over the whole window carries no vectors or text.
 _FIT_SAMPLE_SQL = """
 SELECT document_id, embedding, content, JSONExtractUInt(metadata, 'calls') AS calls
 FROM document_embeddings
@@ -196,6 +197,18 @@ WHERE model_name = {model}
   AND document_type = {document_type}
   AND timestamp >= {since}
   AND timestamp < {until}
+  AND document_id IN (
+    SELECT document_id
+    FROM document_embeddings
+    WHERE model_name = {model}
+      AND product = {product}
+      AND document_type = {document_type}
+      AND timestamp >= {since}
+      AND timestamp < {until}
+    GROUP BY document_id
+    ORDER BY cityHash64(concat(document_id, {salt}))
+    LIMIT {limit}
+  )
 ORDER BY cityHash64(concat(document_id, {salt}))
 LIMIT 1 BY document_id
 LIMIT {limit}
