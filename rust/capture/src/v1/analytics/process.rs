@@ -3977,7 +3977,6 @@ mod tests {
         assert!(payload.contains("$ai_model"));
     }
 
-    /// process_batch wiring: the router-state splice switch reaches serialization.
     #[tokio::test]
     async fn process_batch_applies_legacy_property_splice_switch() {
         for splice in [true, false] {

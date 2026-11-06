@@ -719,7 +719,6 @@ impl TestStateBuilder {
         self
     }
 
-    /// Set `CAPTURE_V1_LEGACY_PROPERTY_SPLICE` (defaults to `true`).
     pub fn with_legacy_property_splice(mut self, enabled: bool) -> Self {
         self.legacy_property_splice = enabled;
         self
