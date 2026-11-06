@@ -31,14 +31,11 @@ class TestSandboxSenderLifecycleExclusions(BaseTest):
         boto3_client.assert_not_called()
 
     @patch("products.workflows.backend.tasks.ses_tenant_state.SESProvider")
-    @patch("products.workflows.backend.tasks.ses_tenant_state.sync_ses_tenant_state")
-    def test_tenant_state_sweep_skips_the_sandbox_sender(
-        self, sync_ses_tenant_state: MagicMock, _ses_provider: MagicMock
-    ) -> None:
+    def test_tenant_state_sweep_skips_the_sandbox_sender(self, ses_provider: MagicMock) -> None:
         reconcile_ses_tenant_states()
 
-        swept_team_ids = [call.args[0] for call in sync_ses_tenant_state.call_args_list]
-        assert self.team.id not in swept_team_ids
+        looked_up_team_ids = [call.args[0] for call in ses_provider.return_value.get_tenant_reputation.call_args_list]
+        assert self.team.id not in looked_up_team_ids
 
     @patch("posthog.tasks.integrations.delete_ses_identity_if_unused")
     def test_deleting_a_project_with_a_sandbox_sender_keeps_the_shared_identity(
