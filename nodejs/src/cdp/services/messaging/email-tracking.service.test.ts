@@ -822,7 +822,10 @@ describe('EmailTrackingService', () => {
                     }
                 })
 
-                const rawMessage = (value: string): Message => ({ ...createKafkaMessage(null), value: Buffer.from(value) })
+                const rawMessage = (value: string): Message => ({
+                    ...createKafkaMessage(null),
+                    value: Buffer.from(value),
+                })
 
                 const deadLettered = (): (string | undefined)[] =>
                     mockProducerObserver
