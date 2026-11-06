@@ -51,7 +51,7 @@ from products.signals.backend.report_check_authoring import (
     cancel_check,
     create_check,
     create_checks_from_specs,
-    replace_metric_check,
+    replace_check_with_metric,
 )
 from products.signals.backend.report_check_evaluation import CheckVerdict, evaluate_check_value
 from products.signals.backend.report_check_execution import (
@@ -1396,7 +1396,7 @@ class TestReportCheckAPI(APIBaseTest):
         force_authenticate(request, user=self.user)
 
         with self.assertRaisesRegex(CheckCreationError, "moved to another report"):
-            replace_metric_check(
+            replace_check_with_metric(
                 check=check,
                 title="Revised goal",
                 rationale="",
@@ -1418,6 +1418,8 @@ class TestReportCheckAPI(APIBaseTest):
             ("last_run_at_expiry", "-7d", 30 * 24 * 60, 3, False, 30 * 24 * 60),
             ("fits_near_horizon", "-7d", 30 * 24 * 60, 3, True, 29 * 24 * 60),
             ("pending_longer_query", "-40d", 30 * 24 * 60, 3, False, 1450, SignalReport.Status.READY),
+            ("agent_active", "-7d", MIN_CHECK_INTERVAL_MINUTES, 3, True, 1450, SignalReport.Status.RESOLVED, "agent"),
+            ("agent_pending", "-7d", MIN_CHECK_INTERVAL_MINUTES, 3, True, 0, SignalReport.Status.READY, "agent"),
         ]
     )
     def test_replacement_preserves_only_recurring_schedules_that_fit(
@@ -1429,13 +1431,19 @@ class TestReportCheckAPI(APIBaseTest):
         fits: bool,
         stored_soak: int = 1450,
         report_status: str = SignalReport.Status.RESOLVED,
+        kind: str = SignalReportCheck.Kind.METRIC_THRESHOLD,
     ) -> None:
         now = datetime(2026, 10, 2, 12, tzinfo=UTC)
         with time_machine.travel(now, tick=False):
             SignalReport.objects.filter(id=self.report.id).update(status=report_status)
             self.report.refresh_from_db()
+            if kind == SignalReportCheck.Kind.AGENT:
+                _seed_check_lane(self.team)
             check = self._create(
-                config=_threshold_config(
+                kind=kind,
+                config={"instructions": "Check whether checkout errors recovered."}
+                if kind == "agent"
+                else _threshold_config(
                     query=trends_metric_query(series=[{"kind": "EventsNode", "event": "$pageview"}], date_from="-7d")
                 ),
                 run_interval_minutes=interval,
@@ -1468,7 +1476,12 @@ class TestReportCheckAPI(APIBaseTest):
             assert replacement.runs_remaining == runs
             assert replacement.approved_at is None
             assert replacement.approved_by_id is None
-            assert replacement.status == SignalReportCheck.Status.ACTIVE
+            assert replacement.kind == SignalReportCheck.Kind.METRIC_THRESHOLD
+            assert replacement.status == (
+                SignalReportCheck.Status.PENDING
+                if report_status == SignalReport.Status.READY
+                else SignalReportCheck.Status.ACTIVE
+            )
             last_run_at = replacement.next_run_at + timedelta(minutes=interval * (runs - 1))
             assert last_run_at < replacement.expires_at <= now + MAX_CHECK_HORIZON
 
