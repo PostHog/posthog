@@ -32,6 +32,7 @@ import {
     type LiveControllerEvent,
     type LiveControllerState,
     type LiveReadResult,
+    type LiveSlowdown,
     type LiveStatus,
     liveStatus,
 } from './liveController'
@@ -40,6 +41,7 @@ import { readLiveSnapshot } from './liveRead'
 /** The web's HogQL reload interval. */
 const READ_INTERVAL_MS = 30_000
 const STATS_INTERVAL_MS = 10_000
+const READ_SLOWDOWN: LiveSlowdown = { afterMs: 10 * 60_000, intervalMs: 60_000 }
 const BACKGROUND_GRACE_MS = 2000
 const MAX_BACKOFF_MS = 5 * 60_000
 /** After this many failed stats reads in a row, users online comes from the HogQL count instead. */
@@ -121,10 +123,11 @@ interface PollerOptions<T> {
     enabled: boolean
     read: (signal: AbortSignal, previous: T | null) => Promise<LiveReadResult<T>>
     intervalMs: number
+    slowdown?: LiveSlowdown
     onEvent?: (event: LiveControllerEvent) => void
 }
 
-function usePoller<T>({ enabled, read, intervalMs, onEvent }: PollerOptions<T>): {
+function usePoller<T>({ enabled, read, intervalMs, slowdown, onEvent }: PollerOptions<T>): {
     state: LiveControllerState<T>
     controller: LiveController<T> | null
 } {
@@ -145,6 +148,7 @@ function usePoller<T>({ enabled, read, intervalMs, onEvent }: PollerOptions<T>):
             intervalMs,
             graceMs: BACKGROUND_GRACE_MS,
             maxBackoffMs: MAX_BACKOFF_MS,
+            slowdown,
             onChange: setState,
             onEvent: (event) => onEventRef.current?.(event),
         })
@@ -154,7 +158,7 @@ function usePoller<T>({ enabled, read, intervalMs, onEvent }: PollerOptions<T>):
             setController(null)
             setState(INITIAL_STATE)
         }
-    }, [enabled, intervalMs])
+    }, [enabled, intervalMs, slowdown])
     // The app state goes first, so a controller made in the background never reads before it knows.
     useEffect(() => controller?.setForeground(active), [controller, active])
     useEffect(() => controller?.setVisible(focused), [controller, focused])
@@ -229,7 +233,13 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
             trackLiveResumed({ trigger: 'foreground' })
         }
     }, [])
-    const main = usePoller<LiveSnapshot>({ enabled: source !== null, read, intervalMs: READ_INTERVAL_MS, onEvent })
+    const main = usePoller<LiveSnapshot>({
+        enabled: source !== null,
+        read,
+        intervalMs: READ_INTERVAL_MS,
+        slowdown: READ_SLOWDOWN,
+        onEvent,
+    })
 
     const readStats = useCallback(
         async (signal: AbortSignal): Promise<LiveReadResult<number | null>> => {

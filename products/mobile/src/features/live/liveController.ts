@@ -30,6 +30,11 @@ export function liveStatus(state: LiveControllerState<unknown>): LiveStatus {
     return state.data === null ? 'loading' : 'live'
 }
 
+export interface LiveSlowdown {
+    afterMs: number
+    intervalMs: number
+}
+
 export interface LiveControllerOptions<T> {
     /** One full read. Rejects only when nothing came back. */
     read: (signal: AbortSignal, previous: T | null) => Promise<LiveReadResult<T>>
@@ -37,6 +42,8 @@ export interface LiveControllerOptions<T> {
     /** How long the app can stay in the background before reads stop, like the web's hidden-tab grace. */
     graceMs: number
     maxBackoffMs: number
+    /** After `afterMs` without a user action, reads come every `intervalMs` instead, to stretch the query budget. */
+    slowdown?: LiveSlowdown
     onChange: (state: LiveControllerState<T>) => void
     onEvent?: (event: LiveControllerEvent) => void
 }
@@ -59,6 +66,7 @@ export class LiveController<T> {
     /** Bumped by every stop, so a read that settles after it changes nothing. */
     private generation = 0
     private emptyReads = 0
+    private activeSince = 0
 
     constructor(private readonly options: LiveControllerOptions<T>) {}
 
@@ -127,12 +135,17 @@ export class LiveController<T> {
             return Promise.resolve()
         }
         this.update({ paused: false })
+        this.activeSince = Date.now()
         return this.running ? this.readNow() : Promise.resolve()
     }
 
     /** Reads now, or joins the read in flight. While paused it reads once and stays paused. */
     refresh(): Promise<void> {
-        return this.disposed ? Promise.resolve() : this.readNow()
+        if (this.disposed) {
+            return Promise.resolve()
+        }
+        this.activeSince = Date.now()
+        return this.readNow()
     }
 
     dispose(): void {
@@ -146,6 +159,7 @@ export class LiveController<T> {
 
     private start(): void {
         if (this.running) {
+            this.activeSince = Date.now()
             void this.readNow()
         }
     }
@@ -201,10 +215,15 @@ export class LiveController<T> {
         if (!this.running) {
             return
         }
+        const slowdown = this.options.slowdown
+        const interval =
+            slowdown && Date.now() - this.activeSince >= slowdown.afterMs
+                ? slowdown.intervalMs
+                : this.options.intervalMs
         const delay =
             this.emptyReads === 0
-                ? this.options.intervalMs
-                : Math.min(this.options.intervalMs * 2 ** (this.emptyReads - 1), this.options.maxBackoffMs)
+                ? interval
+                : Math.min(interval * 2 ** (this.emptyReads - 1), this.options.maxBackoffMs)
         this.timer = setTimeout(() => {
             this.timer = null
             void this.readNow()

@@ -39,6 +39,7 @@ describe('LiveController', () => {
             intervalMs: 30_000,
             graceMs: 2000,
             maxBackoffMs: 300_000,
+            slowdown: { afterMs: 10 * 60_000, intervalMs: 60_000 },
             onChange: () => undefined,
             onEvent: (event) => events.push(event),
         })
@@ -97,6 +98,28 @@ describe('LiveController', () => {
         controller.setForeground(true)
         expect(events).toEqual(['background_stopped', 'foreground_resumed'])
         expect(reads).toHaveLength(3)
+    })
+
+    test('reads slow to once a minute after 10 minutes without a user action, and a pull resets them', async () => {
+        controller.setVisible(true)
+        await answer({ data: 'a', complete: true })
+        for (let minute = 0.5; minute <= 10; minute += 0.5) {
+            await jest.advanceTimersByTimeAsync(30_000)
+            await answer({ data: 'a', complete: true })
+        }
+        expect(reads).toHaveLength(21)
+
+        await jest.advanceTimersByTimeAsync(30_000)
+        expect(reads).toHaveLength(21)
+        await jest.advanceTimersByTimeAsync(30_000)
+        expect(reads).toHaveLength(22)
+        await answer({ data: 'b', complete: true })
+
+        void controller.refresh()
+        expect(reads).toHaveLength(23)
+        await answer({ data: 'c', complete: true })
+        await jest.advanceTimersByTimeAsync(30_000)
+        expect(reads).toHaveLength(24)
     })
 
     test('a failed read keeps the last data and shows reconnecting until a read completes', async () => {
