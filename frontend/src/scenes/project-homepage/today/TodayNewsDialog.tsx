@@ -51,18 +51,17 @@ export function TodayNewsDialog(): JSX.Element | null {
                 data-attr="today-news-dialog"
             >
                 <DialogHeader>
-                    <DialogTitle className="text-2xl tracking-tight">Today</DialogTitle>
-                    <DialogDescription>
-                        {currentTeam?.name ?? 'Your project'} · <span translate="no">{today}</span>
-                    </DialogDescription>
-                    <Text
-                        size="xs"
-                        variant="muted"
-                        render={<p />}
-                        className="m-0 flex flex-wrap items-center gap-x-1.5"
-                    >
+                    <span className="flex flex-wrap items-baseline gap-x-3">
+                        <DialogTitle className="text-2xl tracking-tight">Today</DialogTitle>
+                        <Text size="sm" variant="muted" render={<span />} translate="no">
+                            {today}
+                        </Text>
+                    </span>
+                    <DialogDescription className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                        <span>{currentTeam?.name ?? 'Your project'}</span>
+                        <span aria-hidden>·</span>
                         <IconTelescope className="size-3.5 shrink-0" />
-                        <span>Created by the Today scout from the last 24 hours of project activity.</span>
+                        <span>Created by the Today scout from the last 24 hours of activity.</span>
                         <Button
                             variant="link"
                             size="inline"
@@ -73,27 +72,21 @@ export function TodayNewsDialog(): JSX.Element | null {
                         >
                             Create your own custom scout
                         </Button>
-                    </Text>
+                    </DialogDescription>
                 </DialogHeader>
                 <DialogBody>
-                    <div className="@container flex flex-col gap-6">
-                        <div className="grid gap-6 @3xl:grid-cols-5 @3xl:gap-8">
-                            <div className="@3xl:col-span-3">
-                                <TodayNewsLead story={edition.lead} onDiveIn={() => diveIn(edition.lead, 0)} />
-                            </div>
-                            <div className="flex flex-col gap-3 @3xl:col-span-2">
-                                <ul className="m-0 flex list-none flex-col p-0">
-                                    {edition.stories.map((story, index) => (
-                                        <TodayNewsStoryRow
-                                            key={story.id}
-                                            story={story}
-                                            onDiveIn={() => diveIn(story, index + 1)}
-                                        />
-                                    ))}
-                                </ul>
-                                {edition.briefs.length > 0 ? <TodayNewsBriefs briefs={edition.briefs} /> : null}
-                            </div>
-                        </div>
+                    <div className="@container flex flex-col gap-8">
+                        <TodayNewsLead story={edition.lead} onDiveIn={() => diveIn(edition.lead, 0)} />
+                        <ul className="m-0 grid list-none gap-6 border-t p-0 pt-6 @3xl:grid-cols-3">
+                            {edition.stories.map((story, index) => (
+                                <TodayNewsStoryRow
+                                    key={story.id}
+                                    story={story}
+                                    onDiveIn={() => diveIn(story, index + 1)}
+                                />
+                            ))}
+                        </ul>
+                        {edition.briefs.length > 0 ? <TodayNewsBriefs briefs={edition.briefs} /> : null}
                     </div>
                 </DialogBody>
             </DialogContent>
