@@ -59,6 +59,7 @@ export enum PluginServerMode {
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_cyclotron_worker_email = 'cdp-cyclotron-worker-email',
     cdp_api = 'cdp-api',
+    cdp_smtp_relay = 'cdp-smtp-relay',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',

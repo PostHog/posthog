@@ -179,6 +179,24 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: string
     CDP_EMAIL_ATTACHMENTS_S3_ACCESS_KEY_ID: string
     CDP_EMAIL_ATTACHMENTS_S3_SECRET_ACCESS_KEY: string
+    // The URL of Django that the SMTP relay calls, with the customer's own key.
+    SMTP_RELAY_API_URL: string
+    SMTP_RELAY_HOSTNAME: string
+    SMTP_RELAY_PORTS: string
+    // Ports where people expect TLS from the start. Every port also takes the other kind of client.
+    SMTP_RELAY_IMPLICIT_TLS_PORTS: string
+    SMTP_RELAY_TLS_KEY_PATH: string
+    SMTP_RELAY_TLS_CERT_PATH: string
+    SMTP_RELAY_TLS_WAIT_IMPLICIT_MS: number
+    SMTP_RELAY_TLS_WAIT_STARTTLS_MS: number
+    SMTP_RELAY_MAX_MESSAGE_BYTES: number
+    SMTP_RELAY_REPLY_BUDGET_MS: number
+    SMTP_RELAY_LARGE_MESSAGE_BUDGET_MS: number
+    SMTP_RELAY_MAX_CLIENTS: number
+    SMTP_RELAY_MAX_CONNECTIONS_PER_IP: number
+    SMTP_RELAY_MAX_FAILED_LOGINS_PER_IP: number
+    SMTP_RELAY_MAX_CONCURRENT_MESSAGES: number
+    SMTP_RELAY_SHUTDOWN_GRACE_MS: number
     SES_ENDPOINT: string
     SES_ACCESS_KEY_ID: string
     SES_SECRET_ACCESS_KEY: string
@@ -442,6 +460,23 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: isDevEnv() ? 'http://localhost:19000' : '',
         CDP_EMAIL_ATTACHMENTS_S3_ACCESS_KEY_ID: isDevEnv() ? 'object_storage_root_user' : '',
         CDP_EMAIL_ATTACHMENTS_S3_SECRET_ACCESS_KEY: isDevEnv() ? 'object_storage_root_password' : '',
+        SMTP_RELAY_API_URL: isDevEnv() ? 'http://localhost:8000' : '',
+        SMTP_RELAY_HOSTNAME: 'localhost',
+        SMTP_RELAY_PORTS: '465,587,2465,2587',
+        SMTP_RELAY_IMPLICIT_TLS_PORTS: '465,2465',
+        SMTP_RELAY_TLS_KEY_PATH: '',
+        SMTP_RELAY_TLS_CERT_PATH: '',
+        SMTP_RELAY_TLS_WAIT_IMPLICIT_MS: 1_500,
+        SMTP_RELAY_TLS_WAIT_STARTTLS_MS: 400,
+        // Fits 10 MiB of attachments after base64, plus the message bodies.
+        SMTP_RELAY_MAX_MESSAGE_BYTES: 15 * 1024 * 1024,
+        SMTP_RELAY_REPLY_BUDGET_MS: 4_000,
+        SMTP_RELAY_LARGE_MESSAGE_BUDGET_MS: 20_000,
+        SMTP_RELAY_MAX_CLIENTS: 2_000,
+        SMTP_RELAY_MAX_CONNECTIONS_PER_IP: 50,
+        SMTP_RELAY_MAX_FAILED_LOGINS_PER_IP: 10,
+        SMTP_RELAY_MAX_CONCURRENT_MESSAGES: 20,
+        SMTP_RELAY_SHUTDOWN_GRACE_MS: 25_000,
         SES_ENDPOINT: isTestEnv() || isDevEnv() ? 'http://localhost:4566' : '',
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',

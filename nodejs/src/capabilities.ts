@@ -188,6 +188,10 @@ export function getPluginServerCapabilities(
             }
         // Deliberately absent from CAPABILITIES_CDP: a replay is a bounded, operator-triggered run,
         // not something a local or combined stack should start on its own.
+        case PluginServerMode.cdp_smtp_relay:
+            return {
+                cdpSmtpRelay: true,
+            }
         case PluginServerMode.cdp_dlq_replay:
             return {
                 cdpDlqReplay: true,

@@ -108751,6 +108751,58 @@ export namespace Schemas {
     }
 
     /**
+     * * `refused` - Refused
+     * * `dropped_headers` - Dropped headers
+     */
+    export type SmtpActivityKindEnum = typeof SmtpActivityKindEnum[keyof typeof SmtpActivityKindEnum];
+
+
+    export const SmtpActivityKindEnum = {
+      Refused: 'refused',
+      DroppedHeaders: 'dropped_headers',
+    } as const;
+
+    export interface SmtpActivity {
+      /** `refused` or `dropped_headers`, what happened to the message.
+       *
+       * * `refused` - Refused
+       * * `dropped_headers` - Dropped headers */
+      kind: SmtpActivityKindEnum;
+      /**
+         * The reply line the SMTP client got.
+         * @maxLength 512
+         */
+      reply?: string;
+      /**
+         * The envelope recipients of the message, up to 20.
+         * @maxItems 20
+         * @items.maxLength 320
+         */
+      to?: string[];
+      /**
+         * ID of the queued send, when one was queued.
+         * @maxLength 128
+         */
+      message_id?: string;
+      /**
+         * Names of the headers PostHog could not forward, up to 20.
+         * @maxItems 20
+         * @items.maxLength 128
+         */
+      dropped_headers?: string[];
+      /**
+         * The envelope sender of the message.
+         * @maxLength 320
+         */
+      from?: string;
+    }
+
+    export interface SmtpCheckResponse {
+      /** ID of the project the key sends for. */
+      team_id: number;
+    }
+
+    /**
      * * `Snowflake` - Snowflake
      */
     export type SnowflakeDestinationRequestTypeEnum = typeof SnowflakeDestinationRequestTypeEnum[keyof typeof SnowflakeDestinationRequestTypeEnum];

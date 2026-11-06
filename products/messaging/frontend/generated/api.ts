@@ -44,6 +44,8 @@ import type {
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
     SetPreferencesApi,
+    SmtpActivityApi,
+    SmtpCheckResponseApi,
     StartProviderImportApi,
     SupabaseAuthEmailSettingsApi,
     TopicPreferencesApi,
@@ -134,6 +136,45 @@ export const messagingSendEmailCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sendEmailApi),
+    })
+}
+
+export const getMessagingSendSmtpActivityCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/send/smtp_activity/`
+}
+
+/**
+ * Keeps a short per-project list of refused messages and dropped headers, so the SMTP setup page can show why mail didn't arrive. Holds no message content. Needs the `transactional_email:write` scope.
+ * @summary Record what the SMTP relay did with a message
+ */
+export const messagingSendSmtpActivityCreate = async (
+    projectId: string,
+    smtpActivityApi: SmtpActivityApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getMessagingSendSmtpActivityCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(smtpActivityApi),
+    })
+}
+
+export const getMessagingSendSmtpCheckCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging/send/smtp_check/`
+}
+
+/**
+ * Says which project a key sends for, so the SMTP relay can answer a login. Answers 404 when SMTP sending is not turned on for the project. Needs the `transactional_email:write` scope.
+ * @summary Check a key for the SMTP relay
+ */
+export const messagingSendSmtpCheckCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SmtpCheckResponseApi> => {
+    return apiMutator<SmtpCheckResponseApi>(getMessagingSendSmtpCheckCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 

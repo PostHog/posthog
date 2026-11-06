@@ -55,6 +55,7 @@ import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-co
 import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
 import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
 import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.service'
+import { SmtpRelayService } from './cdp/smtp-relay/smtp-relay.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
@@ -268,6 +269,14 @@ export class PluginServer implements NodeServer {
                 const worker = new CdpCyclotronWorker(this.config, cdpDeps!, kafkaQueue)
                 await worker.start()
                 return worker.service
+            })
+        }
+
+        if (capabilities.cdpSmtpRelay) {
+            serviceLoaders.push(async () => {
+                const relay = new SmtpRelayService(this.config)
+                await relay.start()
+                return relay.service
             })
         }
 

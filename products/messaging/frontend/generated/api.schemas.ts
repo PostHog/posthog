@@ -178,6 +178,57 @@ export interface SendTransactionalEmailResponseApi {
 }
 
 /**
+ * * `refused` - Refused
+ * * `dropped_headers` - Dropped headers
+ */
+export type SmtpActivityKindEnumApi = (typeof SmtpActivityKindEnumApi)[keyof typeof SmtpActivityKindEnumApi]
+
+export const SmtpActivityKindEnumApi = {
+    Refused: 'refused',
+    DroppedHeaders: 'dropped_headers',
+} as const
+
+export interface SmtpActivityApi {
+    /** `refused` or `dropped_headers`, what happened to the message.
+     *
+     * * `refused` - Refused
+     * * `dropped_headers` - Dropped headers */
+    kind: SmtpActivityKindEnumApi
+    /**
+     * The reply line the SMTP client got.
+     * @maxLength 512
+     */
+    reply?: string
+    /**
+     * The envelope recipients of the message, up to 20.
+     * @maxItems 20
+     * @items.maxLength 320
+     */
+    to?: string[]
+    /**
+     * ID of the queued send, when one was queued.
+     * @maxLength 128
+     */
+    message_id?: string
+    /**
+     * Names of the headers PostHog could not forward, up to 20.
+     * @maxItems 20
+     * @items.maxLength 128
+     */
+    dropped_headers?: string[]
+    /**
+     * The envelope sender of the message.
+     * @maxLength 320
+     */
+    from?: string
+}
+
+export interface SmtpCheckResponseApi {
+    /** ID of the project the key sends for. */
+    team_id: number
+}
+
+/**
  * * `marketing` - Marketing
  * * `transactional` - Transactional
  */
