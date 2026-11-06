@@ -17,6 +17,7 @@ from posthog.schema import (
     MCPToolIntentProfileQuery,
 )
 
+from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
@@ -305,7 +306,14 @@ class TestIntentMapQuery(_Base):
             query=MCPIntentMapQuery(dateRange=WINDOW, toolName="query-trends"), team=self.team
         ).calculate()
         assert [(p.intent_hash, p.calls) for p in by_tool.results] == [("p1", 9), ("p2", 5)]
-        assert [t.label for t in by_tool.topics] == ["Create insights"]
+        # p2 sits under List flags, which has no daily rows for this tool, so its bubble has no calls.
+        assert [(t.label, t.calls) for t in by_tool.topics] == [("Create insights", 14), ("List flags", 0)]
+
+        flags_by_tool = MCPIntentMapQueryRunner(
+            query=MCPIntentMapQuery(dateRange=WINDOW, toolName="query-trends", topicId=self.t_flags), team=self.team
+        ).calculate()
+        assert [p.intent_hash for p in flags_by_tool.results] == ["p2"]
+        assert [(t.label, t.calls) for t in flags_by_tool.topics] == [("List flags", 0)]
 
     def test_points_assigned_before_the_latest_refit_use_an_older_basis_and_stay_off_the_map(self) -> None:
         refit = MCPIntentClusteringRun.objects.create(
@@ -350,6 +358,10 @@ class TestIntentTopicsAccess(_Base):
         assert profile.outliers == []
         assert [(t.label, t.summary) for t in profile.results] == [(f"Topic {self.t_insights[-8:]}", "")]
         assert hourly_hashes == [(None,)]
+        with self.assertRaisesRegex(QueryError, "wildcard"):
+            execute_hogql_query(
+                query="SELECT tuple(*) FROM posthog.raw_mcp_intent_assignments", team=self.team, user=self.user
+            )
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -399,6 +411,10 @@ class TestIntentTopicsAccess(_Base):
         assert run("SELECT tool FROM posthog.mcp_intent_calls_hourly") == [(None,)]
         assert run("SELECT tool FROM posthog.mcp_intent_topic_daily") == [(None,)]
         assert run("SELECT count() FROM posthog.mcp_intent_topic_daily WHERE tool = 'query-trends'") == [(0,)]
+        for table in ("mcp_intent_calls_hourly", "mcp_intent_topic_daily"):
+            with self.assertRaisesRegex(QueryError, "wildcard"):
+                run(f"SELECT tuple(*) FROM posthog.{table}")
+        assert len(run("SELECT tuple(*) FROM posthog.raw_mcp_intent_assignments")) == 0
         topics = MCPIntentTopicsQueryRunner(
             query=MCPIntentTopicsQuery(dateRange=WINDOW), team=self.team, user=self.user
         ).calculate()
@@ -407,6 +423,7 @@ class TestIntentTopicsAccess(_Base):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         assert run("SELECT tool FROM posthog.mcp_intent_topic_daily") == [("query-trends",)]
+        assert run("SELECT count() FROM (SELECT tuple(*) FROM posthog.mcp_intent_topic_daily)") == [(1,)]
 
     @parameterized.expand(
         [

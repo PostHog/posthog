@@ -271,7 +271,11 @@ class TestRefitThenAssign(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
     def test_assign_without_topics_is_skipped_and_still_counts_the_calls_as_unassigned(self) -> None:
         rollups.insert_hourly_calls(
             self.team.pk,
-            [HourlyCalls(hour=NOW - timedelta(hours=3), hash="h1", tool="query-trends", calls=6, conversations=(1,))],
+            [
+                HourlyCalls(hour=NOW - timedelta(hours=3), hash="h1", tool="query-trends", calls=6, conversations=(1,)),
+                # Rolled up by a sync that caught up after an outage, days before the nightly window.
+                HourlyCalls(hour=NOW - timedelta(days=3), hash="h2", tool="query-trends", calls=4, conversations=(2,)),
+            ],
             now=NOW,
         )
 
@@ -280,13 +284,13 @@ class TestRefitThenAssign(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         assert outcome.status == "skipped_too_few"
         coverage = (
             MCPIntentTopicsQueryRunner(
-                query=MCPIntentTopicsQuery(dateRange=DateRange(date_from=(NOW - timedelta(days=1)).date().isoformat())),
+                query=MCPIntentTopicsQuery(dateRange=DateRange(date_from=(NOW - timedelta(days=3)).date().isoformat())),
                 team=self.team,
             )
             .calculate()
             .coverage
         )
-        assert (coverage.calls_with_intent, coverage.calls_assigned) == (6, 0)
+        assert (coverage.calls_with_intent, coverage.calls_assigned) == (10, 0)
 
 
 class TestRefitTooFew(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):

@@ -2,13 +2,13 @@
 
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.workload import Workload
@@ -141,7 +141,7 @@ _HOURLY_CALLS_SQL = f"""
 SELECT
     toStartOfHour(timestamp) AS hour,
     {INTENT_HASH_HOGQL} AS intent_hash,
-    {EFFECTIVE_TOOL_SQL} AS tool,
+    ifNull({EFFECTIVE_TOOL_SQL}, '') AS tool,
     count() AS calls,
     arraySort(groupUniqArray(cityHash64({CONVERSATION_ID_SQL}))) AS conversations
 FROM events
@@ -150,13 +150,19 @@ WHERE event = '$mcp_tool_call'
   AND timestamp < {{until}}
   AND notEmpty(toString(properties.{INTENT_PROPERTY}))
 GROUP BY hour, intent_hash, tool
+HAVING {{after}}
 ORDER BY hour, intent_hash, tool
 LIMIT {{page_size}}
-OFFSET {{offset}}
+"""
+
+# Rows after the last row of the previous page, in the ORDER BY of the query above.
+_AFTER_KEY_SQL = """
+hour > {hour}
+OR (hour = {hour} AND (intent_hash > {intent_hash} OR (intent_hash = {intent_hash} AND tool > {tool})))
 """
 
 
-def _start_of_hour(moment: datetime) -> datetime:
+def start_of_hour(moment: datetime) -> datetime:
     return moment.replace(minute=0, second=0, microsecond=0)
 
 
@@ -168,8 +174,9 @@ def fetch_hourly_calls(
     The rollup replaces a whole hourly bucket on every write, so a partial hour would overwrite a complete
     one. The window therefore widens to the start of the first hour and stops at the start of the last.
     """
-    since, until = _start_of_hour(since), _start_of_hour(until)
+    since, until = start_of_hour(since), start_of_hour(until)
     rows: list[HourlyCalls] = []
+    after: ast.Expr = ast.Constant(value=True)
     while since < until:
         query = parse_select(
             _HOURLY_CALLS_SQL,
@@ -177,7 +184,7 @@ def fetch_hourly_calls(
                 "since": ast.Constant(value=since),
                 "until": ast.Constant(value=until),
                 "page_size": ast.Constant(value=page_size),
-                "offset": ast.Constant(value=len(rows)),
+                "after": after,
             },
         )
         # Hour keys must be UTC: the daily rebuild groups them into days, and project-local hours break
@@ -198,4 +205,15 @@ def fetch_hourly_calls(
         )
         if len(page) < page_size:
             break
+        # Each page starts at the hour of the last row, so the hours before it are not read again.
+        last = rows[-1]
+        since = last.hour if last.hour.tzinfo else last.hour.replace(tzinfo=UTC)
+        after = parse_expr(
+            _AFTER_KEY_SQL,
+            placeholders={
+                "hour": ast.Constant(value=since),
+                "intent_hash": ast.Constant(value=last.hash),
+                "tool": ast.Constant(value=last.tool),
+            },
+        )
     return rows
