@@ -465,6 +465,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         # Docs pull requests written by the knowledge writer. Reserved: only its intake creates these.
         KNOWLEDGE_WRITER = "knowledge_writer", "Knowledge Writer"
         CONTEXT_LAYER = "context_layer", "Context Layer"
+        # Code analysis of a flag's branches, and the pull request that removes a stale flag. Reserved: only the
+        # feature flag code analysis endpoints create these.
+        FEATURE_FLAGS = "feature_flags", "Feature Flags"
 
     # Origins set only by server-side flows. The task write serializer rejects them from API callers.
     SERVER_ONLY_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
@@ -502,6 +505,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             # Owns the docs repository branch it pushes to. Only the knowledge writer intake sets it.
             OriginProduct.KNOWLEDGE_WRITER,
             OriginProduct.CONTEXT_LAYER,
+            # Only the feature flag code analysis endpoints set it, after their own repository check.
+            OriginProduct.FEATURE_FLAGS,
         }
     )
 

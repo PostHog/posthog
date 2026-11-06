@@ -189,6 +189,10 @@ class SandboxWarmer:
 
     @classmethod
     def _active_session_caps(cls, origin_product: str, signal_report_id: UUID | str | None) -> ActiveSessionCaps | None:
+        # Server-only, but a member starts these from a page, one sandbox per flag, so they are capped like
+        # PostHog AI runs.
+        if origin_product == Task.OriginProduct.FEATURE_FLAGS:
+            return cls.ORIGIN_ACTIVE_SESSION_CAPS[Task.OriginProduct.POSTHOG_AI]
         if origin_product in Task.SERVER_ONLY_ORIGIN_PRODUCTS:
             return None
         # A report-linked task, from the signals batch or a person starting work on a report, is bounded

@@ -58,7 +58,7 @@ from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printin
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.test.utils import json_dynamic_read_sql, json_dynamic_read_sql_from_parts
+from posthog.hogql.test.utils import json_dynamic_read_sql
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
@@ -139,13 +139,8 @@ class TestPrinter(BaseTest):
         return "events_json AS events" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "events"
 
     def _json_dynamic_subcolumn_expr(self, root: str, property_name: str) -> str:
-        if "%" in property_name or "." in property_name:
-            # A key the printer cannot inline is parameterized: every occurrence takes the next placeholder.
-            # A dotted key is bound with its dots escaped, so it reads as one path name rather than a nested path.
-            counter = iter(range(100))
-            next_placeholder = lambda: f"getSubcolumn({root}, %(hogql_val_{next(counter)})s)"  # noqa: E731
-            return json_dynamic_read_sql_from_parts(next_placeholder, next_placeholder)
-        return self._json_dynamic_subcolumn_path_expr(root, [property_name])
+        # A dotted key is one path name with its dots escaped, not a nested path.
+        return self._json_dynamic_subcolumn_path_expr(root, [property_name.replace(".", "%2E")])
 
     def _json_dynamic_subcolumn_path_expr(self, root: str, property_path: list[str]) -> str:
         return json_dynamic_read_sql(root, property_path)
@@ -981,10 +976,10 @@ class TestPrinter(BaseTest):
             self._expr("properties.`Account.client_id`", context),
             expected_client_id_sql,
         )
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            self.assertEqual(set(context.values.values()), {"Account%2Eclient_id", "^`Account%2Eclient_id`"})
-        else:
-            self.assertEqual(context.values, {"hogql_val_0": "Account.client_id"})
+        self.assertEqual(
+            context.values,
+            {} if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else {"hogql_val_0": "Account.client_id"},
+        )
 
         context = HogQLContext(team_id=self.team.pk)
         expected_dynamic_sql = (
@@ -1582,12 +1577,13 @@ class TestPrinter(BaseTest):
                     self._select("SELECT event FROM events")
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_new_events_schema_percent_property_keys_use_bound_subcolumns(self) -> None:
+    def test_new_events_schema_percent_property_keys_print_as_escaped_paths(self) -> None:
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
 
         for expression in ("JSONHas(properties, 'bad%key')", "JSONExtractRaw(properties, 'bad%key')"):
             printed = self._expr(expression, context)
-            self.assertIn("getSubcolumn(events.properties,", printed)
+            self.assertIn("events.properties.`bad\\x25key`", printed)
+            self.assertNotIn("getSubcolumn", printed)
             self.assertNotIn("JSONExtractKeysAndValuesRaw", printed)
 
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
@@ -1597,7 +1593,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             self._expr("properties.`a.b`", context), self._json_dynamic_subcolumn_expr("events.properties", "a.b")
         )
-        self.assertEqual(set(context.values.values()), {"a%2Eb", "^`a%2Eb`"})
+        self.assertEqual(context.values, {})
 
         nested_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         self.assertEqual(
@@ -2394,6 +2390,23 @@ class TestPrinter(BaseTest):
                 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
                 else f"SELECT 1 FROM events AS e WHERE equals(e.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
             ),
+        )
+
+    def test_select_alias_shared_type_chain(self) -> None:
+        aliases = [f"tuple(e{i - 1}, e{i - 1}) AS e{i}" for i in range(1, 41)]
+        query = f"SELECT event AS e0, {', '.join(aliases)}, count() FROM events GROUP BY e40"
+        context = HogQLContext(
+            team_id=self.team.pk,
+            database=Database.create_for(team=self.team),
+            enable_select_queries=True,
+        )
+
+        printed, _ = prepare_and_print_ast(parse_select(query), context, "clickhouse")
+
+        self.assertEqual(
+            printed,
+            f"SELECT events.event AS e0, {', '.join(aliases)}, count() AS `count()` FROM {self._events_table_ref()} "
+            f"WHERE equals(events.team_id, {self.team.pk}) GROUP BY e40 LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_select_from(self):
