@@ -431,16 +431,11 @@ export class KafkaConsumerV2 {
         await this.applyBackpressure()
     }
 
-    /**
-     * Collects a batch one message at a time and ends it at fetchBatchSize messages or once the values reach
-     * fetchBatchMaxBytes, so the last message can overshoot the byte bound. consume(n) alone fills a batch to n
-     * under a backlog whatever the message sizes.
-     */
+    /** consume(n) fills a batch to n under a backlog whatever the message sizes, so this pulls one at a time. */
     private async fetchBatchWithinBytes(): Promise<Message[]> {
         const batch = await this.consume(1)
         let bytes = valueBytes(batch)
-        // The first message waits batchTimeoutMs. The rest take only what librdkafka already holds, because
-        // a wait per message would delay every batch of a lane that is caught up.
+        // Only the first pull waits, so a lane that is caught up is not delayed once per message.
         this.rdKafkaConsumer.setDefaultConsumeTimeout(0)
         try {
             while (batch.length > 0 && batch.length < this.fetchBatchSize && bytes < this.fetchBatchMaxBytes) {
