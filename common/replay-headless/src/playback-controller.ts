@@ -30,6 +30,7 @@ export class PlaybackController {
     private active: PlaybackWindow
     private windowsById: Map<number, PlaybackWindow>
     private windowChangeListeners: ((tab: PlaybackWindow) => void)[] = []
+    private frameListeners: ((sample: number) => void)[] = []
 
     constructor(
         windows: PlaybackWindow[],
@@ -66,6 +67,11 @@ export class PlaybackController {
 
     onWindowChange(listener: (tab: PlaybackWindow) => void): void {
         this.windowChangeListeners.push(listener)
+    }
+
+    /** Called once per captured frame with its index into the frame timeline, after any skip or tab switch. */
+    onFrame(listener: (sample: number) => void): void {
+        this.frameListeners.push(listener)
     }
 
     /** Where playback is, in milliseconds since the recording started. */
@@ -181,6 +187,9 @@ export class PlaybackController {
                 this.activate(owner, target)
             } else if (target !== ts) {
                 this.active.replayer.play(target - this.active.firstTimestamp)
+            }
+            for (const listener of this.frameListeners) {
+                listener(this.frameSessionMs.length - 1)
             }
             requestAnimationFrame(onFrame)
         }

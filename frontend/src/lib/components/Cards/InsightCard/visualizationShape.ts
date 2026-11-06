@@ -1,12 +1,12 @@
+import { getDisplay } from '~/queries/schema/node-accessors'
 import {
-    getDisplay,
     isDataTableNode,
     isDataVisualizationNode,
     isFunnelsQuery,
     isInsightVizNode,
     isPathsQuery,
     isRetentionQuery,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
 import { ChartDisplayType, FunnelVizType, InsightModel } from '~/types'
 
 type VisualizationShape = 'line' | 'bar' | 'pie' | 'donut' | 'number' | 'table' | 'heatmap' | 'funnel'
@@ -40,6 +40,7 @@ export function visualizationShape(query: InsightModel['query']): VisualizationS
         case ChartDisplayType.ActionsUnstackedBar:
         case ChartDisplayType.ActionsStackedBar:
         case ChartDisplayType.ActionsBarValue:
+        case ChartDisplayType.ActionsProportionBar:
         case ChartDisplayType.BoxPlot:
             return 'bar'
         case ChartDisplayType.ActionsPie:

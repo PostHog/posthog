@@ -4,13 +4,13 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonTab } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { groupsModel } from '~/models/groupsModel'
+import { groupTabs } from '~/models/groupTabs'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 
@@ -20,7 +20,7 @@ import type { GroupType, GroupTypeIndex } from '../../types'
 
 export type ActivitySceneTabKey = ActivityTab | 'persons' | 'cohorts' | `groups-${number}`
 
-interface ActivitySceneTab {
+export interface ActivitySceneTab {
     key: ActivitySceneTabKey
     label: string
     url: string
@@ -36,8 +36,10 @@ export interface activitySceneTabsLogicValues {
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
     groupsAccessStatus: GroupsAccessStatus // groupsModel
+    activityTabs: ActivitySceneTab[]
     groupTabs: ActivitySceneTab[]
-    tabs: LemonTab<ActivitySceneTabKey>[]
+    peopleTabs: ActivitySceneTab[]
+    sceneTabs: ActivitySceneTab[]
     tabsForKey: (activeKey: ActivitySceneTabKey) => LemonTab<ActivitySceneTabKey>[]
 }
 
@@ -47,11 +49,14 @@ export interface activitySceneTabsLogicMeta {
         groupTabs: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             groupsAccessStatus: GroupsAccessStatus,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => ActivitySceneTab[]
-        tabs: (groupTabs: ActivitySceneTab[], featureFlags: FeatureFlagsSet) => LemonTab<ActivitySceneTabKey>[]
+        sceneTabs: (groupTabs: ActivitySceneTab[], featureFlags: FeatureFlagsSet) => ActivitySceneTab[]
+        activityTabs: (sceneTabs: ActivitySceneTab[]) => ActivitySceneTab[]
+        peopleTabs: (sceneTabs: ActivitySceneTab[]) => ActivitySceneTab[]
         tabsForKey: (
-            tabs: LemonTab<ActivitySceneTabKey>[]
+            activityTabs: ActivitySceneTab[],
+            peopleTabs: ActivitySceneTab[]
         ) => (activeKey: ActivitySceneTabKey) => LemonTab<ActivitySceneTabKey>[]
     }
 }
@@ -62,6 +67,24 @@ export type activitySceneTabsLogicType = MakeLogicType<
     Record<string, any>,
     activitySceneTabsLogicMeta
 >
+
+export function isActivityTabKey(key: ActivitySceneTabKey): boolean {
+    return (Object.values(ActivityTab) as string[]).includes(key)
+}
+
+function toLemonTab(tab: ActivitySceneTab): LemonTab<ActivitySceneTabKey> {
+    return {
+        key: tab.key,
+        label: (
+            <span className="flex items-center gap-1" data-attr={tab.dataAttr}>
+                {tab.iconType && iconForType(tab.iconType)}
+                {tab.label}
+            </span>
+        ),
+        tooltipDocLink: tab.tooltipDocLink,
+        link: tab.url,
+    }
+}
 
 export const activitySceneTabsLogic = kea<activitySceneTabsLogicType>([
     path(['scenes', 'activity', 'activitySceneTabsLogic']),
@@ -80,37 +103,11 @@ export const activitySceneTabsLogic = kea<activitySceneTabsLogicType>([
                 groupTypes: Map<GroupTypeIndex, GroupType>,
                 groupsAccessStatus: GroupsAccessStatus,
                 aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
-            ): ActivitySceneTab[] => {
-                const showGroupsIntroductionPage = [
-                    GroupsAccessStatus.HasAccess,
-                    GroupsAccessStatus.HasGroupTypes,
-                    GroupsAccessStatus.NoAccess,
-                ].includes(groupsAccessStatus)
-
-                if (showGroupsIntroductionPage) {
-                    return [
-                        {
-                            key: 'groups-0',
-                            label: 'Groups',
-                            url: urls.groups(0),
-                            iconType: 'group',
-                            dataAttr: 'persons-management-groups-0-tab',
-                        },
-                    ]
-                }
-
-                return Array.from(groupTypes.values()).map(({ group_type_index }) => ({
-                    key: `groups-${group_type_index}`,
-                    label: capitalizeFirstLetter(aggregationLabel(group_type_index).plural),
-                    url: urls.groups(group_type_index),
-                    iconType: `group_${group_type_index}` as FileSystemIconType,
-                    dataAttr: `persons-management-groups-${group_type_index}-tab`,
-                }))
-            },
+            ): ActivitySceneTab[] => groupTabs(groupTypes, groupsAccessStatus, aggregationLabel),
         ],
-        tabs: [
+        sceneTabs: [
             (s) => [s.groupTabs, s.featureFlags],
-            (groupTabs: ActivitySceneTab[], featureFlags: FeatureFlagsSet): LemonTab<ActivitySceneTabKey>[] => {
+            (groupTabs: ActivitySceneTab[], featureFlags: FeatureFlagsSet): ActivitySceneTab[] => {
                 const tabs: ActivitySceneTab[] = [
                     {
                         key: ActivityTab.ExploreEvents,
@@ -149,32 +146,29 @@ export const activitySceneTabsLogic = kea<activitySceneTabsLogicType>([
                     ...groupTabs,
                 ]
 
-                const visibleTabs = featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL]
+                return featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL]
                     ? tabs.filter((tab) => tab.key !== ActivityTab.LiveEvents)
                     : tabs
-
-                return visibleTabs.map((tab) => ({
-                    key: tab.key,
-                    label: (
-                        <span className="flex items-center gap-1" data-attr={tab.dataAttr}>
-                            {tab.iconType && iconForType(tab.iconType)}
-                            {tab.label}
-                        </span>
-                    ),
-                    tooltipDocLink: tab.tooltipDocLink,
-                    link: tab.url,
-                }))
             },
         ],
+        activityTabs: [
+            (s) => [s.sceneTabs],
+            (sceneTabs: ActivitySceneTab[]): ActivitySceneTab[] => sceneTabs.filter((tab) => isActivityTabKey(tab.key)),
+        ],
+        peopleTabs: [
+            (s) => [s.sceneTabs],
+            (sceneTabs: ActivitySceneTab[]): ActivitySceneTab[] =>
+                sceneTabs.filter((tab) => !isActivityTabKey(tab.key)),
+        ],
         tabsForKey: [
-            (s) => [s.tabs],
+            (s) => [s.activityTabs, s.peopleTabs],
             (
-                tabs: LemonTab<ActivitySceneTabKey>[]
+                activityTabs: ActivitySceneTab[],
+                peopleTabs: ActivitySceneTab[]
             ): ((activeKey: ActivitySceneTabKey) => LemonTab<ActivitySceneTabKey>[]) => {
-                const activityKeys: string[] = Object.values(ActivityTab)
-                const activityTabs = tabs.filter((tab) => activityKeys.includes(tab.key))
-                const peopleTabs = tabs.filter((tab) => !activityKeys.includes(tab.key))
-                return (activeKey) => (activityKeys.includes(activeKey) ? activityTabs : peopleTabs)
+                const activityLemonTabs = activityTabs.map(toLemonTab)
+                const peopleLemonTabs = peopleTabs.map(toLemonTab)
+                return (activeKey) => (isActivityTabKey(activeKey) ? activityLemonTabs : peopleLemonTabs)
             },
         ],
     }),

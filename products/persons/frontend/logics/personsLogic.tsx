@@ -21,6 +21,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { TODAY_PEOPLE_RECENT_KEY, TodayPeopleRecent } from '~/layout/today/todayPeople'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import {
@@ -164,6 +165,7 @@ export interface personsLogicValues {
     sidePanelContext: SidePanelSceneContext
     splitMergeModalShown: boolean
     surveyResponsesQuery: DataTableNode | null
+    todayPeopleRecent: TodayPeopleRecent | null
     urlId: any
 }
 
@@ -323,8 +325,10 @@ export interface personsLogicMeta {
                 hash: string
                 pathname: string
                 search: string
-            }
+            },
+            featureFlags: FeatureFlagsSet
         ) => Breadcrumb[]
+        todayPeopleRecent: (person: PersonType | null) => TodayPeopleRecent | null
         sidePanelContext: (person: PersonType | null) => SidePanelSceneContext
         exporterProps: (listFilters: PersonListParams, arg: any) => TriggerExportProps[]
         urlId: (arg: any) => any
@@ -613,16 +617,19 @@ export const personsLogic = kea<personsLogicType>([
             (feedEnabled: boolean) => (feedEnabled ? PersonsTabType.PROFILE : PersonsTabType.PROPERTIES),
         ],
         breadcrumbs: [
-            (s) => [s.person, router.selectors.location],
+            (s) => [s.person, router.selectors.location, s.featureFlags],
             (
                 person: PersonType | null,
                 location: {
                     hash: string
                     pathname: string
                     search: string
-                }
+                },
+                featureFlags: FeatureFlagsSet
             ): Breadcrumb[] => {
-                const showPerson = person && location.pathname.match(/\/person\/.+/)
+                // The Today rail opens persons by UUID under `/persons/`.
+                const personPath = featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] ? /\/persons?\/.+/ : /\/person\/.+/
+                const showPerson = person && location.pathname.match(personPath)
                 const breadcrumbs: Breadcrumb[] = [
                     {
                         key: Scene.Persons,
@@ -642,6 +649,13 @@ export const personsLogic = kea<personsLogicType>([
             },
         ],
 
+        [TODAY_PEOPLE_RECENT_KEY]: [
+            (s) => [s.person],
+            (person: PersonType | null): TodayPeopleRecent | null =>
+                person?.id != null
+                    ? { type: 'person', name: asDisplay(person), href: urls.personByUUID(String(person.id)) }
+                    : null,
+        ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.person],
             (person: PersonType | null): SidePanelSceneContext => {

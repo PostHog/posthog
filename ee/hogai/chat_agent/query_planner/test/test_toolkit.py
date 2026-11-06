@@ -2,8 +2,10 @@ from datetime import UTC, datetime, timedelta
 from textwrap import dedent
 
 import time_machine
-from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import MagicMock, patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -19,7 +21,7 @@ from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action, delete_action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit, final_answer
@@ -33,7 +35,7 @@ class DummyToolkit(TaxonomyAgentToolkit):
 class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.action = Action.objects.create(team=self.team, name="action1", steps_json=[{"event": "event1"}])
+        self.action = create_action(team=self.team, name="action1", steps_json=[{"event": "event1"}])
 
     def _create_taxonomy(self):
         PropertyDefinition.objects.create(
@@ -614,7 +616,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_retrieve_event_or_action_properties_when_no_actions_exist_and_action_id_incorrect(self):
-        Action.objects.all().delete()
+        delete_action(self.action)
 
         toolkit = DummyToolkit(self.team, self.user)
         incorrect_action_id = 9999
@@ -693,7 +695,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("does not exist", result)
 
 
-class TestFinalAnswerTool(BaseTest):
+class TestFinalAnswerTool(SimpleTestCase):
     def test_normalize_plan(self):
         original = """
         Series:

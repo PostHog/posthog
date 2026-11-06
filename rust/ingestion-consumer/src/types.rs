@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use common_kafka_consumer::{Offset, PolledMessage};
 use serde::{Deserialize, Serialize};
@@ -7,13 +8,17 @@ use serde::{Deserialize, Serialize};
 /// Values are raw UTF-8 strings (PostHog Kafka messages are always JSON text).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializedKafkaMessage {
-    pub topic: String,
+    pub topic: Arc<str>,
     pub partition: i32,
     pub offset: i64,
     pub timestamp: i64,
     pub key: Option<String>,
     pub value: Option<String>,
     pub headers: HashMap<String, String>,
+    /// The ledger generation the message was charged under. Workers never
+    /// see it.
+    #[serde(skip)]
+    pub generation: u64,
 }
 
 impl SerializedKafkaMessage {

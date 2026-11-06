@@ -20,7 +20,14 @@ const email = (to = '{{ person.properties.email }}'): Record<string, any> => ({
     on_error: 'continue',
     config: { template_id: 'template-email', inputs: { email: { value: { to: { email: to } } }, extra: { value: 1 } } },
 })
+const push = (): Record<string, any> => ({
+    id: 'email_1',
+    type: 'function_push',
+    name: 'Send push',
+    config: { template_id: 'template-native-push', inputs: { title: { value: 'Hi' } } },
+})
 const exit = { id: 'exit_node', type: 'exit', name: 'Exit', config: {} }
+const stepCondition = { properties: [{ key: 'plan', value: ['pro'], operator: 'exact', type: 'person' }] }
 const edges = [
     { from: 'trigger_node', to: 'email_1', type: 'continue' },
     { from: 'email_1', to: 'exit_node', type: 'continue' },
@@ -30,7 +37,10 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
     it.each([
         ['a person audience sent to each person', [trigger(), email(), exit], edges, true],
         ['an account audience', [trigger({ audience_type: 'accounts', properties: [] }), email(), exit], edges, false],
-        ['a custom recipient expression', [trigger(), email('{{ inputs.owner_email }}'), exit], edges, false],
+        ['a custom recipient expression', [trigger(), email('{{ inputs.owner_email }}'), exit], edges, true],
+        ['a fixed recipient address', [trigger(), email('team@example.com'), exit], edges, true],
+        ['a push notification', [trigger(), push(), exit], edges, true],
+        ['an email and a push together', [trigger(), email(), push(), exit], edges, false],
         [
             'a trigger that skips the email',
             [trigger(), email(), exit],
@@ -54,45 +64,46 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
             HogFlowApi['status'],
             HogFlowScheduleApi['status'][],
             HogFlowBatchJobApi['status'][] | null,
-            string | undefined,
+            boolean,
             boolean,
         ]
     >([
-        ['a scheduled broadcast', 'active', ['active'], [], undefined, true],
-        ['a recurring broadcast between runs', 'active', ['active'], ['completed'], undefined, true],
-        ['a broadcast whose schedule was paused', 'active', ['paused'], [], undefined, true],
-        ['a broadcast sent right away', 'active', [], ['completed'], undefined, false],
-        ['a broadcast whose launch never finished', 'active', [], [], undefined, true],
-        ['a one-time broadcast that already sent', 'active', ['completed'], ['completed'], undefined, false],
-        ['a one-time schedule that never started a run', 'active', ['completed'], [], undefined, true],
-        [
-            'a workflow with a sent one-time schedule and another',
-            'active',
-            ['completed', 'active'],
-            [],
-            undefined,
-            false,
-        ],
-        ['a broadcast mid-send', 'active', ['active'], ['active'], undefined, false],
-        ['a broadcast with an older run still queued', 'active', ['active'], ['completed', 'queued'], undefined, false],
-        ['a broadcast whose runs have not loaded', 'active', ['active'], null, undefined, false],
-        ['a draft', 'draft', ['active'], [], undefined, false],
-        ['a workflow the wizard cannot edit', 'active', ['active'], [], '{{ inputs.owner }}', false],
-    ])('lets %s be stopped: %s', (_, status, scheduleStatuses, jobStatuses, recipient, expected) => {
+        ['a scheduled broadcast', 'active', ['active'], [], false, true],
+        ['a recurring broadcast between runs', 'active', ['active'], ['completed'], false, true],
+        ['a broadcast whose schedule was paused', 'active', ['paused'], [], false, true],
+        ['a broadcast sent right away', 'active', [], ['completed'], false, false],
+        ['a broadcast whose launch never finished', 'active', [], [], false, true],
+        ['a one-time broadcast that already sent', 'active', ['completed'], ['completed'], false, false],
+        ['a one-time schedule that never started a run', 'active', ['completed'], [], false, true],
+        ['a workflow with a sent one-time schedule and another', 'active', ['completed', 'active'], [], false, false],
+        ['a broadcast mid-send', 'active', ['active'], ['active'], false, false],
+        ['a broadcast with an older run still queued', 'active', ['active'], ['completed', 'queued'], false, false],
+        ['a broadcast whose runs have not loaded', 'active', ['active'], null, false, false],
+        ['a draft', 'draft', ['active'], [], false, false],
+        ['a workflow the wizard cannot edit', 'active', ['active'], [], true, false],
+    ])('lets %s be stopped: %s', (_, status, scheduleStatuses, jobStatuses, extraStep, expected) => {
         const broadcast: StoppableBroadcast = {
             status,
             schedules: scheduleStatuses.map((scheduleStatus) => ({ status: scheduleStatus })),
-            actions: [trigger(), email(recipient), exit],
+            actions: extraStep ? [trigger(), email(), exit, { ...exit, id: 'exit_2' }] : [trigger(), email(), exit],
             edges,
         }
         const jobs = jobStatuses === null ? null : jobStatuses.map((jobStatus) => ({ status: jobStatus }))
         expect(canMoveToDraft(broadcast, jobs)).toBe(expected)
     })
 
-    it('saves the audience and email into the existing steps without replacing them', () => {
+    it.each([
+        ['a workflow shaped like a broadcast', null],
+        ['a workflow moved to broadcasts', 'broadcasts'],
+    ])('saves the audience and email of %s into the existing steps without replacing them', (_, originProduct) => {
+        const condition = { properties: [{ key: 'email', operator: 'is_set', type: 'person' }] }
         const existing = {
-            origin_product: null,
-            actions: [trigger({ properties: [], cohort_hint: 'kept' }), email(), exit],
+            origin_product: originProduct,
+            actions: [
+                trigger({ properties: [], cohort_hint: 'kept', filter_test_accounts: true }),
+                { ...email(), filters: condition },
+                exit,
+            ],
             edges,
         } as unknown as HogFlowApi
 
@@ -116,7 +127,9 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
         expect(payload.actions[0].config.filters).toEqual({
             properties: [{ key: 'plan', value: 'pro', operator: 'exact', type: 'person' }],
             cohort_hint: 'kept',
+            filter_test_accounts: true,
         })
+        expect(payload.actions[1].filters).toEqual(condition)
         expect(payload.actions[1].on_error).toBe('continue')
         expect(payload.actions[1].config.inputs.extra).toEqual({ value: 1 })
         expect(payload.actions[1].config.inputs.email.value.subject).toBe('New subject')
@@ -125,7 +138,7 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
     it.each([
         ['a new broadcast', null],
         ['a workflow shaped like a broadcast', { origin_product: null, actions: [trigger(), email(), exit], edges }],
-    ])('saves the message category and tracking onto the email step of %s', (_, existing) => {
+    ])('saves the message category, tracking and UTM tags onto the email step of %s', (_, existing) => {
         const payload = buildBroadcastPayload({
             name: 'Newsletter',
             audienceProperties: [],
@@ -133,7 +146,13 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
             conversion: DEFAULT_BROADCAST_CONVERSION,
             email: DEFAULT_BROADCAST_EMAIL,
             emailRateLimit: null,
-            emailSettings: { messageCategoryId: 'cat-1', messageCategoryType: 'marketing', trackingEnabled: false },
+            emailSettings: {
+                messageCategoryId: 'cat-1',
+                messageCategoryType: 'marketing',
+                trackingEnabled: false,
+                utmTagsEnabled: true,
+                utmParams: { utm_campaign: '{{ person.properties.plan }}' },
+            },
             broadcast: existing as unknown as HogFlowApi | null,
         })
 
@@ -142,6 +161,94 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
             message_category_id: 'cat-1',
             message_category_type: 'marketing',
             tracking_enabled: false,
+            utm_tags_enabled: true,
+            utm_params: { utm_campaign: '{{ person.properties.plan }}' },
+        })
+    })
+
+    it.each([
+        [
+            'email to push',
+            [trigger(), { ...email(), filters: stepCondition }, exit],
+            'push',
+            null,
+            {
+                type: 'function_push',
+                config: {
+                    inputs: {
+                        channels: { value: [7] },
+                        title: { value: 'Hello {{ person.properties.name }}', templating: 'liquid' },
+                    },
+                },
+            },
+        ],
+        [
+            'push to email',
+            [trigger(), { ...push(), filters: stepCondition }, exit],
+            'email',
+            { count: 10, period: 'minute' },
+            { type: 'function_email', config: { inputs: { email: { value: { subject: 'Hello' } } } } },
+        ],
+    ] as const)(
+        'replaces the message step under the same id when switching %s',
+        (_, actions, channel, rateLimit, messageStep) => {
+            const payload = buildBroadcastPayload({
+                name: 'Launch',
+                audienceProperties: [],
+                goalEnabled: false,
+                conversion: DEFAULT_BROADCAST_CONVERSION,
+                email: { ...DEFAULT_BROADCAST_EMAIL, subject: 'Hello' },
+                emailRateLimit: { count: 10, period: 'minute' } as any,
+                channel,
+                push: { channels: [7], title: 'Hello {{ person.properties.name }}', body: '' },
+                broadcast: { actions, edges } as unknown as HogFlowApi,
+            })
+
+            expect(payload.edges).toEqual(edges)
+            expect(payload.actions.map((action: any) => action.id)).toEqual(['trigger_node', 'email_1', 'exit_node'])
+            expect(payload.actions[1]).toMatchObject({ ...messageStep, filters: stepCondition })
+            expect(payload.email_sending_rate_limit).toEqual(rateLimit)
+        }
+    )
+
+    it('keeps the push inputs the wizard does not edit, such as a custom recipient or saved data keys', () => {
+        const customized = {
+            ...push(),
+            config: {
+                template_id: 'template-native-push',
+                inputs: {
+                    distinctId: { value: '{person.properties.device_owner}' },
+                    title: { value: 'Old {person.properties.name}' },
+                    data: {
+                        value: { url: 'myapp://old', campaign: '{{ person.properties.plan }}' },
+                        templating: 'liquid',
+                    },
+                    ios_sound: { value: 'chime' },
+                },
+            },
+        }
+        const payload = buildBroadcastPayload({
+            name: 'Launch',
+            audienceProperties: [],
+            goalEnabled: false,
+            conversion: DEFAULT_BROADCAST_CONVERSION,
+            email: DEFAULT_BROADCAST_EMAIL,
+            emailRateLimit: null,
+            channel: 'push',
+            push: { channels: [7], title: 'New', body: '' },
+            broadcast: { actions: [trigger(), customized, exit], edges } as unknown as HogFlowApi,
+        })
+
+        expect(payload.actions[1].config.inputs).toEqual({
+            distinctId: { value: '{person.properties.device_owner}' },
+            channels: { value: [7] },
+            title: { value: 'New', templating: 'hog' },
+            body: { value: '', templating: 'liquid' },
+            data: {
+                value: { url: 'myapp://old', campaign: '{{ person.properties.plan }}' },
+                templating: 'liquid',
+            },
+            ios_sound: { value: 'chime' },
         })
     })
 })

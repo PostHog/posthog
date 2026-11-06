@@ -3,9 +3,10 @@ import uuid
 import hashlib
 import calendar
 from collections.abc import Iterable
+from contextvars import ContextVar
 from datetime import datetime, timedelta
 from functools import wraps
-from typing import TypedDict, cast
+from typing import Any, TypedDict, cast
 from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
@@ -34,10 +35,10 @@ from oauth2_provider.views import (
 )
 from oauth2_provider.views.mixins import OAuthLibMixin
 from oauthlib.common import Request as OauthlibRequest
-from oauthlib.oauth2 import InvalidClientIdError, InvalidGrantError
+from oauthlib.oauth2 import InvalidClientError, InvalidClientIdError, InvalidGrantError
 from redis.exceptions import RedisError
 from rest_framework import serializers, status
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import AuthenticationFailed, NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -46,6 +47,7 @@ from posthog.api import id_jag
 from posthog.api.oauth.cimd import (
     CIMD_THROTTLE_CLASSES,
     CIMDFetchError,
+    CIMDSigningKeyMissingError,
     CIMDValidationError,
     enqueue_cimd_refresh_if_stale,
     get_or_create_cimd_application,
@@ -53,6 +55,7 @@ from posthog.api.oauth.cimd import (
 )
 from posthog.api.oauth.claims import OIDC_CLAIMS
 from posthog.api.oauth.client_assertion import (
+    PRIVATE_KEY_REQUIRED_MESSAGE,
     ClientAssertionError,
     ResolvedClientAssertion,
     expected_assertion_audiences,
@@ -60,7 +63,13 @@ from posthog.api.oauth.client_assertion import (
     verify_client_assertion,
 )
 from posthog.api.oauth.client_auth import verify_client_secret
-from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context
+from posthog.api.oauth.device import (
+    DEVICE_CODE_GRANT_TYPE,
+    DEVICE_POLL_WAITING_ERRORS,
+    device_token_response,
+    token_server_kwargs,
+)
+from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context, is_trusted_posthog_mcp_resource
 from posthog.api.oauth.metadata import (
     Document,
     authorization_server_metadata,
@@ -68,14 +77,15 @@ from posthog.api.oauth.metadata import (
     openid_provider_metadata,
     protected_resource_metadata,
 )
-from posthog.auth import SessionAuthentication
+from posthog.api.oauth.step_up import resolve_step_up_grant
+from posthog.auth import IDJagAccessTokenAuthentication, SessionAuthentication
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.helpers.oauth_pending_connection import (
     PendingOAuthConnection,
     clear_pending_oauth_connection_cookie,
     set_pending_oauth_connection_cookie,
 )
-from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
+from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
 from posthog.models.oauth import (
@@ -83,6 +93,7 @@ from posthog.models.oauth import (
     OAuthGrant,
     OAuthRefreshToken,
     lock_oauth_connection,
+    revoke_oauth_refresh_family,
     revoke_oauth_session,
     revoke_oauth_token_family,
 )
@@ -95,15 +106,17 @@ from posthog.scopes import (
     is_truncated_scope_request,
     narrow_scopes_to_ceiling,
     resolve_ceiling,
+    resolve_requested_scopes,
     scopes_outside_ceiling,
 )
 from posthog.security.url_validation import has_ambiguous_authority
 from posthog.user_permissions import UserPermissions
 from posthog.utils import absolute_uri, get_instance_region, get_trusted_client_ip, render_template
 from posthog.views import login_required
+from posthog.workload_identity import token_exchange as workload_token_exchange
 
 from products.access_control.backend.facade.api import user_organizations_use_access_controls
-from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.api import access_refused as security_access_refused
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
 
@@ -156,8 +169,16 @@ def get_region_info() -> dict | None:
 # The host the other PostHog Cloud region answers on, so an unknown client_id can name it.
 _OTHER_CLOUD_REGION_HOST = {"US": "https://eu.posthog.com", "EU": "https://us.posthog.com"}
 
+# Why the last CIMD client_id failed to resolve, as (client_id, reason). oauthlib's
+# InvalidClientIdError doesn't carry the request, so this is how error_response learns the
+# reason. validate_client_id resets it on every call, and error_response only uses it for the
+# same client_id.
+_cimd_resolution_error: ContextVar[tuple[str, CIMDFetchError | CIMDValidationError] | None] = ContextVar(
+    "cimd_resolution_error", default=None
+)
 
-def unknown_client_id_description(client_id: str | None) -> str:
+
+def unknown_client_id_description(client_id: str | None, cimd_error: str | None = None) -> str:
     """Describe an unknown `client_id` so the client can act on the 400.
 
     An OAuth application exists in one region only, and a request sent to the other
@@ -165,9 +186,15 @@ def unknown_client_id_description(client_id: str | None) -> str:
     region is what makes that case recognizable.
 
     A CIMD client_id is a metadata URL resolved on demand rather than a registration
-    we hold, so it fails for a different reason and gets a different description.
+    we hold, so it fails for a different reason and gets a different description. When
+    /authorize knows why the document failed, `cimd_error` names it. CIMD errors are
+    written to be shown to the client: they describe the client's own public document.
     """
     if is_cimd_client_id(client_id):
+        if cimd_error:
+            return (
+                f"PostHog could not use the client metadata document at this client_id: {cimd_error[:500].rstrip('.')}."
+            )
         return (
             "PostHog could not read the client metadata document at this client_id. "
             "Check that the URL is reachable over HTTPS and returns valid client metadata."
@@ -250,6 +277,12 @@ def _oauth_app_event_properties(application: OAuthApplication) -> dict:
         "is_first_party": application.is_first_party,
         **({"cimd_url": application.client_id} if application.is_cimd_client else {}),
     }
+
+
+def _provisioning_signing_properties(application: OAuthApplication, *, signed: bool) -> dict:
+    if not application.is_provisioning_partner:
+        return {}
+    return {"provisioning_signing": application.provisioning_signing.request_tag(signed=signed)}
 
 
 def _token_error_code(response: HttpResponse) -> str:
@@ -352,7 +385,7 @@ def _gateway_blocklist_block(
         return None
     organization_ids = _scoped_organization_ids(request.user, access_level, scoped_organization_ids, scoped_team_ids)
     try:
-        security_shadow_check(
+        refused = security_access_refused(
             SecuritySubject(
                 email=request.user.email,
                 user_uuid=str(request.user.uuid),
@@ -363,15 +396,9 @@ def _gateway_blocklist_block(
             call_site="oauth_authorize",
         )
     except Exception:
-        logger.exception("security_shadow_check_site_failed", call_site="oauth_authorize")
-    if not wizard_identity_blocked(
-        distinct_id=str(request.user.distinct_id),
-        email=request.user.email,
-        surface="oauth_authorize",
-        user_uuid=str(request.user.uuid),
-        organization_ids=[str(organization_id) for organization_id in organization_ids],
-        team_ids=scoped_team_ids or [],
-    ):
+        logger.exception("security_access_check_site_failed", call_site="oauth_authorize")
+        refused = False
+    if not refused:
         return None
     return Response(
         {"error": "access_denied", "error_description": WIZARD_BLOCKED_DETAIL},
@@ -493,6 +520,10 @@ class OAuthValidator(OAuth2Validator):
             return getattr(request.client, "is_dcr_client", False) or getattr(request.client, "is_cimd_client", False)
         return False
 
+    def _is_device_client(self, request) -> bool:
+        client = getattr(request, "client", None)
+        return getattr(client, "authorization_grant_type", None) == DEVICE_CODE_GRANT_TYPE
+
     def _is_first_party_client(self, request) -> bool:
         """Check if the client is a first-party PostHog application."""
         if hasattr(request, "client") and request.client:
@@ -552,9 +583,7 @@ class OAuthValidator(OAuth2Validator):
         exchange, in place and with no operator involved on either side. PKCE remains the
         enforced baseline for the fallback, exactly as for any public client. The
         grant-type gate in ``_credentialless_cimd_private_key_jwt_client`` keeps the
-        fallback off revocation, which shares this validator; the agentic provisioning
-        endpoints keep requiring the declared method, and partners there demonstrably
-        send assertions.
+        fallback off revocation, which shares this validator.
         """
         if getattr(request, "client_assertion", None):
             return True
@@ -571,6 +600,7 @@ class OAuthValidator(OAuth2Validator):
         living on credential-less refresh grants would keep stale scopes and config
         forever."""
         if super().authenticate_client_id(request_client_id, request, *args, **kwargs):
+            self._refuse_unsigned_provisioning_partner(request)
             return True
         app = self._credentialless_cimd_private_key_jwt_client(request)
         if app is None:
@@ -586,10 +616,9 @@ class OAuthValidator(OAuth2Validator):
         authenticates or fails, and the grant-type gate excludes requests without a token
         grant, which is how revocation stays on the declared method.
 
-        Provisioning partners are excluded. They register through CIMD and declare
-        private_key_jwt too, so they match this shape without needing it: they do send
-        assertions, and the key is the credential their registration is built on. Including
-        them would hand every partner a way to downgrade itself by sending nothing."""
+        Provisioning partners never get it. The key is the credential their registration is
+        built on, and the fallback would hand every partner a way to downgrade itself by
+        sending nothing."""
         if getattr(request, "grant_type", None) not in ("authorization_code", "refresh_token"):
             return None
         if getattr(request, "client_assertion", None):
@@ -599,9 +628,11 @@ class OAuthValidator(OAuth2Validator):
         if getattr(request, "client_secret", None):
             return None
         app = self._load_application(getattr(request, "client_id", None) or "", request)
-        if app is not None and app.is_cimd_client and app.uses_private_key_jwt_auth:
-            return None if app.is_provisioning_partner else app
-        return None
+        if app is None or not app.is_cimd_client or not app.uses_private_key_jwt_auth:
+            return None
+        if app.is_provisioning_partner:
+            return None
+        return app
 
     def authenticate_client(self, request, *args, **kwargs):
         """Authenticate a client presenting ``private_key_jwt`` (RFC 7523).
@@ -616,7 +647,20 @@ class OAuthValidator(OAuth2Validator):
         """
         if self._authenticate_client_assertion(request):
             return True
-        return super().authenticate_client(request, *args, **kwargs)
+        if not super().authenticate_client(request, *args, **kwargs):
+            return False
+        self._refuse_unsigned_provisioning_partner(request)
+        return True
+
+    @staticmethod
+    def _refuse_unsigned_provisioning_partner(request) -> None:
+        # Only grants issue tokens. Revocation shares this validator and must keep working, so a
+        # refused partner can still kill the tokens it holds.
+        if not getattr(request, "grant_type", None):
+            return
+        client = getattr(request, "client", None)
+        if client is not None and client.requires_provisioning_signature:
+            raise InvalidClientError(description=PRIVATE_KEY_REQUIRED_MESSAGE, request=request)
 
     @staticmethod
     def _enqueue_cimd_metadata_refresh(client_id: str) -> None:
@@ -646,6 +690,12 @@ class OAuthValidator(OAuth2Validator):
         assertion = self._resolve_request_assertion(request)
         if assertion is None:
             return False
+        # oauthlib's device grant authenticates a confidential client twice per request. The first
+        # check spends the assertion's jti, so a second verification would reject it as a replay.
+        # Read from `__dict__` only: oauthlib's Request answers a missing attribute from the request
+        # parameters, so getattr would let a caller send the "verified" value itself.
+        if request.__dict__.get("verified_client_assertion") == assertion.client_assertion:
+            return True
 
         app = self._load_application(assertion.client_id, request)
         # jwks_uri alone gates this, not client_type: a public CIMD client may publish keys
@@ -668,6 +718,7 @@ class OAuthValidator(OAuth2Validator):
             return False
 
         request.client = app
+        request.verified_client_assertion = assertion.client_assertion
         return True
 
     # PostHog deliberately does NOT support OIDC silent authentication (`prompt=none`). Every
@@ -708,13 +759,15 @@ class OAuthValidator(OAuth2Validator):
         """
 
         # CIMD URLs always go through get_or_create to ensure metadata refresh
+        _cimd_resolution_error.set(None)
         if is_cimd_client_id(client_id):
             try:
                 app = get_or_create_cimd_application(client_id)
                 request.client = app
                 return True
             except (CIMDFetchError, CIMDValidationError) as e:
-                logger.warning("cimd_resolution_failed", client_id=client_id, error=str(e))
+                logger.warning("cimd_resolution_failed", client_id=client_id, error=str(e), cause=repr(e.__cause__))
+                _cimd_resolution_error.set((client_id, e))
                 return False
 
         # Standard UUID lookup
@@ -795,13 +848,11 @@ class OAuthValidator(OAuth2Validator):
         their sign-in. A request with nothing grantable yields an identity-only
         token whose resource calls 403; `oauth_scopes_clamped` is what surfaces it.
         """
-        app_scopes = getattr(client, "ceiling_scopes", None) or []
-        ordered = list(scopes or [])
-        requested = set(ordered)
-        if not requested or is_truncated_scope_request(ordered):
-            request.scopes = sorted(effective_ceiling(app_scopes) | ALWAYS_ALLOWED_SCOPES)
-            return True
-        request.scopes = clamp_scopes_to_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
+        request.scopes = resolve_requested_scopes(
+            list(scopes or []),
+            getattr(client, "ceiling_scopes", None) or [],
+            allow_wildcard_under_empty_ceiling=True,
+        )
         return True
 
     def get_original_scopes(self, refresh_token, request, *args, **kwargs):
@@ -877,9 +928,12 @@ class OAuthValidator(OAuth2Validator):
         behavior of Google, Apple, Okta (for native apps), and AWS Cognito which
         all issue non-rotating refresh tokens.
 
-        Non-dynamic OAuth clients still get rotation per the default setting.
+        Non-dynamic OAuth clients still get rotation per the default setting, and so do
+        device-grant clients: they are command-line tools built to store each rotated token.
+        Rotation links every access token to its refresh token's family, which lets an RFC 7009
+        revoke end one login of a device client instead of all of them.
         """
-        if self._is_dynamic_client(request):
+        if self._is_dynamic_client(request) and not self._is_device_client(request):
             return False
         return oauth2_settings.ROTATE_REFRESH_TOKEN
 
@@ -889,13 +943,17 @@ class OAuthValidator(OAuth2Validator):
 
         Dynamically registered (DCR/CIMD) clients get an extended TTL since they
         don't reliably refresh; first-party PostHog apps get the same extended TTL.
+        Device grant clients keep the default TTL: they often run on shared or headless
+        machines, and they refresh like any other client.
         Impersonation-minted tokens are capped to the impersonation idle timeout so
         they can't outlive the admin's session. That check comes first so an
         impersonated first-party app can't inherit the longer window.
         """
         if self._get_impersonator_id(request) is not None:
             return settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS
-        if self._is_dynamic_client(request) or self._is_first_party_client(request):
+        if self._is_first_party_client(request) or (
+            self._is_dynamic_client(request) and not self._is_device_client(request)
+        ):
             return EXTENDED_ACCESS_TOKEN_EXPIRE_SECONDS
         return oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS
 
@@ -1090,6 +1148,14 @@ class OAuthValidator(OAuth2Validator):
                 token_type="refresh_token" if rt else "access_token",
             )
             return
+        # A rotating family holds every access token of one login, so revoking it ends only that
+        # login. A token already rotated away still ends its family: during the grace period it can
+        # still refresh.
+        dynamic_or_device = self._is_dynamic_client(request) or self._is_device_client(request)
+        if rt and dynamic_or_device and self.rotate_refresh_token(request):
+            revoke_oauth_refresh_family(rt)
+            return
+        # A non-rotating token can't be traced to its access tokens, so the whole connection goes.
         if rt and rt.revoked is None and self._is_dynamic_client(request):
             revoke_oauth_session(refresh_token=rt)
             return
@@ -1401,6 +1467,51 @@ def _login_required_with_pending_connection(view):
     return handler
 
 
+def cimd_creation_throttled(request, view, client_id: str) -> bool:
+    """Whether creating an application for an unseen CIMD client_id is over its rate limit.
+
+    Checked on the view, not in the OAuthValidator, because the validator only receives an
+    oauthlib Request, which lacks request.META for IP extraction."""
+    if not is_cimd_client_id(client_id) or OAuthApplication.objects.filter(client_id=client_id).exists():
+        return False
+    for throttle_cls in CIMD_THROTTLE_CLASSES:
+        throttle = throttle_cls()
+        if not throttle.allow_request(request, view=view):
+            logger.warning("cimd_rate_limited", client_id=client_id, scope=throttle.scope, wait=throttle.wait())
+            return True
+    return False
+
+
+def authenticated_oauth_client(view, request, *, resolve_cimd: bool = False) -> OAuthApplication | None:
+    """The application the request's client credentials verify as, or None.
+
+    The identity is the application the validator bound during verification. Request fields
+    are not trusted for it: an `Authorization: Basic` header or a `client_id` param can name
+    any client without proving anything.
+
+    `resolve_cimd` covers a CIMD client presenting credentials before it ever authorized, so
+    it has no row yet. Its document is fetched first, so its assertion can be verified against
+    the keys the document publishes."""
+    core = view.get_oauthlib_core()
+    uri, http_method, body, headers = core._extract_params(request)
+    oauth_request = OauthlibRequest(uri, http_method, body, headers)
+    validator = core.server.request_validator
+    if resolve_cimd:
+        # RFC 7523 lets a private_key_jwt client omit client_id and name itself in the assertion.
+        resolved_assertion = OAuthValidator._resolve_request_assertion(oauth_request)
+        client_id = resolved_assertion.client_id if resolved_assertion else request.POST.get("client_id") or ""
+        if cimd_creation_throttled(request, view, client_id):
+            return None
+        if is_cimd_client_id(client_id) and not validator.validate_client_id(client_id, oauth_request):
+            return None
+    try:
+        if not validator.authenticate_client(oauth_request):
+            return None
+    except InvalidClientError:
+        return None
+    return oauth_request.client
+
+
 class OAuthAuthorizationView(OAuthLibMixin, APIView):
     """
     This view handles incoming requests to /authorize.
@@ -1516,21 +1627,14 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
     @method_decorator(_login_required_with_pending_connection)
     def get(self, request, *args, **kwargs):
         # Rate-limit new CIMD application creation by IP.
-        # Must happen here (not in the OAuthValidator) because the validator
-        # only receives an oauthlib Request which lacks request.META for IP extraction.
-        client_id = request.query_params.get("client_id")
-        if is_cimd_client_id(client_id) and not OAuthApplication.objects.filter(client_id=client_id).exists():
-            for throttle_cls in CIMD_THROTTLE_CLASSES:
-                throttle = throttle_cls()
-                if not throttle.allow_request(request, view=self):
-                    logger.warning("cimd_rate_limited", client_id=client_id, scope=throttle.scope, wait=throttle.wait())
-                    return Response(
-                        {
-                            "error": "invalid_client",
-                            "error_description": "Too many new client registrations. Try again later.",
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+        if cimd_creation_throttled(request, self, request.query_params.get("client_id") or ""):
+            return Response(
+                {
+                    "error": "invalid_client",
+                    "error_description": "Too many new client registrations. Try again later.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             scopes, credentials = self.validate_authorization_request(request)
@@ -1615,6 +1719,18 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         impersonator_id = _impersonator_id_for_request(request)
         credentials["impersonated_by_id"] = impersonator_id
 
+        required_resource_scopes = {scope for scope in application.required_scopes if ":" in scope}
+        resource = request.query_params.get("resource")
+        step_up_grant = None
+        if application.supports_step_up and resource and is_trusted_posthog_mcp_resource(resource):
+            step_up_grant = resolve_step_up_grant(
+                requested=scopes,
+                application=application,
+                user_id=request.user.id,
+                required=required_resource_scopes,
+            )
+            scopes = step_up_grant.scopes
+
         scope_str = " ".join(scopes)
         if is_read_only_impersonation(request):
             scope_str = downgrade_scopes_to_read_only(scope_str)
@@ -1642,7 +1758,6 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # Check for auto-approval. Skipped when the request omits a required scope:
         # auto-approving would mint a grant below the app's required floor, so fall
         # through to the consent screen, which displays and grants the full required set.
-        required_resource_scopes = {scope for scope in application.required_scopes if ":" in scope}
         if request.query_params.get(
             "approval_prompt", oauth2_settings.REQUEST_APPROVAL_PROMPT
         ) == "auto" and required_resource_scopes <= set(scope_str.split()):
@@ -1677,6 +1792,11 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
 
+        # The consent screen shows these as granted and not removable, and submits them with the rest.
+        already_granted_scopes = step_up_grant.already_granted_scopes if step_up_grant else []
+        if already_granted_scopes and is_read_only_impersonation(request):
+            already_granted_scopes = downgrade_scopes_to_read_only(" ".join(already_granted_scopes)).split()
+
         template_context: dict[str, object] = {
             "oauth_application": {
                 "name": application.name,
@@ -1701,6 +1821,17 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             "oauth_scope_resolution": {
                 "scopes": scope_str.split(),
                 "was_defaulted": scopes_were_defaulted,
+                **({"already_granted_scopes": already_granted_scopes} if already_granted_scopes else {}),
+                **(
+                    {
+                        "earlier_access": {
+                            "scoped_teams": step_up_grant.earlier_access.scoped_teams,
+                            "scoped_organizations": step_up_grant.earlier_access.scoped_organizations,
+                        }
+                    }
+                    if step_up_grant and step_up_grant.earlier_access
+                    else {}
+                ),
             },
         }
 
@@ -1712,7 +1843,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         )
 
         if scopes_were_defaulted:
-            oauth_mcp_consent = build_oauth_mcp_consent_context(request.query_params.get("resource"))
+            oauth_mcp_consent = build_oauth_mcp_consent_context(
+                request.query_params.get("resource"), scopes=scope_str.split() if step_up_grant else None
+            )
             if oauth_mcp_consent is not None:
                 template_context["oauth_mcp_consent"] = oauth_mcp_consent
 
@@ -1894,7 +2027,17 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         if isinstance(oauthlib_error, InvalidClientIdError):
             # An unknown client_id is fatal, so DOT never redirects it and this description
             # only ever reaches the JSON body.
-            oauthlib_error.description = unknown_client_id_description(self.request.query_params.get("client_id"))
+            client_id = self.request.query_params.get("client_id")
+            failure = _cimd_resolution_error.get()
+            cimd_error = failure[1] if failure and failure[0] == client_id else None
+            if isinstance(cimd_error, CIMDSigningKeyMissingError):
+                return Response(
+                    {"error": "server_error", "error_description": str(cimd_error)},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+            oauthlib_error.description = unknown_client_id_description(
+                client_id, cimd_error=str(cimd_error) if cimd_error else None
+            )
 
         redirect, error_response = super().error_response(error, **kwargs)
 
@@ -1961,7 +2104,17 @@ class OAuthTokenView(TokenView):
     of the code_verifier that was sent in the authorization request.
 
     RFC 6749 requires x-www-form-urlencoded, but this endpoint also accepts application/json for convenience.
+
+    The RFC 8628 device code grant ("urn:ietf:params:oauth:grant-type:device_code") is served
+    here too: see `posthog.api.oauth.device`.
     """
+
+    @classmethod
+    def get_server(cls):
+        return cls.get_server_class()(cls.get_validator_class()(), **token_server_kwargs())
+
+    def device_flow_token_response(self, request, device_code, *args, **kwargs):
+        return device_token_response(self.create_token_response, request, device_code)
 
     @staticmethod
     def _request_client_auth_method(request) -> str:
@@ -1998,6 +2151,11 @@ class OAuthTokenView(TokenView):
         }
         if access_token.application:
             properties.update(_oauth_app_event_properties(access_token.application))
+            properties.update(
+                _provisioning_signing_properties(
+                    access_token.application, signed=client_auth_method == "client_assertion"
+                )
+            )
         # `user` is nullable on an access token (client-credentials grants have no
         # resource owner), so fall back to the client id and skip person processing.
         if access_token.user is None:
@@ -2037,6 +2195,9 @@ class OAuthTokenView(TokenView):
             pass
         else:
             properties.update(_oauth_app_event_properties(application))
+            # A rejected assertion may not have verified, so only unsigned rejections are tagged.
+            if client_auth_method != "client_assertion":
+                properties.update(_provisioning_signing_properties(application, signed=False))
         posthoganalytics.capture(
             distinct_id=client_id or "unknown",
             event="oauth_token_rejected",
@@ -2059,14 +2220,34 @@ class OAuthTokenView(TokenView):
                 status=400,
             )
 
-        requested_scope = request.POST.get("scope")
-        request_client_id = request.POST.get("client_id")
+        # The ID-JAG draft binds the assertion to the client that presents it and supports the
+        # grant for confidential clients only, so a client presenting no credential is refused.
+        client = authenticated_oauth_client(self, request, resolve_cimd=True)
+        if client is None:
+            self._capture_token_rejected(
+                id_jag.JWT_BEARER_GRANT_TYPE,
+                request.POST.get("client_id") or "",
+                "invalid_client",
+                self._request_client_auth_method(request),
+            )
+            return JsonResponse(
+                {
+                    "error": "invalid_client",
+                    "error_description": (
+                        "Client authentication failed. The jwt-bearer grant needs a registered client that "
+                        "authenticates with a client secret or private_key_jwt."
+                    ),
+                },
+                status=401,
+            )
 
         try:
-            issued_access_token = id_jag.issue_access_token(assertion, requested_scope, request_client_id)
+            issued_access_token = id_jag.issue_access_token(
+                assertion, request.POST.get("scope"), client.client_id, request.POST.get("resource")
+            )
         except id_jag.IdJagError as e:
             logger.info("id_jag_token_rejected", error=e.error_code, description=e.description)
-            self._capture_token_rejected(id_jag.JWT_BEARER_GRANT_TYPE, request_client_id or "", e.error_code)
+            self._capture_token_rejected(id_jag.JWT_BEARER_GRANT_TYPE, client.client_id, e.error_code)
             return JsonResponse(
                 {"error": e.error_code, "error_description": e.description},
                 status=e.http_status,
@@ -2076,11 +2257,11 @@ class OAuthTokenView(TokenView):
         # the funnel. There is no resource owner to attribute it to, so it stays personless
         # and keyed on the client.
         posthoganalytics.capture(
-            distinct_id=request_client_id or "unknown",
+            distinct_id=client.client_id,
             event="oauth_token_issued",
             properties={
                 "grant_type": id_jag.JWT_BEARER_GRANT_TYPE,
-                "client_id": request_client_id or "",
+                "client_id": client.client_id,
                 "granted_scopes": " ".join(issued_access_token.granted_scopes),
                 "granted_scope_count": len(issued_access_token.granted_scopes),
                 "$process_person_profile": False,
@@ -2095,6 +2276,46 @@ class OAuthTokenView(TokenView):
                 "expires_in": issued_access_token.expires_in_seconds,
                 "scope": " ".join(issued_access_token.granted_scopes),
             }
+        )
+
+    def _handle_token_exchange_grant(self, request) -> JsonResponse:
+        """Workload OIDC token exchange (RFC 8693). A workload has no client registration, so the grant takes
+        no client authentication: the OIDC token, checked against a trust policy, is the only credential."""
+        grant_type = workload_token_exchange.TOKEN_EXCHANGE_GRANT_TYPE
+        try:
+            issued = workload_token_exchange.exchange_workload_token(
+                subject_token=request.POST.get("subject_token") or "",
+                subject_token_type=request.POST.get("subject_token_type") or "",
+                resource=request.POST.get("resource") or "",
+            )
+        except workload_token_exchange.WorkloadExchangeError as e:
+            logger.info("workload_token_exchange_rejected", error_code=e.code.value)
+            self._capture_token_rejected(grant_type, "", e.code.value)
+            return JsonResponse(e.body(), status=e.http_status)
+        except (OperationalError, RedisError) as e:
+            logger.warning("workload_token_exchange_unavailable", error=str(e))
+            return _temporarily_unavailable_response()
+
+        posthoganalytics.capture(
+            distinct_id=f"workload_trust_policy:{issued.policy_id}",
+            event="oauth_token_issued",
+            properties={
+                "grant_type": grant_type,
+                "granted_scope_count": len(issued.scopes),
+                "$process_person_profile": False,
+                **(get_region_info() or {}),
+            },
+        )
+        # RFC 6749 section 5.1: a response that carries a token must not be cached.
+        return JsonResponse(
+            {
+                "access_token": issued.access_token,
+                "issued_token_type": workload_token_exchange.ISSUED_TOKEN_TYPE,
+                "token_type": "Bearer",
+                "expires_in": issued.expires_in_seconds,
+                "scope": " ".join(issued.scopes),
+            },
+            headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
         )
 
     def post(self, request, *args, **kwargs):
@@ -2135,6 +2356,14 @@ class OAuthTokenView(TokenView):
 
         if grant_type == id_jag.JWT_BEARER_GRANT_TYPE:
             return self._handle_jwt_bearer_grant(request)
+        if grant_type == workload_token_exchange.TOKEN_EXCHANGE_GRANT_TYPE:
+            return self._handle_token_exchange_grant(request)
+
+        # DOT reads `device_code` with a bare subscript, which turns a missing one into a 500.
+        if grant_type == DEVICE_CODE_GRANT_TYPE and not request.POST.get("device_code"):
+            return JsonResponse(
+                {"error": "invalid_request", "error_description": "Missing device_code parameter"}, status=400
+            )
 
         client_id = request.POST.get("client_id", "")
         client_id_prefix = client_id[:8] if client_id else "unknown"
@@ -2218,16 +2447,24 @@ class OAuthTokenView(TokenView):
                     # to populate the project selector. When the app is org-scoped only,
                     # access_token.scoped_teams is empty in the DB by design — derive teams
                     # from scoped_organizations so clients keep working without weakening
-                    # the stored token scope.
+                    # the stored token scope. List only the teams the user can access, because
+                    # access control can deny an org member some of the org's teams.
                     # TODO(@charlesvien): remove this after a migration period in PostHog Desktop.
                     if (
                         not scoped_teams
                         and scoped_organizations
                         and access_token.application
                         and access_token.application.is_first_party
+                        and access_token.user
                     ):
-                        scoped_teams = list(
-                            Team.objects.filter(organization_id__in=scoped_organizations).values_list("pk", flat=True)
+                        candidate_teams = Team.objects.filter(organization_id__in=scoped_organizations).only(
+                            "pk", "organization_id", "project_id"
+                        )
+                        user_permissions = UserPermissions(access_token.user)
+                        scoped_teams = sorted(
+                            team.pk
+                            for team in candidate_teams
+                            if user_permissions.team(team).effective_membership_level is not None
                         )
 
                     response_data["scoped_teams"] = scoped_teams
@@ -2256,7 +2493,8 @@ class OAuthTokenView(TokenView):
             else:
                 response["Content-Type"] = "application/json"
 
-        if response.status_code != 200:
+        # A device client polls until the person approves, so these answers are waiting, not rejections.
+        if response.status_code != 200 and _token_error_code(response) not in DEVICE_POLL_WAITING_ERRORS:
             self._capture_token_rejected(grant_type, client_id, _token_error_code(response), client_auth_method)
 
         return response
@@ -2293,6 +2531,46 @@ class ConfidentialClientOnlyOAuthValidator(OAuthValidator):
         if not super().authenticate_client(request, *args, **kwargs):
             return False
         return getattr(request.client, "client_type", None) == AbstractApplication.CLIENT_CONFIDENTIAL
+
+
+def _active_access_token_response(
+    *,
+    scope: str,
+    expires_at: int,
+    is_impersonated: bool,
+    scoped_teams: list[int],
+    scoped_organizations: list[str],
+    application: OAuthApplication | None,
+    sandbox_task_id: uuid.UUID | None = None,
+    supports_step_up: bool = False,
+) -> JsonResponse:
+    """RFC 7662 response for an active access token, whether it is stored or a signed JWT."""
+    data: dict[str, Any] = {
+        "active": True,
+        "token_type": "access_token",
+        "scope": scope,
+        "is_impersonated": is_impersonated,
+        # The MCP server reads this to choose between a 403 insufficient_scope challenge and a
+        # tool error when a scope is missing.
+        "supports_step_up": supports_step_up,
+        "scoped_teams": scoped_teams,
+        "scoped_organizations": scoped_organizations,
+        "exp": expires_at,
+    }
+    if application:
+        data["client_id"] = application.client_id
+        data["client_name"] = application.name
+    if sandbox_task_id is not None:
+        # The policy resolves API routes, which import these views.
+        from products.signals.backend.facade.tool_policy import resolve_scout_held_tools  # noqa: PLC0415
+
+        data["sandbox_task_id"] = str(sandbox_task_id)
+        # The MCP server hides and refuses every tool outside this list. The API enforces the
+        # same list per operation, so a client that ignores it gains nothing.
+        held_tools = resolve_scout_held_tools(sandbox_task_id=sandbox_task_id)
+        if held_tools is not None:
+            data["mcp_allowed_tools"] = sorted(held_tools)
+    return JsonResponse(data)
 
 
 @method_decorator(csrf_exempt, name="dispatch")
@@ -2354,6 +2632,9 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         """
         if self._is_self_introspection(request):
             bearer_token = request.headers.get("Authorization", "")[7:]
+            # An ID-JAG access token has no row to look up; get_token_response verifies it.
+            if IDJagAccessTokenAuthentication.is_id_jag_token(bearer_token):
+                return True, request
             token_checksum = hashlib.sha256(bearer_token.encode("utf-8")).hexdigest()
             try:
                 request.oauth_caller_access_token = OAuthAccessToken.objects.get(token_checksum=token_checksum)
@@ -2377,12 +2658,10 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         only trustworthy identity is the one the validator bound to the request during
         verification, so capture it here for get_token_response to read back.
         """
-        core = self.get_oauthlib_core()
-        uri, http_method, body, headers = core._extract_params(request)
-        oauth_request = OauthlibRequest(uri, http_method, body, headers)
-        if not core.server.request_validator.authenticate_client(oauth_request):
+        client = authenticated_oauth_client(self, request)
+        if client is None:
             return False
-        request.oauth_authenticated_client = oauth_request.client
+        request.oauth_authenticated_client = client
         return True
 
     def _client_credentials_client_id(self, request) -> str | None:
@@ -2399,6 +2678,30 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
 
         client = getattr(request, "oauth_authenticated_client", None)
         return client.client_id if client is not None else None
+
+    def _id_jag_token_response(self, request, token_value: str, credential_client_id: str | None) -> JsonResponse:
+        """An ID-JAG access token is a signed JWT with no row, so it is read from its verified
+        claims. A caller sees it only when the caller is the token itself, or the client the
+        token was issued to."""
+        try:
+            verified = IDJagAccessTokenAuthentication.verify_access_token(token_value)
+        except AuthenticationFailed:
+            return JsonResponse({"active": False}, status=200)
+        if not self._is_self_introspection(request):
+            caller_token = getattr(request, "oauth_caller_access_token", None)
+            caller_client_id = credential_client_id or getattr(
+                getattr(caller_token, "application", None), "client_id", None
+            )
+            if caller_client_id != verified.client_id:
+                return JsonResponse({"active": False}, status=200)
+        return _active_access_token_response(
+            scope=" ".join(verified.scopes),
+            expires_at=verified.expires_at,
+            is_impersonated=False,
+            scoped_teams=[],
+            scoped_organizations=[verified.organization_id],
+            application=OAuthApplication.objects.filter(client_id=verified.client_id).first(),
+        )
 
     def get_token_response(self, request, token_value=None):
         """
@@ -2424,6 +2727,9 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         is_client_credentials = not hasattr(request, "resource_owner")
         if is_client_credentials and credential_client_id is None:
             return JsonResponse({"active": False}, status=200)
+
+        if IDJagAccessTokenAuthentication.is_id_jag_token(token_value):
+            return self._id_jag_token_response(request, token_value, credential_client_id)
 
         # The bearer caller is identified by the application its own token belongs to. The
         # `introspection` scope says a caller may introspect, not whose tokens it may read,
@@ -2468,19 +2774,16 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             # `user` is null for a client-credentials grant, which has no resource owner.
             if access_token.user is not None and not access_token.user.is_active:
                 return JsonResponse({"active": False}, status=200)
-            data = {
-                "active": True,
-                "token_type": "access_token",
-                "scope": access_token.scope,
-                "is_impersonated": access_token.impersonated_by_id is not None,
-                "scoped_teams": access_token.scoped_teams or [],
-                "scoped_organizations": access_token.scoped_organizations or [],
-                "exp": int(calendar.timegm(access_token.expires.timetuple())),
-            }
-            if access_token.application:
-                data["client_id"] = access_token.application.client_id
-                data["client_name"] = access_token.application.name
-            return JsonResponse(data)
+            return _active_access_token_response(
+                scope=access_token.scope,
+                expires_at=int(calendar.timegm(access_token.expires.timetuple())),
+                is_impersonated=access_token.impersonated_by_id is not None,
+                scoped_teams=access_token.scoped_teams or [],
+                scoped_organizations=access_token.scoped_organizations or [],
+                application=access_token.application,
+                sandbox_task_id=access_token.sandbox_task_id,
+                supports_step_up=access_token.supports_step_up,
+            )
 
         # Fall back to refresh token (lookup by plaintext token — OAuthRefreshToken has
         # no token_checksum field; revoked tokens filtered via revoked__isnull=True)

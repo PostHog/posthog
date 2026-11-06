@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -9,7 +9,7 @@ from posthog.tasks.scheduled import instance_spread_minute, setup_periodic_tasks
 from posthog.tasks.team_llm_gateway_quota import reconcile_llm_gateway_quota_projection
 
 
-class TestScheduledTasks(TestCase):
+class TestScheduledTasks(SimpleTestCase):
     def test_scheduled_tasks(self) -> None:
         """
         `setup_periodic_tasks` may fail silently. This test ensures that it doesn't.
@@ -65,3 +65,23 @@ class TestInstanceSpreadMinute(SimpleTestCase):
             with self.settings(SITE_URL=site_url):
                 minutes.add(instance_spread_minute("send license usage", 40))
         assert len(minutes) > 1
+
+
+class TestSignalsRatedUsageScheduling(SimpleTestCase):
+    @parameterized.expand([("self_hosted", None, 0), ("cloud", "US", 1)])
+    def test_rated_usage_runs_daily_in_cloud(self, _name: str, deployment: str | None, expected_count: int) -> None:
+        sender = MagicMock()
+        with self.settings(CLOUD_DEPLOYMENT=deployment):
+            setup_periodic_tasks(sender)
+        calls = [
+            call
+            for call in sender.add_periodic_task.call_args_list
+            if call.kwargs.get("name") == "report self-driving rated usage"
+        ]
+        assert len(calls) == expected_count
+        if calls:
+            schedule, signature = calls[0].args
+            assert schedule.hour == {3}
+            assert schedule.minute == {17}
+            assert signature.type.name == "products.signals.backend.rated_usage_tasks.enqueue_signals_rated_usage"
+            assert signature.type.queue == "usage_reports"

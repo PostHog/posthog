@@ -9,14 +9,14 @@ from django.db.models import QuerySet
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import (
     ContentAutopilotDiscoveryBurstRateThrottle,
     ContentAutopilotDiscoverySustainedRateThrottle,
@@ -70,14 +70,8 @@ def duplicate_domain_as_validation_error() -> Iterator[None]:
 class ContentAutopilotViewSetMixin(TeamAndOrgViewSetMixin):
     scope_object = "web_analytics"
     scope_object_read_actions = ["list", "retrieve"]
-
-    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
-        super().initial(request, *args, **kwargs)
-        distinct_id = getattr(request.user, "distinct_id", None)
-        if not distinct_id or not posthog_feature_flag_enabled(
-            CONTENT_AUTOPILOT_FEATURE_FLAG, distinct_id, organization_id=self.organization_id
-        ):
-            raise PermissionDenied("This feature is not available.")
+    posthog_feature_flag = CONTENT_AUTOPILOT_FEATURE_FLAG
+    permission_classes = [PostHogFeatureFlagPermission]
 
     def _should_skip_parents_filter(self) -> bool:
         return True
@@ -476,10 +470,12 @@ class ContentAutopilotProposalListSerializer(ContentAutopilotProposalBaseSeriali
             "evidence",
             "validation_report",
             "file_path",
+            "target_url",
             "created_at",
             "updated_at",
         ]
         read_only_fields = fields
+        extra_kwargs = {"target_url": {"help_text": "Existing or intended public URL."}}
 
     @extend_schema_field(serializers.CharField)
     def get_file_path(self, proposal: ContentAutopilotProposal) -> str:
@@ -519,6 +515,7 @@ class ContentAutopilotOpportunitySerializer(serializers.ModelSerializer):
             "profile_id",
             "run_id",
             "proposal_id",
+            "aeo_prompt_id",
             "kind",
             "title",
             "score",
@@ -536,6 +533,7 @@ class ContentAutopilotOpportunitySerializer(serializers.ModelSerializer):
             "profile_id": {"help_text": "Site profile this opportunity belongs to."},
             "run_id": {"help_text": "Latest run that drafted this opportunity."},
             "proposal_id": {"help_text": "Latest proposal drafted for this opportunity."},
+            "aeo_prompt_id": {"help_text": "Tracked AI visibility prompt this opportunity came from."},
             "kind": {"help_text": "Type of visibility gap."},
             "title": {"help_text": "The prompt the site isn't cited for."},
             "score": {"help_text": "Priority from 0 to 1. Higher means a clearer, more consistent gap."},

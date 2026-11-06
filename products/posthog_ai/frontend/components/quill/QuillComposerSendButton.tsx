@@ -11,24 +11,24 @@ export const QuillComposerSendButton = forwardRef<HTMLSpanElement, { 'data-attr'
         const button = showStop ? (
             <Button
                 type="button"
-                variant="destructive"
+                variant="secondary"
                 size="icon"
                 aria-label="Stop"
                 loading={stopLoading}
                 onClick={() => onStop?.()}
                 data-attr={dataAttr}
             >
-                <IconStopFilled />
+                <IconStopFilled className="size-2.5" />
             </Button>
         ) : (
             <Button
                 type="submit"
                 variant="primary"
                 size="icon"
+                className="rounded-xs"
                 aria-label="Send message"
                 loading={loading}
                 disabled={!!sendDisabledReason}
-                className="rounded-xs"
                 data-attr={dataAttr}
             >
                 <IconArrowRight className="-rotate-90" />

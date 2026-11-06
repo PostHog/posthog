@@ -1,5 +1,4 @@
 import io
-import ipaddress
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -10,13 +9,16 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
+
 from products.warehouse_sources.backend.facade.api import FILE_FORMAT_READ_HINTS
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 VIEW_MODULE = "products.data_warehouse.backend.presentation.views.table"
 MODEL_MODULE = "products.warehouse_sources.backend.models.table"
+UPLOAD_ID = "11111111-2222-4333-8444-555555555555"
+NEW_UPLOAD_ID = "22222222-2222-4333-8444-555555555555"
 
 # Stand-in for what `DataWarehouseTable.get_columns()` reads off the object in place — patched so the
 # create tests never reach chdb/ClickHouse, which can't introspect a fake S3 object.
@@ -187,6 +189,10 @@ class TestCreateTableFromUpload(APIBaseTest):
         super().setUp()
         self.upload_url = f"/api/environments/{self.team.pk}/warehouse_tables/upload_file/"
         self.create_url = f"/api/environments/{self.team.pk}/warehouse_tables/create_from_upload/"
+        # The file upload source behind each table has its own tests in warehouse_sources.
+        source = patch(f"{VIEW_MODULE}.create_file_upload_source")
+        source.start()
+        self.addCleanup(source.stop)
 
     def _upload(self, filename: str = "orders.csv", file_format: str = "csv") -> str:
         with patch(f"{VIEW_MODULE}.get_s3_client", return_value=_FakeS3()):
@@ -198,10 +204,15 @@ class TestCreateTableFromUpload(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         return response.json()["upload_id"]
 
-    def _create(self, *, exists: bool = True, **payload):
+    def _create(self, *, exists: bool = True, detected_quotes: bool | None = True, **payload):
         with (
             patch(f"{VIEW_MODULE}.get_s3_client", return_value=_FakeS3(exists_result=exists)),
             patch(f"{MODEL_MODULE}.DataWarehouseTable.get_columns", return_value=dict(FAKE_COLUMNS)),
+            # Quote detection reads the file for real, which a fake S3 object can't serve.
+            patch(
+                f"{MODEL_MODULE}.DataWarehouseTable.detect_csv_double_quotes_setting",
+                return_value=detected_quotes,
+            ),
             # Background column validation runs eagerly under test and would re-query the (faked) S3
             # table, stamping `valid` onto each column. It's out of scope for these wiring tests, so
             # keep it from mutating the columns the create endpoint just persisted.
@@ -209,10 +220,10 @@ class TestCreateTableFromUpload(APIBaseTest):
         ):
             return self.client.post(f"{self.create_url}?include_columns=false", data=payload, format="json")
 
-    def test_an_uploaded_file_becomes_a_self_managed_table(self) -> None:
+    def test_an_uploaded_file_becomes_a_table_that_reads_it_in_place(self) -> None:
         # The wiring guard for the two-step contract: the upload endpoint's `upload_id` has to be
-        # accepted by create_from_upload, and the result has to be a self-managed table (no source,
-        # queried in place from our own bucket) rather than a pipeline ExternalDataSource.
+        # accepted by create_from_upload, and the table has to read the file in place from our own
+        # bucket until its file upload source syncs.
         upload_id = self._upload()
 
         response = self._create(upload_id=upload_id, filename="orders.csv", file_format="csv", table_name="orders")
@@ -230,8 +241,6 @@ class TestCreateTableFromUpload(APIBaseTest):
         )
         assert table.columns == FAKE_COLUMNS
         assert table.created_via == DataWarehouseTable.CreatedVia.WEB
-        # No pipeline source is created — this is the whole point of the self-managed shape.
-        assert ExternalDataSource.objects.count() == 0
 
     def test_an_uploaded_table_cannot_be_repointed_at_another_location(self) -> None:
         # An uploaded table carries no credential, so it is read with the ClickHouse node's own role
@@ -246,10 +255,7 @@ class TestCreateTableFromUpload(APIBaseTest):
 
         with (
             patch("posthog.security.url_validation.is_dev_mode", return_value=False),
-            patch(
-                "posthog.security.url_validation.resolve_host_ips",
-                return_value={ipaddress.ip_address("93.184.216.34")},
-            ),
+            mock_anti_ssrf_dns_lookup(),
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/warehouse_tables/{table.id}",
@@ -280,6 +286,45 @@ class TestCreateTableFromUpload(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         table = DataWarehouseTable.objects.get(id=response.json()["id"])
         assert table.format == expected_format
+
+    @parameterized.expand(
+        [
+            ("rfc_4180_quoting", "csv", True, {"csv_allow_double_quotes": True}),
+            ("literal_quoting", "csv", False, {"csv_allow_double_quotes": False}),
+            ("non_csv_skips_detection", "parquet", None, {}),
+        ]
+    )
+    def test_an_upload_stores_the_detected_csv_quote_setting(
+        self, _name: str, file_format: str, detected: bool | None, expected_options: dict
+    ) -> None:
+        upload_id = self._upload(filename=f"data.{file_format}", file_format=file_format)
+
+        response = self._create(
+            upload_id=upload_id,
+            filename=f"data.{file_format}",
+            file_format=file_format,
+            table_name=f"data_{file_format}",
+            detected_quotes=detected,
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        table = DataWarehouseTable.objects.get(id=response.json()["id"])
+        assert table.options == expected_options
+
+    def test_a_csv_that_parses_under_neither_quote_setting_is_rejected(self) -> None:
+        upload_id = self._upload()
+
+        response = self._create(
+            upload_id=upload_id,
+            filename="orders.csv",
+            file_format="csv",
+            table_name="orders",
+            detected_quotes=None,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert FILE_FORMAT_READ_HINTS["csv"] in response.json()["message"]
+        assert not DataWarehouseTable.objects.filter(name="orders").exists()
 
     def test_url_pattern_is_scoped_to_the_requesting_team(self) -> None:
         # The read location is always built from the caller's own team, so a client-supplied upload_id

@@ -20,7 +20,17 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.models.access_control import AccessControl
 from products.business_knowledge.backend.api.serializers import BusinessKnowledgeSettingsUpdateSerializer
 from products.business_knowledge.backend.api.settings import BusinessKnowledgeSettingsViewSet
-from products.business_knowledge.backend.models import KnowledgeSource, TeamBusinessKnowledgeConfig
+from products.business_knowledge.backend.libraries import create_library, replace_library_sources
+from products.business_knowledge.backend.models import (
+    KnowledgeLearningRun,
+    KnowledgeLibrary,
+    KnowledgeLibrarySource,
+    KnowledgeSource,
+    LearningRunResult,
+    LearningRunStatus,
+    TeamBusinessKnowledgeConfig,
+)
+from products.business_knowledge.backend.temporal.learning.constants import ANALYSIS_VERSION
 
 SUPPORT_OFF_ERROR = "Turn on Support to learn from resolved tickets."
 
@@ -93,6 +103,7 @@ class TestBusinessKnowledgeSettingsAPI(APIBaseTest):
         assert response.json() == {
             "learn_from_support_enabled": False,
             "support_enabled": False,
+            "learning_backfill": None,
         }
 
     def test_patch_round_trips(self, _ff) -> None:
@@ -103,10 +114,12 @@ class TestBusinessKnowledgeSettingsAPI(APIBaseTest):
         assert enabled.json() == {
             "learn_from_support_enabled": True,
             "support_enabled": True,
+            "learning_backfill": None,
         }
         assert self.client.get(self.url).json() == {
             "learn_from_support_enabled": True,
             "support_enabled": True,
+            "learning_backfill": None,
         }
 
         disabled = self.client.patch(self.url, {"learn_from_support_enabled": False}, format="json")
@@ -134,7 +147,45 @@ class TestBusinessKnowledgeSettingsAPI(APIBaseTest):
         assert response.json() == {
             "learn_from_support_enabled": False,
             "support_enabled": False,
+            "learning_backfill": None,
         }
+
+    def test_learning_backfill_reports_progress_and_stops_when_learning_is_turned_off(self, _ff) -> None:
+        backfill_url = f"/api/projects/{self.team.id}/business_knowledge/learning_backfill/"
+        self._enable_support()
+
+        refused = self.client.post(backfill_url)
+        assert refused.status_code == status.HTTP_400_BAD_REQUEST, refused.content
+
+        self.client.patch(self.url, {"learn_from_support_enabled": True}, format="json")
+        started = self.client.post(backfill_url)
+        assert started.status_code == status.HTTP_200_OK, started.content
+        assert started.json()["learning_backfill"]["status"] == "running"
+
+        for index, (run_status, result) in enumerate(
+            [
+                (LearningRunStatus.COMPLETED, LearningRunResult.KNOWLEDGE_CREATED),
+                (LearningRunStatus.COMPLETED, LearningRunResult.NO_KNOWLEDGE),
+                (LearningRunStatus.RUNNING, ""),
+            ]
+        ):
+            KnowledgeLearningRun.objects.for_team(self.team.id).create(
+                team=self.team,
+                evidence_key=f"ticket-{index}",
+                source_team_id=self.team.id,
+                analysis_version=ANALYSIS_VERSION,
+                status=run_status,
+                result=result,
+            )
+        progress = self.client.get(self.url).json()["learning_backfill"]
+        assert {key: progress[key] for key in ("tickets_read", "tickets_in_progress", "knowledge_created")} == {
+            "tickets_read": 2,
+            "tickets_in_progress": 1,
+            "knowledge_created": 1,
+        }
+
+        self.client.patch(self.url, {"learn_from_support_enabled": False}, format="json")
+        assert self.client.get(self.url).json()["learning_backfill"] is None
 
     def test_empty_patch_is_a_noop(self, _ff) -> None:
         response = self.client.patch(self.url, {}, format="json")
@@ -163,6 +214,7 @@ class TestBusinessKnowledgeSettingsAPI(APIBaseTest):
         assert self.client.get(f"/api/projects/{child.id}/business_knowledge/settings/").json() == {
             "learn_from_support_enabled": True,
             "support_enabled": True,
+            "learning_backfill": None,
         }
         assert get_or_create_team_extension(self.team, TeamBusinessKnowledgeConfig).learn_from_support_enabled is True
         assert get_or_create_team_extension(child, TeamBusinessKnowledgeConfig).learn_from_support_enabled is False
@@ -186,6 +238,7 @@ class TestBusinessKnowledgeSettingsAPI(APIBaseTest):
         assert response.json() == {
             "learn_from_support_enabled": True,
             "support_enabled": False,
+            "learning_backfill": None,
         }
 
     def test_child_cannot_enable_when_its_support_is_off(self, _ff) -> None:
@@ -239,6 +292,8 @@ class TestBusinessKnowledgeSettingsAPI(APIBaseTest):
             ("child_only_patch", "child", "PATCH", status.HTTP_403_FORBIDDEN),
             ("parent_and_child_get", "both", "GET", status.HTTP_200_OK),
             ("parent_and_child_patch", "both", "PATCH", status.HTTP_200_OK),
+            ("child_only_availability", "child", "AVAILABILITY", status.HTTP_403_FORBIDDEN),
+            ("parent_and_child_availability", "both", "AVAILABILITY", status.HTTP_200_OK),
         ]
     )
     def test_scoped_key_must_cover_canonical_parent(
@@ -258,6 +313,8 @@ class TestBusinessKnowledgeSettingsAPI(APIBaseTest):
 
         if method == "GET":
             response = self.client.get(url)
+        elif method == "AVAILABILITY":
+            response = self.client.get(f"/api/projects/{child.id}/business_knowledge/sources/availability/")
         else:
             response = self.client.patch(url, {"learn_from_support_enabled": True}, format="json")
 
@@ -300,6 +357,7 @@ class TestBusinessKnowledgeSettingsResourceLevelAccess(APIBaseTest):
             organization_member=membership,
         )
         self.membership = membership
+        self.source = source
         self.client.force_login(member)
 
     @parameterized.expand([("get", "GET"), ("patch", "PATCH")])
@@ -311,6 +369,26 @@ class TestBusinessKnowledgeSettingsResourceLevelAccess(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert get_or_create_team_extension(self.team, TeamBusinessKnowledgeConfig).learn_from_support_enabled is False
+
+    def test_a_grant_on_one_source_does_not_open_availability(self, _ff) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/business_knowledge/sources/availability/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+    def test_a_grant_on_one_source_does_not_change_its_libraries(self, _ff) -> None:
+        library = create_library(self.team.id, "Docs")
+        replace_library_sources(self.team.id, library.id, [self.source.id])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/business_knowledge/sources/{self.source.id}/",
+            {"library_ids": []},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert (
+            KnowledgeLibrarySource.objects.unscoped().filter(library_id=library.id, source_id=self.source.id).exists()
+        )
 
     @parameterized.expand([("get", "GET"), ("patch", "PATCH")])
     def test_a_child_environment_grant_does_not_open_the_parent_setting(self, _ff, _name: str, method: str) -> None:
@@ -338,3 +416,81 @@ class TestBusinessKnowledgeSettingsResourceLevelAccess(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert get_or_create_team_extension(self.team, TeamBusinessKnowledgeConfig).learn_from_support_enabled is False
+
+    @parameterized.expand(
+        [
+            ("create_library", "post", "libraries/", {"name": "Docs"}),
+            ("search_documents", "get", "documents/search/", {"query": "refund"}),
+        ]
+    )
+    def test_a_child_environment_grant_does_not_open_project_knowledge(
+        self, _ff, _name: str, method: str, path: str, data: dict[str, str]
+    ) -> None:
+        environment = Team.objects.create(
+            organization=self.organization, parent_team=self.team, project=self.team.project, name="Child environment"
+        )
+        AccessControl.objects.create(
+            team=environment, resource="business_knowledge", access_level="editor", organization_member=self.membership
+        )
+
+        url = f"/api/projects/{environment.id}/business_knowledge/{path}"
+        response = self.client.post(url, data, format="json") if method == "post" else self.client.get(url, data)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert not KnowledgeLibrary.objects.unscoped().filter(team_id=self.team.id).exists()
+
+    @parameterized.expand([("list_libraries", "libraries/"), ("search_documents", "documents/search/?query=refund")])
+    def test_a_member_denied_the_parent_project_cannot_reach_it_from_a_child(self, _ff, _name: str, path: str) -> None:
+        environment = Team.objects.create(
+            organization=self.organization, parent_team=self.team, project=self.team.project, name="Child environment"
+        )
+        outsider = User.objects.create_and_join(self.organization, "parent-denied@posthog.com", "testtest")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=outsider, organization=self.organization),
+        )
+        self.client.force_login(outsider)
+
+        response = self.client.get(f"/api/projects/{environment.id}/business_knowledge/{path}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+
+@patch("posthoganalytics.feature_enabled", return_value=True)
+class TestBusinessKnowledgeResourceLevelRule(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def test_a_saved_none_rule_blocks_listing_sources(self, _ff) -> None:
+        member = User.objects.create_and_join(self.organization, "bk-none@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        sources_url = f"/api/projects/{self.team.id}/business_knowledge/sources/"
+
+        self.client.force_login(member)
+        before = self.client.get(sources_url)
+        assert before.status_code == status.HTTP_200_OK, before.content
+
+        self.client.force_login(self.user)
+        saved = self.client.put(
+            f"/api/projects/{self.team.id}/access_control_member_rules",
+            {
+                "resource": "business_knowledge",
+                "access_level": "none",
+                "member_id": str(membership.id),
+            },
+            format="json",
+        )
+        assert saved.status_code == status.HTTP_200_OK, saved.content
+
+        self.client.force_login(member)
+        after = self.client.get(sources_url)
+        assert after.status_code == status.HTTP_403_FORBIDDEN, after.content

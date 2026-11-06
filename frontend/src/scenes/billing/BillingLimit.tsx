@@ -6,11 +6,12 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { billingProductDisplayName } from 'lib/logic/billing/billingProductDisplayName'
 
 import { BillingProductV2Type } from '~/types'
 
-import { billingLogic } from './billingLogic'
-import { billingProductDisplayName } from './billingProductDisplayName'
+import { isBillingLimitShown } from './billing-utils'
 import { billingProductLogic } from './billingProductLogic'
 
 export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
@@ -32,7 +33,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
     const usingInitialBillingLimit = customLimitUsd === initialBillingLimit
     const hasBillingLimitNextPeriod = billingLimitNextPeriod !== null
 
-    if (billing?.billing_period?.interval !== 'month' || !product.subscribed || product.inclusion_only) {
+    if (!isBillingLimitShown(product, billing)) {
         return null
     }
 

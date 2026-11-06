@@ -1,8 +1,6 @@
 """Braintrust behavior this repo replaces. Importing this module applies the replacement.
 
-Both offline eval entry points import it: the harness engine in ``braintrust.py``
-and ``ee/hogai/eval/base.py``. Patching once at import, rather than per run, keeps
-concurrent suites from restoring the original under each other.
+Patching once at import keeps concurrent suites from restoring the original under each other.
 """
 
 from __future__ import annotations
@@ -21,7 +19,7 @@ def none_safe_local_summary(evaluator: Evaluator[Any, Any], results: Sequence[An
     The stock ``build_local_summary`` guards on the accumulator rather than the
     score, so it reaches ``0 + None`` and raises ``TypeError`` on the first skipped
     score. Every ``no_send_logs`` experiment takes that path, because
-    ``no_send_logs`` is what leaves the braintrust experiment unset, so a private
+    ``no_send_logs`` is what leaves the braintrust experiment unset, so a
     suite whose scorers skip a check cannot summarize without this.
 
     Braintrust ships the same guard from 0.4.2, and this repo pins 0.2.4 in

@@ -32,12 +32,11 @@ from rest_framework.response import Response
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SessionAuthentication
-from posthog.cdp.services.icons import CDPIconsService
 from posthog.cloud_utils import is_dev_mode
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.models.scoping.manager import resolve_effective_team_id
-from posthog.permissions import DenyMCPBuiltInAgentOAuth
+from posthog.permissions import DenyMCPBuiltInAgentOAuth, DenyWorkloadAccessToken
 from posthog.rate_limit import (
     MCPOAuthBurstThrottle,
     MCPOAuthRedirectBurstThrottle,
@@ -46,6 +45,8 @@ from posthog.rate_limit import (
     MCPProxyBurstThrottle,
     MCPProxySustainedThrottle,
 )
+
+from products.cdp.backend.presentation.icons import CDPIconsService
 
 from ..agents import sync_built_in_agents
 from ..facade.api import check_mcp_url_policy, resolve_member_tool_states
@@ -68,11 +69,13 @@ from ..oauth import (
     DcrClientRegistration,
     DCRRegistrationRejectedError,
     OAuthAuthorizeURLError,
+    OAuthMetadataValidationError,
     OAuthTokenExchangeError,
     discover_oauth_metadata,
     exchange_oauth_token,
     generate_pkce,
     oauth_resource,
+    provider_authorize_params,
     register_dcr_client,
     requested_oauth_scopes,
     resolve_template_oauth_credentials,
@@ -124,6 +127,13 @@ def _dcr_failed_detail(error: "DCRRegistrationFailedError") -> str:
     if error.detail:
         return f"OAuth registration failed. {error.detail}"
     return "OAuth registration failed."
+
+
+def _oauth_discovery_failed_detail(error: Exception) -> str:
+    # Other discovery errors can carry upstream URLs or response bodies, so only validation messages reach the user.
+    if isinstance(error, OAuthMetadataValidationError):
+        return f"OAuth discovery failed. {error}"
+    return "OAuth discovery failed."
 
 
 def _hash_oauth_state_token(token: str) -> str:
@@ -290,6 +300,12 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.G
 
 class MCPServerInstallationSerializer(serializers.ModelSerializer):
     template_id = serializers.UUIDField(source="template.id", read_only=True, allow_null=True, default=None)
+    gateway_server_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the MCP server this connection belongs to. The MCP server page takes this ID, "
+        "not the connection id. Null for older connections that are not linked to a server yet.",
+    )
     needs_reauth = serializers.SerializerMethodField()
     pending_oauth = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
@@ -324,6 +340,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "template_id",
+            "gateway_server_id",
             "name",
             "icon_key",
             "icon_domain",
@@ -341,7 +358,16 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "template_id", "created_at", "updated_at", "tool_count", "scope", "is_owner"]
+        read_only_fields = [
+            "id",
+            "template_id",
+            "gateway_server_id",
+            "created_at",
+            "updated_at",
+            "tool_count",
+            "scope",
+            "is_owner",
+        ]
 
     def get_tool_count(self, obj: MCPServerInstallation) -> int:
         # Prefer the annotation to avoid N+1 on list; fall back to a direct
@@ -738,32 +764,12 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     queryset = MCPServerInstallation.objects.all()
     serializer_class = MCPServerInstallationSerializer
     lookup_field = "id"
-    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
-
-    # Installations are user-scoped or shared (safely_get_queryset returns both),
-    # so write actions don't need project admin access.
-    # Return project:read so AccessControlPermission requires "member" not "admin".
-    _USER_SCOPED_ACTIONS = {
-        "destroy",
-        "partial_update",
-        "install_custom",
-        "install_template",
-        "update_tool_approval",
-        "refresh_tools",
-        # share/unshare enforce their own owner/admin checks in the action bodies.
-        "share",
-        "unshare",
-    }
+    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth, DenyWorkloadAccessToken]
 
     # Mutations restricted to the credential owner (installer) on shared rows.
     # Tool approval is included: it gates which tools autonomous runs may execute
     # under the owner's credential, so a non-owner must not be able to flip it.
     _OWNER_ONLY_ACTIONS = {"destroy", "partial_update", "refresh_tools", "update_tool_approval"}
-
-    def dangerously_get_required_scopes(self, request: Any, view: Any) -> list[str] | None:
-        if self.action in self._USER_SCOPED_ACTIONS:
-            return ["project:read"]
-        return None
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return (
@@ -1048,6 +1054,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             "state": state_token,
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
+            **provider_authorize_params(metadata),
         }
         try:
             scopes = requested_oauth_scopes(metadata, scope_allowlist)
@@ -1323,7 +1330,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             if gateway_server is not None
             else None
         )
-        decision, block_reason = resolve_call_decision(tool, policy_context)
+        decision, block_reason = resolve_call_decision(
+            tool, policy_context, caller_owns_installation=installation.user_id == request.user.id
+        )
 
         if gateway_server is not None:
             record_tool_call_audit(
@@ -1474,7 +1483,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 )
                 if created:
                     installation.delete()
-                return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"detail": _oauth_discovery_failed_detail(e)}, status=status.HTTP_400_BAD_REQUEST)
 
             try:
                 registration = self._register_dcr_client_or_raise(
@@ -1735,7 +1744,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             logger.exception("OAuth discovery failed", server_url=mcp_url, error=str(e))
             if created:
                 installation.delete()
-            return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": _oauth_discovery_failed_detail(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         issuer_url = metadata.get("issuer", "")
         if not issuer_url:
@@ -1945,7 +1954,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                         server_url=template.url,
                         error=str(e),
                     )
-                    return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
+                    return Response({"detail": _oauth_discovery_failed_detail(e)}, status=status.HTTP_400_BAD_REQUEST)
                 installation.oauth_metadata = metadata
                 installation.save(update_fields=["oauth_metadata", "updated_at"])
         else:

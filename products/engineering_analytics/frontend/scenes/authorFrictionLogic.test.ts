@@ -1,6 +1,8 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiConfig } from 'lib/api'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
@@ -113,5 +115,18 @@ describe('authorFrictionLogic', () => {
         logic.actions.refresh()
         await expectLogic(logic).toDispatchActions(['loadFrictionSuccess'])
         expect(mockFriction).toHaveBeenCalledTimes(3)
+    })
+
+    it('reads once, for the forwarded repository, when an old repo-less link opens', async () => {
+        ;(engineeringAnalyticsSources as jest.Mock).mockResolvedValue([
+            { id: 'source-2', repo: 'PostHog/posthog-js', prefix: 'js', synced: true },
+        ])
+        router.actions.push(urls.engineeringAnalyticsAuthors())
+        logic = authorFrictionLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadFrictionSuccess'])
+        expect(mockFriction).toHaveBeenCalledTimes(1)
+        expect(mockFriction).toHaveBeenCalledWith('1', { source_id: undefined, repo: 'PostHog/posthog-js' })
     })
 })

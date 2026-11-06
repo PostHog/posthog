@@ -1,7 +1,37 @@
 import { FACE_MAX_WINDOWS } from './scale-plan.ts'
-import { detectionWindowsForTest } from './yunet.ts'
+import { detectionWindowsForTest, faceInputSides, mergePasses, passesForWindow } from './yunet.ts'
 
 describe('detectionWindows', () => {
+    it.each([
+        [640, [640]],
+        [1536, [1536, 640]],
+    ])('keeps the measured 640 face pass when the input is %p', (inputSide, sides) => {
+        // YuNet's floors were measured at 640; a larger input alone could miss a close-up face it was never checked on.
+        expect(faceInputSides(inputSide)).toEqual(sides)
+    })
+
+    it.each([
+        ['a window within 640 runs once', 400, 300, [1536]],
+        ['a window of exactly 640 runs once', 640, 360, [1536]],
+        ['a window the 640 pass shrinks runs at each', 1280, 720, [1536, 640]],
+    ])('%s', (_case, width, height, sides) => {
+        expect(passesForWindow({ left: 0, top: 0, width, height }, [1536, 640])).toEqual(sides)
+    })
+
+    it('keeps a face box from one pass that a tighter, higher-scoring box from another pass overlaps', () => {
+        const tight = { left: 110, top: 110, width: 80, height: 80 }
+        const wide = { left: 100, top: 100, width: 120, height: 120 }
+        expect(mergePasses([[{ b: tight, s: 0.95 }], [{ b: wide, s: 0.75 }]])).toEqual([tight, wide])
+        expect(
+            mergePasses([
+                [
+                    { b: tight, s: 0.95 },
+                    { b: wide, s: 0.75 },
+                ],
+            ])
+        ).toEqual([tight])
+    })
+
     // A window starting off the edge is not an error anywhere downstream: face boxes are translated
     // by its offset, so they land at negative coordinates and are clamped away. Face redaction goes
     // silently off for the whole shape class, which is why this needs a test rather than a reader

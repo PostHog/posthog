@@ -1,4 +1,3 @@
-import uuid
 from datetime import timedelta
 from typing import Any
 
@@ -18,10 +17,10 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models import AlertConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem
 from products.pulse.backend.sources.resource_health import STUCK_REFRESH_ATTEMPTS, ResourceHealthSource
+from products.subscriptions.backend.facade.testing import create_subscription, create_subscription_delivery
 
 _TRENDS_QUERY = {
     "kind": "InsightVizNode",
@@ -50,34 +49,16 @@ class TestResourceHealthGather(BaseTest):
         defaults.update(kwargs)
         return AlertConfiguration.objects.create(**defaults)
 
-    def _subscription(self, title: str = "Weekly report", **kwargs: Any) -> Subscription:
-        defaults: dict[str, Any] = {
-            "team": self.team,
-            "title": title,
-            "target_type": "email",
-            "target_value": "team@posthog.com",
-            "frequency": "weekly",
-            "start_date": timezone.now() - timedelta(days=30),
-        }
-        defaults.update(kwargs)
-        return Subscription.objects.create(**defaults)
+    def _subscription(self, title: str = "Weekly report", deleted: bool = False) -> int:
+        return create_subscription(team_id=self.team.id, title=title, deleted=deleted)
 
-    def _delivery(
-        self, subscription: Subscription, status: str = SubscriptionDelivery.Status.FAILED, days_ago: float = 1
-    ) -> SubscriptionDelivery:
-        delivery = SubscriptionDelivery.objects.create(
-            subscription=subscription,
-            team=self.team,
-            temporal_workflow_id="wf",
-            idempotency_key=str(uuid.uuid4()),
-            trigger_type="scheduled",
-            target_type="email",
-            target_value="team@posthog.com",
+    def _delivery(self, subscription_id: int, status: str = "failed", days_ago: float = 1) -> None:
+        create_subscription_delivery(
+            team_id=self.team.id,
+            subscription_id=subscription_id,
             status=status,
+            created_at=timezone.now() - timedelta(days=days_ago),
         )
-        # created_at is auto_now_add — move it explicitly to place the delivery in/out of period
-        SubscriptionDelivery.objects.filter(id=delivery.id).update(created_at=timezone.now() - timedelta(days=days_ago))
-        return delivery
 
     def _set_refresh_state(
         self, insight: Insight, refresh_attempt: int, dashboard_tile: DashboardTile | None = None
@@ -88,7 +69,7 @@ class TestResourceHealthGather(BaseTest):
 
     def test_healthy_team_yields_no_items(self) -> None:
         self._alert(state=AlertState.NOT_FIRING)
-        self._delivery(self._subscription(), status=SubscriptionDelivery.Status.COMPLETED)
+        self._delivery(self._subscription(), status="completed")
         self._set_refresh_state(self._insight(), refresh_attempt=0)
 
         assert self._gather() == []
@@ -134,10 +115,10 @@ class TestResourceHealthGather(BaseTest):
         assert self._gather() == []
 
     def test_failed_deliveries_grouped_per_subscription(self) -> None:
-        subscription = self._subscription()
-        self._delivery(subscription, days_ago=1)
-        self._delivery(subscription, days_ago=2)
-        self._delivery(subscription, status=SubscriptionDelivery.Status.COMPLETED, days_ago=1)
+        subscription_id = self._subscription()
+        self._delivery(subscription_id, days_ago=1)
+        self._delivery(subscription_id, days_ago=2)
+        self._delivery(subscription_id, status="completed", days_ago=1)
 
         items = self._gather()
 
@@ -149,18 +130,18 @@ class TestResourceHealthGather(BaseTest):
         assert item.evidence == [
             EvidenceRef(
                 type=EvidenceType.SUBSCRIPTION,
-                ref=str(subscription.id),
+                ref=str(subscription_id),
                 label="Weekly report",
-                url=f"/project/{self.team.id}/subscriptions/{subscription.id}",
+                url=f"/project/{self.team.id}/subscriptions/{subscription_id}",
             )
         ]
-        assert item.fingerprint_hint == f"subscription:{subscription.id}"
+        assert item.fingerprint_hint == f"subscription:{subscription_id}"
 
     @parameterized.expand(
         [
-            ("out_of_period", SubscriptionDelivery.Status.FAILED, 8.0),
-            ("completed_in_period", SubscriptionDelivery.Status.COMPLETED, 1.0),
-            ("skipped_in_period", SubscriptionDelivery.Status.SKIPPED, 1.0),
+            ("out_of_period", "failed", 8.0),
+            ("completed_in_period", "completed", 1.0),
+            ("skipped_in_period", "skipped", 1.0),
         ]
     )
     def test_non_failing_deliveries_ignored(self, _name: str, status: str, days_ago: float) -> None:
@@ -169,10 +150,7 @@ class TestResourceHealthGather(BaseTest):
         assert self._gather() == []
 
     def test_deleted_subscription_failures_ignored(self) -> None:
-        subscription = self._subscription()
-        subscription.deleted = True
-        subscription.save()
-        self._delivery(subscription)
+        self._delivery(self._subscription(deleted=True))
 
         assert self._gather() == []
 

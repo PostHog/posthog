@@ -1,3 +1,5 @@
+import { createHash } from 'crypto'
+
 import { logger } from '~/common/utils/logger'
 
 import { KNOWN_BOT_IP_LIST, KNOWN_BOT_UA_LIST } from './bots/bots'
@@ -13,14 +15,16 @@ import { KNOWN_BOT_IP_LIST, KNOWN_BOT_UA_LIST } from './bots/bots'
 export const RUST_MAX_STEPS = 1_000_000
 
 // Error formats that mean "the Rust VM can't run this program" rather than "the program failed".
-// All three are contracts with the Rust side, pinned by tests there — don't change one without the
-// other: the binding's ext_fns fail unimplemented host functions with the `unsupported_ext_fn:`
-// prefix (rust/common/hogvm/node/src/ext_fns.rs `unsupported()`); the hogvm crate reports calls to
-// functions it doesn't know at all as `Unknown function <name>` and unresolvable global chains as
-// `Unknown Global <chain>`.
+// All four are contracts with the Rust side, pinned by tests there, so change both sides together:
+// the binding's ext_fns fail unimplemented host functions with the `unsupported_ext_fn:` prefix
+// (rust/common/hogvm/node/src/ext_fns.rs `unsupported()`); the hogvm crate reports calls to
+// functions it doesn't know at all as `Unknown function <name>`, unresolvable global chains as
+// `Unknown Global <chain>`, and an opcode or input shape it has no implementation for as
+// `Not implemented: <what>`.
 export const UNSUPPORTED_EXT_FN_ERROR = 'unsupported_ext_fn:'
 export const UNKNOWN_FUNCTION_ERROR_PREFIX = 'Unknown function '
 export const UNKNOWN_GLOBAL_ERROR_PREFIX = 'Unknown Global '
+export const NOT_IMPLEMENTED_ERROR_PREFIX = 'Not implemented: '
 
 // A batch event whose globals couldn't cross the napi boundary (e.g. NaN/Infinity) never
 // executed; like a boundary throw on the sync path, that event falls back to the Node VM
@@ -36,8 +40,25 @@ export function isUnsupportedByRustVm(error: string): boolean {
     return (
         error.includes(UNSUPPORTED_EXT_FN_ERROR) ||
         error.startsWith(UNKNOWN_FUNCTION_ERROR_PREFIX) ||
-        error.startsWith(UNKNOWN_GLOBAL_ERROR_PREFIX)
+        error.startsWith(UNKNOWN_GLOBAL_ERROR_PREFIX) ||
+        error.startsWith(NOT_IMPLEMENTED_ERROR_PREFIX)
     )
+}
+
+const programKeys = new WeakMap<unknown[], string>()
+
+/**
+ * Content hash of a bytecode array, cached per instance (the hog function manager hands out one
+ * array per function). Every team has its own copy of a template, and keying by content is what
+ * lets those copies share a batch and a registration.
+ */
+export function programKey(bytecode: unknown[]): string {
+    let key = programKeys.get(bytecode)
+    if (key === undefined) {
+        key = createHash('sha256').update(JSON.stringify(bytecode)).digest('base64')
+        programKeys.set(bytecode, key)
+    }
+    return key
 }
 
 export interface RustExecResult {
@@ -55,6 +76,19 @@ export interface HogvmNodeModule {
     executeSync(program: unknown[], globals: unknown, options?: { maxSteps?: number }): RustExecResult
     executeBatch(
         program: unknown[],
+        events: unknown[],
+        options?: { parallel?: boolean; maxSteps?: number }
+    ): Promise<RustExecResult[]>
+    /**
+     * The registry bindings are optional: the addon is a separately built native binary, and a
+     * deployment can run one that predates them. Callers feature-check and fall back to the
+     * unregistered calls above instead of throwing on every invocation.
+     */
+    registerProgram?(program: unknown[]): number
+    releaseProgram?(handle: number): void
+    executeRegisteredSync?(handle: number, globals: unknown, options?: { maxSteps?: number }): RustExecResult
+    executeRegisteredBatch?(
+        handle: number,
         events: unknown[],
         options?: { parallel?: boolean; maxSteps?: number }
     ): Promise<RustExecResult[]>

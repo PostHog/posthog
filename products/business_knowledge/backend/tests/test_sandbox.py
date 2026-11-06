@@ -31,6 +31,7 @@ from products.business_knowledge.backend.sandbox import (
     format_always_on_context,
     parse_sandbox_log,
 )
+from products.tasks.backend.facade.temporal import mcp_exclude_tools_for_task
 from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
 
 WORKFLOW = "products.tasks.backend.temporal.client.execute_task_processing_workflow"
@@ -111,6 +112,8 @@ class TestSandboxLogParser(SimpleTestCase):
         with_repos = build_sandbox_prompt("Can I get a refund?", "", repo_tools=True)
         assert BK_REPO_SEARCH_TOOL in with_repos
         assert BK_REPO_FILE_TOOL in with_repos
+        assert "If that search returns no chunks" in with_repos
+        assert "includes its description" in with_repos
 
     def test_accepts_direct_tool_names_and_exact_docs_search(self) -> None:
         direct = json.dumps(
@@ -231,6 +234,7 @@ class TestSandboxAPI(APIBaseTest):
         task = Task.objects.get(id=body["task_id"])
         run = TaskRun.objects.get(id=body["run_id"])
         assert task.origin_product == Task.OriginProduct.BUSINESS_KNOWLEDGE
+        assert task.profile == "business_knowledge"
         assert task.internal is True
         assert task.repository is None
         assert task.created_by_id == self.user.id
@@ -239,6 +243,7 @@ class TestSandboxAPI(APIBaseTest):
             "user:read",
             "project:read",
         ]
+        assert "mcp_exclude_tools" not in run.state
         assert {
             DOCS_SEARCH_TOOL,
             "user-get",
@@ -247,7 +252,7 @@ class TestSandboxAPI(APIBaseTest):
             "mcp-connection-tools-list",
             "tasks-runs-session-logs-retrieve",
             "tasks-artifacts-list",
-        } <= set(run.state["mcp_exclude_tools"])
+        } <= set(mcp_exclude_tools_for_task(task, run.state))
         assert run.state["config_snapshot"]["connectors"]["mcp_installation_ids"] == []
         assert run.state["model"] == "claude-sonnet-5"
         assert run.state["runtime_adapter"] == "claude"
@@ -402,6 +407,19 @@ class TestSandboxAPI(APIBaseTest):
         assert read_logs.call_count == 1
         assert first["searches"] == second["searches"]
         assert len(second["searches"]) == 1
+
+    def test_a_finished_run_starts_a_new_sandbox(self, _ff, _workflow) -> None:
+        started = self.client.post(self.url, {"question": "Can I get a refund?"}, format="json")
+        assert started.status_code == status.HTTP_201_CREATED, started.content
+        TaskRun.objects.filter(id=started.json()["run_id"]).update(
+            status=TaskRun.Status.COMPLETED, output={"reply": "Yes, within 30 days.", "sources": []}
+        )
+        again = self.client.post(self.url, {"question": "And after 30 days?"}, format="json")
+        assert again.status_code == status.HTTP_201_CREATED, again.content
+        assert again.json()["task_id"] != started.json()["task_id"]
+        second = TaskRun.objects.get(id=again.json()["run_id"])
+        assert "resume_from_run_id" not in second.state
+        assert Task.objects.filter(origin_product=Task.OriginProduct.BUSINESS_KNOWLEDGE).count() == 2
 
     def test_blank_question_is_rejected(self, _ff, _workflow) -> None:
         response = self.client.post(self.url, {"question": "   "}, format="json")

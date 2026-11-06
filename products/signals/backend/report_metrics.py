@@ -200,6 +200,15 @@ def _validate_live_metric_formula(formula: object, series_count: int) -> None:
         raise ValueError(f"a live metric formula must be executable arithmetic over the series: {error}") from None
 
 
+def _validate_live_metric_hogql(expression: str) -> None:
+    from posthog.hogql.parser import parse_expr  # noqa: PLC0415 — keeps the query parser off startup
+
+    try:
+        parse_expr(expression)
+    except (BaseHogQLError, SyntaxError, RecursionError) as error:
+        raise ValueError(f"a live metric math_hogql must be a valid HogQL expression: {error}") from None
+
+
 def validate_metric_id(value: str) -> str:
     """Normalize a metric id and refuse one nothing can reference.
 
@@ -262,6 +271,9 @@ def validate_live_metric_query(value: dict[str, Any]) -> dict[str, Any]:
             action_id = item.get("id")
             if not isinstance(action_id, int) or isinstance(action_id, bool) or action_id <= 0:
                 raise ValueError("a live metric action series needs a positive integer action id")
+        expression = item.get("math_hogql")
+        if item.get("math") == "hogql" and expression is not None:
+            _validate_live_metric_hogql(expression)
     if source.get("breakdownFilter") or source.get("breakdown"):
         raise ValueError("a live metric query must not use a breakdown because it represents one measurement")
     sampling_factor = source.get("samplingFactor")
@@ -610,7 +622,8 @@ class ReportMetric(BaseModel):
             raise ValueError("value and value_at must be provided together")
         self._drop_a_snapshot_measured_in_the_future()
         if self.series is not None and self.value_at is None:
-            raise ValueError("series is part of the snapshot and needs value and value_at")
+            logger.warning("report metric %s dropped a series without a snapshot", self.metric_id)
+            self.series = None
         if self.kind == "affected_users":
             if self.value_format != "count":
                 raise ValueError("an affected_users metric must use count formatting")

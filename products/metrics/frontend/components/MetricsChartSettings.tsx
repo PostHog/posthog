@@ -6,7 +6,19 @@ import { LemonButton, LemonInput, LemonLabel, LemonSelect, LemonSwitch, Popover 
 
 import { GoalLinesList } from 'lib/components/GoalLinesList'
 
-import { metricsViewerLogic } from './metricsViewerLogic'
+import type { MetricsReducer } from '~/queries/schema/schema-general'
+
+import { METRICS_PANELS } from '../panels/registry'
+import { DEFAULT_REDUCER, metricsViewerLogic } from './metricsViewerLogic'
+
+const REDUCER_OPTIONS: { value: MetricsReducer; label: string }[] = [
+    { value: 'last', label: 'Latest' },
+    { value: 'mean', label: 'Average' },
+    { value: 'min', label: 'Minimum' },
+    { value: 'max', label: 'Maximum' },
+    { value: 'sum', label: 'Total' },
+    { value: 'delta', label: 'Change' },
+]
 
 // An emptied number input reads as NaN, which the chart ignores while the settings count still
 // sees a value — so it has to become undefined for the bound to be clearable.
@@ -14,8 +26,8 @@ const asBound = (value: number | undefined): number | undefined =>
     typeof value === 'number' && isFinite(value) ? value : undefined
 
 export function MetricsChartSettings(): JSX.Element {
-    const { displayType, goalLines, yAxisSettings } = useValues(metricsViewerLogic)
-    const { addGoalLine, updateGoalLine, removeGoalLine, setYAxisSetting } = useActions(metricsViewerLogic)
+    const { displayType, goalLines, yAxisSettings, reduce } = useValues(metricsViewerLogic)
+    const { addGoalLine, updateGoalLine, removeGoalLine, setYAxisSetting, setReduce } = useActions(metricsViewerLogic)
     const [open, setOpen] = useState(false)
 
     const [minDraft, setMinDraft] = useState(yAxisSettings.min)
@@ -23,6 +35,7 @@ export function MetricsChartSettings(): JSX.Element {
     useEffect(() => setMinDraft(yAxisSettings.min), [yAxisSettings.min])
     useEffect(() => setMaxDraft(yAxisSettings.max), [yAxisSettings.max])
 
+    const showsReducer = !!METRICS_PANELS[displayType]?.reducesSeries
     const isLog = yAxisSettings.scale === 'log'
     // Bars encode magnitude as length from zero, so quill ignores both a floated baseline and pinned
     // bounds on them. The settings stay persisted and apply again on a line or area chart.
@@ -38,6 +51,7 @@ export function MetricsChartSettings(): JSX.Element {
 
     // Counts the persisted settings, not the drafts — a bound of 0 is still a bound.
     const changedCount =
+        (showsReducer && reduce !== DEFAULT_REDUCER ? 1 : 0) +
         goalLines.length +
         (yAxisSettings.scale ? 1 : 0) +
         (beginsAtZero ? 0 : 1) +
@@ -51,6 +65,20 @@ export function MetricsChartSettings(): JSX.Element {
             placement="bottom-end"
             overlay={
                 <div className="flex flex-col gap-3 p-2 w-72">
+                    {showsReducer && (
+                        <div className="flex flex-col gap-1">
+                            <LemonLabel info="How each series becomes one number over the selected time range. Change is the latest value minus the first.">
+                                Value
+                            </LemonLabel>
+                            <LemonSelect
+                                size="small"
+                                value={reduce}
+                                onChange={setReduce}
+                                options={REDUCER_OPTIONS}
+                                data-attr="metrics-value-reducer"
+                            />
+                        </div>
+                    )}
                     <div className="flex flex-col gap-1">
                         <LemonLabel>Goal lines</LemonLabel>
                         <GoalLinesList

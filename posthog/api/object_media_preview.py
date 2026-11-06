@@ -1,10 +1,16 @@
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import SAFE_METHODS
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import EventDefinition, ObjectMediaPreview, UploadedMedia
+from posthog.models import ObjectMediaPreview, UploadedMedia
+from posthog.permissions import is_scout_sandbox_request
+from posthog.taxonomy.scout_writes import refuse_scout_taxonomy_write
+
+from products.event_definitions.backend.models import EventDefinition
 
 
 class ObjectMediaPreviewSerializer(serializers.ModelSerializer):
@@ -93,6 +99,11 @@ class ObjectMediaPreviewViewSet(
     scope_object = "event_definition"
     serializer_class = ObjectMediaPreviewSerializer
     queryset = ObjectMediaPreview.objects.all()
+
+    def check_permissions(self, request: Request) -> None:
+        super().check_permissions(request)
+        if request.method not in SAFE_METHODS:
+            refuse_scout_taxonomy_write(is_scout_sandbox_request(request))
 
     def safely_get_queryset(self, queryset):
         # Filter by event_definition if provided

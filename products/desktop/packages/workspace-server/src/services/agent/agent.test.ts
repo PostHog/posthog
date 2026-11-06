@@ -189,7 +189,7 @@ vi.mock("node:fs", async (importOriginal) => {
 // --- Import after mocks ---
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
 import { PRODUCT_ENGINEER_PROMPT } from "@posthog/shared/product-engineer-prompt";
-import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
+import { RICH_OUTPUT_PROMPT_LEAD } from "@posthog/shared/rich-output-prompt";
 import {
   AgentService,
   buildAutoApproveOutcome,
@@ -1537,7 +1537,7 @@ describe("AgentService", () => {
         const prompt = buildChannelPrompt(systemPromptOverride);
 
         expect(prompt).toContain(PRODUCT_ENGINEER_PROMPT);
-        expect(prompt).toContain(RICH_OUTPUT_TAGS_PROMPT);
+        expect(prompt).toContain(RICH_OUTPUT_PROMPT_LEAD);
         expect(prompt.indexOf(PRODUCT_ENGINEER_PROMPT)).toBeLessThan(
           prompt.indexOf(systemPromptOverride ?? "PostHog context:"),
         );

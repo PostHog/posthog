@@ -703,3 +703,584 @@ export const CandidateListApi = zod.object({
 
 export type CandidateListApi = zod.input<typeof CandidateListApi>
 export type CandidateListApiOutput = zod.output<typeof CandidateListApi>
+
+export const PullRequestLinkApi = zod.object({
+    url: zod.string().describe('The pull request on GitHub.'),
+    number: zod.number().describe('The pull request number.'),
+})
+
+export type PullRequestLinkApi = zod.input<typeof PullRequestLinkApi>
+export type PullRequestLinkApiOutput = zod.output<typeof PullRequestLinkApi>
+
+export const CitedSourceEnumApi = zod.enum(['code', 'slack']).describe('\* `code` - Code\n\* `slack` - Slack')
+
+export type CitedSourceEnumApi = zod.input<typeof CitedSourceEnumApi>
+export type CitedSourceEnumApiOutput = zod.output<typeof CitedSourceEnumApi>
+
+export const RecordingTargetApi = zod.object({
+    session_id: zod.string().describe("The recording's session id."),
+    start_at: zod.iso
+        .datetime({ offset: true })
+        .nullable()
+        .describe('Where the player starts, a few seconds before the finding.'),
+    offset: zod.string().nullable().describe("The finding's time in the recording, as MM:SS."),
+    seek_seconds: zod
+        .number()
+        .nullable()
+        .describe('Where the player starts, in seconds from the recording start. Null without an offset.'),
+})
+
+export type RecordingTargetApi = zod.input<typeof RecordingTargetApi>
+export type RecordingTargetApiOutput = zod.output<typeof RecordingTargetApi>
+
+export const PageLinkApi = zod.object({
+    url: zod.string().describe('Where the link goes, outside PostHog.'),
+    text: zod.string().describe('The link text.'),
+})
+
+export type PageLinkApi = zod.input<typeof PageLinkApi>
+export type PageLinkApiOutput = zod.output<typeof PageLinkApi>
+
+export const CodeFileApi = zod.object({
+    repo: zod.string().describe('The repository as owner\/name.'),
+    path: zod.string().describe('The file path in the repository.'),
+})
+
+export type CodeFileApi = zod.input<typeof CodeFileApi>
+export type CodeFileApiOutput = zod.output<typeof CodeFileApi>
+
+export const PreviewLineApi = zod.object({
+    text: zod.string().describe('One line of the preview block.'),
+    quiet: zod.boolean().describe('Whether the line is secondary, such as a stack frame.'),
+})
+
+export type PreviewLineApi = zod.input<typeof PreviewLineApi>
+export type PreviewLineApiOutput = zod.output<typeof PreviewLineApi>
+
+export const SignalPreviewApi = zod.object({
+    hint: zod.string().describe("What expanding the signal shows, such as 'Show the stack trace'."),
+    code: zod
+        .array(
+            zod.object({
+                repo: zod.string().describe('The repository as owner\/name.'),
+                path: zod.string().describe('The file path in the repository.'),
+            })
+        )
+        .describe("Repository files to quote, the finding's own file first."),
+    block: zod
+        .array(
+            zod.object({
+                text: zod.string().describe('One line of the preview block.'),
+                quiet: zod.boolean().describe('Whether the line is secondary, such as a stack frame.'),
+            })
+        )
+        .describe('A preformatted block, such as a stack trace or a query.'),
+    text: zod.string().describe("The finding's text beyond its first sentence."),
+    facts: zod.array(zod.string()).describe('Short facts about the source.'),
+    link: zod
+        .union([
+            zod.object({
+                url: zod.string().describe('Where the link goes, outside PostHog.'),
+                text: zod.string().describe('The link text.'),
+            }),
+            zod.null(),
+        ])
+        .describe("A link that replaces the signal's own destination."),
+    link_label: zod.string().nullable().describe("A label that replaces the label of the signal's own destination."),
+})
+
+export type SignalPreviewApi = zod.input<typeof SignalPreviewApi>
+export type SignalPreviewApiOutput = zod.output<typeof SignalPreviewApi>
+
+export const SignalViewApi = zod.object({
+    signal_id: zod.string().describe("The signal's id."),
+    source_product: zod.string().describe('The product that emitted the signal.'),
+    source_type: zod.string().describe('The kind of signal within its product.'),
+    source_id: zod.string().describe('The id of the source object, such as an issue or a ticket.'),
+    content: zod.string().describe("The signal's text as emitted."),
+    timestamp: zod.iso.datetime({ offset: true }).describe('When the signal happened.'),
+    extra: zod
+        .record(zod.string(), zod.unknown())
+        .describe(
+            "The emitter's extra fields as it sent them, used to link to the source object. Values are any JSON."
+        ),
+    headline: zod.string().describe('The signal as one short line.'),
+    lead: zod.string().describe("The signal's first sentence."),
+    meta: zod.string().describe('Identifiers such as a pull request or ticket number, joined by dots.'),
+    cited: zod
+        .union([zod.enum(['code', 'slack']).describe('\* `code` - Code\n\* `slack` - Slack'), zod.null()])
+        .describe('What a scout finding cites: code or a Slack thread.\n\n\* `code` - Code\n\* `slack` - Slack'),
+    recording: zod
+        .union([
+            zod.object({
+                session_id: zod.string().describe("The recording's session id."),
+                start_at: zod.iso
+                    .datetime({ offset: true })
+                    .nullable()
+                    .describe('Where the player starts, a few seconds before the finding.'),
+                offset: zod.string().nullable().describe("The finding's time in the recording, as MM:SS."),
+                seek_seconds: zod
+                    .number()
+                    .nullable()
+                    .describe('Where the player starts, in seconds from the recording start. Null without an offset.'),
+            }),
+            zod.null(),
+        ])
+        .describe('The recording the signal plays, if any.'),
+    link: zod
+        .union([
+            zod.object({
+                url: zod.string().describe('Where the link goes, outside PostHog.'),
+                text: zod.string().describe('The link text.'),
+            }),
+            zod.null(),
+        ])
+        .describe('Where a scout finding links outside PostHog, if anywhere.'),
+    preview: zod
+        .union([
+            zod.object({
+                hint: zod.string().describe("What expanding the signal shows, such as 'Show the stack trace'."),
+                code: zod
+                    .array(
+                        zod.object({
+                            repo: zod.string().describe('The repository as owner\/name.'),
+                            path: zod.string().describe('The file path in the repository.'),
+                        })
+                    )
+                    .describe("Repository files to quote, the finding's own file first."),
+                block: zod
+                    .array(
+                        zod.object({
+                            text: zod.string().describe('One line of the preview block.'),
+                            quiet: zod.boolean().describe('Whether the line is secondary, such as a stack frame.'),
+                        })
+                    )
+                    .describe('A preformatted block, such as a stack trace or a query.'),
+                text: zod.string().describe("The finding's text beyond its first sentence."),
+                facts: zod.array(zod.string()).describe('Short facts about the source.'),
+                link: zod
+                    .union([
+                        zod.object({
+                            url: zod.string().describe('Where the link goes, outside PostHog.'),
+                            text: zod.string().describe('The link text.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .describe("A link that replaces the signal's own destination."),
+                link_label: zod
+                    .string()
+                    .nullable()
+                    .describe("A label that replaces the label of the signal's own destination."),
+            }),
+            zod.null(),
+        ])
+        .describe('What expanding the signal shows, if anything.'),
+})
+
+export type SignalViewApi = zod.input<typeof SignalViewApi>
+export type SignalViewApiOutput = zod.output<typeof SignalViewApi>
+
+export const ImpactNumberKeyEnumApi = zod
+    .enum(['tickets', 'query-hours'])
+    .describe('\* `tickets` - Support tickets\n\* `query-hours` - Database hours')
+
+export type ImpactNumberKeyEnumApi = zod.input<typeof ImpactNumberKeyEnumApi>
+export type ImpactNumberKeyEnumApiOutput = zod.output<typeof ImpactNumberKeyEnumApi>
+
+export const ImpactWorkingApi = zod.object({
+    expression: zod.string().describe("How the number is worked out, such as '120 ms × 30,000 calls'."),
+    result: zod.string().describe("What the working comes to, such as '1.00 hours a day'."),
+})
+
+export type ImpactWorkingApi = zod.input<typeof ImpactWorkingApi>
+export type ImpactWorkingApiOutput = zod.output<typeof ImpactWorkingApi>
+
+export const ImpactNumberApi = zod.object({
+    key: zod
+        .enum(['tickets', 'query-hours'])
+        .describe('\* `tickets` - Support tickets\n\* `query-hours` - Database hours')
+        .describe(
+            'Which number this is: distinct support tickets or database hours a day.\n\n\* `tickets` - Support tickets\n\* `query-hours` - Database hours'
+        ),
+    value: zod.string().describe("The number as shown, such as '2' or '1 hour'."),
+    sentence: zod.string().describe('The sentence that follows the number.'),
+    signal: zod
+        .union([
+            zod.object({
+                signal_id: zod.string().describe("The signal's id."),
+                source_product: zod.string().describe('The product that emitted the signal.'),
+                source_type: zod.string().describe('The kind of signal within its product.'),
+                source_id: zod.string().describe('The id of the source object, such as an issue or a ticket.'),
+                content: zod.string().describe("The signal's text as emitted."),
+                timestamp: zod.iso.datetime({ offset: true }).describe('When the signal happened.'),
+                extra: zod
+                    .record(zod.string(), zod.unknown())
+                    .describe(
+                        "The emitter's extra fields as it sent them, used to link to the source object. Values are any JSON."
+                    ),
+                headline: zod.string().describe('The signal as one short line.'),
+                lead: zod.string().describe("The signal's first sentence."),
+                meta: zod.string().describe('Identifiers such as a pull request or ticket number, joined by dots.'),
+                cited: zod
+                    .union([zod.enum(['code', 'slack']).describe('\* `code` - Code\n\* `slack` - Slack'), zod.null()])
+                    .describe(
+                        'What a scout finding cites: code or a Slack thread.\n\n\* `code` - Code\n\* `slack` - Slack'
+                    ),
+                recording: zod
+                    .union([
+                        zod.object({
+                            session_id: zod.string().describe("The recording's session id."),
+                            start_at: zod.iso
+                                .datetime({ offset: true })
+                                .nullable()
+                                .describe('Where the player starts, a few seconds before the finding.'),
+                            offset: zod.string().nullable().describe("The finding's time in the recording, as MM:SS."),
+                            seek_seconds: zod
+                                .number()
+                                .nullable()
+                                .describe(
+                                    'Where the player starts, in seconds from the recording start. Null without an offset.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .describe('The recording the signal plays, if any.'),
+                link: zod
+                    .union([
+                        zod.object({
+                            url: zod.string().describe('Where the link goes, outside PostHog.'),
+                            text: zod.string().describe('The link text.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .describe('Where a scout finding links outside PostHog, if anywhere.'),
+                preview: zod
+                    .union([
+                        zod.object({
+                            hint: zod
+                                .string()
+                                .describe("What expanding the signal shows, such as 'Show the stack trace'."),
+                            code: zod
+                                .array(
+                                    zod.object({
+                                        repo: zod.string().describe('The repository as owner\/name.'),
+                                        path: zod.string().describe('The file path in the repository.'),
+                                    })
+                                )
+                                .describe("Repository files to quote, the finding's own file first."),
+                            block: zod
+                                .array(
+                                    zod.object({
+                                        text: zod.string().describe('One line of the preview block.'),
+                                        quiet: zod
+                                            .boolean()
+                                            .describe('Whether the line is secondary, such as a stack frame.'),
+                                    })
+                                )
+                                .describe('A preformatted block, such as a stack trace or a query.'),
+                            text: zod.string().describe("The finding's text beyond its first sentence."),
+                            facts: zod.array(zod.string()).describe('Short facts about the source.'),
+                            link: zod
+                                .union([
+                                    zod.object({
+                                        url: zod.string().describe('Where the link goes, outside PostHog.'),
+                                        text: zod.string().describe('The link text.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .describe("A link that replaces the signal's own destination."),
+                            link_label: zod
+                                .string()
+                                .nullable()
+                                .describe("A label that replaces the label of the signal's own destination."),
+                        }),
+                        zod.null(),
+                    ])
+                    .describe('What expanding the signal shows, if anything.'),
+            }),
+            zod.null(),
+        ])
+        .describe('The signal the number comes from, if one does.'),
+    values: zod.array(zod.string()).describe("The figures in the signal's headline to mark."),
+    working: zod
+        .union([
+            zod.object({
+                expression: zod.string().describe("How the number is worked out, such as '120 ms × 30,000 calls'."),
+                result: zod.string().describe("What the working comes to, such as '1.00 hours a day'."),
+            }),
+            zod.null(),
+        ])
+        .describe('How the number is worked out, if it is.'),
+})
+
+export type ImpactNumberApi = zod.input<typeof ImpactNumberApi>
+export type ImpactNumberApiOutput = zod.output<typeof ImpactNumberApi>
+
+export const ReportPageApi = zod.object({
+    lead: zod.string().describe("The summary's opening paragraph, as markdown."),
+    proposal: zod
+        .string()
+        .describe('The proposed fix cut to whole sentences, as markdown. Empty when the report proposes none.'),
+    impact_sentence: zod
+        .string()
+        .describe(
+            'The impact section cut to whole sentences, as markdown, when it states a measurement. Empty otherwise.'
+        ),
+    named_pull_request: zod
+        .union([
+            zod.object({
+                url: zod.string().describe('The pull request on GitHub.'),
+                number: zod.number().describe('The pull request number.'),
+            }),
+            zod.null(),
+        ])
+        .describe('The pull request the proposal names, or else the summary, when it names exactly one.'),
+    solution_names_pull_request: zod.boolean().describe('Whether the proposal names any pull request.'),
+    evidence: zod
+        .array(
+            zod.object({
+                signal_id: zod.string().describe("The signal's id."),
+                source_product: zod.string().describe('The product that emitted the signal.'),
+                source_type: zod.string().describe('The kind of signal within its product.'),
+                source_id: zod.string().describe('The id of the source object, such as an issue or a ticket.'),
+                content: zod.string().describe("The signal's text as emitted."),
+                timestamp: zod.iso.datetime({ offset: true }).describe('When the signal happened.'),
+                extra: zod
+                    .record(zod.string(), zod.unknown())
+                    .describe(
+                        "The emitter's extra fields as it sent them, used to link to the source object. Values are any JSON."
+                    ),
+                headline: zod.string().describe('The signal as one short line.'),
+                lead: zod.string().describe("The signal's first sentence."),
+                meta: zod.string().describe('Identifiers such as a pull request or ticket number, joined by dots.'),
+                cited: zod
+                    .union([zod.enum(['code', 'slack']).describe('\* `code` - Code\n\* `slack` - Slack'), zod.null()])
+                    .describe(
+                        'What a scout finding cites: code or a Slack thread.\n\n\* `code` - Code\n\* `slack` - Slack'
+                    ),
+                recording: zod
+                    .union([
+                        zod.object({
+                            session_id: zod.string().describe("The recording's session id."),
+                            start_at: zod.iso
+                                .datetime({ offset: true })
+                                .nullable()
+                                .describe('Where the player starts, a few seconds before the finding.'),
+                            offset: zod.string().nullable().describe("The finding's time in the recording, as MM:SS."),
+                            seek_seconds: zod
+                                .number()
+                                .nullable()
+                                .describe(
+                                    'Where the player starts, in seconds from the recording start. Null without an offset.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .describe('The recording the signal plays, if any.'),
+                link: zod
+                    .union([
+                        zod.object({
+                            url: zod.string().describe('Where the link goes, outside PostHog.'),
+                            text: zod.string().describe('The link text.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .describe('Where a scout finding links outside PostHog, if anywhere.'),
+                preview: zod
+                    .union([
+                        zod.object({
+                            hint: zod
+                                .string()
+                                .describe("What expanding the signal shows, such as 'Show the stack trace'."),
+                            code: zod
+                                .array(
+                                    zod.object({
+                                        repo: zod.string().describe('The repository as owner\/name.'),
+                                        path: zod.string().describe('The file path in the repository.'),
+                                    })
+                                )
+                                .describe("Repository files to quote, the finding's own file first."),
+                            block: zod
+                                .array(
+                                    zod.object({
+                                        text: zod.string().describe('One line of the preview block.'),
+                                        quiet: zod
+                                            .boolean()
+                                            .describe('Whether the line is secondary, such as a stack frame.'),
+                                    })
+                                )
+                                .describe('A preformatted block, such as a stack trace or a query.'),
+                            text: zod.string().describe("The finding's text beyond its first sentence."),
+                            facts: zod.array(zod.string()).describe('Short facts about the source.'),
+                            link: zod
+                                .union([
+                                    zod.object({
+                                        url: zod.string().describe('Where the link goes, outside PostHog.'),
+                                        text: zod.string().describe('The link text.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .describe("A link that replaces the signal's own destination."),
+                            link_label: zod
+                                .string()
+                                .nullable()
+                                .describe("A label that replaces the label of the signal's own destination."),
+                        }),
+                        zod.null(),
+                    ])
+                    .describe('What expanding the signal shows, if anything.'),
+            })
+        )
+        .describe('The signals to show as evidence, at most 3, newest first, one per source first.'),
+    source_count: zod
+        .number()
+        .describe(
+            "How many distinct source objects the report's newest 100 signals come from. The impact numbers and last seen use the same signals."
+        ),
+    impact_numbers: zod
+        .array(
+            zod.object({
+                key: zod
+                    .enum(['tickets', 'query-hours'])
+                    .describe('\* `tickets` - Support tickets\n\* `query-hours` - Database hours')
+                    .describe(
+                        'Which number this is: distinct support tickets or database hours a day.\n\n\* `tickets` - Support tickets\n\* `query-hours` - Database hours'
+                    ),
+                value: zod.string().describe("The number as shown, such as '2' or '1 hour'."),
+                sentence: zod.string().describe('The sentence that follows the number.'),
+                signal: zod
+                    .union([
+                        zod.object({
+                            signal_id: zod.string().describe("The signal's id."),
+                            source_product: zod.string().describe('The product that emitted the signal.'),
+                            source_type: zod.string().describe('The kind of signal within its product.'),
+                            source_id: zod
+                                .string()
+                                .describe('The id of the source object, such as an issue or a ticket.'),
+                            content: zod.string().describe("The signal's text as emitted."),
+                            timestamp: zod.iso.datetime({ offset: true }).describe('When the signal happened.'),
+                            extra: zod
+                                .record(zod.string(), zod.unknown())
+                                .describe(
+                                    "The emitter's extra fields as it sent them, used to link to the source object. Values are any JSON."
+                                ),
+                            headline: zod.string().describe('The signal as one short line.'),
+                            lead: zod.string().describe("The signal's first sentence."),
+                            meta: zod
+                                .string()
+                                .describe('Identifiers such as a pull request or ticket number, joined by dots.'),
+                            cited: zod
+                                .union([
+                                    zod.enum(['code', 'slack']).describe('\* `code` - Code\n\* `slack` - Slack'),
+                                    zod.null(),
+                                ])
+                                .describe(
+                                    'What a scout finding cites: code or a Slack thread.\n\n\* `code` - Code\n\* `slack` - Slack'
+                                ),
+                            recording: zod
+                                .union([
+                                    zod.object({
+                                        session_id: zod.string().describe("The recording's session id."),
+                                        start_at: zod.iso
+                                            .datetime({ offset: true })
+                                            .nullable()
+                                            .describe('Where the player starts, a few seconds before the finding.'),
+                                        offset: zod
+                                            .string()
+                                            .nullable()
+                                            .describe("The finding's time in the recording, as MM:SS."),
+                                        seek_seconds: zod
+                                            .number()
+                                            .nullable()
+                                            .describe(
+                                                'Where the player starts, in seconds from the recording start. Null without an offset.'
+                                            ),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .describe('The recording the signal plays, if any.'),
+                            link: zod
+                                .union([
+                                    zod.object({
+                                        url: zod.string().describe('Where the link goes, outside PostHog.'),
+                                        text: zod.string().describe('The link text.'),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .describe('Where a scout finding links outside PostHog, if anywhere.'),
+                            preview: zod
+                                .union([
+                                    zod.object({
+                                        hint: zod
+                                            .string()
+                                            .describe(
+                                                "What expanding the signal shows, such as 'Show the stack trace'."
+                                            ),
+                                        code: zod
+                                            .array(
+                                                zod.object({
+                                                    repo: zod.string().describe('The repository as owner\/name.'),
+                                                    path: zod.string().describe('The file path in the repository.'),
+                                                })
+                                            )
+                                            .describe("Repository files to quote, the finding's own file first."),
+                                        block: zod
+                                            .array(
+                                                zod.object({
+                                                    text: zod.string().describe('One line of the preview block.'),
+                                                    quiet: zod
+                                                        .boolean()
+                                                        .describe(
+                                                            'Whether the line is secondary, such as a stack frame.'
+                                                        ),
+                                                })
+                                            )
+                                            .describe('A preformatted block, such as a stack trace or a query.'),
+                                        text: zod.string().describe("The finding's text beyond its first sentence."),
+                                        facts: zod.array(zod.string()).describe('Short facts about the source.'),
+                                        link: zod
+                                            .union([
+                                                zod.object({
+                                                    url: zod.string().describe('Where the link goes, outside PostHog.'),
+                                                    text: zod.string().describe('The link text.'),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .describe("A link that replaces the signal's own destination."),
+                                        link_label: zod
+                                            .string()
+                                            .nullable()
+                                            .describe(
+                                                "A label that replaces the label of the signal's own destination."
+                                            ),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .describe('What expanding the signal shows, if anything.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .describe('The signal the number comes from, if one does.'),
+                values: zod.array(zod.string()).describe("The figures in the signal's headline to mark."),
+                working: zod
+                    .union([
+                        zod.object({
+                            expression: zod
+                                .string()
+                                .describe("How the number is worked out, such as '120 ms × 30,000 calls'."),
+                            result: zod.string().describe("What the working comes to, such as '1.00 hours a day'."),
+                        }),
+                        zod.null(),
+                    ])
+                    .describe('How the number is worked out, if it is.'),
+            })
+        )
+        .describe('Numbers the signals size the problem with, such as distinct support tickets.'),
+    last_seen: zod.iso
+        .datetime({ offset: true })
+        .nullable()
+        .describe('When the newest session, ticket or alert behind the report happened.'),
+})
+
+export type ReportPageApi = zod.input<typeof ReportPageApi>
+export type ReportPageApiOutput = zod.output<typeof ReportPageApi>

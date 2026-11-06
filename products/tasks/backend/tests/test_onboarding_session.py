@@ -18,6 +18,7 @@ from posthog.temporal.oauth import MCP_READ_SCOPES
 from products.tasks.backend.facade import contracts
 from products.tasks.backend.facade.domain_research import DomainResearch
 from products.tasks.backend.facade.onboarding import (
+    ONBOARDING_SESSION_FREE_MODEL,
     _origin_key,
     _session_enabled,
     onboarding_test_tools_enabled,
@@ -25,11 +26,19 @@ from products.tasks.backend.facade.onboarding import (
     start_onboarding_test_session,
 )
 from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas
+from products.tasks.backend.logic.services.gateway_model_pin import FREE_TIER_MODELS
+from products.tasks.backend.model_catalog import is_offered_model
 from products.tasks.backend.models import Task, TaskClientProvenance
 
 MODULE = "products.tasks.backend.facade.onboarding"
 
 NOT_CONFIGURED = DomainResearch(outcome="not_configured", url="https://northwind.example/")
+
+
+def test_the_free_session_model_is_offered_and_in_the_free_pin() -> None:
+    # A free run mints only for models in the free pin.
+    assert is_offered_model(ONBOARDING_SESSION_FREE_MODEL)
+    assert ONBOARDING_SESSION_FREE_MODEL in FREE_TIER_MODELS
 
 
 class TestOnboardingSessionIdempotency(TestCase):
@@ -110,7 +119,7 @@ class TestOnboardingSessionIdempotency(TestCase):
 
     @parameterized.expand(
         [
-            ("free", [], "@cf/zai-org/glm-5.2"),
+            ("free", [], "zai-org/glm-5.3-flash"),
             (
                 "paid",
                 [{"key": AvailableFeature.POSTHOG_CODE_USAGE, "name": "PostHog Desktop usage billing"}],
@@ -128,7 +137,8 @@ class TestOnboardingSessionIdempotency(TestCase):
         def succeed(**kwargs):
             self.assertEqual(kwargs["origin_key"], _origin_key(self.user.id))
             self.assertEqual(kwargs["client_provenance"], TaskClientProvenance.POSTHOG_DESKTOP)
-            self.assertEqual(kwargs["model"], expected_model)
+            self.assertEqual(kwargs["profile"].key, "user")
+            self.assertEqual(kwargs["options"].model, expected_model)
             self.assertTrue(kwargs["title_manually_set"])
             self.assertIn("Use the canonical `posthog:exec` tool", kwargs["description"])
             self.assertIn("use `docs-search` before answering", kwargs["description"])
@@ -136,9 +146,12 @@ class TestOnboardingSessionIdempotency(TestCase):
             self.assertIn("info channel-instructions-retrieve", kwargs["description"])
             self.assertIn("call channel-instructions-retrieve", kwargs["description"])
             self.assertIn("info channel-instructions-update", kwargs["description"])
-            self.assertEqual(set(kwargs["posthog_mcp_scopes"]), {*MCP_READ_SCOPES, "task:write"})
+            self.assertEqual(set(kwargs["options"].mcp_scopes), {*MCP_READ_SCOPES, "task:write", "inbox:write"})
             self.assertFalse(
-                any(scope.endswith(":write") and scope != "task:write" for scope in kwargs["posthog_mcp_scopes"])
+                any(
+                    scope.endswith(":write") and scope not in {"task:write", "inbox:write"}
+                    for scope in kwargs["options"].mcp_scopes
+                )
             )
             return contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
 
@@ -173,8 +186,8 @@ class TestOnboardingSessionIdempotency(TestCase):
             )
 
         self.assertEqual(started, task_id)
-        self.assertEqual(create.call_args.kwargs["model"], model)
-        self.assertEqual(create.call_args.kwargs["runtime_adapter"], runtime_adapter)
+        self.assertEqual(create.call_args.kwargs["options"].model, model)
+        self.assertEqual(create.call_args.kwargs["options"].adapter, runtime_adapter)
 
     def test_seeding_the_tour_failing_does_not_block_the_session(self) -> None:
         task_id = uuid4()

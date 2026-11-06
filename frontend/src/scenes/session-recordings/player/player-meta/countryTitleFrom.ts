@@ -4,7 +4,9 @@ export function countryTitleFrom(
     recordingProperties: Record<string, any> | undefined,
     personProperties?: Record<string, any> | undefined
 ): string {
-    const props = recordingProperties || personProperties
+    // an empty recording bag means the session's properties haven't loaded, so fall back like the list icons do
+    const props =
+        recordingProperties && Object.keys(recordingProperties).length > 0 ? recordingProperties : personProperties
     if (!props) {
         return ''
     }

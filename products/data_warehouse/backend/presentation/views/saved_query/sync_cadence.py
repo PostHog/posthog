@@ -1,6 +1,5 @@
 """Sync cadence for a saved query: the choices, the lineage bounds, and the writable field."""
 
-from datetime import timedelta
 from typing import Any, cast
 
 from django.db import models
@@ -15,21 +14,25 @@ from products.warehouse_sources.backend.facade.models import (
     sync_frequency_interval_to_sync_frequency,
 )
 
+from . import rendered_node_states
+
+
 # Cadences offered for view materialization. 15min is the fastest — sub-15min intervals
 # (1min, 5min) are source-only and not meaningful for materialized views, matching the
 # frontend `DataModelingSyncInterval` type. All values are accepted by
-# `sync_frequency_to_sync_frequency_interval`.
-SYNC_FREQUENCY_CHOICES = [
-    ("never", "never"),
-    ("15min", "15min"),
-    ("30min", "30min"),
-    ("1hour", "1hour"),
-    ("6hour", "6hour"),
-    ("12hour", "12hour"),
-    ("24hour", "24hour"),
-    ("7day", "7day"),
-    ("30day", "30day"),
-]
+# `sync_frequency_to_sync_frequency_interval`. The labels repeat the values because the published
+# OpenAPI enum lists these exact pairs.
+class SavedQuerySyncFrequency(models.TextChoices):
+    NEVER = "never", "never"
+    FIFTEEN_MINUTES = "15min", "15min"
+    THIRTY_MINUTES = "30min", "30min"
+    ONE_HOUR = "1hour", "1hour"
+    SIX_HOURS = "6hour", "6hour"
+    TWELVE_HOURS = "12hour", "12hour"
+    ONE_DAY = "24hour", "24hour"
+    SEVEN_DAYS = "7day", "7day"
+    THIRTY_DAYS = "30day", "30day"
+
 
 # Deprecated sub-15min cadences clamped up to the 15min floor for backwards compatibility
 # with any legacy caller still sending them.
@@ -41,7 +44,7 @@ DEFAULT_MATERIALIZE_SYNC_FREQUENCY = "24hour"
 
 # `never` is missing on purpose: materializing is what starts the refreshes, so asking for none
 # has no meaning here. Callers stop them afterwards by setting the cadence to `never`.
-MATERIALIZE_SYNC_FREQUENCY_CHOICES = [choice for choice in SYNC_FREQUENCY_CHOICES if choice[0] != "never"]
+MATERIALIZE_SYNC_FREQUENCY_CHOICES = [choice for choice in SavedQuerySyncFrequency.choices if choice[0] != "never"]
 
 
 class SyncFrequencyBlockerSerializer(serializers.Serializer):
@@ -83,6 +86,16 @@ class SyncFrequencyOptionSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The source or consumer named in `blocked_by`. Null when allowed, and also when the "
         "blocker sits outside the caller's access grants, where `blocked_by` still gives the direction.",
+    )
+    speeds_up = SyncFrequencyBlockerSerializer(
+        many=True,
+        help_text="Upstream materialized views that would refresh more often than they do now if this "
+        "cadence were chosen, because a view cannot be fresher than its inputs. Only views the "
+        "caller may read are listed. Empty when the cadence is blocked.",
+    )
+    speeds_up_withheld = serializers.BooleanField(
+        help_text="True when at least one view this cadence speeds up sits outside the caller's access "
+        "grants, so `speeds_up` is incomplete."
     )
 
 
@@ -145,7 +158,7 @@ def _unbounded_frequency_payload(mode: str) -> dict[str, Any]:
 
 def _blocker_node_ids(resolved: Any) -> set[str]:
     """Every node the bounds would name, across the two bounds, the options and the best-effort list."""
-    node_ids: set[str] = set(resolved.best_effort_source_ids)
+    node_ids: set[str] = set(resolved.best_effort_source_ids).union(*resolved.speeds_up.values())
     for bound in (resolved.bounds.floor, resolved.bounds.ceiling):
         if bound is not None and bound.blocker is not None:
             node_ids.add(bound.blocker)
@@ -167,8 +180,6 @@ def visible_blocker_names(
         return {}
 
     visible: dict[str, str] = {}
-    # Lists, not single ids: one saved query or table can hold a node in several DAGs, and a grant
-    # covers the resource, so every node of it becomes visible together.
     node_ids_by_saved_query: dict[str, list[str]] = {}
     node_ids_by_table: dict[str, list[str]] = {}
     for node_id in node_ids:
@@ -225,49 +236,33 @@ def _frequency_bounds_payload(resolved: Any, visible_names: dict[str, str]) -> d
             return None
         return {"label": humanize_cadence(value.value), "blocker": blocker(value.blocker)}
 
+    def sped_up(option: Any) -> list[str]:
+        if not option.allowed:
+            return []
+        return sorted(resolved.speeds_up.get(option.value, ()))
+
     best_effort = sorted(resolved.best_effort_source_ids)
-    return {
-        "frequency_mode": "tiered",
-        "options": [
+    options = []
+    for option in resolved.bounds.options:
+        sped_up_ids = sped_up(option)
+        options.append(
             {
                 "cadence": sync_frequency_interval_to_sync_frequency(option.value),
                 "allowed": option.allowed,
                 "blocked_by": option.blocked_by,
                 "blocker": blocker(option.blocker),
+                "speeds_up": [blocker(node_id) for node_id in sped_up_ids if node_id in visible_names],
+                "speeds_up_withheld": any(node_id not in visible_names for node_id in sped_up_ids),
             }
-            for option in resolved.bounds.options
-        ],
+        )
+    return {
+        "frequency_mode": "tiered",
+        "options": options,
         "floor": bound(resolved.bounds.floor),
         "ceiling": bound(resolved.bounds.ceiling),
         "best_effort_sources": [blocker(node_id) for node_id in best_effort if node_id in visible_names],
         "best_effort_sources_withheld": any(node_id not in visible_names for node_id in best_effort),
     }
-
-
-def _node_frequency_targets(root: serializers.BaseSerializer, view: DataWarehouseSavedQuery) -> dict[str, timedelta]:
-    """Declared node targets for every view the root serializer renders, fetched once.
-
-    Resolved from the root's instance rather than the viewset context, because the context is
-    built without knowing which page of views is being serialized. Memoized on the root so a
-    `list` response costs one query instead of one per view.
-    """
-    cached = getattr(root, "_node_frequency_targets_cache", None)
-    if cached is not None:
-        return cached
-
-    from products.data_modeling.backend.facade.api import declared_targets_by_saved_query
-
-    instance = root.instance
-    if isinstance(instance, DataWarehouseSavedQuery):
-        views = [instance]
-    elif instance is None:
-        views = [view]
-    else:
-        views = list(instance)
-
-    targets = declared_targets_by_saved_query(view.team_id, [rendered.pk for rendered in views])
-    root._node_frequency_targets_cache = targets  # type: ignore[attr-defined]
-    return targets
 
 
 def resolve_sync_frequency(root: serializers.BaseSerializer, view: DataWarehouseSavedQuery) -> str | None:
@@ -278,9 +273,9 @@ def resolve_sync_frequency(root: serializers.BaseSerializer, view: DataWarehouse
     column alone reports "never" for every scheduled view. The column still covers v1 and
     single-schedule v2 teams, which have no node target.
     """
-    target = _node_frequency_targets(root, view).get(str(view.pk))
-    if target is not None:
-        return sync_frequency_interval_to_sync_frequency(target)
+    state = rendered_node_states.rendered_node_states(root, view).get(str(view.pk))
+    if state is not None and state.declared_target is not None:
+        return sync_frequency_interval_to_sync_frequency(state.declared_target)
     return sync_frequency_interval_to_sync_frequency(view.sync_frequency_interval)
 
 
@@ -294,7 +289,7 @@ class SyncFrequencyField(serializers.ChoiceField):
     """
 
     def __init__(self, **kwargs: Any) -> None:
-        kwargs.setdefault("choices", SYNC_FREQUENCY_CHOICES)
+        kwargs.setdefault("choices", SavedQuerySyncFrequency.choices)
         kwargs.setdefault("required", False)
         kwargs.setdefault("allow_null", True)
         super().__init__(**kwargs)

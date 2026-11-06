@@ -1,18 +1,8 @@
 """SQL eval cases for the sandboxed coding agent.
 
-Intent mirrors ``ee/hogai/eval/ci/eval_sql.py`` — the CI version drives the
-LangGraph chat agent in ``AgentMode.SQL`` (which forces the SQL path), this
-version exercises the same questions end-to-end through the sandboxed agent
-+ PostHog MCP tools and judges the HogQL the agent ran via the
-``execute-sql`` MCP tool.
-
-Prompts are rephrased from the CI dataset to explicitly request HogQL.
-The CI flow forces SQL via ``AgentMode.SQL``; the sandboxed agent has no
-equivalent mode and is free to answer with typed query tools
-(``query-trends`` / ``query-funnel`` / ``query-retention``). Without the
-``Write a HogQL query that…`` framing, several cases would route to a
-typed query tool — perfectly valid for the user, but not what this eval
-is testing. The framing is the forcing function in lieu of an agent mode.
+The suite scores HogQL from the ``execute-sql`` MCP tool.
+Prompts explicitly request HogQL because the agent can also answer with typed query tools.
+Those tools give valid answers, but they do not test SQL generation.
 
 To run:
     flox activate -- bash -c "set -a; source .env; set +a; python -m products.posthog_ai.eval_harness.harness eval_sql"
@@ -20,10 +10,11 @@ To run:
 
 from __future__ import annotations
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import AnswerToolCallNot, NoToolCall
+from products.posthog_ai.evals.offline_config import offline_suite
 from products.posthog_ai.evals.product_analytics.scorers import INSIGHT_WRITE_TOOLS
 from products.posthog_ai.evals.retrieval.scorers import SkillLoaded
 from products.posthog_ai.evals.sql.scorers import AnswerQueryRan, SQLResultMessageAlignment, SQLSchemaAlignment
@@ -380,8 +371,19 @@ WHERE properties.interests IS NOT NULL
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-sql-cli",
+        offline_suite=offline_suite(
+            "sql/eval_sql::eval_sql",
+            metrics=[
+                "no_persistent_insight_save",
+                "execute_sql_called",
+                "answer_tool_not_typed_query",
+                "querying_posthog_data_skill_loaded",
+                "sql_schema_alignment",
+                "sql_result_message_alignment",
+            ],
+        ),
         cases=cases,
         scorers=[
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),

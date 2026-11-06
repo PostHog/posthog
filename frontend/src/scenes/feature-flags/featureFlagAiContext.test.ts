@@ -2,12 +2,15 @@ import {
     AccessControlLevel,
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
+    FeatureFlagFilters,
     FeatureFlagGroupType,
     FeatureFlagType,
+    FeatureFlagWithV1Config,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
 
+import { contextItemPath } from 'products/posthog_ai/frontend/utils/contextItemLink'
 import { wrapWithPosthogContext } from 'products/posthog_ai/frontend/utils/posthogContextBlock'
 
 import {
@@ -23,7 +26,7 @@ import {
 const MAX_BACKEND_TEXT_LENGTH = 4096
 
 describe('featureFlagAiContext', () => {
-    const baseFeatureFlag: FeatureFlagType = {
+    const baseFeatureFlag: FeatureFlagWithV1Config = {
         id: 1,
         key: 'test-flag',
         name: '',
@@ -60,7 +63,7 @@ describe('featureFlagAiContext', () => {
         variant: null,
     }
 
-    function withFilters(filters: Partial<FeatureFlagType['filters']>): FeatureFlagType {
+    function withFilters(filters: Partial<FeatureFlagFilters>): FeatureFlagType {
         return { ...baseFeatureFlag, filters: { ...baseFeatureFlag.filters, ...filters } }
     }
 
@@ -71,6 +74,13 @@ describe('featureFlagAiContext', () => {
         }
         return item.value
     }
+
+    test.each(['test-flag', '12'])('links flag %s by ID and keeps its context key', (key) => {
+        const items = featureFlagContextItems({ ...baseFeatureFlag, key })
+
+        expect(contextItemPath(items[0])).toBe('/feature-flags/1')
+        expect(wrapWithPosthogContext('Review this flag', items)).toContain(`feature_flag ${key}`)
+    })
 
     it('renders the release conditions into the context block the agent reads', () => {
         const block = wrapWithPosthogContext(
@@ -117,9 +127,27 @@ describe('featureFlagAiContext', () => {
         ],
     })
 
+    function rulesV2Flag(ruleCount: number): FeatureFlagType {
+        return {
+            ...baseFeatureFlag,
+            filters: {
+                version: 2,
+                return_type: 'boolean',
+                default_value: false,
+                rules: Array.from({ length: ruleCount }, (_, index) => ({
+                    id: `rule-${index}`,
+                    rule_type: 'targeted_release' as const,
+                    targeting: { properties: personCondition.properties ?? [] },
+                    value: true,
+                })),
+            },
+        }
+    }
+
     const oversized: [string, FeatureFlagType][] = [
         ['a condition holding hundreds of pasted values', flagWithPastedValues],
         ['a very long description', { ...withFilters({ groups: [personCondition] }), name: 'x'.repeat(20000) }],
+        ['a rules v2 document with hundreds of rules', rulesV2Flag(300)],
     ]
 
     test.each(oversized)('keeps the attachment under the backend limit with %s', (_name, featureFlag) => {
@@ -136,6 +164,17 @@ describe('featureFlagAiContext', () => {
         // Without the count the agent can't tell a flag with no targeting from one whose targeting
         // was too large to send.
         expect(JSON.parse(value).release_condition_count).toBe(1)
+    })
+
+    it('attaches a rules v2 document whole, and only its config version once it is too large', () => {
+        const small = rulesV2Flag(1)
+
+        expect(JSON.parse(targetingValue(small)).config).toEqual(small.filters)
+        expect(JSON.parse(targetingValue(rulesV2Flag(300)))).toEqual({
+            key: 'test-flag',
+            active: true,
+            config_version: 2,
+        })
     })
 
     describe('featureFlagCleanupAssessmentContextItems', () => {

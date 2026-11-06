@@ -77,6 +77,20 @@ INSTANCE_PREFERENCES = {
 }
 
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8010").rstrip("/")
+# django-scim2 requires these service-provider settings.
+SCIM_SERVICE_PROVIDER = {
+    "NETLOC": SITE_URL.replace("http://", "").replace("https://", ""),
+    "AUTHENTICATION_SCHEMES": [
+        {
+            "type": "oauthbearertoken",
+            "name": "OAuth Bearer Token",
+            "description": "Authentication scheme using the OAuth Bearer Token Standard",
+            "specUri": "https://www.rfc-editor.org/rfc/rfc6750.txt",
+            "documentationUri": "https://posthog.com/docs/settings/scim",
+        }
+    ],
+    "GROUP_MODEL": "products.access_control.backend.models.role.Role",
+}
 NGROK_URL: str | None = os.getenv("NGROK_URL", None)
 INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
 
@@ -85,19 +99,10 @@ INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
 # empty to use the real Slack email while keeping DEBUG on. Ignored outside DEBUG.
 SLACK_APP_LOCAL_DEV_EMAIL: str = os.getenv("SLACK_APP_LOCAL_DEV_EMAIL", "test@posthog.com")
 
-# Forward every Slack channel message onto the internal events topic, where a workflow with a Slack
-# trigger can pick it up. Off by default: this is the only thing admitting the full channel
-# firehose, so it doubles as the kill switch.
-SLACK_WORKFLOW_TRIGGERS_ENABLED: bool = get_from_env("SLACK_WORKFLOW_TRIGGERS_ENABLED", False, type_cast=str_to_bool)
-
-# Same for GitHub App deliveries. Off by default for the same reason: a busy repository is a
-# firehose, and this is the only thing admitting it.
+# Forward GitHub App deliveries onto the internal events topic, where a workflow with a GitHub
+# trigger can pick them up. Off by default: a busy repository is a firehose, and this is the only
+# thing admitting it.
 GITHUB_WORKFLOW_TRIGGERS_ENABLED: bool = get_from_env("GITHUB_WORKFLOW_TRIGGERS_ENABLED", False, type_cast=str_to_bool)
-
-# Vapi voice-AI integration (used by user_interviews to host public interview pages).
-VAPI_PUBLIC_KEY: str = os.getenv("VAPI_PUBLIC_KEY", "")
-VAPI_ASSISTANT_ID: str = os.getenv("VAPI_ASSISTANT_ID", "")
-VAPI_WEBHOOK_SECRET: str = os.getenv("VAPI_WEBHOOK_SECRET", "")
 
 if DEBUG:
     JS_URL: str = os.getenv("JS_URL", "http://localhost:8234").rstrip("/")
@@ -137,7 +142,8 @@ PERSON_ON_EVENTS_V2_OVERRIDE: bool = get_from_env("PERSON_ON_EVENTS_V2_OVERRIDE"
 PERSON_BULK_DELETE_ASYNC: bool = get_from_env("PERSON_BULK_DELETE_ASYNC", False, type_cast=str_to_bool)
 
 # Events data retention enforcement override (ops kill switch / local + test toggle). When unset (None),
-# enforcement falls back to the per-project `events-data-retention` cohort flag. When set, forces it on/off everywhere.
+# enforcement falls back to the per-project `events-data-retention` cohort flag, and deletion past the default period
+# also needs the `events-data-retention-deletion` flag. When set, forces both on/off everywhere.
 EVENTS_DATA_RETENTION_ENFORCED: bool | None = get_from_env(
     "EVENTS_DATA_RETENTION_ENFORCED", optional=True, type_cast=str_to_bool
 )
@@ -152,6 +158,9 @@ CONTAINER_HOSTNAME: str = os.getenv("HOSTNAME", "unknown")
 OTEL_SERVICE_NAME: str | None = os.getenv("OTEL_SERVICE_NAME", None)
 
 PROM_PUSHGATEWAY_ADDRESS: str | None = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
+
+# Set only when the application ClickHouse profile supports AS MATERIALIZED and enables its analyzer.
+HOGQL_MATERIALIZED_CTE_SUPPORTED: bool = get_from_env("HOGQL_MATERIALIZED_CTE_SUPPORTED", False, type_cast=str_to_bool)
 
 HOGQL_INCREASED_MAX_EXECUTION_TIME: int = get_from_env("HOGQL_INCREASED_MAX_EXECUTION_TIME", 600, type_cast=int)
 

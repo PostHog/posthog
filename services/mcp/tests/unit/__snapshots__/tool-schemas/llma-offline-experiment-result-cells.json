@@ -1,0 +1,23 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "Experiment UUID.",
+            "type": "string"
+        },
+        "item_ids": {
+            "description": "Comma-separated list of 1 to 50 distinct item UUIDs belonging to this experiment.",
+            "maxLength": 1849,
+            "minLength": 1,
+            "type": "string"
+        },
+        "scorer_version_ids": {
+            "description": "Comma-separated list of 1 to 20 distinct authorized scorer-version UUIDs.",
+            "maxLength": 739,
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["id", "item_ids", "scorer_version_ids"],
+    "type": "object"
+}

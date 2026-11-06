@@ -6,12 +6,14 @@ from unittest.mock import Mock, patch
 
 from django.test import TestCase
 
-from posthog.cdp.filters import RUNTIME_CONTRACT
+from parameterized import parameterized
+
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action, update_action
+from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
 from products.cohorts.backend.models.cohort import Cohort
@@ -39,6 +41,30 @@ class TestHogFunction(TestCase):
         assert item.hog == ""
         assert not item.enabled
 
+    @parameterized.expand(
+        [("secret_last", [False, True]), ("secret_first", [True, False]), ("no_longer_secret", [False])]
+    )
+    def test_stored_secrets_never_move_to_plaintext(self, _name: str, secret_flags: list[bool]) -> None:
+        secret = {"value": "example-private-value"}
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Secret storage",
+            type="destination",
+            inputs_schema=[{"key": "credential", "type": "string", "secret": True}],
+            inputs={"credential": secret},
+        )
+        function.inputs_schema = [
+            {"key": "message", "type": "string"},
+            *[{"key": "credential", "type": "string", "secret": secret_flag} for secret_flag in secret_flags],
+        ]
+        function.inputs = {"credential": secret, "message": {"value": "example-public-value"}}
+
+        function.save()
+
+        function.refresh_from_db()
+        assert function.inputs == {"message": {"value": "example-public-value"}}
+        assert (function.encrypted_inputs or {}) == ({"credential": secret} if any(secret_flags) else {})
+
     def test_hog_function_team_no_filters_compilation(self):
         item = HogFunction.objects.create(name="Test", team=self.team, type="destination")
 
@@ -52,14 +78,14 @@ class TestHogFunction(TestCase):
         ]
         self.team.save()
 
-        action = Action.objects.create(team=self.team, name="Test Action")
+        action = create_action(team=self.team, name="Test Action")
         item = HogFunction.objects.create(
             name="Test",
             type=HogFunctionType.DESTINATION,
             team=self.team,
             filters={
                 "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
-                "actions": [{"id": str(action.pk), "name": "Test Action", "type": "actions", "order": 1}],
+                "actions": [{"id": str(action.id), "name": "Test Action", "type": "actions", "order": 1}],
                 "filter_test_accounts": True,
             },
         )
@@ -69,7 +95,7 @@ class TestHogFunction(TestCase):
         assert json_filters == {
             "bytecode_contract": RUNTIME_CONTRACT,
             "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
-            "actions": [{"id": str(action.pk), "name": "Test Action", "type": "actions", "order": 1}],
+            "actions": [{"id": str(action.id), "name": "Test Action", "type": "actions", "order": 1}],
             "filter_test_accounts": True,
             "bytecode": [
                 "_H",
@@ -264,7 +290,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         self.user = user
         self.org = org
 
-        self.action = Action.objects.create(
+        self.action = create_action(
             team=self.team,
             name="Test Action",
             steps_json=[
@@ -282,7 +308,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             ],
         )
 
-        self.action2 = Action.objects.create(
+        self.action2 = create_action(
             team=self.team,
             name="Test Action",
             steps_json=[
@@ -335,22 +361,26 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         )
 
         # Modify the action and check that the bytecode is updated
-        self.action.steps_json = [
-            {
-                "event": "test-event",
-                "properties": [
+        # 2 reads by the test helper (the action, then its team for the save), then the save's own 12: 1 update
+        # action, 2 activity logging, 1 load action, 1 load hog functions, 1 load hog flows, 1 load all related
+        # actions, 1 bulk update hog functions, 5 filesystem
+        with self.assertNumQueries(14):
+            update_action(
+                self.action,
+                steps_json=[
                     {
-                        "key": "prop-1",
-                        "operator": "exact",
-                        "value": "change-value",
-                        "type": "event",
+                        "event": "test-event",
+                        "properties": [
+                            {
+                                "key": "prop-1",
+                                "operator": "exact",
+                                "value": "change-value",
+                                "type": "event",
+                            }
+                        ],
                     }
                 ],
-            }
-        ]
-        # 1 update action, 2 activity logging, 1 load action, 1 load hog functions, 1 load hog flows, 1 load all related actions, 1 bulk update hog functions, 5 filesystem
-        with self.assertNumQueries(12):
-            self.action.save()
+            )
         hog_function_1.refresh_from_db()
         hog_function_2.refresh_from_db()
 
@@ -408,9 +438,8 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             {"key": "$host", "operator": "regex", "value": "^(localhost|127\\.0\\.0\\.1)($|:)"},
             {"key": "$pageview", "operator": "regex", "value": "test"},
         ]
-        # 1 read old secret tokens (pre_save), 1 update team, 1 load hog flows, 1 load hog functions, 1 update hog functions
-        # Note: RemoteConfig refresh queries are now deferred via async signals
-        with self.assertNumQueries(5):
+        # 1 read old secret tokens (pre_save), 1 update team. The hog flow and hog function refreshes run on commit.
+        with self.captureOnCommitCallbacks(execute=True), self.assertNumQueries(2):
             self.team.save()
         hog_function_1.refresh_from_db()
         hog_function_2.refresh_from_db()

@@ -7,11 +7,13 @@ from posthog.models import Organization, Team
 from posthog.models.file_system.file_system import FileSystem, split_path
 from posthog.models.file_system.file_system_home_folder import FileSystemHomeFolder
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
+from posthog.test.starred_products import start_without_default_starred_products
 
 
 class TestHomeFolder(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        start_without_default_starred_products(self)
         self.user.first_name = "Alex Example"
         self.user.save(update_fields=["first_name"])
         self.url = f"/api/projects/{self.team.id}/file_system/home_folder/"

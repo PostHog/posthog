@@ -59,7 +59,6 @@ const meta: Meta = {
                     new URL(request.url).searchParams.get('type') === 'internal_destination'
                         ? NOTIFICATIONS
                         : hogFunctionDestinations,
-                '/api/projects/:team_id/hog_functions/masked_secrets/': [],
                 '/api/projects/:team_id/batch_exports/': batchExports,
                 '/api/environments/:team_id/batch_exports/': batchExports,
                 '/api/projects/:team_id/pipeline_destination_configs/': EMPTY_PAGE,

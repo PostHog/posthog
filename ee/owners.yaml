@@ -9,15 +9,24 @@ rules:
       owners: team-growth
     - match: '/clickhouse/materialized_columns/'
       owners: team-analytics-platform
-    - match: ['/clickhouse/queries/related_actors_query.py', '/clickhouse/views/groups.py']
-      owners: team-product-analytics
     - match: '/hogai/'
       owners: team-self-driving
     - match: '/session_recordings/'
       owners: team-replay
-    - match: '/support_sidebar_max/'
-      owners: team-self-driving
     - match: '/surveys/'
       owners: conversations
-    - match: '/tasks/subscriptions/'
-      owners: team-product-analytics
+    - match:
+          - '/clickhouse/test/test_*.py'
+      owners: clickhouse
+    - match:
+          - '/clickhouse/views/test/test_*.py'
+      owners: team-experiments
+    - match:
+          - '/clickhouse/queries/test/test_*.py'
+      owners: team-feature-flags
+    - match:
+          - '/partners/stripe/api/provisioning/test/test_*.py'
+      owners: team-growth
+    - match:
+          - '/api/tests/test_*.py'
+      owners: team-surfaces

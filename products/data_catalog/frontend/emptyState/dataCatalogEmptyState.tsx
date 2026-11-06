@@ -14,6 +14,7 @@ const HedgehogStampApproved = pngHoggie(stampApprovedPng)
 
 export const dataCatalogEmptyState: SceneProductEmptyState = {
     statusLogic: dataCatalogSetupLogic,
+    scenes: [{ scene: 'DataCatalog', tabs: [undefined, 'metrics'], tabSource: 'search' }],
     config: {
         productKey: ProductKey.DATA_CATALOG,
         productName: 'Data catalog',

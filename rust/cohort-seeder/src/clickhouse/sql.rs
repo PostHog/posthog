@@ -7,11 +7,30 @@ use std::num::NonZeroU32;
 use cohort_core::filters::TeamId;
 use cohort_core::hogvm::analysis::PropertyAlternatives;
 
-use super::materialized::MaterializedColumns;
 use crate::domain::{
-    BandSpec, BlobSource, ChunkProjection, ColumnPlan, EventNameSet, ProjectedKeys, ScalarColumn,
-    ScanRowFilter, SeedDomain,
+    BandSpec, BlobSource, ChunkProjection, ColumnBackedKeys, ColumnName, ColumnPlan, EventNameSet,
+    MaterializedColumns, ProjectedKeys, PropertiesSource, ScalarColumn, ScanRowFilter, ScanTable,
+    SeedDomain,
 };
+
+impl ScanTable {
+    /// The sharded table under the Distributed one. Only its columns carry default expressions.
+    pub(crate) const fn data_table(self) -> &'static str {
+        match self {
+            Self::Events => "sharded_events",
+            Self::FlagEvaluations => "sharded_flag_evaluations",
+        }
+    }
+
+    /// `events.inserted_at` is nullable. `flag_evaluations.inserted_at` is not. The
+    /// `flag_evaluations` minmax index is on the bare column.
+    const fn arrival_sql(self) -> &'static str {
+        match self {
+            Self::Events => "coalesce(e.inserted_at, e._timestamp)",
+            Self::FlagEvaluations => "e.inserted_at",
+        }
+    }
+}
 
 /// The crate sends a longer query by POST with `readonly=1`, which the `cohort_seeder` profile's
 /// `readonly=2` refuses with code 164, because the seeder sends settings with every query. The
@@ -26,6 +45,7 @@ const FETCH_FORMAT_CLAUSE: &str = " FORMAT RowBinary";
 /// types, so [`scan_sql`] never re-validates. Fields stay private — the SQL text is the only output.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScanSpec {
+    table: ScanTable,
     team_id: TeamId,
     day_start_ms: i64,
     day_end_ms: i64,
@@ -59,19 +79,22 @@ pub enum ScanPlan {
     Scan(ScanSpec),
 }
 
-/// Parse a claimed chunk into a scan plan. Takes the resolved `EventNameSet` by reference (already
-/// sorted and deduplicated), so no set is rebuilt. An empty domain or empty event set is vacuous.
+/// Parse a claimed chunk into a scan plan of `table`, which holds every one of `event_names`. Takes
+/// the resolved `EventNameSet` by reference (already sorted and deduplicated), so no set is rebuilt.
+/// An empty domain or empty event set is vacuous.
 pub fn plan_scan(
     team_id: TeamId,
     domain: &SeedDomain,
     event_names: &EventNameSet,
     band: BandSpec,
+    table: ScanTable,
 ) -> ScanPlan {
     if domain.is_empty() || event_names.is_empty() {
         return ScanPlan::Vacuous;
     }
     let range = domain.utc_range();
     ScanPlan::Scan(ScanSpec {
+        table,
         team_id,
         day_start_ms: range.start().as_i64(),
         day_end_ms: range.end().as_i64(),
@@ -94,15 +117,9 @@ pub fn plan_scan(
 /// decoder's positional read never has to know which arm ran.
 pub fn scan_sql(spec: &ScanSpec, projection: &ChunkProjection) -> String {
     let select_list = match projection {
-        ChunkProjection::FullColumns => render_select_list(&ColumnPlan::full()),
-        ChunkProjection::Projected(plan) => render_select_list(plan),
+        ChunkProjection::FullColumns => render_select_list(&ColumnPlan::full(), spec.table),
+        ChunkProjection::Projected(plan) => render_select_list(plan, spec.table),
     };
-    let event_names = spec
-        .event_names
-        .iter()
-        .map(|name| clickhouse_string_literal(name))
-        .collect::<Vec<_>>()
-        .join(", ");
     let row_filter = spec
         .row_filter
         .as_ref()
@@ -118,24 +135,41 @@ pub fn scan_sql(spec: &ScanSpec, projection: &ChunkProjection) -> String {
     };
 
     format!(
-        "SELECT {}\nFROM events AS e\nLEFT JOIN (\n    SELECT distinct_id, argMax(person_id, version) AS person_id\n    FROM person_distinct_id_overrides\n    WHERE team_id = {}\n    GROUP BY distinct_id\n    HAVING argMax(is_deleted, version) = 0\n) AS ov ON e.distinct_id = ov.distinct_id\nWHERE e.team_id = {}\n  AND e.timestamp >= fromUnixTimestamp64Milli({})\n  AND e.timestamp < fromUnixTimestamp64Milli({})\n  AND e.event IN ({})\n  AND coalesce(e.inserted_at, e._timestamp) < fromUnixTimestamp64Milli({}){}{}",
+        "SELECT {}\nFROM {} AS e\nLEFT JOIN (\n    SELECT distinct_id, argMax(person_id, version) AS person_id\n    FROM person_distinct_id_overrides\n    WHERE team_id = {}\n    GROUP BY distinct_id\n    HAVING argMax(is_deleted, version) = 0\n) AS ov ON e.distinct_id = ov.distinct_id\nWHERE {}{}{}",
         select_list,
+        spec.table.as_str(),
         spec.team_id.0,
-        spec.team_id.0,
-        spec.day_start_ms,
-        spec.day_end_ms,
-        event_names,
-        spec.s_chunk_ms,
+        chunk_rows_sql(spec),
         row_filter,
         band_predicate,
     )
 }
 
+/// One team, one day, the chunk's event names, and only rows inserted before the chunk's claim.
+/// The claim is in the past, so every query over the chunk reads the same rows.
+fn chunk_rows_sql(spec: &ScanSpec) -> String {
+    let event_names = spec
+        .event_names
+        .iter()
+        .map(|name| clickhouse_string_literal(name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "e.team_id = {}\n  AND e.timestamp >= fromUnixTimestamp64Milli({})\n  AND e.timestamp < fromUnixTimestamp64Milli({})\n  AND e.event IN ({})\n  AND {} < fromUnixTimestamp64Milli({})",
+        spec.team_id.0,
+        spec.day_start_ms,
+        spec.day_end_ms,
+        event_names,
+        spec.table.arrival_sql(),
+        spec.s_chunk_ms,
+    )
+}
+
 /// Renders a superset of HogVM equality (see [`cohort_core::hogvm::analysis::EventRowFilter`]) over
 /// the value's raw JSON text without its outer quotes. The string `value` reads as itself, or holds a
-/// backslash when JSON escapes one of its characters; a boolean reads as `true` or `false`; an object
-/// starts with `{`. Assumes a blob holds each key once, since ClickHouse reads the first value and
-/// `serde_json` the last.
+/// backslash when JSON escapes one of its characters; a boolean reads as its text, which is `value`
+/// whenever the boolean equals it; an object starts with `{`. Assumes a blob holds each key once,
+/// since ClickHouse reads the first value and `serde_json` the last.
 pub fn row_filter_sql(filter: &ScanRowFilter, columns: &MaterializedColumns) -> String {
     let filtered_events = filter
         .events()
@@ -197,7 +231,7 @@ fn property_value_sql<'a>(
     // past 64 bits, which `serde_json` reads. A materialized column stores that '', so admitting ''
     // there keeps the test off the blob.
     let (value, unparsed) = match columns.column_for(key) {
-        Some(column) => (format!("e.{}", clickhouse_identifier(column)), "v = ''"),
+        Some(column) => (column_reference(column), "v = ''"),
         None => (
             format!(
                 "replaceRegexpAll(JSONExtractRaw(e.properties, {}), '^\"|\"$', '')",
@@ -207,9 +241,6 @@ fn property_value_sql<'a>(
         ),
     };
     let literals = values
-        .into_iter()
-        .chain(["true", "false"])
-        .collect::<BTreeSet<_>>()
         .into_iter()
         .map(clickhouse_string_literal)
         .collect::<Vec<_>>()
@@ -227,6 +258,10 @@ fn join_terms(terms: impl Iterator<Item = String>, operator: &str) -> String {
         [single] => single.clone(),
         _ => format!("({})", terms.join(&format!(" {operator} "))),
     }
+}
+
+fn column_reference(column: &ColumnName) -> String {
+    format!("e.{}", clickhouse_identifier(column.as_str()))
 }
 
 /// Escaped for the server and for the client's template parser, which reads a bare `?` as a bind.
@@ -248,24 +283,38 @@ fn clickhouse_identifier(name: &str) -> String {
 /// The eight-column select list. `event`, `timestamp`, `distinct_id`, and the override-resolved
 /// `person_id` are always selected: the fold places the row in its day by timestamp, the accumulator
 /// keys on the person, and the event name decides which conditions run.
-fn render_select_list(plan: &ColumnPlan) -> String {
+///
+/// `flag_evaluations` has no `elements_chain`. A flag call never carries elements, so the live
+/// path also evaluates it with an empty chain.
+fn render_select_list(plan: &ColumnPlan, table: ScanTable) -> String {
     format!(
         "{}, e.event, {}, toString(e.timestamp) AS timestamp,\n       e.distinct_id,\n       toString(if(notEmpty(ov.distinct_id), ov.person_id, e.person_id)) AS person_id,\n       {}, {}",
         match plan.uuid {
             ScalarColumn::Keep => "toString(e.uuid) AS uuid".to_string(),
             ScalarColumn::Empty => "'' AS uuid".to_string(),
         },
-        render_blob("e.properties", "properties", &plan.properties),
+        render_properties(&plan.properties),
         render_blob(
             "e.person_properties",
             "person_properties",
             &plan.person_properties
         ),
-        match plan.elements_chain {
-            ScalarColumn::Keep => "e.elements_chain".to_string(),
-            ScalarColumn::Empty => "'' AS elements_chain".to_string(),
+        match (plan.elements_chain, table) {
+            (ScalarColumn::Keep, ScanTable::Events) => "e.elements_chain".to_string(),
+            (ScalarColumn::Empty, _) | (_, ScanTable::FlagEvaluations) => {
+                "'' AS elements_chain".to_string()
+            }
         },
     )
+}
+
+fn render_properties(source: &PropertiesSource) -> String {
+    match source {
+        PropertiesSource::Blob(blob) => render_blob("e.properties", "properties", blob),
+        PropertiesSource::Columns(columns) => {
+            format!("{} AS properties", columns_object_expr(columns))
+        }
+    }
 }
 
 /// A JSON blob column, selected whole, replaced by an empty literal, or rebuilt from the keys the
@@ -313,6 +362,23 @@ pub fn rebuild_expr(column: &str, keys: &ProjectedKeys) -> String {
     format!(
         "if(JSONType({column}) != 'Object', {column}, concat('{{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.1 IN ({key_list}), JSONExtractKeysAndValuesRaw({column}))), ','), '}}'))"
     )
+}
+
+/// A trim-quotes column drops a string's quotes, so text that is not valid JSON gets them back.
+pub fn columns_object_expr(columns: &ColumnBackedKeys) -> String {
+    let entries = columns
+        .iter()
+        .map(|(key, column)| {
+            let name = serde_json::to_string(key).expect("a string always serializes to JSON");
+            let value = column_reference(column);
+            format!(
+                "{}, if(isValidJSON({value}), {value}, concat('\"', {value}, '\"'))",
+                clickhouse_string_literal(&format!("{name}:")),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ',', ");
+    format!("concat('{{', {entries}, '}}')")
 }
 
 /// `keys` as a comma-separated list of string literals, for an `IN (...)` or an array literal.
@@ -364,7 +430,7 @@ mod tests {
     use chrono_tz::UTC;
 
     use super::*;
-    use crate::domain::{SChunkMs, SeedDomain};
+    use crate::domain::{ColumnExactKeys, SChunkMs, SeedDomain};
 
     /// The rendered scan for a spec, wide.
     fn full_sql(spec: &ScanSpec) -> String {
@@ -386,7 +452,7 @@ mod tests {
     /// past by matching on a substring the test built the same way the code did.
     fn select_list_of(sql: &str) -> &str {
         sql.strip_prefix("SELECT ")
-            .and_then(|rest| rest.split_once("\nFROM events AS e"))
+            .and_then(|rest| rest.split_once("\nFROM "))
             .map(|(select_list, _)| select_list)
             .expect("every rendered scan opens with its select list")
     }
@@ -399,11 +465,29 @@ mod tests {
         SeedDomain::new(1, UTC, SChunkMs(200_000_000)).unwrap()
     }
 
-    fn spec(event_names: Vec<String>, band: BandSpec) -> ScanSpec {
-        match plan_scan(TeamId(2), &domain(), &EventNameSet::new(event_names), band) {
+    fn spec_of(table: ScanTable, event_names: Vec<String>, band: BandSpec) -> ScanSpec {
+        match plan_scan(
+            TeamId(2),
+            &domain(),
+            &EventNameSet::new(event_names),
+            band,
+            table,
+        ) {
             ScanPlan::Scan(spec) => spec,
             ScanPlan::Vacuous => panic!("expected a scannable plan"),
         }
+    }
+
+    fn spec(event_names: Vec<String>, band: BandSpec) -> ScanSpec {
+        spec_of(ScanTable::Events, event_names, band)
+    }
+
+    fn flag_evaluations_spec() -> ScanSpec {
+        spec_of(
+            ScanTable::FlagEvaluations,
+            vec!["$feature_flag_called".to_string()],
+            BandSpec::new(0, 1).unwrap(),
+        )
     }
 
     #[test]
@@ -472,7 +556,7 @@ mod tests {
         let projection = ChunkProjection::Projected(ColumnPlan {
             uuid: ScalarColumn::Empty,
             elements_chain: ScalarColumn::Empty,
-            properties: BlobSource::Empty,
+            properties: PropertiesSource::Blob(BlobSource::Empty),
             person_properties: BlobSource::Empty,
         });
         assert_eq!(
@@ -488,7 +572,7 @@ mod tests {
         let projection = ChunkProjection::Projected(ColumnPlan {
             uuid: ScalarColumn::Keep,
             elements_chain: ScalarColumn::Empty,
-            properties: BlobSource::Keys(keys(&["plan", "utm_source"])),
+            properties: PropertiesSource::Blob(BlobSource::Keys(keys(&["plan", "utm_source"]))),
             person_properties: BlobSource::Full,
         });
         assert_eq!(
@@ -505,7 +589,7 @@ mod tests {
         let projection = ChunkProjection::Projected(ColumnPlan {
             uuid: ScalarColumn::Keep,
             elements_chain: ScalarColumn::Empty,
-            properties: BlobSource::Full,
+            properties: PropertiesSource::Blob(BlobSource::Full),
             person_properties: BlobSource::Keys(keys(&["email", "plan"])),
         });
         assert_eq!(
@@ -523,12 +607,12 @@ mod tests {
         let projection = ChunkProjection::Projected(ColumnPlan {
             uuid: ScalarColumn::Empty,
             elements_chain: ScalarColumn::Keep,
-            properties: BlobSource::Keys(keys(&[
+            properties: PropertiesSource::Blob(BlobSource::Keys(keys(&[
                 "quote' OR 1 = 1 --",
                 "slash\\key\nnext",
                 "converted?",
                 "$feature/flag",
-            ])),
+            ]))),
             person_properties: BlobSource::Empty,
         });
         let sql = scan_sql(&unbanded_spec(), &projection);
@@ -544,6 +628,42 @@ mod tests {
             "{sql}"
         );
         assert!(select_list_of(&sql).ends_with("e.elements_chain"), "{sql}");
+    }
+
+    fn backed(pairs: &[(&'static str, &'static str)]) -> ColumnBackedKeys {
+        let names = pairs.iter().map(|(key, _)| *key).collect::<Vec<_>>();
+        ColumnExactKeys::exact(names.iter().copied())
+            .back(&keys(&names), &pairs.iter().copied().collect())
+            .expect("every test key is exact and has a column")
+    }
+
+    #[test]
+    fn column_backed_properties_read_each_key_from_its_column() {
+        let columns = backed(&[
+            ("$current_url", "mat_$current_url"),
+            ("$pathname", "mat_$pathname"),
+        ]);
+        let projection = ChunkProjection::Projected(ColumnPlan {
+            uuid: ScalarColumn::Empty,
+            elements_chain: ScalarColumn::Empty,
+            properties: PropertiesSource::Columns(columns),
+            person_properties: BlobSource::Empty,
+        });
+        let sql = scan_sql(&unbanded_spec(), &projection);
+        assert_eq!(
+            select_list_of(&sql),
+            "'' AS uuid, e.event, concat('{', '\"$current_url\":', if(isValidJSON(e.`mat_$current_url`), e.`mat_$current_url`, concat('\"', e.`mat_$current_url`, '\"')), ',', '\"$pathname\":', if(isValidJSON(e.`mat_$pathname`), e.`mat_$pathname`, concat('\"', e.`mat_$pathname`, '\"')), '}') AS properties, toString(e.timestamp) AS timestamp,\n       e.distinct_id,\n       toString(if(notEmpty(ov.distinct_id), ov.person_id, e.person_id)) AS person_id,\n       '' AS person_properties, '' AS elements_chain"
+        );
+        assert!(!sql.contains("e.properties"), "{sql}");
+    }
+
+    #[test]
+    fn column_backed_keys_and_columns_are_escaped_for_json_and_for_sql() {
+        let rendered = columns_object_expr(&backed(&[("q'\"\\?", "mat_`q?")]));
+        assert_eq!(
+            rendered,
+            r#"concat('{', '"q\'\\"\\\\??":', if(isValidJSON(e.`mat_\`q??`), e.`mat_\`q??`, concat('"', e.`mat_\`q??`, '"')), '}')"#
+        );
     }
 
     #[test]
@@ -596,7 +716,7 @@ mod tests {
         let rendered = row_filter_sql(&row_filter, &columns);
         assert_eq!(
             rendered,
-            "(e.event NOT IN ('$feature_flag_called', '$pageview') OR (e.event = '$feature_flag_called' AND arrayExists(v -> v IN ('a', 'b', 'false', 'true') OR position(v, '\\\\') > 0 OR startsWith(v, '{') OR v = '', [e.`mat_$feature_flag`])) OR (e.event = '$pageview' AND arrayExists(v -> v IN ('false', 'https://example.com/', 'true') OR position(v, '\\\\') > 0 OR startsWith(v, '{') OR JSONType(e.properties) != 'Object', [replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^\"|\"$', '')])))"
+            "(e.event NOT IN ('$feature_flag_called', '$pageview') OR (e.event = '$feature_flag_called' AND arrayExists(v -> v IN ('a', 'b') OR position(v, '\\\\') > 0 OR startsWith(v, '{') OR v = '', [e.`mat_$feature_flag`])) OR (e.event = '$pageview' AND arrayExists(v -> v IN ('https://example.com/') OR position(v, '\\\\') > 0 OR startsWith(v, '{') OR JSONType(e.properties) != 'Object', [replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^\"|\"$', '')])))"
         );
 
         let banded = spec(event_names.into_vec(), BandSpec::new(1, 2).unwrap());
@@ -627,5 +747,33 @@ mod tests {
             scan_sql(&spec, &ChunkProjection::FullColumns),
             scan_sql(&spec, &ChunkProjection::Projected(ColumnPlan::full()))
         );
+    }
+
+    #[test]
+    fn unbanded_flag_evaluations_scan_sql_reads_its_own_table_and_arrival_bound() {
+        assert_eq!(
+            full_sql(&flag_evaluations_spec()),
+            "SELECT toString(e.uuid) AS uuid, e.event, e.properties, toString(e.timestamp) AS timestamp,\n       e.distinct_id,\n       toString(if(notEmpty(ov.distinct_id), ov.person_id, e.person_id)) AS person_id,\n       e.person_properties, '' AS elements_chain\nFROM flag_evaluations AS e\nLEFT JOIN (\n    SELECT distinct_id, argMax(person_id, version) AS person_id\n    FROM person_distinct_id_overrides\n    WHERE team_id = 2\n    GROUP BY distinct_id\n    HAVING argMax(is_deleted, version) = 0\n) AS ov ON e.distinct_id = ov.distinct_id\nWHERE e.team_id = 2\n  AND e.timestamp >= fromUnixTimestamp64Milli(86400000)\n  AND e.timestamp < fromUnixTimestamp64Milli(172800000)\n  AND e.event IN ('$feature_flag_called')\n  AND e.inserted_at < fromUnixTimestamp64Milli(200000000)"
+        );
+    }
+
+    /// A scan that named `elements_chain` on `flag_evaluations` would fail every attempt of its
+    /// chunk. A condition that reads elements keeps the column on a projected plan.
+    #[test]
+    fn a_flag_evaluations_scan_selects_an_empty_elements_chain_under_every_projection() {
+        let keeps_elements = ChunkProjection::Projected(ColumnPlan {
+            uuid: ScalarColumn::Empty,
+            elements_chain: ScalarColumn::Keep,
+            properties: PropertiesSource::Blob(BlobSource::Empty),
+            person_properties: BlobSource::Empty,
+        });
+        for projection in [ChunkProjection::FullColumns, keeps_elements] {
+            let sql = scan_sql(&flag_evaluations_spec(), &projection);
+            assert!(
+                select_list_of(&sql).ends_with("'' AS elements_chain"),
+                "{sql}"
+            );
+            assert!(!sql.contains("e.elements_chain"), "{sql}");
+        }
     }
 }

@@ -10,6 +10,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { TeamType } from '~/types'
 
+import { WebMCPToolError } from '../webmcpToolError'
 import { webmcpLogic } from './webmcpLogic'
 
 interface RegisteredTool {
@@ -21,24 +22,15 @@ interface RegisteredTool {
 describe('webmcpLogic', () => {
     let registerTool: jest.Mock
     let postedCommands: string[]
-    let toolRequests: number
 
     beforeEach(() => {
         registerTool = jest.fn().mockResolvedValue(undefined)
         postedCommands = []
-        toolRequests = 0
         Object.defineProperty(document, 'modelContext', { value: { registerTool }, configurable: true })
 
         useMocks({
             get: {
                 '/_preflight': () => [200, { ..._preflight, webmcp_available: true }],
-                '/api/projects/:team/webmcp/tool/': () => {
-                    toolRequests += 1
-                    return [
-                        200,
-                        { name: 'exec', description: 'Run PostHog commands', input_schema: { type: 'object' } },
-                    ]
-                },
             },
             post: {
                 '/api/projects/:team/webmcp/exec/': async ({ request }) => {
@@ -65,8 +57,14 @@ describe('webmcpLogic', () => {
         const tool: RegisteredTool = registerTool.mock.calls[0][0]
 
         expect(tool.name).toEqual('exec')
+        const schema = JSON.stringify(tool.inputSchema)
+        expect(schema).toContain(`${window.location.origin}/project/${MOCK_DEFAULT_TEAM.id}/`)
+        expect(schema).not.toContain('__POSTHOG_')
+
         await expect(tool.execute({ command: 'search insights' })).resolves.toEqual('insight-get')
-        await expect(tool.execute({ command: 'call broken-tool {}' })).rejects.toThrow('Tool failed')
+        const failedCall = tool.execute({ command: 'call broken-tool {}' })
+        await expect(failedCall).rejects.toThrow('Tool failed')
+        await expect(failedCall).rejects.toBeInstanceOf(WebMCPToolError)
         expect(postedCommands).toEqual(['search insights', 'call broken-tool {}'])
     })
 
@@ -91,14 +89,13 @@ describe('webmcpLogic', () => {
         await waitFor(() => expect(registerTool).toHaveBeenCalledTimes(1))
     })
 
-    it('does not ask the proxy for the tool when the instance has no MCP server', async () => {
+    it('does not register the tool when the instance has no MCP server', async () => {
         useMocks({ get: { '/_preflight': () => [200, { ..._preflight, webmcp_available: false }] } })
         initKeaTests()
         webmcpLogic.mount()
 
         await waitFor(() => expect(preflightLogic.values.preflight).not.toBeNull())
 
-        expect(toolRequests).toEqual(0)
         expect(registerTool).not.toHaveBeenCalled()
     })
 })

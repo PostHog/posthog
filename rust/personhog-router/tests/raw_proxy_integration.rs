@@ -2,15 +2,18 @@ mod common;
 
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use common::{
-    create_client, create_compressed_client, create_test_person, raw_grpc_call_with_gzip_accept,
-    start_test_identity, start_test_leader, start_test_replica, start_test_replica_with_async_gzip,
+    create_client, create_compressed_client, create_test_person, h2_frame,
+    raw_grpc_call_with_gzip_accept, read_h2_frame, start_test_identity, start_test_leader,
+    start_test_replica, start_test_replica_with_async_gzip,
     start_test_replica_with_async_gzip_disabled, start_test_router_raw,
     start_test_router_raw_with_dying_leader, start_test_router_raw_with_identity,
     start_test_router_raw_with_leader, start_test_router_raw_with_leader_and_max_recv,
     start_test_router_raw_with_max_recv, TestIdentityService, TestLeaderService,
-    TestLifecycleService, TestReplicaService,
+    TestLifecycleService, TestReplicaService, H2_FLAG_END_HEADERS, H2_FLAG_END_STREAM,
+    H2_FRAME_DATA, H2_FRAME_HEADERS, H2_FRAME_SETTINGS, H2_PREFACE,
 };
 use personhog_proto::personhog::identity::v1::person_hog_identity_client::PersonHogIdentityClient;
 use personhog_proto::personhog::identity::v1::{
@@ -22,8 +25,10 @@ use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembership, DeletePersonsRequest, GetGroupsRequest,
     GetPersonByDistinctIdRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, Group, GroupIdentifier, Person,
-    UpdatePersonPropertiesRequest,
+    RaisePersonVersionRequest, UpdatePersonPropertiesRequest,
 };
+use tokio::io::AsyncWriteExt;
+use tokio::net::TcpStream;
 use tonic::Request;
 
 const NUM_PARTITIONS: u32 = 8;
@@ -126,6 +131,78 @@ async fn raw_proxy_returns_a_persistent_shed_after_the_budget() {
 
     assert_eq!(status.code(), tonic::Code::Unavailable);
     assert_eq!(calls.load(Ordering::SeqCst), 2, "the budget was not spent");
+}
+
+/// HPACK "literal header field without indexing, new name" with no Huffman
+/// coding.
+fn hpack_literal(name: &str, value: &str) -> Vec<u8> {
+    assert!(name.len() < 127 && value.len() < 127);
+    let mut field = vec![0x00, name.len() as u8];
+    field.extend_from_slice(name.as_bytes());
+    field.push(value.len() as u8);
+    field.extend_from_slice(value.as_bytes());
+    field
+}
+
+/// grpcio reads a trailers-only error only when its HEADERS frame sets
+/// END_STREAM. tonic clients read the status from the headers either way, so
+/// this test checks the raw frame flags.
+#[tokio::test]
+async fn raw_proxy_ends_the_stream_on_a_forwarded_error_headers_frame() {
+    let replica_service = TestReplicaService::new().sheds(usize::MAX);
+    let calls = replica_service.calls.clone();
+    let replica_addr = start_test_replica(replica_service).await;
+    let router_addr = start_test_router_raw(replica_addr).await;
+
+    let request_headers: Vec<u8> = [
+        (":method", "POST"),
+        (":scheme", "http"),
+        (":authority", "localhost"),
+        (":path", "/personhog.service.v1.PersonHogService/GetPerson"),
+        ("content-type", "application/grpc"),
+        ("te", "trailers"),
+    ]
+    .into_iter()
+    .flat_map(|(name, value)| hpack_literal(name, value))
+    .collect();
+    // An uncompressed gRPC message of zero bytes decodes as a default GetPersonRequest.
+    let empty_grpc_message = [0u8; 5];
+
+    let request = [
+        H2_PREFACE.to_vec(),
+        h2_frame(H2_FRAME_SETTINGS, 0, 0, &[]),
+        h2_frame(H2_FRAME_HEADERS, H2_FLAG_END_HEADERS, 1, &request_headers),
+        h2_frame(H2_FRAME_DATA, H2_FLAG_END_STREAM, 1, &empty_grpc_message),
+    ]
+    .concat();
+    let mut peer = TcpStream::connect(router_addr).await.unwrap();
+    peer.write_all(&request).await.unwrap();
+
+    let response = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let frame = read_h2_frame(&mut peer).await;
+            if frame.stream_id == 1 {
+                return frame;
+            }
+        }
+    })
+    .await
+    .expect("the router answered the request stream");
+
+    assert_eq!(
+        response.frame_type, H2_FRAME_HEADERS,
+        "the first frame on the request stream must be HEADERS"
+    );
+    assert_ne!(
+        response.flags & H2_FLAG_END_STREAM,
+        0,
+        "a trailers-only error must set END_STREAM on its HEADERS frame"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        2,
+        "the request never reached the replica"
+    );
 }
 
 #[tokio::test]
@@ -334,6 +411,34 @@ async fn raw_proxy_update_person_properties_routes_to_leader() {
     let result = response.into_inner();
     assert!(result.updated);
     assert_eq!(result.person.unwrap().version, test_person.version + 1);
+}
+
+#[tokio::test]
+async fn raw_proxy_raise_person_version_routes_to_leader() {
+    let test_person = create_test_person();
+    let leader_service = TestLeaderService::new().with_person(test_person.clone());
+    let replica_addr = start_test_replica(TestReplicaService::new()).await;
+    let leader_addr = start_test_leader(leader_service).await;
+    let router_addr =
+        start_test_router_raw_with_leader(replica_addr, leader_addr, NUM_PARTITIONS).await;
+    let mut client = create_client(router_addr).await;
+
+    let result = client
+        .raise_person_version(with_person_key(
+            Request::new(RaisePersonVersionRequest {
+                team_id: 1,
+                person_id: 42,
+                min_version: test_person.version + 10,
+            }),
+            1,
+            42,
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert!(result.raised);
+    assert_eq!(result.person.unwrap().version, test_person.version + 10);
 }
 
 /// A lifecycle fence is the one refusal whose holder the caller can act

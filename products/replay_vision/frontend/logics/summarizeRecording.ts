@@ -1,4 +1,4 @@
-import type { InlineScanRequestApi, ReplayScannerApi, ScanOutcomeEnumApi } from '../generated/api.schemas'
+import type { ReplayScannerApi, ScanOutcomeEnumApi } from '../generated/api.schemas'
 import { isSummarizerScanner } from '../replay_scanners/types'
 
 /**
@@ -9,27 +9,6 @@ import { isSummarizerScanner } from '../replay_scanners/types'
  * and have that stick.
  */
 export const BUILT_IN_SUMMARIZER = 'built-in'
-
-/**
- * The config behind "Summarize this recording".
- *
- * Inline scans are keyed by a fingerprint of this whole config, so every project gets exactly one
- * scanner row for the button no matter how often it is pressed. Editing anything here forks a new
- * row per project and leaves the old summaries under the old one, so treat it as a versioned
- * identity rather than a string to tweak in passing.
- *
- * The prompt is a deliberate copy of the `session_summary` scanner template rather than a reference
- * to it. That template is user-facing and edited freely, and reading it here would make every edit
- * fork this scanner in every project. Keep the two in step by hand when the wording improves.
- *
- * `model` is deliberately absent: the server default applies, so the model can move without a
- * frontend deploy.
- */
-export const SUMMARIZE_RECORDING_CONFIG: Pick<InlineScanRequestApi, 'prompt' | 'scanner_type' | 'scanner_config'> = {
-    scanner_type: 'summarizer',
-    prompt: "Summarize what the user did in this session: which pages they visited, what they tried to accomplish, and any notable moments like errors, confusion, or successful completions. Be concrete and don't speculate.",
-    scanner_config: { length: 'medium' },
-}
 
 /**
  * Which summarizer the button runs, or null for the built-in prompt.

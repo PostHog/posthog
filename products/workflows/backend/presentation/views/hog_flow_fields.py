@@ -1,8 +1,10 @@
 import json
+from typing import Any
 
 from rest_framework import serializers
 
-from posthog.cdp.validation import generate_template_bytecode
+from products.cdp.backend.presentation.hog_functions import generate_template_bytecode
+from products.workflows.backend.facade.workflows import SUPPORTED_ACTION_TYPES, TRIGGER_TYPES
 
 # Caps both the variable definitions on a workflow and the variable values a single run passes,
 # so the two share one number instead of drifting. The runtime also checks dynamically set
@@ -55,3 +57,63 @@ class HogFlowMaskingSerializer(serializers.Serializer):
         attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
 
         return super().validate(attrs)
+
+
+class HogFlowActionTypeField(serializers.ChoiceField):
+    """A closed set of action types, rejected at write time rather than at run time.
+
+    A type with no worker handler can never execute: it saves fine, then every run that reaches it
+    dies with "Action type 'x' not supported", and unless the step sets on_error: continue everything
+    downstream silently never happens. Keeping `choices` populated also means drf-spectacular emits
+    the enum, so generated clients and MCP tools advertise the valid values instead of callers
+    guessing them.
+
+    ChoiceField's own invalid_choice message is run through str.format, which can't carry the JSON
+    example below (its braces would be read as format placeholders), so the message is raised here.
+    """
+
+    def to_internal_value(self, data: Any) -> str:
+        # isinstance before the membership test: self.choices is a dict, so `data in self.choices`
+        # raises TypeError on an unhashable JSON object/array, which escapes DRF's validation stack
+        # (it only catches ValidationError) and 500s the endpoint.
+        if isinstance(data, str) and data in self.choices:
+            return super().to_internal_value(data)
+        raise serializers.ValidationError(
+            f"Unsupported action type {self._describe(data)}. "
+            f"Valid types are: {', '.join(SUPPORTED_ACTION_TYPES)}. "
+            "Steps that act on PostHog data don't get a type of their own - they are type 'function' "
+            f"with a template_id.{self._hint(data)}"
+        )
+
+    @staticmethod
+    def _hint(data: Any) -> str:
+        # The types actually seen in stored workflows cluster into a few mistakes, so point at the
+        # step the caller was reaching for rather than repeating one example to everyone.
+        if not isinstance(data, str):
+            return ""
+        lowered = data.lower()
+        if lowered in TRIGGER_TYPES:
+            hint = (
+                f" '{data}' is a trigger type, not an action type: the trigger is a single action of "
+                "type 'trigger' and its kind belongs in the workflow's trigger field."
+            )
+            if lowered == "webhook":
+                hint += " To call an external endpoint from a step, use template_id 'template-webhook'."
+            return hint
+        if "person" in lowered or "propert" in lowered or "contact" in lowered:
+            return (
+                " To set person properties, use template_id 'template-posthog-update-person-properties' "
+                "with inputs distinct_id, set_properties and set_once_properties."
+            )
+        if "webhook" in lowered or "http" in lowered or "request" in lowered:
+            return " To call an external endpoint, use template_id 'template-webhook'."
+        return ""
+
+    @staticmethod
+    def _describe(data: Any) -> str:
+        # Echo the value back only when it's a short string. A non-string type is a malformed
+        # payload, and interpolating a whole nested object into the message would put it in the
+        # response and the logs behind it.
+        if not isinstance(data, str):
+            return f"(expected a string, got {type(data).__name__})"
+        return f'"{data[:100]}"' if len(data) > 100 else f'"{data}"'

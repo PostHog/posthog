@@ -1,15 +1,27 @@
-import { ReactNode, RefCallback } from 'react'
+import { ReactNode, RefCallback, useId } from 'react'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { MenuLabel, cn } from '@posthog/quill'
+import { IconChevronRight } from '@posthog/icons'
+import { AutocompleteItem, Button, cn } from '@posthog/quill'
 
 import { TodayPaneSectionResizeHandle } from './TodayPaneSectionResizeHandle'
+import { SECTION_TOGGLE_ATTR } from './todayPaneTreeKeys'
 import { TodaySectionResizer } from './useTodaySectionLayout'
+
+// The heading is a small button: it shows a hover and keyboard highlight like the rows, in the section label's type.
+const TRIGGER_CLASS_NAME =
+    'min-w-0 flex-1 text-xxs font-semibold uppercase tracking-[0.075em] text-muted-foreground hover:text-foreground ' +
+    'data-highlighted:text-foreground data-highlighted:border-transparent data-highlighted:ring-0 [&>span]:gap-1 ' +
+    // An open section is the usual state, so it does not take the expanded fill of a menu trigger.
+    '[&[aria-expanded=true]:not(:hover,[data-highlighted])]:bg-transparent [&[aria-expanded=true]:not(:hover,[data-highlighted])]:text-muted-foreground'
 
 export interface TodayPaneSectionProps {
     label: string
+    /** Shows before the label, for a section whose source matters, such as the PostHog mark. */
+    icon?: JSX.Element | null
     open: boolean
     count: number
+    /** Whether the row count shows next to a collapsed label. */
+    showCount?: boolean
     onToggle: () => void
     actions?: JSX.Element | null
     /** Replaces the label while set, for example with a search field. */
@@ -26,8 +38,10 @@ export interface TodayPaneSectionProps {
 
 export function TodayPaneSection({
     label,
+    icon,
     open,
     count,
+    showCount = true,
     onToggle,
     actions,
     heading,
@@ -40,29 +54,43 @@ export function TodayPaneSection({
     contentRef,
     children,
 }: TodayPaneSectionProps): JSX.Element {
-    const Caret = open ? IconChevronDown : IconChevronRight
+    const contentId = useId()
+    const triggerProps = {
+        'aria-expanded': open,
+        'aria-controls': contentId,
+        'data-attr': dataAttr,
+        [SECTION_TOGGLE_ATTR]: '',
+        onClick: onToggle,
+    }
+    const trigger = <Button size="sm" left className={TRIGGER_CLASS_NAME} />
+    const triggerContent = (
+        <>
+            {icon && (
+                <span className="flex size-3.5 shrink-0 items-center justify-center [&_svg]:size-3.5" aria-hidden>
+                    {icon}
+                </span>
+            )}
+            <span>{label}</span>
+            <IconChevronRight className={cn('size-3 shrink-0 opacity-60', open && 'rotate-90')} />
+            {!open && showCount && count > 0 && (
+                <span className="ml-0.5 font-normal text-muted-foreground tabular-nums">{count}</span>
+            )}
+        </>
+    )
     return (
         <section aria-label={label} className="flex shrink-0 flex-col">
             <div className={cn('relative flex h-7 shrink-0 items-center gap-1', divider && 'border-t border-border')}>
                 {resizer && <TodayPaneSectionResizeHandle label={label} active={resizing} resizer={resizer} />}
                 {heading ?? (
-                    <MenuLabel
-                        render={<button type="button" />}
-                        aria-expanded={open}
-                        data-attr={dataAttr}
-                        onClick={onToggle}
-                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-sm py-1 text-left text-foreground/70 hover:text-foreground"
-                    >
-                        <span>{label}</span>
-                        <Caret className="size-3 shrink-0 opacity-60" />
-                        {!open && count > 0 && (
-                            <span className="ml-0.5 font-normal text-muted-foreground tabular-nums">{count}</span>
-                        )}
-                    </MenuLabel>
+                    // The heading is a list option, so the arrow keys reach it with the rows.
+                    <AutocompleteItem value={`section:${dataAttr}`} {...triggerProps} render={trigger}>
+                        {triggerContent}
+                    </AutocompleteItem>
                 )}
                 {open && actions && <div className="flex shrink-0 items-center">{actions}</div>}
             </div>
             <div
+                id={contentId}
                 className={cn(
                     'min-h-0 shrink-0 overflow-hidden',
                     animate && 'transition-all duration-200 ease-out motion-reduce:transition-none'

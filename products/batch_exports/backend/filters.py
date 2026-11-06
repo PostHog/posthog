@@ -1,19 +1,13 @@
 """
 The event filters a batch export stores, and the checks they must pass on write.
 
-This module imports no framework and no Temporal code, so the DRF serializer and the facade
-share one set of checks. ``service.py`` imports ``temporalio``, so the checks cannot live
-there: the facade is on the ``django.setup()`` path.
+This module imports no framework and no Temporal code, because the facade imports it and the
+facade is on the ``django.setup()`` path. ``service.py`` imports ``temporalio``, so the checks
+cannot live there.
 """
 
 from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters
-
-# Single source of truth for the serialized filter `type` values we accept. Enforced at write
-# time by `validate_batch_export_filters` and at query time by `compose_filters_clause`.
-SUPPORTED_FILTER_TYPES = {"event", "person", "hogql"}
-
-# Quoted, sorted rendering of the supported filter types for user-facing messages.
-SUPPORTED_FILTER_TYPES_DISPLAY = ", ".join(repr(t) for t in sorted(SUPPORTED_FILTER_TYPES))
+from products.batch_exports.backend.facade.enums import SUPPORTED_FILTER_TYPES, SUPPORTED_FILTER_TYPES_DISPLAY
 
 
 def validate_batch_export_filters(filters: object) -> None:

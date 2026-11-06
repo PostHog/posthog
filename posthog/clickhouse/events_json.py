@@ -14,6 +14,13 @@ DISTRIBUTED_EVENTS_JSON_TABLE = "events_json"
 KAFKA_EVENTS_NATIVE_JSON_TABLE = "kafka_events_json_native_json"
 UNPARSEABLE_PROPERTIES_KEY = "$unparseable_properties"
 TEMPORARY_PROPERTIES_COLUMN = "temporary_properties"
+# The JSON type cannot store null, so the cleaner drops each null field of a JSON column and records its path in the
+# column's companion array.
+NULL_KEYS_COLUMNS = {
+    "properties": "properties_null_keys",
+    TEMPORARY_PROPERTIES_COLUMN: "temporary_properties_null_keys",
+    "person_properties": "person_properties_null_keys",
+}
 
 # Mirrors isTemporaryProperty in clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/main.go, so update both.
 TEMPORARY_EVENT_PROPERTY_ROOTS = frozenset(
@@ -30,12 +37,13 @@ TEMPORARY_EVENT_PROPERTY_ROOTS = frozenset(
         "$session_recording_network_payload_capture",
         "$session_recording_canvas_recording",
         "$replay_script_config",
-        "$sent_at",
         "$lib_rate_limit_remaining_tokens",
         "$lib_custom_api_host",
     }
 )
 TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX = "$sdk_debug_"
+# Customers read it over windows longer than the temporary retention, so it stays permanent.
+PERMANENT_SDK_DEBUG_PROPERTIES = frozenset({"$sdk_debug_current_session_duration"})
 
 
 def is_temporary_event_property(key: str) -> bool:
@@ -43,6 +51,8 @@ def is_temporary_event_property(key: str) -> bool:
 
     A dotted key such as `$set.foo` is one flat key, so it matches only the prefix rule, never a root name.
     """
+    if key in PERMANENT_SDK_DEBUG_PROPERTIES:
+        return False
     return key in TEMPORARY_EVENT_PROPERTY_ROOTS or key.startswith(TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX)
 
 

@@ -24,6 +24,8 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql_queries.utils.result_series import get_action_names
+
 from .boxplot import BoxPlotResultsFormatter
 from .funnel import FunnelResultsFormatter
 from .lifecycle import LifecycleResultsFormatter
@@ -99,15 +101,27 @@ def format_query_results_for_llm(
         if is_boxplot_query(query):
             formatted = BoxPlotResultsFormatter(get_boxplot_results(response)).format()
         else:
-            formatted = TrendsResultsFormatter(query, response["results"], team, utc_now).format()
+            formatted = TrendsResultsFormatter(
+                query,
+                response["results"],
+                team,
+                utc_now,
+                resolved_date_range=response.get("resolved_date_range"),
+                resolved_compare_date_range=response.get("resolved_compare_date_range"),
+                action_names=get_action_names(team, query.model_dump(mode="json")),
+            ).format()
     elif isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
         formatted = FunnelResultsFormatter(query, response["results"], team, utc_now).format()
     elif isinstance(query, AssistantLifecycleQuery | LifecycleQuery):
-        formatted = LifecycleResultsFormatter(query, response["results"]).format()
+        formatted = LifecycleResultsFormatter(
+            query, response["results"], action_names=get_action_names(team, query.model_dump(mode="json"))
+        ).format()
     elif isinstance(query, AssistantPathsQuery | PathsQuery):
         formatted = PathsResultsFormatter(response["results"]).format()
     elif isinstance(query, AssistantStickinessQuery | StickinessQuery):
-        formatted = StickinessResultsFormatter(query, response["results"]).format()
+        formatted = StickinessResultsFormatter(
+            query, response["results"], action_names=get_action_names(team, query.model_dump(mode="json"))
+        ).format()
     elif isinstance(query, AssistantRetentionQuery | RetentionQuery):
         formatted = RetentionResultsFormatter(query, response["results"]).format()
     elif isinstance(query, AssistantHogQLQuery | HogQLQuery):

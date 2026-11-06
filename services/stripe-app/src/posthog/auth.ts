@@ -5,7 +5,7 @@ import { logger } from '../logger'
 
 export type Region = 'us' | 'eu'
 
-// Keep in sync with the secret names defined in posthog/models/integration.py
+// Keep in sync with the secret names defined in posthog/models/integration/stripe.py
 export const SECRET_NAMES = {
     region: 'posthog_region',
     accessToken: 'posthog_access_token',

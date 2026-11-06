@@ -4,17 +4,17 @@ from typing import Any, cast
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
-from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
+from posthog.auth import InternalAPIUser
 from posthog.models.team.team import Team
 
 from products.tasks.backend.facade.workflow_tasks import (
     MAX_ATTACHED_SKILLS,
     OUTPUT_FIELD_TYPES,
+    WorkflowTaskAICreditsExhausted,
     WorkflowTaskConnectorsInvalid,
     WorkflowTaskLimitExceeded,
     WorkflowTaskOriginKeyConflict,
@@ -34,23 +34,14 @@ from products.workflows.backend.facade.api import (
     get_workflow_task_daily_limits,
 )
 from products.workflows.backend.facade.service_jwt import TASKS_CREATE_PURPOSE
+from products.workflows.backend.presentation.views.hog_flow import REPOSITORY_SHAPE
+from products.workflows.backend.presentation.views.workflow_step_auth import WorkflowStepJWTAuthentication
 
 logger = structlog.get_logger(__name__)
 
 
-class WorkflowTasksJWTAuthentication(ScopedServiceJWTAuthentication):
+class WorkflowTasksJWTAuthentication(WorkflowStepJWTAuthentication):
     purpose = TASKS_CREATE_PURPOSE
-
-    # nosemgrep: tuple-return-prefer-dataclass -- DRF's (user, auth) authentication contract
-    def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, Any]:
-        user, _ = super()._authenticate_claims(request, claims)
-        # The workflow is identified by the verified token, never by the request body, so a
-        # token minted for one workflow can't create tasks attributed to another.
-        try:
-            hog_flow_id = uuid.UUID(str(claims.get("hog_flow_id")))
-        except ValueError:
-            raise AuthenticationFailed("Service token is missing its workflow claim.")
-        return user, hog_flow_id
 
 
 class WorkflowTaskSlackContextSerializer(serializers.Serializer):
@@ -100,7 +91,13 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
         max_length=255,
         required=False,
         allow_blank=True,
-        help_text="GitHub repository as organization/repo. Omit for a task with no code access.",
+        help_text="Deprecated: use `repositories`. One GitHub repository as organization/repo.",
+    )
+    repositories = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        max_length=10,
+        help_text="GitHub repositories the agent can work in, each as organization/repo. Omit for a task with no code access.",
     )
     channel = serializers.CharField(
         max_length=200,
@@ -158,6 +155,17 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
             "result as `output.<name>`; text fields are cut at 1500 characters."
         ),
     )
+
+    def validate_repository(self, value: str) -> str:
+        if value and not REPOSITORY_SHAPE.fullmatch(value):
+            raise serializers.ValidationError("Repository must be an organization/repo name.")
+        return value
+
+    def validate_repositories(self, value: list[str]) -> list[str]:
+        repositories = [self.validate_repository(repository).lower() for repository in value]
+        if len(set(repositories)) != len(repositories):
+            raise serializers.ValidationError("Repositories must be unique.")
+        return repositories
 
     def validate_output_fields(self, value: dict[str, str] | None) -> dict[str, Any] | None:
         if value is None:
@@ -233,7 +241,7 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 prompt=data["prompt"].strip(),
                 title=data.get("title"),
                 channel_ref=data.get("channel") or None,
-                repository=data.get("repository") or None,
+                repositories=data.get("repositories") or ([data["repository"]] if data.get("repository") else None),
                 model=data.get("model") or None,
                 reasoning_effort=data.get("reasoning_effort") or None,
                 connector_ids=data.get("connectors"),
@@ -306,6 +314,17 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
             return _rejected(
                 "The workflow owner is over the AI usage limit, so no task was created. "
                 "Task creation resumes when the limit resets.",
+                status.HTTP_409_CONFLICT,
+            )
+        except WorkflowTaskAICreditsExhausted:
+            logger.info(
+                "workflow_task_create_ai_credits_exhausted",
+                team_id=team_id,
+                hog_flow_id=str(hog_flow_id),
+            )
+            return _rejected(
+                "This project has used its monthly PostHog AI credits, so no task was created. "
+                "Raise the AI credit limit in billing settings, or wait for the next billing period.",
                 status.HTTP_409_CONFLICT,
             )
 

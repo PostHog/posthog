@@ -550,6 +550,14 @@ class Migration(migrations.Migration):
 Dropping an index uses the mirror helper, `SafeRemoveIndexConcurrently`
 (`model_name` + index `name`).
 
+Django also creates indexes outside `Meta.indexes`, so `SafeRemoveIndexConcurrently` cannot find them: the index of a field with `db_index=True`, including every `ForeignKey` by default, and the `_like` pattern-ops companion of a varchar or text field with `db_index=True` or `unique=True`.
+Drop them with `DropFieldIndexesConcurrently(model_name="mymodel", name="team")`, which derives the names the way Django does, so no hash-suffixed name is typed by hand.
+
+- For a field with `db_index=True`, set `db_index=False` on the model and use the op in place of the `AlterField` that `makemigrations` writes. It drops both indexes.
+- For a field with `unique=True`, it drops only the `_like` companion. Model state cannot record that, so a fresh database still creates the companion.
+
+It refuses when the table holds another index on only that column that no `Meta` index or constraint names. It also refuses when no other btree index leads with the column while a parent delete still reads it, including through a foreign key that only the database holds, such as one added with `AddForeignKeyNotValid`. A partial index counts only when its sole condition is `<column> IS NOT NULL`, because a key lookup never matches a null.
+
 ### Raw-SQL variant: `CreateIndexConcurrently` / `DropIndexConcurrently`
 
 When the index doesn't map cleanly to a Django `Index` (e.g. an expression
@@ -614,6 +622,7 @@ helper.
 - **Never use `AddIndexConcurrently` / `RemoveIndexConcurrently` directly** — they are non-idempotent and the CI policy blocks them
 - **Prefer `SafeAddIndexConcurrently` / `SafeRemoveIndexConcurrently` from `posthog.migration_helpers`** — they take a `model_name` + Index, track Django state themselves (no `SeparateDatabaseAndState`), disable both timeouts, and recover from invalid leftover indexes
 - Use the raw-SQL `CreateIndexConcurrently` / `DropIndexConcurrently` (wrapped in `SeparateDatabaseAndState`) only when the index doesn't map to a Django `Index`
+- Drop the indexes Django creates for a field, such as a `ForeignKey` index or a `_like` companion, with `DropFieldIndexesConcurrently`, never with `DropIndexConcurrently` and a hand-typed name, which the CI policy blocks
 - Raw `RunSQL` with `SET lock_timeout = 0; SET statement_timeout = 0; CREATE INDEX CONCURRENTLY IF NOT EXISTS ...` is acceptable as a last-resort fallback but does not recover from invalid leftovers
 - Set `atomic = False` (required for all `CONCURRENTLY` operations)
 - If a prior deploy already left an invalid index (the helper would catch this on next run, but the fallback won't), clean it up with `REINDEX INDEX CONCURRENTLY` or `DROP INDEX CONCURRENTLY IF EXISTS` before re-running
@@ -982,6 +991,26 @@ Before deploying risky migrations:
 - Consider using `SeparateDatabaseAndState` for complex changes
 - **Important:** With `atomic=False`, migrations may partially apply changes. If a migration fails, Django won't automatically roll back the changes. Always verify schema consistency after failed runs and be prepared to manually fix partial states.
 - Remember that infra team may roll back deployments at any time for any reason (performance issues, alerts, etc.) - plan for this
+
+### 5. Apply the Migration Before Node or Rust Code Reads the Column
+
+Node and Rust services deploy on their own schedule, often before the Django deploy that runs `bin/migrate`, so a merged migration is not yet live when their new image starts.
+Code in those services that reads a new table or column needs the migration applied in production first.
+For Rust, merge the migration in its own PR and wait for it to deploy, or make the reader tolerate the missing column.
+ClickHouse and sqlx migrations also need their own PR, not stacked under the reader.
+CI fails a PR that has ClickHouse migrations and `nodejs/` changes, or sqlx migrations and `nodejs/` or Rust service changes.
+For a Django migration and a Node reader, one PR is fine.
+The schema check in `nodejs/src/schema-check/` enforces the order on every Node app that connects to the main Postgres.
+An app without a write role on it opts out explicitly in the charts repo, because the hook reads the primary.
+Each Node image records the Django migrations it needs at build time, and the hook holds the rollout until `django_migrations` has all of them.
+If Django has not applied them when the hook's wait ends, the sync fails and the old pods keep serving until a later sync passes.
+The check only covers Django tables in the main database.
+Node Jest CI fails when Node SQL reads a table of an app that `products/db_routing.yaml` sends to a product database, or a table with an app prefix that no migration creates.
+ClickHouse tables are out of scope.
+The sqlx databases (persons, cyclotron, behavioral cohorts) are checked in shadow mode: the hook logs their state but does not hold the rollout yet.
+The hook pushes its Django and sqlx results to the Prometheus Pushgateway as `node_schema_check_` metrics, so alerts can fire on a missing migration that the logs alone would hide.
+Column and table drops are the opposite case and stay code-first: remove every reader, deploy, then drop.
+The check cannot help there, because Django applies the drop while the old Node pods still read the column.
 
 ## Getting Help
 

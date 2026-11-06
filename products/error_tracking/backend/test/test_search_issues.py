@@ -6,13 +6,14 @@ from posthog.test.base import (
     _create_person,
     flush_persons_and_events,
 )
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
+from rest_framework.exceptions import APIException
 
 from posthog.schema import (
     DateRange,
@@ -22,6 +23,9 @@ from posthog.schema import (
     MaxErrorTrackingSearchResponse,
 )
 
+from posthog.exceptions import ClickHouseAtCapacity
+
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.error_tracking.backend.max_tools import SearchErrorTrackingIssuesTool
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
@@ -30,6 +34,7 @@ from products.error_tracking.backend.models import (
 )
 
 from ee.hogai.context.context import AssistantContextManager
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolError, MaxToolFatalError, MaxToolTransientError
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
 
@@ -304,6 +309,8 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
 
 class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
     async def _create_tool(self):
         config: RunnableConfig = RunnableConfig()
         context_manager = AssistantContextManager(team=self.team, user=self.user, config=config)
@@ -316,6 +323,41 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
             context_manager=context_manager,
             node_path=(NodePath(name="test_node", tool_call_id="test", message_id="test"),),
         )
+
+    @parameterized.expand(
+        [
+            (ClickHouseAtCapacity("Query service is busy"), MaxToolTransientError, "rate_limited"),
+            (UserAccessControlError("error_tracking", "viewer"), MaxToolAccessDeniedError, "permission"),
+            (APIException("Query service failed"), MaxToolFatalError, "api_5xx"),
+        ]
+    )
+    @patch("products.error_tracking.backend.max_tools.capture_exception")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_query_errors_reach_the_tool_handler(
+        self,
+        error: Exception,
+        expected_exception: type[MaxToolError],
+        error_type: str,
+        mock_process_query: Mock,
+        mock_capture: Mock,
+    ) -> None:
+        mock_process_query.side_effect = error
+        tool = await self._create_tool()
+
+        with self.assertRaises(expected_exception) as context:
+            await tool.ainvoke(
+                {
+                    "query": ErrorTrackingQuery(
+                        dateRange=DateRange(date_from="-7d"),
+                        orderBy=ErrorTrackingOrderBy.LAST_SEEN,
+                        volumeResolution=1,
+                    )
+                }
+            )
+
+        self.assertEqual(context.exception.error_type, error_type)
+        self.assertIs(context.exception.__cause__, error)
+        mock_capture.assert_not_called()
 
     async def test_format_issue_with_all_fields(self):
         tool = await self._create_tool()

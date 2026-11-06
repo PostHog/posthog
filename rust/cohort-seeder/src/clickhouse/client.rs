@@ -327,7 +327,10 @@ pub fn build_client(config: &Config) -> Result<ClickHouseClient, ClickHouseClien
             "max_bytes_in_set",
             config.seeder_ch_max_bytes_in_set.to_string(),
         )
-        .with_option("join_algorithm", join_algorithm.as_str());
+        .with_option("join_algorithm", join_algorithm.as_str())
+        // Under `auto`, ClickHouse can build the overrides join's hash table from the event scan,
+        // which then holds every scanned row in memory until the query ends.
+        .with_option("query_plan_join_swap_table", "false");
     let client = optional_settings(config)
         .into_iter()
         .fold(client, |client, (name, value)| {

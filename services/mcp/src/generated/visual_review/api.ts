@@ -19,8 +19,14 @@ export const VisualReviewReposListParams = () => zod.object({
         ),
 })
 
+export const visualReviewReposListQueryLimitMax = 1000
+
 export const VisualReviewReposListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewReposListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -63,7 +69,7 @@ export const VisualReviewReposPartialUpdateBody = () => zod.object({
 })
 
 /**
- * Snapshots in a repo whose rendering cannot be trusted: those that failed the gate or were absorbed by a toleration on a recent default-branch run, and those under an active quarantine. Everything else is omitted, so this is far smaller than the baselines universe; `totals.tracked` gives the full denominator. Each entry carries the share of the last 7 days of default-branch runs that failed the gate (`hard_rate`) and the share a toleration absorbed (`soft_rate`), plus `headroom`, the fraction of the diff threshold its worst absorbed run leaves free. Capped at 2000 entries, which sets `truncated`. Filtering, faceting and search are done client-side; this endpoint takes no filter query params.
+ * Snapshots in a repo whose rendering cannot be trusted: those that failed the gate on a recent default-branch run, those whose absorbed diff is close to the threshold, and those under an active quarantine. Small absorbed diffs well under the threshold are omitted, as is everything else, so this is far smaller than the baselines universe; `totals.tracked` gives the full denominator. Each entry carries the share of the last 7 days of default-branch runs that failed the gate (`hard_rate`) and the share a toleration absorbed (`soft_rate`), plus `headroom`, the fraction of the diff threshold its worst absorbed run leaves free. Capped at 2000 entries, which sets `truncated`. Filtering, faceting and search are done client-side; this endpoint takes no filter query params.
  */
 export const VisualReviewReposFlakinessRetrieveParams = () => zod.object({
     id: zod.string(),
@@ -86,9 +92,15 @@ export const VisualReviewReposQuarantineListParams = () => zod.object({
         ),
 })
 
+export const visualReviewReposQuarantineListQueryLimitMax = 1000
+
 export const VisualReviewReposQuarantineListQueryParams = () => zod.object({
     identifier: zod.string().optional().describe('Filter by identifier (returns full history)'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewReposQuarantineListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     run_type: zod.string().optional().describe('Filter by run type'),
 })
@@ -248,10 +260,21 @@ export const VisualReviewReposRunsListParams = () => zod.object({
     repo_id: zod.string(),
 })
 
+export const visualReviewReposRunsListQueryLimitMax = 1000
+
 export const VisualReviewReposRunsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewReposRunsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    review_state: zod.string().optional().describe('Filter by review state'),
+    review_state: zod
+        .enum(['clean', 'needs_review', 'processing', 'stale'])
+        .optional()
+        .describe(
+            'Filter by where the run stands in review. `needs_review`: a completed pull request run with changes nobody approved yet. `clean`: no changes, or approved. `processing`: diffs still computing. `stale`: superseded by a newer run while its changes were unapproved.'
+        ),
     search: zod.string().optional().describe('Free-text search over branch, commit SHA, run type, and PR number'),
 })
 
@@ -278,13 +301,24 @@ export const VisualReviewRunsListParams = () => zod.object({
         ),
 })
 
+export const visualReviewRunsListQueryLimitMax = 1000
+
 export const VisualReviewRunsListQueryParams = () => zod.object({
     branch: zod.string().optional().describe('Filter by branch name'),
     commit_sha: zod.string().optional().describe('Filter by full commit SHA'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewRunsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     pr_number: zod.number().optional().describe('Filter by GitHub PR number'),
-    review_state: zod.string().optional().describe('Filter by review state'),
+    review_state: zod
+        .enum(['clean', 'needs_review', 'processing', 'stale'])
+        .optional()
+        .describe(
+            'Filter by where the run stands in review. `needs_review`: a completed pull request run with changes nobody approved yet. `clean`: no changes, or approved. `processing`: diffs still computing. `stale`: superseded by a newer run while its changes were unapproved.'
+        ),
     search: zod.string().optional().describe('Free-text search over branch, commit SHA, run type, and PR number'),
 })
 
@@ -454,13 +488,19 @@ export const VisualReviewRunsSnapshotHistoryListParams = () => zod.object({
         ),
 })
 
+export const visualReviewRunsSnapshotHistoryListQueryLimitMax = 1000
+
 export const VisualReviewRunsSnapshotHistoryListQueryParams = () => zod.object({
     identifier: zod
         .string()
         .describe(
             'Identifier of the snapshot to look up, for example a Storybook story id plus theme. Read it from the `identifier` field of a snapshot in the run. It is a name rather than a UUID, and it is required in addition to the run id in the path.'
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewRunsSnapshotHistoryListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -478,6 +518,8 @@ export const VisualReviewRunsSnapshotsListParams = () => zod.object({
 
 export const visualReviewRunsSnapshotsListQueryExcludeUnchangedDefault = false
 export const visualReviewRunsSnapshotsListQueryIncludeQuarantinedDefault = false
+export const visualReviewRunsSnapshotsListQueryLimitMax = 10000
+
 export const visualReviewRunsSnapshotsListQueryQuarantinedOnlyDefault = false
 
 export const VisualReviewRunsSnapshotsListQueryParams = () => zod.object({
@@ -491,15 +533,19 @@ export const VisualReviewRunsSnapshotsListQueryParams = () => zod.object({
         .boolean()
         .default(visualReviewRunsSnapshotsListQueryIncludeQuarantinedDefault)
         .describe(
-            'Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes.'
+            "Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes. This filter uses the quarantines active now. Each snapshot's `is_quarantined` flag holds the state when the run was gated, so for an older run pass true and read the flag."
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewRunsSnapshotsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     quarantined_only: zod
         .boolean()
         .default(visualReviewRunsSnapshotsListQueryQuarantinedOnlyDefault)
         .describe(
-            'Whether to list only the snapshots whose identifier is currently quarantined. Defaults to false. When true, `include_quarantined` is ignored and quarantined snapshots are returned. Combine with `exclude_unchanged=false` to find a quarantined story that rendered `unchanged`, which is the snapshot to request a lift on merge for.'
+            "Whether to list only the snapshots whose identifier is currently quarantined. Defaults to false. When true, `include_quarantined` is ignored and quarantined snapshots are returned. Combine with `exclude_unchanged=false` to find a quarantined story that rendered `unchanged`, which is the snapshot to request a lift on merge for. This uses the quarantines active now, not each snapshot's `is_quarantined` flag, so on an older run it misses stories whose quarantine has ended since."
         ),
     snapshot_id: zod
         .string()
@@ -545,13 +591,19 @@ export const VisualReviewRunsToleratedHashesListParams = () => zod.object({
         ),
 })
 
+export const visualReviewRunsToleratedHashesListQueryLimitMax = 1000
+
 export const VisualReviewRunsToleratedHashesListQueryParams = () => zod.object({
     identifier: zod
         .string()
         .describe(
             'Identifier of the snapshot to look up, for example a Storybook story id plus theme. Read it from the `identifier` field of a snapshot in the run. It is a name rather than a UUID, and it is required in addition to the run id in the path.'
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewRunsToleratedHashesListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 

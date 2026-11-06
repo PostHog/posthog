@@ -47,7 +47,7 @@ interface YTitle {
     label: string
 }
 
-export function AxisTitles({
+export const AxisTitles = React.memo(function AxisTitles({
     xAxisLabel,
     yAxisLabel,
     hideXAxis,
@@ -138,4 +138,4 @@ export function AxisTitles({
             ))}
         </svg>
     )
-}
+})

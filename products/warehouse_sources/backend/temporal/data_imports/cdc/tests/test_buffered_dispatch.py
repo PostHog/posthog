@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import LEGACY_HISTORY_NAMING
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import ListingProof
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
@@ -15,9 +16,10 @@ _MANAGER = "products.warehouse_sources.backend.temporal.data_imports.cdc.source_
 _COMPANIONS = "products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs"
 _SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source"
 _SNAPSHOT_LANE = "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane"
+_HISTORY_TABLE = "products.warehouse_sources.backend.temporal.data_imports.cdc.history_table"
 
 
-def _schema(ingest_mode: str = "buffered", **overrides) -> MagicMock:
+def _schema(**overrides) -> MagicMock:
     schema = MagicMock()
     schema.name = "users"
     schema.is_cdc = overrides.get("is_cdc", True)
@@ -32,7 +34,7 @@ def _schema(ingest_mode: str = "buffered", **overrides) -> MagicMock:
     schema.resolved_s3_folder_name = None
     schema.primary_key_columns = ["id"]
     schema.last_synced_at = None
-    schema.source.job_inputs = {"cdc_enabled": True, "cdc_ingest_mode": ingest_mode}
+    schema.source.job_inputs = {"cdc_enabled": True}
     return schema
 
 
@@ -89,6 +91,11 @@ def _dispatch(
         patch(f"{_MANAGER}.completed_listing_proof", AsyncMock(return_value=proof)),
         patch(f"{_MANAGER}.buffer_expired_unread", expired or AsyncMock(return_value=False)),
         patch(f"{_SNAPSHOT_LANE}.hand_reset_to_capture", hand_reset or MagicMock()),
+        # The schemas are mocks, so the registered naming cannot be read. Every history table here is legacy.
+        patch(
+            f"{_HISTORY_TABLE}.kept_history_naming",
+            side_effect=lambda schema: LEGACY_HISTORY_NAMING if schema.cdc_table_mode in ("cdc_only", "both") else None,
+        ),
         patch.object(PostgresSource, "make_ssh_tunnel_func", return_value=MagicMock()),
     ):
         objects.select_related.return_value.get.return_value = schema
@@ -133,20 +140,13 @@ class TestBufferedDispatch:
         modes = [lane.cdc_write_mode for lane in response.lanes or []]
         assert modes == ["incremental_merge", "scd2_append"]
 
-    def test_a_v2_run_reaching_the_buffered_lane_fails_loudly(self):
-        # The forcing keeps this unreachable; if a race or deploy skew gets past it, the run must
-        # fail rather than consume without recording a load position.
-        with pytest.raises(ValueError, match="requires v3"):
-            _dispatch(_schema(), _inputs(), job_version="v2-non-dlt")
-
     def test_a_missing_job_row_fails_the_run(self):
         # Every lane reads its resume point off its own Delta table, which needs the job row.
         with pytest.raises(ValueError, match="no job row"):
             _dispatch(_schema(), _inputs(), job_version=None)
 
-    @pytest.mark.parametrize("ingest_mode, in_flight", [("buffered", True), ("legacy", False)])
-    def test_a_delivery_still_in_flight_or_an_unconverted_source_no_ops_the_tick(self, ingest_mode, in_flight):
-        response = _dispatch(_schema(ingest_mode, cdc_table_mode="both"), _inputs(), in_flight=in_flight)
+    def test_a_delivery_still_in_flight_no_ops_the_tick(self):
+        response = _dispatch(_schema(cdc_table_mode="both"), _inputs(), in_flight=True)
 
         assert list(response.items()) == []
         assert response.lanes is None
@@ -174,9 +174,18 @@ class TestBufferedDispatch:
 
         retire.assert_called_once()
 
-    def test_a_reset_on_a_streaming_buffered_schema_is_refused(self):
-        with pytest.raises(ValueError, match="cdc_mode='snapshot'"):
-            _dispatch(_schema(), _inputs(reset_pipeline=True))
+    def test_a_reset_on_a_streaming_buffered_schema_is_handed_to_capture(self):
+        hand_reset, clear = MagicMock(), MagicMock()
+        schema = _schema(cdc_table_mode="both")
+        inputs = _inputs(reset_pipeline=True)
+
+        response = _dispatch(schema, inputs, hand_reset=hand_reset, clear_listing=clear)
+
+        assert hand_reset.call_args_list == [call(schema, ANY, start_capture=False)]
+        assert response.reset_handed_over is True
+        assert response.lanes is None
+        assert list(response.items()) == []
+        clear.assert_called_once_with(inputs.job_id, inputs.team_id)
 
     @pytest.mark.parametrize(
         "proof_days_ago, expired, reset",

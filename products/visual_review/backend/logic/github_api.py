@@ -9,6 +9,8 @@ from urllib.parse import quote
 
 import structlog
 
+from posthog.egress.limiter.policies import Priority
+
 if TYPE_CHECKING:
     import requests
 
@@ -16,6 +18,7 @@ if TYPE_CHECKING:
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import GitHubIntegrationError
 
 from ..models import Repo
@@ -85,14 +88,20 @@ def default_branch_name(repo: Repo) -> str | None:
 
 
 def default_branch_head_sha(repo: Repo) -> str | None:
-    """The commit the repo's default branch points at, or None when GitHub cannot say."""
+    """The commit the repo's default branch points at, or None when GitHub cannot say.
+
+    Raises `GitHubIntegrationNotFoundError` and `GitHubRateLimitError`, because a retry does not help
+    the first and has to wait for the second.
+    """
+    github = get_github_integration_for_repo(repo)
     try:
-        github = get_github_integration_for_repo(repo)
         # Not `_get_default_branch`: its fallback name can point at a branch that is not the default,
         # and a commit from that branch would scope the lift wrongly.
         branch = github.get_default_branch(repo.repo_full_name)
         # One path segment, so a branch name with a slash does not split the ref.
         response = github.api_request("GET", f"/repos/{repo.repo_full_name}/commits/{quote(branch, safe='')}")
+    except GitHubRateLimitError:
+        raise
     except Exception:
         logger.warning("visual_review.default_branch_head_fetch_failed", repo_id=str(repo.id))
         return None
@@ -197,14 +206,14 @@ def _verified_merge_queue_source_pr(
 
 def get_github_integration_for_repo(repo: Repo):
     """Get GitHub integration for the repo's team."""
-    from posthog.models.integration import GitHubIntegration, Integration
+    from posthog.models.integration import GitHubIntegration
 
-    integration = Integration.objects.filter(team_id=repo.team_id, kind="github").first()
+    integration = IntegrationManager.github.oauth.find(repo.team_id)
 
     if not integration:
         raise errors.GitHubIntegrationNotFoundError(f"No GitHub integration found for team {repo.team_id}")
 
-    return GitHubIntegration(integration, source="visual_review")
+    return GitHubIntegration(integration, source="visual_review", priority=Priority.CRITICAL)
 
 
 def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:

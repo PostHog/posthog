@@ -65,7 +65,7 @@ List of service names to restrict the breakdown to. Use `apm-services-list` to d
 
 Property filters scoping the spans the breakdown runs over. Same filter shape and operators as `query-apm-spans`:
 
-- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)
+- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). A `duration` filter value is in milliseconds (1 second = `1000`).
 - `span_attribute` — span-level attributes
 - `span_resource_attribute` — resource-level attributes
 
@@ -114,6 +114,6 @@ Property filters scoping the spans the breakdown runs over. Same filter shape an
 # Reminders
 
 - `value: ''` groups the spans that don't carry the attribute at all — often itself a signal.
-- Duration values are in nanoseconds (1s = 1,000,000,000).
+- Duration values in results are in nanoseconds (1s = 1,000,000,000). A `duration` filter value is in milliseconds.
 - Use `apm-attributes-list` / `apm-attribute-values-list` to discover keys before guessing.
 - `error_count / count` per row is the error rate for that value — compute it when judging over-representation.

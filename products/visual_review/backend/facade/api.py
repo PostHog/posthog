@@ -25,6 +25,8 @@ from django.utils import timezone
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.helpers.trigram_search import search_match_type_from_instance
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from ..diff_metadata import (
     DiffMetadata,
@@ -50,7 +52,7 @@ from ..logic import (
     toleration,
 )
 from . import contracts
-from .enums import ActorType, QuarantineLiftState, RunPurpose, ShiftBandKind
+from .enums import ActorType, QuarantineLiftState, RunPurpose, RunReviewFilter, ShiftBandKind
 
 User = get_user_model()
 
@@ -93,6 +95,7 @@ QuarantineLiftRequestNotFoundError = errors.QuarantineLiftRequestNotFoundError
 ArtifactNotFoundError = errors.ArtifactNotFoundError
 GitHubIntegrationNotFoundError = errors.GitHubIntegrationNotFoundError
 GitHubCommitError = errors.GitHubCommitError
+LiftCommitUnknownError = errors.LiftCommitUnknownError
 GitHubRateLimitError = GitHubRateLimitError
 PRSHAMismatchError = errors.PRSHAMismatchError
 StaleRunError = errors.StaleRunError
@@ -281,9 +284,8 @@ def get_repo(repo_id: UUID, team_id: int) -> contracts.Repo:
     return _to_repo(repo)
 
 
-def list_repos(team_id: int) -> list[contracts.Repo]:
-    projects = repos.list_repos_for_team(team_id)
-    return [_to_repo(p) for p in projects]
+def list_repos(team_id: int, page: PageRequest) -> Page[contracts.Repo]:
+    return select_page(repos.list_repos_for_team(team_id), page).map(_to_repo)
 
 
 def create_repo(team_id: int, repo_external_id: int, repo_full_name: str) -> contracts.Repo:
@@ -485,7 +487,6 @@ def get_flakiness_overview(repo_id: UUID, team_id: int) -> contracts.FlakinessOv
         broken=raw.totals_broken,
         unstable=raw.totals_unstable,
         at_risk=raw.totals_at_risk,
-        noisy=raw.totals_noisy,
         clean=raw.totals_clean,
         quarantined=raw.totals_quarantined,
         needs_decision=raw.totals_needs_decision,
@@ -521,13 +522,15 @@ def _baseline_moved_day_index(moved_at: datetime | None, now: datetime) -> int |
 
 def list_runs(
     team_id: int,
-    review_state: str | None = None,
+    review_state: RunReviewFilter | None = None,
     repo_id: UUID | None = None,
     pr_number: int | None = None,
     commit_sha: str | None = None,
     branch: str | None = None,
     search: str | None = None,
-) -> list[contracts.Run]:
+    *,
+    page: PageRequest,
+) -> Page[contracts.Run]:
     runs = run_queries.list_runs_for_team(
         team_id,
         review_state=review_state,
@@ -537,7 +540,7 @@ def list_runs(
         branch=branch,
         search=search,
     )
-    return [_to_run(r) for r in runs]
+    return select_page(runs, page).map(_to_run)
 
 
 def get_review_state_counts(team_id: int, repo_id: UUID | None = None) -> dict[str, int]:
@@ -849,12 +852,19 @@ def _to_baseline_quarantine_summary(
 
 
 def list_quarantined(
-    repo_id: UUID, team_id: int, identifier: str | None = None, run_type: str | None = None
-) -> list[contracts.QuarantinedIdentifierEntry]:
-    entries = quarantine.list_quarantined_identifiers(repo_id, team_id, identifier=identifier, run_type=run_type)
-    user_ids = {e.created_by_id for e in entries if e.created_by_id}
+    repo_id: UUID,
+    team_id: int,
+    identifier: str | None = None,
+    run_type: str | None = None,
+    *,
+    page: PageRequest,
+) -> Page[contracts.QuarantinedIdentifierEntry]:
+    entries = select_page(
+        quarantine.list_quarantined_identifiers(repo_id, team_id, identifier=identifier, run_type=run_type), page
+    )
+    user_ids = {e.created_by_id for e in entries.results if e.created_by_id}
     user_basic_infos = _fetch_user_basic_infos(user_ids)
-    return [_to_quarantined_entry(q, user_basic_infos) for q in entries]
+    return entries.map(lambda entry: _to_quarantined_entry(entry, user_basic_infos))
 
 
 def quarantine_identifier(

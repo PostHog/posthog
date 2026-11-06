@@ -1,6 +1,9 @@
 import { ReactNode } from 'react'
 
-import { DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, cn } from '@posthog/quill'
+import { FilterSubMenu } from '@posthog/quill'
+
+import { useTodaySheetMenu } from './todaySheetMenuContext'
+import { TodaySheetSub } from './TodaySheetSub'
 
 interface TodayRecentFilterSubmenuProps {
     label: string
@@ -17,20 +20,17 @@ export function TodayRecentFilterSubmenu({
     narrowed = false,
     children,
 }: TodayRecentFilterSubmenuProps): JSX.Element {
+    const sheet = useTodaySheetMenu()
+    if (sheet) {
+        return (
+            <TodaySheetSub label={label} title={label} value={value} narrowed={narrowed}>
+                {children}
+            </TodaySheetSub>
+        )
+    }
     return (
-        <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-                <span>{label}</span>
-                <span
-                    className={cn(
-                        'flex-1 truncate pl-4 text-right',
-                        narrowed ? 'text-primary' : 'text-muted-foreground'
-                    )}
-                >
-                    {value}
-                </span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>{children}</DropdownMenuSubContent>
-        </DropdownMenuSub>
+        <FilterSubMenu label={label} value={value} active={narrowed}>
+            {children}
+        </FilterSubMenu>
     )
 }

@@ -194,6 +194,7 @@ impl RawRecording {
         if distinct_id.is_empty() {
             return None;
         }
+        let trimmed_bytes = distinct_id.trim().len();
 
         // Byte length bounds char count, so ids within 200 bytes skip the
         // char-count pass entirely on the hot path.
@@ -201,6 +202,7 @@ impl RawRecording {
             return Some(ExtractedDistinctId {
                 value: distinct_id,
                 truncated_from_chars: None,
+                trimmed_bytes,
             });
         }
 
@@ -209,12 +211,14 @@ impl RawRecording {
             return Some(ExtractedDistinctId {
                 value: distinct_id,
                 truncated_from_chars: None,
+                trimmed_bytes,
             });
         }
 
         Some(ExtractedDistinctId {
             value: distinct_id.chars().take(200).collect(),
             truncated_from_chars: Some(char_count),
+            trimmed_bytes,
         })
     }
 
@@ -865,7 +869,6 @@ mod tests {
             path: "/s/".to_string(),
             capture_mode: crate::config::CaptureMode::Recordings,
             ai_max_event_bytes: 0,
-            ai_lane_predicate: crate::v0_request::AiLanePredicate::Allowlist,
             sdk_attribution: crate::ingestion_warnings::SdkAttribution::default(),
         }
     }
@@ -1502,7 +1505,7 @@ mod tests {
     // metadata and produces to `replay_overflow_topic` with the session_id
     // as partition key.
 
-    use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+    use crate::sinks::kafka::{test_outputs, KafkaSinkBase};
     use crate::sinks::producer::MockKafkaProducer;
 
     #[tokio::test]
@@ -1510,7 +1513,7 @@ mod tests {
         let producer = MockKafkaProducer::new();
         let outputs = Arc::new(OutputRegistry::single(KafkaSinkBase::with_producer(
             producer.clone(),
-            test_topics(),
+            test_outputs(),
         )));
 
         let limiter = build_replay_limiter(vec!["test-session-123".to_string()]).await;
@@ -1531,7 +1534,7 @@ mod tests {
         let records = producer.get_records();
         assert_eq!(records.len(), 1);
         assert_eq!(
-            records[0].topic, "replay_overflow",
+            &*records[0].topic, "replay_overflow",
             "ReplayLimited must route to replay_overflow topic"
         );
         assert_eq!(

@@ -102,13 +102,17 @@ describe("Inbox report queries", () => {
     await act(async () => {
       await result.current.mutateAsync({
         content: [{ github_login: "octocat" }],
+        action: "remove",
+        targets: [{ github_login: "hubot" }],
         optimisticReviewers: next,
       });
     });
 
-    expect(mockSetReviewers).toHaveBeenCalledWith(REPORT_ID, [
-      { github_login: "octocat" },
-    ]);
+    expect(mockSetReviewers).toHaveBeenCalledWith(
+      REPORT_ID,
+      [{ github_login: "octocat" }],
+      { action: "remove", targets: [{ github_login: "hubot" }] },
+    );
 
     const cached = queryClient.getQueryData<SignalReportArtefactsResponse>(key);
     const reviewerRows = (cached?.results ?? []).filter(
@@ -138,6 +142,8 @@ describe("Inbox report queries", () => {
     await act(async () => {
       await result.current.mutateAsync({
         content: [{ github_login: "octocat" }],
+        action: "remove",
+        targets: [{ github_login: "hubot" }],
         optimisticReviewers: [reviewer("octocat")],
       });
     });
@@ -162,6 +168,8 @@ describe("Inbox report queries", () => {
       try {
         await result.current.mutateAsync({
           content: [{ github_login: "octocat" }],
+          action: "remove",
+          targets: [{ github_login: "hubot" }],
           optimisticReviewers: [reviewer("octocat")],
         });
       } catch (error) {

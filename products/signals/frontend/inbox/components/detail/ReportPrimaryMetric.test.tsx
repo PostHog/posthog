@@ -1,8 +1,10 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 
-import { ensureJsdom, getHogChart } from '@posthog/quill-charts/testing'
+import { ensureJsdom, getChart } from '@posthog/quill-charts/testing'
 
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -112,7 +114,7 @@ describe('ReportPrimaryMetric', () => {
             return element
         })
         expect(chart).toHaveAttribute('data-chart-type', 'bar')
-        expect(getHogChart(chart).yTicks().filter(Boolean)).toEqual(['0', '1'])
+        expect(getChart(chart).yTicks().filter(Boolean)).toEqual(['0', '1'])
         await waitFor(() =>
             expect(requestedDisplays).toEqual(
                 expect.arrayContaining([ChartDisplayType.BoldNumber, ChartDisplayType.ActionsBar])
@@ -200,7 +202,7 @@ describe('ReportPrimaryMetric', () => {
         expect(source).toHaveTextContent('Last 7 days · 1 filter')
         const open = container.querySelector<HTMLAnchorElement>('[data-attr="report-primary-metric-open"]')
         expect(open).toHaveTextContent('Open insight')
-        expect(open?.getAttribute('href')).toContain('/insights/new')
+        expect(open?.getAttribute('href')).toMatch(new RegExp(`^/project/${MOCK_TEAM_ID}/insights/new`))
     })
 
     it('names no query when the viewer cannot see it', () => {

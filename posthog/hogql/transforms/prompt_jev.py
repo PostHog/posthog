@@ -2,6 +2,7 @@ import json
 import math
 import time
 import uuid
+import random
 import asyncio
 from collections.abc import Callable
 from dataclasses import replace
@@ -30,9 +31,9 @@ from posthog.llm.system_one import (
     Question,
     SystemOneNotConfigured,
     SystemOneRequestFailed,
+    SystemOneResult,
 )
 from posthog.llm.system_one_client import GatewaySystemOneClient, build_system_one_client
-from posthog.ph_client import feature_enabled_or_false
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -44,6 +45,9 @@ logger = structlog.get_logger(__name__)
 MAX_INPUT_BYTES = 8192
 MAX_TOTAL_BYTES = 2 * 1024 * 1024
 MAX_BATCH_BYTES = 32768
+# The model servers answer 429 when they are full and 529 when overloaded, and ask callers to back off.
+RETRYABLE_STATUS_CODES = frozenset({429, 529})
+RETRY_DELAYS_SECONDS = (0.25, 0.5, 1.0, 2.0)
 
 
 class _ResultField(DatabaseField):
@@ -165,7 +169,7 @@ class PromptJevRunner:
                 },
             )
         try:
-            result = await replace(client, timeout=min(remaining, 30)).adecide(state=state, questions=questions)
+            result = await self._decide_with_retries(client, state, questions)
         except SystemOneRequestFailed as error:
             # Log only the status, because the inputs and the gateway response body can hold customer data.
             logger.warning(
@@ -187,8 +191,24 @@ class PromptJevRunner:
                 decisions[text] = (answer.choice, list(answer.probabilities.items()), answer.confidence)
         return decisions
 
+    async def _decide_with_retries(
+        self, client: GatewaySystemOneClient, state: dict[str, str], questions: dict[str, Question]
+    ) -> SystemOneResult:
+        for delay in (*RETRY_DELAYS_SECONDS, None):
+            remaining = self.deadline - time.monotonic()
+            try:
+                return await replace(client, timeout=min(remaining, 30)).adecide(state=state, questions=questions)
+            except SystemOneRequestFailed as error:
+                if delay is None or error.status_code not in RETRYABLE_STATUS_CODES:
+                    raise
+                wait = delay + random.uniform(0, delay)
+                if self.deadline - time.monotonic() <= wait:
+                    raise
+                await asyncio.sleep(wait)
+        raise AssertionError("unreachable")
+
     async def _batches(self, spec: PromptJevCall, batches: list[list[str]]) -> list[dict[str, object]]:
-        semaphore = asyncio.Semaphore(4)
+        semaphore = asyncio.Semaphore(max(1, settings.HOGQL_JEV_CONCURRENCY))
 
         async def evaluate_batch(batch: list[str]) -> dict[str, object]:
             async with semaphore:
@@ -492,18 +512,6 @@ class PromptJevPlanner(CloningVisitor):
 def validate_prompt_jev_access(team: "Team") -> None:
     if settings.CLICKHOUSE_USE_HTTP or team.pk in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
         raise QueryError("jev requires the native ClickHouse connection. Ask your administrator to configure it.")
-    if not feature_enabled_or_false(
-        "hogql-prompt-jev",
-        str(team.uuid),
-        groups={"organization": str(team.organization_id), "project": str(team.pk)},
-        group_properties={
-            "organization": {"id": str(team.organization_id)},
-            "project": {"id": str(team.pk)},
-        },
-        only_evaluate_locally=True,
-        send_feature_flag_events=False,
-    ):
-        raise QueryError("jev is not enabled for this project. Contact support to request access.")
     if _is_over_ai_credit_budget(team):
         raise QueryError(OUT_OF_AI_CREDITS_MESSAGE)
 

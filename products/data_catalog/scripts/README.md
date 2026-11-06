@@ -88,7 +88,7 @@ A structured clarification question parks a permission request that stays open w
 
 ## Scoring a canary batch
 
-`semantic_layer_canary_score.py` grades a completed batch from the full ACP session log of each run, using the same scorers as the offline evals in `products/data_catalog/evals/`. It is the only scorer. The `signals-scout-semantic-layer-canary-report` scout reports the `$ai_evaluation` events this script emits; it does not grade session logs itself. A batch that was never scored here has no pass rate anywhere.
+`semantic_layer_canary_score.py` grades a completed batch from the full ACP session log of each run, using the same scorers as the offline evals in `products/data_catalog/evals/`. It prints verdicts locally; a batch that was never scored here has no pass rate.
 
 Score the file the runner just wrote:
 
@@ -106,11 +106,11 @@ POSTHOG_API_KEY=phx_... flox activate -- .venv/bin/python \
   --batch 2026-09-10T16:54:23Z 2026-09-10T17:17:23Z --revision 42
 ```
 
-`--batch` reads the pinned revision, then finds each enabled question's task among `origin_product=posthog_ai` tasks created inside the window. Only a task whose full description equals the question counts; there is no fuzzy matching. A case with no task in the window is `missing`; a case whose newest attempt is still running is `incomplete`; more than one completed attempt is `duplicate`; a failed attempt followed by a completed one scores the completed one. A run the runner cancelled behind a clarifying question is scored as completed, with the question text recovered from its log. The batch id is `tasks:<from>:<to>`, so scoring the same window twice publishes the same experiment id.
+`--batch` reads the pinned revision, then finds each enabled question's task among `origin_product=posthog_ai` tasks created inside the window. Only a task whose full description equals the question counts; there is no fuzzy matching. A case with no task in the window is `missing`; a case whose newest attempt is still running is `incomplete`; more than one completed attempt is `duplicate`; a failed attempt followed by a completed one scores the completed one. A run the runner cancelled behind a clarifying question is scored as completed, with the question text recovered from its log. The batch id is `tasks:<from>:<to>`, so scoring the same window twice uses the same batch identifier.
 
 The personal API key needs `task:read`, plus `dataset:read` for `--batch`.
 
-It prints one JSON verdict row per case on stdout and a batch summary on stderr. `--emit` additionally publishes an `$ai_evaluation` event per case, tagged with the batch id, and needs `POSTHOG_CAPTURE_TOKEN`. Unscored cases are emitted too, with `$ai_evaluation_applicable` false and the case status as the reasoning, so the scout can report coverage gaps without reading logs. Every event carries `task_id`, `task_run_id`, and `task_url` for the report's links.
+It prints one JSON verdict row per case on stdout and a batch summary on stderr. Unscored cases include their status and reason so the output also shows coverage gaps. Every row carries `task_id`, `task_run_id`, and `task_url`. Redirect stdout to save the verdicts for comparison.
 
 Each case is graded against its dataset `expected_routing`:
 

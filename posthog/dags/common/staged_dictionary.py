@@ -15,36 +15,13 @@ from collections.abc import Sequence
 from functools import partial
 from typing import Protocol
 
-from django.conf import settings
-
 import dagster
 from clickhouse_driver import Client
 
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.dags.common.s3_staging import S3StagingLocation
 from posthog.dataclasses import frozen
-
-
-def _dictionary_s3_args(key: str, structure: str) -> str:
-    """Argument list for a ClickHouse ``s3(...)`` call over a staged dictionary payload.
-
-    Credentials are emitted only where an endpoint is configured, which is local, dev and test
-    object storage. On prod the endpoint is empty and the cluster reaches the bucket through its
-    attached IAM role, so no secret is ever interpolated into SQL.
-    """
-    path = f"{settings.DICTIONARY_STAGING_S3_PREFIX}/{key}"
-    endpoint = settings.DICTIONARY_STAGING_S3_ENDPOINT
-    if endpoint:
-        url = f"{endpoint}/{settings.DICTIONARY_STAGING_S3_BUCKET}/{path}"
-        creds = f"'{settings.OBJECT_STORAGE_ACCESS_KEY_ID}', '{settings.OBJECT_STORAGE_SECRET_ACCESS_KEY}', "
-    else:
-        bucket = settings.DICTIONARY_STAGING_S3_BUCKET
-        url = f"https://{bucket}.s3.{settings.DICTIONARY_STAGING_S3_REGION}.amazonaws.com/{path}"
-        creds = ""
-    # The structure sits inside a single-quoted SQL literal, so escape the quotes in a type like
-    # DateTime64(6, 'UTC') or they terminate the literal early.
-    escaped = " ".join(structure.split()).replace("'", "\\'")
-    return f"'{url}', {creds}'Parquet', '{escaped}'"
 
 
 @frozen
@@ -63,7 +40,7 @@ class StagedDictionary:
 
     @property
     def __args(self) -> str:
-        return _dictionary_s3_args(self.key, self.structure)
+        return S3StagingLocation.for_dictionaries().s3_args(self.key, "Parquet", self.structure)
 
     @property
     def query(self) -> str:
@@ -109,35 +86,31 @@ def create_on_every_cluster(
 ) -> None:
     """Create ``dictionary`` on every cluster a mutation joining it will run on.
 
-    ``clusters`` leads with the handle that can see the source table; the rest read a staged object,
-    because they share no Keeper with it and so never receive the replicated table.
+    ``clusters`` leads with the handle that can see the source table; the rest share no Keeper with
+    it and so never receive the replicated table. With more than one cluster, every cluster reads
+    the staged object, the first one too. Hosts load one at a time, so a host that read the source
+    table would see rows written after the export, and the hosts would not agree.
     """
     first, *rest = clusters
-    first.map_all_hosts(
-        partial(
-            dictionary.create,
-            shards=shards,
-            max_execution_time=max_execution_time,
-            max_memory_usage=max_memory_usage,
-        )
-    ).result()
-    if not rest:
-        return
+    staged = dictionary.staged() if rest else None
+    if staged is not None:
+        first.any_host_by_role(partial(staged.export, source_query=dictionary.query), NodeRole.DATA).result()
 
-    staged = dictionary.staged()
-    first.any_host_by_role(partial(staged.export, source_query=dictionary.query), NodeRole.DATA).result()
-    for cluster in rest:
+    # Recreate, never CREATE ... IF NOT EXISTS: a failed run leaves its dictionary behind, and a
+    # later run with fewer clusters would keep that definition and read a stale staged object.
+    for cluster in clusters:
         cluster.map_all_hosts(
             partial(
                 dictionary.recreate,
                 shards=shards,
                 max_execution_time=max_execution_time,
                 max_memory_usage=max_memory_usage,
-                query=staged.query,
+                query=staged.query if staged is not None else None,
             )
         ).result()
 
-    context.log.info(f"Staged {dictionary.name} to {staged.key} for {[c.data_cluster_name for c in rest]}")
+    if staged is not None:
+        context.log.info(f"Staged {dictionary.name} to {staged.key} for {[c.data_cluster_name for c in clusters]}")
 
 
 def load_and_verify_on_every_cluster(clusters: Sequence[ClickhouseCluster], dictionary: StageableDictionary) -> None:

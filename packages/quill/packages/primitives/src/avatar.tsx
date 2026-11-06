@@ -56,18 +56,21 @@ const AvatarFallback = React.forwardRef<HTMLSpanElement, React.ComponentProps<ty
 // `reverse` anchors the pile to its right edge and spreads left instead (and puts
 // the rightmost avatar on top). `size` forwards to any Avatar child that doesn't
 // set its own, and tunes the stacked overlap so small and default piles look right.
-function AvatarGroup({
-    className,
-    stacked = false,
-    reverse = false,
-    size = 'default',
-    children,
-    style,
-    ...props
-}: React.ComponentProps<'div'> & { stacked?: boolean; reverse?: boolean; size?: AvatarSize }): React.ReactElement {
+const AvatarGroup = React.forwardRef<
+    HTMLDivElement,
+    React.ComponentProps<'div'> & {
+        stacked?: boolean
+        reverse?: boolean
+        size?: AvatarSize
+    }
+>(function AvatarGroup(
+    { className, stacked = false, reverse = false, size = 'default', children, style, ...props },
+    ref
+) {
     const items = React.Children.toArray(children)
     return (
         <div
+            ref={ref}
             data-quill
             data-slot="avatar-group"
             data-stacked={stacked ? '' : undefined}
@@ -76,7 +79,12 @@ function AvatarGroup({
             className={cn('quill-avatar-group', className)}
             // Count drives the z-order and the reverse spread math; declared last so
             // a caller's `style` can't clobber it.
-            style={{ ...style, '--avatar-count': items.length } as React.CSSProperties}
+            style={
+                {
+                    ...style,
+                    '--avatar-count': items.length,
+                } as React.CSSProperties
+            }
             {...props}
         >
             {items.map((child, index) => {
@@ -102,7 +110,7 @@ function AvatarGroup({
             })}
         </div>
     )
-}
+})
 
 Avatar.displayName = 'Avatar'
 AvatarImage.displayName = 'AvatarImage'

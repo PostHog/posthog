@@ -27,7 +27,7 @@ export const getKMPErrorTrackingSteps = (ctx: OnboardingComponentsContext): Step
         content: (
             <>
                 <CalloutBox type="fyi" title="Version requirement">
-                    <Markdown>The error tracking configuration requires PostHog KMP version 0.4.0 or higher.</Markdown>
+                    <Markdown>The error tracking configuration requires PostHog KMP version 0.8.0 or higher.</Markdown>
                 </CalloutBox>
                 <Markdown>
                     Both the project setting from the previous step and `errorTracking.autoCapture` must be enabled.
@@ -55,7 +55,7 @@ export const getKMPErrorTrackingSteps = (ctx: OnboardingComponentsContext): Step
 
                                             PostHog.setup(
                                                 config = PostHogConfig(
-                                                    apiKey = "<ph_project_token>",
+                                                    projectToken = "<ph_project_token>",
                                                     host = "<ph_client_api_host>",
                                                     errorTracking = ErrorTrackingConfig(
                                                         autoCapture = true,
@@ -87,7 +87,7 @@ export const getKMPErrorTrackingSteps = (ctx: OnboardingComponentsContext): Step
 
                                             PostHog.setup(
                                                 config = PostHogConfig(
-                                                    apiKey = "<ph_project_token>",
+                                                    projectToken = "<ph_project_token>",
                                                     host = "<ph_client_api_host>",
                                                     errorTracking = ErrorTrackingConfig(
                                                         autoCapture = true,
@@ -150,7 +150,7 @@ export const getKMPErrorTrackingSteps = (ctx: OnboardingComponentsContext): Step
         content: (
             <Markdown>
                 Capture a test exception, flush queued events with `PostHog.flush()`, and confirm the exception appears
-                in [Error tracking](https://app.posthog.com/error_tracking). Unhandled mobile crashes are persisted and
+                in [Error tracking](https://app.posthog.com/error-tracking). Unhandled mobile crashes are persisted and
                 sent after the app launches again.
             </Markdown>
         ),

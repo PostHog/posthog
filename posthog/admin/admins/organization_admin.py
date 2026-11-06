@@ -12,16 +12,21 @@ from django.core.exceptions import PermissionDenied
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import transaction
+from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
+from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils import timezone
+from django.utils.decorators import method_decorator
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
+from django.views.decorators.http import require_http_methods
 
 from posthog.admin.ai_training_opt_in_history import get_ai_training_opt_in_history
 from posthog.admin.authorization import can_trigger_admin_deletion
 from posthog.admin.inline_registry import extra_inlines_for
+from posthog.admin.inlines.events_retention_config_inline import OrganizationEventsRetentionConfigInline
 from posthog.admin.inlines.organization_domain_inline import OrganizationDomainInline
 from posthog.admin.inlines.organization_invite_inline import OrganizationInviteInline
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
@@ -34,6 +39,7 @@ from posthog.person_db_router import PERSONS_DB_MODELS
 from posthog.tasks.ai_observability_usage_report import internal_reporting_team_id
 from posthog.utils import pluralize
 
+from products.ai_observability.backend.facade.admin import dataset_retention_enabled, set_dataset_retention_enabled
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.batch_exports.backend.facade.contracts import BATCH_EXPORT_MODEL_LABEL
 
@@ -130,6 +136,15 @@ class UsageReportForm(forms.Form):
         if report_date > (timezone.now().date() + timedelta(days=1)):
             raise forms.ValidationError("The date cannot be more than one day in the future.")
         return report_date
+
+
+class DatasetRetentionForm(forms.Form):
+    enabled = forms.TypedChoiceField(
+        label="Dataset cleanup",
+        choices=[("enabled", "Enabled"), ("disabled", "Disabled")],
+        coerce=lambda value: value == "enabled",
+        widget=forms.RadioSelect,
+    )
 
 
 class BulkDeactivateOrganizationsForm(forms.Form):
@@ -267,6 +282,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         OrganizationInviteInline,
         OrganizationDomainInline,
         ProxyRecordInline,
+        OrganizationEventsRetentionConfigInline,
     ]
     readonly_fields = [
         "id",
@@ -282,7 +298,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "ai_training_opt_in_history_display",
         "trigger_deletion_display",
     ]
-    search_fields = ("name", "members__email", "team__api_token")
+    search_fields = ("id", "name", "members__email", "team__api_token")
     list_display = (
         "id",
         "name",
@@ -322,7 +338,7 @@ class OrganizationAdmin(admin.ModelAdmin):
 
     def billing_link(self, organization: Organization) -> str:
         url = f"{settings.BILLING_SERVICE_URL}/admin/billing/customer/?q={organization.pk}"
-        return format_html(f'<a href="{url}">Billing →</a>')
+        return format_html('<a href="{}">Billing →</a>', url)
 
     def usage_posthog(self, organization: Organization):
         return format_html(
@@ -399,11 +415,13 @@ class OrganizationAdmin(admin.ModelAdmin):
         # Format numbers with thousand separators
         formatted_data = {}
         for product, data in usage_data.items():
-            if product == "period":
+            # `period` and the billing status stamps sit next to the products and are not dicts.
+            if not isinstance(data, dict):
                 continue
+            limit = data.get("limit")
             formatted_data[product] = {
                 "usage": f"{int(data.get('usage', 0)):,}" if data.get("usage") is not None else "-",
-                "limit": f"{int(data.get('limit')):,}" if data.get("limit") else None,
+                "limit": f"{int(limit):,}" if limit else None,
                 "todays_usage": f"{int(data.get('todays_usage', 0)):,}"
                 if data.get("todays_usage") is not None
                 else "-",
@@ -623,6 +641,11 @@ class OrganizationAdmin(admin.ModelAdmin):
                 name="send-ai-observability-usage-report",
             ),
             path(
+                "ai-observability-dataset-retention/",
+                self.admin_site.admin_view(self.dataset_retention_view),
+                name="ai-observability-dataset-retention",
+            ),
+            path(
                 "bulk-deactivate/",
                 self.admin_site.admin_view(self.bulk_deactivate_view),
                 name="organization_bulk_deactivate",
@@ -818,6 +841,34 @@ class OrganizationAdmin(admin.ModelAdmin):
             request,
             "admin/posthog/organization/send_ai_observability_usage_report.html",
             {"form": form, "can_skip_existing_reports": internal_reporting_team_id() is not None},
+        )
+
+    @method_decorator(require_http_methods(["GET", "POST"]))
+    def dataset_retention_view(self, request: HttpRequest) -> HttpResponse:
+        user_id = request.user.pk
+        if user_id is None or not request.user.has_perm("posthog.change_instancesetting"):
+            raise PermissionDenied
+        enabled = dataset_retention_enabled()
+        form = DatasetRetentionForm(
+            request.POST if request.method == "POST" else None,
+            initial={"enabled": "enabled" if enabled else "disabled"},
+        )
+        if request.method == "POST" and form.is_valid():
+            new_enabled = form.cleaned_data["enabled"]
+            set_dataset_retention_enabled(enabled=new_enabled, user_id=user_id)
+            messages.success(
+                request, f"Dataset cleanup is now {'enabled' if new_enabled else 'disabled'} in this region."
+            )
+            return redirect(reverse("admin:ai-observability-dataset-retention"))
+        return TemplateResponse(
+            request,
+            "admin/posthog/organization/ai_observability_dataset_retention.html",
+            {
+                **self.admin_site.each_context(request),
+                "title": "AI observability dataset retention",
+                "form": form,
+                "enabled": enabled,
+            },
         )
 
     def change_view(self, request, object_id, form_url="", extra_context=None):

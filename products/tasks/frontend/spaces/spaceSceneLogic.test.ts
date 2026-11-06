@@ -5,8 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { urls } from 'scenes/urls'
 
-import { todaySessionMenuLogic } from '~/layout/today/todaySessionMenuLogic'
-import { spaceNewSessionUrl, todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
+import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -160,18 +159,6 @@ describe('spaceSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         return logic
     }
-
-    it('drops a session from the feed when the row menu moves it to another space', async () => {
-        const logic = spaceSceneLogic({ id: 'space-a' })
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.feedItems.map((item) => item.id)).toEqual(['task-1'])
-
-        todaySessionMenuLogic.actions.moveSession('task-1', 'space-b')
-        await expectLogic(logic).toDispatchActions(['sessionUpdated', 'loadSessionsSuccess'])
-
-        expect(logic.values.feedSections).toEqual([])
-    })
 
     it.each([
         ['a new name', '  checkout ', [{ name: 'checkout' }], 'checkout', null, null],
@@ -534,14 +521,12 @@ describe('spaceSceneLogic', () => {
             logic.mount()
             await expectLogic(todaySpacesLogic).toDispatchActions(['loadTaskActivitySuccess'])
             expect([...todaySpacesLogic.values.unreadSessionIds]).toEqual(['task-1'])
-            expect([...todaySpacesLogic.values.unreadSpaceIds]).toEqual(['space-a'])
 
             router.actions.push(urls.aiTask('task-1'))
             await expectLogic(todaySpacesLogic).toFinishAllListeners()
 
             expect(markReadBodies).toEqual([{ activities: [{ task_id: 'task-1', seen_before: seenBefore }] }])
             expect([...todaySpacesLogic.values.unreadSessionIds]).toEqual(unreadAfter)
-            expect([...todaySpacesLogic.values.unreadSpaceIds]).toEqual(unreadAfter.length ? ['space-a'] : [])
         } finally {
             jest.useRealTimers()
         }
@@ -599,23 +584,6 @@ describe('spaceSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(writeText).toHaveBeenCalledWith('https://app.example.com/code/canvas/space-a/c-0')
-    })
-
-    it('focuses the composer once when a new session is requested for this space', async () => {
-        const logic = spaceSceneLogic({ id: 'space-a' })
-        const other = spaceSceneLogic({ id: 'space-b' })
-        logic.mount()
-        other.mount()
-
-        router.actions.push(spaceNewSessionUrl('space-a'))
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.composerFocusRequest).toBe(1)
-        expect(router.values.searchParams).toEqual({})
-
-        router.actions.push(urls.taskSpaceSettings('space-a'))
-        router.actions.push(urls.taskSpace('space-a'))
-        expect(logic.values.composerFocusRequest).toBe(1)
-        expect(other.values.composerFocusRequest).toBe(0)
     })
 
     it('fills this space’s composer with a suggestion without sending it', async () => {

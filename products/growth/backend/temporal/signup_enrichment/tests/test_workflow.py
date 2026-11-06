@@ -1,7 +1,5 @@
 import uuid
-import asyncio
 import datetime as dt
-from pathlib import Path
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -9,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import WorkflowExecutionStatus, WorkflowHistory
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.dataclasses import frozen
 
@@ -31,9 +29,6 @@ _TASK_QUEUE = "signup-enrichment-test-queue"
 _EVALUATED_AT = dt.datetime(2026, 9, 14, 12, 0, tzinfo=dt.UTC)
 _RECHECK_ID = f"signup-enrichment-recheck-{_INPUTS.organization_id}"
 _TEST_RECHECK_DELAY = dt.timedelta(milliseconds=100)
-# An execution that took the un-patched path, where the recheck is a timer and a second activity
-# in this same workflow, recorded against a mocked activity.
-_PRE_CHILD_HISTORY = Path(__file__).parent / "signup_enrichment_pre_recheck_child_history.json"
 
 
 @frozen
@@ -214,30 +209,22 @@ async def test_a_second_signup_dispatch_keeps_its_first_leg_while_a_recheck_is_p
     assert enrich.await_count == 2
 
 
-async def test_recheck_skips_deleted_organization():
-    """The 4h recheck must not enrich or emit for an org deleted during the delay."""
+@pytest.mark.parametrize(
+    "domain,org_exists,skip_key",
+    [("gone.dev", False, "org_deleted"), ("proton.me", True, "not_work_email")],
+)
+async def test_recheck_skips_without_enriching_or_emitting(domain, org_exists, skip_key):
     inputs = SignupEnrichmentInputs(
-        organization_id="00000000-0000-0000-0000-00000000dead", distinct_id="d1", domain="gone.dev"
+        organization_id="00000000-0000-0000-0000-00000000dead", distinct_id="d1", domain=domain
     )
     with (
         patch(f"{_MODULE}.enrich_organization") as enrich_mock,
         patch(f"{_MODULE}.get_regional_ph_client") as client_mock,
         patch("posthog.models.Organization.objects") as org_objects,
     ):
-        org_objects.filter.return_value.exists.return_value = False
+        org_objects.filter.return_value.exists.return_value = org_exists
         result = await enrich_signup_organization_activity(inputs, is_recheck=True)
-    assert result["org_deleted"] is True
+    assert result[skip_key] is True
     assert result["matched"] is False
     enrich_mock.assert_not_called()
     client_mock.assert_not_called()
-
-
-async def test_history_recorded_before_the_recheck_child_still_replays():
-    history = WorkflowHistory.from_json(
-        "signup-enrichment-org-1", await asyncio.to_thread(_PRE_CHILD_HISTORY.read_text)
-    )
-
-    await Replayer(
-        workflows=[SignupEnrichmentWorkflow, SignupEnrichmentRecheckWorkflow],
-        workflow_runner=UnsandboxedWorkflowRunner(),
-    ).replay_workflow(history)

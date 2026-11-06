@@ -47,9 +47,12 @@ class _FakePgConn:
         denied_creates: frozenset[str] = frozenset(),
         denied_drops: frozenset[str] = frozenset(),
         denied_deletes: frozenset[str] = frozenset(),
+        locked_tables: frozenset[str] = frozenset(),
     ) -> None:
         self.partitions = partitions if partitions is not None else {}
         self.default_rows = default_rows if default_rows is not None else {}
+        self.locked_tables = locked_tables
+        self.create_attempts: list[str] = []
         self.denied_creates = denied_creates
         self.denied_drops = denied_drops
         self.denied_deletes = denied_deletes
@@ -73,6 +76,9 @@ class _FakePgConn:
         elif sql.startswith("CREATE TABLE IF NOT EXISTS "):
             tokens = sql.split()
             partition_name, table = tokens[5], tokens[8]
+            self.create_attempts.append(partition_name)
+            if table in self.locked_tables:
+                raise psycopg.errors.LockNotAvailable("canceling statement due to lock timeout")
             if partition_name in self.denied_creates:
                 raise psycopg.errors.InsufficientPrivilege(f"must be owner of table {table}")
             if partition_name not in self.partitions.setdefault(table, []):
@@ -296,6 +302,28 @@ async def test_activity_runs_queue_database_statements_on_a_pool_thread(activity
 
 
 @pytest.mark.asyncio
+async def test_activity_skips_a_locked_table_and_finishes_the_rest_of_the_run(activity_environment) -> None:
+    conn = _FakePgConn(
+        {"sourcebatchstatus": [f"sourcebatchstatus_{_day(-9)}"]}, locked_tables=frozenset({"sourcebatch"})
+    )
+
+    with (
+        patch.object(activities_module.psycopg.Connection, "connect", return_value=conn),
+        patch.object(activities_module, "PARTITION_DDL_RETRY_DELAY_SECONDS", 0),
+        time_machine.travel(datetime.combine(ALERT_TODAY, datetime.min.time(), tzinfo=UTC), tick=False),
+    ):
+        result = await activity_environment.run(manage_warehouse_sources_queue_partitions)
+
+    first_sourcebatch = f"sourcebatch_{_day(0)}"
+    assert [p for p in conn.create_attempts if p.startswith("sourcebatch_")] == [
+        first_sourcebatch
+    ] * activities_module.PARTITION_DDL_ATTEMPTS
+    assert result["errors"] == [f"Failed to create {first_sourcebatch}: canceling statement due to lock timeout"]
+    assert sum(p.startswith("sourcebatchstatus_") for p in result["ensured"]) == activities_module.PARTITIONS_AHEAD
+    assert result["dropped"] == [f"sourcebatchstatus_{_day(-9)}"]
+
+
+@pytest.mark.asyncio
 async def test_activity_keeps_partition_when_terminalization_fails(activity_environment) -> None:
     partitions = {
         "sourcebatch": [OLD_BATCH_PART, OLD_BATCH_PART_2],
@@ -411,6 +439,42 @@ def test_expire_default_partition_rows_deletes_only_rows_older_than_cutoff_in_ba
     assert remaining == [100, 101]
 
 
+@pytest.mark.django_db
+def test_partition_ddl_gives_up_on_a_held_lock_and_resets_lock_timeout() -> None:
+    table = f"lock_test_{uuid4().hex[:12]}"
+    create_partition = (
+        f"CREATE TABLE IF NOT EXISTS {table}_20261002 PARTITION OF {table} "
+        "FOR VALUES FROM ('2026-10-02') TO ('2026-10-03')"
+    )
+
+    with (
+        psycopg.Connection.connect(_test_database_conninfo(), autocommit=True) as conn,
+        psycopg.Connection.connect(_test_database_conninfo()) as reader,
+    ):
+        try:
+            conn.execute(f"CREATE TABLE {table} (id int, created_at timestamptz) PARTITION BY RANGE (created_at)")
+            conn.execute("SET statement_timeout = '10s'")
+            reader.execute(f"SELECT * FROM {table}")
+
+            with (
+                patch.object(activities_module, "PARTITION_DDL_LOCK_TIMEOUT", "50ms"),
+                patch.object(activities_module, "PARTITION_DDL_RETRY_DELAY_SECONDS", 0),
+                pytest.raises(psycopg.errors.LockNotAvailable),
+            ):
+                activities_module._execute_partition_ddl(conn, create_partition)
+
+            row = conn.execute("SHOW lock_timeout").fetchone()
+            reader.rollback()
+            activities_module._execute_partition_ddl(conn, create_partition)
+            partitions = activities_module._list_partitions(conn, table)
+        finally:
+            reader.rollback()
+            conn.execute(f"DROP TABLE IF EXISTS {table}")
+
+    assert row == ("0",)
+    assert partitions == [f"{table}_20261002"]
+
+
 def _connect_refused(*args: Any, **kwargs: Any) -> None:
     del args, kwargs
     raise psycopg.OperationalError("connection refused")
@@ -443,3 +507,47 @@ async def test_connect_failure_keeps_database_url_out_of_traceback_locals() -> N
 
     hits = _frames_holding(exc_info.value.__traceback__, _SECRET)
     assert hits == []
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "existing_options, expect_alter",
+    [
+        ("", True),
+        ("autovacuum_vacuum_scale_factor = 0.02, autovacuum_analyze_scale_factor = 0.02", True),
+        (", ".join(activities_module._PARTITION_AUTOVACUUM_OPTIONS), False),
+    ],
+)
+def test_tune_partition_autovacuum_sets_options_once(existing_options: str, expect_alter: bool) -> None:
+    table = f"autovacuum_test_{uuid4().hex[:12]}"
+    partition = f"{table}_20261002"
+    errors: list[str] = []
+
+    with psycopg.Connection.connect(_test_database_conninfo(), autocommit=True) as conn:
+        try:
+            conn.execute(f"CREATE TABLE {table} (id int, created_at timestamptz) PARTITION BY RANGE (created_at)")
+            conn.execute(
+                f"CREATE TABLE {partition} PARTITION OF {table} FOR VALUES FROM ('2026-10-02') TO ('2026-10-03')"
+            )
+            if existing_options:
+                conn.execute(f"ALTER TABLE {partition} SET ({existing_options})")
+
+            statements: list[str] = []
+            real_execute = conn.execute
+
+            def recording_execute(query: Any, *args: Any, **kwargs: Any) -> Any:
+                statements.append(str(query))
+                return real_execute(query, *args, **kwargs)
+
+            with patch.object(conn, "execute", side_effect=recording_execute):
+                activities_module._tune_partition_autovacuum(conn, partition, errors)
+
+            row = conn.execute("SELECT reloptions FROM pg_class WHERE oid = %s::regclass", [partition]).fetchone()
+            assert row is not None
+            options = row[0]
+        finally:
+            conn.execute(f"DROP TABLE IF EXISTS {table}")
+
+    assert errors == []
+    assert set(options) >= set(activities_module._PARTITION_AUTOVACUUM_OPTIONS)
+    assert any(statement.startswith("ALTER TABLE") for statement in statements) is expect_alter

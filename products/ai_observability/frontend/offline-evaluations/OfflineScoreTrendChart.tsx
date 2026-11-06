@@ -1,18 +1,30 @@
 import type { BuiltLogic } from 'kea'
 import { useMemo } from 'react'
 
-import { ScatterChart, TooltipFooter, TooltipSurface, TooltipSwatch } from '@posthog/quill-charts'
+import { ReferenceLine, ScatterChart, TooltipFooter, TooltipSurface, TooltipSwatch } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
 
 import type { OfflineHistoryPointApi } from '../generated/api.schemas'
+import { ScorerLabel } from '../scoreDefinitions/ScorerLabel'
 import type { offlineExperimentsLogicType } from './offlineExperimentsLogic'
+import {
+    OFFLINE_HISTORY_BREAKDOWN_LABELS,
+    offlineBreakdownValueLabel,
+    type OfflineHistoryBreakdown,
+} from './offlineHistoryBreakdown'
 import { createOfflineScoreTrendTickFormatter } from './offlineScoreTrendAxis'
 import { OfflineScoreTrendCrosshair } from './OfflineScoreTrendCrosshair'
 import { OfflineScoreTrendLines } from './OfflineScoreTrendLines'
-import { buildOfflineTrendPanels, formatOfflineNumericScore, type OfflineTrendPeriod } from './offlineScoreTrends'
+import {
+    buildOfflineTrendPanels,
+    formatOfflineNumericScore,
+    formatOfflinePercentage,
+    offlineScorePassingRuleLabel,
+    type OfflineTrendPeriod,
+} from './offlineScoreTrends'
 
 export interface OfflineScoreTrendChartProps {
     periods: OfflineTrendPeriod[]
@@ -22,6 +34,9 @@ export interface OfflineScoreTrendChartProps {
     colorOffset?: number
     hoverLogic?: BuiltLogic<offlineExperimentsLogicType>
     xDomain?: [number, number]
+    showHeading?: boolean
+    combineVersions?: boolean
+    breakdown?: OfflineHistoryBreakdown
 }
 
 export function OfflineScoreTrendChart({
@@ -32,6 +47,9 @@ export function OfflineScoreTrendChart({
     colorOffset = 0,
     hoverLogic,
     xDomain,
+    showHeading = true,
+    combineVersions = false,
+    breakdown,
 }: OfflineScoreTrendChartProps): JSX.Element {
     const baseTheme = useChartTheme()
     const theme = useMemo(
@@ -45,7 +63,7 @@ export function OfflineScoreTrendChart({
     )
     const panels = useMemo(
         () =>
-            buildOfflineTrendPanels(periods).map((panel) => {
+            buildOfflineTrendPanels(periods, combineVersions, breakdown).map((panel) => {
                 const domain = !panel.elapsed && xDomain ? xDomain : panel.xDomain
                 return {
                     ...panel,
@@ -53,7 +71,7 @@ export function OfflineScoreTrendChart({
                     tickFormatter: createOfflineScoreTrendTickFormatter(domain, panel.elapsed, timezone),
                 }
             }),
-        [periods, xDomain, timezone]
+        [periods, xDomain, timezone, combineVersions, breakdown]
     )
 
     if (panels.length === 0) {
@@ -64,7 +82,14 @@ export function OfflineScoreTrendChart({
         <div className="space-y-4 min-w-0">
             {panels.map((panel) => (
                 <div key={panel.key} className="min-w-0">
-                    <div className="text-xs text-muted mb-2">{panel.label}</div>
+                    {showHeading && (
+                        <div className="text-xs text-muted mb-2 flex flex-wrap gap-x-2 gap-y-1">
+                            <span>{panel.label}</span>
+                            {panel.passingRule && (
+                                <span>{`Score passes ${panel.passingRule.operator === 'gte' ? 'at or above' : 'at or below'} ${panel.passingRule.threshold}`}</span>
+                            )}
+                        </div>
+                    )}
                     {panel.series.some((series) => series.points.length > 0) ? (
                         <div className={cn(heightClassName, 'min-w-0 flex flex-col')}>
                             <ScatterChart
@@ -81,7 +106,7 @@ export function OfflineScoreTrendChart({
                                         domain: panel.yDomain,
                                         tickFormatter: (value) =>
                                             panel.percentage
-                                                ? `${(value * 100).toFixed(0)}%`
+                                                ? formatOfflinePercentage(value)
                                                 : formatOfflineNumericScore(value),
                                     },
                                     legend: { show: true },
@@ -103,17 +128,34 @@ export function OfflineScoreTrendChart({
                                             <div className="mt-2 pt-2 border-t border-current/25">
                                                 <div className="flex items-center gap-2 font-medium">
                                                     <TooltipSwatch color={point.color} />
-                                                    <span className="break-words">{`${summary.scorer.name} · v${summary.scorer.version}`}</span>
+                                                    <ScorerLabel scorer={summary.scorer} />
                                                 </div>
                                                 <div className="flex items-baseline justify-between gap-4 mt-1">
                                                     <span className="opacity-70">{meta.metric}</span>
                                                     <strong className="text-lg tabular-nums">
                                                         {meta.percentage
-                                                            ? `${formatOfflineNumericScore(point.y * 100)}%`
-                                                            : formatOfflineNumericScore(point.y)}
+                                                            ? formatOfflinePercentage(point.y)
+                                                            : String(point.y)}
                                                     </strong>
                                                 </div>
+                                                {breakdown && (
+                                                    <div className="opacity-70">{`${OFFLINE_HISTORY_BREAKDOWN_LABELS[breakdown]}: ${offlineBreakdownValueLabel(meta.point.breakdown_value, breakdown)}`}</div>
+                                                )}
                                                 {periods.length > 1 && <div className="opacity-70">{meta.period}</div>}
+                                                {offlineScorePassingRuleLabel(summary.scorer) && (
+                                                    <div className="opacity-70 mt-1">
+                                                        {offlineScorePassingRuleLabel(summary.scorer)}
+                                                    </div>
+                                                )}
+                                                {summary.pass_count != null && summary.fail_count != null && (
+                                                    <div className="mt-1">
+                                                        {summary.pass_rate != null &&
+                                                            summary.scorer.kind !== 'boolean' && (
+                                                                <div>{`${formatOfflinePercentage(summary.pass_rate)} pass rate`}</div>
+                                                            )}
+                                                        <div>{`${summary.pass_count} passed · ${summary.fail_count} failed`}</div>
+                                                    </div>
+                                                )}
                                             </div>
                                             <div className="mt-2 pt-2 border-t border-current/25">
                                                 <div className="font-medium mb-1">Result coverage</div>
@@ -140,7 +182,7 @@ export function OfflineScoreTrendChart({
                                                         ['Upload state', experiment.status],
                                                         ['Suite', experiment.suite_key],
                                                         ['Application', experiment.application_version],
-                                                        ['Model', experiment.model_version],
+                                                        ['Experiment model', experiment.model_version],
                                                         ['Prompt', experiment.prompt_version],
                                                         ['Dataset revision', experiment.dataset_revision_identifier],
                                                     ]
@@ -158,6 +200,31 @@ export function OfflineScoreTrendChart({
                                     )
                                 }}
                             >
+                                {panel.passingRule && (
+                                    <>
+                                        <ReferenceLine
+                                            value={panel.passingRule.threshold}
+                                            fillSide={panel.passingRule.operator === 'gte' ? 'below' : 'above'}
+                                            style={{
+                                                width: 0,
+                                                fillColor: 'var(--color-text-error)',
+                                                fillOpacity: 0.035,
+                                            }}
+                                            showValueOnHover={false}
+                                        />
+                                        <ReferenceLine
+                                            value={panel.passingRule.threshold}
+                                            label={`${panel.passingRule.operator === 'gte' ? '≥' : '≤'} ${panel.passingRule.threshold}`}
+                                            fillSide={panel.passingRule.operator === 'gte' ? 'above' : 'below'}
+                                            style={{
+                                                color: 'var(--color-text-success)',
+                                                width: 1,
+                                                fillOpacity: 0.035,
+                                            }}
+                                            showValueOnHover={false}
+                                        />
+                                    </>
+                                )}
                                 <OfflineScoreTrendLines />
                                 {hoverLogic && panel.xDomain && (
                                     <OfflineScoreTrendCrosshair logic={hoverLogic} xDomain={panel.xDomain} />

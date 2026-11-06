@@ -23,9 +23,6 @@ describe('billing alert form server errors', () => {
                 enabled: true,
                 metric: 'projected_spend',
                 thresholdValue: 100,
-                minimumValue: 0,
-                evaluationDelayHours: 6,
-                cooldownHours: 24,
             },
             [
                 {

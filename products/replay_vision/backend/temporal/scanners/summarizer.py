@@ -13,8 +13,6 @@ from products.replay_vision.backend.temporal.scanners.base import (
     Segment,
     confidence_field,
     key_moment_field,
-    notability_field,
-    notability_reason_field,
     strip_citation_markers,
     thumbnail_field,
 )
@@ -24,8 +22,8 @@ SummaryLength = Literal["short", "medium", "long"]
 
 _LENGTH_GUIDANCE: dict[SummaryLength, str] = {
     "short": "1-2 sentences",
-    "medium": "1 paragraph",
-    "long": "3-5 paragraphs",
+    "medium": "4-6 sentences in two short paragraphs separated by a blank line",
+    "long": "3-5 short paragraphs separated by blank lines",
 }
 
 
@@ -127,8 +125,6 @@ class SummarizerSummaryResponse(BaseModel, frozen=True):
             "burst of rage clicks) its own short chapter so it can be jumped to directly."
         ),
     )
-    notability_reason: str | None = notability_reason_field()
-    notability: float | None = notability_field()
     confidence: float = confidence_field()
     key_moment_t: int | None = key_moment_field()
     thumbnail_t: int | None = thumbnail_field()
@@ -220,7 +216,7 @@ class SummarizerScanner(BaseScanner, frozen=True):
     output_cls: ClassVar[type[BaseScannerOutput]] = SummarizerOutput
     length: SummaryLength = "medium"
     chapter_target: int = MIN_CHAPTER_TARGET
-    session_fields: ClassVar[frozenset[str]] = frozenset({"chapter_target"})
+    session_fields: ClassVar[frozenset[str]] = BaseScanner.session_fields | {"chapter_target"}
 
     @property
     def llm_response_schema(self) -> type[BaseModel]:

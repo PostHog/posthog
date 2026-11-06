@@ -1,18 +1,17 @@
 from __future__ import annotations
 
+import abc
 import json
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, Protocol, Self
 
 import pyarrow as pa
 
-ManagementMode = Literal["posthog", "self_managed"]
+from posthog.dataclasses import frozen
 
-# How a source's change events reach the loader. `legacy`: capture transforms and dispatches them
-# itself. `buffered`: capture only writes the S3 buffer, and the normal scheduled sync consumes it.
-IngestMode = Literal["legacy", "buffered"]
+ManagementMode = Literal["posthog", "self_managed"]
 
 
 class CDCJobInputsUnreadableError(Exception):
@@ -20,9 +19,8 @@ class CDCJobInputsUnreadableError(Exception):
 
     Non-retryable: the stored value replays identically on every read.
 
-    Raised instead of reading the settings as absent, because a source whose stored mode cannot be
-    read would then route onto the lane it was never flipped to, and a buffer nothing consumes
-    looks the same as an idle one.
+    Raised instead of reading the settings as absent, because every setting would then fall back to
+    its default, the slot name included.
     """
 
 
@@ -49,29 +47,42 @@ def decode_job_inputs(job_inputs: Mapping[str, Any] | str | None) -> Mapping[str
     return decoded
 
 
-def parse_ingest_mode(job_inputs: Mapping[str, Any] | str | None) -> IngestMode:
-    """An unrecognized value reads as legacy: it must not route a source onto a path it was never
-    flipped to. Raises ``CDCJobInputsUnreadableError`` when there is no value to read at all."""
-    return "buffered" if decode_job_inputs(job_inputs).get("cdc_ingest_mode") == "buffered" else "legacy"
-
-
 @dataclass(frozen=True)
-class CDCConfig:
+class CDCConfig(abc.ABC):
     """Base class for engine-specific CDC configs returned by ``parse_cdc_config``.
 
-    Holds fields that apply to any change-stream engine (slot/publication-style
-    identifiers, lag thresholds, management policy). Engine adapters return their
-    own subclasses (e.g. ``PostgresCDCConfig``) and add engine-specific fields.
+    Holds fields that apply to any change-stream engine (lag thresholds, management
+    policy). Engine adapters return their own subclasses (e.g. ``PostgresCDCConfig``)
+    and add the engine's stream identifiers.
     """
 
     enabled: bool
-    slot_name: str
-    publication_name: str
     management_mode: ManagementMode
     lag_warning_threshold_mb: int
     lag_critical_threshold_mb: int
     auto_drop_slot: bool
-    ingest_mode: IngestMode
+
+    @property
+    @abc.abstractmethod
+    def stream_name(self) -> str:
+        """Name of the engine-side change stream capture reads (PG: the replication slot), for logs
+        and messages. Empty when the source stores none, which capture refuses to read."""
+
+    @property
+    @abc.abstractmethod
+    def stream_resources_configured(self) -> bool:
+        """Whether the config names every engine-side resource PostHog may drop (PG: a slot and a
+        publication). The orphan sweeper skips a source without them."""
+
+
+@frozen
+class CDCLag:
+    """How far capture is behind the source's change stream."""
+
+    behind_bytes: int
+    # Engine cap on retained backlog in MB (PG: max_slot_wal_keep_size). None when unlimited or
+    # unknown. Past the cap the engine discards the stream itself, so safety nets act below it.
+    retention_cap_mb: int | None
 
 
 class CDCPosition(Protocol):
@@ -124,7 +135,19 @@ class CDCStreamReader(Protocol):
 
     def connect(self) -> None: ...
 
-    def read_changes(self) -> Iterator[ChangeEvent]: ...
+    def read_changes(
+        self, upto_nchanges: int | None = None, on_row: Callable[[], None] | None = None
+    ) -> Iterator[ChangeEvent]:
+        """Yield changes in commit order, stopping at the first transaction boundary at or past
+        ``upto_nchanges`` changes. ``on_row`` runs once per change consumed, including changes that
+        yield no event."""
+        ...
+
+    @property
+    def last_rows_consumed(self) -> int:
+        """Changes consumed by the last ``read_changes`` call. Reaching ``upto_nchanges`` means the
+        stream may hold more."""
+        ...
 
     def confirm_position(self, position: str) -> None: ...
 
@@ -144,6 +167,9 @@ class CDCStreamReader(Protocol):
     def clear_truncated_tables(self) -> None: ...
 
     @property
-    def last_commit_end_lsn(self) -> str | None: ...
+    def last_commit_position(self) -> str | None:
+        """Serialized position just past the last transaction read, including one with no row
+        events (a TRUNCATE alone). Confirming it moves the stream past everything read."""
+        ...
 
     def close(self) -> None: ...

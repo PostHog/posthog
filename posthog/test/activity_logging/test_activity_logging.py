@@ -1,17 +1,20 @@
 import hmac
+import json
 import time
 import hashlib
 from datetime import timedelta
+from typing import Any
 from uuid import UUID
 
 import pytest
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.db import transaction
 from django.db.utils import IntegrityError
 from django.http import HttpRequest
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -37,6 +40,7 @@ from posthog.models.activity_logging.activity_log import (
     ActivityLog,
     Change,
     Detail,
+    LogActivityEntry,
     Trigger,
     bulk_log_activity,
     log_activity,
@@ -58,6 +62,13 @@ from posthog.test.api_keys import create_project_secret_api_key
 
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.exports.backend.models.exported_asset import ExportedAsset
+
+
+class _UserReadsFromReplicaRouter:
+    """Sends user reads to an alias that does not exist, which fails any read that is not pinned to the writer."""
+
+    def db_for_read(self, model: type, **hints: Any) -> str | None:
+        return "unavailable_replica" if model is User else None
 
 
 class TestActivityLogModel(BaseTest):
@@ -104,6 +115,38 @@ class TestActivityLogModel(BaseTest):
         )
         log: ActivityLog = ActivityLog.objects.latest("id")
         self.assertEqual(log.activity, "added_to_clink_expander")
+
+    @parameterized.expand(
+        [
+            ("small_detail_is_sent_unchanged", "x" * 100, False),
+            ("oversized_detail_drops_change_values", "x" * (2 * 1024 * 1024), True),
+        ]
+    )
+    def test_internal_event_detail_stays_under_kafka_limit(self, _name: str, after: str, truncated: bool) -> None:
+        change = Change(type="FeatureFlag", field="filters", action="changed", before=None, after=after)
+        with (
+            patch("products.cdp.backend.internal_events.produce_internal_event") as mock_produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id=6,
+                scope="FeatureFlag",
+                activity="updated",
+                detail=Detail(name="my flag", changes=[change]),
+            )
+
+        properties = mock_produce.call_args.kwargs["event"].properties
+        assert len(json.dumps(properties).encode("utf-8")) < 1024 * 1024
+        assert properties["detail"]["name"] == "my flag"
+        assert properties.get("detail_truncated", False) is truncated
+        expected_change: dict[str, Any] = {"type": "FeatureFlag", "action": "changed", "field": "filters"}
+        if not truncated:
+            expected_change.update(before=None, after=after)
+        assert properties["detail"]["changes"] == [expected_change]
 
     def test_client_is_populated_from_activity_storage(self) -> None:
         activity_storage.set_client("posthog-js/1.234.0")
@@ -422,6 +465,49 @@ class TestActivityLogModel(BaseTest):
             warning = mock_logger.warn.call_args
             self.assertEqual(warning.args[0], "activity_log.failed_to_write_to_activity_log")
             self.assertIsInstance(warning.kwargs["exception"], IntegrityError)
+
+    @parameterized.expand(
+        [
+            ("single_live_user", "single", None),
+            ("single_same_instance_deleted", "single", "same"),
+            ("single_other_instance_deleted", "single", "other"),
+            ("bulk_live_user", "bulk", None),
+            ("bulk_same_instance_deleted", "bulk", "same"),
+            ("bulk_other_instance_deleted", "bulk", "other"),
+        ]
+    )
+    def test_deferred_write_keeps_only_a_user_that_still_exists(
+        self, _name: str, path: str, deleted_instance: str | None
+    ) -> None:
+        user = User.objects.create_and_join(self.organization, "actor@example.com", None)
+        user_id = user.pk
+        entry: LogActivityEntry = {
+            "organization_id": self.organization.id,
+            "team_id": self.team.id,
+            "user": user,
+            "was_impersonated": False,
+            "item_id": "12345",
+            "scope": "PersonalAPIKey",
+            "activity": "deleted",
+            "detail": Detail(),
+        }
+
+        with self.settings(ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True):
+            with self.captureOnCommitCallbacks() as callbacks:
+                if path == "single":
+                    log_activity(**entry)
+                else:
+                    bulk_log_activity([entry])
+                if deleted_instance is not None:
+                    (user if deleted_instance == "same" else User.objects.get(pk=user_id)).delete()
+
+            with self.settings(DATABASE_ROUTERS=[_UserReadsFromReplicaRouter(), *settings.DATABASE_ROUTERS]):
+                for callback in callbacks:
+                    callback()
+
+        row = ActivityLog.objects.get(team_id=self.team.id, scope="PersonalAPIKey", item_id="12345")
+        expected_user_id = None if deleted_instance is not None else user_id
+        assert (row.user_id, row.is_system) == (expected_user_id, False)
 
     def test_strict_write_failure_escapes_active_transaction(self) -> None:
         with self.settings(TEST=False, ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True):
@@ -752,7 +838,7 @@ class TestActivityLogVisibilityManager(BaseTest):
         self.assertEqual(filtered.count(), 4)
 
 
-class TestActivityTriggerContext(BaseTest):
+class TestActivityTriggerContext(SimpleTestCase):
     def tearDown(self):
         activity_storage.clear_trigger()
         super().tearDown()

@@ -14,6 +14,10 @@ A failed coverage query also returns `ready=False`; an empty result accompanied 
 Sessions lasting more than one day, including 49-hour sessions, remain supported by the cache.
 
 Results are snapshots subject to the configured freshness schedule.
+Freshness bands use UTC dates to match the daily job windows, independently of the project timezone.
+The current UTC day has a two-hour TTL, the previous two UTC days have a one-day TTL, and older windows have a 90-day TTL subject to the settling boundary.
+Freshness checks also apply these bands to existing jobs, including jobs stored with a longer expiry.
+These TTLs determine when a job needs renewal; the writer schedule determines when that renewal completes.
 A start-day window settles three days after it ends, matching the maximum supported session duration.
 Snapshots computed before that point expire at the settling boundary even when their stored TTL is longer, so a later first pageview cannot leave the window empty for 90 days.
 Before settlement, the normal freshness schedule still applies; session dimensions are not updated on every event.

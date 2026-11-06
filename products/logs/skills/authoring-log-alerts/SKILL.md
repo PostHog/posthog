@@ -113,7 +113,7 @@ for the reasoning:
 | `window_minutes`      | `5`                                         | Allowed: 5, 10, 15, 30, 60. Must match what you passed to the script. |
 | `evaluation_periods`  | `3`                                         | M in N-of-M.                                                          |
 | `datapoints_to_alarm` | `2`                                         | N in N-of-M. 2-of-3 reduces flap from a single noisy bucket.          |
-| `cooldown_minutes`    | `30`                                        | Minimum time between repeat fires.                                    |
+| `cooldown_minutes`    | `30`                                        | Minimum time between notifications (fire or resolve).                 |
 
 Call `posthog:logs-alerts-simulate-create` with these settings and `date_from: "-7d"`. The response gives you `fire_count`
 and `resolve_count`.

@@ -30,6 +30,7 @@ from posthog.schema import (
     MarketingIntegrationConfig10,
     MarketingIntegrationConfig11,
     MarketingIntegrationConfig12,
+    MarketingIntegrationConfig13,
     MetaAdsConversionFallbackActionTypes,
     MetaAdsConversionOmniActionTypes,
     MetaAdsConversionSpecificActionTypes,
@@ -44,6 +45,7 @@ from posthog.schema import (
     SnapchatAdsConversionValueFields,
     SnapchatAdsDefaultSources,
     TikTokAdsDefaultSources,
+    TwitterAdsDefaultSources,
     WebAnalyticsItemKind,
 )
 
@@ -500,8 +502,11 @@ MARKETING_ANALYTICS_SCHEMA = {
 # Valid native marketing sources - derived from generated enum
 VALID_NATIVE_MARKETING_SOURCES = [source.value for source in NativeMarketingSource]
 
-# Valid non-native marketing sources (managed external sources like BigQuery)
-VALID_NON_NATIVE_MARKETING_SOURCES = ["BigQuery"]
+# Managed sources that import spend data from files: a storage bucket or an uploaded file.
+VALID_FILE_MARKETING_SOURCES = ["AmazonS3", "GoogleCloudStorage", "AzureBlob", "CloudflareR2", "FileUpload"]
+
+# Valid non-native marketing sources (managed external sources that need a column mapping)
+VALID_NON_NATIVE_MARKETING_SOURCES = ["BigQuery", *VALID_FILE_MARKETING_SOURCES]
 
 # Valid self-managed marketing sources (mirrors frontend types)
 VALID_SELF_MANAGED_MARKETING_SOURCES = ["aws", "google-cloud", "cloudflare-r2", "azure"]
@@ -512,6 +517,7 @@ _ALL_CONFIG_MODELS: list[type[BaseModel]] = [
     MarketingIntegrationConfig10,
     MarketingIntegrationConfig11,
     MarketingIntegrationConfig12,
+    MarketingIntegrationConfig13,
     MarketingIntegrationConfig2,
     MarketingIntegrationConfig3,
     MarketingIntegrationConfig4,
@@ -553,6 +559,7 @@ _DEFAULT_SOURCES_ENUMS = {
     NativeMarketingSource.APPLE_SEARCH_ADS: AppleSearchAdsDefaultSources,
     NativeMarketingSource.OPEN_AI_ADS: OpenAIAdsDefaultSources,
     NativeMarketingSource.ROKT_ADS: RoktAdsDefaultSources,
+    NativeMarketingSource.TWITTER_ADS: TwitterAdsDefaultSources,
     NativeMarketingSource.GOOGLE_ADS: GoogleAdsDefaultSources,
     NativeMarketingSource.LINKEDIN_ADS: LinkedinAdsDefaultSources,
     NativeMarketingSource.META_ADS: MetaAdsDefaultSources,

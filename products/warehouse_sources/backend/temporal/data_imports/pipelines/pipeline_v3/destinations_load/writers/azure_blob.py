@@ -25,10 +25,9 @@ Connection handling comes from batch exports' Azure Blob destination:
 `AzureBlobConsumer` itself is not used, even though it touches no Temporal metric meter and so
 would run outside an activity. Its `consume_chunk` accumulates the whole file in a `bytearray`
 before uploading, which is the memory behavior this writer exists to avoid. Instead the parquet
-is streamed a record batch at a time through `ParquetStreamTransformer`, whose
-`write_record_batch` and `finish_parquet_file` are pure, and handed to `upload_blob` as an
-async iterator. The SDK reads it in `max_block_size` blocks, so peak memory is one record batch
-plus a few blocks rather than ~200 MiB of Arrow and two copies of its parquet.
+is streamed a row group at a time through `ParquetStreamTransformer.iter`, and handed to
+`upload_blob` as an async iterator. The SDK reads it in `max_block_size` blocks, so peak memory
+is one row group plus a few blocks rather than ~200 MiB of Arrow and two copies of its parquet.
 """
 
 from __future__ import annotations
@@ -51,6 +50,7 @@ from posthog.models.integration.azure_blob import EndpointNotAllowedError, valid
 
 from products.batch_exports.backend.facade.destinations.azure_blob import (
     AZURE_BLOB_SUPPORTED_COMPRESSIONS,
+    AzureBlobIntegrationNotFoundError,
     MalformedConnectionStringError,
     get_azure_blob_integration,
     is_authorization_failure_response_error,
@@ -60,6 +60,10 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.contr
     BatchWriteOutcome,
     DestinationBatchContext,
     DestinationRunContext,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    MISSING_INTEGRATION_DETAIL,
+    DestinationConfigurationError,
 )
 
 ParquetCompression = Literal["gzip", "brotli", "lz4", "zstd", "snappy", "none"]
@@ -78,35 +82,21 @@ MAX_BLOCK_SIZE = 4 * 1024 * 1024
 READ_TIMEOUT_SECONDS = 600
 
 
-class AzureBlobDestinationConfigurationError(ValueError):
-    """The destination's config cannot produce a valid blob write."""
+def container_not_found_detail(container: str) -> str:
+    # Containers are not created here, so this is the customer's to fix.
+    return (
+        f"The container '{container}' does not exist in this storage account. "
+        "Create it, or point the destination at an existing container, then run the sync again."
+    )
 
 
-class ContainerNotFoundError(Exception):
-    """Raised when the configured container does not exist.
-
-    Containers are not created here, so this is the customer's to fix.
-    """
-
-    def __init__(self, container: str) -> None:
-        super().__init__(
-            f"The container '{container}' does not exist in this storage account. "
-            "Create it, or point the destination at an existing container, then run the sync again."
-        )
-
-
-class MissingContainerPermissionsError(Exception):
-    """Raised when the connection string cannot write to the container.
-
-    Batch exports' own `MissingRequiredPermissionsError` says "batch export", which reads
-    wrong on a sync. Only the classifier behind it is shared.
-    """
-
-    def __init__(self, container: str) -> None:
-        super().__init__(
-            f"These credentials cannot write to the container '{container}'. "
-            "Give the connection string write access to it, then run the sync again."
-        )
+def missing_container_permissions_detail(container: str) -> str:
+    # Batch exports' own `MissingRequiredPermissionsError` says "batch export", which reads
+    # wrong on a sync. Only the classifier behind it is shared.
+    return (
+        f"These credentials cannot write to the container '{container}'. "
+        "Give the connection string write access to it, then run the sync again."
+    )
 
 
 @dataclass(frozen=False, kw_only=True)
@@ -120,29 +110,24 @@ class _WriteStats:
 async def _parquet_byte_stream(
     batches: AsyncIterator[pa.RecordBatch], compression: str | None, stats: _WriteStats
 ) -> AsyncIterator[bytes]:
-    """Yield the parquet encoding of `batches`, one record batch at a time.
+    """Yield the parquet encoding of `batches` as one file, one row group at a time.
 
-    `write_record_batch` returns only the bytes the writer produced for that batch and resets
-    its buffer, so nothing accumulates. The pyarrow write runs in a thread to keep the event
-    loop free for the upload it is feeding.
+    The transformer holds record batches until they fill a row group, so at most one row group
+    of Arrow data is in memory. A batch that later grows a column is projected back onto the
+    first schema, because one parquet file has one schema.
     """
-    transformer = ParquetStreamTransformer(compression=compression, include_inserted_at=True)
+    # Delivery runs outside a Temporal activity, where there is no metric meter to record to.
+    transformer = ParquetStreamTransformer(compression=compression, include_inserted_at=True, record_metrics=False)
 
+    async for chunk in transformer.iter(_count_rows(batches, stats)):
+        stats.parquet_bytes += len(chunk.data)
+        yield chunk.data
+
+
+async def _count_rows(batches: AsyncIterator[pa.RecordBatch], stats: _WriteStats) -> AsyncIterator[pa.RecordBatch]:
     async for record_batch in batches:
-        # No-op after the first batch. A batch that later grows a column is projected back onto
-        # the first schema, because one parquet file has one schema.
-        transformer.schema = record_batch.schema
-
-        chunk = await asyncio.to_thread(transformer.write_record_batch, record_batch)
         stats.rows += record_batch.num_rows
-        stats.parquet_bytes += len(chunk)
-        if chunk:
-            yield chunk
-
-    footer = await asyncio.to_thread(transformer.finish_parquet_file)
-    stats.parquet_bytes += len(footer)
-    if footer:
-        yield footer
+        yield record_batch
 
 
 async def _chain(head: pa.RecordBatch, rest: AsyncIterator[pa.RecordBatch]) -> AsyncIterator[pa.RecordBatch]:
@@ -176,14 +161,15 @@ class AzureBlobDestinationWriter:
         name = self._ctx.destination_name
 
         if not self._container:
-            raise AzureBlobDestinationConfigurationError(
-                f"Destination {name} has no container. Add a container to the destination, then run the sync again."
+            raise DestinationConfigurationError(
+                name, "The destination has no container. Add a container to the destination, then run the sync again."
             )
         if self._compression not in SUPPORTED_COMPRESSIONS:
             supported = ", ".join(sorted(SUPPORTED_COMPRESSIONS))
-            raise AzureBlobDestinationConfigurationError(
-                f"Destination {name} uses the compression '{self._compression}', which parquet files cannot use. "
-                f"Pick one of: {supported}."
+            raise DestinationConfigurationError(
+                name,
+                f"The destination uses the compression '{self._compression}', which parquet files cannot use. "
+                f"Pick one of: {supported}.",
             )
 
     # --- names ------------------------------------------------------------------------
@@ -206,10 +192,14 @@ class AzureBlobDestinationWriter:
 
         A writer is built per batch, so a client left open here leaks a session per batch.
         """
+        name = self._ctx.destination_name
         if self._ctx.integration_id is None:
-            raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
+            raise DestinationConfigurationError(name, MISSING_INTEGRATION_DETAIL)
 
-        integration = await get_azure_blob_integration(self._ctx.integration_id, self._ctx.team_id)
+        try:
+            integration = await get_azure_blob_integration(self._ctx.integration_id, self._ctx.team_id)
+        except AzureBlobIntegrationNotFoundError as err:
+            raise DestinationConfigurationError(name, MISSING_INTEGRATION_DETAIL) from err
 
         try:
             await asyncio.to_thread(validate_azure_blob_connection_string, integration.connection_string)
@@ -221,10 +211,10 @@ class AzureBlobDestinationWriter:
                 retry_policy=ExponentialRetry(initial_backoff=15, increment_base=3, retry_total=3),
                 permit_redirects=False,
             )
-        except EndpointNotAllowedError:
-            raise
-        except ValueError:
-            raise MalformedConnectionStringError()
+        except EndpointNotAllowedError as err:
+            raise DestinationConfigurationError(name, str(err)) from err
+        except ValueError as err:
+            raise DestinationConfigurationError(name, str(MalformedConnectionStringError())) from err
 
         async with service:
             yield service.get_container_client(self._container)
@@ -234,11 +224,15 @@ class AzureBlobDestinationWriter:
         blob = container.get_blob_client(name)
         try:
             await blob.upload_blob(data, overwrite=True, max_concurrency=self._max_concurrency)
-        except ResourceNotFoundError:
-            raise ContainerNotFoundError(self._container)
+        except ResourceNotFoundError as err:
+            raise DestinationConfigurationError(
+                self._ctx.destination_name, container_not_found_detail(self._container)
+            ) from err
         except HttpResponseError as err:
             if is_authorization_failure_response_error(err):
-                raise MissingContainerPermissionsError(self._container)
+                raise DestinationConfigurationError(
+                    self._ctx.destination_name, missing_container_permissions_detail(self._container)
+                ) from err
             raise
 
     # --- writer protocol ----------------------------------------------------------------

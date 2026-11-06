@@ -1,6 +1,10 @@
 import { CyclotronJobInputSchemaType, CyclotronJobInputType } from '~/types'
 
-import { CyclotronJobInputsValidation, TEMPLATING_MISMATCH_WARNINGS } from './CyclotronJobInputsValidation'
+import {
+    CyclotronJobInputsValidation,
+    MISSING_INTEGRATION_ERROR,
+    TEMPLATING_MISMATCH_WARNINGS,
+} from './CyclotronJobInputsValidation'
 
 describe('CyclotronJobInputsValidation', () => {
     describe('validate', () => {
@@ -148,6 +152,24 @@ describe('CyclotronJobInputsValidation', () => {
 
                 expect(result.valid).toBe(false)
                 expect(result.errors.integration).toBe('Value must be an Integration ID')
+            })
+
+            it.each([
+                ['the integration was deleted', [{ id: 2 }], MISSING_INTEGRATION_ERROR],
+                ['the integration exists', [{ id: 1 }, { id: 2 }], undefined],
+                ['integrations have not loaded', null, undefined],
+            ])('flags a missing integration only when %s', (_name, integrations, expected) => {
+                const schema: CyclotronJobInputSchemaType[] = [
+                    { key: 'integration', type: 'integration', label: 'Integration' },
+                ]
+
+                const result = CyclotronJobInputsValidation.validate(
+                    { integration: { value: 1 } },
+                    schema,
+                    integrations
+                )
+
+                expect(result.errors.integration).toBe(expected)
             })
         })
 

@@ -11,12 +11,16 @@ aggregate, and write back as in production.
 import gzip
 import json
 import uuid
+import asyncio
+from datetime import timedelta
+from threading import Event
 from typing import Any
 
 import pytest
 from unittest.mock import patch
 
 from asgiref.sync import sync_to_async
+from pydantic import TypeAdapter
 
 from posthog.models import Organization, Team
 from posthog.storage import object_storage
@@ -26,6 +30,10 @@ from posthog.temporal.usage_report.activities import aggregate_and_chunk_org_rep
 from posthog.temporal.usage_report.queries import QUERIES, QUERY_INDEX
 from posthog.temporal.usage_report.storage import queries_key, write_json
 from posthog.temporal.usage_report.types import AggregateInputs, RunQueryToS3Result, WorkflowContext
+from posthog.usage_counters import UsageCounter, UsageCounterMode, UsageCounterPlan, UsageCounterReport
+from posthog.utils import DayRange
+
+from products.ai_observability.backend.models.offline_evaluations import OfflineEvaluationUsageLedger
 
 
 @sync_to_async
@@ -74,9 +82,11 @@ def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int, *extr
             "ruby_events": [],
             "python_events": [(team_a_id, 3)],
             "php_events": [],
+            "laravel_events": [(team_a_id, 5)],
             "dotnet_events": [],
             "elixir_events": [],
             "unity_events": [],
+            "roblox_events": [],
             "rust_events": [],
         }
     if query_name == "exceptions_captured":
@@ -209,6 +219,19 @@ async def test_aggregate_writes_chunks_and_manifest(minio_workflow_ctx: Workflow
     # pre-seeded orgs that would otherwise inflate the manifest counts.
     ctx = minio_workflow_ctx.model_copy(update={"organization_ids": [str(org_a.id), str(org_b.id)]})
     query_results = _seed_query_results(ctx, team_a.id, team_b.id)
+    write_json(queries_key(ctx, "teams_with_ai_event_count_in_period"), [[team_a.id, 50]])
+    await sync_to_async(OfflineEvaluationUsageLedger.objects.for_team(team_a.id).bulk_create)(
+        [
+            OfflineEvaluationUsageLedger(
+                team_id=team_a.id,
+                organization_id=org_a.id,
+                experiment_id=uuid.uuid4(),
+                accepted_at=ctx.period_start,
+                quantity=quantity,
+            )
+            for quantity in (20, 10)
+        ]
+    )
 
     with patch(
         "posthog.temporal.usage_report.activities.get_instance_metadata",
@@ -240,11 +263,18 @@ async def test_aggregate_writes_chunks_and_manifest(minio_workflow_ctx: Workflow
     assert len(rows) == 2
     by_org = {row["organization_id"]: row["usage_report"] for row in rows}
     assert set(by_org.keys()) == {str(org_a.id), str(org_b.id)}
+    assert by_org[str(org_a.id)]["ai_ingested_event_count_in_period"] == 50
+    assert by_org[str(org_a.id)]["ai_offline_eval_metric_count_in_period"] == 30
+    assert by_org[str(org_a.id)]["ai_event_count_in_period"] == 80
+    assert by_org[str(org_a.id)]["teams"][str(team_a.id)]["ai_event_count_in_period"] == 80
 
     # multi-key fan-out: web events from `all_event_metrics` landed in the
     # destination key on each org's report.
     assert by_org[str(org_a.id)]["web_events_count_in_period"] == 7
     assert by_org[str(org_b.id)]["web_events_count_in_period"] == 11
+    assert by_org[str(org_a.id)]["laravel_events_count_in_period"] == 5
+    assert by_org[str(org_a.id)]["teams"][str(team_a.id)]["laravel_events_count_in_period"] == 5
+    assert by_org[str(org_b.id)]["laravel_events_count_in_period"] == 0
     assert by_org[str(org_a.id)]["mcp_tool_call_events_count_in_period"] == 2
     assert by_org[str(org_b.id)]["mcp_tool_call_events_count_in_period"] == 3
 
@@ -280,6 +310,46 @@ async def test_aggregate_writes_chunks_and_manifest(minio_workflow_ctx: Workflow
 
     # team breakdown is present and matches.
     assert by_org[str(org_a.id)]["teams"][str(team_a.id)]["event_count_in_period"] == 100
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_aggregate_completes_while_thread_sensitive_executor_is_busy(
+    minio_workflow_ctx: WorkflowContext, activity_environment
+) -> None:
+    org_a = await _make_org("Org A")
+    org_b = await _make_org("Org B")
+    team_a = await _make_team(org_a, "Team A")
+    team_b = await _make_team(org_b, "Team B")
+    ctx = minio_workflow_ctx.model_copy(update={"organization_ids": [str(org_a.id), str(org_b.id)]})
+    query_results = _seed_query_results(ctx, team_a.id, team_b.id)
+
+    started = asyncio.Event()
+    release = Event()
+    loop = asyncio.get_running_loop()
+
+    def occupy_shared_thread() -> None:
+        loop.call_soon_threadsafe(started.set)
+        release.wait()
+
+    blocker = asyncio.create_task(sync_to_async(occupy_shared_thread)())
+    try:
+        await asyncio.wait_for(started.wait(), timeout=10)
+        with patch(
+            "posthog.temporal.usage_report.activities.get_instance_metadata",
+            return_value=_instance_metadata(),
+        ):
+            result = await asyncio.wait_for(
+                activity_environment.run(
+                    aggregate_and_chunk_org_reports,
+                    AggregateInputs(ctx=ctx, query_results=query_results),
+                ),
+                timeout=30,
+            )
+        assert result.total_orgs == 2
+    finally:
+        release.set()
+        await blocker
 
 
 @pytest.mark.django_db(transaction=True)
@@ -400,6 +470,13 @@ async def test_aggregate_filters_by_organization_ids(minio_workflow_ctx: Workflo
 
     ctx = minio_workflow_ctx.model_copy(update={"organization_ids": [str(org_a.id)]})
     query_results = _seed_query_results(ctx, team_a.id, team_b.id)
+    await sync_to_async(OfflineEvaluationUsageLedger.objects.for_team(team_b.id).create)(
+        team_id=team_b.id,
+        organization_id=org_b.id,
+        experiment_id=uuid.uuid4(),
+        accepted_at=ctx.period_start,
+        quantity=7,
+    )
 
     with patch(
         "posthog.temporal.usage_report.activities.get_instance_metadata",
@@ -413,3 +490,53 @@ async def test_aggregate_filters_by_organization_ids(minio_workflow_ctx: Workflo
     assert result.total_orgs == 1
     rows = _read_jsonl_gz(result.chunk_keys[0])
     assert {row["organization_id"] for row in rows} == {str(org_a.id)}
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@pytest.mark.parametrize("version", ["old_queries", "old_counter_plan", "new_counter_plan"])
+async def test_aggregate_accepts_saved_inputs_before_signals_spend(
+    minio_workflow_ctx: WorkflowContext, activity_environment, version: str
+) -> None:
+    org = await _make_org("Historical usage")
+    team = await _make_team(org, "Team")
+    ctx = minio_workflow_ctx.model_copy(update={"organization_ids": [str(org.id)]})
+    query_results = _seed_query_results(ctx, team.id, -1)
+    query_results = [
+        result for result in query_results if result.query_name != UsageCounter.SIGNALS_SPEND_CREDITS.value
+    ]
+    counter_result = None
+    expected_spend = 0
+    if version != "old_queries":
+        modes = {UsageCounter.EVENTS: UsageCounterMode.LEGACY}
+        counts = {UsageCounter.EVENTS.value: [(team.id, 100)]}
+        if version == "new_counter_plan":
+            modes[UsageCounter.SIGNALS_SPEND_CREDITS] = UsageCounterMode.LEGACY
+            counts[UsageCounter.SIGNALS_SPEND_CREDITS.value] = [(team.id, 17)]
+            expected_spend = 17
+        ctx.usage_counter_plan = UsageCounterPlan(
+            period=DayRange(start=ctx.period_start, end=ctx.period_end + timedelta(microseconds=1)),
+            caller="usage_reports_v2",
+            modes=modes,
+            complete=True,
+        )
+        query_results = [
+            result for result in query_results if result.query_name not in ctx.usage_counter_plan.query_names
+        ]
+        key = queries_key(ctx, "usage_counters")
+        write_json(key, TypeAdapter(UsageCounterReport).dump_python(UsageCounterReport(counts=counts), mode="json"))
+        counter_result = RunQueryToS3Result(query_name="usage_counters", s3_key=key, duration_ms=1)
+
+    with patch("posthog.temporal.usage_report.activities.get_instance_metadata", return_value=_instance_metadata()):
+        result = await activity_environment.run(
+            aggregate_and_chunk_org_reports,
+            AggregateInputs(ctx=ctx, query_results=query_results, counter_result=counter_result),
+        )
+
+    assert _read_json(result.manifest_key)["total_orgs"] == 1
+    rows = _read_jsonl_gz(result.chunk_keys[0])
+    assert len(rows) == 1
+    report = rows[0]["usage_report"]
+    assert report["event_count_in_period"] == 100
+    assert report["signals_spend_credits_used_in_period"] == expected_spend
+    assert report["teams"][str(team.id)]["signals_spend_credits_used_in_period"] == expected_spend

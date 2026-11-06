@@ -116,6 +116,18 @@ fn crypto_and_encoding_known_answers() {
 }
 
 #[test]
+fn hogql_sha1_returns_lowercase_hex_or_null() {
+    for (input, expected) in [
+        ("abc", "a9993e364706816aba3e25717850c26c9cd0d89d"),
+        ("", "da39a3ee5e6b4b0d3255bfef95601890afd80709"),
+        ("🦔", "b1495135295ac36752f6579e93ba02140604590f"),
+    ] {
+        assert_eq!(call_str("sha1", input), json!(expected));
+    }
+    assert_eq!(run(call("sha1", &[vec![json!(31)]])), Value::Null);
+}
+
+#[test]
 fn hmac_sha1_matches_rfc_2202_vectors() {
     // RFC 2202 HMAC-SHA1 test vectors. A two-element chain is a plain HMAC of key and message, so
     // these pin the sha1 dependency and the chain wiring to the standard answers.
@@ -179,6 +191,31 @@ fn hmac_sha1_chain_rekeys_and_encodes() {
     assert_eq!(
         run(call("sha1HmacChain", &[data()])),
         run(call("sha1HmacChainHex", &[data()]))
+    );
+}
+
+#[test]
+fn hmac_sha256_base64_key_matches_svix() {
+    // Known answer from the Svix webhook verification docs. The key decodes to bytes that are not
+    // valid UTF-8, so this fails if the key is read as a string.
+    let key = || str_lit("MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw");
+    let payload = || str_lit("msg_p5jXN8AQM9LWM0D4loKWxJek.1614265330.{\"test\": 2432232314}");
+    assert_eq!(
+        run(call(
+            "sha256HmacBase64Key",
+            &[key(), payload(), str_lit("base64")]
+        )),
+        json!("g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=")
+    );
+    assert_eq!(
+        run(call(
+            "sha256HmacBase64Key",
+            &[str_lit("YWI"), str_lit("data")]
+        )),
+        run(call(
+            "sha256HmacBase64Key",
+            &[str_lit("YWI="), str_lit("data")]
+        ))
     );
 }
 

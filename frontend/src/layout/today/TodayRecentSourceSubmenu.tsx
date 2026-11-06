@@ -1,7 +1,8 @@
-import { DropdownMenuCheckboxItem, DropdownMenuSeparator } from '@posthog/quill'
+import { DropdownMenuCheckboxItem, DropdownMenuSeparator, ItemCheckbox, filterSummary } from '@posthog/quill'
 
 import { recentSourceLabel } from './todayRecentFilters'
 import { TodayRecentFilterSubmenu } from './TodayRecentFilterSubmenu'
+import { useTodaySheetMenu } from './todaySheetMenuContext'
 
 interface TodayRecentSourceSubmenuProps {
     /** The sources kept. An empty list keeps every source. */
@@ -13,10 +14,7 @@ interface TodayRecentSourceSubmenuProps {
 }
 
 function sourcesLabel(sources: string[]): string {
-    if (!sources.length) {
-        return 'Any source'
-    }
-    return sources.length > 2 ? `${sources.length} sources` : sources.map(recentSourceLabel).join(', ')
+    return filterSummary(sources.map(recentSourceLabel), 'Any source', 'sources')
 }
 
 export function TodayRecentSourceSubmenu({
@@ -25,6 +23,35 @@ export function TodayRecentSourceSubmenu({
     onChange,
     dataAttr,
 }: TodayRecentSourceSubmenuProps): JSX.Element {
+    const sheet = useTodaySheetMenu()
+    const toggle = (source: string, checked: boolean): void =>
+        onChange(checked ? [...selected, source] : selected.filter((kept) => kept !== source))
+    if (sheet) {
+        return (
+            <TodayRecentFilterSubmenu label="Source" value={sourcesLabel(selected)} narrowed={selected.length > 0}>
+                <ItemCheckbox
+                    className="text-base"
+                    aria-checked={!selected.length}
+                    onClick={() => onChange([])}
+                    data-attr={`${dataAttr}-any`}
+                >
+                    Any source
+                </ItemCheckbox>
+                <div role="separator" className="my-1 border-t border-border" />
+                {options.map((source) => (
+                    <ItemCheckbox
+                        key={source}
+                        className="text-base"
+                        aria-checked={selected.includes(source)}
+                        onClick={() => toggle(source, !selected.includes(source))}
+                        data-attr={dataAttr}
+                    >
+                        {recentSourceLabel(source)}
+                    </ItemCheckbox>
+                ))}
+            </TodayRecentFilterSubmenu>
+        )
+    }
     return (
         <TodayRecentFilterSubmenu label="Source" value={sourcesLabel(selected)} narrowed={selected.length > 0}>
             <DropdownMenuCheckboxItem
@@ -41,9 +68,7 @@ export function TodayRecentSourceSubmenu({
                     key={source}
                     checked={selected.includes(source)}
                     closeOnClick={false}
-                    onCheckedChange={(checked) =>
-                        onChange(checked ? [...selected, source] : selected.filter((kept) => kept !== source))
-                    }
+                    onCheckedChange={(checked) => toggle(source, checked)}
                     data-attr={dataAttr}
                 >
                     {recentSourceLabel(source)}

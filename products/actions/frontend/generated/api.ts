@@ -10,7 +10,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ActionApi,
+    ActionListResponseApi,
     ActionReferenceApi,
+    ActionSelectorMatchChangeApi,
     ActionsBulkUpdateTagsCreateParams,
     ActionsCreateParams,
     ActionsDestroyParams,
@@ -18,10 +20,10 @@ import type {
     ActionsPartialUpdateParams,
     ActionsReferencesListParams,
     ActionsRetrieveParams,
+    ActionsSelectorMatchChangesListParams,
     ActionsUpdateParams,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
-    PaginatedActionListApi,
     PatchedActionApi,
 } from './api.schemas'
 
@@ -62,8 +64,8 @@ export const actionsList = async (
     projectId: string,
     params?: ActionsListParams,
     options?: RequestInit
-): Promise<PaginatedActionListApi> => {
-    return apiMutator<PaginatedActionListApi>(getActionsListUrl(projectId, params), {
+): Promise<ActionListResponseApi> => {
+    return apiMutator<ActionListResponseApi>(getActionsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -294,5 +296,35 @@ export const actionsBulkUpdateTagsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(bulkUpdateTagsRequestApi),
+    })
+}
+
+export const getActionsSelectorMatchChangesListUrl = (
+    projectId: string,
+    params: ActionsSelectorMatchChangesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/actions/selector_match_changes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/actions/selector_match_changes/`
+}
+
+export const actionsSelectorMatchChangesList = async (
+    projectId: string,
+    params: ActionsSelectorMatchChangesListParams,
+    options?: RequestInit
+): Promise<ActionSelectorMatchChangeApi[]> => {
+    return apiMutator<ActionSelectorMatchChangeApi[]>(getActionsSelectorMatchChangesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }

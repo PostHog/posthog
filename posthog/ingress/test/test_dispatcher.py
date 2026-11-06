@@ -1,4 +1,5 @@
 import time
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -8,6 +9,7 @@ from django.core.cache import caches
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+from structlog.testing import capture_logs
 
 from posthog.ingress.contracts import (
     DeliveryOwnership,
@@ -16,10 +18,16 @@ from posthog.ingress.contracts import (
     WebhookConsumer,
     WebhookDelivery,
 )
-from posthog.ingress.dispatch.budget import DEFAULT_DELIVERY_BUDGET_SECONDS, DeliveryBudget, delivery_budget_seconds
+from posthog.ingress.dispatch.budget import (
+    BEFORE_DISPATCH,
+    DEFAULT_DELIVERY_BUDGET_SECONDS,
+    DeliveryBudget,
+    delivery_budget_seconds,
+)
 from posthog.ingress.dispatch.dedup import (
     INGRESS_DEDUP_CACHE_ALIAS,
     DeliveryClaim,
+    DeliveryClaimResult,
     DeliveryDedup,
     delivery_claim_lease_seconds,
 )
@@ -173,16 +181,26 @@ class TestWebhookDispatcher(SimpleTestCase):
             elapsed["seconds"] += 30.0
 
         skipped = Mock()
-        dispatcher = _dispatcher([_consumer("alpha", spend_the_budget), _consumer("zulu", skipped)], budget_seconds=8)
+        dispatcher = _dispatcher(
+            [_consumer("alpha", spend_the_budget), _consumer("yankee", skipped), _consumer("zulu", skipped)],
+            budget_seconds=8,
+        )
 
         with (
             patch("time.monotonic", lambda: elapsed["seconds"]),
             patch("posthog.ingress.dispatch.dispatcher.observe_consumer_run") as observe,
+            patch("posthog.ingress.dispatch.dispatcher.observe_budget_exhausted") as exhausted,
+            capture_logs() as logs,
         ):
             dispatched = dispatcher.dispatch(_delivery())
 
         skipped.assert_not_called()
-        self.assertEqual(dispatched.unaccepted_consumers, ("zulu",))
+        self.assertEqual(dispatched.unaccepted_consumers, ("yankee", "zulu"))
+        exhausted.assert_called_once_with(provider="github", consumer="alpha")
+        [warning] = [log for log in logs if log["event"] == "ingress_delivery_budget_exceeded"]
+        self.assertEqual(warning["skipped"], ["yankee", "zulu"])
+        self.assertEqual(warning["exhausted_by"], "alpha")
+        self.assertEqual(warning["elapsed_by_consumer"], {"alpha": 30.0})
         self.assertIn(
             {"provider": "github", "consumer": "zulu", "outcome": "budget_exceeded"},
             [call.kwargs for call in observe.call_args_list],
@@ -195,6 +213,57 @@ class TestWebhookDispatcher(SimpleTestCase):
         dispatcher_with_room.dispatch(_delivery())
         skipped.assert_called_once()
 
+    def test_exhaustion_is_charged_to_the_consumer_that_spent_most_not_the_last_to_run(self) -> None:
+        elapsed = {"seconds": 0.0}
+
+        def spend(seconds: float) -> Callable[[WebhookDelivery], None]:
+            def handler(delivery: WebhookDelivery) -> None:
+                elapsed["seconds"] += seconds
+
+            return handler
+
+        dispatcher = _dispatcher(
+            [_consumer("alpha", spend(7.5)), _consumer("bravo", spend(0.6)), _consumer("zulu", Mock())],
+            budget_seconds=8,
+        )
+
+        with (
+            patch("time.monotonic", lambda: elapsed["seconds"]),
+            patch("posthog.ingress.dispatch.dispatcher.observe_budget_exhausted") as exhausted,
+        ):
+            dispatcher.dispatch(_delivery())
+
+        exhausted.assert_called_once_with(provider="github", consumer="alpha")
+
+    def test_a_slow_dedup_claim_is_charged_to_its_own_consumer(self) -> None:
+        elapsed = {"seconds": 0.0}
+        real_claim = DeliveryDedup.claim
+
+        def slow_claim_for_bravo(dedup: DeliveryDedup, **kwargs: str) -> DeliveryClaimResult:
+            if kwargs["consumer"] == "bravo":
+                elapsed["seconds"] += 30.0
+                return DeliveryClaimResult(state=DeliveryClaim.DONE)
+            return real_claim(dedup, **kwargs)
+
+        skipped = Mock()
+        dispatcher = _dispatcher(
+            [_consumer("alpha", Mock()), _consumer("bravo", Mock()), _consumer("zulu", skipped)],
+            budget_seconds=8,
+        )
+
+        with (
+            patch("time.monotonic", lambda: elapsed["seconds"]),
+            patch.object(DeliveryDedup, "claim", autospec=True, side_effect=slow_claim_for_bravo),
+            patch("posthog.ingress.dispatch.dispatcher.observe_budget_exhausted") as exhausted,
+            capture_logs() as logs,
+        ):
+            dispatcher.dispatch(_delivery())
+
+        skipped.assert_not_called()
+        exhausted.assert_called_once_with(provider="github", consumer="bravo")
+        [warning] = [log for log in logs if log["event"] == "ingress_delivery_budget_exceeded"]
+        self.assertEqual(warning["elapsed_by_consumer"], {"alpha": 0.0, "bravo": 30.0})
+
     def test_a_budget_passed_in_spans_every_delivery_of_one_request(self) -> None:
         elapsed = {"seconds": 0.0}
 
@@ -204,12 +273,31 @@ class TestWebhookDispatcher(SimpleTestCase):
         second = Mock()
         dispatcher = _dispatcher([_consumer("alpha", spend_the_budget)])
 
-        with patch("time.monotonic", lambda: elapsed["seconds"]):
+        with (
+            patch("time.monotonic", lambda: elapsed["seconds"]),
+            patch("posthog.ingress.dispatch.dispatcher.observe_budget_exhausted") as exhausted,
+        ):
             budget = DeliveryBudget(8)
             dispatcher.dispatch(_delivery(delivery_id="delivery-1"), budget=budget)
-            _dispatcher([_consumer("alpha", second)]).dispatch(_delivery(delivery_id="delivery-2"), budget=budget)
+            _dispatcher([_consumer("bravo", second)]).dispatch(_delivery(delivery_id="delivery-2"), budget=budget)
 
         second.assert_not_called()
+        exhausted.assert_called_once_with(provider="github", consumer="alpha")
+
+    def test_a_budget_spent_before_any_consumer_ran_is_attributed_to_before_dispatch(self) -> None:
+        elapsed = {"seconds": 0.0}
+        skipped = Mock()
+
+        with (
+            patch("time.monotonic", lambda: elapsed["seconds"]),
+            patch("posthog.ingress.dispatch.dispatcher.observe_budget_exhausted") as exhausted,
+        ):
+            budget = DeliveryBudget(8)
+            elapsed["seconds"] = 30.0
+            _dispatcher([_consumer("alpha", skipped)]).dispatch(_delivery(), budget=budget)
+
+        skipped.assert_not_called()
+        exhausted.assert_called_once_with(provider="github", consumer=BEFORE_DISPATCH)
 
 
 @override_settings(CACHES=LOCMEM_CACHES)

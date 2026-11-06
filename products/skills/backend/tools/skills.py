@@ -11,6 +11,7 @@ from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
+from products.skills.backend.api.archive_guards import SkillArchiveRefused
 from products.skills.backend.api.skill_serializers import RESERVED_SKILL_NAMES, SPEC_DESCRIPTION_MAX_LENGTH
 from products.skills.backend.api.skill_services import (
     LLMSkillDescriptionTooLongError,
@@ -31,7 +32,7 @@ from products.skills.backend.api.skill_services import (
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 
 from ee.hogai.tool import MaxTool
-from ee.hogai.tool_errors import MaxToolFatalError
+from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 
 MAX_LIST_RESULTS = 50
 
@@ -484,14 +485,9 @@ class UpdateLLMSkillTool(MaxTool):
                 base_version=base_version,
                 version_description=(version_description or "").strip() or None,
             )
-        except (
-            LLMSkillNotFoundError,
-            LLMSkillVersionConflictError,
-            LLMSkillVersionLimitError,
-            LLMSkillFileLimitError,
-            LLMSkillDescriptionTooLongError,
-            LLMSkillEditError,
-        ) as err:
+        except (LLMSkillVersionConflictError, LLMSkillEditError, LLMSkillDescriptionTooLongError) as err:
+            raise MaxToolRetryableError(_publish_error_message(err, skill_name))
+        except (LLMSkillNotFoundError, LLMSkillVersionLimitError, LLMSkillFileLimitError) as err:
             raise MaxToolFatalError(_publish_error_message(err, skill_name))
 
         return f"Updated skill '{skill.name}' — new version v{skill.version}.", None
@@ -507,7 +503,9 @@ class ArchiveLLMSkillTool(MaxTool):
 
     async def _arun_impl(self, skill_name: str) -> tuple[str, None]:
         try:
-            versions = await database_sync_to_async(archive_skill)(self._team, skill_name)
+            versions = await database_sync_to_async(archive_skill)(self._team, skill_name, acting_user=self._user)
+        except SkillArchiveRefused as err:
+            raise MaxToolFatalError(str(err))
         except LLMSkillNotFoundError:
             raise MaxToolFatalError(
                 f"Skill '{skill_name}' was not found. Use `list_llm_skills` to discover available skills."

@@ -25,7 +25,7 @@ jobs:
 
         # Skipped on trunk-merge/** branches: merge-queue PRs are ephemeral, nothing
         # pulls images pushed for them, and each constituent PR already built its own.
-        if: github.repository_owner == 'PostHog' && !startsWith(github.head_ref, 'trunk-merge/')
+        if: github.repository_owner == 'PostHog' && !startsWith(github.head_ref, 'trunk-merge/') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
 
         permissions:
             contents: read
@@ -39,16 +39,16 @@ jobs:
         # master → livestream via the master role; everything else → livestream-prs via the prs role.
         env:
             ECR_IMAGE: ${{ github.ref == 'refs/heads/master' && 'livestream' || 'livestream-prs' }}
-            ECR_ROLE: ${{ github.ref == 'refs/heads/master' && vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE || vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
+            ECR_ROLE: ${{ github.ref == 'refs/heads/master' && secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE || secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
 
         steps:
             - name: Assert master publish role is configured
               if: github.ref == 'refs/heads/master'
               env:
-                  MASTER_ROLE: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  MASTER_ROLE: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
               run: |
                   if [[ -z "$MASTER_ROLE" ]]; then
-                    echo "::error::AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE is not set — refusing to fall back to the PRS role on master."
+                    echo "::error::AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE is not set — refusing to fall back to the PRS role on master."
                     exit 1
                   fi
 
@@ -122,6 +122,6 @@ jobs:
                         },
                         "release": "livestream",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }

@@ -24,6 +24,7 @@ concurrency:
 jobs:
     check-changesets:
         name: Check for CLI changesets
+        if: github.repository == 'PostHog/posthog'
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         outputs:
@@ -191,7 +192,7 @@ jobs:
               id: app-token
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_POSTHOG_CLI_RELEASER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_POSTHOG_CLI_RELEASER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_POSTHOG_CLI_RELEASER_PRIVATE_KEY }}
                   permission-contents: write
                   permission-pull-requests: write
@@ -378,13 +379,9 @@ jobs:
 
                   - The release workflow validates the generated changelog and package changes before it opens this pull request.
 
-                  ## Automatic notifications
-
-                  - [ ] Publish to changelog?
-
                   ## Docs update
 
-                  None.
+                  - None.
 
                   ## 🤖 Agent context
 
@@ -1175,7 +1172,7 @@ jobs:
               id: app-token
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_HOMEBREW_TAP_RELEASER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_HOMEBREW_TAP_RELEASER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_HOMEBREW_TAP_RELEASER_PRIVATE_KEY }}
                   owner: PostHog
                   repositories: homebrew-tap

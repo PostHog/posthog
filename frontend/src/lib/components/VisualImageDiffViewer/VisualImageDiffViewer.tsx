@@ -570,7 +570,7 @@ export function VisualImageDiffViewer({
             // Skip when the bbox coord space doesn't match the rendered
             // image (size-mismatch case).
             return (
-                <div className="flex flex-col gap-3 p-3 lg:flex-row lg:justify-center lg:items-start">
+                <div className="grid grid-cols-1 items-start justify-items-center gap-3 p-3 @md/image-diff:grid-cols-2">
                     <ImagePanel
                         url={baselineUrl}
                         label="Before"
@@ -847,7 +847,12 @@ export function VisualImageDiffViewer({
 
     return (
         <>
-            <section className={cn('overflow-hidden rounded-xl border bg-surface-primary shadow-sm', className)}>
+            <section
+                className={cn(
+                    '@container/image-diff w-full min-w-0 overflow-hidden rounded-xl border bg-surface-primary shadow-sm',
+                    className
+                )}
+            >
                 <div className="border-b bg-gradient-to-r from-bg-light via-bg-light to-bg-light/70 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-2">
@@ -884,7 +889,7 @@ export function VisualImageDiffViewer({
                                 <LemonSwitch checked={flicker} onChange={setFlicker} size="small" label="Flicker" />
                             )}
                             {mode === 'blend' && (
-                                <div className="flex min-w-60 flex-1 items-center gap-3">
+                                <div className="flex min-w-0 basis-60 flex-1 items-center gap-3">
                                     <span className="text-xs text-muted-foreground whitespace-nowrap">
                                         Before → After
                                     </span>
@@ -911,7 +916,7 @@ export function VisualImageDiffViewer({
                                     />
                                     <div
                                         className={cn(
-                                            'flex min-w-60 flex-1 items-center gap-3 transition-opacity',
+                                            'flex min-w-0 basis-60 flex-1 items-center gap-3 transition-opacity',
                                             showDiffOverlay ? 'opacity-100' : 'opacity-40 pointer-events-none'
                                         )}
                                         aria-hidden={!showDiffOverlay}

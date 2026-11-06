@@ -148,6 +148,8 @@ export type NodeWrapperProps<T extends CustomNotebookNodeAttributes> = Omit<Note
         /** Expand the node if the component is clicked */
         expandOnClick?: boolean
         unmountWhenOutOfView?: boolean
+        /** Mount the content only once it nears the viewport, and keep it mounted afterwards */
+        deferUntilInView?: boolean
         settingsPlacement?: NotebookNodeSettingsPlacement
         defaultView?: PostHogWidgetDefaultView
         views?: PostHogWidgetViews<T>

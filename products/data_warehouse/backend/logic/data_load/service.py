@@ -41,6 +41,7 @@ from posthog.temporal.common.schedule import (
     pause_schedule,
     schedule_exists,
     trigger_schedule,
+    trigger_schedule_buffer_one,
     unpause_schedule,
     update_schedule,
 )
@@ -160,12 +161,14 @@ def sync_external_data_job_workflow(
     create: bool = False,
     should_sync: bool = True,
     trigger_immediately: bool = True,
+    keep_paused: bool = False,
 ) -> ExternalDataSchema:
     """Create or update the schema's Temporal schedule.
 
     Runs fired through the schedule use its stored action, whose `billable` is always True,
     so callers that must not bill (e.g. admin recovery) pass trigger_immediately=False and
-    start their own ad-hoc run if one is needed.
+    start their own ad-hoc run if one is needed. `keep_paused` makes an update leave an existing
+    pause in place, whatever `should_sync` says.
     """
     temporal = sync_connect()
 
@@ -181,7 +184,7 @@ def sync_external_data_job_workflow(
             if trigger_immediately:
                 trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
     else:
-        update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
+        update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, keep_paused=keep_paused)
 
     return external_data_schema
 
@@ -212,9 +215,13 @@ def trigger_external_data_source_workflow(external_data_source: ExternalDataSour
     trigger_schedule(temporal, schedule_id=str(external_data_source.id))
 
 
-def trigger_external_data_workflow(external_data_schema: ExternalDataSchema):
+def trigger_external_data_workflow(external_data_schema: ExternalDataSchema, *, buffer_one: bool = False):
     temporal = sync_connect()
-    trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
+    if buffer_one:
+        # The schedule skips a trigger while a run is open, and a cancelled run stays open until it closes.
+        trigger_schedule_buffer_one(temporal, str(external_data_schema.id))
+    else:
+        trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
 
 
 async def a_trigger_external_data_workflow(external_data_schema: ExternalDataSchema):

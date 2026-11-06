@@ -20,9 +20,14 @@ import yaml
 import requests
 import structlog
 
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError, github_request
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationError
+
+# nosemgrep: integration-model-through-sdk (an unsaved row for the publisher adapter, never stored)
 from posthog.models.integration import GitHubIntegration, Integration
 
 from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
@@ -46,6 +51,9 @@ logger = structlog.get_logger(__name__)
 _EGRESS_SOURCE = "community_skills"
 
 MAX_SLUG_LENGTH = 64
+# Keep these aligned with PostHog/community-skills scripts/build_registry.py.
+MAX_COMMUNITY_FILE_BYTES = 256 * 1024
+MAX_COMMUNITY_SKILL_BYTES = 1024 * 1024
 # GitHub caps one create-tree request at 7 MB, and commit_files_to_branch inlines every file's
 # content in that single request, so a skill above the cap can only ever fail with a 502. Measured
 # against the escaped form the request actually carries, and held under the cap for the frontmatter,
@@ -420,11 +428,11 @@ def _encoded_payload_bytes(content: str) -> int:
 
 
 def _validate_entry_caps(*, body: str, files: list[dict[str, str]]) -> None:
-    """Hold a publish to ingest's own per-entry caps, which it measures on the stored bytes.
+    """Validate ingest limits and the catalog builder's smaller content limits.
 
-    These are `community_skill_sync._validate_entry_within_caps`, where breaching one drops the whole
-    entry: the pull request merges and the skill never appears in the catalog. The file count is
-    checked here rather than after rendering so an absurd manifest never gets rendered at all.
+    Ingest checks the store caps; community-skills scripts/build_registry.py also checks bundled
+    files and total embedded content. Check both before creating a public pull request that cannot
+    reach the catalog, and check file count before rendering the manifest.
     """
     if len(body.encode("utf-8")) > MAX_SKILL_BODY_BYTES:
         raise CommunitySkillPublishValidationError(
@@ -432,11 +440,26 @@ def _validate_entry_caps(*, body: str, files: list[dict[str, str]]) -> None:
         )
     if len(files) > MAX_SKILL_FILE_COUNT:
         raise CommunitySkillPublishValidationError(f"A skill can publish at most {MAX_SKILL_FILE_COUNT} files.")
+    # The catalog reads SKILL.md with universal newlines, then strips its body and excludes frontmatter.
+    total_bytes = len(body.replace("\r\n", "\n").replace("\r", "\n").strip().encode("utf-8"))
     for file in files:
-        if len(file["content"].encode("utf-8")) > MAX_SKILL_FILE_BYTES:
+        file_bytes = len(file["content"].encode("utf-8"))
+        if file_bytes > MAX_SKILL_FILE_BYTES:
             raise CommunitySkillPublishValidationError(
                 f"'{file['path']}' must be under {MAX_SKILL_FILE_BYTES // 1_000_000} MB."
             )
+        if file_bytes > MAX_COMMUNITY_FILE_BYTES:
+            raise CommunitySkillPublishValidationError(
+                f"'{file['path']}' exceeds the community catalog's {MAX_COMMUNITY_FILE_BYTES // 1024} KiB file limit. "
+                "Reduce the file size before publishing."
+            )
+        total_bytes += file_bytes
+    if total_bytes > MAX_COMMUNITY_SKILL_BYTES:
+        raise CommunitySkillPublishValidationError(
+            f"The skill body and bundled files exceed the community catalog's "
+            f"{MAX_COMMUNITY_SKILL_BYTES // (1024 * 1024)} MiB total limit. "
+            "Reduce their combined size before publishing."
+        )
 
 
 def _validate_publishable_tree_size(rendered: list[RenderedFile]) -> None:
@@ -504,8 +527,11 @@ def _publisher_app_jwt() -> str | None:
     cannot sign: a key GitHub would reject is a deployment nobody can retry their way out of, so it
     has to read as "this instance cannot publish" rather than as a GitHub outage.
     """
-    client_id = settings.COMMUNITY_SKILLS_GITHUB_APP_CLIENT_ID
-    private_key = settings.COMMUNITY_SKILLS_GITHUB_APP_PRIVATE_KEY
+    values = get_many_or_settings(
+        ["COMMUNITY_SKILLS_GITHUB_APP_CLIENT_ID", "COMMUNITY_SKILLS_GITHUB_APP_PRIVATE_KEY"], CredentialsCaller.SKILLS
+    )
+    client_id = values["COMMUNITY_SKILLS_GITHUB_APP_CLIENT_ID"]
+    private_key = values["COMMUNITY_SKILLS_GITHUB_APP_PRIVATE_KEY"]
     if not client_id or not private_key:
         return None
 
@@ -544,6 +570,7 @@ def _publisher_app_request(
         timeout=10,
         # requests omits the body entirely when json is None
         json=json_body,
+        priority=Priority.CRITICAL,
     )
 
 
@@ -620,7 +647,7 @@ def get_community_skills_publisher() -> GitHubIntegration | None:
         sensitive_config={"access_token": token},
     )
     # The same source as the App-JWT calls above, so every publish request lands under one label.
-    return _CommunitySkillsPublisher(integration, source=_EGRESS_SOURCE)
+    return _CommunitySkillsPublisher(integration, source=_EGRESS_SOURCE, priority=Priority.CRITICAL)
 
 
 def _community_pr_body(*, name: str, slug: str, author_handle: str) -> str:

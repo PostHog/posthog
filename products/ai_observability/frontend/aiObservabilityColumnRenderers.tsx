@@ -6,12 +6,14 @@ import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { hogql } from 'lib/utils/hogql'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, DataVisualizationNode } from '~/queries/schema/schema-general'
+import { isDataTableNode } from '~/queries/schema/node-guards'
+import { DataTableNode, VisualizationNode } from '~/queries/schema/schema-general'
 import { LLMTrace } from '~/queries/schema/schema-general'
 import { QueryContextColumn } from '~/queries/types'
-import { hogql, isDataTableNode, isEventsQuery } from '~/queries/utils'
+import { isEventsQuery } from '~/queries/utils'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { PersonDisplay, PersonIcon } from 'products/persons/frontend/components/PersonDisplay'
@@ -299,7 +301,7 @@ function AIOutputCell({ eventData }: { eventData: EventData }): JSX.Element {
     )
 }
 
-export const getEventData = (record: unknown, query?: DataTableNode | DataVisualizationNode): EventData | undefined => {
+export const getEventData = (record: unknown, query?: DataTableNode | VisualizationNode): EventData | undefined => {
     // Object format (TracesQuery results)
     if (record && typeof record === 'object' && !Array.isArray(record) && 'uuid' in record) {
         const uuid = record.uuid

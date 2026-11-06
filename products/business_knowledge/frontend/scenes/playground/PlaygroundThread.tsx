@@ -3,7 +3,8 @@ import { useEffect, useRef } from 'react'
 
 import { LemonBanner, LemonDivider } from '@posthog/lemon-ui'
 
-import { Composer, RunLogSkeleton, Welcome } from 'products/posthog_ai/frontend/api/primitives'
+import { Composer } from 'products/posthog_ai/frontend/api/composer'
+import { RunLogSkeleton, Welcome } from 'products/posthog_ai/frontend/api/primitives'
 
 import { businessKnowledgePlaygroundLogic } from './businessKnowledgePlaygroundLogic'
 import { PlaygroundTurn } from './PlaygroundTurn'

@@ -34,6 +34,7 @@ from products.canvas.backend.contract import (
     contract_limits,
     platform_dependencies,
 )
+from products.canvas.backend.mcp_tools import CANVAS_MCP_TOOL_ALLOWLIST, canvas_mcp_tool
 
 CANVAS_SOURCE_SCHEMA_VERSION = 1
 CANVAS_ENTRY_HTML = "index.html"
@@ -179,6 +180,7 @@ _PH_STATE_RE = re.compile(r"\bph\s*\.\s*state\s*\.")
 _PH_STATE_CALL_RE = re.compile(r"\bph\s*\.\s*state\s*\.\s*(get|set|list)\s*\(")
 _STATE_SCOPE_LITERAL_RE = re.compile(r"\bscope\s*:\s*[\"']([^\"']+)[\"']")
 _PH_ACTIONS_RE = re.compile(r"\bph\s*\.\s*actions\s*\.\s*invoke\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
+_PH_TOOLS_RE = re.compile(r"\bph\s*\.\s*tools\s*\.\s*(read|call)\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
 _PH_AGENT_REQUEST_RE = re.compile(r"\bph\s*\.\s*agent\s*\.\s*request\s*\(")
 _PH_CONNECTORS_CALL_RE = re.compile(
     r"\bph\s*\.\s*connectors\s*\.\s*call\s*\(\s*(?:[\"']([^\"']+)[\"']\s*(?:,\s*[\"']([^\"']+)[\"'])?)?"
@@ -529,6 +531,33 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
                 )
             )
 
+    declared_tool_names = set(posthog_capabilities.get("tools") or [])
+    for match in _PH_TOOLS_RE.finditer(code):
+        method, tool = match.group(1), match.group(2)
+        line = _line_of(code, match.start())
+        if tool is not None and tool not in declared_tool_names:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "capability_missing_tool",
+                    f'ph.tools.{method}("{tool}") requires "{tool}" in capabilities.posthog.tools. '
+                    "The host rejects undeclared tools at runtime.",
+                    path=path,
+                    line=line,
+                )
+            )
+        elif tool is None and not declared_tool_names:
+            diagnostics.append(
+                diagnostic(
+                    "warning",
+                    "capability_missing_tool",
+                    f"ph.tools.{method}() is called with a dynamic tool name but capabilities.posthog.tools is "
+                    "empty. Declare every tool the canvas runs.",
+                    path=path,
+                    line=line,
+                )
+            )
+
     for match in _PH_LOAD_INSIGHT_RE.finditer(code):
         short_id = match.group(1)
         line = _line_of(code, match.start())
@@ -778,6 +807,21 @@ def validate_source_project(project: dict[str, Any], *, kind: str = "freeform") 
                 + ", ".join(unregistered)
                 + " — registered verbs: "
                 + ", ".join(sorted(CANVAS_ACTIONS)),
+            )
+        )
+    declared_tools = (capabilities.get("posthog") or {}).get("tools") or []
+    disallowed_tools = sorted(
+        {str(tool) for tool in declared_tools if not isinstance(tool, str) or canvas_mcp_tool(tool) is None}
+    )
+    if disallowed_tools:
+        diagnostics.append(
+            diagnostic(
+                "error",
+                "tool_not_allowed",
+                "capabilities.posthog.tools declares tools canvases cannot run: "
+                + ", ".join(disallowed_tools)
+                + ". Allowed tools: "
+                + ", ".join(sorted(CANVAS_MCP_TOOL_ALLOWLIST)),
             )
         )
     diagnostics.extend(_validate_connector_declarations(capabilities.get("connectors") or []))

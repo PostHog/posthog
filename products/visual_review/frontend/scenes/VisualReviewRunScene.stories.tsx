@@ -173,7 +173,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-10',
-        pageUrl: `/visual_review/runs/${RUN_ID}`,
+        pageUrl: `/visual-review/repos/PostHog/posthog/runs/${RUN_ID}`,
         testOptions: { waitForSelector: '[data-attr="visual-review-add-images-to-comment"]' },
     },
     decorators: [
@@ -185,6 +185,7 @@ const meta: Meta = {
                 [`/api/projects/:team_id/visual_review/repos/${REPO_ID}/`]: repo,
                 [`/api/projects/:team_id/visual_review/repos/${REPO_ID}/quarantine/`]: emptyList,
                 [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/quarantine_lifts/`]: [],
+                '/api/projects/:team_id/visual_review/repos/': { ...emptyList, count: 1, results: [repo] },
             },
         }),
     ],
@@ -325,7 +326,7 @@ const cleanQuarantinedTooltip = snapshot({
 // A pull request that fixes a quarantined story asks for the quarantine to lift once it merges.
 export const QuarantinedSnapshotLiftsOnMerge: StoryObj = {
     parameters: {
-        pageUrl: `/visual_review/runs/${RUN_ID}#snapshot=snapshot-changed`,
+        pageUrl: `/visual-review/repos/PostHog/posthog/runs/${RUN_ID}#snapshot=snapshot-changed`,
         testOptions: { waitForSelector: '[data-attr="visual-review-lift-on-merge-pending"]' },
     },
     decorators: [
@@ -347,6 +348,94 @@ export const QuarantinedSnapshotLiftsOnMerge: StoryObj = {
             },
         }),
     ],
+}
+
+const cleanQuarantinedCard = snapshot({
+    ...cleanQuarantinedTooltip,
+    id: 'snapshot-card',
+    identifier: 'Components/Card--hover',
+    baseline_artifact: artifact('base_card'),
+    current_artifact: artifact('base_card'),
+})
+
+const cleanQuarantinedMenu = snapshot({
+    ...cleanQuarantinedTooltip,
+    id: 'snapshot-menu',
+    identifier: 'Components/Menu--open',
+    baseline_artifact: artifact('base_menu'),
+    current_artifact: artifact('base_menu'),
+})
+
+const cardQuarantine: QuarantinedIdentifierEntryApi = {
+    ...tooltipQuarantine,
+    id: 'quarantine-card',
+    identifier: cleanQuarantinedCard.identifier,
+    reason: 'Shadow renders a frame late',
+}
+
+const menuQuarantine: QuarantinedIdentifierEntryApi = {
+    ...tooltipQuarantine,
+    id: 'quarantine-menu',
+    identifier: cleanQuarantinedMenu.identifier,
+    reason: 'Opens at a random scroll position',
+}
+
+// The card request came from an earlier run that rendered another picture, so it would fail after the merge.
+const staleCardLift: QuarantineLiftEntryApi = {
+    ...pendingLift,
+    id: 'lift-card',
+    quarantine_id: cardQuarantine.id,
+    identifier: cardQuarantine.identifier,
+    expected_hash: 'older_card',
+}
+
+const tooltipLift: QuarantineLiftEntryApi = {
+    ...pendingLift,
+    id: 'lift-tooltip',
+    quarantine_id: tooltipQuarantine.id,
+    identifier: tooltipQuarantine.identifier,
+    expected_hash: 'base_tooltip',
+}
+
+// The footer link opens the quarantined stories that rendered clean, grouped by their lift requests.
+export const CleanQuarantinedStories: StoryObj = {
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="visual-review-clean-quarantined-select"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: snapshotsMock(snapshots, [
+                    cleanQuarantinedTooltip,
+                    cleanQuarantinedCard,
+                    cleanQuarantinedMenu,
+                ]),
+                [`/api/projects/:team_id/visual_review/repos/${REPO_ID}/quarantine/`]: {
+                    ...emptyList,
+                    count: 3,
+                    results: [tooltipQuarantine, cardQuarantine, menuQuarantine],
+                },
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/quarantine_lifts/`]: [tooltipLift, staleCardLift],
+            },
+        }),
+    ],
+    play: async () => {
+        const toggle = await waitFor(() => {
+            const element = document.querySelector<HTMLButtonElement>(
+                '[data-attr="visual-review-toggle-clean-quarantined"]'
+            )
+            if (!element) {
+                throw new Error('Clean quarantined toggle not yet rendered')
+            }
+            return element
+        })
+        await userEvent.click(toggle)
+        await waitFor(() => {
+            if (!document.querySelector('[data-attr="visual-review-clean-quarantined-select"]')) {
+                throw new Error('Clean quarantined list not yet rendered')
+            }
+        })
+    },
 }
 
 // A snapshot tolerated three times this month keeps changing. Clicking Tolerate offers a quarantine first.

@@ -10,6 +10,7 @@ from django.contrib.auth.models import Group
 from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 
 from bs4 import BeautifulSoup
@@ -813,6 +814,56 @@ class TestDataDeletionRequestAdminChangeFormScripts(BaseTest):
                 for field in ("events", "properties", "person_properties")
             },
         )
+
+    @parameterized.expand([("existing_team", True), ("deleted_team", False)])
+    def test_change_view_shows_team_and_organization(self, _name, team_exists):
+        team_id = self.team.id if team_exists else 999999
+        request = DataDeletionRequest.objects.create(
+            team_id=team_id,
+            request_type=RequestType.EVENT_REMOVAL,
+            events=["$pageview"],
+            start_time=datetime.now() - timedelta(days=7),
+            end_time=datetime.now(),
+        )
+
+        response = self.client.get(f"/admin/posthog/datadeletionrequest/{request.pk}/change/")
+
+        self.assertEqual(response.status_code, 200)
+        team_field = BeautifulSoup(response.content, "html.parser").select_one(".field-team_details .readonly")
+        assert team_field is not None
+        links = {a.get("href"): a.get_text() for a in team_field.select("a")}
+        if team_exists:
+            self.assertEqual(
+                links,
+                {
+                    reverse("admin:posthog_team_change", args=[self.team.id]): str(self.team.id),
+                    reverse("admin:posthog_organization_change", args=[self.organization.id]): str(
+                        self.organization.id
+                    ),
+                },
+            )
+            self.assertIn(self.team.name, team_field.get_text())
+            self.assertIn(self.organization.name, team_field.get_text())
+        else:
+            self.assertEqual(links, {})
+            self.assertIn(f"{team_id} (team not found)", team_field.get_text())
+
+    @parameterized.expand(
+        [
+            ("naive", "2025-01-08 08:12:00", ("2025-01-08", "08:12:00")),
+            ("iso_utc", "2025-01-08T08:12:00Z", ("2025-01-08", "08:12:00")),
+            ("other_offset", "2025-01-08T10:12:00+02:00", ("2025-01-08", "08:12:00")),
+            ("unparseable", "next tuesday", ("", "")),
+            ("invalid_date", "2025-13-45 08:12:00", ("", "")),
+        ]
+    )
+    def test_add_view_prefills_datetimes_from_query_string(self, _name, value, expected):
+        response = self.client.get("/admin/posthog/datadeletionrequest/add/", {"start_time": value})
+
+        self.assertEqual(response.status_code, 200)
+        soup = BeautifulSoup(response.content, "html.parser")
+        rendered = tuple(soup.select_one(f"input[name=start_time_{i}]").get("value", "") for i in (0, 1))
+        self.assertEqual(rendered, expected)
 
 
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})

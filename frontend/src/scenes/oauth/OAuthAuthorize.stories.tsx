@@ -55,6 +55,18 @@ const withPinnedSceneHeight: Decorator = function PinnedSceneHeightDecorator(Sto
     )
 }
 
+// The app shell has a `100vh` min-height, so when the viewport at capture time is taller than the
+// card, the shell grows to the viewport and adds a blank strip below the card. Let the shell hug its
+// content so only the card sets the height.
+const withContentSceneHeight: Decorator = function ContentSceneHeightDecorator(Story): JSX.Element {
+    return (
+        <>
+            <style>{'.Navigation3000 { min-height: 0 !important; }'}</style>
+            <Story />
+        </>
+    )
+}
+
 const pushAuthorize = (scope?: string, resolvedScopes?: string[]): void => {
     const appContext = (window as any).POSTHOG_APP_CONTEXT
     appContext.oauth_scope_resolution = {
@@ -88,35 +100,12 @@ const meta: Meta = {
         withScopeResolution,
         mswDecorator({
             get: {
-                // The logic loads projects per organization for users that have organizations
                 '/api/organizations/:organization_id/projects/': {
                     results: [
                         {
                             id: 1,
                             name: 'Default Project',
                             organization: '1',
-                        },
-                    ],
-                },
-                '/api/projects/': {
-                    results: [
-                        {
-                            id: 1,
-                            name: 'Default Project',
-                            organization: {
-                                id: '1',
-                                name: 'Default Organization',
-                                slug: 'default-org',
-                            },
-                        },
-                        {
-                            id: 2,
-                            name: 'Analytics Project',
-                            organization: {
-                                id: '1',
-                                name: 'Default Organization',
-                                slug: 'default-org',
-                            },
                         },
                     ],
                 },
@@ -137,7 +126,7 @@ type Story = StoryObj<{}>
 // A client that sends no `scope` at all: the server defaults the request to the app's ceiling,
 // so every row arrives selected at its highest level with the bulk actions available.
 export const DefaultScopes: Story = {
-    decorators: [withOAuthApplication({ required_scopes: [] })],
+    decorators: [withContentSceneHeight, withOAuthApplication({ required_scopes: [] })],
     render: () => {
         useDelayedOnMountEffect(() =>
             pushAuthorize(undefined, [
@@ -245,6 +234,32 @@ export const EveryScopeRequested: Story = {
     decorators: [withPinnedSceneHeight, withOAuthApplication({ required_scopes: [] })],
     render: () => {
         useDelayedOnMountEffect(() => pushAuthorize(everyScopeRequest))
+        return <App />
+    },
+}
+
+export const NoOrganization: Story = {
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    decorators: [
+        withOAuthApplication({ required_scopes: [] }),
+        mswDecorator({
+            get: {
+                '/api/users/@me/': () => [
+                    200,
+                    {
+                        uuid: '018e1b6b-0000-0000-0000-000000000002',
+                        email: 'test@posthog.com',
+                        first_name: 'Test',
+                        organization: null,
+                        organizations: [],
+                        team: null,
+                    },
+                ],
+            },
+        }),
+    ],
+    render: () => {
+        useDelayedOnMountEffect(() => pushAuthorize())
         return <App />
     },
 }

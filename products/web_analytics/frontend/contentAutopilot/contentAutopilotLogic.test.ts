@@ -159,6 +159,26 @@ describe('contentAutopilotLogic', () => {
         expect(logic.values.opportunities).toEqual(EXAMPLE_OPPORTUNITIES)
     })
 
+    it('skips the refresh on open when the citation data was read in the last hour, but not after a settings save', async () => {
+        const freshOpportunities = EXAMPLE_OPPORTUNITIES.map((opportunity) => ({
+            ...opportunity,
+            last_refreshed_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+        }))
+        jest.mocked(webAnalyticsContentAutopilotOpportunitiesList).mockResolvedValue(paginated(freshOpportunities))
+
+        const mountedLogic = await mountWorkspace()
+
+        expect(mountedLogic.values.opportunities).toEqual(freshOpportunities)
+        expect(mockOpportunitiesRefresh).not.toHaveBeenCalled()
+
+        await expectLogic(mountedLogic, () => mountedLogic.actions.saveProfile()).toDispatchActions([
+            'saveProfileSuccess',
+            'loadOpportunitiesSuccess',
+            'refreshOpportunities',
+        ])
+        expect(mockOpportunitiesRefresh).toHaveBeenCalledTimes(1)
+    })
+
     it('drafts only the selected opportunities for the current site and clears the selection', async () => {
         const mountedLogic = await mountWorkspace()
         const [first, second] = EXAMPLE_OPPORTUNITIES
@@ -186,6 +206,25 @@ describe('contentAutopilotLogic', () => {
         })
         expect(mountedLogic.values.selectedOpportunityIds).toEqual([])
         expect(mountedLogic.values.workspaceTab).toBe('drafts')
+
+        // A row's draft button sends only that row, leaves the table selection alone,
+        // and blocks every other draft trigger until the request settles.
+        mountedLogic.actions.toggleOpportunitySelection(first.id)
+        mountedLogic.actions.setWorkspaceTab('prompts')
+        const rowDraft = deferred<ContentAutopilotRunApi>()
+        mockOpportunitiesDraft.mockReturnValueOnce(rowDraft.promise)
+        mountedLogic.actions.draftOpportunities([second.id])
+        expect(mountedLogic.values.rowDraftDisabledReason).toBe('Wait for the current run to finish')
+        expect(mountedLogic.values.draftDisabledReason).toBe('Wait for the current run to finish')
+        rowDraft.resolve({ ...EXAMPLE_RUN, run_status: 'pending', profile_id: EXAMPLE_PROFILE.id })
+        await expectLogic(mountedLogic).toFinishAllListeners()
+        expect(mockOpportunitiesDraft).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            profile_id: EXAMPLE_PROFILE.id,
+            opportunity_ids: [second.id],
+        })
+        expect(mountedLogic.values.selectedOpportunityIds).toEqual([first.id])
+        // Drafting from a prompt keeps the user on the Prompts tab.
+        expect(mountedLogic.values.workspaceTab).toBe('prompts')
     })
 
     it('sends typed run and profile payloads to the generated API clients', async () => {
@@ -215,7 +254,6 @@ describe('contentAutopilotLogic', () => {
             sourceUrls: 'https://blog.example.com/sitemap.xml',
             contentBoundaries: '/blog',
             brandRules: 'Use sentence case',
-            searchConsoleEnabled: false,
         })
 
         await expectLogic(mountedLogic, () => mountedLogic.actions.saveProfile()).toFinishAllListeners()
@@ -226,7 +264,6 @@ describe('contentAutopilotLogic', () => {
             source_urls: ['https://blog.example.com/sitemap.xml'],
             content_boundaries: ['/blog'],
             brand_rules: ['Use sentence case'],
-            search_console_enabled: false,
         })
     })
 
@@ -353,16 +390,16 @@ describe('contentAutopilotLogic', () => {
             'draftOpportunitiesSuccess',
         ])
         expect(mountedLogic.values.opportunities).toBeNull()
-        expect(mountedLogic.values.workspaceTab).toBe('opportunities')
+        expect(mountedLogic.values.workspaceTab).toBe('overview')
 
         secondSiteLoad.resolve(paginated([secondSiteOpportunity]))
         await expectLogic(mountedLogic).toFinishAllListeners()
         expect(mountedLogic.values.opportunities).toEqual([secondSiteOpportunity])
         expect(mountedLogic.values.selectedOpportunityIds).toEqual([secondSiteOpportunity.id])
-        expect(mountedLogic.values.workspaceTab).toBe('opportunities')
+        expect(mountedLogic.values.workspaceTab).toBe('overview')
     })
 
-    it('puts drafts ready for review first in the review queue', async () => {
+    it('lists queued pages last only while their run is active, and keeps only run-level errors', async () => {
         const rejected: ContentAutopilotProposalListApi = {
             ...EXAMPLE_PROPOSAL_LIST,
             id: '00000000-0000-4000-8000-000000000202',
@@ -383,18 +420,75 @@ describe('contentAutopilotLogic', () => {
             run_id: '00000000-0000-4000-8000-000000000199',
             lifecycle_status: 'failed',
         }
+        const queued: ContentAutopilotOpportunityApi = {
+            ...EXAMPLE_OPPORTUNITIES[0],
+            id: '00000000-0000-4000-8000-000000000301',
+            status: 'queued',
+            run_id: EXAMPLE_RUN.id,
+            proposal_id: null,
+        }
+        const redraftedFromAnOlderRun: ContentAutopilotOpportunityApi = {
+            ...EXAMPLE_OPPORTUNITIES[0],
+            id: '00000000-0000-4000-8000-000000000302',
+            status: 'queued',
+            run_id: EXAMPLE_RUN.id,
+            proposal_id: failedInAnOlderRun.id,
+        }
+        const startedInThisRun: ContentAutopilotOpportunityApi = {
+            ...EXAMPLE_OPPORTUNITIES[0],
+            id: '00000000-0000-4000-8000-000000000303',
+            status: 'queued',
+            run_id: EXAMPLE_RUN.id,
+            proposal_id: failed.id,
+        }
         mockProposalsList.mockResolvedValue(paginated([rejected, failed, failedInAnOlderRun, ready]))
+        jest.mocked(webAnalyticsContentAutopilotOpportunitiesList).mockResolvedValue(
+            paginated([queued, redraftedFromAnOlderRun, startedInThisRun])
+        )
+        mockRunsList.mockResolvedValue(paginated([{ ...EXAMPLE_RUN, run_status: 'generating' }]))
 
         const mountedLogic = await mountWorkspace()
 
-        expect(mountedLogic.values.reviewQueue.map(({ id }) => id)).toEqual([
+        expect(mountedLogic.values.draftRows.map(({ id }) => id)).toEqual([
+            ready.id,
+            failed.id,
+            failedInAnOlderRun.id,
+            rejected.id,
+            queued.id,
+            redraftedFromAnOlderRun.id,
+        ])
+
+        mockRunsList.mockResolvedValue(
+            paginated([
+                {
+                    ...EXAMPLE_RUN,
+                    run_status: 'failed',
+                    errors: [
+                        {
+                            error_code: 'checks_failed',
+                            message: "A question: the draft didn't pass its checks. Open it to see what to fix.",
+                        },
+                        {
+                            error_code: 'timed_out',
+                            message: 'Drafting took too long. Try fewer opportunities at once.',
+                        },
+                    ],
+                },
+            ])
+        )
+        mountedLogic.actions.loadRuns()
+        await expectLogic(mountedLogic).toFinishAllListeners()
+
+        expect(mountedLogic.values.draftRows.map(({ id }) => id)).toEqual([
             ready.id,
             failed.id,
             failedInAnOlderRun.id,
             rejected.id,
         ])
         expect(mountedLogic.values.readyDraftCount).toBe(1)
-        expect(mountedLogic.values.failedDraftCount).toBe(1)
+        expect(mountedLogic.values.latestRunErrors).toEqual([
+            'Drafting took too long. Try fewer opportunities at once.',
+        ])
     })
 
     it('polls while work is active and stops refreshing after it settles', async () => {

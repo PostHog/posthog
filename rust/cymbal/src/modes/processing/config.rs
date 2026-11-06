@@ -148,6 +148,9 @@ pub struct ProcessingConfig {
     #[envconfig(from = "ISSUE_BUCKETS_REDIS_URL", default = "redis://localhost:6379/")]
     pub issue_buckets_redis_url: String,
 
+    #[envconfig(from = "ERROR_TRACKING_PROCESSING_SHADOW_REDIS_URL")]
+    pub shadow_redis_url: Option<String>,
+
     #[envconfig(
         from = "ERROR_TRACKING_EVENT_PROPERTIES_TTL_SECONDS",
         default = "172800"
@@ -199,6 +202,10 @@ pub struct ProcessingConfig {
     // If empty, all teams can receive alerts
     #[envconfig(default = "")]
     pub spike_alert_enabled_team_ids: String,
+
+    // Teams whose frame code variables are dropped, for old SDK senders we cannot upgrade.
+    #[envconfig(from = "ERROR_TRACKING_DROP_CODE_VARIABLES_TEAM_IDS", default = "")]
+    pub drop_code_variables_team_ids: String,
 
     // ----------------------------------------------------------------------
     // Remote resolution (cymbal.resolution.v1).

@@ -10,9 +10,10 @@ from products.replay_vision.backend.queries import (
     ESTIMATE_RETRY_BACKOFF,
     ESTIMATE_STALE_AFTER,
 )
-from products.replay_vision.backend.temporal.constants import ESTIMATES_MAX_PER_RUN
+from products.replay_vision.backend.temporal.constants import ESTIMATES_MAX_PER_RUN, LIST_STALE_ESTIMATES_TIMEOUT
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.estimates_types import RefreshScannerEstimateInputs
+from products.replay_vision.backend.temporal.query_budget import bounded_queries
 
 
 @activity.defn
@@ -33,9 +34,10 @@ def list_stale_scanner_estimates_activity() -> list[RefreshScannerEstimateInputs
     # A recent failed attempt is skipped, and a never-computed estimate sorts by that attempt rather
     # than unconditionally first, so one always-failing scanner can't hog the head of every batch.
     backoff = Q(estimate_attempted_at__isnull=True) | Q(estimate_attempted_at__lt=now - ESTIMATE_RETRY_BACKOFF)
-    rows = (
-        ReplayScanner.objects.filter(stale, backoff)
-        .order_by("-enabled", Coalesce("estimated_at", "estimate_attempted_at").asc(nulls_first=True))
-        .values_list("id", "team_id")[:ESTIMATES_MAX_PER_RUN]
-    )
+    with bounded_queries(LIST_STALE_ESTIMATES_TIMEOUT):
+        rows = list(
+            ReplayScanner.objects.filter(stale, backoff)
+            .order_by("-enabled", Coalesce("estimated_at", "estimate_attempted_at").asc(nulls_first=True))
+            .values_list("id", "team_id")[:ESTIMATES_MAX_PER_RUN]
+        )
     return [RefreshScannerEstimateInputs(scanner_id=scanner_id, team_id=team_id) for scanner_id, team_id in rows]

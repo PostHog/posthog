@@ -1,20 +1,18 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { decodeParams, router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 
-import { DEFAULT_OAUTH_SCOPES, getScopeGroupLabel } from 'lib/scopes'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { DEFAULT_OAUTH_SCOPES, getScopeGroupLabel, scopeGroupLevel, scopeGroupTooltip } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
+import type { MockSignature } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
-import {
-    describeOAuthError,
-    oauthAuthorizeLogic,
-    scopeGroupAccessLevel,
-    scopeGroupLevelTooltip,
-} from './oauthAuthorizeLogic'
+import { describeOAuthError, oauthAuthorizeLogic } from './oauthAuthorizeLogic'
 
 describe('oauthAuthorizeLogic', () => {
     let logic: ReturnType<typeof oauthAuthorizeLogic.build>
@@ -118,7 +116,9 @@ describe('oauthAuthorizeLogic', () => {
         // Privileged/hidden objects are never grantable via /authorize; including them
         // would make the server reject the whole submit.
         expect(scopes).not.toContain('llm_gateway:read')
-        expect(scopes).not.toContain('metrics:read')
+        expect(scopes).not.toContain('wizard_session:read')
+        // metrics is OAuth-grantable, so the fallback keeps it.
+        expect(scopes).toContain('metrics:read')
     })
 
     it('uses the server-computed read set when expanding the wildcard', () => {
@@ -259,6 +259,20 @@ describe('oauthAuthorizeLogic', () => {
         expect(logic.values.effectiveScopes).toHaveLength(3)
     })
 
+    it('locks scopes granted before, labels them, and keeps them in the grant under bulk actions', () => {
+        logic.actions.setScopes(['openid', 'insight:write', 'comment:write'])
+        logic.actions.setAlreadyGrantedScopes(['openid', 'insight:write'])
+        logic.actions.setAllScopeAccess('none')
+
+        expect(logic.values.scopeRows.find((r) => r.key === 'insight')).toMatchObject({
+            locked: true,
+            alreadyGranted: true,
+            value: 'write',
+        })
+        expect(logic.values.scopeRows.find((r) => r.key === 'comment')).toMatchObject({ alreadyGranted: false })
+        expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:write'])
+    })
+
     it('clamps an optional write above a required read floor to the floor, never below', () => {
         logic.actions.setScopes(['openid', 'feature_flag:write'])
         withRequiredScopes(['feature_flag:read'])
@@ -289,6 +303,70 @@ describe('oauthAuthorizeLogic', () => {
         logic.actions.setScopeAccess('feature_flag', 'none')
         logic.actions.setScopes(['openid', 'insight:write'])
         expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:write'])
+    })
+
+    it('loads an empty project list instead of failing for a user with no organization', async () => {
+        useMocks({
+            get: {
+                '/api/projects/': () => [404, { detail: 'You need to belong to an organization.' }],
+            },
+        })
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, organization: null, organizations: [] })
+
+        await expectLogic(logic, () => logic.actions.loadAllTeams())
+            .toDispatchActions(['loadAllTeamsSuccess'])
+            .toNotHaveDispatchedActions(['loadAllTeamsFailure'])
+        expect(logic.values.allTeams).toEqual([])
+    })
+
+    it('creates an organization inline and selects its new project for a team-level grant', async () => {
+        const newOrganization = { id: 'new-org', name: 'New org' }
+        const newTeam = { id: 501, organization: newOrganization.id, name: 'Default project' }
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, organization: null, organizations: [], team: null })
+        logic.actions.setRequiredAccessLevel('team')
+        useMocks({
+            get: {
+                '/api/users/@me/': { ...MOCK_DEFAULT_USER, organizations: [newOrganization], team: newTeam },
+                '/api/organizations/new-org/projects/': { results: [newTeam], next: null },
+            },
+            post: {
+                '/api/organizations/': newOrganization,
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.createNewOrganization('New org')).toFinishAllListeners()
+
+        expect(logic.values.selectedOrganization).toBe(newOrganization.id)
+        expect(logic.values.oauthAuthorization.scoped_teams).toEqual([newTeam.id])
+        expect(logic.values.newOrganizationLoading).toBe(false)
+    })
+
+    it.each<{ failing: string; get: Record<string, MockSignature> }>([
+        {
+            failing: 'user',
+            get: { '/api/users/@me/': () => [500, { detail: 'Server error' }] },
+        },
+        {
+            failing: 'project',
+            get: {
+                '/api/users/@me/': { ...MOCK_DEFAULT_USER, organizations: [{ id: 'new-org', name: 'New org' }] },
+                '/api/organizations/new-org/projects/': () => [500, { detail: 'Server error' }],
+            },
+        },
+    ])('offers a reload instead of a retry when the $failing refresh fails after creation', async ({ get }) => {
+        const toastError = jest.spyOn(lemonToast, 'error')
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, organization: null, organizations: [], team: null })
+        useMocks({ get, post: { '/api/organizations/': { id: 'new-org', name: 'New org' } } })
+
+        await expectLogic(logic, () => logic.actions.createNewOrganization('New org')).toFinishAllListeners()
+
+        expect(toastError).toHaveBeenCalledWith(
+            expect.stringContaining('Reload the page'),
+            expect.objectContaining({ button: expect.objectContaining({ label: 'Reload' }) })
+        )
+        expect(userLogic.values.user).not.toBeNull()
+        expect(logic.values.newOrganizationLoading).toBe(false)
+        toastError.mockRestore()
     })
 
     const HINT_TEAMS = [
@@ -333,6 +411,53 @@ describe('oauthAuthorizeLogic', () => {
         expect(logic.values.teamHint).toBeNull()
         expect(logic.values.selectedOrganization).toBe(expectedOrg)
         expect(logic.values.oauthAuthorization.scoped_teams).toEqual(expectedTeams)
+    })
+
+    it.each([
+        {
+            name: 'its projects',
+            requiredAccessLevel: null,
+            earlierAccess: { scoped_teams: [11], scoped_organizations: [] },
+            expected: { access_type: 'teams', scoped_teams: [11] },
+        },
+        {
+            name: 'its organizations',
+            requiredAccessLevel: null,
+            earlierAccess: { scoped_teams: [], scoped_organizations: ['org-b'] },
+            expected: { access_type: 'organizations', scoped_organizations: ['org-b'] },
+        },
+        {
+            name: 'its project when the app requires one',
+            requiredAccessLevel: 'project',
+            earlierAccess: { scoped_teams: [22], scoped_organizations: [] },
+            expected: { access_type: 'teams', scoped_teams: [22] },
+        },
+    ])('a step-up pre-selects the earlier grant: $name', ({ requiredAccessLevel, earlierAccess, expected }) => {
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            oauth_scope_resolution: {
+                scopes: ['comment:write', 'insight:write', 'openid'],
+                was_defaulted: false,
+                already_granted_scopes: ['insight:write', 'openid'],
+                earlier_access: earlierAccess,
+            },
+        } as AppContext
+        const params = new URLSearchParams({
+            client_id: 'test-client',
+            redirect_uri: 'https://example.com/callback',
+            response_type: 'code',
+            scope: 'comment:write',
+            ...(requiredAccessLevel ? { required_access_level: requiredAccessLevel } : {}),
+        })
+
+        router.actions.push(`/oauth/authorize?${params.toString()}`)
+        logic.actions.loadAllTeamsSuccess(HINT_TEAMS as any)
+
+        expect(logic.values.oauthAuthorization).toMatchObject(expected)
+        expect(logic.values.scopeRows.find((r) => r.key === 'insight')).toMatchObject({
+            alreadyGranted: true,
+            locked: true,
+        })
     })
 
     // Before teams load, a pending hint suppresses the eager current-org selection
@@ -517,16 +642,30 @@ describe('oauthAuthorizeLogic', () => {
         })
 
         it('sets every row of a group with one group action, clamped to each ceiling', () => {
+            logic.actions.loadOAuthApplicationSuccess({
+                name: 'Test app',
+                client_id: 'test-client',
+                is_verified: true,
+                logo_uri: null,
+            })
             logic.actions.setScopes(['openid', 'session_recording:write', 'session_recording_playlist:read'])
             logic.actions.setScopeGroupAccess(['session_recording', 'session_recording_playlist'], 'none')
             expect(logic.values.effectiveScopes).toEqual(['openid'])
-            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBe('none')
-            expect(scopeGroupLevelTooltip(logic.values.adjustableScopeRows, 'none', 'Test app')).toBeUndefined()
+            expect(scopeGroupLevel(logic.values.adjustableScopeRows)).toBe('none')
+            expect(scopeGroupTooltip(logic.values.adjustableScopeRows, 'none')).toBeUndefined()
             const [recordingRow, playlistRow] = logic.values.adjustableScopeRows
-            const requiredRows = [{ ...recordingRow, minLevel: 'read' as const, value: 'read' as const }, playlistRow]
-            expect(scopeGroupAccessLevel(requiredRows)).toBe('none')
-            expect(scopeGroupLevelTooltip(requiredRows, 'none', 'Test app')).toBe(
-                '1 of these permissions stays on. Test app requires it.'
+            const requiredRows = [
+                {
+                    ...recordingRow,
+                    minLevel: 'read' as const,
+                    value: 'read' as const,
+                    disabledReasons: { none: 'Test app requires at least read access' },
+                },
+                playlistRow,
+            ]
+            expect(scopeGroupLevel(requiredRows)).toBe('none')
+            expect(scopeGroupTooltip(requiredRows, 'none')).toBe(
+                '1 of these permissions stays at read: Test app requires at least read access.'
             )
             logic.actions.setScopeGroupAccess(['session_recording', 'session_recording_playlist'], 'write')
             expect(logic.values.effectiveScopes).toEqual([
@@ -534,14 +673,14 @@ describe('oauthAuthorizeLogic', () => {
                 'session_recording:write',
                 'session_recording_playlist:read',
             ])
-            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBe('write')
-            expect(scopeGroupLevelTooltip(logic.values.adjustableScopeRows, 'write', 'Test app')).toBe(
-                '1 of these permissions stays at read. Test app did not request write access.'
+            expect(scopeGroupLevel(logic.values.adjustableScopeRows)).toBe('write')
+            expect(scopeGroupTooltip(logic.values.adjustableScopeRows, 'write')).toBe(
+                '1 of these permissions stays at read: Not requested by Test app.'
             )
             logic.actions.setScopeAccess('session_recording', 'read')
-            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBe('read')
+            expect(scopeGroupLevel(logic.values.adjustableScopeRows)).toBe('read')
             logic.actions.setScopeAccess('session_recording_playlist', 'none')
-            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBeUndefined()
+            expect(scopeGroupLevel(logic.values.adjustableScopeRows)).toBeUndefined()
         })
     })
 })

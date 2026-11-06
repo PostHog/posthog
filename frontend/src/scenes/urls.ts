@@ -5,8 +5,9 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { fileSystemTypes, productUrls } from '~/products'
 import {
     DataTableNode,
-    DataVisualizationNode,
+    VisualizationNode,
     HogQLFilters,
+    HogQLQuery,
     ProductKey,
     SharingConfigurationSettings,
 } from '~/queries/schema/schema-general'
@@ -33,9 +34,19 @@ import type { SettingId, SettingLevelId, SettingSectionId } from './settings/typ
  * Sync the paths with AutoProjectMiddleware!
  */
 
+/** The filters the analytics list reads from its URL. */
+export interface AnalyticsListUrlParams {
+    orderBy?: string
+    type?: string | string[]
+    createdBy?: string[]
+    folder?: string
+    search?: string
+    tags?: string[]
+}
+
 export const urls = {
     ...productUrls,
-    absolute: (path = ''): string => window.location.origin + path,
+    absolute: (path = ''): string => new URL(path, window.location.origin).href,
     default: (): string => '/',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
     currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),
@@ -80,13 +91,16 @@ export const urls = {
         endpointName,
         source,
         connectionId,
+        executionTarget,
+        sendRawQuery,
         dashboard,
+        tileGroupKey,
         filters,
         metricName,
         metricPrefill,
     }: {
         /** Raw SQL, or a node whose visualization settings (display, chartSettings) should survive the trip */
-        query?: string | DataVisualizationNode | DataTableNode
+        query?: string | VisualizationNode | DataTableNode
         view_id?: string
         insightShortId?: string
         draftId?: string
@@ -94,7 +108,11 @@ export const urls = {
         endpointName?: string
         source?: string
         connectionId?: string
+        executionTarget?: HogQLQuery['executionTarget']
+        sendRawQuery?: boolean
         dashboard?: number
+        /** The dashboard tile group the saved insight goes into. Only applies with `dashboard`. */
+        tileGroupKey?: string | null
         /** Applied on top of the opened query/insight — carries unsaved view-mode filter edits into the editor */
         filters?: HogQLFilters
         /** Opens the editor bound to this data catalog metric so its query can be updated in place */
@@ -106,6 +124,10 @@ export const urls = {
 
         if (query) {
             params.set('open_query', typeof query === 'string' ? query : JSON.stringify(query))
+            // With a view, the query opens as unsaved edits on top of that view
+            if (view_id) {
+                params.set('open_view', view_id)
+            }
         } else if (view_id) {
             params.set('open_view', view_id)
         } else if (insightShortId) {
@@ -139,12 +161,21 @@ export const urls = {
 
         if (dashboard) {
             params.set('dashboard', String(dashboard))
+            if (tileGroupKey) {
+                params.set('tile_group', tileGroupKey)
+            }
         }
 
         const queryString = params.toString()
         const hashParams = new URLSearchParams()
         if (connectionId) {
             hashParams.set('c', connectionId)
+        }
+        if (executionTarget) {
+            hashParams.set('engine', executionTarget === 'managed_trino' ? 'managed_trino' : 'posthog')
+        }
+        if (sendRawQuery) {
+            hashParams.set('raw', '1')
         }
         if (filters) {
             hashParams.set('filters', JSON.stringify(filters))
@@ -172,7 +203,12 @@ export const urls = {
     projectHomepage: (): string => '/home',
     todayReport: (reportId: string): string => `/home/reports/${reportId}`,
     library: (objectType?: string): string => (objectType ? `/library/${objectType}` : '/library'),
-    views: (): string => '/views',
+    analytics: (): string => '/analytics',
+    analyticsList: (params: AnalyticsListUrlParams = {}): string => combineUrl('/analytics/all', params).url,
+    analyticsMine: (params: AnalyticsListUrlParams = {}): string => combineUrl('/analytics/mine', params).url,
+    analyticsSpaces: (): string => '/analytics/spaces',
+    analyticsProductHome: (): string => '/analytics/product-analytics',
+    tools: (): string => '/tools',
     ai: (chat?: string, ask?: string): string => combineUrl('/ai', { ask, chat }).url,
     aiTask: (taskId: string): string => combineUrl('/ai', { task: taskId }).url,
     aiHistory: (): string => '/ai/history',
@@ -201,10 +237,12 @@ export const urls = {
     accountConnected: (kind: string = ':kind'): string =>
         kind === ':kind' ? '/account-connected/:kind' : `/account-connected/${kind}`,
     /** One-shot credential review interstitial shown to users with existing API keys they haven't acknowledged. */
-    credentialReview: (): string => '/account/credential-review',
+    credentialReview: (next?: string): string =>
+        `/account/credential-review${next ? `?next=${encodeURIComponent(next)}` : ''}`,
     cliAuthorize: (): string => '/cli/authorize',
+    // pinned: the OAuth server sends devices here as verification_uri, see posthog/api/oauth/device.py
+    oauthDeviceAuthorize: (): string => '/device',
     cliLive: (): string => '/cli/live',
-    liveDebugger: (): string => '/live-debugger',
     passwordReset: (): string => '/reset',
     passwordResetComplete: (userUuid: string, token: string): string => `/reset/${userUuid}/${token}`,
     // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
@@ -255,6 +293,7 @@ export const urls = {
         const queryString = params.toString()
         return `${base}${queryString ? `?${queryString}` : ''}`
     },
+    onboardingWelcome: (): string => '/welcome',
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
@@ -315,15 +354,11 @@ export const urls = {
     projectFiles: (folder = ''): string => combineUrl('/files', folder ? { folder } : {}).url,
 
     moveToPostHogCloud: (): string => '/move-to-cloud',
-    links: (params?: string): string =>
-        `/links${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
-    link: (id: string): string => `/link/${id}`,
-    tracing: (): string => '/tracing',
-    metrics: (): string => '/metrics',
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     sessionProfile: (id: string): string => `/sessions/${id}`,
     coupons: (campaign: string): string => `/coupons/${campaign}`,
     startups: (referrer?: string): string => `/startups${referrer ? `/${referrer}` : ''}`,
+    organizationStartups: (referrer?: string): string => `/organization/startups${referrer ? `/${referrer}` : ''}`,
     agenticAuthorize: (): string => '/agentic/authorize',
     oauthAuthorize: (): string => '/oauth/authorize',
     dataPipelinesNew: (kind?: DataPipelinesNewSceneKind): string => `/pipeline/new/${kind ?? ''}`,
@@ -343,6 +378,7 @@ export const urls = {
     projectPendingDeletion: (): string => '/project-pending-deletion',
     approvals: (): string => '/settings/environment-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,
+    workloadTrustPolicyRequest: (id: string): string => `/workload-trust-policy-requests/${id}`,
     health: (): string => '/health',
     healthCategory: (category: string): string => `/health/${category}`,
     healthAlerts: (presetKinds?: string[]): string =>

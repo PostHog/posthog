@@ -105,15 +105,8 @@ READ_METER_EXECUTION_TIMEOUT = dt.timedelta(minutes=20)
 METER_SCANNER_READS_TIMEOUT = dt.timedelta(minutes=5)
 
 # Children are ABANDONed and don't count against this budget, but activities do: this must cover the
-# prompt-suggestion refresh worst case plus the candidate scan, or a slow refresh kills the whole sweep.
-# Overlap SKIP means a slow run absorbs later ticks instead of stacking.
+# budget check plus the candidate scan. Overlap SKIP means a slow run absorbs later ticks instead of stacking.
 SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
-
-# The agentic refresh may run several tool rounds. _AGENT_BUDGET_BACKGROUND_S stops new rounds from
-# starting, but the in-flight round and the final structured turn can each add up to _MODEL_CALL_TIMEOUT_MS
-# on top, so a pathological run can still reach this cap. That costs one skipped daily refresh (single
-# attempt, swallowed by the sweep) rather than a retry, and the next tick picks it up.
-REFRESH_PROMPT_SUGGESTION_TIMEOUT = dt.timedelta(minutes=5)
 
 # What one sweep tick's activity gets end to end. Its ClickHouse queries share this, so the exclusion
 # scan is capped by what the candidate query left rather than by a fixed budget of its own: overrunning
@@ -145,6 +138,10 @@ RECONCILE_SCHEDULE_OP_TIMEOUT = dt.timedelta(seconds=60)
 REAPER_OP_TIMEOUT = dt.timedelta(seconds=45)
 REAPER_OP_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=2)
 REAPER_MAX_ATTEMPTS = 3
+# Room past both sweep budgets for one workflow-step wake that started just before the deadline: its POST
+# can time out and fall back to an internal event, the completion events still flush after it, and the
+# stamping queries still need room inside bounded_queries, which takes 75% of this.
+COMPLETE_OBSERVATION_REQUESTS_TIMEOUT = dt.timedelta(seconds=100)
 
 # The backfill reaper pages through every backfill schedule and only applies fixes at the end, so a
 # healthy pass needs minutes; per-page heartbeats catch a dead worker instead of a short attempt cap.
@@ -173,6 +170,7 @@ MAX_IN_FLIGHT_APPLIES_PER_SCANNER = 150
 # N x 150 rasterizer slots. Fairness only; the rasterizer scales horizontally for total throughput.
 MAX_IN_FLIGHT_APPLIES_PER_TEAM = 300
 COUNT_IN_FLIGHT_APPLIES_TIMEOUT = dt.timedelta(seconds=30)
+CREATE_OBSERVATION_TIMEOUT = dt.timedelta(seconds=30)
 
 CHECK_SCANNER_BUDGET_TIMEOUT = dt.timedelta(seconds=30)
 
@@ -255,26 +253,28 @@ def build_apply_scanner_workflow_id(scanner_id: UUID, session_id: str) -> str:
     return f"{APPLY_SCANNER_WORKFLOW_NAME}-{scanner_id}-{session_id}"
 
 
-EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME = "replay-vision-evaluate-prompt-suggestion"
+# Learned rules: ratings settle for a while before a team is distilled, so a 10-minute tick is prompt enough.
+LEARNED_RULES_WORKFLOW_NAME = "replay-vision-refresh-learned-rules"
+LEARNED_RULES_WORKFLOW_ID = "replay-vision-learned-rules-refresher"
+LEARNED_RULES_SCHEDULE_ID = "replay-vision-learned-rules-refresher-schedule"
+LEARNED_RULES_REFRESH_INTERVAL = dt.timedelta(minutes=10)
+LEARNED_RULES_EXECUTION_TIMEOUT = dt.timedelta(minutes=9)
+# Two waves of the 4-minute activity timeout fit inside the 9-minute execution timeout.
+LEARNED_RULES_MAX_TEAMS_PER_RUN = 32
+LEARNED_RULES_CONCURRENCY = 16
+LIST_DUE_LEARNED_RULES_TIMEOUT = dt.timedelta(seconds=60)
+# Covers the model call's own 120s timeout plus the database reads around it.
+REFRESH_TEAM_LEARNED_RULES_TIMEOUT = dt.timedelta(minutes=4)
 
 
-def build_evaluate_prompt_suggestion_workflow_id(suggestion_id: UUID) -> str:
-    """Deterministic id: one evaluation per suggestion (WorkflowAlreadyStartedError on a duplicate trigger)."""
-    return f"{EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME}-{suggestion_id}"
-
-
-# Search suggestion refresher: hourly, bounded per run and per day so cost tracks scanners people look at.
-SEARCH_SUGGESTIONS_WORKFLOW_NAME = "replay-vision-refresh-search-suggestions"
-SEARCH_SUGGESTIONS_WORKFLOW_ID = "replay-vision-search-suggestions-refresher"
-SEARCH_SUGGESTIONS_SCHEDULE_ID = "replay-vision-search-suggestions-refresher-schedule"
-# Short, so a new scanner or team has phrases minutes after its first observations land.
-SEARCH_SUGGESTIONS_REFRESH_INTERVAL = dt.timedelta(minutes=10)
-SEARCH_SUGGESTIONS_EXECUTION_TIMEOUT = dt.timedelta(minutes=9)
-# With the concurrency below and a 30s model timeout, a full run of slow calls still ends inside the execution timeout.
-SEARCH_SUGGESTIONS_MAX_PER_RUN = 200
-# Backstop against a bug that makes every scope look stale. Sized for every active scanner and team refreshing
-# each REFRESH_INTERVAL, at a fraction of a cent per call.
-SEARCH_SUGGESTIONS_MAX_PER_DAY = 40_000
-SEARCH_SUGGESTIONS_CONCURRENCY = 16
-LIST_STALE_SEARCH_SUGGESTIONS_TIMEOUT = dt.timedelta(seconds=60)
-REFRESH_SEARCH_SUGGESTIONS_TIMEOUT = dt.timedelta(seconds=90)
+# Highlight feed rebuilds: a schedule starts this every minute and skips a start while one still runs.
+HIGHLIGHT_REBUILD_WORKFLOW_NAME = "replay-vision-rebuild-highlight-feeds"
+HIGHLIGHT_REBUILD_WORKFLOW_ID = "replay-vision-highlight-feed-rebuilder"
+HIGHLIGHT_REBUILD_SCHEDULE_ID = "replay-vision-highlight-feed-rebuilder-schedule"
+HIGHLIGHT_REBUILD_INTERVAL = dt.timedelta(minutes=1)
+HIGHLIGHT_REBUILD_EXECUTION_TIMEOUT = dt.timedelta(minutes=10)
+HIGHLIGHT_REBUILD_ACTIVITY_TIMEOUT = dt.timedelta(minutes=8)
+# One team's build holds one heavy statement under its own 120s cap, so a heartbeat per team arrives well inside this.
+HIGHLIGHT_REBUILD_HEARTBEAT_TIMEOUT = dt.timedelta(minutes=5)
+# The activity starts no team after this, which leaves a slow last build room inside the activity timeout.
+HIGHLIGHT_REBUILD_CLAIM_BUDGET = dt.timedelta(minutes=3)

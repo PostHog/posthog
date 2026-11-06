@@ -1,20 +1,57 @@
+import uuid
+
 from posthog.test.base import BaseTest, ClickhouseTestMixin, cleanup_materialized_columns, materialized
 
-from django.conf import settings
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.schema.web_analytics_preaggregated import (
+    WebBouncesDimensionalPreAggregatedTable,
+    WebStatsDimensionalPreAggregatedTable,
+)
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.restricted_properties import WEB_DIMENSIONAL_MIRRORED_COLUMNS
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
+from posthog.models.event.util import create_event
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
+
+# Columns that hold no event or session property value: keys and aggregate states.
+_WEB_DIMENSIONAL_UNMIRRORED_COLUMNS = frozenset(
+    {
+        "period_bucket",
+        "team_id",
+        "job_id",
+        "persons_uniq_state",
+        "pageviews_count_state",
+        "sessions_uniq_state",
+        "bounces_count_state",
+        "total_session_duration_state",
+        "total_session_count_state",
+    }
+)
+
+
+class TestWebDimensionalMirrorCoverage(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("stats", WebStatsDimensionalPreAggregatedTable),
+            ("bounces", WebBouncesDimensionalPreAggregatedTable),
+        ]
+    )
+    def test_every_dimension_column_is_mapped_or_listed_safe(self, _name: str, table_class: type) -> None:
+        dimension_columns = table_class().fields.keys() - _WEB_DIMENSIONAL_UNMIRRORED_COLUMNS
+
+        assert dimension_columns - WEB_DIMENSIONAL_MIRRORED_COLUMNS.keys() == set()
 
 
 class TestRestrictPropertiesInHogQL(BaseTest):
@@ -122,7 +159,7 @@ class TestRestrictPropertiesInHogQL(BaseTest):
             modifiers=HogQLQueryModifiers(useNewEventsSchema=True),
         )
         sql, _ = prepare_and_print_ast(parse_select(query), context=context, dialect="clickhouse")
-        assert "getSubcolumn" not in sql
+        assert "customer" not in sql
 
     def test_allowed_property_not_affected(self):
         PropertyAccessControl.objects.create(
@@ -145,13 +182,56 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         assert "NULL AS secret_field" in sql
         assert "public_field" in sql
         assert "'secret_field'" not in sql
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            assert "JSONDropKeys" not in sql
-            assert not any("secret_field" in str(v) for v in values.values())
-        else:
-            assert "JSONDropKeys" in sql
-            self._assert_value_present(values, "secret_field")
-            self._assert_value_present(values, "public_field")
+        assert "JSONDropKeys" not in sql
+        assert not any("secret_field" in str(v) for v in values.values())
+
+    @parameterized.expand(
+        [
+            ("unrestricted_key", "properties.public_field", "secret_field", False),
+            ("unrestricted_nested_key", "properties.public_field.inner", "secret_field", False),
+            (
+                "json_function_with_unrestricted_key",
+                "JSONExtractString(properties, 'public_field')",
+                "secret_field",
+                False,
+            ),
+            ("json_has_unrestricted_key", "JSONHas(properties, 'public_field')", "secret_field", False),
+            ("json_function_with_user_alias", "JSONHas(properties AS p, 'public_field') AS h, p", "secret_field", True),
+            ("sibling_of_dotted_restriction", "properties.`customer.name`", "customer.ssn", False),
+            ("parent_of_dotted_restriction", "properties.customer", "customer.ssn", True),
+            ("flat_key_under_restriction", "properties.`secret_field.inner`", "secret_field", True),
+            ("json_function_reads_parent", "JSONExtractRaw(properties, 'customer')", "customer.ssn", True),
+            ("json_function_reads_by_position", "JSONExtractRaw(properties, 1)", "secret_field", True),
+            ("json_function_whole_document", "JSONExtractKeys(properties)", "secret_field", True),
+            (
+                "json_extract_with_type_only",
+                "JSONExtract(properties, 'Tuple(secret_field String)')",
+                "secret_field",
+                True,
+            ),
+        ]
+    )
+    def test_key_read_keeps_json_drop_keys_only_when_it_overlaps_a_restriction(
+        self, _name: str, expression: str, restricted_key: str, expect_mask: bool
+    ) -> None:
+        self.event_prop.name = restricted_key
+        self.event_prop.save()
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.event_prop,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        context = HogQLContext(
+            team_id=self.team.pk,
+            team=self.team,
+            user=self.user,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(useNewEventsSchema=False),
+        )
+        sql, _ = prepare_and_print_ast(
+            parse_select(f"SELECT {expression} AS x FROM events"), context=context, dialect="clickhouse"
+        )
+        assert ("JSONDropKeys" in sql) is expect_mask, sql
 
     def test_user_override_allows_access(self):
         # default: none
@@ -250,6 +330,11 @@ class TestRestrictPropertiesInHogQL(BaseTest):
     def test_role_override_allows_access(self):
         from products.access_control.backend.models.role import Role, RoleMembership
 
+        self.organization.available_product_features = [
+            {"name": feature, "key": feature}
+            for feature in (AvailableFeature.PROPERTY_ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS)
+        ]
+        self.organization.save()
         role = Role.objects.create(name="Analyst", organization=self.organization)
         RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
 
@@ -346,10 +431,11 @@ class TestRestrictPropertiesInHogQL(BaseTest):
             ("tokens", "$ai_input_tokens", "a.input_tokens"),
             ("cost", "$ai_total_cost_usd", "a.total_cost_usd"),
             ("error", "$ai_is_error", "a.is_error"),
+            ("state length", "$ai_input_state", "a.input_state_length", "input_state.size"),
         ]
     )
     def test_ai_column_and_nested_reads_use_the_canonical_property_rule(
-        self, _name: str, property_name: str, expression: str
+        self, _name: str, property_name: str, expression: str, printed_column: str | None = None
     ) -> None:
         self.event_prop.name = property_name
         self.event_prop.save()
@@ -365,7 +451,45 @@ class TestRestrictPropertiesInHogQL(BaseTest):
 
         assert "NULL AS restricted_value" in sql
         assert "JSONExtract" not in sql
-        assert expression.split("[")[0] not in sql
+        assert (printed_column or expression.split("[")[0]) not in sql
+
+    @parameterized.expand(
+        [
+            ("stats_pathname", "web_stats_dimensional_preaggregated", "pathname", "$pathname"),
+            ("stats_viewport", "web_stats_dimensional_preaggregated", "viewport_width", "$viewport_width"),
+            ("bounces_country", "web_bounces_dimensional_preaggregated", "country_code", "$geoip_country_code"),
+            ("bounces_metadata", "web_bounces_dimensional_preaggregated", "mat_metadata_backend", "metadata.backend"),
+            ("stats_metadata_parent", "web_stats_dimensional_preaggregated", "mat_metadata_loggedIn", "metadata"),
+            ("stats_entry_pathname", "web_stats_dimensional_preaggregated", "entry_pathname", "$pathname"),
+            ("bounces_end_pathname", "web_bounces_dimensional_preaggregated", "end_pathname", "$pathname"),
+            ("stats_end_pathname_url", "web_stats_dimensional_preaggregated", "end_pathname", "$current_url"),
+            (
+                "bounces_referring_domain",
+                "web_bounces_dimensional_preaggregated",
+                "referring_domain",
+                "$referring_domain",
+            ),
+            ("stats_utm_source", "web_stats_dimensional_preaggregated", "utm_source", "utm_source"),
+        ]
+    )
+    def test_web_dimensional_columns_use_the_source_property_rule(
+        self, _name: str, table_name: str, column: str, property_name: str
+    ) -> None:
+        self.event_prop.name = property_name
+        self.event_prop.save()
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.event_prop,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        sql = self._compile_select(
+            f"SELECT {column} AS restricted_value, host FROM {table_name} WHERE {column} = 'x' OR {column} IS NULL"
+        )
+
+        assert "NULL AS restricted_value" in sql
+        assert f"{table_name}.{column}" not in sql
+        assert f"{table_name}.host" in sql
 
     def test_ai_json_content_is_not_an_event_property(self) -> None:
         PropertyAccessControl.objects.create(
@@ -644,3 +768,47 @@ class TestRestrictedPropertyWithMaterializedColumn(ClickhouseTestMixin, BaseTest
         with materialized("events", "secret_field", is_nullable=False):
             sql = self._compile_select("SELECT properties.secret_field FROM events")
         assert "mat_secret_field" not in sql, f"restricted property leaked via materialized column: {sql}"
+
+
+class TestRestrictedPersonPropertiesBlobQuery(ClickhouseTestMixin, BaseTest):
+    def test_empty_person_properties_row_does_not_fail_the_masked_query(self):
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        person_prop = PropertyDefinition.objects.create(
+            team=self.team,
+            name="email",
+            property_type="String",
+            type=PropertyDefinition.Type.PERSON,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=person_prop,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        create_event(
+            event_uuid=uuid.uuid4(),
+            event="$pageview",
+            team=self.team,
+            distinct_id="with-person-properties",
+            person_properties={"email": "user@example.com", "name": "Example"},
+        )
+        create_event(
+            event_uuid=uuid.uuid4(), event="$pageview", team=self.team, distinct_id="without-person-properties"
+        )
+
+        response = execute_hogql_query(
+            # Scope to this test's distinct_ids so events left in ClickHouse by other tests don't leak in.
+            "SELECT distinct_id, person.properties FROM events "
+            "WHERE distinct_id IN ('with-person-properties', 'without-person-properties') "
+            "ORDER BY distinct_id",
+            team=self.team,
+            user=self.user,
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+                useNewEventsSchema=False,
+            ),
+        )
+
+        assert response.results == [("with-person-properties", '{"name":"Example"}'), ("without-person-properties", "")]

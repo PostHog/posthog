@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { HARNESS_BY_LABEL, harnessLogo } from './dashboard/harnessRegistry'
+import { HARNESS_BY_LABEL, harnessMark } from './dashboard/harnessRegistry'
 import {
     type ActivityRow,
     type BucketRow,
@@ -46,7 +46,7 @@ function session(overrides: Partial<SessionRow> & { session_id: string }): Sessi
 }
 
 describe('mcpDashboardOverviewLogic', () => {
-    describe('harnessLogo', () => {
+    describe('harnessMark', () => {
         // The expected labels mirror HARNESS_LABELS in mcp_harness.py, minus "Other".
         // If the backend renames or adds a label, update this list to keep it in sync
         // and add the corresponding entry to HARNESS_BY_LABEL in harnessRegistry.ts.
@@ -76,6 +76,7 @@ describe('mcpDashboardOverviewLogic', () => {
             'Linear',
             'LibreChat',
             'Pi',
+            'Kimchi',
             'Antigravity',
             'Poke',
             'opencode',
@@ -86,6 +87,15 @@ describe('mcpDashboardOverviewLogic', () => {
 
         it.each(EXPECTED_HARNESS_LABELS)('HARNESS_BY_LABEL has an entry for backend label %s', (label) => {
             expect(Object.prototype.hasOwnProperty.call(HARNESS_BY_LABEL, label)).toBe(true)
+        })
+
+        it('HARNESS_BY_LABEL has no key the backend does not reserve', () => {
+            // Mirrors MARKED_CLIENT_NAMES in mcp_harness.py. The backend rejects custom harness names
+            // in both lists, because a custom harness with one of these names would lose its icon.
+            const MARKED_CLIENT_NAMES = ['PostHog AI', 'Slack']
+            expect(Object.keys(HARNESS_BY_LABEL).sort()).toEqual(
+                [...EXPECTED_HARNESS_LABELS, ...MARKED_CLIENT_NAMES].sort()
+            )
         })
 
         it.each([
@@ -102,17 +112,24 @@ describe('mcpDashboardOverviewLogic', () => {
             'Manus',
             'LibreChat',
             'Pi',
+            'Kimchi',
             'Antigravity',
-        ])('resolves a logo for the %s category', (category) => {
-            expect(harnessLogo(category)?.src).toBeTruthy()
+            'Anthropic API',
+            'Kiro',
+            'PostHog CLI',
+            'Poke',
+            'Desktop Commander',
+        ])('resolves a brand mark for the %s category', (category) => {
+            expect(harnessMark(category)).not.toEqual('Other harnesses')
         })
 
-        it.each(['Anthropic API', 'Poke', 'Kiro', 'Desktop Commander', 'Other'])(
-            'has no logo for the logo-less %s category',
-            (category) => {
-                expect(harnessLogo(category)).toBeUndefined()
-            }
-        )
+        it.each([
+            ['Other', 'Other harnesses'],
+            ['Unidentified client', 'Unidentified client'],
+            ['A harness with no mark yet', 'Other harnesses'],
+        ])('falls back to a generic mark for %s', (category, expected) => {
+            expect(harnessMark(category)).toEqual(expected)
+        })
     })
 
     describe('deltaPct', () => {

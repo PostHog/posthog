@@ -47,6 +47,9 @@ export const castStringToInt = (v: unknown): unknown => {
  */
 export const castBooleanToString = (v: unknown): unknown => (typeof v === 'boolean' ? String(v) : v)
 
+export const castObjectToJsonString = (v: unknown): unknown =>
+    v !== null && typeof v === 'object' && !Array.isArray(v) ? JSON.stringify(v) : v
+
 /**
  * Normalize alternate key spellings to a canonical param name before validation.
  *
@@ -129,4 +132,24 @@ export function readParamAliases(schema: z.ZodType): Record<string, readonly str
         current = current.out
     }
     return merged
+}
+
+// A schema that transforms its input (other than alias folding) consumes keys on purpose,
+// so comparing sent keys to the parsed result would report them as ignored.
+export function reshapesInputBeyondAliases(schema: z.ZodType): boolean {
+    let current: unknown = schema
+    for (let depth = 0; depth < MAX_PREPROCESS_DEPTH && current instanceof z.ZodPipe; depth++) {
+        const input = current.in as { def?: { transform?: unknown } }
+        if (current.in instanceof z.ZodTransform) {
+            const transform = input.def?.transform
+            if (typeof transform !== 'function' || !ALIAS_MAPS.has(transform as (input: unknown) => unknown)) {
+                return true
+            }
+        }
+        if (current.out instanceof z.ZodTransform) {
+            return true
+        }
+        current = current.out
+    }
+    return current instanceof z.ZodUnion
 }

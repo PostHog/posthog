@@ -2,20 +2,27 @@
 
 import copy
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 from posthog.models.team.team import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_actions
 
 
-def _get_source_name(source: dict) -> str:
+def _get_source_name(source: object) -> str:
     """Extract a display name from an event/action/data warehouse source dict."""
+    # A stored definition can hold null where a source belongs. The health checks name such a metric to report it as
+    # invalid, so it gets a generic name instead of an error.
+    if not isinstance(source, dict):
+        return "Event"
     kind = source.get("kind", "")
     if kind == "ExperimentDataWarehouseNode":
         return source.get("table_name") or "Table"
     if kind == "ExperimentExposureNode":
         return "Exposure"
+    if kind == "ExperimentWarehouseNativeNode":
+        return source.get("custom_name") or "Warehouse-native query"
     # EventsNode or ActionsNode
     return source.get("name") or source.get("event") or "Event"
 
@@ -24,8 +31,8 @@ def get_default_metric_title(metric_dict: dict) -> str:
     """Generate a default title for a metric based on its configuration."""
     metric_type = metric_dict.get("metric_type", "")
     if metric_type == "funnel":
-        series = metric_dict.get("series", [])
-        if series:
+        series = metric_dict.get("series")
+        if isinstance(series, list) and series:
             first_event = _get_source_name(series[0])
             last_event = _get_source_name(series[-1])
             if len(series) == 1:
@@ -46,20 +53,6 @@ def get_default_metric_title(metric_dict: dict) -> str:
 
 
 logger = logging.getLogger(__name__)
-
-# A legacy metric nests its query under a kind-specific key: ExperimentTrendsQuery under
-# `count_query`, ExperimentFunnelsQuery under `funnels_query`.
-LEGACY_METRIC_QUERY_KEYS = ("count_query", "funnels_query")
-
-
-def apply_metric_date_range(metric: dict[str, Any], date_range: dict[str, Any]) -> None:
-    """Overwrite a legacy metric's nested query date range in place.
-
-    Only a query that already carries a date range is rewritten, so the stored shape of a metric
-    without one is preserved."""
-    for key in LEGACY_METRIC_QUERY_KEYS:
-        if metric.get(key, {}).get("dateRange"):
-            metric[key]["dateRange"] = date_range
 
 
 def refresh_action_names_in_metric(
@@ -102,16 +95,20 @@ def refresh_action_names_in_metric(
         if not action_ids:
             return query
 
+        names: Mapping[int, str | None]
         if actions_by_id is None:
             # Fetch all actions in a single query
             # Only include actions that still exist (not deleted)
-            actions_by_id = {
-                action.id: action.name for action in Action.objects.filter(id__in=action_ids, team=team, deleted=False)
+            names = {
+                action.id: action.name
+                for action in get_actions(action_ids=action_ids, team_id=team.pk, include_deleted=False)
             }
+        else:
+            names = actions_by_id
 
         # Update action names throughout the query
-        # If an action was deleted, its ID won't be in actions_by_id and the old name will be preserved
-        _update_action_names(query, actions_by_id)
+        # If an action was deleted, its ID won't be in names and the old name will be preserved
+        _update_action_names(query, names)
 
         return query
     except Exception as e:
@@ -157,7 +154,7 @@ def _collect_action_ids(obj: Any, action_ids: set[int]) -> None:
             _collect_action_ids(item, action_ids)
 
 
-def _update_action_names(obj: Any, actions_by_id: dict[int, str]) -> None:
+def _update_action_names(obj: Any, actions_by_id: Mapping[int, str | None]) -> None:
     """Recursively update all ActionsNode name fields with current action names."""
     if isinstance(obj, dict):
         if obj.get("kind") == "ActionsNode" and "id" in obj:
@@ -232,7 +229,7 @@ def resolve_action_events(action_ids: set[int], team: Team) -> dict[int, set[str
         return {}
     return {
         action.id: {event for event in action.get_step_events() if event}
-        for action in Action.objects.filter(id__in=action_ids, team=team, deleted=False)
+        for action in get_actions(action_ids=action_ids, team_id=team.pk, include_deleted=False)
     }
 
 

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 
 import { SignalScoutRunSummary } from '../../../types'
 import { ScoutRunBoxes } from './ScoutRunBoxes'
@@ -8,6 +8,7 @@ import { ScoutRunBoxes } from './ScoutRunBoxes'
 function makeRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRunSummary {
     return {
         run_id: 'run-1',
+        total_spend: null,
         skill_name: 'signals-scout-general',
         skill_version: 1,
         status: 'completed',
@@ -39,66 +40,65 @@ describe('ScoutRunBoxes', () => {
             />
         )
 
-        const labels = Array.from(container.querySelectorAll('.sr-only')).map((node) => node.textContent ?? '')
+        const labels = Array.from(container.querySelectorAll('[aria-label]')).map(
+            (node) => node.getAttribute('aria-label') ?? ''
+        )
         expect(labels.filter((label) => label.includes('$4.03'))).toHaveLength(1)
         expect(labels.filter((label) => label.includes('$'))).toHaveLength(1)
     })
 
-    it('marks the runs at or over the fleet threshold, and leaves the cheap ones plain', () => {
-        // Cost only reached the tooltip, so finding an expensive run meant hovering box by box.
-        // The marker is the whole point of the change: without it every box looks the same.
-        const { container } = render(
-            <ScoutRunBoxes
-                runs={[
-                    makeRun({ run_id: 'run-cheap' }),
-                    makeRun({ run_id: 'run-at' }),
-                    makeRun({ run_id: 'run-over' }),
-                ]}
-                costs={
-                    new Map([
-                        ['run-cheap', 0.05],
-                        ['run-at', 0.49],
-                        ['run-over', 3.19],
-                    ])
-                }
-                costThreshold={0.49}
-            />
-        )
+    it('renders two elements per plain run, so a large fleet stays a small DOM', () => {
+        // The roster renders one strip per scout. An extra node per box multiplies by every run on
+        // every card, and a filter change discards the whole set at once.
+        const runs = Array.from({ length: 24 }, (_, i) => makeRun({ run_id: `run-${i}` }))
+        const { container } = render(<ScoutRunBoxes runs={runs} />)
 
-        expect(container.querySelectorAll('.bg-brand-yellow')).toHaveLength(2)
-        const labels = Array.from(container.querySelectorAll('.sr-only')).map((node) => node.textContent ?? '')
-        expect(labels.filter((label) => label.includes('top 10% of runs by cost'))).toHaveLength(2)
+        const strip = container.firstElementChild as HTMLElement
+        expect(strip.querySelectorAll('*')).toHaveLength(runs.length * 2)
     })
 
-    it('puts the marker inside the task link, so the whole column opens the task run', () => {
-        // The tooltip covers the column and offers to open the task run, and the column reserves
-        // height above the box for the marker. With the link around the box alone, a click on the
-        // marker does nothing on a roster card, and the roster table's row handler sends the
-        // reader to the scout page instead.
-        const { container } = render(
-            <ScoutRunBoxes
-                runs={[makeRun({ run_id: 'run-over', task_url: '/project/2/tasks/run-over' })]}
-                costs={new Map([['run-over', 3.19]])}
-                costThreshold={0.49}
-            />
-        )
+    it('shows the hovered run in one tooltip, and closes it on Escape or when the pointer leaves the box', () => {
+        jest.useFakeTimers()
+        try {
+            const { container } = render(
+                <ScoutRunBoxes
+                    runs={[
+                        makeRun({ run_id: 'run-plain', status: 'failed' }),
+                        makeRun({ run_id: 'run-linked', task_url: '/project/2/tasks/run-linked' }),
+                    ]}
+                />
+            )
+            expect(document.querySelector('.Tooltip')).toBeNull()
 
-        const link = container.querySelector('a')
-        expect(link).toHaveAttribute('href', '/project/2/tasks/run-over')
-        expect(link?.querySelector('.bg-brand-yellow')).not.toBeNull()
-    })
+            fireEvent.mouseOver(container.querySelector('[data-run-id="run-linked"]') as Element)
+            act(() => {
+                jest.advanceTimersByTime(400)
+            })
 
-    it('marks nothing while the fleet has too few priced runs to rank', () => {
-        const { container } = render(
-            <ScoutRunBoxes runs={[makeRun()]} costs={new Map([['run-1', 3.19]])} costThreshold={null} />
-        )
+            const tooltips = document.querySelectorAll('.Tooltip')
+            expect(tooltips).toHaveLength(1)
+            expect(tooltips[0]).toHaveTextContent('open task run')
 
-        expect(container.querySelector('.bg-brand-yellow')).toBeNull()
+            fireEvent.keyDown(document, { key: 'Escape' })
+            act(() => {
+                jest.advanceTimersByTime(400)
+            })
+            expect(document.querySelector('.Tooltip')).toBeNull()
+
+            fireEvent.mouseOver(container.querySelector('[data-run-id="run-plain"]') as Element)
+            fireEvent.mouseOver(container.firstElementChild as Element)
+            act(() => {
+                jest.advanceTimersByTime(400)
+            })
+            expect(document.querySelector('.Tooltip')).toBeNull()
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('leaves every run unpriced when no costs are given', () => {
         const { container } = render(<ScoutRunBoxes runs={[makeRun()]} />)
 
-        expect(container.querySelector('.sr-only')?.textContent).not.toContain('$')
+        expect(container.querySelector('[aria-label]')?.getAttribute('aria-label')).not.toContain('$')
     })
 })

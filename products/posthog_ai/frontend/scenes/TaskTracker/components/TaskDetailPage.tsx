@@ -13,6 +13,7 @@ import { isPiTaskRuntime } from '../../../types/taskTypes'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { QuillTaskHeaderActions } from './QuillTaskHeaderActions'
+import { QuillTaskShareControl } from './QuillTaskShareControl'
 import { TaskHeaderActionsSkeleton } from './taskDetailSkeletons'
 import { TaskRunTabs } from './TaskRunArtifacts'
 import { TaskRunLog } from './TaskRunLog'
@@ -33,6 +34,8 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
     const isActiveCreation = activeCreation?.taskId === taskId
     const artifactsTabEnabled = useFeatureFlag('TODAY_RAIL_NAV')
     const skin = useThreadSkin()
+    const piAcpEnabled = useFeatureFlag('PI_ACP')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (taskNotFound && !task) {
         return <NotFound object="task" />
@@ -53,17 +56,18 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
             updateTask({ data: { title: nextTitle } })
         }
     }
-    const canRun = !!task && !isPiTaskRuntime(task.runtime) && !isLatestRunInProgress && !isLatestRunCompleted
+    const canRun =
+        !!task && (!isPiTaskRuntime(task.runtime) || piAcpEnabled) && !isLatestRunInProgress && !isLatestRunCompleted
     const taskActions =
         isHeaderLoading || !task ? (
             isActiveCreation ? undefined : (
                 <TaskHeaderActionsSkeleton />
             )
-        ) : skin === 'quill' ? (
+        ) : skin === 'quill' || todayRailNav ? (
             <QuillTaskHeaderActions
                 desktopUrl={hasDesktopAccess ? urls.codeTaskLink(task.id) : null}
                 prUrl={prUrl}
-                runLabel={canRun ? runButtonText : null}
+                runLabel={canRun && latestRun ? runButtonText : null}
                 onRun={runTask}
                 running={runTaskInFlight}
             />
@@ -130,6 +134,7 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
             headerDivider={!artifactsTabEnabled}
             titleActions={
                 <div className="flex flex-wrap items-center gap-2">
+                    {todayRailNav && task && <QuillTaskShareControl taskId={task.id} />}
                     {taskActions}
                     {titleActions}
                 </div>

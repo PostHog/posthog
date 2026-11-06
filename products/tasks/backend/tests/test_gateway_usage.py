@@ -1,5 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
+from uuid import UUID
 
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -10,15 +11,23 @@ from django.utils import timezone
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
-from products.tasks.backend.facade.billing import TaskRunCost, get_task_cost, get_task_run_cost
+from products.tasks.backend.facade.billing import (
+    TaskRunCost,
+    get_task_cost,
+    get_task_run_cost,
+    get_task_run_token_cost_microusd,
+    get_task_run_token_usage,
+)
+from products.tasks.backend.facade.task_run_signals import task_run_cost_updated
 from products.tasks.backend.logic.services.gateway_usage import (
     process_pending_gateway_usage,
     record_gateway_routing,
     record_generation_request,
     refresh_task_run_cost,
+    sweep_queued_gateway_requests,
 )
 from products.tasks.backend.logic.services.sandbox_pricing import COMPUTE_RATE_CARDS
-from products.tasks.backend.models import SandboxSession, Task, TaskRun
+from products.tasks.backend.models import SandboxSession, Task, TaskRun, TaskRunGatewayRequest
 
 
 @override_settings(SANDBOX_AI_GATEWAY_URL="https://gateway.example.com/v1", SANDBOX_AI_GATEWAY_MINT_KEY="phs_test")
@@ -52,25 +61,39 @@ class TestGatewayUsage(BaseTest):
     def _process(self, run: TaskRun, *, limit: int = 20) -> TaskRunCost:
         return process_pending_gateway_usage(run_id=run.id, team_id=self.team.id, limit=limit)
 
-    @patch("aiohttp.ClientSession._request")
+    @patch.dict("os.environ", {"HTTPS_PROXY": "http://proxy.example.com:8080"})
+    @patch("aiohttp.ClientSession._request", autospec=True)
     def test_records_cost_by_model_and_provider_and_removes_processed_ids(self, get: Mock) -> None:
         run = self._run()
+        observed_costs: dict[UUID, int | None] = {}
+
+        def cost_updated(*, run_id: UUID, team_id: int, **kwargs: object) -> None:
+            assert team_id == self.team.id
+            observed_costs[run_id] = get_task_run_token_cost_microusd(team_id=team_id, run_id=run_id)
+
+        task_run_cost_updated.connect(cost_updated, sender=TaskRun)
+        self.addCleanup(task_run_cost_updated.disconnect, cost_updated, sender=TaskRun)
         self._report(run, ["parent", "subagent", "other-model", "second-turn", "parent"])
+        record_generation_request(team_id=self.team.id, run_id=run.id, request_id="queued")
         get.side_effect = [
             self._response("parent", "0.005"),
             self._response("subagent", "0.010001", provider="provider-b"),
             self._response("other-model", "0.000009", model="model-b"),
             self._response("second-turn", "0.005"),
+            self._response("queued", "0.009"),
         ]
-        assert self._process(run).token_cost == 2
-        assert get.call_count == 4
+        assert self._process(run).token_cost == 3
+        assert observed_costs == {run.id: 29_010}
+        assert not TaskRunGatewayRequest.objects.for_team(self.team.id).filter(task_run_id=run.id).exists()
+        assert get.call_count == 5
         assert get.call_args.kwargs["timeout"].total == 15
+        assert get.call_args.args[0].trust_env is False
         run.refresh_from_db()
         assert run.state == {
             "unprocessed_request_ids": [],
             "token_cost": {
                 "model-a": {
-                    "provider-a": {"cost_microusd": 10_000, "request_ids": ["parent", "second-turn"]},
+                    "provider-a": {"cost_microusd": 19_000, "request_ids": ["parent", "second-turn", "queued"]},
                     "provider-b": {"cost_microusd": 10_001, "request_ids": ["subagent"]},
                 },
                 "model-b": {"provider-a": {"cost_microusd": 9, "request_ids": ["other-model"]}},
@@ -78,7 +101,7 @@ class TestGatewayUsage(BaseTest):
             "compute_cost": None,
         }
         get.reset_mock()
-        assert self._process(run).token_cost == 2
+        assert self._process(run).token_cost == 3
         get.assert_not_called()
 
     @patch("aiohttp.ClientSession._request")
@@ -138,6 +161,9 @@ class TestGatewayUsage(BaseTest):
         assert get_task_run_cost(run_id=run.id, team_id=self.team.id).token_cost is None
         assert get_task_cost(team_id=self.team.id, task_id=run.task_id).token_cost is None
         assert get.call_args.args[1].endswith("/v1/usage/priced")
+        usage = get_task_run_token_usage(run_id=run.id, team_id=self.team.id)
+        assert usage.cost_microusd == 100_000
+        assert not usage.complete
         run.refresh_from_db()
         assert run.state["unprocessed_request_ids"] == ["missing"]
 
@@ -213,7 +239,7 @@ class TestGatewayUsage(BaseTest):
         get.reset_mock()
         assert get_task_run_cost(run_id=first.id, team_id=self.team.id) == TaskRunCost(token_cost=0, compute_cost=0)
         assert get_task_run_cost(run_id=second.id, team_id=self.team.id) == TaskRunCost(token_cost=0, compute_cost=0)
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(4):
             assert get_task_cost(team_id=self.team.id, task_id=first.task_id) == TaskRunCost(
                 token_cost=1, compute_cost=1
             )
@@ -225,6 +251,51 @@ class TestGatewayUsage(BaseTest):
         run.state = {}
         run.save(update_fields=["state"])
         assert get_task_run_cost(run_id=run.id, team_id=self.team.id).token_cost is None
+
+    @patch("aiohttp.ClientSession._request")
+    def test_queued_callbacks_keep_usage_incomplete_until_they_are_costed(self, get: Mock) -> None:
+        run = self._run()
+        record_generation_request(run_id=run.id, team_id=run.team_id, request_id="queued")
+        get.return_value = self._response("queued", "0.009")
+
+        assert not get_task_run_token_usage(run_id=run.id, team_id=self.team.id).complete
+        assert get_task_run_cost(run_id=run.id, team_id=self.team.id).token_cost is None
+        assert get_task_run_token_cost_microusd(run_id=run.id, team_id=self.team.id) is None
+
+        assert refresh_task_run_cost(run_id=run.id, team_id=self.team.id).token_cost is None
+        assert TaskRunGatewayRequest.objects.for_team(self.team.id).filter(task_run_id=run.id).exists()
+        assert not get_task_run_token_usage(run_id=run.id, team_id=self.team.id).complete
+        get.assert_not_called()
+
+        assert self._process(run).token_cost == 1
+        assert not TaskRunGatewayRequest.objects.for_team(self.team.id).filter(task_run_id=run.id).exists()
+        assert get_task_run_token_usage(run_id=run.id, team_id=self.team.id).complete
+        assert get_task_run_token_cost_microusd(run_id=run.id, team_id=self.team.id) == 9_000
+
+    def test_sweep_reschedules_a_stale_queued_callback(self) -> None:
+        run = self._run()
+        record_generation_request(run_id=run.id, team_id=run.team_id, request_id="queued")
+        TaskRunGatewayRequest.objects.for_team(self.team.id).filter(task_run_id=run.id).update(
+            created_at=timezone.now() - timedelta(minutes=15)
+        )
+
+        with patch("products.tasks.backend.logic.services.gateway_usage.schedule_gateway_usage") as schedule:
+            assert sweep_queued_gateway_requests() == 1
+
+        schedule.assert_called_once_with(run_id=run.id, team_id=self.team.id)
+
+    def test_sweep_groups_by_run_so_one_backlog_cannot_starve_another(self) -> None:
+        stuck, waiting = self._run(), self._run()
+        queued = TaskRunGatewayRequest.objects.for_team(self.team.id)
+        for index in range(60):
+            queued.create(team=self.team, task_run_id=stuck.id, request_id=f"stuck-{index}")
+        queued.create(team=self.team, task_run_id=waiting.id, request_id="waiting")
+        queued.update(created_at=timezone.now() - timedelta(minutes=15))
+
+        with patch("products.tasks.backend.logic.services.gateway_usage.schedule_gateway_usage") as schedule:
+            assert sweep_queued_gateway_requests() == 2
+
+        assert {call.kwargs["run_id"] for call in schedule.call_args_list} == {stuck.id, waiting.id}
 
     def test_compute_cost_uses_existing_ledger_attribution_and_resource_floors(self) -> None:
         run = self._run()
@@ -255,6 +326,10 @@ class TestGatewayUsage(BaseTest):
         run.refresh_from_db()
         assert run.state["compute_cost"] == expected
         assert set(run.state) == {"unprocessed_request_ids", "token_cost", "compute_cost"}
+        SandboxSession.objects.for_team(self.team.id).filter(sandbox_id="claimed").update(
+            compute_settled_at=now, compute_settled_usd=Decimal("1.234567")
+        )
+        assert get_task_run_cost(run_id=run.id, team_id=self.team.id).compute_cost == 123
 
     @patch("aiohttp.ClientSession._request")
     def test_accounting_after_completion_has_no_completion_side_effects(self, get: Mock) -> None:

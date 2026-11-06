@@ -11,6 +11,7 @@ import {
     canvasHostLogic,
     handleCanvasDataRequest,
 } from '../host/canvasHostLogic'
+import type { CanvasRect } from '../host/canvasProtocol'
 import { DraftCanvas } from '../host/DraftCanvas'
 import { canvasCommentsLogic } from '../sidePanel/comments/canvasCommentsLogic'
 import { canvasSceneLogic } from './canvasSceneLogic'
@@ -62,7 +63,9 @@ export function CanvasHostFrame({
         },
         onTextSelection: commentsEnabled ? setTextSelection : undefined,
         onTextSelectionCleared: () => setTextSelection(null),
-        onCommentActivate: commentsEnabled ? activateThread : undefined,
+        onCommentActivate: commentsEnabled
+            ? (id: string, rect: CanvasRect | null) => activateThread(id, rect, 'highlight')
+            : undefined,
         commentHighlights: highlights,
         clearTextSelectionKey,
         hasUserActivation: canvasHasUserActivation,

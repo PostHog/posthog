@@ -14,13 +14,18 @@ import {
     AutoresearchPipelineTab,
     autoresearchPipelineLogic,
 } from './autoresearchPipelineLogic'
+import { AgentResearchTab } from './pipeline/AgentResearchTab'
+import { LifecycleStrip } from './pipeline/LifecycleStrip'
 import { OnlinePerformanceTab } from './pipeline/OnlinePerformanceTab'
-import { OverviewTab } from './pipeline/OverviewTab'
 import { PipelineActions } from './pipeline/PipelineActions'
+import { PipelineSummary } from './pipeline/PipelineSummary'
 import { PredictionsTab } from './pipeline/PredictionsTab'
+import { QuillPipelineActions } from './pipeline/QuillPipelineActions'
+import { QuillScoreNowButton } from './pipeline/QuillScoreNowButton'
 import { ScoreNowButton } from './pipeline/ScoreNowButton'
-import { SuggestionsTab } from './pipeline/SuggestionsTab'
-import { TrainingTab } from './pipeline/TrainingTab'
+import { SetupTab } from './pipeline/SetupTab'
+import { pipelineQuestion, pipelineSubtitle } from './pipelineQuestion'
+import { notLiveExplanation } from './trainingScheduleLogic'
 
 export const scene: SceneExport = {
     component: AutoresearchPipelineScene,
@@ -29,20 +34,20 @@ export const scene: SceneExport = {
 }
 
 export function AutoresearchPipelineScene(): JSX.Element {
-    const { pipeline, pipelineLoading, pipelineError, activeTab } = useValues(autoresearchPipelineLogic)
+    const { pipeline, pipelineLoading, pipelineError, activeTab, lifecycleSteps } = useValues(autoresearchPipelineLogic)
     const { setActiveTab, loadDetail } = useActions(autoresearchPipelineLogic)
     const isEnabled = useFeatureFlag('AUTORESEARCH')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const tabs: LemonTab<AutoresearchPipelineTab>[] = [
-        { key: 'overview', label: 'Overview', content: <OverviewTab /> },
-        { key: 'training', label: 'Training', content: <TrainingTab /> },
         { key: 'predictions', label: 'Predictions', content: <PredictionsTab /> },
-        { key: 'online_performance', label: 'Online performance', content: <OnlinePerformanceTab /> },
-        { key: 'suggestions', label: 'Suggestions', content: <SuggestionsTab /> },
+        { key: 'accuracy', label: 'Accuracy', content: <OnlinePerformanceTab /> },
+        { key: 'agent_research', label: 'Agent research', content: <AgentResearchTab /> },
+        { key: 'setup', label: 'Setup', content: <SetupTab /> },
     ]
 
-    const heading = pipeline?.name ?? (pipelineLoading ? '' : 'Model')
-    const subheading = pipeline ? `Predict ${pipeline.target_event} within ${pipeline.horizon_days ?? '?'}d` : undefined
+    const heading = pipeline ? pipelineQuestion(pipeline) : pipelineLoading ? '' : 'Model'
+    const notLive = pipeline ? notLiveExplanation(pipeline) : null
 
     if (!isEnabled) {
         return <NotFound object="Autoresearch" caption="This feature is not enabled for your project." />
@@ -52,13 +57,20 @@ export function AutoresearchPipelineScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name={heading}
-                description={subheading}
+                description={pipeline ? pipelineSubtitle(pipeline) : null}
                 resourceType={{ type: 'experiment' }}
                 actions={
-                    <>
-                        <ScoreNowButton />
-                        <PipelineActions />
-                    </>
+                    todayRailNav ? (
+                        <>
+                            <QuillScoreNowButton />
+                            <QuillPipelineActions />
+                        </>
+                    ) : (
+                        <>
+                            <ScoreNowButton />
+                            <PipelineActions />
+                        </>
+                    )
                 }
             />
 
@@ -72,12 +84,24 @@ export function AutoresearchPipelineScene(): JSX.Element {
                     Couldn't load this model. It may have been deleted. Try again, or go back to the model list.
                 </LemonBanner>
             ) : (
-                <LemonTabs
-                    activeKey={activeTab}
-                    onChange={(key) => setActiveTab(key as AutoresearchPipelineTab)}
-                    tabs={tabs}
-                    sceneInset
-                />
+                <>
+                    <PipelineSummary />
+                    {lifecycleSteps && <LifecycleStrip steps={lifecycleSteps} />}
+                    {notLive && (
+                        <LemonBanner type="warning">
+                            <div>{notLive}</div>
+                            <div className="text-xs font-mono mt-1 break-words">
+                                Reason: {pipeline?.not_promoted_reason}
+                            </div>
+                        </LemonBanner>
+                    )}
+                    <LemonTabs
+                        activeKey={activeTab}
+                        onChange={(key) => setActiveTab(key as AutoresearchPipelineTab)}
+                        tabs={tabs}
+                        sceneInset
+                    />
+                </>
             )}
         </SceneContent>
     )

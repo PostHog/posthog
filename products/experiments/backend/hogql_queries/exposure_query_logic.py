@@ -11,15 +11,19 @@ from posthog.schema import (
     ActionsNode,
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
+    ExperimentWarehouseNativeExposureConfig,
     MultipleVariantHandling,
+    PropertyOperator,
 )
 
 from posthog.hogql import ast
-from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.property import action_to_expr, operator_is_negative, property_to_expr
 
 from posthog.models.team.team import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +41,9 @@ EXPERIMENT_EXPOSURE_EVENT_FLAG = "experiment-exposure-event"
 
 # The start of $experiment_exposure ingestion. Experiments started before this timestamp ran
 # (at least partly) without $experiment_exposure, so they must keep counting exposures via
-# $feature_flag_called even where the two overlap. Only experiments whose start_date is at or
-# after the cutoff can rely on $experiment_exposure covering their whole exposure window.
+# $feature_flag_called, and read the $experiment_exposure copy next to it
+# (exposure_event_name_filter). Only experiments whose start_date is at or after the cutoff can
+# rely on $experiment_exposure covering their whole exposure window.
 EXPERIMENT_EXPOSURE_EVENT_CUTOFF = datetime(2026, 9, 1, tzinfo=UTC)
 
 
@@ -47,9 +52,10 @@ def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -
     Returns the event to count exposures on when the experiment doesn't configure a custom one.
 
     Experiments started at or after EXPERIMENT_EXPOSURE_EVENT_CUTOFF use $experiment_exposure,
-    provided the team is flagged into the rollout. Everything else stays on $feature_flag_called:
-    older experiments predate the new event, and because ingestion duplicates flag events into
-    $experiment_exposure, counting exactly one of the two is what avoids double counting.
+    provided the team is flagged into the rollout. Everything else resolves to
+    $feature_flag_called, because older experiments predate the new event. The exposure filters
+    read $feature_flag_called together with its $experiment_exposure copy (see
+    exposure_event_name_filter).
     """
     if start_date is None:
         return DEFAULT_EXPOSURE_EVENT
@@ -72,6 +78,37 @@ def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -
     except Exception:
         return DEFAULT_EXPOSURE_EVENT
     return EXPERIMENT_EXPOSURE_EVENT if enabled else DEFAULT_EXPOSURE_EVENT
+
+
+def exposure_event_names(event: str, *, read_copies: bool = True) -> list[str]:
+    """Returns the events that carry exposures for a resolved exposure event.
+
+    An experiment on $feature_flag_called also reads $experiment_exposure, unless `read_copies`
+    is False. Ingestion stops writing $feature_flag_called to events for an organization on
+    FLAG_EVALUATIONS_ONLY. For a team whose flag calls ingestion copies, the $experiment_exposure
+    copy then carries the exposures. Before that, a call and its copy are two rows for one
+    exposure. Every exposure read aggregates per entity (first exposure time, variant), so the two
+    rows give the same result as one.
+    """
+    if event == DEFAULT_EXPOSURE_EVENT and read_copies:
+        return [DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT]
+    return [event]
+
+
+def exposure_event_name_filter(event: str, *, read_copies: bool = True) -> ast.Expr:
+    """Matches the events that `exposure_event_names` returns for a resolved exposure event."""
+    names = exposure_event_names(event, read_copies=read_copies)
+    if len(names) > 1:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Field(chain=["event"]),
+            right=ast.Constant(value=names),
+        )
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.Eq,
+        left=ast.Field(chain=["event"]),
+        right=ast.Constant(value=names[0]),
+    )
 
 
 # What a new experiment filters test accounts by when its criteria don't say. It does not follow
@@ -149,13 +186,17 @@ def normalize_to_exposure_criteria(
             if config and isinstance(config, dict):
                 if _is_actions_node_dict(config):
                     criteria_copy[config_key] = ActionsNode.model_validate(config)
+                elif config.get("kind") == "ExperimentWarehouseNativeExposureConfig":
+                    criteria_copy[config_key] = ExperimentWarehouseNativeExposureConfig.model_validate(config)
                 else:
                     criteria_copy[config_key] = ExperimentEventExposureConfig.model_validate(config)
 
         return ExperimentExposureCriteria.model_validate(criteria_copy)
 
 
-def is_default_exposure_config(config: Union[ActionsNode, ExperimentEventExposureConfig, None]) -> bool:
+def is_default_exposure_config(
+    config: Union[ActionsNode, ExperimentEventExposureConfig, ExperimentWarehouseNativeExposureConfig, None],
+) -> bool:
     """A missing config or one naming a default exposure event is the default exposure, not a
     custom one (same convention as get_exposure_event_and_property)."""
     if config is None:
@@ -203,12 +244,33 @@ def resolve_filter_test_accounts(exposure_criteria: Union[ExperimentExposureCrit
     return criteria.filterTestAccounts
 
 
+def applies_test_account_filters(
+    team: Team, exposure_criteria: Union[ExperimentExposureCriteria, dict, None] = None
+) -> bool:
+    """Whether a query leaves out test accounts: the criteria ask for it, and the project has test account filters."""
+    return (
+        resolve_filter_test_accounts(exposure_criteria)
+        and isinstance(team.test_account_filters, list)
+        and len(team.test_account_filters) > 0
+    )
+
+
+def has_positive_test_account_filter(team: Team) -> bool:
+    """Whether a project test account filter keeps what it matches, by a positive operator. A negative operator leaves
+    out what it matches. A `hogql` filter has no operator to read, so it doesn't count."""
+    if not isinstance(team.test_account_filters, list):
+        return False
+    return any(
+        test_filter.get("type") != "hogql"
+        and not operator_is_negative(test_filter.get("operator") or PropertyOperator.EXACT)
+        for test_filter in team.test_account_filters
+    )
+
+
 def get_test_accounts_filter(
     team: Team, exposure_criteria: Union[ExperimentExposureCriteria, dict, None] = None
 ) -> list[ast.Expr]:
-    filter_test_accounts = resolve_filter_test_accounts(exposure_criteria)
-
-    if filter_test_accounts and isinstance(team.test_account_filters, list) and len(team.test_account_filters) > 0:
+    if applies_test_account_filters(team, exposure_criteria):
         return [property_to_expr(property, team) for property in team.test_account_filters]
     return []
 
@@ -232,13 +294,14 @@ def get_exposure_event_and_property(
 
     exposure_config = criteria.exposure_config if criteria else None
 
+    if isinstance(exposure_config, ExperimentWarehouseNativeExposureConfig):
+        raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
     if isinstance(exposure_config, ActionsNode):
         # build_exposure_event_conditions applies the action filter.
         feature_flag_variant_property = f"$feature/{feature_flag_key}"
         event = None
     elif (
-        exposure_config
-        and hasattr(exposure_config, "event")
+        isinstance(exposure_config, ExperimentEventExposureConfig)
         and exposure_config.event
         and exposure_config.event not in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT)
     ):
@@ -260,7 +323,9 @@ def get_exposure_event_and_property(
 
 
 def _get_event_name_from_config(
-    exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]],
+    exposure_config: Optional[
+        Union[ActionsNode, ExperimentEventExposureConfig, ExperimentWarehouseNativeExposureConfig]
+    ],
     default_exposure_event: str,
 ) -> str:
     if not exposure_config or not hasattr(exposure_config, "event"):
@@ -277,30 +342,28 @@ def _get_event_name_from_config(
 def _build_action_filter(action_id: int, team: Team) -> ast.Expr:
     """Build filter expression for an action, returning False if action not found."""
     try:
-        action = Action.objects.get(pk=action_id, team=team)
+        action = get_action(action_id=action_id, team_id=team.pk)
         return action_to_expr(action)
-    except Action.DoesNotExist:
+    except ActionNotFound:
         logger.warning(f"Action {action_id} not found for team {team.id}. Exposure query will return no results.")
         return ast.Constant(value=False)
 
 
 def _build_event_filters(
-    exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]],
+    exposure_config: Optional[
+        Union[ActionsNode, ExperimentEventExposureConfig, ExperimentWarehouseNativeExposureConfig]
+    ],
     team: Team,
     feature_flag_key: Optional[str],
     default_exposure_event: str,
 ) -> list[ast.Expr]:
     if isinstance(exposure_config, ActionsNode):
         return [_build_action_filter(int(exposure_config.id), team)]
+    if isinstance(exposure_config, ExperimentWarehouseNativeExposureConfig):
+        raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
 
     event = _get_event_name_from_config(exposure_config, default_exposure_event)
-    filters: list[ast.Expr] = [
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["event"]),
-            right=ast.Constant(value=event),
-        )
-    ]
+    filters: list[ast.Expr] = [exposure_event_name_filter(event)]
 
     # $feature_flag_called and $experiment_exposure are not specific to one flag, so without the
     # flag key filter, exposures of other experiments would count too.
@@ -317,7 +380,10 @@ def _build_event_filters(
 
 
 def _build_property_filters(
-    exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]], team: Team
+    exposure_config: Optional[
+        Union[ActionsNode, ExperimentEventExposureConfig, ExperimentWarehouseNativeExposureConfig]
+    ],
+    team: Team,
 ) -> list[ast.Expr]:
     if not exposure_config or exposure_config.kind != "ExperimentEventExposureConfig" or not exposure_config.properties:
         return []
@@ -351,7 +417,11 @@ def build_exposure_event_conditions(
     ]
 
 
+def aggregates_by_group(group_type_index: object) -> bool:
+    return isinstance(group_type_index, int)
+
+
 def get_entity_key(group_type_index: Optional[int]) -> str:
-    if isinstance(group_type_index, int):
+    if aggregates_by_group(group_type_index):
         return f"$group_{group_type_index}"
     return "person_id"

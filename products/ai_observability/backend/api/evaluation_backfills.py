@@ -30,6 +30,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, APIScopePermission, TeamMemberAccessPermission
 from posthog.rate_limit import (
@@ -43,6 +44,7 @@ from posthog.temporal.ai_observability.evaluation_backfill import (
     EvaluationBackfillInputs,
     backfill_workflow_id,
     cancel_backfill,
+    interrupt_backfill,
     report_backfill_finished,
     settle_horizon,
 )
@@ -107,6 +109,115 @@ def _duration_label(duration: timedelta) -> str:
     # "about" whenever the duration is not a whole number of its unit, so the message never
     # reads as an exact figure the project does not actually use.
     return label if value == int(value) else f"about {label}"
+
+
+def clamp_backfill_window(
+    team: Team, target: str, target_config: dict[str, Any], window_start: datetime, window_end: datetime
+) -> BackfillWindow:
+    """The requested window, bounded to the span whose verdicts can be read back."""
+    now = timezone.now()
+    # A generation that has not reached `ai_events` yet fails its run, so the window stops short
+    # of the newest events.
+    window_end = min(window_end, now - BACKFILL_AI_EVENTS_LAG)
+    settle_hold = settle_horizon(target, target_config)
+    if settle_hold:
+        # A trace or session is graded over `settle_hold` from its first event, so a unit any
+        # younger is still filling up. Grading it now would freeze a partial verdict, and the
+        # shared workflow id would then keep the live path from ever grading it properly.
+        window_end = min(window_end, now - settle_hold)
+        if window_start >= window_end:
+            raise ValidationError(
+                f"This evaluation grades a {target} over "
+                f"{_duration_label(settle_hold - timedelta(seconds=INGESTION_LAG_MARGIN_SECONDS))}, so a "
+                "backfill has to end before that. Try a range that ends earlier."
+            )
+    # ai_events expires at toDate(timestamp) + retention_days, so exclude the whole expired day.
+    retention_start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(
+        days=AI_EVENTS_RETENTION_DAYS - 1
+    )
+    window_start = max(window_start, retention_start)
+    if window_start >= window_end:
+        raise ValidationError(
+            f"The range must end in the past and start within the last {AI_EVENTS_RETENTION_DAYS} days."
+        )
+    # A backfilled verdict is stamped at its unit's own timestamp, so ingestion applies the
+    # team's drop threshold to it like any other late event. Reaching further back would run
+    # the evaluations, pay for them, and have every verdict dropped before it lands.
+    drop_events_older_than: timedelta | None = team.drop_events_older_than
+    if drop_events_older_than:
+        # The label rounds to the nearest hour, so anything shorter would render as "0 hours".
+        # A reach that short is not worth backfilling either way.
+        reach = drop_events_older_than - BACKFILL_RETENTION_MARGIN
+        if reach < timedelta(hours=1):
+            raise ValidationError(
+                "Backfills are not available for this project because it drops events older than "
+                f"{_duration_label(drop_events_older_than)}."
+            )
+        window_start = max(window_start, now - reach)
+        if window_start >= window_end:
+            raise ValidationError(
+                f"Backfills on this project can only reach back {_duration_label(reach)}, "
+                "because older events are dropped. Try a more recent range."
+            )
+    return BackfillWindow(start=window_start, end=window_end)
+
+
+def start_backfill(
+    *,
+    team: Team,
+    evaluation: Evaluation,
+    window: BackfillWindow,
+    conditions: list[dict[str, Any]],
+    rerun_existing: bool,
+    total_count: int,
+    user: User,
+) -> EvaluationBackfill:
+    """Create the backfill row and start its walk. Raises a ValidationError when one already runs."""
+    try:
+        backfill = EvaluationBackfill.objects.for_team(team.pk).create(
+            evaluation=evaluation,
+            team=team,
+            window_start=window.start,
+            window_end=window.end,
+            target=evaluation.target,
+            conditions=conditions,
+            rerun_existing=rerun_existing,
+            total_count=total_count,
+            created_by=user,
+        )
+    except IntegrityError:
+        # Concurrent create lost the one-active-per-evaluation race.
+        raise ValidationError("This evaluation already has a running backfill.")
+
+    try:
+        client = sync_connect()
+    except Exception:
+        # Connecting failed, so no start request reached Temporal and no workflow can exist for
+        # this row. Removing it lets the user retry at once.
+        EvaluationBackfill.objects.for_team(team.pk).filter(pk=backfill.pk).delete()
+        logger.exception("llma.evaluation_backfill_connect_failed", backfill_id=str(backfill.pk))
+        raise APIException("Couldn't start the backfill. Try again.")
+
+    try:
+        asyncio.run(
+            client.start_workflow(
+                BACKFILL_WORKFLOW_NAME,
+                EvaluationBackfillInputs(backfill_id=str(backfill.id), team_id=team.pk),
+                id=backfill_workflow_id(str(backfill.id)),
+                task_queue=settings.LLMA_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+            )
+        )
+    except Exception:
+        # The call can fail after Temporal accepted the start, and the row is what controls the
+        # walk: the first tick ends the run when the row is not active, and cancel needs it to
+        # exist. Deleting it on an unknown outcome would leave a walk that dispatches judge runs
+        # against the team's own provider key with nothing recording them and no way to stop
+        # them. The row therefore stays, and `_workflow_is_alive` releases it on the next read
+        # once the start grace has passed and Temporal answers NOT_FOUND for the workflow.
+        logger.exception("llma.evaluation_backfill_start_failed", backfill_id=str(backfill.pk))
+        raise APIException("Couldn't confirm the backfill started. Check the list before starting another one.")
+    return backfill
 
 
 class _BackfillPermissionView(Protocol):
@@ -219,6 +330,7 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "status",
+            "status_reason",
             "target",
             "window_start",
             "window_end",
@@ -226,6 +338,8 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
             "rerun_existing",
             "total_count",
             "dispatched_count",
+            "completed_count",
+            "evaluation_skipped_count",
             "skipped_count",
             "failed_count",
             "remaining_count",
@@ -236,7 +350,8 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
         read_only_fields = fields
         extra_kwargs = {
             "id": {"help_text": "Backfill identifier."},
-            "status": {"help_text": "running while the walk is dispatching, then completed or cancelled."},
+            "status": {"help_text": "Running, completed, interrupted by an error, or cancelled by a user."},
+            "status_reason": {"help_text": "Reason an interrupted backfill stopped; empty otherwise."},
             "window_start": {"help_text": "Inclusive start of the window, by unit timestamp."},
             "window_end": {"help_text": "Exclusive end of the window."},
             "rerun_existing": {"help_text": "Whether units with an existing result are evaluated again."},
@@ -246,12 +361,11 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
             "dispatched_count": {"help_text": "Units the backfill has started an evaluation for so far."},
             "skipped_count": {"help_text": "Units the live path had already covered, so nothing was dispatched."},
             "failed_count": {
-                "help_text": "Units whose evaluation failed to start. They have no result and count toward remaining_count."
+                "help_text": "Units whose evaluation failed to start or finish. Legacy runs only counted start failures."
             },
             "remaining_count": {
                 "help_text": (
-                    "Units still holding no result when the run finished, counted at that moment. "
-                    "Zero means the window is covered, whoever graded it."
+                    "Units left to retry after completion. Legacy runs estimated this before evaluations finished."
                 )
             },
             "created_at": {"help_text": "When the backfill was created."},
@@ -327,48 +441,9 @@ class EvaluationBackfillViewSet(
         return cast(dict[str, Any], serializer.validated_data)
 
     def _clamped_window(self, evaluation: Evaluation, data: dict[str, Any]) -> BackfillWindow:
-        """The requested window, bounded to the span whose verdicts can be read back."""
-        now = timezone.now()
-        # A generation that has not reached `ai_events` yet fails its run, so the window stops short
-        # of the newest events.
-        window_end: datetime = min(data["window_end"], now - BACKFILL_AI_EVENTS_LAG)
-        settle_hold = settle_horizon(evaluation.target, evaluation.target_config)
-        if settle_hold:
-            # A trace or session is graded over `settle_hold` from its first event, so a unit any
-            # younger is still filling up. Grading it now would freeze a partial verdict, and the
-            # shared workflow id would then keep the live path from ever grading it properly.
-            window_end = min(window_end, now - settle_hold)
-            if data["window_start"] >= window_end:
-                raise ValidationError(
-                    f"This evaluation grades a {evaluation.target} over "
-                    f"{_duration_label(settle_hold - timedelta(seconds=INGESTION_LAG_MARGIN_SECONDS))}, so a "
-                    "backfill has to end before that. Try a range that ends earlier."
-                )
-        window_start: datetime = max(data["window_start"], now - timedelta(days=AI_EVENTS_RETENTION_DAYS))
-        if window_start >= window_end:
-            raise ValidationError(
-                f"The range must end in the past and start within the last {AI_EVENTS_RETENTION_DAYS} days."
-            )
-        # A backfilled verdict is stamped at its unit's own timestamp, so ingestion applies the
-        # team's drop threshold to it like any other late event. Reaching further back would run
-        # the evaluations, pay for them, and have every verdict dropped before it lands.
-        drop_events_older_than: timedelta | None = self.team.drop_events_older_than
-        if drop_events_older_than:
-            # The label rounds to the nearest hour, so anything shorter would render as "0 hours".
-            # A reach that short is not worth backfilling either way.
-            reach = drop_events_older_than - BACKFILL_RETENTION_MARGIN
-            if reach < timedelta(hours=1):
-                raise ValidationError(
-                    "Backfills are not available for this project because it drops events older than "
-                    f"{_duration_label(drop_events_older_than)}."
-                )
-            window_start = max(window_start, now - reach)
-            if window_start >= window_end:
-                raise ValidationError(
-                    f"Backfills on this project can only reach back {_duration_label(reach)}, "
-                    "because older events are dropped. Try a more recent range."
-                )
-        return BackfillWindow(start=window_start, end=window_end)
+        return clamp_backfill_window(
+            self.team, evaluation.target, evaluation.target_config, data["window_start"], data["window_end"]
+        )
 
     def _require_enabled(self, evaluation: Evaluation) -> None:
         # The workflow cancels a backfill whose evaluation is disabled, so starting one here would
@@ -490,7 +565,6 @@ class EvaluationBackfillViewSet(
     def estimate(self, request: Request, **kwargs: Any) -> Response:
         """Count what a backfill over the given window would evaluate, without creating one."""
         evaluation = self._evaluation_for_url()
-        self._require_enabled(evaluation)
         data = self._validated_request(request)
         window = self._clamped_window(evaluation, data)
         conditions = self._conditions(evaluation, data)
@@ -536,7 +610,7 @@ class EvaluationBackfillViewSet(
             team_id=self.team_id,
             workflow_id=workflow_id,
         )
-        if cancel_backfill(self.team_id, backfill.pk):
+        if interrupt_backfill(self.team_id, backfill.pk, "workflow_not_running"):
             report_backfill_finished(
                 self.team_id, str(backfill.pk), status="failed", stop_reason="workflow_not_running"
             )
@@ -598,50 +672,15 @@ class EvaluationBackfillViewSet(
                 else f"No {evaluation.target}s in this range match these conditions. Try a wider range."
             )
 
-        try:
-            backfill = EvaluationBackfill.objects.for_team(self.team_id).create(
-                evaluation=evaluation,
-                team=self.team,
-                window_start=window.start,
-                window_end=window.end,
-                target=evaluation.target,
-                conditions=conditions,
-                rerun_existing=rerun_existing,
-                total_count=scope.to_evaluate,
-                created_by=cast(User, request.user),
-            )
-        except IntegrityError:
-            # Concurrent create lost the one-active-per-evaluation race.
-            raise ValidationError("This evaluation already has a running backfill.")
-
-        try:
-            client = sync_connect()
-        except Exception:
-            # Connecting failed, so no start request reached Temporal and no workflow can exist for
-            # this row. Removing it lets the user retry at once.
-            EvaluationBackfill.objects.for_team(self.team_id).filter(pk=backfill.pk).delete()
-            logger.exception("llma.evaluation_backfill_connect_failed", backfill_id=str(backfill.pk))
-            raise APIException("Couldn't start the backfill. Try again.")
-
-        try:
-            asyncio.run(
-                client.start_workflow(
-                    BACKFILL_WORKFLOW_NAME,
-                    EvaluationBackfillInputs(backfill_id=str(backfill.id), team_id=self.team_id),
-                    id=backfill_workflow_id(str(backfill.id)),
-                    task_queue=settings.LLMA_TASK_QUEUE,
-                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                )
-            )
-        except Exception:
-            # The call can fail after Temporal accepted the start, and the row is what controls the
-            # walk: the first tick ends the run when the row is not active, and cancel needs it to
-            # exist. Deleting it on an unknown outcome would leave a walk that dispatches judge runs
-            # against the team's own provider key with nothing recording them and no way to stop
-            # them. The row therefore stays, and `_workflow_is_alive` releases it on the next read
-            # once the start grace has passed and Temporal answers NOT_FOUND for the workflow.
-            logger.exception("llma.evaluation_backfill_start_failed", backfill_id=str(backfill.pk))
-            raise APIException("Couldn't confirm the backfill started. Check the list before starting another one.")
+        backfill = start_backfill(
+            team=self.team,
+            evaluation=evaluation,
+            window=window,
+            conditions=conditions,
+            rerun_existing=rerun_existing,
+            total_count=scope.to_evaluate,
+            user=cast(User, request.user),
+        )
 
         self._report(
             "llma evaluation backfill started",
@@ -664,7 +703,7 @@ class EvaluationBackfillViewSet(
                 asyncio.run(client.get_workflow_handle(backfill_workflow_id(str(backfill.pk))).cancel())
             except Exception as error:
                 # The workflow reads the row's status at every tick and stops on a terminal one, so
-                # a failed handle costs nothing and does not need a stack trace.
+                # a failed handle only lets the current page finish and does not need a stack trace.
                 logger.warning("llma.evaluation_backfill_cancel_failed", backfill_id=str(backfill.pk), error=str(error))
             # The status and finished_at were written by the update, not on this instance.
             backfill.refresh_from_db()

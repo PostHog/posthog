@@ -1,9 +1,12 @@
 import re
+import operator
 from collections import defaultdict
-from typing import Any, Literal, TypedDict, cast
+from collections.abc import Mapping
+from functools import reduce
+from typing import Any, Literal, Protocol, TypedDict, cast
 
-from django.db.models import BigIntegerField, CharField, F, Model, QuerySet, Value
-from django.db.models.functions import Cast, JSONObject
+from django.db.models import BigIntegerField, CharField, F, Model, OuterRef, Q, QuerySet, Subquery, Value
+from django.db.models.functions import Cast, JSONObject, Lower
 from django.http import HttpResponse
 
 from drf_spectacular.utils import extend_schema
@@ -14,13 +17,16 @@ from rest_framework.response import Response
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.full_text_search import build_rank, process_query
-from posthog.models import EventDefinition, PropertyDefinition
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import search_actions
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Node
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.endpoints.backend.facade.models import Endpoint
+from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
+from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
@@ -35,7 +41,9 @@ class EntityConfig(TypedDict, total=False):
     klass: type[Model]
     search_fields: dict[str, Literal["A", "B", "C"]]
     extra_fields: list[str]
+    annotations: dict[str, Any]
     filters: dict[str, Any]
+    excludes: list[dict[str, Any]]
 
 
 FEATURE_FLAG_SEARCH_CONFIG: EntityConfig = {
@@ -57,6 +65,34 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
     },
+    "data_warehouse_view": {
+        "klass": DataWarehouseSavedQuery,
+        "search_fields": {"name": "A"},
+        "extra_fields": ["name", "node_id"],
+        "annotations": {
+            "node_id": Subquery(Node.objects.filter(saved_query_id=OuterRef("pk")).order_by("id").values("id")[:1])
+        },
+        "filters": {
+            "is_test": False,
+            "managed_viewset__isnull": True,
+            "node_id__isnull": False,
+        },
+        "excludes": [
+            {"deleted": True},
+            {
+                "origin__in": [
+                    DataWarehouseSavedQuery.Origin.ENDPOINT,
+                    DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET,
+                ]
+            },
+        ],
+    },
+    "endpoint": {
+        "klass": Endpoint,
+        "search_fields": {"name": "A"},
+        "extra_fields": ["name"],
+        "excludes": [{"deleted": True}],
+    },
     "experiment": {
         "klass": Experiment,
         "search_fields": {"name": "A", "description": "C"},
@@ -67,11 +103,6 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "klass": Notebook,
         "search_fields": {"title": "A", "text_content": "C"},
         "extra_fields": ["title", "content"],
-    },
-    "action": {
-        "klass": Action,
-        "search_fields": {"name": "A", "description": "C"},
-        "extra_fields": ["name", "description"],
     },
     "cohort": {
         "klass": Cohort,
@@ -100,10 +131,51 @@ ENTITY_MAP: dict[str, EntityConfig] = {
     },
 }
 
-# Workflows are searched through the workflows facade rather than unioned by model class, so
-# they are not in ENTITY_MAP. `search_entities` merges them in when this entity is requested.
+
+class FacadeSearch(Protocol):
+    """A product facade's search, returning results in the shape of a union row, and the total."""
+
+    def __call__(
+        self,
+        *,
+        project_id: int,
+        query: str | None,
+        access_control: UserAccessControl,
+        limit: int,
+        with_access_levels: bool,
+        include_count: bool,
+    ) -> tuple[list[dict[str, Any]], int]: ...
+
+
+def _search_actions(**kwargs: Any) -> tuple[list[dict[str, Any]], int]:
+    return search_actions(include_deleted=True, **kwargs)
+
+
+def search_live_actions(**kwargs: Any) -> tuple[list[dict[str, Any]], int]:
+    """The action search for a caller that leaves soft-deleted actions out."""
+    return search_actions(include_deleted=False, **kwargs)
+
+
+def _search_workflows(**kwargs: Any) -> tuple[list[dict[str, Any]], int]:
+    results, count = search_workflows(include_archived=True, **kwargs)
+    for result in results:
+        result["extra_fields"].pop("status", None)
+    return results, count
+
+
+# Actions and workflows are searched through their products' facades rather than unioned by model
+# class, so they are not in ENTITY_MAP. `search_entities` merges them in when one is requested.
+ACTION_ENTITY = "action"
 WORKFLOW_ENTITY = "hog_flow"
-SEARCHABLE_ENTITIES = [*ENTITY_MAP, WORKFLOW_ENTITY]
+FACADE_SEARCHES: dict[str, FacadeSearch] = {ACTION_ENTITY: _search_actions, WORKFLOW_ENTITY: _search_workflows}
+# Actions keep their place between notebooks and cohorts in the entity choices and the counts.
+_UNION_ENTITY_NAMES = [*ENTITY_MAP]
+_COUNTED_ENTITIES = [
+    *_UNION_ENTITY_NAMES[: _UNION_ENTITY_NAMES.index("cohort")],
+    ACTION_ENTITY,
+    *_UNION_ENTITY_NAMES[_UNION_ENTITY_NAMES.index("cohort") :],
+]
+SEARCHABLE_ENTITIES = [*_COUNTED_ENTITIES, WORKFLOW_ENTITY]
 """
 Map of entity names to their class, search_fields and extra_fields.
 
@@ -156,6 +228,7 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             ENTITY_MAP,
             include_counts=include_counts,
             annotate_access_levels=self.user_access_control,
+            counted_entities=_COUNTED_ENTITIES,
         )
 
         response_data: dict[str, Any] = {"results": results}
@@ -175,12 +248,22 @@ def search_entities(
     offset: int = 0,
     include_counts: bool = True,
     annotate_access_levels: UserAccessControl | None = None,
+    facade_searches: Mapping[str, FacadeSearch] = FACADE_SEARCHES,
+    counted_entities: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int | None] | None, int | None]:
-    workflows_requested = WORKFLOW_ENTITY in entities
-    entities = entities - {WORKFLOW_ENTITY}
+    """Search the requested entities: those in `entity_map` in one SQL union, those in `facade_searches`
+    through their products' facades, merged into one ranked page.
+
+    `counted_entities` names the keys `counts` starts with, in order, each None until searched. It
+    defaults to the `entity_map` keys.
+    """
+    requested_facades = [name for name in facade_searches if name in entities]
+    entities = entities - set(facade_searches)
 
     # empty queryset to union things onto it
-    counts: dict[str, int | None] = dict.fromkeys(entity_map) if include_counts else {}
+    counts: dict[str, int | None] = (
+        dict.fromkeys(counted_entities if counted_entities is not None else entity_map) if include_counts else {}
+    )
     qs = (
         Dashboard.objects.annotate(type=Value("empty", output_field=CharField()))
         .filter(team__project_id=project_id)
@@ -188,7 +271,8 @@ def search_entities(
     )
 
     # add entities
-    for entity_meta in [entity_map[entity] for entity in entities]:
+    for entity_type in entities:
+        entity_meta = entity_map[entity_type]
         assert entity_meta is not None
         klass_qs, entity_name = class_queryset(
             view=view,
@@ -197,48 +281,54 @@ def search_entities(
             query=query,
             search_fields=entity_meta["search_fields"],
             extra_fields=entity_meta["extra_fields"],
+            entity_type=entity_type,
+            annotations=entity_meta.get("annotations"),
             filters=entity_meta.get("filters"),
+            excludes=entity_meta.get("excludes"),
         )
         qs = qs.union(klass_qs)
         if include_counts:
             counts[entity_name] = klass_qs.count()
 
     # order by rank. Ordering an empty union by a column no member added raises, which only
-    # happens here when workflows were the one entity requested.
-    if entities or not workflows_requested:
+    # happens here when facade-searched entities were the only ones requested.
+    if entities or not requested_facades:
         if query:
-            qs = qs.order_by("-rank")
+            qs = qs.order_by(F("rank").desc())
         else:
             qs = qs.order_by("type", F("_sort_name").asc(nulls_first=True))
 
-    if not workflows_requested:
+    if not requested_facades:
         # Get total count before pagination (only when needed)
         total_count = qs.count() if include_counts else None
         results = cast(list[dict[str, Any]], list(qs[offset : offset + limit]))
         if annotate_access_levels is not None:
             _annotate_user_access_levels(results, entity_map, annotate_access_levels)
     else:
-        workflow_results, workflow_count = search_workflows(
-            project_id=project_id,
-            query=query,
-            access_control=view.user_access_control,
-            limit=offset + limit,
-            include_archived=True,
-            with_access_levels=annotate_access_levels is not None,
-            include_count=include_counts,
-        )
-        for result in workflow_results:
-            result["extra_fields"].pop("status", None)
-        if include_counts:
-            counts[WORKFLOW_ENTITY] = workflow_count
+        facade_results: list[dict[str, Any]] = []
+        facade_count = 0
+        for name in requested_facades:
+            # Each source returns its first offset + limit rows, so the merged page is complete.
+            name_results, name_count = facade_searches[name](
+                project_id=project_id,
+                query=query,
+                access_control=view.user_access_control,
+                limit=offset + limit,
+                with_access_levels=annotate_access_levels is not None,
+                include_count=include_counts,
+            )
+            facade_results.extend(name_results)
+            facade_count += name_count
+            if include_counts:
+                counts[name] = name_count
 
         union_results = cast(list[dict[str, Any]], list(qs[: offset + limit])) if entities else []
         if annotate_access_levels is not None:
             _annotate_user_access_levels(union_results, entity_map, annotate_access_levels)
-        total_count = ((qs.count() if entities else 0) + workflow_count) if include_counts else None
+        total_count = ((qs.count() if entities else 0) + facade_count) if include_counts else None
 
-        # Both inputs arrive in the database order, so a stable sort on the leading key keeps it.
-        merged = [*union_results, *workflow_results]
+        # Every input arrives in the database order, so a stable sort on the leading key keeps it.
+        merged = [*union_results, *facade_results]
         if query:
             merged.sort(key=lambda result: result["rank"], reverse=True)
         else:
@@ -288,14 +378,29 @@ def class_queryset(
     query: str | None,
     search_fields: dict[str, Literal["A", "B", "C"]],
     extra_fields: list[str] | None,
+    entity_type: str | None = None,
+    annotations: dict[str, Any] | None = None,
     filters: dict[str, Any] | None = None,
+    excludes: list[dict[str, Any]] | None = None,
 ):
     """Builds a queryset for the class."""
-    entity_type = class_to_entity_name(klass)
+    entity_type = entity_type or class_to_entity_name(klass)
     values = ["type", "result_id", "extra_fields", "_sort_name", "_pk", "_created_by_id"]
 
-    qs: QuerySet[Any] = cast(Any, klass).objects.filter(team__project_id=project_id)  # filter team
+    qs: QuerySet[Any]
+    if klass in (EventDefinition, PropertyDefinition):
+        # A join on team would bypass the project-leading unique index on these large tables.
+        qs = (
+            cast(Any, klass)
+            .objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(effective_project_id=project_id)
+        )
+    else:
+        qs = cast(Any, klass).objects.filter(team__project_id=project_id)  # filter team
     qs = view.user_access_control.filter_queryset_by_access_level(qs)  # filter access level
+
+    if annotations:
+        qs = qs.annotate(**annotations)
 
     # Uniform columns for access level resolution — every union member must produce them
     qs = qs.annotate(_pk=Cast("pk", CharField()))
@@ -311,6 +416,9 @@ def class_queryset(
     # Apply entity-specific filters
     if filters:
         qs = qs.filter(**filters)
+    if excludes:
+        for exclude in excludes:
+            qs = qs.exclude(**exclude)
 
     # :TRICKY: can't use an annotation here as `type` conflicts with a field on some models
     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (entity_type from code-controlled model class names)
@@ -345,6 +453,15 @@ def class_queryset(
 
     # full-text search rank
     if query:
+        if klass in (EventDefinition, PropertyDefinition):
+            # ts_rank keeps a name only when at least one search word matches it, so a cheap substring
+            # check runs first and the costly rank only scores names that can match, not every definition.
+            # Postgres lower() folds case as the rank does, where UPPER() would miss names such as "İstanbul".
+            words = re.findall(r"[^\W_]+", query)
+            if words:
+                qs = qs.alias(_lower_name=Lower("name")).filter(
+                    reduce(operator.or_, (Q(_lower_name__contains=Lower(Value(word))) for word in words))
+                )
         qs = qs.annotate(rank=build_rank(search_fields, query, config="simple"))
         qs = qs.filter(rank__gt=0.05)
         values.append("rank")

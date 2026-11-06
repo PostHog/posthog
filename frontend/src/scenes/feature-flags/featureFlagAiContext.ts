@@ -1,6 +1,7 @@
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { FeatureFlagType } from '~/types'
 
-import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
+import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 
 // The backend rejects a text attachment longer than this and fails the whole send with a 400
 // (MAX_TEXT_LENGTH in products/posthog_ai/backend/context_wrapper.py), so an oversized flag has to
@@ -22,13 +23,19 @@ const MAX_DESCRIPTION_LENGTH = 400
 export function featureFlagContextItems(featureFlag: FeatureFlagType): AttachedContextItem[] {
     return [
         // `name` on a flag is the description, so the key is the only display name available here.
-        { type: 'feature_flag', key: featureFlag.key, label: featureFlag.key },
+        { type: 'feature_flag', key: featureFlag.key, pageId: featureFlag.id, label: featureFlag.key },
         { type: 'feature_flag_targeting', label: 'Release conditions', value: targetingValue(featureFlag) },
     ]
 }
 
 function targetingValue(featureFlag: FeatureFlagType): string {
     const filters = featureFlag.filters
+    if (!isV1FeatureFlagConfig(filters)) {
+        const full = JSON.stringify({ key: featureFlag.key, active: featureFlag.active, config: filters })
+        return full.length <= MAX_TARGETING_VALUE_LENGTH
+            ? full
+            : JSON.stringify({ key: featureFlag.key, active: featureFlag.active, config_version: filters.version })
+    }
     const identity = {
         key: featureFlag.key,
         description: featureFlag.name.slice(0, MAX_DESCRIPTION_LENGTH),
@@ -123,6 +130,7 @@ export const FEATURE_FLAG_MUTATION_TOOLS = [
     'feature-flag-disable',
     'feature-flag-archive',
     'feature-flag-unarchive',
+    'feature-flag-restore',
 ]
 
 // Every mutation tool accepts these spellings for the flag id (`param_overrides.id.aliases` in

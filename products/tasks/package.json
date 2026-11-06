@@ -6,9 +6,11 @@
     "dependencies": {
         "@posthog/products-mcp-store": "workspace:*",
         "@posthog/quill": "workspace:*",
-        "kea-disposables": "catalog:"
+        "kea-disposables": "catalog:",
+        "posthog-js": "catalog:"
     },
     "devDependencies": {
+        "@testing-library/react": "^14.3.1",
         "kea-test-utils": "catalog:",
         "tailwindcss": "4.3.0"
     },

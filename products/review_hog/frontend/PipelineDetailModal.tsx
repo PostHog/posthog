@@ -7,11 +7,10 @@ import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 
 /**
- * "Detailed view" of the review pipeline, opened from the "How we review your PRs" section.
- * The diagram is a fixed 1280×780 canvas recreated from the design handoff (grown from 720 to fit
- * the Resolve stage) with a hardcoded dark palette — it renders identically in light and dark theme
- * (treat it as artwork; its contrast was tuned against this exact background) and scales down
- * uniformly instead of reflowing.
+ * The review pipeline diagram, opened from the "How we review your PRs" button.
+ * The diagram is a fixed 1280×780 canvas recreated from the design handoff, with a hardcoded dark
+ * palette. It renders identically in light and dark theme (treat it as artwork; its contrast was
+ * tuned against this exact background) and scales down uniformly instead of reflowing.
  */
 
 const CANVAS_W = 1280
@@ -215,8 +214,7 @@ export function PipelineDetailModal(): JSX.Element {
                         <div>
                             <div className="text-[15px] font-bold">How we review your PRs</div>
                             <div className="mt-0.5 text-xs text-[#b3b9c0]">
-                                Every review runs through the same steps before it's published, then works through the
-                                comment threads it leaves open.
+                                A Deep review runs these steps before it posts, then resolves the comment threads.
                             </div>
                         </div>
                         <button
@@ -276,7 +274,7 @@ export function PipelineDetailModal(): JSX.Element {
                         <LaneConnector />
 
                         <div className="mb-2.5 text-center text-[11px] font-semibold tracking-[0.14em] text-[#9aa1a9]">
-                            <GoldBandNumber>07</GoldBandNumber> VALIDATE · BACK IN EACH CHUNK’S LANE, IN PARALLEL
+                            <GoldBandNumber>07</GoldBandNumber> VALIDATE · BACK IN EACH CHUNK'S LANE, IN PARALLEL
                         </div>
 
                         <div className="grid grid-cols-3 gap-3">
@@ -317,7 +315,7 @@ export function PipelineDetailModal(): JSX.Element {
                         </div>
 
                         <div className="mt-2.5 text-center text-xs text-[#9aa1a9]">
-                            Every reviewer and validator investigates your codebase, not just the diff.
+                            Reviewers and validators investigate your codebase as well as the diff.
                         </div>
                     </div>
                 </div>

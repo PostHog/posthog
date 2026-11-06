@@ -11,7 +11,7 @@ costs; the same surfaces also take a broader ``run_scope`` filter (see
 ``WorkflowHealthRunScope``). ``date_from`` / ``date_to`` accept
 relative strings (``-30d``) or ISO8601 and are resolved against the team timezone.
 ``source_id`` selects a specific connected GitHub source when the team has more than
-one; it defaults to the oldest connected source. ``user_access_control`` enforces the
+one; it defaults to the oldest synced source. ``user_access_control`` enforces the
 requesting user's per-source warehouse access (pass the request's; ``None`` for system
 contexts). Each function resolves the team's authorized curated read handle once, here,
 then delegates to the read layer: source selection and access control live in this layer,
@@ -27,20 +27,27 @@ from products.engineering_analytics.backend.facade.contracts import (
     AttentionPullRequestList,
     AuthorFrictionDetail,
     AuthorFrictionList,
+    AuthorLLMSpendList,
     BranchPRMatch,
     BrokenTestsResult,
     CICardSummary,
+    CIDataFreshness,
     CIEngine,
     CIFailureLogs,
     CISignalsConfig,
     CITestRunner,
+    CITimingContext,
+    CITimingKind,
     CurrentBranchHealth,
     DeliveryComparison,
     DeliverySummary,
+    DepotCIRepoUsage,
     DoraOverview,
     FlakyTestList,
     GitHubSource,
     GitHubTeamRoster,
+    JobLogInsights,
+    LLMSpendCoverage,
     MasterFailureGroup,
     MergedPullRequest,
     PRCostSummary,
@@ -67,6 +74,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import datetime
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -84,13 +92,18 @@ def _authorized_source(
     """Resolve this caller's curated read handle: the single place source selection and per-source
     warehouse access control happen. ``user_access_control`` (None for system/Temporal/CLI contexts)
     filters out sources the requesting user can't access; ``source_id`` selects a specific source,
-    else the oldest connected. ``repo`` ('owner/name'), when the caller already scopes to one repo,
+    else the oldest one the sources list reports as synced. ``repo`` ('owner/name'), when the caller already scopes to one repo,
     prefers the source connected for that repo, so a team with one source per repository reads the
     right one. Raises ``GitHubSourceNotConnectedError`` / ``ValueError`` (bad source_id).
     """
     return logic.CuratedGitHubSource.for_team(
         team, source_id=source_id, repo=repo, user_access_control=user_access_control, query_limit=query_limit
     )
+
+
+def enable(*, team: Team) -> None:
+    """Opt the team in: create its managed viewset and sync the views once. Idempotent."""
+    logic.enroll(team)
 
 
 def get_ci_signals_config(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> CISignalsConfig:
@@ -285,6 +298,44 @@ def list_author_workflow_costs(
     )
 
 
+def list_author_llm_spend(
+    *,
+    team: Team,
+    author: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int | None = None,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> AuthorLLMSpendList:
+    return logic.build_author_llm_spend(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        author=author,
+        repo=repo,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+    )
+
+
+def get_llm_spend_coverage(
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> LLMSpendCoverage:
+    return logic.build_llm_spend_coverage(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        repo=repo,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
 def get_author_friction(
     *,
     team: Team,
@@ -422,6 +473,59 @@ def list_workflow_jobs(
     )
 
 
+def get_job_log_insights(
+    *,
+    team: Team,
+    repo: str,
+    run_id: int,
+    job_id: int,
+    ci_engine: CIEngine | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> JobLogInsights:
+    return logic.build_job_log_insights(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        run_id=run_id,
+        job_id=job_id,
+        ci_engine=ci_engine,
+    )
+
+
+def get_ci_data_freshness(
+    *,
+    team: Team,
+    repo: str,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> CIDataFreshness:
+    return logic.build_ci_data_freshness(curated=_authorized_source(team, source_id, user_access_control, repo=repo))
+
+
+def get_ci_timing_context(
+    *,
+    team: Team,
+    repo: str,
+    ci_engine: CIEngine,
+    run_id: int,
+    run_attempt: int,
+    kind: CITimingKind,
+    job_ids: "Sequence[int]" = (),
+    step_number: int | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> CITimingContext:
+    return logic.build_ci_timing_context(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        repo=repo,
+        ci_engine=ci_engine,
+        run_id=run_id,
+        run_attempt=run_attempt,
+        kind=kind,
+        job_ids=job_ids,
+        step_number=step_number,
+    )
+
+
 def get_ci_cards(
     *,
     team: Team,
@@ -525,6 +629,9 @@ def list_flaky_tests(
     min_failed_prs: int | None = None,
     limit: int | None = None,
     runner: CITestRunner | None = None,
+    test: str | None = None,
+    branch: str | None = None,
+    pr_number: int | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
@@ -536,6 +643,9 @@ def list_flaky_tests(
         min_failed_prs=min_failed_prs,
         limit=limit,
         runner=runner,
+        test=test,
+        branch=branch,
+        pr_number=pr_number,
     )
 
 
@@ -548,10 +658,11 @@ def list_team_ci_health(
     limit: int | None = None,
     owner_team: str | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> TeamCIHealthList:
     return logic.build_team_ci_health(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         date_from=date_from,
         date_to=date_to,
         min_failed_prs=min_failed_prs,
@@ -568,10 +679,11 @@ def get_team_ci_activity(
     date_to: str | None = None,
     test_limit: int | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> TeamCIActivity:
     return logic.build_team_ci_activity(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         owner_team=owner_team,
         date_from=date_from,
         date_to=date_to,
@@ -586,10 +698,11 @@ def get_team_merge_trend(
     date_from: str | None = None,
     date_to: str | None = None,
     source_id: str | None = None,
+    repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> TeamMergeTrend:
     return logic.build_team_merge_trend(
-        curated=_authorized_source(team, source_id, user_access_control),
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         owner_team=owner_team,
         date_from=date_from,
         date_to=date_to,
@@ -599,11 +712,15 @@ def get_team_merge_trend(
 def get_broken_tests(
     *,
     team: Team,
+    test: str | None = None,
+    branch: str | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> BrokenTestsResult:
-    return logic.build_broken_tests(curated=_authorized_source(team, source_id, user_access_control, repo=repo))
+    return logic.build_broken_tests(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), test=test, branch=branch
+    )
 
 
 def list_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:
@@ -776,3 +893,15 @@ def get_github_team_roster(*, team: Team, user_access_control: "UserAccessContro
     insists on. An unsynced snapshot comes back as ``synced=False``, never an error.
     """
     return logic.build_github_team_roster(team=team, user_access_control=user_access_control)
+
+
+def get_depot_ci_usage(
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[DepotCIRepoUsage]:
+    return logic.build_depot_ci_usage(
+        team=team, date_from=date_from, date_to=date_to, user_access_control=user_access_control
+    )

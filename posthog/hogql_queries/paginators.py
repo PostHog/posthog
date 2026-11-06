@@ -115,6 +115,7 @@ class HogQLHasMorePaginator:
             execute_hogql_query(
                 query=self.paginate(query),
                 query_type=query_type,
+                returned_row_limit=self.limit,
                 **kwargs if self.limit_context is None else {"limit_context": self.limit_context, **kwargs},
             ),
         )
@@ -328,6 +329,7 @@ class HogQLCursorPaginator:
             execute_hogql_query(
                 query=self.paginate(query),
                 query_type=query_type,
+                returned_row_limit=self.limit,
                 **kwargs if self.limit_context is None else {"limit_context": self.limit_context, **kwargs},
             ),
         )

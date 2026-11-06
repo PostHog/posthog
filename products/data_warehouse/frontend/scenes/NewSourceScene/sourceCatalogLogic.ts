@@ -13,17 +13,16 @@ import { getSourceDisplayStatus } from 'scenes/data-pipelines/utils/nonHogFuncti
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { HogFunctionTemplateStatus } from '~/types'
+import { type ExternalDataSourceType, HogFunctionTemplateStatus } from '~/types'
 
 import {
     DataWarehouseSourceCategoryApi,
-    ExternalDataSourceTypeEnumApi,
     SourceConfigResponseApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import type { PaginatedResponse } from '../../../../../frontend/src/lib/api'
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
-import type { ExternalDataSource, ManualLinkSourceType, UserType } from '../../../../../frontend/src/types'
+import type { ExternalDataSource, UserType } from '../../../../../frontend/src/types'
 import { sourcesDataLogic } from '../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from './availableSourcesLogic'
 import {
@@ -36,51 +35,28 @@ import {
 import {
     ALL_SOURCES_CATEGORY,
     CATEGORY_SEARCH_PARAM,
-    SELF_MANAGED_CATEGORY,
     SourceCategoryFilter,
     isSourceCategoryFilter,
 } from './sourceCategories'
-import { sourceWizardLogic } from './sourceWizardLogic'
 
 // Helps kea-typegen reference the Fuse type without a bad `import { Fuse } from 'fuse.js'`.
 export interface Fuse extends FuseClass<CatalogItem> {}
 
-// Self-managed (S3/GCS/Azure/R2) connectors don't flow through SourceConfigResponseApi, so place
-// them in a sensible catalog bucket explicitly.
+// File upload doesn't flow through SourceConfigResponseApi, so place it in a sensible catalog
+// bucket explicitly.
 const MANUAL_SOURCE_CATEGORY: DataWarehouseSourceCategoryApi = 'File storage'
-
-// Self-managed connectors carry no SourceConfigResponseApi keywords, and their labels alone ("S3",
-// "Google Cloud Storage") miss the terms users actually search ("amazon", "aws", "gcs").
-// Keys match ManualLinkSourceType.
-const MANUAL_SOURCE_KEYWORDS: Record<string, string[]> = {
-    aws: ['amazon', 'aws', 's3', 'amazon web services', 'amazon s3'],
-    'google-cloud': ['gcs', 'gcp', 'google cloud', 'google cloud storage'],
-    'cloudflare-r2': ['cloudflare', 'r2', 'object storage'],
-    azure: ['azure', 'microsoft azure', 'azure blob', 'blob storage'],
-}
 
 // The catalog matches a source against its label, name, keywords and category. That finds the
 // Databases category for "database", but "warehouse" matches nothing at all, even though it is
 // the word in this product's own name. Attach the words people type for the category itself.
 const DATABASE_CATEGORY_KEYWORDS = ['warehouse', 'data warehouse', 'dwh']
 
-// Every self-managed connector links files from a bucket, so a user searching for a file
-// format ("csv", "parquet") should land on them rather than an empty result that pushes
-// them to request a source we already support. Matches the formats the link form accepts.
-const FILE_STORAGE_FORMAT_KEYWORDS = ['csv', 'parquet', 'delta', 'file', 'files', 'flat file']
-
-// "Self-managed data warehouse sources" is the name the sources list gives these, but no connector
-// carries the phrase in its label or keywords, so searching the catalog for the name we taught the
-// user found nothing at all.
-const SELF_MANAGED_KEYWORDS = [
-    'self-managed',
-    'self managed',
-    'selfmanaged',
-    'bring your own',
-    'byo',
-    'own bucket',
-    'own storage',
-]
+// A "Coming soon" tile for a service we already connect under another tile is a dead end: the user
+// registers interest and leaves without the connector that works today. Each key is hidden while
+// its value is in the catalog and connectable.
+const LIVE_ALTERNATIVE_TO_COMING_SOON: Partial<Record<string, string>> = {
+    MicrosoftAdvertising: 'BingAds',
+}
 
 // "Request a data warehouse source" survey. We render our own modal and submit the answer
 // directly as a `survey sent` event rather than using the posthog-js survey popover.
@@ -88,13 +64,15 @@ export const SOURCE_REQUEST_SURVEY_ID = '0190ff15-5032-0000-722a-e13933c140ac'
 
 export interface SourceCatalogLogicProps {
     /** When set, only managed sources whose name is in this list are shown. */
-    allowedSources?: ExternalDataSourceTypeEnumApi[]
+    allowedSources?: ExternalDataSourceType[]
 }
 
 export interface CatalogItem {
-    /** The source kind passed to the new-source URL (e.g. "Stripe", or "aws" for self-managed). */
+    /** The source kind passed to the new-source URL (e.g. "Stripe"). */
     name: string
     label: string
+    /** One line under the label, for entries whose name alone doesn't say what they do. */
+    description?: string
     iconType: string
     iconClassName?: string
     category: DataWarehouseSourceCategoryApi
@@ -104,25 +82,37 @@ export interface CatalogItem {
     url: string
     disabledReason?: string | null
     existingSource?: boolean
-    /** Self-managed: the user keeps the data in their own bucket, PostHog only links to it. */
-    selfManaged?: boolean
     /** The sources most people connect (Stripe, Postgres, the ad platforms, ...). Led with when browsing. */
     featured?: boolean
 }
 
-// PostHog's own webhook endpoint isn't a warehouse connector, so it never reaches this catalog
-// through `availableSources` — but it's where people look for one, and the only other entry point
+// PostHog's own event sources aren't warehouse connectors, so they never reach this catalog
+// through `availableSources` — but it's where people look for them, and the only other entry point
 // is the sources list. Gated on the same preview flag as that list's section.
-const EVENT_WEBHOOK_CATALOG_ITEM: CatalogItem = {
-    name: 'event-webhook',
-    label: 'Incoming webhook',
-    iconType: 'PostHog',
-    category: 'Engineering & monitoring',
-    keywords: ['webhook', 'webhooks', 'http', 'https', 'endpoint', 'events', 'incoming', 'custom', 'real time'],
-    status: 'stable',
-    releaseStatus: 'alpha',
-    url: urls.hogFunctionNew('template-source-webhook'),
-}
+const EVENT_SOURCE_CATALOG_ITEMS: CatalogItem[] = [
+    {
+        name: 'event-webhook',
+        label: 'Incoming webhook',
+        description: 'Turn HTTP requests from any service into events.',
+        iconType: 'PostHog',
+        category: 'Engineering & monitoring',
+        keywords: ['webhook', 'webhooks', 'http', 'https', 'endpoint', 'events', 'incoming', 'custom', 'real time'],
+        status: 'stable',
+        releaseStatus: 'beta',
+        url: urls.hogFunctionNew('template-source-webhook'),
+    },
+    {
+        name: 'event-tracking-pixel',
+        label: 'Tracking pixel',
+        description: 'Capture an event each time an email or page loads a 1x1 image.',
+        iconType: 'PostHog',
+        category: 'Engineering & monitoring',
+        keywords: ['pixel', 'tracking pixel', 'image', 'gif', 'email', 'open tracking', 'beacon', 'events'],
+        status: 'stable',
+        releaseStatus: 'beta',
+        url: urls.hogFunctionNew('template-source-webhook-pixel'),
+    },
+]
 
 export interface CatalogCategory {
     category: SourceCategoryFilter
@@ -134,15 +124,12 @@ export interface CatalogCategory {
 export interface sourceCatalogLogicValues {
     availableSources: Record<string, SourceConfigResponseApi> | null // availableSourcesLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
-    manualConnectors: {
-        name: string
-        type: ManualLinkSourceType
-    }[] // sourceWizardLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourcesDataLogic
     user: UserType | null // userLogic
     catalogFuse: Fuse
     catalogItems: CatalogItem[]
     categoriesWithCounts: CatalogCategory[]
+    customSourceItem: CatalogItem | null
     filteredItems: CatalogItem[]
     hasCrossCategoryMatches: boolean
     registeredInterestSources: string[]
@@ -189,13 +176,9 @@ export interface sourceCatalogLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         catalogItems: (
             availableSources: Record<string, SourceConfigResponseApi> | null,
-            manualConnectors: {
-                name: string
-                type: ManualLinkSourceType
-            }[],
             featureFlags: FeatureFlagsSet,
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
-            arg: ExternalDataSourceTypeEnumApi[] | undefined
+            arg: string[] | undefined
         ) => CatalogItem[]
         categoriesWithCounts: (catalogItems: CatalogItem[]) => CatalogCategory[]
         selectedCategoryLabel: (
@@ -210,6 +193,7 @@ export interface sourceCatalogLogicMeta {
             selectedCategory: SourceCategoryFilter
         ) => CatalogItem[]
         hasCrossCategoryMatches: (catalogFuse: Fuse, search: string, selectedCategory: SourceCategoryFilter) => boolean
+        customSourceItem: (catalogItems: CatalogItem[]) => CatalogItem | null
     }
 }
 
@@ -243,16 +227,8 @@ function searchCatalog(catalogFuse: Fuse, term: string): CatalogItem[] {
     return [...matchCounts.keys()].sort((a, b) => (matchCounts.get(b) ?? 0) - (matchCounts.get(a) ?? 0))
 }
 
-// `self-managed` filters on the connection model rather than on `item.category`, so every place
-// that narrows the catalog to a category has to ask through here.
 function matchesCategory(item: CatalogItem, category: SourceCategoryFilter): boolean {
-    if (category === ALL_SOURCES_CATEGORY) {
-        return true
-    }
-    if (category === SELF_MANAGED_CATEGORY) {
-        return !!item.selfManaged
-    }
-    return item.category === category
+    return category === ALL_SOURCES_CATEGORY || item.category === category
 }
 
 export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
@@ -266,8 +242,6 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
             // mounted outside the wizard (e.g. the pipeline new-source page).
             availableSourcesLogic,
             ['availableSources'],
-            sourceWizardLogic,
-            ['manualConnectors'],
             featureFlagLogic,
             ['featureFlags'],
             userLogic,
@@ -325,20 +299,15 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
         catalogItems: [
             (s) => [
                 s.availableSources,
-                s.manualConnectors,
                 s.featureFlags,
                 s.dataWarehouseSources,
                 (_, p: SourceCatalogLogicProps) => p.allowedSources,
             ],
             (
                 availableSources: Record<string, SourceConfigResponseApi> | null,
-                manualConnectors: {
-                    name: string
-                    type: import('~/types').ManualLinkSourceType
-                }[],
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
-                allowedSources: ExternalDataSourceTypeEnumApi[] | undefined
+                allowedSources: ExternalDataSourceType[] | undefined
             ): CatalogItem[] => {
                 // SourceConfigResponseApi declares `existingSource`, but the /wizard payload this
                 // selector reads never populates it, so derive it from the project's source list.
@@ -355,7 +324,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                         const featureFlagRaw = featureFlags[connector.featureFlag as FeatureFlagKey]
                         const featureFlagValue: boolean | undefined = featureFlagDefined ? !!featureFlagRaw : undefined
                         const { status } = getSourceDisplayStatus(!!connector.unreleasedSource, featureFlagValue)
-                        // Only surface alpha/beta while the source is actually connectable.
+                        // Only surface beta while the source is actually connectable.
                         const releaseStatus =
                             status === 'stable' && connector.releaseStatus && connector.releaseStatus !== 'ga'
                                 ? connector.releaseStatus
@@ -382,46 +351,34 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                         ]
                     })
 
-                const selfManaged = manualConnectors.map(
-                    (source): CatalogItem => ({
-                        name: source.type,
-                        label: source.name,
-                        iconType: source.type,
-                        category: MANUAL_SOURCE_CATEGORY,
-                        keywords: [
-                            ...(MANUAL_SOURCE_KEYWORDS[source.type] ?? []),
-                            ...FILE_STORAGE_FORMAT_KEYWORDS,
-                            ...SELF_MANAGED_KEYWORDS,
-                        ],
-                        status: 'stable',
-                        url: urls.dataWarehouseSourceNew(source.type),
-                        selfManaged: true,
-                    })
-                )
-
-                // File upload is self-managed too — the uploaded file becomes an in-place table — but
-                // it isn't a `manualConnector` (those link a user's own bucket). It's one entry with
-                // three tiles, one per format, since users search for "CSV" rather than "File upload".
+                // File upload has three tiles, one per format, since users search for "CSV" rather
+                // than "File upload".
                 const fileUpload = FILE_UPLOAD_FORMATS.map(
                     ({ format, label, keywords }): CatalogItem => ({
                         name: fileUploadSourceType(format),
                         label,
                         iconType: FILE_UPLOAD_SOURCE_NAME,
                         category: MANUAL_SOURCE_CATEGORY,
-                        keywords: [...keywords, ...SELF_MANAGED_KEYWORDS],
+                        keywords,
                         status: 'stable',
                         releaseStatus: FILE_UPLOAD_SOURCE_CONFIG.releaseStatus,
                         url: fileUploadSourceUrl(format),
-                        selfManaged: true,
                     })
                 )
 
-                // `allowedSources` restricts the catalog to warehouse connectors, so the webhook
-                // source has no place in it.
-                const eventWebhook =
-                    !allowedSources && featureFlags[FEATURE_FLAGS.CDP_HOG_SOURCES] ? [EVENT_WEBHOOK_CATALOG_ITEM] : []
+                // `allowedSources` restricts the catalog to warehouse connectors, so event sources have
+                // no place in it.
+                const eventSources =
+                    !allowedSources && featureFlags[FEATURE_FLAGS.CDP_HOG_SOURCES] ? EVENT_SOURCE_CATALOG_ITEMS : []
 
-                return [...managed, ...selfManaged, ...fileUpload, ...eventWebhook]
+                const items = [...managed, ...fileUpload, ...eventSources]
+                const connectableNames = new Set(
+                    items.filter((item) => item.status !== 'coming_soon').map((item) => item.name)
+                )
+                return items.filter((item) => {
+                    const liveAlternative = LIVE_ALTERNATIVE_TO_COMING_SOON[item.name]
+                    return !(item.status === 'coming_soon' && liveAlternative && connectableNames.has(liveAlternative))
+                })
             },
             // featureFlags is a broad dependency that changes identity on every flag refresh;
             // keeping the previous array when the derived catalog is unchanged stops the Fuse
@@ -447,25 +404,15 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     )
                     // Most-populated categories first; fall back to taxonomy order on a tie.
                     .sort((a, b) => b.count - a.count)
-                const selfManagedCount = catalogItems.filter((item) => item.selfManaged).length
                 return [
                     { category: ALL_SOURCES_CATEGORY, label: 'All sources', count: catalogItems.length },
-                    ...(selfManagedCount
-                        ? [
-                              {
-                                  category: SELF_MANAGED_CATEGORY as SourceCategoryFilter,
-                                  label: 'Self-managed',
-                                  count: selfManagedCount,
-                              },
-                          ]
-                        : []),
                     ...present,
                 ]
             },
         ],
 
         // The empty state names the active filter. A real category's value is already its label
-        // ("File storage"), but `self-managed` is a slug, so read the label off the sidebar.
+        // ("File storage"), but `all` is a slug, so read the label off the sidebar.
         selectedCategoryLabel: [
             (s) => [s.categoriesWithCounts, s.selectedCategory],
             (categoriesWithCounts: CatalogCategory[], selectedCategory: SourceCategoryFilter): string =>
@@ -535,6 +482,14 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 )
             },
         ],
+
+        // A search that finds nothing is usually for a tool we have no connector for. Any tool with
+        // a REST API can still connect through the Custom REST source, so the empty state offers it.
+        customSourceItem: [
+            (s) => [s.catalogItems],
+            (catalogItems: CatalogItem[]): CatalogItem | null =>
+                catalogItems.find((item) => item.name === 'Custom' && item.status !== 'coming_soon') ?? null,
+        ],
     }),
     listeners(({ values, actions }) => ({
         registerInterest: ({ item }) => {
@@ -576,8 +531,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
             lemonToast.success('Thanks! Your source request has been submitted.')
         },
     })),
-    // The sources list links here with the category already chosen, so "New self-managed source"
-    // opens on the self-managed tiles rather than on the whole catalog.
+    // A link can open the catalog with a category already chosen.
     urlToAction(({ actions, values }) => ({
         '*': (_, searchParams) => {
             const category = searchParams[CATEGORY_SEARCH_PARAM]

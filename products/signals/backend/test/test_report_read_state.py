@@ -1,9 +1,16 @@
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
+
+from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.models import Team
 from posthog.models.user import User
 
 from products.signals.backend.models import SignalReport, SignalReportAction
+from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
 
 
 class TestReportReadState(APIBaseTest):
@@ -40,6 +47,40 @@ class TestReportReadState(APIBaseTest):
             )
             self.assertEqual(response.status_code, 404)
         self.assertFalse(SignalReportAction.objects.for_team(self.team.id).filter(report=self.report).exists())
+
+    @parameterized.expand([(private, read) for private in (False, True) for read in (None, True, False)])
+    def test_scout_read_state_preserves_trial_isolation(self, private: bool, read: bool | None) -> None:
+        initial_read = read is False
+        action = SignalReportAction.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=self.report,
+            user=self.user,
+            type=SignalReportAction.ActionType.READ,
+            metadata={"read": initial_read},
+            last_at=timezone.now(),
+        )
+        run = _make_run(
+            self.team,
+            metadata={"scout_trial": {"version": 1, "context_id": str(uuid4())}} if private else {},
+        )
+        _authenticate_as_scout(
+            self,
+            scopes="signals_scout_experiment" if private else "signals_scout",
+            sandbox_task_id=run.task_run.task_id,
+        )
+        body: dict[str, object] = {"report_ids": [str(self.report.id)]}
+        if read is not None:
+            body["read"] = read
+
+        response = self.client.post(self.url, body)
+
+        denied = private and read is not None
+        assert response.status_code == (403 if denied else 200), response.data
+        expected_read = initial_read if denied or read is None else read
+        if not denied:
+            assert response.json()["states"] == {str(self.report.id): expected_read}
+        action.refresh_from_db()
+        assert action.metadata == {"read": expected_read}
 
     def test_bulk_is_bounded_and_deduplicated(self):
         body = {"report_ids": [str(self.report.id)] * 2, "read": True}

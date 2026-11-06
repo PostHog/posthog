@@ -5,13 +5,17 @@ from django.db import transaction
 from asgiref.sync import async_to_sync, sync_to_async
 from pydantic import BaseModel, Field
 
+from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
 from posthog.storage import object_storage
 
 from ee.hogai.tool import MaxTool
 
 from .facade import api as tasks_facade
+from .facade.access import analytics_context_reader
 from .logic.services.workflow_dispatch import WorkflowDispatchOptions, enqueue_or_start_workflow
 from .models import Task, TaskRun
+from .task_profiles import USER
 from .temporal.client import execute_task_processing_workflow_async
 from .visibility import task_control_q, task_visibility_q
 
@@ -70,14 +74,12 @@ By default, the task will be created and immediately executed. Set run=false to 
     async def _arun_impl(
         self, title: str, description: str, repository: str, run: bool = True
     ) -> tuple[str, dict[str, Any]]:
-        from posthog.models.integration import Integration
-
         slack_thread_context = (self._config.get("configurable") or {}).get("slack_thread_context")
 
         @sync_to_async
         @transaction.atomic
         def create_task_and_maybe_run():
-            github_integration = Integration.objects.filter(team=self._team, kind="github").first()
+            github_integration = IntegrationManager.github.oauth.find(self._team.id)
 
             task = Task.objects.create(
                 team=self._team,
@@ -86,8 +88,9 @@ By default, the task will be created and immediately executed. Set run=false to 
                 title=title,
                 description=description,
                 origin_product=Task.OriginProduct.USER_CREATED,
+                profile=USER.key,
                 repository=repository,
-                github_integration=github_integration,
+                github_integration_id=github_integration.id if github_integration is not None else None,
             )
 
             task_run = None
@@ -211,6 +214,8 @@ Use this tool when the user wants to:
     args_schema: type[BaseModel] = GetTaskRunArgs
 
     async def _arun_impl(self, task_id: str, run_id: str | None = None) -> tuple[str, dict[str, Any]]:
+        may_read = analytics_context_reader(team_id=self._team.id, user_id=self._user.id)
+
         @sync_to_async
         def get_task_and_run():
             task = (
@@ -237,6 +242,11 @@ Use this tool when the user wants to:
             if not task_run:
                 return {"error": "no_runs" if not run_id else "run_not_found", "task_info": task_info, "run_id": run_id}
 
+            if "analytics_query_context" in (task_run.state or {}) and not may_read(
+                task_run.state["analytics_query_context"]
+            ):
+                return {"error": "permission_denied"}
+
             return {
                 "task_info": task_info,
                 "run": {
@@ -253,6 +263,9 @@ Use this tool when the user wants to:
             }
 
         result = await get_task_and_run()
+
+        if result.get("error") == "permission_denied":
+            return "You do not have access to the analytics data in this run.", result
 
         if result.get("error") == "not_found":
             return f"Task with ID {task_id} not found", {"error": "not_found"}
@@ -298,6 +311,8 @@ Use this tool when the user wants to:
     args_schema: type[BaseModel] = GetTaskRunLogsArgs
 
     async def _arun_impl(self, task_id: str, run_id: str | None = None) -> tuple[str, dict[str, Any]]:
+        may_read = analytics_context_reader(team_id=self._team.id, user_id=self._user.id)
+
         @sync_to_async
         def get_task_and_run():
             task = (
@@ -321,6 +336,15 @@ Use this tool when the user wants to:
                     "run_id": run_id,
                 }
 
+            if "analytics_query_context" in (task_run.state or {}):
+                if not may_read(task_run.state["analytics_query_context"]):
+                    return {"error": "permission_denied"}
+                return {
+                    "task_id": str(task.id),
+                    "run_id": str(task_run.id),
+                    "logs_api_url": f"/api/projects/{self._team.id}/tasks/{task.id}/runs/{task_run.id}/logs/",
+                }
+
             return {
                 "task_id": str(task.id),
                 "task_title": task.title,
@@ -331,6 +355,11 @@ Use this tool when the user wants to:
             }
 
         result = await get_task_and_run()
+
+        if result.get("error") == "permission_denied":
+            return "You do not have access to the analytics data in this run.", result
+        if result.get("logs_api_url"):
+            return f"Read this run's logs through the authenticated endpoint: {result['logs_api_url']}", result
 
         if result.get("error") == "not_found":
             return f"Task with ID {task_id} not found", {"error": "not_found"}
@@ -378,7 +407,7 @@ Use this tool when the user wants to:
         def query_tasks():
             qs = (
                 Task.objects.filter(team=self._team, deleted=False, internal=False)
-                .filter(task_visibility_q(self._user.id))
+                .filter(task_visibility_q(self._user.id, self._team.id))
                 .order_by("-created_at")
             )
 
@@ -438,6 +467,8 @@ Use this tool when the user wants to:
     args_schema: type[BaseModel] = ListTaskRunsArgs
 
     async def _arun_impl(self, task_id: str, limit: int = 10) -> tuple[str, dict[str, Any]]:
+        may_read = analytics_context_reader(team_id=self._team.id, user_id=self._user.id)
+
         @sync_to_async
         def get_task_and_runs():
             task = (
@@ -461,6 +492,10 @@ Use this tool when the user wants to:
             lines = [f"Task '{task.title}' ({task.slug}) - {len(runs)} run(s):\n"] if runs else []
 
             for run in runs:
+                if "analytics_query_context" in (run.state or {}) and not may_read(
+                    run.state["analytics_query_context"]
+                ):
+                    return {"error": "permission_denied"}
                 lines.append(f"- Run ID: {run.id}")
                 lines.append(f"  Status: {run.get_status_display()} | Stage: {run.stage or 'N/A'}")
                 lines.append(f"  Created: {run.created_at.isoformat()}")
@@ -484,6 +519,9 @@ Use this tool when the user wants to:
             return {"task_info": task_info, "runs": run_list, "lines": lines}
 
         result = await get_task_and_runs()
+
+        if result.get("error") == "permission_denied":
+            return "You do not have access to the analytics data in these runs.", result
 
         if result.get("error") == "not_found":
             return f"Task with ID {task_id} not found", {"error": "not_found"}
@@ -514,17 +552,17 @@ Use this tool when the user wants to:
     args_schema: type[BaseModel] = ListRepositoriesArgs
 
     async def _arun_impl(self, search: str | None = None) -> tuple[str, dict[str, Any]]:
-        from posthog.models.integration import GitHubIntegration, Integration
+        from posthog.models.integration import GitHubIntegration
 
         @sync_to_async
         def get_repositories():
-            integrations = Integration.objects.filter(team=self._team, kind="github")
+            integrations = IntegrationManager.github.oauth.list(self._team.id)
 
             all_repos: list[dict[str, str]] = []
 
             for integration in integrations:
                 try:
-                    github = GitHubIntegration(integration)
+                    github = GitHubIntegration(integration, source="tasks", priority=Priority.NORMAL)
                     org = github.organization()
                     repos = github.list_all_cached_repositories()
 

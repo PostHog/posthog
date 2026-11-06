@@ -144,11 +144,13 @@ export interface ProductEmptyStateConfig {
     PrimaryAction?: ComponentType
     /** Product-specific installation options below the primary setup action. */
     SetupActions?: ComponentType<{ mode: ProductEmptyStateMode; preview: boolean }>
+    FooterActions?: ComponentType<{ children: ReactNode }>
     docsUrl?: string
     /** Target of the small "Or configure manually" link; falls back to `docsUrl` */
     manualSetupUrl?: string
     /** Rendered as "<previewLabel>" with a pulsing live dot, above the preview */
     previewLabel: string
+    previewClassName?: string
     /** Self-animating signature preview populated with realistic fake data */
     Preview: ComponentType<{ mode: ProductEmptyStateMode }>
     /** Product-specific live status line (e.g. a "listening for events" indicator), rendered under the command block */
@@ -222,4 +224,4 @@ export interface SceneProductEmptyState {
  * `tab` route param the gate covers, including `undefined` for the URL that carries no tab
  * segment - `/workflows` and `/workflows/workflows` are the same tab.
  */
-export type GatedScene = string | { scene: string; tabs: (string | undefined)[] }
+export type GatedScene = string | { scene: string; tabs: (string | undefined)[]; tabSource?: 'path' | 'search' }

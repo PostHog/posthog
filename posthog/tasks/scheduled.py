@@ -76,7 +76,9 @@ from posthog.tasks.uploaded_media import sweep_abandoned_media_uploads_task
 from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credentials
 from posthog.utils import get_crontab, get_instance_region
 
+from products.account_audits.backend.facade.tasks import reconcile_account_audits
 from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task
+from products.ai_observability.backend.facade.tasks import expire_datasets, expire_offline_evaluation_payloads
 from products.ai_training.backend.facade.api import privacy_enabled
 from products.ai_training.backend.facade.tasks import process_ai_training_privacy_requests
 from products.approvals.backend.tasks import (
@@ -84,13 +86,16 @@ from products.approvals.backend.tasks import (
     sync_experiment_approval_policies,
     validate_pending_change_requests,
 )
-from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
+from products.canvas.backend.facade.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.conversations.backend.tasks.email import flush_pending_email_replies
-from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
+from products.conversations.backend.tasks.maintenance import purge_deleted_tickets, wake_snoozed_tickets
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.customer_analytics.backend.facade.tasks import schedule_task_digests
-from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
+from products.data_modeling.backend.facade.tasks import (
+    cleanup_deleted_saved_query_nodes,
+    cleanup_expired_test_saved_queries,
+)
 from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
     send_external_data_failure_digest_catchup,
@@ -105,20 +110,27 @@ from products.feature_flags.backend.tasks import (
     feature_flags_local_eval_canary_task,
     refresh_expiring_flag_definitions_cache_entries,
     refresh_expiring_flags_cache_entries,
+    report_django_local_evaluation_usage_task,
     sync_cross_region_flags_task,
 )
 from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
+from products.managed_warehouse.backend.facade.tasks import push_all_warehouse_member_teams
 from products.mcp_registry.backend.facade.tasks import MCP_REGISTRY_SYNC_CRONTAB, run_mcp_registry_sync
 from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
-from products.signals.backend.tasks import (
+from products.signals.backend.facade.tasks import (
+    enqueue_signals_rated_usage,
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
+    reconcile_report_inbox_state_cache,
     refresh_signal_repository_activity,
     refresh_signal_scout_background_bands,
+    sweep_first_report_notifications,
     sweep_implementation_dispatches,
+    sweep_monitoring_research_requests,
+    sweep_monitoring_tracker_issues,
     sync_pending_signals_refund_credits,
 )
 from products.skills.backend.tasks import sync_community_skills
@@ -133,11 +145,11 @@ from products.streamlit_apps.backend.facade.api import (
 from products.surveys.backend.facade.tasks import sweep_expired_desktop_feedback_media_task
 from products.tasks.backend.facade.tasks import (
     bake_dev_stack_image_task,
-    reconcile_loop_trigger_schedules_task,
     refresh_dev_stack_image_task,
     refresh_stale_sandbox_custom_images_task,
+    settle_overdue_sandbox_compute_task,
     sweep_inactive_tasks_task,
-    sweep_loop_task_retention_task,
+    sweep_queued_gateway_usage,
 )
 from products.visual_review.backend.facade.tasks import (
     send_visual_review_debt_digests,
@@ -152,7 +164,8 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
 )
 from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.facade.tasks import (
-    poll_ses_account_reputation,
+    poll_ses_account_enforcement,
+    poll_ses_reputation_findings,
     recompute_workflows_email_sending_tiers,
     reconcile_ses_tenant_states,
     sweep_workflow_email_deliverability,
@@ -266,6 +279,16 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    add_periodic_task_with_expiry(sender, crontab(minute="37"), expire_datasets.s(), name="expire unused datasets")
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="23"),
+        expire_offline_evaluation_payloads.s(),
+        name="expire offline evaluation payloads",
+    )
+    add_periodic_task_with_expiry(
+        sender, crontab(minute="*"), reconcile_account_audits.s(), name="reconcile-account-audits"
+    )
     if privacy_enabled():
         sender.add_periodic_task(30.0, process_ai_training_privacy_requests.s(), name="process-ai-training-privacy")
     # Short-interval heartbeat tasks (<60s) use intervals since cron minimum is 1 minute.
@@ -277,6 +300,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         60,
         capture_task_run_state_metrics.s(),
         name="tasks run state metrics",
+    )
+
+    # Backstop for a gateway callback whose Celery kick was lost: the run's usage workflow only
+    # starts from that kick, so nothing would drain the intake table otherwise.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/4"),
+        sweep_queued_gateway_usage.s(),
+        name="tasks queued gateway usage sweep",
     )
 
     add_periodic_task_with_expiry(
@@ -425,12 +457,44 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=2 * 60,
     )
 
+    if settings.CLOUD_DEPLOYMENT:
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(hour="3", minute="17"),
+            enqueue_signals_rated_usage.s(),
+            name="report self-driving rated usage",
+        )
+
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="*/5"),
         sweep_implementation_dispatches.s(),
         name="recover pending signals implementation starts",
         expires_seconds=5 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        sweep_first_report_notifications.s(),
+        name="send first self-driving report emails",
+        expires_seconds=5 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        sweep_monitoring_tracker_issues.s(),
+        name="complete verified signals tracker issues",
+        expires_seconds=60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        sweep_monitoring_research_requests.s(),
+        name="emit signals monitoring research requests",
+        expires_seconds=60,
     )
 
     # Re-enqueue signals PR refunds whose billing credit sync hasn't landed - hourly at minute 25
@@ -446,6 +510,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="5", minute="50"),
         refresh_signal_scout_background_bands.s(),
         name="refresh signals scout background bands",
+    )
+
+    # Correct signals cached implementation PR flags that drifted - daily at 4:40 AM
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="4", minute="40"),
+        reconcile_report_inbox_state_cache.s(),
+        name="reconcile signals report inbox state",
     )
 
     # Warn, then pause signals scouts that produce nothing anyone uses - daily at 6:15 AM
@@ -470,14 +542,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="refresh signals repository activity",
     )
 
-    # Loop task retention sweep - daily at 4:30 AM
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(hour="4", minute="30"),
-        sweep_loop_task_retention_task.s(),
-        name="sweep loop task retention",
-    )
-
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="15"),
@@ -485,22 +549,28 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="archive inactive tasks",
     )
 
-    # Loop trigger schedule reconciliation - every 10 minutes, re-syncs schedules
-    # stranded pending/failed by a transient Temporal outage during create/edit.
     add_periodic_task_with_expiry(
         sender,
-        crontab(minute="*/10"),
-        reconcile_loop_trigger_schedules_task.s(),
-        name="reconcile loop trigger schedules",
+        crontab(minute="47"),
+        settle_overdue_sandbox_compute_task.s(),
+        name="settle overdue sandbox compute",
     )
 
     # AWS SES account reputation → gauges for team-facing alerting (charts alerts/specs/ses.yaml)
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="*/10"),
-        poll_ses_account_reputation.s(),
-        name="poll SES account reputation",
+        poll_ses_account_enforcement.s(),
+        name="poll SES account enforcement status",
         expires_seconds=10 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="20"),
+        poll_ses_reputation_findings.s(),
+        name="poll SES reputation findings",
+        expires_seconds=30 * 60,
     )
 
     # Pause the email of any workflow whose complaint or hard bounce rate breaches a threshold
@@ -640,6 +710,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             expires=30,
         )
 
+    # Every minute, send the local evaluation requests that Django counted to usage ingestion.
+    # The interval sets only how fresh the records are, because unsent counts wait in Redis.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        report_django_local_evaluation_usage_task.s(),
+        name="report django local evaluation usage",
+        expires_seconds=60,
+    )
+
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="*/5"),
@@ -767,6 +847,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         reconcile_all_managed_warehouse_tables_task.s(),
         name="reconcile managed warehouse SQL editor tables",
         expires=1800,
+    )
+
+    # The full push of member teams to hogtower: the net under the change signals, for team-scoped
+    # hoglake tokens. A no-op unless HOGTOWER_MEMBER_TEAMS_PUSH_ENABLED.
+    sender.add_periodic_task(
+        crontab(minute="23"),
+        push_all_warehouse_member_teams.s(),
+        name="push managed warehouse member teams to hogtower",
+        expires=3000,
     )
 
     # Every 30 minutes, send decide request counts to the main posthog instance
@@ -991,7 +1080,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="delete expired delegation invites",
         )
 
-        from ee.tasks.scim_request_log_cleanup import cleanup_old_scim_request_logs
+        from posthog.tasks.scim_request_log_cleanup import cleanup_old_scim_request_logs
 
         add_periodic_task_with_expiry(
             sender,
@@ -1081,12 +1170,24 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="cleanup expired test saved queries",
     )
 
+    sender.add_periodic_task(
+        crontab(hour="5", minute="30"),
+        cleanup_deleted_saved_query_nodes.s(),
+        name="cleanup deleted saved query nodes",
+    )
+
     # Reopen snoozed conversation tickets whose snooze period has expired
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="*"),
         wake_snoozed_tickets.s(),
         name="wake snoozed conversation tickets",
+    )
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="4", minute="15"),
+        purge_deleted_tickets.s(),
+        name="purge soft-deleted conversation tickets",
     )
 
     # Re-drive queued outbound support email replies (survives a multi-day email provider outage)

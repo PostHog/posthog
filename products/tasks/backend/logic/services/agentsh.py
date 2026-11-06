@@ -259,12 +259,14 @@ def generate_env_wrapper(
     return f"""\
 #!/bin/bash
 unset {excluded_names}
-while IFS= read -r -d $'\\0' line; do
+mapfile -d '' -t _agent_env < {quoted_env_file} 2>/dev/null
+for line in "${{_agent_env[@]}}"; do
   case "$line" in
     {excluded_entries}) ;;
     *) export "$line" ;;
   esac
-done < {quoted_env_file} 2>/dev/null
+done
+unset _agent_env
 
 while IFS= read -r -d $'\\0' line; do
   case "$line" in

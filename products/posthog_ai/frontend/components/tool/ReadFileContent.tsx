@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import type { editor } from 'monaco-editor'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useInView } from 'react-intersection-observer'
 
 import 'lib/monaco/monacoEnvironment'
@@ -21,6 +21,8 @@ const READ_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     wordWrap: 'on',
     fontSize: 12,
     lineNumbers: 'on',
+    // Monaco reserves five digits by default. The column still widens for longer files.
+    lineNumbersMinChars: 2,
     minimap: { enabled: false },
     overviewRulerLanes: 0,
     overviewRulerBorder: false,
@@ -42,7 +44,10 @@ export function ReadFileContent({ text, path }: { text: string; path?: string })
     // Match the surrounding app theme — without this Monaco falls back to its default `vs` (white) theme.
     const { isDarkModeOn } = useValues(themeLogic)
     const lineCount = Math.max(MIN_LINES, Math.min(MAX_LINES, text.split('\n').length))
-    const height = lineCount * LINE_HEIGHT + 8
+    // Wrapped lines make the content taller than its line count, so once Monaco has measured it, size the box to that.
+    const [contentHeight, setContentHeight] = useState<number | null>(null)
+    const height =
+        contentHeight === null ? lineCount * LINE_HEIGHT + 8 : Math.min(contentHeight, MAX_LINES * LINE_HEIGHT + 8)
 
     const containerRef = useRef<HTMLDivElement>(null)
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
@@ -67,6 +72,8 @@ export function ReadFileContent({ text, path }: { text: string; path?: string })
                 ...READ_EDITOR_OPTIONS,
             })
             editorRef.current = instance
+            setContentHeight(instance.getContentHeight())
+            instance.onDidContentSizeChange((event) => setContentHeight(event.contentHeight))
         })
 
         return () => {

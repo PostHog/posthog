@@ -1,4 +1,4 @@
-from posthog.settings.base_variables import TEST
+from posthog.settings.base_variables import DEBUG, TEST
 from posthog.settings.utils import get_from_env, str_to_bool
 
 CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
@@ -9,6 +9,11 @@ CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 # To edit, visit: ${SITE_URL}/admin/posthog/instancesetting/
 
 CONSTANCE_CONFIG = {
+    "AI_OBSERVABILITY_DATASET_RETENTION_ENABLED": (
+        True,
+        "Enable expiry and deletion of unused AI observability datasets and historical versions in this region.",
+        bool,
+    ),
     "WAREHOUSE_PERSON_PROPERTY_SET_RATE_PER_SEC": (
         5000,
         "Global max rate (events/sec) at which the warehouse person-property consumer sends $set "
@@ -19,6 +24,20 @@ CONSTANCE_CONFIG = {
         3,
         "Number of weeks recording performance events will be kept before removing them (for all projects). Storing performance events for a shorter timeframe can help reduce Clickhouse disk usage.",
         int,
+    ),
+    "HOGQL_PROJECTION_OPTIMIZATION_ENABLED": (
+        get_from_env("HOGQL_PROJECTION_OPTIMIZATION_ENABLED", True, type_cast=str_to_bool),
+        "Whether HogQL prunes unused subquery columns and narrows exported event properties. "
+        "Disable to skip both optimizations for every project, even when optimizeProjections is true. "
+        "Changes reach workers within about a minute and affect newly compiled queries only.",
+        bool,
+    ),
+    "HOGQL_PROPERTIES_NARROWING_ENABLED": (
+        get_from_env("HOGQL_PROPERTIES_NARROWING_ENABLED", True, type_cast=str_to_bool),
+        "Whether a HogQL subquery exports only the keys read of the events properties blob. "
+        "Disable to export the whole blob again while unused subquery columns are still pruned. "
+        "Changes reach workers within about a minute and affect newly compiled queries only.",
+        bool,
     ),
     "HOGQL_SHARED_INSIGHT_DATABASE_ENABLED": (
         get_from_env("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED", True, type_cast=str_to_bool),
@@ -64,12 +83,12 @@ CONSTANCE_CONFIG = {
     ),
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA": (
         False,
-        "Whether HogQL queries read from the native-JSON events tables (events_json) instead of the legacy events table.",
+        "Every project reads the native JSON events table (events_json) instead of the legacy events table. The widest of the switches: a query's useNewEventsSchema modifier, a staff person's ph_new_events_schema cookie and CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS each switch less.",
         bool,
     ),
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS": (
         "",
-        "Comma-separated team IDs whose HogQL queries read from the native-JSON events tables even while the global setting is off.",
+        "Comma-separated project IDs that read the native JSON events table (events_json) in insights, SQL, cohorts and the background jobs that run per project. Changes reach workers within about a minute.",
         str,
     ),
     "PERSON_ON_EVENTS_V2_ENABLED": (
@@ -78,9 +97,15 @@ CONSTANCE_CONFIG = {
         # test run that leaves it unset, such as `hogli test products/<name>`, reads the
         # legacy joined mode instead and fails against snapshots that CI recorded under
         # v2. The test-mode default carries the same value so a local run matches CI.
+        # DEBUG carries the same value, so a local team resolves the mode a production
+        # project resolves, and code that branches on the mode stays reachable locally.
+        # The persons-modal properties timeline is the visible case: the frontend gates
+        # it on team.person_on_events_querying_enabled, which the legacy joined mode
+        # makes false. DEBUG cannot be on in a deployed cloud environment, because
+        # assert_debug_not_in_production refuses to boot, so this reaches local dev only.
         # Production and self-hosted keep the off default. A test that needs the legacy
         # mode pins it with override_settings or override_instance_config.
-        get_from_env("PERSON_ON_EVENTS_V2_ENABLED", TEST, type_cast=str_to_bool),
+        get_from_env("PERSON_ON_EVENTS_V2_ENABLED", TEST or DEBUG, type_cast=str_to_bool),
         "Whether to use query path using person_id and person_properties on events or the old query",
         bool,
     ),
@@ -322,11 +347,6 @@ CONSTANCE_CONFIG = {
         "Comma-separated team IDs always subject to the 'full' ClickHouse kill switch, even when the global kill switch is 'off'. Use this to restrict heavy or abusive teams without degrading the rest of the cluster.",
         list[int],
     ),
-    "CLICKHOUSE_HEDGED_APP_QUERIES": (
-        get_from_env("CLICKHOUSE_HEDGED_APP_QUERIES", False, type_cast=str_to_bool),
-        "Enable hedged requests for online APP queries to ClickHouse.",
-        bool,
-    ),
     "RATE_LIMITING_ALLOW_LIST_TEAMS": (
         get_from_env("RATE_LIMITING_ALLOW_LIST_TEAMS", ""),
         "Whether teams are on an allow list to bypass rate limiting. Comma separated list of team-ids",
@@ -337,13 +357,16 @@ CONSTANCE_CONFIG = {
         'Per-team /flags request and response body logging. JSON object mapping team_id (string) to a non-empty list of flag-key wildcard patterns; the response is filtered to flags matching any pattern. "{}" disables logging entirely. Examples: \'{"123": ["my-feature", "checkout-*"]}\' logs only matching flag keys for team 123. To capture every flag (rare, noisy), use [\\"*\\"] explicitly. The Rust feature-flags service polls this every ~60s. Limits: at most 100 teams, 50 patterns per team, 256 bytes per pattern.',
         str,
     ),
-    "FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS": (
-        get_from_env("FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS", False, type_cast=str_to_bool),
-        "When on, the feature flag Usage tab reads the events table for every organization on flag_evaluations "
-        "mode 1. Use it when the flag_evaluations table stops receiving rows. Organizations on mode 2 keep reading "
-        "flag_evaluations, because once ingestion stops their events writes, events has none of their flag calls. "
+    "FLAG_EVALUATIONS_READS_FORCE_EVENTS": (
+        get_from_env("FLAG_EVALUATIONS_READS_FORCE_EVENTS", False, type_cast=str_to_bool),
+        "When on, every organization on flag_evaluations mode 1 reads its flag calls from the events table: the "
+        "feature flag Usage tab, the per-project counts on a flag's Projects tab, and event lists filtered to only "
+        "$feature_flag_called. Use it when the flag_evaluations table stops receiving rows. Organizations on mode 2 "
+        "keep reading flag_evaluations, because ingestion writes no flag calls to events for their teams in the "
+        "ingestion allowlist. "
         "Stored modes and the flag_evaluations SQL table stay as they are, so turning it off restores every "
-        "organization. Takes up to a minute to apply, and a page reload to show.",
+        "organization. Takes up to a minute to apply. Pages that are already open need a reload to update the Usage "
+        "tab charts and the 90-day notes.",
         bool,
     ),
     "REDIRECT_APP_TO_US": (
@@ -418,6 +441,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "GROWTH_ICP_REENRICH_DAILY_CAP",
     "GROWTH_RESCORE_WEBHOOK_SECRET",
     "HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED",
+    "HOGQL_PROJECTION_OPTIMIZATION_ENABLED",
+    "HOGQL_PROPERTIES_NARROWING_ENABLED",
     "HOGQL_SHARED_INSIGHT_DATABASE_ENABLED",
     "HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS",
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
@@ -467,11 +492,10 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "RATE_LIMIT_ENABLED",
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
     "FLAGS_LOG_BODIES_TEAMS",
-    "FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS",
+    "FLAG_EVALUATIONS_READS_FORCE_EVENTS",
     "CLICKHOUSE_KILL_SWITCH",
     "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS",
     "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS",
-    "CLICKHOUSE_HEDGED_APP_QUERIES",
     "REDIRECT_APP_TO_US",
     "WEB_ANALYTICS_WARMING_DAYS",
     "WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS",

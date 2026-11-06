@@ -13,6 +13,9 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
 
+from products.alerts_platform.backend.facade.contracts import MAX_EVALUATION_PERIODS as PLATFORM_MAX_EVALUATION_PERIODS
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+
 if TYPE_CHECKING:
     from products.logs.backend.alert_state_machine import AlertSnapshot
 
@@ -165,7 +168,7 @@ class TeamLogsConfig(models.Model):
 # cap on retained OK event rows — the N-of-M evaluator never reads more than this many
 # non-errored rows per alert, so older OK rows are pruned. Mirrored in the serializer's
 # max_value so the two can't drift.
-MAX_EVALUATION_PERIODS = 10
+MAX_EVALUATION_PERIODS = PLATFORM_MAX_EVALUATION_PERIODS
 
 
 class LogsView(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -250,6 +253,16 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     consecutive_failures = models.PositiveIntegerField(default=0)
     first_enabled_at = models.DateTimeField(null=True, blank=True)
 
+    # The platform's copy records the same owner, and only the cutover and rollback commands
+    # write the two, so each stack can decide from its own row.
+    owner = models.CharField(
+        max_length=16,
+        choices=PlatformAlertOwner.choices,
+        default=PlatformAlertOwner.SOURCE.value,
+        db_default=PlatformAlertOwner.SOURCE.value,
+    )
+    owner_changed_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         db_table = "logs_logsalertconfiguration"
         indexes = [
@@ -258,6 +271,12 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
                 name="logs_alert_scheduler_idx",
             ),
         ]
+
+    @property
+    def platform_owned(self) -> bool:
+        """The platform evaluates and delivers this alert. The logs stack may still evaluate it to
+        compare, but it sends nothing for it."""
+        return self.owner == PlatformAlertOwner.PLATFORM
 
     def __str__(self) -> str:
         return f"{self.name} (Team: {self.team})"
@@ -356,6 +375,8 @@ class LogsAlertEvent(UUIDModel):
         UNSNOOZE = "unsnooze", "Unsnooze"
         THRESHOLD_CHANGE = "threshold_change", "Threshold change"
         BROKEN_CONFIG = "broken_config", "Broken config"
+        # An operator handed the alert back from the alerts platform, carrying its state over.
+        HANDBACK = "handback", "Handback"
 
     alert = models.ForeignKey(
         LogsAlertConfiguration,

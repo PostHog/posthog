@@ -11,6 +11,8 @@ rules:
       owners: team-product-analytics
     - match: ['/element.py', '/event.py', '/event_definition.py']
       owners: team-product-analytics
+    - match: ['/livestream.py', '/test/test_livestream.py']
+      owners: team-web-analytics
     - match: '/mixins.py'
       owners: team-devex
     - match: '/oauth/'
@@ -22,4 +24,13 @@ rules:
     - match: '/schema_property_group.py'
       owners: team-product-analytics
     - match: ['/test/test_proxy_record.py', '/test/test_proxy_record_diagnostics.py']
+      owners: team-platform-features
+    - match:
+          - '/test/notebooks/test_*.py'
+      owners: team-data-tools
+    - match:
+          - '/test/rust_integration/test_*.py'
+      owners: team-feature-flags
+    - match:
+          - '/advanced_activity_logs/test_*.py'
       owners: team-platform-features

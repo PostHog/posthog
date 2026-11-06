@@ -134,8 +134,8 @@ TASKS_AGENT_PROXY_CORS_ORIGINS: list[str] = [
 TASKS_AGENT_PROXY_INGEST_URL: str | None = os.getenv("TASKS_AGENT_PROXY_INGEST_URL") or None
 
 # Browser-facing base URL of the agent-proxy for the live-stream read leg, per environment (e.g.
-# https://agent-proxy.us.posthog.com). The stream_token endpoint returns it to clients only when this
-# is set AND the read-via-proxy flag is enabled for the user; unset means clients read from Django.
+# https://agent-proxy.us.posthog.com). The stream_token endpoint returns it to clients when this is
+# set; unset means clients read from Django.
 TASKS_AGENT_PROXY_PUBLIC_URL: str | None = os.getenv("TASKS_AGENT_PROXY_PUBLIC_URL") or None
 
 # In-cluster base URL of the agent-proxy for backend consumers (e.g. the Temporal worker relaying a
@@ -150,31 +150,10 @@ TASKS_AGENT_PROXY_INTERNAL_URL: str | None = os.getenv("TASKS_AGENT_PROXY_INTERN
 # agent-proxy in production; unset (local/CI) disables the check.
 AGENT_PROXY_CALLBACK_SECRET: str | None = os.getenv("AGENT_PROXY_CALLBACK_SECRET") or None
 
-# ReviewHog production label trigger. The trigger endpoint (POST /api/review_hog/trigger) authenticates
-# CI by comparing the request's bearer token to REVIEWHOG_TRIGGER_TOKEN (a shared secret provisioned to
-# both Django and the GitHub Action). Unset fails closed outside local dev/test. REVIEWHOG_TEAM_ID is a
-# comma-separated list of team ids using tiered review models; the FIRST id is the team that receives
-# label-triggered and automatic authored-PR reviews and sees internal UI features. Manual UI/API access
-# uses the review-hog feature flag. REVIEWHOG_RUN_USER_ID is the user the label-triggered sandbox tasks
-# run as (falls back to the team's GitHub integration creator when unset).
-REVIEWHOG_TRIGGER_TOKEN: str | None = os.getenv("REVIEWHOG_TRIGGER_TOKEN") or None
-# The env var stays singular (production charts provision it by that name); a single id parses to [id].
-REVIEWHOG_TEAM_IDS: list[int] = get_from_env(
-    "REVIEWHOG_TEAM_ID",
-    default=[],
-    type_cast=lambda raw: [int(part) for part in str(raw).split(",") if part.strip()],
-)
-REVIEWHOG_RUN_USER_ID: int | None = get_from_env("REVIEWHOG_RUN_USER_ID", optional=True, type_cast=int)
-# The GitHub App's bot login (`<app slug>[bot]`) ReviewHog posts as. When set, the marker-based
-# idempotency scans only trust comments/reviews authored by this exact identity — otherwise any
-# installed bot could paste a public marker and suppress a publish (or get its comment PATCHed).
-# Unset falls back to trusting any Bot-typed author.
-REVIEWHOG_GITHUB_BOT_LOGIN: str = get_from_env("REVIEWHOG_GITHUB_BOT_LOGIN", "")
-
 # These are legacy values only kept around for backwards compatibility with self hosted versions
 SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))
 # We provide a default as it is needed for hobby deployments. Each entry must be exactly 32 bytes
-# (used directly as a Fernet key) — enforced by check_encryption_salt_keys in encrypted_fields.py.
+# (used directly as a Fernet key) — enforced by check_encryption_salt_keys in posthog/checks.py.
 ENCRYPTION_SALT_KEYS = get_list(os.getenv("ENCRYPTION_SALT_KEYS", "00beef0000beef0000beef0000beef00"))
 
 INTERNAL_IPS = ["127.0.0.1", "172.18.0.1"]  # Docker IP

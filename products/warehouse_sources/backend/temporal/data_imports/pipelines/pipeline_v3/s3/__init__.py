@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.reader import (
     list_parquet_files,
     read_parquet,
+    read_parquet_first_values,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer import S3BatchWriter
 
@@ -23,5 +24,6 @@ __all__ = [
     "get_date_partition",
     "list_parquet_files",
     "read_parquet",
+    "read_parquet_first_values",
     "strip_s3_protocol",
 ]

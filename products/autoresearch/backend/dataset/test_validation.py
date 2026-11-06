@@ -74,7 +74,6 @@ class TestValidationWarnings(BaseTest):
         [
             ("training_above_the_cap_is_sampled", 5_000, 100_000, 1_000, "info", True),
             ("positives_alone_over_the_training_budget", 45_000, 100_000, 1_000, "error", False),
-            ("scoring_population_above_the_cap", 500, 5_000, 50_000, "error", False),
         ]
     )
     def test_population_too_large_is_advisory_only_for_a_samplable_training_population(
@@ -84,6 +83,25 @@ class TestValidationWarnings(BaseTest):
         [warning] = [w for w in result.warnings if w.code == "population_too_large"]
         assert warning.severity == severity
         assert result.can_proceed is can_proceed
+
+    @parameterized.expand(
+        [
+            ("below_the_cap", 49_999, None),
+            ("at_the_cap", 50_000, "every 2 scoring runs"),
+            ("far_above_the_cap", 250_000, "every 6 scoring runs"),
+        ]
+    )
+    def test_a_large_scoring_population_is_advisory(self, _name: str, inference: int, rescore: str | None) -> None:
+        result = self._run(positives=100, total=1000, inference=inference)
+        size_warnings = [w for w in result.warnings if w.code == "population_too_large"]
+        assert result.can_proceed is True
+        assert result.requires_acknowledgement is False
+        if rescore is None:
+            assert size_warnings == []
+        else:
+            [warning] = size_warnings
+            assert warning.severity == "info"
+            assert rescore in warning.message
 
     def test_moderate_volume_is_warning(self) -> None:
         result = self._run(positives=30, total=200)

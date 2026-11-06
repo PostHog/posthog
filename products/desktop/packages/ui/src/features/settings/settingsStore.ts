@@ -128,6 +128,12 @@ export function countRetiredHints(hints: Record<string, HintState>): number {
  * from. Runtime-only: the sync contribution re-reads the file on boot and
  * whenever the toggle flips on.
  */
+export interface TaskDefaultsSyncState {
+  // The "always create pull requests" value Desktop and the server last agreed on.
+  autoPublishCloudRuns: boolean;
+  startInPlanMode?: boolean;
+}
+
 export interface SyncedCustomInstructions {
   path: string;
   /** Home-relative form of `path` (e.g. `~/.claude/CLAUDE.md`), for display. */
@@ -248,6 +254,9 @@ export interface SettingsStore {
   // Per project, the custom instructions text last uploaded to "My
   // instructions" on the server. Keyed by project id.
   customInstructionsOnServer: Record<string, string>;
+  // Per project, what Desktop last synced with the task defaults on the
+  // server. Keyed by project id.
+  taskDefaultsOnServer: Record<string, TaskDefaultsSyncState>;
   setAutoConvertLongText: (value: AutoConvertLongText) => void;
   setSendMessagesWith: (mode: SendMessagesWith) => void;
   setCustomInstructions: (instructions: string) => void;
@@ -257,6 +266,10 @@ export interface SettingsStore {
     synced: SyncedCustomInstructions | null,
   ) => void;
   setCustomInstructionsOnServer: (projectId: number, content: string) => void;
+  setTaskDefaultsOnServer: (
+    projectId: number,
+    synced: TaskDefaultsSyncState,
+  ) => void;
 
   // Diff viewer
   diffOpenMode: DiffOpenMode;
@@ -322,8 +335,6 @@ export interface SettingsStore {
   setTerminalFont: (font: TerminalFont) => void;
   setTerminalCustomFontFamily: (value: string) => void;
   setTerminalGpuRendering: (enabled: boolean) => void;
-
-  // Conversation thread (new-thread)
 
   // Sidebar
   // Shows a per-repo "Worktrees" dropdown of task-less worktrees a click can
@@ -533,6 +544,7 @@ export const useSettingsStore = create<SettingsStore>()(
       syncCustomInstructionsFromFile: false,
       syncedCustomInstructions: null,
       customInstructionsOnServer: {},
+      taskDefaultsOnServer: {},
       setAutoConvertLongText: (value) => set({ autoConvertLongText: value }),
       setSendMessagesWith: (mode) => set({ sendMessagesWith: mode }),
       setCustomInstructions: (instructions) =>
@@ -547,6 +559,13 @@ export const useSettingsStore = create<SettingsStore>()(
           customInstructionsOnServer: {
             ...state.customInstructionsOnServer,
             [String(projectId)]: content,
+          },
+        })),
+      setTaskDefaultsOnServer: (projectId, synced) =>
+        set((state) => ({
+          taskDefaultsOnServer: {
+            ...state.taskDefaultsOnServer,
+            [String(projectId)]: synced,
           },
         })),
 
@@ -627,8 +646,6 @@ export const useSettingsStore = create<SettingsStore>()(
         set({ terminalCustomFontFamily: value }),
       setTerminalGpuRendering: (enabled) =>
         set({ terminalGpuRendering: enabled }),
-
-      // Conversation thread (new-thread)
 
       // Sidebar
       showSidebarWorktrees: false,
@@ -751,6 +768,7 @@ export const useSettingsStore = create<SettingsStore>()(
         ste100Enabled: state.ste100Enabled,
         syncCustomInstructionsFromFile: state.syncCustomInstructionsFromFile,
         customInstructionsOnServer: state.customInstructionsOnServer,
+        taskDefaultsOnServer: state.taskDefaultsOnServer,
 
         // Diff viewer
         diffOpenMode: state.diffOpenMode,
@@ -779,8 +797,6 @@ export const useSettingsStore = create<SettingsStore>()(
         terminalFont: state.terminalFont,
         terminalCustomFontFamily: state.terminalCustomFontFamily,
         terminalGpuRendering: state.terminalGpuRendering,
-
-        // Conversation thread (new-thread)
 
         // Sidebar
         showSidebarWorktrees: state.showSidebarWorktrees,

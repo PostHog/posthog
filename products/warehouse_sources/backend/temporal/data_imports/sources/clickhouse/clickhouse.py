@@ -36,6 +36,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.err
     is_transient_egress_proxy_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _require_loopback
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.primary_keys import (
+    resolve_merge_keys,
+    should_probe_for_duplicates,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     Column,
     Table,
@@ -49,7 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     render_named_conditions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, IncrementalFieldType, PartitionSettings
 
 # Why a connection is allowed to skip the egress proxy, or None to stay proxied. A reason
 # rather than a bool so `_get_client` — where every call site converges — can check the
@@ -1046,8 +1050,9 @@ def get_primary_keys_for_schemas(
 DUPLICATE_PK_CHECK_ROW_BUDGET = 10_000_000
 
 # Settings for the duplicate-PK probe.
-# - optimize_aggregation_in_order streams the GROUP BY along the sorting
-#   key without building a hash table (bounded memory).
+# - optimize_aggregation_in_order streams the GROUP BY without a hash table
+#   when the merge key is a prefix of the sorting key. Any other key is a
+#   hash aggregation, which max_memory_usage bounds.
 # - max_rows_to_read + read_overflow_mode='break' cap the scan at
 #   DUPLICATE_PK_CHECK_ROW_BUDGET and *silently stop* instead of throwing.
 # - max_execution_time and max_memory_usage are belt-and-braces bounds.
@@ -1060,34 +1065,45 @@ _DUPLICATE_PK_CHECK_SETTINGS: dict[str, Any] = {
 }
 
 # Substrings of probe errors that are expected environment limits or designed
-# fallbacks rather than bugs on our side. In every case we fall back to append
-# mode, so capturing them only adds error-tracking noise:
+# fallbacks rather than bugs on our side. In every case the probe compared no
+# rows, so the key stays unverified and the sync continues. Capturing them only
+# adds error-tracking noise:
 #   - "is unknown or readonly": clickhouse-connect validates session settings
 #     client-side and refuses any the server reports as readonly or unknown
 #     ("Setting <x> is unknown or readonly"), routine on managed offerings
 #     (ClickHouse Cloud) and readonly user profiles.
 #   - MEMORY_LIMIT_EXCEEDED / TIMEOUT_EXCEEDED: the bounded probe exhausted one
 #     of its own budgets (`max_memory_usage` / `max_execution_time`).
-#     `optimize_aggregation_in_order` keeps the GROUP BY streaming, but on
-#     large/slow (e.g. S3-backed) source tables the scan can still hit these
-#     caps before `read_overflow_mode='break'` truncates on rows — the probe
-#     behaving exactly as designed. Some managed servers also enforce a memory
+#     A merge key that is not a sorting-key prefix needs a hash table, and on
+#     large/slow (e.g. S3-backed) source tables even a streamed scan can hit
+#     these caps before `read_overflow_mode='break'` truncates on rows — the
+#     probe behaving exactly as designed. Some managed servers also enforce a memory
 #     cap below our `max_memory_usage`, surfacing the same way.
 #   - "Read timed out": the probe's `max_execution_time` only bounds server-side
 #     execution, not ClickHouse Cloud's cold-resume wake-up latency or a scan
 #     the server hasn't yet gotten around to capping — so the HTTP client's own
 #     read timeout can fire first. Same designed fallback as the budget caps.
+#   - A transient egress-proxy blip (`is_transient_egress_proxy_error`) is our own
+#     infrastructure being briefly unreachable, not a sign the probe's query itself
+#     is suspect. Same designed-fallback reasoning as the budget caps above.
+#   - ACCESS_DENIED (code 497): the connecting user lacks SELECT on this table. The main
+#     extraction query against the same table fails identically and the source already
+#     classifies it as a non-retryable customer-config issue (see `get_non_retryable_errors`),
+#     so capturing it here too is the same failure reported twice under a different frame.
 _EXPECTED_PROBE_FAILURE_SUBSTRINGS: tuple[str, ...] = (
     "is unknown or readonly",
     "MEMORY_LIMIT_EXCEEDED",
     "TIMEOUT_EXCEEDED",
     "Read timed out",
+    "ACCESS_DENIED",
 )
 
 
 def _is_expected_probe_failure(message: str) -> bool:
     """Whether a duplicate-PK probe failure is an expected environment limit or designed fallback."""
-    return any(substring in message for substring in _EXPECTED_PROBE_FAILURE_SUBSTRINGS)
+    return any(
+        substring in message for substring in _EXPECTED_PROBE_FAILURE_SUBSTRINGS
+    ) or is_transient_egress_proxy_error(message)
 
 
 def _has_duplicate_primary_keys(
@@ -1096,15 +1112,15 @@ def _has_duplicate_primary_keys(
     table_name: str,
     primary_keys: list[str] | None,
     logger: FilteringBoundLogger,
-) -> bool:
-    """Check whether the sorting key has obvious duplicate combinations.
+) -> bool | None:
+    """Check whether the merge key has obvious duplicate combinations.
 
-    ClickHouse sorting keys are *not* enforced unique. For incremental syncs
-    we need a unique-ish key to do safe merges into Delta. We probe a
+    ClickHouse enforces uniqueness on nothing, so the key an incremental merge
+    matches rows on is unproven until this probes it. We probe a
     bounded prefix of the table (DUPLICATE_PK_CHECK_ROW_BUDGET rows) rather
     than scanning the whole thing, because:
 
-    1. A user who chose a non-unique sort key will virtually always show
+    1. A user who chose a non-unique key will virtually always show
        duplicates inside any reasonably sized prefix.
     2. A full-table GROUP BY every incremental sync is prohibitively
        expensive on the tables this source is designed for.
@@ -1113,7 +1129,8 @@ def _has_duplicate_primary_keys(
     Returns:
         True if duplicates are detected in the probed prefix, or if the
         probe failed in an unexpected way. False when the probe completed
-        within budget without finding duplicates.
+        within budget without finding duplicates. None when the probe never
+        got to compare any rows, so it proves nothing either way.
     """
     if not primary_keys:
         return False
@@ -1125,20 +1142,20 @@ def _has_duplicate_primary_keys(
         result = client.query(query, settings=_DUPLICATE_PK_CHECK_SETTINGS)
         return len(result.result_rows) > 0
     except ClickHouseError as e:
-        # Any server error is treated as "assume duplicates" — safer to force
-        # append mode than to merge against a key we couldn't verify. (We don't
-        # hit max_rows_to_read here because read_overflow_mode='break' turns
-        # that into a silent truncation.)
+        # An exhausted budget or a rejected setting compared no rows, so it says nothing about
+        # the key. Reporting it as a duplicate would stop a table that can still merge. (We
+        # don't hit max_rows_to_read here because read_overflow_mode='break' turns that into a
+        # silent truncation.)
+        if _is_expected_probe_failure(str(e)):
+            logger.warning(
+                f"_has_duplicate_primary_keys: probe did not complete for {database}.{table_name}, "
+                f"leaving the key unverified: {e}"
+            )
+            return None
         logger.warning(
             f"_has_duplicate_primary_keys: assuming duplicates exist (probe failed for {database}.{table_name}): {e}"
         )
-        # Only report genuinely unexpected probe failures. Exhausting the
-        # probe's own memory/time budget is the designed fallback on large
-        # source tables, and managed/readonly ClickHouse servers routinely
-        # reject our tuning settings — expected outcomes the append-mode
-        # fallback already handles, so capturing them only adds noise.
-        if not _is_expected_probe_failure(str(e)):
-            capture_exception(e)
+        capture_exception(e)
         return True
 
 
@@ -1162,12 +1179,16 @@ def _get_incremental_row_count(
     quoted_field = _quote_identifier(incremental_field)
     last_value_expr = _last_value_expr(incremental_field_type)
     query = f"SELECT count() FROM {_qualified_table(database, table_name)} WHERE {quoted_field} > {last_value_expr}"
+    parameters = {"last_value": _last_value_param(last_value, incremental_field_type)}
     try:
-        result = client.query(
-            query,
-            parameters={"last_value": _last_value_param(last_value, incremental_field_type)},
-            settings={"max_execution_time": 30},
-        )
+        try:
+            result = client.query(query, parameters=parameters, settings={"max_execution_time": 30})
+        except ProgrammingError:
+            # A readonly user profile refuses every setting (see `_apply_session_settings`), and the
+            # driver raises before it sends the query. The total-table count the caller falls back to
+            # is also the size the billing limit check gives this sync, so one large table can then
+            # stop every sync of the team. The server's own limits bound the count instead.
+            result = client.query(query, parameters=parameters)
     except ClickHouseError as e:
         logger.debug(f"_get_incremental_row_count: fell back, count query failed: {e}")
         return None
@@ -1184,8 +1205,14 @@ def _get_incremental_row_count(
 # serve us right now, not that anything we sent was wrong — they clear on their
 # own. A real ClickHouse query error carries a `Code: NNN` instead. We match
 # only these transient statuses so genuine failures still surface.
+# 500 is included: clickhouse-connect only wraps a response this way (rather than
+# "Received ClickHouse exception, code: N") when it carries no
+# `X-ClickHouse-Exception-Code` header, which a genuine ClickHouse-raised error
+# always sets — so a bare 500 means a proxy/load balancer in front of ClickHouse
+# failed, the same shape as 502/503/504.
 _TRANSIENT_HTTP_RESPONSE_SUBSTRINGS: tuple[str, ...] = (
     "received HTTP status 429",
+    "received HTTP status 500",
     "received HTTP status 502",
     "received HTTP status 503",
     "received HTTP status 504",
@@ -1219,12 +1246,17 @@ def _get_partition_settings(
     except ClickHouseError as e:
         # Partitioning is a best-effort optimization; any failure here degrades
         # to default partitioning. A transient rate-limit/gateway response from
-        # the source, or a blip reaching our own egress proxy, isn't actionable
-        # on our side, so don't add error-tracking noise for it. clickhouse-connect
-        # wraps the proxy failure in the ClickHouseError caught here, so it never
-        # reaches the shared classification in `_handle_import_error`.
+        # the source, a read timeout from a slow or cold-starting source host, or a
+        # blip reaching our own egress proxy, isn't actionable on our side, so don't
+        # add error-tracking noise for it. clickhouse-connect wraps the proxy failure
+        # in the ClickHouseError caught here, so it never reaches the shared
+        # classification in `_handle_import_error`.
         message = str(e)
-        if not _is_transient_http_response(message) and not is_transient_egress_proxy_error(message):
+        if (
+            not _is_transient_http_response(message)
+            and "Read timed out" not in message
+            and not is_transient_egress_proxy_error(message)
+        ):
             capture_exception(e)
         logger.debug(f"_get_partition_settings: failed: {e}")
         return None
@@ -1284,6 +1316,24 @@ def _needs_to_string_cast(inner: str) -> bool:
     if inner in _ARROW_UNSUPPORTED_EXACT:
         return True
     return any(inner.startswith(prefix) for prefix in _ARROW_UNSUPPORTED_PREFIXES)
+
+
+def _reads_in_incremental_order(
+    columns: list[ClickHouseColumn], should_use_incremental_field: bool, incremental_field: str | None
+) -> bool:
+    """Whether the read returns its rows in ascending order of the incremental value.
+
+    The query has `ORDER BY <incremental field>`, and a paged read walks ascending ranges of that
+    field. A column that the SELECT list casts with `toString()` has an alias with the column's
+    name, so the server can order by the text and not by the number.
+    """
+    if not should_use_incremental_field or incremental_field is None:
+        return False
+    column = next((column for column in columns if column.name == incremental_field), None)
+    if column is None:
+        return False
+    inner, _ = _strip_type_modifiers(column.data_type)
+    return not _needs_to_string_cast(inner)
 
 
 def _build_select_list(columns: list[ClickHouseColumn]) -> str:
@@ -1521,6 +1571,21 @@ def _is_query_limit_exceeded(message: str) -> bool:
     return any(substring in message for substring in _QUERY_LIMIT_EXCEEDED_SUBSTRINGS)
 
 
+# SETTING_CONSTRAINT_VIOLATION (code 452) — a settings profile caps `max_execution_time` below the
+# value `_query_settings` requests (ClickHouse Cloud plans commonly set this). The cap isn't visible
+# at connect time: `_apply_session_settings` only catches settings the server reports as
+# unconditionally readonly, not ones that are writable but range-constrained. So instead of the
+# server just enforcing its own lower value, it rejects the first data query outright. The error
+# names its own ceiling, so we retry once with that value — still the safety net the setting exists
+# for, just shorter than we asked for.
+_MAX_EXECUTION_TIME_CONSTRAINT_RE = re.compile(r"Setting max_execution_time shouldn't be greater than (\d+)")
+
+
+def _max_execution_time_ceiling(message: str) -> int | None:
+    match = _MAX_EXECUTION_TIME_CONSTRAINT_RE.search(message)
+    return int(match.group(1)) if match else None
+
+
 _TIMESTAMP_UNIT_DIGITS: dict[str, int] = {"s": 0, "ms": 3, "us": 6, "ns": 9}
 
 
@@ -1619,8 +1684,10 @@ def clickhouse_source(
     incremental_field_type: Optional[IncrementalFieldType] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
     enabled_columns: Optional[list[str]] = None,
+    stored_primary_keys: Optional[list[str]] = None,
     bypass_env_proxy: BypassEnvProxy = None,
     server_hostname: str | None = None,
+    sync_type: ExternalDataSchemaSyncType | None = None,
 ) -> SourceResponse:
     """Build a SourceResponse that pulls a single ClickHouse table.
 
@@ -1708,11 +1775,19 @@ def clickhouse_source(
                 _get_partition_settings(client, database, table_name, logger) if should_use_incremental_field else None
             )
 
+            # The merge matches rows on the stored key when one exists (`resolve_primary_keys`),
+            # so the probe must check that key and not the sorting key.
+            merge_keys = resolve_merge_keys(
+                stored_primary_keys, primary_keys, [column.name for column in table.columns]
+            )
             has_duplicate_primary_keys = False
-            if should_use_incremental_field and primary_keys:
-                has_duplicate_primary_keys = _has_duplicate_primary_keys(
-                    client, database, table_name, primary_keys, logger
-                )
+            # Only an incremental sync merges, so it is the only sync that reads the probe result.
+            if sync_type == ExternalDataSchemaSyncType.INCREMENTAL and should_probe_for_duplicates(
+                merge_keys, primary_keys, constraints_enforced=False
+            ):
+                probed = _has_duplicate_primary_keys(client, database, table_name, merge_keys, logger)
+                # Only a probe that ran proves anything.
+                has_duplicate_primary_keys = probed is True
         finally:
             client.close()
 
@@ -1758,6 +1833,9 @@ def clickhouse_source(
                     """
                     page_rows: int | None = None
                     lower: list[str] | None = None
+                    # Set once a capped retry has fired, so a host that keeps rejecting (a
+                    # misconfigured or adversarial endpoint) can't spin this loop forever.
+                    retried_max_execution_time = False
                     while True:
                         read_any = False
                         try:
@@ -1799,7 +1877,20 @@ def clickhouse_source(
                                     read_any = read_any or batch.num_rows > 0
                                     yield batch
                         except ClickHouseError as e:
-                            if read_any or page_key is None or not _is_query_limit_exceeded(str(e)):
+                            message = str(e)
+                            if (
+                                not read_any
+                                and not retried_max_execution_time
+                                and (ceiling := _max_execution_time_ceiling(message)) is not None
+                            ):
+                                retried_max_execution_time = True
+                                stream_client.set_client_setting("max_execution_time", ceiling)
+                                logger.warning(
+                                    f"ClickHouse capped max_execution_time at {ceiling}s for this source; "
+                                    "retrying with that limit"
+                                )
+                                continue
+                            if read_any or page_key is None or not _is_query_limit_exceeded(message):
                                 raise
                             if page_rows is not None and page_rows // 2 < PAGED_READ_MIN_ROWS:
                                 raise
@@ -1847,4 +1938,9 @@ def clickhouse_source(
         partition_size=partition_settings.partition_size if partition_settings else None,
         rows_to_sync=rows_to_sync,
         has_duplicate_primary_keys=has_duplicate_primary_keys,
+        sort_mode=(
+            "asc"
+            if _reads_in_incremental_order(list(table.columns), should_use_incremental_field, incremental_field)
+            else None
+        ),
     )

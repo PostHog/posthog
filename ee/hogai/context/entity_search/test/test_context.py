@@ -16,7 +16,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Team
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import acreate_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
@@ -52,11 +52,11 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             ("insight", "test_insight_id", "/project/{team_id}/insights/test_insight_id"),
             ("dashboard", "test_dashboard_id", "/project/{team_id}/dashboard/test_dashboard_id"),
             ("experiment", "test_experiment_id", "/project/{team_id}/experiments/test_experiment_id"),
-            ("feature_flag", "test_flag_id", "/project/{team_id}/feature_flags/test_flag_id"),
+            ("feature_flag", "test_flag_id", "/project/{team_id}/feature-flags/test_flag_id"),
             ("action", "test_action_id", "/project/{team_id}/data-management/actions/test_action_id"),
             ("cohort", "test_cohort_id", "/project/{team_id}/cohorts/test_cohort_id"),
             ("survey", "test_survey_id", "/project/{team_id}/surveys/test_survey_id"),
-            ("error_tracking_issue", "test_issue_id", "/project/{team_id}/error_tracking/test_issue_id"),
+            ("error_tracking_issue", "test_issue_id", "/project/{team_id}/error-tracking/test_issue_id"),
             ("notebook", "test_notebook_id", "/project/{team_id}/notebooks/test_notebook_id"),
             ("alert_configuration", "test_alert_id", "/project/{team_id}/alerts?alert_id=test_alert_id"),
             ("account", "test_account_id", "/project/{team_id}/customer_analytics/accounts/test_account_id"),
@@ -282,8 +282,8 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert "archived_flag" not in result_keys
 
     async def test_action_filters_exclude_deleted(self):
-        await Action.objects.acreate(team=self.team, name="active action", deleted=False, created_by=self.user)
-        await Action.objects.acreate(team=self.team, name="deleted action", deleted=True, created_by=self.user)
+        await acreate_action(team=self.team, name="active action", deleted=False, created_by=self.user)
+        await acreate_action(team=self.team, name="deleted action", deleted=True, created_by=self.user)
 
         results, _ = await self.context.search_entities({"action"}, "action")
 
@@ -325,7 +325,7 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             team=self.team, name="deleted insight", deleted=True, saved=True, created_by=self.user
         )
         await Dashboard.objects.acreate(team=self.team, name="deleted dashboard", deleted=True, created_by=self.user)
-        await Action.objects.acreate(team=self.team, name="deleted action", deleted=True, created_by=self.user)
+        await acreate_action(team=self.team, name="deleted action", deleted=True, created_by=self.user)
         await Cohort.objects.acreate(team=self.team, name="deleted cohort", deleted=True, created_by=self.user)
         await Survey.objects.acreate(
             team=self.team,

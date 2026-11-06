@@ -141,17 +141,19 @@ describe('facetValuesLogic', () => {
         )
     })
 
-    it('a failed breakdown shows in place and clears on the next fetch', async () => {
+    it('a failed breakdown shows in place and a retry refetches the same scope', async () => {
         // One broken breakdown must show on its own facet, not blank the rail.
         mockBreakdown.mockRejectedValueOnce(new Error('breakdown failed'))
         const logic = mountFacet(SERVICE)
         await expectLogic(logic).toDispatchActions(['loadFacetValuesFailure'])
         expect(logic.values.fetchFailed).toBe(true)
 
-        logic.actions.setFacetSearch('api')
+        logic.actions.retryFacetValues()
         await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
         expect(logic.values.fetchFailed).toBe(false)
         expect(logic.values.facetValues).toEqual([row('api', 10)])
+        expect(mockBreakdown).toHaveBeenCalledTimes(2)
+        expect(mockBreakdown.mock.calls[1]).toEqual(mockBreakdown.mock.calls[0])
     })
 
     it('a collapsed facet defers its fetch until it is expanded, then only if the scope moved', async () => {

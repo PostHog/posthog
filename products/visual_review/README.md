@@ -320,11 +320,11 @@ The states are an urgency ladder, and each rung asks for a different fix:
 | `broken`   | Fails nearly every run                                         | Correct the baseline; a quarantine hides it |
 | `unstable` | Fails some runs and not others                                 | Stabilize the story, or quarantine it       |
 | `at_risk`  | Never fails, but its worst absorbed diff is near the threshold | Fix it before it starts failing             |
-| `noisy`    | Renders variants, absorbed with room to spare                  | Nothing                                     |
-| `clean`    | Nothing failing or absorbed inside the rate span               | Nothing                                     |
+| `clean`    | Nothing failing or at risk inside the rate span                | Nothing                                     |
 
-The page groups `noisy` and `clean` under one "Quiet" tile, so every listed entry is reachable from some tile.
-A row can be listed for history the rate span no longer counts, and it would otherwise sit in the totals with no way to display it.
+A diff absorbed far below the threshold is `clean`, and on its own it does not list a row.
+Every variant is diffed against the baseline itself, so the thresholds bound the total drift, and the absorption is internal handling rather than instability.
+A `clean` row is listed only for a quarantine or for gate failures further back in the read window, and the page shows it under the "Quiet" tile so every listed entry is reachable from some tile.
 
 `at_risk` exists because always being absorbed is not a safety property.
 A snapshot passes only while it stays under both diff thresholds, so one absorbed at 0.01% will never cross and one absorbed just under the line is a hard failure waiting for the next unrelated restyle.

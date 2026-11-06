@@ -1,4 +1,8 @@
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -28,6 +32,7 @@ describe('modelsLineageLogic', () => {
             },
         })
         initKeaTests()
+        jest.mocked(posthog.capture).mockClear()
         logic = modelsLineageLogic()
         logic.mount()
         await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess', 'loadEdgesSuccess'])
@@ -37,7 +42,49 @@ describe('modelsLineageLogic', () => {
         logic.unmount()
     })
 
+    it.each([false, true])('opens the selected lineage from a URL with a stable ID: %s', async (useNodeId) => {
+        const selectedNode = { ...NODES[0], id: 'selected-view' }
+        const baseNodes = [selectedNode, ...NODES.slice(1)]
+        const nodes = useNodeId
+            ? [{ ...NODES[0], id: 'namesake-metric', type: 'metric' as const }, ...baseNodes]
+            : baseNodes
+        const edges = EDGES.map((edge) => ({ ...edge, target_id: selectedNode.id }))
+        lineageDataLogic.actions.loadNodesSuccess(nodes)
+        lineageDataLogic.actions.loadEdgesSuccess(edges)
+        logic.actions.setTypeFilter(['view'])
+
+        await expectLogic(logic, () => {
+            router.actions.push(
+                combineUrl(urls.models('lineage'), {
+                    search: '+website_leads+',
+                    ...(useNodeId ? { node_id: selectedNode.id } : {}),
+                }).url
+            )
+        }).toMatchValues({
+            searchTerm: '+website_leads+',
+            debouncedSearchTerm: '+website_leads+',
+            visibleNodes: [selectedNode, NODES[3]],
+            visibleEdges: edges,
+            lineageSearchAnchor: selectedNode,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.setSearchTerm('+customers+')
+            logic.actions.setDebouncedSearchTerm('+customers+')
+        }).toMatchValues({ searchAnchorNodeId: null, lineageSearchAnchor: NODES[3] })
+
+        await expectLogic(logic, () => {
+            router.actions.push(urls.models('lineage'))
+        }).toMatchValues({
+            searchTerm: '',
+            visibleNodes: nodes,
+        })
+    })
+
     it('ranks plain search results without moving the graph', async () => {
+        const position = { x: 120, y: 80 }
+        logic.actions.nodeDragStopped('1', position)
+
         await expectLogic(logic, () => {
             logic.actions.setSearchTerm('leads')
             logic.actions.setDebouncedSearchTerm('leads')
@@ -48,6 +95,7 @@ describe('modelsLineageLogic', () => {
             highlightedNodeIds: new Set(['1', '2', '3']),
             focusNodeIds: null,
             searchFocusRequest: null,
+            nodePositions: { '1': position },
         })
     })
 
@@ -186,4 +234,33 @@ describe('modelsLineageLogic', () => {
                 searchFocusRequest: { nodeId: '4', requestId: 1 },
             })
     })
+
+    it.each(['type', 'lineage', 'clear'] as const)(
+        'clears distant node positions when the %s filter changes the graph',
+        async (filter) => {
+            const position = { x: 100000, y: 100000 }
+
+            if (filter === 'clear') {
+                logic.actions.setSearchTerm('+website_leads+')
+                logic.actions.setDebouncedSearchTerm('+website_leads+')
+            }
+
+            logic.actions.nodeDragStopped('1', position)
+            expect(posthog.capture).toHaveBeenCalledWith('models lineage node moved', {
+                node_type: 'table',
+                is_filtered: filter === 'clear',
+            })
+
+            await expectLogic(logic, () => {
+                if (filter === 'type') {
+                    logic.actions.setTypeFilter(['view'])
+                } else if (filter === 'lineage') {
+                    logic.actions.setSearchTerm('+website_leads+')
+                    logic.actions.setDebouncedSearchTerm('+website_leads+')
+                } else {
+                    logic.actions.resetFilters()
+                }
+            }).toMatchValues({ nodePositions: {} })
+        }
+    )
 })

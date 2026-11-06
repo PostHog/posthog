@@ -1,4 +1,8 @@
 import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
+import { objectClean } from 'lib/utils/objects'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
+import { cleanSeriesNodes } from 'scenes/insights/filters/ActionFilter/cleanSeriesNodes'
+import { SeriesNode, isWarehouseSeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
 import {
     AttributionMode,
@@ -14,25 +18,64 @@ import {
     NodeKind,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
-import { HogQLMathType, ManualLinkSourceType, PropertyMathType } from '~/types'
-
-import type { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import {
+    DISTINCT_ID_FIELD_SCHEMA_FIELD,
+    TIMESTAMP_FIELD_SCHEMA_FIELD,
+    UTM_CAMPAIGN_NAME_SCHEMA_FIELD,
+    UTM_SOURCE_NAME_SCHEMA_FIELD,
+} from '~/taxonomy/marketingAnalytics'
+import { ExternalDataSource, HogQLMathType, ManualLinkSourceType, PropertyMathType } from '~/types'
 
 import { NativeSource } from './marketingAnalyticsLogic'
 
-export type NonNativeMarketingSource = Extract<ExternalDataSourceTypeEnumApi, 'BigQuery'>
+type WarehouseMarketingSource = 'BigQuery'
+// Managed sources that import spend data from files: a storage bucket or an uploaded file.
+type FileMarketingSource = 'AmazonS3' | 'GoogleCloudStorage' | 'AzureBlob' | 'CloudflareR2' | 'FileUpload'
 
-export const VALID_NON_NATIVE_MARKETING_SOURCES: NonNativeMarketingSource[] = ['BigQuery']
-export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
-    'aws',
-    'google-cloud',
-    'cloudflare-r2',
-    'azure',
+// Together these mirror the backend VALID_NON_NATIVE_MARKETING_SOURCES (constants.py).
+export const VALID_WAREHOUSE_MARKETING_SOURCES: WarehouseMarketingSource[] = ['BigQuery']
+export const VALID_FILE_MARKETING_SOURCES: FileMarketingSource[] = [
+    'AmazonS3',
+    'GoogleCloudStorage',
+    'AzureBlob',
+    'CloudflareR2',
+    'FileUpload',
 ]
+const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = ['aws', 'google-cloud', 'cloudflare-r2', 'azure']
+
+export type ExternalTableTypeLabel = 'Data warehouse' | 'Files' | 'Self-managed'
+
+/** The type a mapped table shows in the settings list, or null when marketing analytics can't use the table. */
+export function externalTableTypeLabel(sourceType: string): ExternalTableTypeLabel | null {
+    if (VALID_WAREHOUSE_MARKETING_SOURCES.includes(sourceType as WarehouseMarketingSource)) {
+        return 'Data warehouse'
+    }
+    if (VALID_FILE_MARKETING_SOURCES.includes(sourceType as FileMarketingSource)) {
+        return 'Files'
+    }
+    if (VALID_SELF_MANAGED_MARKETING_SOURCES.includes(sourceType as ManualLinkSourceType)) {
+        return 'Self-managed'
+    }
+    return null
+}
+
+/**
+ * The sources_map key of a warehouse table. A self-managed table keeps its id when a managed source
+ * adopts it, so its mapping stays under the table id. Use the key that holds the mapping, in the order
+ * the backend reads them. With no mapping, use the key for a new mapping.
+ */
+export function getSourceMapId(
+    table: { id: string; schema?: { id: string } | null; source?: { id: string } | null },
+    sourcesMap: Record<string, unknown> | null | undefined
+): string {
+    const savedKey = [table.schema?.id, table.id].find((key) => !!key && sourcesMap?.[key] != null)
+    return savedKey || table.schema?.id || table.source?.id || table.id
+}
 
 export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {
     AmazonAds: FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS,
     RoktAds: FEATURE_FLAGS.MARKETING_ANALYTICS_ROKT_ADS,
+    TwitterAds: FEATURE_FLAGS.MARKETING_ANALYTICS_TWITTER_ADS,
     AppleSearchAds: FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS,
     OpenAIAds: FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS,
 }
@@ -52,6 +95,31 @@ export function getEnabledNativeMarketingSources(
         }
         return true
     })
+}
+
+export function getEnabledNativeMarketingSourcesInDisplayOrder(
+    featureFlags: Partial<Record<FeatureFlagKey, boolean | string>>
+): readonly NativeMarketingSource[] {
+    const sourceOrder: NativeMarketingSource[] = [
+        'GoogleAds',
+        'MetaAds',
+        'BingAds',
+        'LinkedinAds',
+        'TikTokAds',
+        'RedditAds',
+        'PinterestAds',
+        'SnapchatAds',
+        'OpenAIAds',
+        'AppleSearchAds',
+        'AmazonAds',
+        'RoktAds',
+        'TwitterAds',
+    ]
+    return [...getEnabledNativeMarketingSources(featureFlags)].sort(
+        (left, right) =>
+            (sourceOrder.includes(left) ? sourceOrder.indexOf(left) : sourceOrder.length) -
+            (sourceOrder.includes(right) ? sourceOrder.indexOf(right) : sourceOrder.length)
+    )
 }
 
 export const MAX_ITEMS_TO_SHOW = 3
@@ -75,11 +143,42 @@ const NATIVE_SOURCE_DISPLAY_LABELS: Record<NativeMarketingSource, string> = {
     PinterestAds: 'Pinterest Ads',
     AmazonAds: 'Amazon Ads',
     RoktAds: 'Rokt Ads',
+    TwitterAds: 'X Ads',
     AppleSearchAds: 'Apple Ads',
     OpenAIAds: 'OpenAI Ads',
 }
 export function nativeSourceDisplayLabel(sourceType: string): string {
     return NATIVE_SOURCE_DISPLAY_LABELS[sourceType as NativeMarketingSource] ?? sourceType
+}
+
+const FILE_SOURCE_DISPLAY_LABELS: Record<FileMarketingSource, string> = {
+    AmazonS3: 'Amazon S3',
+    GoogleCloudStorage: 'Google Cloud Storage',
+    AzureBlob: 'Azure Blob Storage',
+    CloudflareR2: 'Cloudflare R2',
+    FileUpload: 'File upload',
+}
+
+export function marketingSourceDisplayLabel(sourceType: string): string {
+    return FILE_SOURCE_DISPLAY_LABELS[sourceType as FileMarketingSource] ?? nativeSourceDisplayLabel(sourceType)
+}
+
+// The id suffix tells apart two accounts of one platform that have no prefix.
+export function marketingSourceName(source: Pick<ExternalDataSource, 'id' | 'prefix' | 'source_type'>): string {
+    return source.prefix || `${nativeSourceDisplayLabel(source.source_type)} (${source.id.slice(0, 8)})`
+}
+
+export function formatMarketingMoney(amount: number, currency: string | null | undefined, compact = false): string {
+    try {
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: currency || 'USD',
+            maximumFractionDigits: compact ? 1 : 0,
+            notation: compact ? 'compact' : 'standard',
+        }).format(amount)
+    } catch {
+        return `${Math.round(amount).toLocaleString('en-US')} ${currency ?? ''}`.trim()
+    }
 }
 
 // Mirrors the backend `NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES` derivation (constants.py).
@@ -225,6 +324,82 @@ export function isDraftConversionGoalColumn(column: string, draftConversionGoal:
     )
 }
 
+type ConversionGoalFields = Pick<
+    ConversionGoalFilter,
+    'conversion_goal_id' | 'conversion_goal_name' | 'schema_map' | 'counts_as_customer' | 'counts_as_revenue'
+>
+
+function splitConversionGoal(goal: ConversionGoalFilter): { fields: ConversionGoalFields; node: SeriesNode } {
+    const { conversion_goal_id, conversion_goal_name, schema_map, counts_as_customer, counts_as_revenue, ...node } =
+        goal
+    return {
+        fields: objectClean({
+            conversion_goal_id,
+            conversion_goal_name,
+            schema_map,
+            counts_as_customer,
+            counts_as_revenue,
+        }),
+        node,
+    }
+}
+
+export function conversionGoalToSeries(goal: ConversionGoalFilter): SeriesNode[] {
+    const { node } = splitConversionGoal(goal)
+    // An older goal shape marks a warehouse table with a `type` field on an events node.
+    if ('type' in node && node.type === 'data_warehouse') {
+        const { type, event, ...warehouse } = node as SeriesNode & { type: string; event?: string | null }
+        const tableName = (warehouse as Partial<DataWarehouseNode>).table_name ?? ''
+        return [{ ...warehouse, kind: NodeKind.DataWarehouseNode, table_name: tableName, id: tableName } as SeriesNode]
+    }
+    return [node]
+}
+
+/**
+ * Writes the series a conversion goal picker emits back onto the goal, or returns null when the
+ * picker emits none. Node fields come only from the series, so a field the picker drops on an
+ * entity switch, such as a table column or a stale `math_property`, does not come back from the
+ * previous goal.
+ */
+export function seriesToConversionGoal(goal: ConversionGoalFilter, series: SeriesNode[]): ConversionGoalFilter | null {
+    const [node] = cleanSeriesNodes(series, MathAvailability.All)
+    if (!node) {
+        return null
+    }
+    const { fields } = splitConversionGoal(goal)
+
+    if (!isWarehouseSeriesNode(node)) {
+        // Stored goals always carry a properties list, even an empty one.
+        return { ...fields, ...node, properties: node.properties ?? [] } as ConversionGoalFilter
+    }
+
+    // The warehouse picker puts the UTM columns on the node, but the goal schema keeps them in
+    // `schema_map` only and rejects them on the node.
+    const {
+        [UTM_CAMPAIGN_NAME_SCHEMA_FIELD]: utmCampaignName,
+        [UTM_SOURCE_NAME_SCHEMA_FIELD]: utmSourceName,
+        ...warehouse
+    } = node as DataWarehouseNode & Partial<Record<string, string>>
+    const tableName = warehouse.table_name || ''
+    return {
+        ...fields,
+        ...warehouse,
+        kind: NodeKind.DataWarehouseNode,
+        id: tableName,
+        table_name: tableName,
+        id_field: warehouse.id_field || warehouse.distinct_id_field || 'id',
+        distinct_id_field: warehouse.distinct_id_field || 'distinct_id',
+        timestamp_field: warehouse.timestamp_field || 'timestamp',
+        properties: warehouse.properties ?? [],
+        schema_map: {
+            [UTM_CAMPAIGN_NAME_SCHEMA_FIELD]: utmCampaignName,
+            [UTM_SOURCE_NAME_SCHEMA_FIELD]: utmSourceName,
+            [TIMESTAMP_FIELD_SCHEMA_FIELD]: warehouse.timestamp_field,
+            [DISTINCT_ID_FIELD_SCHEMA_FIELD]: warehouse.distinct_id_field,
+        },
+    }
+}
+
 /**
  * Get the order by for the query and ensure that the order by is in the columns
  * @param query - The query to get the order by for
@@ -307,9 +482,11 @@ export type validColumnsForTiles =
       >
     | 'roas'
     | 'cost_per_reported_conversion'
+    | 'cpc'
+    | 'ctr'
 
 // Raw column types that have actual column mappings (excludes calculated fields like ROAS)
-export type rawColumnsForTiles = Exclude<validColumnsForTiles, 'roas' | 'cost_per_reported_conversion'>
+export type rawColumnsForTiles = Exclude<validColumnsForTiles, 'roas' | 'cost_per_reported_conversion' | 'cpc' | 'ctr'>
 
 interface ColumnConfig {
     name: string
@@ -386,6 +563,30 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
             }
             if (column === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
                 return buildConversionExpr('sales14d', table)
+            }
+            return null
+        },
+    },
+    TwitterAds: {
+        idField: 'entity_id',
+        timestampField: 'date',
+        columnMappings: {
+            cost: 'billed_charge_local_micro',
+            costNeedsDivision: true,
+            impressions: 'impressions',
+            clicks: 'clicks',
+            reportedConversion: '0',
+            reportedConversionValue: '0',
+            currencyColumn: 'currency',
+            currencyTimestampColumn: 'date',
+            missingCurrencyMessage: 'X Ads currency is missing. Fully resync campaign_stats, then try again.',
+        },
+        specialConversionLogic: (_table, column) => {
+            if (
+                column === MarketingAnalyticsColumnsSchemaNames.ReportedConversion ||
+                column === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue
+            ) {
+                return { math: HogQLMathType.HogQL, math_hogql: '0' }
             }
             return null
         },
@@ -716,7 +917,9 @@ export const columnTileConfig: {
 ) as any
 
 function buildNativeCostExpr(mappings: SourceColumnMappings): string {
-    return mappings.costNeedsDivision ? `toFloat(${mappings.cost} / 1000000)` : `toFloat(${mappings.cost})`
+    // Some sources sync their cost column as a string, so cast before the division
+    const costExpr = safeFloat(mappings.cost)
+    return mappings.costNeedsDivision ? `${costExpr} / 1000000` : costExpr
 }
 
 function buildNativeTileNode(
@@ -813,9 +1016,14 @@ export function createMarketingTile(
         return null
     }
 
-    const table = source.tables.find(
-        (t) => extractSchemaName(t.name, sourceType) === integrationConfig.statsTableName.toLowerCase()
-    )
+    const table = findSchemaByFieldName(
+        source.tables.map((table) => ({
+            name: (table.schema?.name ?? extractSchemaName(table.name, sourceType)).toLowerCase(),
+            table,
+        })),
+        integrationConfig.statsTableName.toLowerCase(),
+        sourceType
+    )?.table
     if (!table) {
         return null
     }
@@ -832,22 +1040,29 @@ export function createMarketingTile(
             tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.Cost ||
             tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue ||
             tileColumnSelection === 'roas' ||
-            tileColumnSelection === 'cost_per_reported_conversion'
+            tileColumnSelection === 'cost_per_reported_conversion' ||
+            tileColumnSelection === 'cpc'
         if (monetaryColumn && !('currency_code' in table.fields)) {
             return null
         }
     }
 
-    if (sourceType === 'AmazonAds') {
-        if (!['campaign_id', 'date', 'cost', 'impressions', 'clicks'].every((field) => field in table.fields)) {
+    if (sourceType === 'AmazonAds' || sourceType === 'TwitterAds') {
+        const requiredFields =
+            sourceType === 'AmazonAds'
+                ? ['campaign_id', 'date', 'cost', 'impressions', 'clicks']
+                : ['entity_id', 'date', 'billed_charge_local_micro', 'impressions', 'clicks']
+        if (!requiredFields.every((field) => field in table.fields)) {
             return null
         }
         const monetaryColumn =
             tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.Cost ||
             tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue ||
             tileColumnSelection === 'roas' ||
-            tileColumnSelection === 'cost_per_reported_conversion'
-        if (monetaryColumn && !('campaign_budget_currency_code' in table.fields)) {
+            tileColumnSelection === 'cost_per_reported_conversion' ||
+            tileColumnSelection === 'cpc'
+        const currencyColumn = sourceType === 'AmazonAds' ? 'campaign_budget_currency_code' : 'currency'
+        if (monetaryColumn && !(currencyColumn in table.fields)) {
             return null
         }
     }
@@ -856,7 +1071,10 @@ export function createMarketingTile(
         if (!['campaign_id', 'start_time', 'impressions', 'clicks', 'spend'].every((field) => field in table.fields)) {
             return null
         }
-        if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.Cost && !('currency_code' in table.fields)) {
+        if (
+            (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.Cost || tileColumnSelection === 'cpc') &&
+            !('currency_code' in table.fields)
+        ) {
             return null
         }
     }
@@ -870,6 +1088,15 @@ export function createMarketingTile(
           }
         : tileConfig.columnMappings
 
+    if (tileColumnSelection === 'cpc' || tileColumnSelection === 'ctr') {
+        const clicks = sumSafeFloat(tileConfig.columnMappings.clicks)
+        const expression =
+            tileColumnSelection === 'cpc'
+                ? `${wrapWithCurrencyConversion(buildNativeCostExpr(tileConfig.columnMappings), tileConfig.columnMappings, table, baseCurrency)} / nullIf(${clicks}, 0)`
+                : `${clicks} / nullIf(${sumSafeFloat(tileConfig.columnMappings.impressions)}, 0) * 100`
+        return buildNativeTileNode(table, integrationConfig, tileConfig, tileColumnSelection, expression)
+    }
+
     // Handle ROAS (Return on Ad Spend) - calculated as conversion_value / cost
     if (tileColumnSelection === 'roas') {
         const costExpr = buildNativeCostExpr(tileConfig.columnMappings)
@@ -881,7 +1108,7 @@ export function createMarketingTile(
         )
         let totalValueExpr = conversionValueExpr
         let totalCostExpr = `SUM(${costExpr})`
-        if (tileConfig.columnMappings.currencyTimestampColumn && conversionValueExpr !== '0') {
+        if (conversionValueExpr !== '0') {
             const perRowValue =
                 tileConfig.specialConversionLogic?.(table, MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue)
                     ?.perRowValueExpr ?? safeFloat(tileConfig.columnMappings.reportedConversionValue)
@@ -901,9 +1128,7 @@ export function createMarketingTile(
             MarketingAnalyticsColumnsSchemaNames.ReportedConversion,
             tileConfig.columnMappings.reportedConversion
         )
-        const totalCostExpr = tileConfig.columnMappings.currencyTimestampColumn
-            ? wrapWithCurrencyConversion(costExpr, tileConfig.columnMappings, table, baseCurrency)
-            : `SUM(${costExpr})`
+        const totalCostExpr = wrapWithCurrencyConversion(costExpr, tileConfig.columnMappings, table, baseCurrency)
         const mathHogql = conversionExpr === '0' ? '0' : `${totalCostExpr} / nullIf(${conversionExpr}, 0)`
         return buildNativeTileNode(table, integrationConfig, tileConfig, tileColumnSelection, mathHogql)
     }
@@ -1007,9 +1232,45 @@ export function rowMatchesSearch(record: unknown, searchTerm: string): boolean {
     })
 }
 
-/** The stored filter is whatever an older build of this page wrote, so keep only the field we still read.
+/** The stored filter is whatever an older build of this page wrote, so keep only the fields we still read.
  * A key the query schema no longer accepts makes the backend reject every request the dashboard sends. */
 export function sanitizeIntegrationFilter(stored: unknown): IntegrationFilter {
     const ids = (stored as IntegrationFilter | null | undefined)?.integrationSourceIds
-    return { integrationSourceIds: Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : [] }
+    const includeNonIntegrated = (stored as IntegrationFilter | null | undefined)?.includeNonIntegrated
+    return {
+        integrationSourceIds: Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : [],
+        ...(typeof includeNonIntegrated === 'boolean' ? { includeNonIntegrated } : {}),
+    }
+}
+
+export function nativeSourceConnectionStatus(source: ExternalDataSource): {
+    status: 'Connected' | 'Syncing' | 'Needs attention'
+    detail: string
+} {
+    const fields = NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source.source_type as NativeMarketingSource]
+    if (!fields) {
+        return { status: 'Needs attention', detail: 'Open setup to check this connection.' }
+    }
+    const schemas = fields.map((field) => findSchemaByFieldName(source.schemas, field, source.source_type))
+    if (!schemas.every((schema) => schema?.should_sync)) {
+        return { status: 'Needs attention', detail: 'Open setup to enable the required tables for this connection.' }
+    }
+    if (['Billing limits', 'Billing limit too low'].includes(source.status)) {
+        return {
+            status: 'Needs attention',
+            detail: 'The import reached a billing limit. Open setup to review the limit.',
+        }
+    }
+    if (schemas.some((schema) => ['Paused', 'Cancelled'].includes(schema?.status ?? ''))) {
+        return { status: 'Needs attention', detail: 'The import is paused or canceled. Open setup to resume it.' }
+    }
+    if (source.status === 'Failed' || schemas.some((schema) => schema?.status === 'Failed')) {
+        return { status: 'Needs attention', detail: 'The import failed. Open setup to check this connection.' }
+    }
+    if (schemas.every((schema) => schema?.last_synced_at)) {
+        return { status: 'Connected', detail: 'Spend data is ready.' }
+    }
+    return source.status === 'Running'
+        ? { status: 'Syncing', detail: 'Your first import is running. Spend data will appear when it finishes.' }
+        : { status: 'Connected', detail: 'Waiting for the first sync to finish.' }
 }

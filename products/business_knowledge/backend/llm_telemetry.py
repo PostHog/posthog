@@ -1,0 +1,103 @@
+"""
+LLM and embedding cost telemetry for business knowledge.
+
+Every event carries ``ai_product=business_knowledge`` and an ``ai_feature``.
+Ingestion events also carry the document (the resource) and its source, so
+cost can be summed per resource. Retrieval events from one search share one
+trace, so cost can be summed per search.
+"""
+
+import math
+import dataclasses
+from collections.abc import Iterable, Mapping
+from typing import Literal
+from uuid import UUID, uuid4, uuid5
+
+import structlog
+import posthoganalytics
+
+from posthog.dataclasses import frozen
+from posthog.llm.gateway_client import team_distinct_id
+
+logger = structlog.get_logger(__name__)
+
+BK_AI_PRODUCT = "business_knowledge"
+
+INGEST_SAFETY_FEATURE = "bk_ingest_safety"
+INGEST_EMBEDDING_FEATURE = "bk_ingest_embedding"
+INGEST_EMBEDDING_REFRESH_FEATURE = "bk_ingest_embedding_refresh"
+RETRIEVAL_EMBEDDING_FEATURE = "bk_retrieval_embedding"
+RETRIEVAL_RERANK_FEATURE = "bk_retrieval_rerank"
+
+# The LLM analytics cost table prices the OpenAI model name. The "-1536" suffix
+# on BK_EMBEDDING_MODEL names the vector size of our ClickHouse table only.
+EMBEDDING_COST_MODEL = "text-embedding-3-small"
+EMBEDDING_COST_PROVIDER = "openai"
+# The Kafka embedding path returns no token usage, so ingestion estimates it.
+CHARS_PER_TOKEN_ESTIMATE = 4
+
+RetrievalSurface = Literal["api", "support", "posthog_ai", "docs_shadow", "learning"]
+EventProperties = dict[str, str | int]
+
+
+@frozen
+class RetrievalTrace:
+    """One search. The query embedding and the rerank of that search share the trace."""
+
+    surface: RetrievalSurface
+    # Also the usage idempotency key: retryable work passes `stable_trace_id(...)`.
+    trace_id: str = dataclasses.field(default_factory=lambda: str(uuid4()))
+
+
+_TRACE_NAMESPACE = UUID("8c1f3b1e-6f0a-4d7e-9a43-2b5b0f6c1d27")
+
+
+def stable_trace_id(*parts: object) -> str:
+    """A trace id that is the same every time it is built from the same parts."""
+    return str(uuid5(_TRACE_NAMESPACE, ":".join(str(part) for part in parts)))
+
+
+def ingest_properties(
+    *, team_id: int, document_id: UUID, source_id: UUID, source_type: str, feature: str
+) -> EventProperties:
+    return {
+        "ai_product": BK_AI_PRODUCT,
+        "ai_feature": feature,
+        "team_id": team_id,
+        "document_id": str(document_id),
+        "source_id": str(source_id),
+        "source_type": source_type,
+    }
+
+
+def retrieval_properties(*, team_id: int, trace: RetrievalTrace, feature: str) -> EventProperties:
+    return {
+        "ai_product": BK_AI_PRODUCT,
+        "ai_feature": feature,
+        "team_id": team_id,
+        "surface": trace.surface,
+    }
+
+
+def estimate_tokens(texts: Iterable[str]) -> int:
+    return math.ceil(sum(len(text) for text in texts) / CHARS_PER_TOKEN_ESTIMATE)
+
+
+def capture_embedding(*, team_id: int, input_tokens: int, trace_id: str, properties: Mapping[str, str | int]) -> None:
+    """Capture an ``$ai_embedding`` event. LLM analytics ingestion adds ``$ai_total_cost_usd`` from the tokens."""
+    try:
+        # Only the AI ingestion pipeline prices events, so this uses the AI lane like the SDK's model wrappers.
+        posthoganalytics.capture_ai(
+            "$ai_embedding",
+            distinct_id=team_distinct_id(team_id),
+            properties={
+                "$ai_model": EMBEDDING_COST_MODEL,
+                "$ai_provider": EMBEDDING_COST_PROVIDER,
+                "$ai_input_tokens": input_tokens,
+                "$ai_trace_id": trace_id,
+                "$process_person_profile": False,
+                **properties,
+            },
+        )
+    except Exception:
+        logger.warning("business_knowledge.embedding_cost_capture_failed", team_id=team_id, exc_info=True)

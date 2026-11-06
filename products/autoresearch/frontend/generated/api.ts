@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AgentModelOptionsApi,
     ArtifactContentApi,
     ArtifactDeleteResultApi,
     ArtifactListApi,
@@ -18,6 +19,7 @@ import type {
     AutoresearchListParams,
     AutoresearchModelApi,
     AutoresearchModelsListParams,
+    AutoresearchOnlinePerformanceRetrieveParams,
     AutoresearchPipelineApi,
     AutoresearchPipelineCreateApi,
     AutoresearchRunApi,
@@ -31,6 +33,7 @@ import type {
     CreateSuggestionApi,
     MaterializeFeaturesRequestApi,
     MaterializeFeaturesResponseApi,
+    OnlinePerformanceApi,
     OpenTrainingRunApi,
     PaginatedAutoresearchModelListApi,
     PaginatedAutoresearchPipelineListApi,
@@ -38,6 +41,7 @@ import type {
     PaginatedAutoresearchSuggestionListApi,
     PaginatedAutoresearchTrainingRunListApi,
     PatchedAutoresearchPipelineCreateApi,
+    ProjectLimitsApi,
     RecordIterationApi,
     ResolveTemplateRequestApi,
     ResolvedTemplateApi,
@@ -678,8 +682,8 @@ export const autoresearchUpdate = async (
     id: string,
     autoresearchPipelineCreateApi: AutoresearchPipelineCreateApi,
     options?: RequestInit
-): Promise<AutoresearchPipelineCreateApi> => {
-    return apiMutator<AutoresearchPipelineCreateApi>(getAutoresearchUpdateUrl(projectId, id), {
+): Promise<AutoresearchPipelineApi> => {
+    return apiMutator<AutoresearchPipelineApi>(getAutoresearchUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -703,8 +707,8 @@ export const autoresearchPartialUpdate = async (
     id: string,
     patchedAutoresearchPipelineCreateApi?: PatchedAutoresearchPipelineCreateApi,
     options?: RequestInit
-): Promise<AutoresearchPipelineCreateApi> => {
-    return apiMutator<AutoresearchPipelineCreateApi>(getAutoresearchPartialUpdateUrl(projectId, id), {
+): Promise<AutoresearchPipelineApi> => {
+    return apiMutator<AutoresearchPipelineApi>(getAutoresearchPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -735,7 +739,7 @@ export const getAutoresearchArchiveCreateUrl = (projectId: string, id: string) =
 }
 
 /**
- * Soft-delete a pipeline. Stops daily scoring and training. Predictions and metrics are preserved. Refused while a training run is in progress.
+ * Soft-delete a pipeline. Stops daily scoring and training. Predictions and metrics are preserved. When write_person_property is on, a cleanup run removes output_person_property from the people it scored. Refused while a training run is in progress.
  * @summary Archive a pipeline
  */
 export const autoresearchArchiveCreate = async (
@@ -746,6 +750,42 @@ export const autoresearchArchiveCreate = async (
     return apiMutator<AutoresearchPipelineApi>(getAutoresearchArchiveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getAutoresearchOnlinePerformanceRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AutoresearchOnlinePerformanceRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/autoresearch/${id}/online_performance/?${stringifiedParams}`
+        : `/api/projects/${projectId}/autoresearch/${id}/online_performance/`
+}
+
+/**
+ * Return the realized metrics online validation recorded for each model on each validated prediction date, newest date first. Each row has realized AUC with a 95% interval, Brier score, calibration error, quantile calibration bins, mean predicted probability against the base rate, lift, and the model's role when it emitted and now. The rows come from the validation runs, so a former champion that a promotion archived keeps its history. Read-only; it runs no queries.
+ * @summary Read realized performance history
+ */
+export const autoresearchOnlinePerformanceRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AutoresearchOnlinePerformanceRetrieveParams,
+    options?: RequestInit
+): Promise<OnlinePerformanceApi> => {
+    return apiMutator<OnlinePerformanceApi>(getAutoresearchOnlinePerformanceRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -773,7 +813,7 @@ export const getAutoresearchResumeCreateUrl = (projectId: string, id: string) =>
 }
 
 /**
- * Resume a paused pipeline. Daily scoring and training will restart on the next cadence tick.
+ * Resume a paused pipeline. Daily scoring and training will restart on the next cadence tick. Refused when the project already has its limit of live pipelines, which the limits endpoint reports.
  * @summary Resume a pipeline
  */
 export const autoresearchResumeCreate = async (
@@ -844,6 +884,42 @@ export const autoresearchValidateOnlineCreate = async (
     return apiMutator<AutoresearchRunApi[]>(getAutoresearchValidateOnlineCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getAutoresearchAgentModelsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/autoresearch/agent_models/`
+}
+
+/**
+ * Return the models a pipeline's training agent may run on, with the reasoning efforts each supports and its relative token cost, plus the model and effort a pipeline with blank settings uses. Pass a model id as agent_model and an effort as agent_reasoning_effort on create or update.
+ * @summary List training agent models
+ */
+export const autoresearchAgentModelsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AgentModelOptionsApi> => {
+    return apiMutator<AgentModelOptionsApi>(getAutoresearchAgentModelsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutoresearchLimitsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/autoresearch/limits/`
+}
+
+/**
+ * Return the project's autoresearch limits and how much of each it is using: sandbox training runs in the last 24 hours against the daily limit, with when the next run can start at the limit, the most experiments per training run, and live pipelines against the live pipeline limit. Read-only; it runs no queries.
+ * @summary Read the project's limits
+ */
+export const autoresearchLimitsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ProjectLimitsApi> => {
+    return apiMutator<ProjectLimitsApi>(getAutoresearchLimitsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

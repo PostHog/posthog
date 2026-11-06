@@ -92,7 +92,7 @@ features:
     always_online: true
   app_home:
     home_tab_enabled: true
-    messages_tab_enabled: false
+    messages_tab_enabled: true
     messages_tab_read_only_enabled: false
 oauth_config:
   redirect_urls:
@@ -116,6 +116,7 @@ oauth_config:
       - openid
       - email
       - profile
+      - canvases:read
 settings:
   event_subscriptions:
     request_url: https://<you>-posthog.ngrok.dev/slack/event-callback
@@ -139,11 +140,19 @@ Django must be up at that moment.
 > `link_shared` is left out on purpose — it needs the `links:read` scope (the manifest won't save
 > otherwise) and the coding agent doesn't use it.
 
-> The `app_home` block + `app_home_opened` bot event power the App Home tab; the
+> The `app_home` block + `app_home_opened` bot event power the App Home tab. With the
+> `slack-app-onboarding` flag on, the same event, an install, a reinstall, a `team_join` and a person's first `@PostHog` mention start the
+> `slack-app-onboarding` Temporal workflow, which posts a person's onboarding thread in the PostHog DM
+> once. It needs the Temporal worker running. The thread checks each step again before it shows it,
+> so a person who already linked their account or chose a model sees that step as already set.
+> To see the thread again in a dev workspace, clear the `onboarding` field of your row in
+> `slack_app_slacksettings`. The
 > Sign in with Slack (OpenID Connect) flow needs `user` scopes `openid` + `email` + `profile` and
 > the second redirect URL (`/complete/slack-link/`). Drop those if you don't want either feature
 > locally. Neither is behind a feature flag: the App Home tab renders for every install, and the
 > identity link appears only when the install holds the `users:read` and `users:read.email` scopes.
+
+> The `canvases:read` user scope lets the Slack MCP connection read canvases that the authorizing user can access.
 
 > `reaction_added` + `reactions:read` power thumbs-reaction feedback on agent replies. Without
 > them a 👍/👎 reaction on a reply records nothing, again with no error.
@@ -252,7 +261,7 @@ In a channel in your dev workspace:
 (The real @-handle is whatever Slack assigned — type `@p` and let autocomplete confirm.)
 
 A successful run reacts 🌱 `:seedling:` on your message and posts a threaded "Working on task… ⏳"
-with a **View agent logs** button — that's what we saw. You may also see 🔍 `:mag:` first, but only
+with a footer whose **View session** link opens the task — that's what we saw. You may also see 🔍 `:mag:` first, but only
 when the repo-discovery agent has to choose among repos (a no-repo prompt skips it, as ours did).
 
 Follow-ups — reply in-thread with another `@mention` — are forwarded to the running sandbox and
@@ -270,6 +279,8 @@ It does not move bot events to production or change the production Slack app's c
    Do not replace `SLACK_APP_CLIENT_ID`, `SLACK_APP_CLIENT_SECRET`, or `SLACK_APP_SIGNING_SECRET`.
 3. Set `MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS` to a comma-separated list of permitted project IDs in that region's server configuration.
    The default is empty, which blocks access.
+   Use `*` to permit all projects in the region, for example on the dev region where every user is internal.
+   Do not use `*` in a production region.
    Apply the same configuration to the web processes and workers.
    Production deployments must also add these variables to `posthog/charts` and provision their values through `posthog/secrets`.
    Adding the settings in this repository does not configure production.
@@ -282,8 +293,10 @@ It does not move bot events to production or change the production Slack app's c
    The existing Slack MCP entry becomes **Slack via PostHog (dev)** and uses the separate credentials.
    It activates only after the shared-client probe passes.
    Existing Slack MCP installations block a change of OAuth app; do not disconnect them without their owners' approval.
-6. In an allowed project, connect **Slack via PostHog (dev)** from the MCP store, finish Slack authorization, and confirm that a channel search returns results.
+6. In an allowed project, connect **Slack via PostHog (dev)** from the MCP store, finish Slack authorization, and confirm that a channel search returns results and an accessible canvas can be read.
    Confirm that another project cannot list or authorize this entry.
+
+Reconnect an installation that was authorized before a new reviewed scope was synced. Existing OAuth tokens do not gain the new scope automatically.
 
 The connection keeps the catalog's reviewed MCP scopes; it does not request all scopes available to the bot.
 The project restriction applies to authorization, token exchange, token refresh, and upstream requests.
@@ -301,7 +314,7 @@ Tokens from the development app cannot be transferred to the production app.
   you and shows the response. A `202` here means the event arrived and the problem is downstream;
   this is how we confirmed delivery during setup.
 - **Temporal Web** (`http://localhost:8233`, filter workflow type
-  `posthog-code-slack-mention-processing`) — shows which activity the run reached. The happy path
+  `slack-app-mention-processing`) — shows which activity the run reached. The happy path
   ends at `create_posthog_code_task_for_repo_activity`.
 - Going deeper, the `django` / `temporal-django-worker` logs carry `posthog_code_*` structlog
   lines, and Slack's app **Event Deliveries** page shows delivery failures — neither was needed in

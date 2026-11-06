@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { type MutableRefObject, type RefObject, useEffect, useMemo, useRef } from 'react'
+import { type KeyboardEvent, type MutableRefObject, type RefObject, useEffect, useMemo, useRef, useState } from 'react'
+
+import { Kbd } from '@posthog/quill-primitives'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { projectLogic } from 'scenes/projectLogic'
@@ -8,18 +10,30 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { runInteractionLogic, type RunInteractionLogicProps } from 'products/posthog_ai/frontend/api/logics'
-import { Composer, QueuedMessageList, useThreadSkin } from 'products/posthog_ai/frontend/api/primitives'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
+
+import { Composer, ReplySuggestionHint } from 'products/posthog_ai/frontend/api/composer'
+import {
+    runInteractionLogic,
+    type RunInteractionLogicProps,
+    useThreadSkin,
+} from 'products/posthog_ai/frontend/api/logics'
+import { QueuedMessageList } from 'products/posthog_ai/frontend/api/primitives'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
 import { runSlashCommandsLogic } from 'products/posthog_ai/frontend/logics/runSlashCommandsLogic'
 import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/logics/taskRunDefaultsLogic'
-import { getRuntimeAdapterForModel, pickerModels } from 'products/posthog_ai/frontend/utils/composerModels'
+import {
+    getRuntimeAdapterForModel,
+    PI_DEFAULT_MODEL,
+    pickerModels,
+} from 'products/posthog_ai/frontend/utils/composerModels'
 import { cycleMode, getModesForRuntimeAdapter } from 'products/posthog_ai/frontend/utils/composerModes'
 import { ModelAccessEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { AttachedContextChips } from '../../../components/composer/AttachedContextChips'
+import { AttachedContextPicker } from '../../../components/composer/AttachedContextPicker'
 import { CommandResultCard } from '../../../components/composer/CommandResultCard'
+import { CommentContextChips } from '../../../components/composer/CommentContextChips'
 import { ComposerAttachmentChips } from '../../../components/composer/ComposerAttachmentChips'
 import { ComposerAttachments, useComposerAttachmentPaste } from '../../../components/composer/ComposerAttachments'
 import { ComposerCodexBillingPickers } from '../../../components/composer/ComposerCodexBillingPickers'
@@ -32,21 +46,29 @@ import { ComposerModePicker } from '../../../components/composer/ComposerModePic
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
 import { ContextUsageChip } from '../../../components/ContextUsageChip'
+import { QuillAttachedContextChips } from '../../../components/quill/QuillAttachedContextChips'
 import { QuillAttachedContextPicker } from '../../../components/quill/QuillAttachedContextPicker'
-import { QuillComposerAttachButton } from '../../../components/quill/QuillComposerAttachButton'
 import { QuillComposerLayout } from '../../../components/quill/QuillComposerLayout'
 import { QuillComposerSendButton } from '../../../components/quill/QuillComposerSendButton'
+import { QuillContextUsage } from '../../../components/quill/QuillContextUsage'
+import { isPiTaskRuntime } from '../../../types/taskTypes'
+import { QuillRunRepositoryChip } from './QuillRunRepositoryChip'
+import { TaskComposerAddMenu } from './TaskComposerAddMenu'
 
 export function TaskRunComposer({
     logicProps,
     textAreaRef,
     autoFocus,
     flushDraftRef,
+    repository,
+    branch,
 }: {
     logicProps: RunInteractionLogicProps
     textAreaRef: RefObject<HTMLTextAreaElement>
     autoFocus?: boolean
     flushDraftRef: MutableRefObject<() => void>
+    repository?: string | null
+    branch?: string | null
 }): JSX.Element {
     const {
         composerForm,
@@ -55,7 +77,7 @@ export function TaskRunComposer({
         isSubmitting,
         isBusy,
         queuedMessages,
-        queueHeld,
+        queueHold,
         isTerminal,
         selectedModel,
         defaultModel,
@@ -66,17 +88,20 @@ export function TaskRunComposer({
         composerActive,
         steerPending,
         cancellationState,
+        replySuggestion,
+        replySuggestions,
     } = useValues(runInteractionLogic(logicProps))
     const { slashCommands, commandResult } = useValues(runSlashCommandsLogic(logicProps))
     const { submitComposer, dismissCommandResult } = useActions(runSlashCommandsLogic(logicProps))
     const { catalogue } = useValues(modelCatalogueLogic)
+    const isPiTask = isPiTaskRuntime(logicProps.taskRuntime)
     const offeredModels = useMemo(() => pickerModels(catalogue, selectedModel), [catalogue, selectedModel])
     const { user } = useValues(userLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { myConfigLoading } = useValues(taskRunDefaultsLogic)
     // A live run's harness is whatever it booted on; once terminal the next run follows the picked model.
     const composerAdapter = logicProps.currentRuntimeAdapter ?? getRuntimeAdapterForModel(catalogue, selectedModel)
-    const controlsReady = isTerminal || !!logicProps.currentRuntimeAdapter
+    const controlsReady = isTerminal || isPiTask || !!logicProps.currentRuntimeAdapter
     const {
         setComposerFormValues,
         enableTaskDraftPersistence,
@@ -91,6 +116,9 @@ export function TaskRunComposer({
         steerQueue,
         submitAfterConsent,
         setQueueEditing,
+        acceptReplySuggestion,
+        dismissReplySuggestion,
+        reportReplySuggestionShown,
     } = useActions(runInteractionLogic(logicProps))
 
     useEffect(() => {
@@ -100,6 +128,28 @@ export function TaskRunComposer({
     }, [user?.uuid, currentProjectId, enableTaskDraftPersistence])
 
     const draft = useDebouncedDraft(composerForm.draft, (value) => setComposerFormValues({ draft: value }))
+    const shownReplySuggestion = draft.value ? null : replySuggestion
+    const shownReplySuggestionTurn = shownReplySuggestion !== null ? replySuggestions?.turnIndex : undefined
+    useEffect(() => {
+        if (shownReplySuggestionTurn !== undefined) {
+            reportReplySuggestionShown(shownReplySuggestionTurn)
+        }
+    }, [shownReplySuggestionTurn, reportReplySuggestionShown])
+    const handleReplySuggestionKeys = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+        if (shownReplySuggestion === null || shownReplySuggestionTurn === undefined) {
+            return
+        }
+        const noModifiers = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey
+        if (noModifiers && (event.key === 'Tab' || event.key === 'ArrowRight')) {
+            event.preventDefault()
+            draft.onChange(shownReplySuggestion)
+            acceptReplySuggestion(shownReplySuggestion, event.key)
+        } else if (event.key === 'Escape') {
+            event.preventDefault()
+            event.stopPropagation()
+            dismissReplySuggestion(shownReplySuggestionTurn)
+        }
+    }
     useEffect(() => {
         flushDraftRef.current = draft.flush
     }, [flushDraftRef, draft.flush])
@@ -111,15 +161,22 @@ export function TaskRunComposer({
     // The whole input frame is the drop target, so a file dropped anywhere on it attaches.
     const labelRef = useRef<HTMLLabelElement>(null)
     const groupRef = useRef<HTMLDivElement>(null)
+    const [contextPickerOpen, setContextPickerOpen] = useState(false)
     const skin = useThreadSkin()
     const codexBillingEnabled = useFeatureFlag('POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD')
 
-    const placeholder = isTerminal
-        ? 'Send a message to start a new run, or type / for commands…'
-        : 'Send a follow-up message, or type / for commands…'
+    const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
+    const placeholder =
+        todayRailEnabled && phoneLayout
+            ? isTerminal
+                ? 'Start a new run…'
+                : 'Reply…'
+            : isTerminal
+              ? 'Send a message to start a new run, or type / for commands…'
+              : 'Send a follow-up message, or type / for commands…'
     // Selection lives in the bound runInteractionLogic and is applied when the message is sent — synced to the
     // running agent on a follow-up, or used to seed the next run once terminal.
-    const modePicker = (
+    const modePicker = isPiTask ? null : (
         <ComposerModePicker
             selectedMode={selectedMode}
             onModeChange={setMode}
@@ -129,36 +186,49 @@ export function TaskRunComposer({
     const modelPickerProps: ComposerModelEffortPickersProps = {
         models: offeredModels,
         selectedModel,
-        defaultModel,
-        isDefaultModelLoading: myConfigLoading,
+        defaultModel: isPiTask ? PI_DEFAULT_MODEL : defaultModel,
+        isDefaultModelLoading: !isPiTask && myConfigLoading,
         selectedEffort,
         onModelChange: setModel,
         onEffortChange: setEffort,
+        taskRuntime: logicProps.taskRuntime,
         // While the run is live its harness is fixed to whatever the sandbox booted; once
         // terminal the next send starts a fresh run, which may pick any harness.
         lockedRuntimeAdapter: isTerminal ? null : logicProps.currentRuntimeAdapter,
-        onOpenDefaultSettings: () =>
-            router.actions.push(urls.settings('environment-task-agents', 'task-agent-my-preference')),
+        onOpenDefaultSettings: isPiTask
+            ? undefined
+            : () => router.actions.push(urls.settings('environment-task-agents', 'task-agent-my-preference')),
+        phoneSheet: todayRailEnabled && phoneLayout,
     }
-    const modelPicker = codexBillingEnabled ? (
-        <ComposerCodexBillingPickers
-            {...modelPickerProps}
-            lockedCodexModelAccess={
-                isTerminal ? null : (logicProps.currentCodexModelAccess ?? ModelAccessEnumApi.PosthogGateway)
-            }
-        />
-    ) : (
-        <ComposerModelEffortPickers {...modelPickerProps} />
-    )
+    const lockedCodexModelAccess = isTerminal
+        ? null
+        : (logicProps.currentCodexModelAccess ?? ModelAccessEnumApi.PosthogGateway)
+    const modelPicker =
+        codexBillingEnabled && !isPiTask ? (
+            <ComposerCodexBillingPickers {...modelPickerProps} lockedCodexModelAccess={lockedCodexModelAccess} />
+        ) : (
+            <ComposerModelEffortPickers {...modelPickerProps} />
+        )
     const field = (
         <ComposerCommandMenu commands={slashCommands}>
             <Composer.Field>
-                <Composer.Placeholder>{placeholder}</Composer.Placeholder>
-                <Composer.Textarea data-attr="sandbox-composer-input" autoFocus={autoFocus} onPaste={onPaste} />
+                {shownReplySuggestion !== null ? (
+                    <Composer.Placeholder className="right-12">
+                        <ReplySuggestionHint suggestion={shownReplySuggestion} acceptHint={<Kbd>Tab to accept</Kbd>} />
+                    </Composer.Placeholder>
+                ) : (
+                    <Composer.Placeholder>{placeholder}</Composer.Placeholder>
+                )}
+                <Composer.Textarea
+                    data-attr="sandbox-composer-input"
+                    autoFocus={autoFocus}
+                    onPaste={onPaste}
+                    onKeyDown={handleReplySuggestionKeys}
+                />
             </Composer.Field>
         </ComposerCommandMenu>
     )
-    const pickers = (first: JSX.Element, second: JSX.Element): JSX.Element => (
+    const pickers = (first: JSX.Element | null, second: JSX.Element | null): JSX.Element => (
         <fieldset disabled={!controlsReady} className="flex flex-wrap items-center gap-1 border-0 p-0 m-0 min-w-0">
             {first}
             {second}
@@ -189,7 +259,7 @@ export function TaskRunComposer({
     return (
         <div onFocusCapture={() => setComposerFocused(true)} onBlurCapture={() => setComposerFocused(false)}>
             <ComposerModeShortcut
-                disabled={!composerActive || !controlsReady}
+                disabled={isPiTask || !composerActive || !controlsReady}
                 onCycle={() => setMode(cycleMode(composerAdapter, selectedMode))}
             />
             <Composer.Root
@@ -240,7 +310,7 @@ export function TaskRunComposer({
                                       : undefined
                             }
                             steerPending={steerPending || isSubmitting || !!cancellationState}
-                            held={queueHeld}
+                            hold={queueHold}
                             onEditingChange={setQueueEditing}
                         />
                     </Composer.Banner>
@@ -251,7 +321,9 @@ export function TaskRunComposer({
                         textAreaRef={textAreaRef}
                         chips={
                             <>
-                                <AttachedContextChips />
+                                {repository && <QuillRunRepositoryChip repository={repository} branch={branch} />}
+                                {logicProps.taskId && <CommentContextChips logicProps={logicProps} />}
+                                <QuillAttachedContextChips taskId={logicProps.taskId} />
                                 <ComposerAttachmentChips attachmentsKey={attachmentsKey} />
                             </>
                         }
@@ -259,23 +331,43 @@ export function TaskRunComposer({
                         send={withConsent(<QuillComposerSendButton data-attr="sandbox-composer-send" />)}
                         controls={
                             <>
-                                <QuillComposerAttachButton attachmentsKey={attachmentsKey} dropTargetRef={groupRef} />
-                                <QuillAttachedContextPicker />
-                                {pickers(modelPicker, modePicker)}
+                                <TaskComposerAddMenu
+                                    attachmentsKey={attachmentsKey}
+                                    dropTargetRef={groupRef}
+                                    onAddContext={() => setContextPickerOpen(true)}
+                                />
+                                <QuillAttachedContextPicker
+                                    taskId={logicProps.taskId}
+                                    open={contextPickerOpen}
+                                    onOpenChange={setContextPickerOpen}
+                                    anchor={groupRef}
+                                />
+                                <div className="shrink-0">{pickers(modePicker, null)}</div>
                             </>
                         }
-                        meta={<ContextUsageChip />}
+                        singleRow
+                        meta={
+                            <div className="flex min-w-0 items-center gap-1 [&>fieldset]:min-w-0 [&>fieldset]:flex-nowrap">
+                                <span className="px-1 empty:hidden">
+                                    <QuillContextUsage />
+                                </span>
+                                {pickers(modelPicker, null)}
+                            </div>
+                        }
                     />
                 ) : (
                     <>
                         <Composer.Frame ref={labelRef}>
-                            <Composer.Header className="flex flex-wrap items-center gap-1">
-                                <AttachedContextBar />
-                                <ComposerAttachments attachmentsKey={attachmentsKey} dropTargetRef={labelRef} />
+                            <Composer.Header className="flex flex-wrap items-center gap-2 empty:hidden">
+                                {logicProps.taskId && <CommentContextChips logicProps={logicProps} />}
+                                <AttachedContextChips taskId={logicProps.taskId} />
+                                <ComposerAttachmentChips attachmentsKey={attachmentsKey} />
                             </Composer.Header>
                             {field}
                             <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
-                                {pickers(modePicker, modelPicker)}
+                                <ComposerAttachments attachmentsKey={attachmentsKey} dropTargetRef={labelRef} />
+                                <AttachedContextPicker taskId={logicProps.taskId} />
+                                {pickers(modelPicker, modePicker)}
                                 <div className="ml-auto">
                                     <ContextUsageChip />
                                 </div>

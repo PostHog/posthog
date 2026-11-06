@@ -7,6 +7,7 @@ import { router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { readableErrorMessage } from 'lib/api-error'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
@@ -16,7 +17,7 @@ import { AnyPropertyFilter, DataWarehouseCredential, DataWarehouseTable } from '
 import { sourceSceneLogic } from '../SourceScene/SourceScene'
 
 export interface TableLogicProps {
-    /** A UUID or 'new'. */
+    /** The table's UUID. */
     id: string
 }
 
@@ -25,15 +26,16 @@ const NEW_WAREHOUSE_TABLE: DataWarehouseTable = {
     name: '',
     url_pattern: '',
     format: 'Parquet',
-    options: { csv_allow_double_quotes: false },
+    // RFC 4180 is what almost every CSV export produces, and save-time validation redirects the rest.
+    options: { csv_allow_double_quotes: true },
     credential: {
         access_key: '',
         access_secret: '',
     },
 }
 
-// `credential` is null on tables saved without one (the API only enforces credentials on
-// creation via this form), so it must be guarded — reading through it crashed the page.
+// `credential` is null on tables saved without one, such as uploaded files, so it must be guarded:
+// reading through it crashed the page.
 export function selfManagedTableFormErrors({
     name,
     url_pattern,
@@ -141,21 +143,6 @@ export interface selfManagedSourceLogicActions {
     }
     archiveTable: () => {
         value: true
-    }
-    createTable: (tablePayload: any) => any
-    createTableFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    createTableSuccess: (
-        table: DataWarehouseTable,
-        payload?: any
-    ) => {
-        table: DataWarehouseTable
-        payload?: any
     }
     editingTable: (editing: boolean) => {
         editing: boolean
@@ -271,15 +258,7 @@ export const selfManagedSourceLogic = kea<selfManagedSourceLogicType>([
     loaders(({ props }) => ({
         table: {
             loadTable: async () => {
-                if (props.id && props.id !== 'new') {
-                    return await api.dataWarehouseTables.get(props.id)
-                }
-                return { ...NEW_WAREHOUSE_TABLE }
-            },
-            createTable: async (tablePayload) => {
-                return await api.dataWarehouseTables.create({
-                    ...tablePayload,
-                })
+                return await api.dataWarehouseTables.get(props.id)
             },
             updateTable: async (tablePayload) => {
                 return await api.dataWarehouseTables.update(props.id, tablePayload)
@@ -287,10 +266,11 @@ export const selfManagedSourceLogic = kea<selfManagedSourceLogicType>([
         },
     })),
     listeners(({ actions, props }) => ({
-        createTableSuccess: async ({ table }) => {
-            lemonToast.success(<>Table {table.name} created</>)
-            actions.loadDatabase()
-            router.actions.replace(urls.sources())
+        // initKea leaves a validation 400 from this loader to this logic, so toast the server message here.
+        updateTableFailure: ({ errorObject }) => {
+            if (errorObject?.status === 400) {
+                lemonToast.error(readableErrorMessage(errorObject) ?? 'Could not update the table.')
+            }
         },
         updateTableSuccess: async ({ table }) => {
             lemonToast.success(<>Table {table.name} updated</>)
@@ -318,20 +298,12 @@ export const selfManagedSourceLogic = kea<selfManagedSourceLogicType>([
             },
         ],
     }),
-    forms(({ actions, props }) => ({
+    forms(({ actions }) => ({
         table: {
             defaults: { ...NEW_WAREHOUSE_TABLE } as DataWarehouseTable,
             errors: selfManagedTableFormErrors,
             submit: async (tablePayload) => {
-                try {
-                    if (props.id && props.id !== 'new') {
-                        actions.updateTable(tablePayload)
-                    } else {
-                        actions.createTable(tablePayload)
-                    }
-                } catch (e: any) {
-                    lemonToast.error(e.data?.message ?? e.message)
-                }
+                actions.updateTable(tablePayload)
             },
         },
     })),

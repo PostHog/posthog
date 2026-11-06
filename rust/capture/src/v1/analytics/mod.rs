@@ -1,6 +1,7 @@
 pub mod constants;
 pub mod context;
 pub mod handler;
+pub mod lenient;
 pub mod process;
 pub mod query;
 pub mod response;

@@ -101,7 +101,7 @@ function HarnessLogos({ labels }: { labels: string[] }): JSX.Element {
     return (
         <div className="flex items-center gap-1">
             {labels.map((category) => (
-                <HarnessLogo key={category} category={category} />
+                <HarnessLogo key={category} category={category} label={category} />
             ))}
         </div>
     )

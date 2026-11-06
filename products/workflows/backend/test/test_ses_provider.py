@@ -110,6 +110,9 @@ class TestSESProvider(TestCase):
             assert any(arn.endswith(f"identity/{TEST_DOMAIN}") for arn in associated)
             assert any(arn.endswith("configuration-set/posthog-messaging") for arn in associated)
             assert any(arn.endswith("configuration-set/posthog-messaging-untracked") for arn in associated)
+            mock_ses_v2_client.put_email_identity_feedback_attributes.assert_called_with(
+                EmailIdentity=TEST_DOMAIN, EmailForwardingEnabled=False
+            )
 
             # An unprovisioned config set must not fail the customer's add-domain request —
             # only the identity association (self-created above) is allowed to raise.
@@ -121,8 +124,15 @@ class TestSESProvider(TestCase):
             mock_ses_v2_client.create_tenant_resource_association.side_effect = fail_config_set_associations
             provider.create_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
 
+            # The configuration sets already report bounces, so a forwarding failure must not fail it either.
+            mock_ses_v2_client.put_email_identity_feedback_attributes.side_effect = ClientError(
+                {"Error": {"Code": "TooManyRequestsException"}}, "PutEmailIdentityFeedbackAttributes"
+            )
+            provider.create_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
+
     @patch("products.workflows.backend.providers.ses.boto3.client")
     def test_create_email_domain_invalid_domain(self, mock_boto_client):
+        mock_boto_client.return_value.get_caller_identity.return_value = {"Account": "123456789012"}
         with override_settings(
             SES_ACCESS_KEY_ID="test_access_key", SES_SECRET_ACCESS_KEY="test_secret_key", SES_REGION="us-east-1"
         ):
@@ -399,14 +409,14 @@ class TestSESResponseShapeContract(TestCase):
                 "EnforcementStatus",
                 lambda m: m.operation_model("GetAccount").output_shape.members.keys(),
                 "AWS SES v2 GetAccount response no longer exposes `EnforcementStatus`. "
-                "Update get_account_reputation in products/workflows/backend/providers/ses.py.",
+                "Update get_account_enforcement_status in products/workflows/backend/providers/ses.py.",
             ),
             (
                 "recommendation_resource_arn",
                 "ResourceArn",
                 lambda m: m.shape_for("Recommendation").members.keys(),
                 "AWS SES v2 Recommendation no longer exposes `ResourceArn`. "
-                "Update get_account_reputation in products/workflows/backend/providers/ses.py.",
+                "Update get_account_reputation_findings in products/workflows/backend/providers/ses.py.",
             ),
         ]
     )
@@ -537,8 +547,7 @@ class TestGetAccountReputation(TestCase):
         self.mock_client = mock_boto3_client.return_value
         self.provider = SESProvider()
 
-    def test_returns_enforcement_status_and_open_findings_across_pages(self):
-        self.mock_client.get_account.return_value = {"EnforcementStatus": "PROBATION"}
+    def test_returns_open_findings_across_pages(self):
         self.mock_client.list_recommendations.side_effect = [
             {
                 "Recommendations": [
@@ -572,10 +581,9 @@ class TestGetAccountReputation(TestCase):
             },
         ]
 
-        result = self.provider.get_account_reputation()
+        findings = self.provider.get_account_reputation_findings()
 
-        assert result["enforcement_status"] == "PROBATION"
-        assert [(f["finding_type"], f["impact"], f["scope"]) for f in result["findings"]] == [
+        assert [(f["finding_type"], f["impact"], f["scope"]) for f in findings] == [
             ("BOUNCE", "LOW", "tenant"),
             ("DMARC", "HIGH", "identity"),
             ("COMPLAINT", "HIGH", "account"),
@@ -583,14 +591,15 @@ class TestGetAccountReputation(TestCase):
         # The listing must be account-wide with OPEN filtered server-side, and walk every page
         first_call, second_call = self.mock_client.list_recommendations.call_args_list
         assert first_call.kwargs["Filter"] == {"STATUS": "OPEN"}
+        assert first_call.kwargs["PageSize"] == 100
         assert second_call.kwargs["NextToken"] == "page-2"
+        self.mock_client.get_account.assert_not_called()
 
     def test_missing_enforcement_status_fails_the_poll(self):
         self.mock_client.get_account.return_value = {}
-        self.mock_client.list_recommendations.return_value = {"Recommendations": []}
 
         with pytest.raises(KeyError):
-            self.provider.get_account_reputation()
+            self.provider.get_account_enforcement_status()
 
 
 def _isp_of(query) -> str:

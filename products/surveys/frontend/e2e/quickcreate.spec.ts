@@ -15,7 +15,7 @@ const saveFeatureFlag = async (page: Page): Promise<void> => {
     // Saving redirects to the flag's own detail page (featureFlagLogic.saveFeatureFlagSuccess).
     // Waiting for that confirms the flag was created and committed before clickCreateSurvey
     // navigates to the list to find it.
-    await page.waitForURL(/\/feature_flags\/\d+/)
+    await page.waitForURL(/\/feature-flags\/\d+/)
 }
 
 const expectFlagEnabled = async (page: Page, name: string): Promise<void> => {

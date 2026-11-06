@@ -4,15 +4,20 @@ import { useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonCard, LemonLabel, LemonSelect, LemonTag, Spinner } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ResourceTagFilter } from '../components/ResourceTagFilter'
 import { EvaluationsTabs } from '../evaluations/EvaluationsTabs'
-import { ScoreDefinitionVersionButton } from '../scoreDefinitions/ScoreDefinitionVersionButton'
 import { offlineExperimentUrl } from './offlineExperimentPresentation'
+import { OFFLINE_HISTORY_BREAKDOWN_OPTIONS, type OfflineHistoryBreakdown } from './offlineHistoryBreakdown'
 import { offlineScorerHistoryLogic, type OfflineScorerHistoryProps } from './offlineScorerHistoryLogic'
 import { OfflineScorerHistoryTable } from './OfflineScorerHistoryTable'
 import { OfflineScoreTrendChart } from './OfflineScoreTrendChart'
@@ -54,7 +59,6 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
         changePage,
         loadOfflineHistoryPrimaryPage,
         loadOfflineHistoryComparisonPage,
-        reloadOfflineHistoryDefinition,
     } = useActions(logic)
 
     const toggleRun = (key: string): void => {
@@ -85,22 +89,31 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                 ) : !definition ? (
                     <Spinner />
                 ) : (
-                    <div className="space-y-4 min-w-0">
+                    <div className="space-y-4 min-w-0 @container/scorer-history">
                         <div className="flex items-center justify-between flex-wrap gap-2">
                             <div className="flex items-center flex-wrap gap-2">
                                 <LemonTag>{definition.kind}</LemonTag>
                                 {definition.archived && <LemonTag type="warning">Archived</LemonTag>}
                                 <span className="text-muted">{definition.description}</span>
                             </div>
-                            <ScoreDefinitionVersionButton
-                                definition={definition}
-                                onSuccess={reloadOfflineHistoryDefinition}
-                            />
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
+                            >
+                                <LemonButton
+                                    size="small"
+                                    to={urls.aiObservabilityScorer(definition.id)}
+                                    data-attr="offline-history-edit-scorer"
+                                >
+                                    Edit scorer
+                                </LemonButton>
+                            </AccessControlAction>
                         </div>
                         <div className="flex flex-wrap gap-2 items-end">
                             <div>
                                 <LemonLabel>Upload state</LemonLabel>
                                 <LemonSelect
+                                    size="small"
                                     value={filters.statuses}
                                     onChange={(statuses) => setFilters({ statuses })}
                                     options={[
@@ -114,6 +127,7 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                             <div>
                                 <LemonLabel>Source</LemonLabel>
                                 <LemonSelect
+                                    size="small"
                                     value={filters.run_source}
                                     onChange={(run_source) => setFilters({ run_source })}
                                     options={[
@@ -126,8 +140,39 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                 />
                             </div>
                             <div>
+                                <LemonLabel>Tags</LemonLabel>
+                                <ResourceTagFilter size="small" filters={filters} onChange={setFilters} />
+                            </div>
+                            <div data-attr="offline-history-author-filter">
+                                <LemonLabel>Author</LemonLabel>
+                                <MemberSelect
+                                    value={filters.created_by ?? null}
+                                    size="small"
+                                    defaultLabel="Any author"
+                                    extraOptions={[
+                                        {
+                                            label: 'No author',
+                                            onClick: () =>
+                                                setFilters({ created_by: undefined, created_by_is_null: true }),
+                                        },
+                                    ]}
+                                    onChange={(user) =>
+                                        setFilters({ created_by: user?.id, created_by_is_null: undefined })
+                                    }
+                                >
+                                    {filters.created_by_is_null
+                                        ? () => (
+                                              <LemonButton type="secondary" size="small">
+                                                  No author
+                                              </LemonButton>
+                                          )
+                                        : undefined}
+                                </MemberSelect>
+                            </div>
+                            <div>
                                 <LemonLabel>Version</LemonLabel>
                                 <LemonSelect
+                                    size="small"
                                     value={filters.version}
                                     options={versionOptions}
                                     onChange={(version) => setFilters({ version })}
@@ -137,6 +182,7 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                             </div>
                             {versions?.next_cursor && (
                                 <LemonButton
+                                    size="small"
                                     type="secondary"
                                     loading={versionsLoading}
                                     onClick={() => loadOfflineHistoryVersions({ cursor: versions.next_cursor! })}
@@ -147,6 +193,7 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                             <div>
                                 <LemonLabel>Date range</LemonLabel>
                                 <DateFilter
+                                    size="small"
                                     dateFrom={filters.date_from}
                                     dateTo={filters.date_to}
                                     onChange={(date_from, date_to) =>
@@ -158,6 +205,7 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                             <div>
                                 <LemonLabel>Compare</LemonLabel>
                                 <LemonSelect
+                                    size="small"
                                     value={filters.compare}
                                     onChange={(compare) => setFilters({ compare })}
                                     options={[
@@ -179,6 +227,7 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                 <div>
                                     <LemonLabel>Comparison range</LemonLabel>
                                     <DateFilter
+                                        size="small"
                                         dateFrom={filters.compare_from}
                                         dateTo={filters.compare_to}
                                         onChange={(compare_from, compare_to) =>
@@ -189,6 +238,7 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                 </div>
                             )}
                             <LemonButton
+                                size="small"
                                 type="secondary"
                                 loading={primaryPageLoading || comparisonPageLoading}
                                 onClick={refreshHistory}
@@ -224,7 +274,22 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                         ) : (
                             <>
                                 <LemonCard hoverEffect={false} className="min-w-0">
-                                    <div className="font-semibold mb-2">Score history</div>
+                                    <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                        <div className="font-semibold">Score history</div>
+                                        <div className="flex items-center gap-2">
+                                            <LemonLabel>Break down by</LemonLabel>
+                                            <LemonSelect<OfflineHistoryBreakdown | ''>
+                                                size="small"
+                                                value={filters.breakdown}
+                                                onChange={(breakdown) => setFilters({ breakdown })}
+                                                options={[
+                                                    { value: '', label: 'None' },
+                                                    ...OFFLINE_HISTORY_BREAKDOWN_OPTIONS,
+                                                ]}
+                                                data-attr="offline-history-breakdown"
+                                            />
+                                        </div>
+                                    </div>
                                     {primaryPageLoading || comparisonPageLoading || (!primaryPage && !primaryError) ? (
                                         <Spinner />
                                     ) : (
@@ -237,6 +302,7 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                             {trendPeriods.length > 0 && (
                                                 <OfflineScoreTrendChart
                                                     periods={trendPeriods}
+                                                    breakdown={filters.breakdown || undefined}
                                                     timezone={timezone}
                                                     onPointClick={(point) =>
                                                         router.actions.push(offlineExperimentUrl(point))
@@ -246,8 +312,9 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                         </>
                                     )}
                                     <p className="text-muted text-xs mt-2 mb-0">
-                                        Each point is one experiment and scorer version. Points use successful results
-                                        only. Different periods and versions remain separate.
+                                        {filters.breakdown
+                                            ? 'Each point is one experiment, scorer version, and breakdown value. Points use successful results only. Different periods and versions remain separate.'
+                                            : 'Each point is one experiment and scorer version. Points use successful results only. Different periods and versions remain separate.'}
                                     </p>
                                 </LemonCard>
                                 {[
@@ -280,14 +347,27 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                         <div className="font-semibold">{period.title}</div>
                                         <div className="text-xs text-muted flex flex-wrap gap-1">
                                             {period.range?.dateFrom ? (
-                                                <TZLabel time={period.range.dateFrom} displayTimezone={timezone} />
+                                                <TZLabel
+                                                    time={period.range.dateFrom}
+                                                    displayTimezone={timezone}
+                                                    formatDate="MMM D, YYYY"
+                                                    formatTime="HH:mm"
+                                                    timestampStyle="absolute"
+                                                />
                                             ) : (
                                                 <span>All time</span>
                                             )}
                                             <span>to</span>
                                             {period.range?.dateTo && (
-                                                <TZLabel time={period.range.dateTo} displayTimezone={timezone} />
+                                                <TZLabel
+                                                    time={period.range.dateTo}
+                                                    displayTimezone={timezone}
+                                                    formatDate="MMM D, YYYY"
+                                                    formatTime="HH:mm"
+                                                    timestampStyle="absolute"
+                                                />
                                             )}
+                                            <span>{`(${timezone})`}</span>
                                         </div>
                                         {period.error ? (
                                             <LemonBanner
@@ -304,6 +384,7 @@ export function OfflineScorerHistory(props: OfflineScorerHistoryProps): JSX.Elem
                                                     </div>
                                                 )}
                                                 <OfflineScorerHistoryTable
+                                                    breakdown={filters.breakdown || undefined}
                                                     periodKey={period.key}
                                                     page={period.page}
                                                     loading={period.loading}

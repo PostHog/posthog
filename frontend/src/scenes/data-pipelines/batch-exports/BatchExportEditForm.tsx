@@ -96,7 +96,7 @@ export function BatchExportsEditFields({
     const definition = destination ? DESTINATIONS[destination] : undefined
 
     return (
-        <div className="flex flex-col gap-y-4 max-w-200">
+        <div className="flex flex-col gap-y-4">
             {definition && (
                 <definition.Fields
                     isNew={isNew}

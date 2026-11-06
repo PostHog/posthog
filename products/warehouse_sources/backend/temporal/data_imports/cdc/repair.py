@@ -4,8 +4,7 @@ Recovery counterpart of ``broken.mark_cdc_broken``: once the change-stream resou
 recreated (the safety net dropped the slot, or someone dropped it on the source database),
 repair recreates the engine-side resources against the stored CDC config, resets every
 active CDC schema to snapshot mode so it re-syncs from current table state, clears the
-``cdc_broken`` markers, and resumes the paused schedules. The new slot starts on buffered
-ingress, so a repaired legacy source comes back buffered.
+``cdc_broken`` markers, and resumes the paused schedules.
 
 WAL between the old slot's last confirmed position and the new slot's consistent point is
 gone — the re-snapshot covers current rows, but intermediate changes in that gap (including
@@ -33,6 +32,7 @@ import structlog
 
 from posthog.redis import get_client
 
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
@@ -62,6 +62,11 @@ class CDCRepairInProgress(CDCRepairError):
 
 def _repair_lock_key(source_id: str) -> str:
     return f"cdc_repair_lock:{source_id}"
+
+
+def repair_is_running(source: ExternalDataSource) -> bool:
+    """Whether a repair of this source holds its lock."""
+    return bool(get_client().exists(_repair_lock_key(str(source.id))))
 
 
 def repair_cdc_source(source: ExternalDataSource) -> int:
@@ -120,7 +125,7 @@ def _repair_locked(source: ExternalDataSource) -> int:
     # A sync that hands over after its table's reset leaves the reset pending on a streaming table,
     # whose next run wipes it. Capture finishes those resets once the syncs stop, after this repair.
     # They wait for the slot as well, because the one they would snapshot against is gone until
-    # `recreate_slot` below, and a capture run firing meanwhile must not start that snapshot.
+    # `recreate_stream` below, and a capture run firing meanwhile must not start that snapshot.
     handed_over = {
         schema.id
         for schema in all_cdc_schemas
@@ -130,8 +135,7 @@ def _repair_locked(source: ExternalDataSource) -> int:
 
     # Reset schemas before touching the slot (same ordering as the extraction activity's
     # slot-invalidation recovery): if recreation fails below, a re-run repeats idempotently
-    # and no schema keeps streaming across the gap unnoticed. Deferred runs left by the retired
-    # legacy lane are dropped: the re-snapshot supersedes them. The `cdc_broken` markers
+    # and no schema keeps streaming across the gap unnoticed. The `cdc_broken` markers
     # deliberately survive this step: they are the retry gate.
     for schema_id in all_cdc_schema_ids:
         if schema_id in handed_over:
@@ -140,7 +144,7 @@ def _repair_locked(source: ExternalDataSource) -> int:
             schema_id,
             source.team_id,
             updates={"cdc_mode": "snapshot", "reset_pipeline": True},
-            removes=["cdc_last_log_position", "cdc_deferred_runs", CDC_RESET_PENDING_KEY],
+            removes=["cdc_last_log_position", CDC_RESET_PENDING_KEY],
             extra_model_fields={"initial_sync_complete": False},
         )
 
@@ -149,9 +153,9 @@ def _repair_locked(source: ExternalDataSource) -> int:
     for schema_id in all_cdc_schema_ids:
         purge_buffer_prefix(source.team_id, str(schema_id), log, strict=True)
 
-    default_schema = (source.job_inputs or {}).get("schema")
+    default_schema = SourceInputsStore.load_settings(source).get("schema")
     try:
-        resource_fields = adapter.recreate_slot(
+        resource_fields = adapter.recreate_stream(
             source, tables=[cdc_qualified_table_name(schema, default_schema) for schema in cdc_schemas]
         )
     except Exception as e:
@@ -164,9 +168,8 @@ def _repair_locked(source: ExternalDataSource) -> int:
             raise
         raise CDCRepairError(customer_message) from e
 
-    source.job_inputs = {**(source.job_inputs or {}), **resource_fields}
     source.status = ExternalDataSource.Status.RUNNING
-    source.save(update_fields=["job_inputs", "status", "updated_at"])
+    SourceInputsStore.update_runtime(source, resource_fields, extra_update_fields=("status", "updated_at"))
 
     _resume_schedules(source, reset_now)
 
@@ -213,7 +216,7 @@ def _require_broken_evidence(
         return
 
     live_status = adapter.get_status(source)
-    if live_status.get("slot_exists") is False or live_status.get("publication_exists") is False:
+    if not adapter.capture_resources_present(live_status):
         return
 
     raise CDCRepairError(

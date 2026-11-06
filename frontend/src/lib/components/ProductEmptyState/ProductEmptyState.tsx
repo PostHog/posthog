@@ -1,8 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconBook, IconGear } from '@posthog/icons'
-
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TerminalCard } from 'lib/components/CommandBlock/TerminalCard'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -13,6 +11,7 @@ import { cn } from 'lib/utils/css-classes'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { ProductEmptyStateFooter } from './ProductEmptyStateFooter'
 import { productSetupStatusLogic } from './productSetupStatusLogic'
 import type {
     ProductEmptyStateConfig,
@@ -275,43 +274,14 @@ export function ProductEmptyState({ config: baseConfig, mode, preview = false }:
 
                         {config.statusIndicator ? <div className="text-xs">{config.statusIndicator}</div> : null}
 
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                            {showWizard && !primaryActionButton && !config.PrimaryAction && manualUrl ? (
-                                <LemonButton
-                                    type="secondary"
-                                    icon={<IconGear />}
-                                    to={manualUrl}
-                                    targetBlank
-                                    onClick={() => captureClick('manual setup clicked')}
-                                    data-attr="product-empty-state-manual-setup"
-                                >
-                                    Configure manually
-                                </LemonButton>
-                            ) : null}
-                            {config.docsUrl ? (
-                                <LemonButton
-                                    size="xsmall"
-                                    type="tertiary"
-                                    icon={<IconBook />}
-                                    to={config.docsUrl}
-                                    targetBlank
-                                    onClick={() => captureClick('docs clicked')}
-                                    data-attr="product-empty-state-docs"
-                                >
-                                    Read the docs
-                                </LemonButton>
-                            ) : null}
-                            {config.skippable !== false ? (
-                                <LemonButton
-                                    size="xsmall"
-                                    type="tertiary"
-                                    onClick={skipEmptyState}
-                                    data-attr="product-empty-state-skip"
-                                >
-                                    Skip for now
-                                </LemonButton>
-                            ) : null}
-                        </div>
+                        <ProductEmptyStateFooter
+                            config={config}
+                            manualSetupUrl={manualUrl}
+                            showManualSetup={showWizard && !primaryActionButton && !config.PrimaryAction}
+                            onManualSetup={() => captureClick('manual setup clicked')}
+                            onDocs={() => captureClick('docs clicked')}
+                            onSkip={skipEmptyState}
+                        />
                     </div>
                 </div>
 
@@ -319,7 +289,10 @@ export function ProductEmptyState({ config: baseConfig, mode, preview = false }:
                     // Previews read `--empty-state-accent` only, so in dark mode point that at the dark
                     // token here rather than asking every preview to branch on the theme itself.
                     // Tighter padding while stacked, where the width goes to the preview itself.
-                    className="flex min-w-0 flex-col justify-center gap-3 p-6 @min-[64rem]/product-empty-state:p-10 rounded-md border border-primary dark:[--empty-state-accent:var(--empty-state-accent-dark)]"
+                    className={cn(
+                        'flex min-w-0 flex-col justify-center gap-3 p-6 @min-[64rem]/product-empty-state:p-10 rounded-md border border-primary dark:[--empty-state-accent:var(--empty-state-accent-dark)]',
+                        config.previewClassName
+                    )}
                     style={{
                         backgroundImage:
                             'linear-gradient(135deg, color-mix(in oklab, var(--empty-state-accent) 16%, transparent) 0%, color-mix(in oklab, var(--empty-state-accent) 5%, transparent) 45%, transparent 80%)',

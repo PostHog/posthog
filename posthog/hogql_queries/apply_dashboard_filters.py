@@ -2,18 +2,25 @@ from typing import Any, TypedDict
 
 from posthog.schema import DashboardFilter, HogQLVariable, NodeKind
 
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_HOGQL_TABLE
+
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.hogql_queries.utils.dashboard_filter_conflicts import filters_contradict
 from posthog.models import Team
 
-WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
+WRAPPER_NODE_KINDS = [
+    NodeKind.DATA_TABLE_NODE,
+    NodeKind.DATA_VISUALIZATION_NODE,
+    NodeKind.BI_VISUALIZATION_NODE,
+    NodeKind.INSIGHT_VIZ_NODE,
+]
 _DATA_WAREHOUSE_NODE_KINDS = {"DataWarehouseNode", "FunnelsDataWarehouseNode", "LifecycleDataWarehouseNode"}
 
 # Fields where the higher-priority (override) layer replaces the lower-priority (base) value outright
 # when set. Property filters are handled separately (stacked unless they contradict).
-_SCALAR_OVERRIDE_FIELDS = ["breakdown_filter", "interval", "filterTestAccounts"]
+_SCALAR_OVERRIDE_FIELDS = ["breakdown_filter", "interval", "filterTestAccounts", "compareFilter"]
 
 # Tile-only flag, not a filter value: it must never reach DashboardFilter(**effective_filters)
 # (extra="forbid"), so every merged output strips it. It only acts on the override (tile) layer;
@@ -256,12 +263,16 @@ def remove_query_properties_overridden_by(query: dict, overriding_filters: dict 
     return _strip_query_properties(query, overriding_props)
 
 
-def _has_data_warehouse_series(query: dict) -> bool:
+def _ignores_dashboard_properties(query: dict) -> bool:
+    """The rule that QueryRunner.apply_dashboard_filters applies, read from the query dict before a runner exists."""
     if query.get("kind") in WRAPPER_NODE_KINDS:
-        return _has_data_warehouse_series(query["source"])
+        return _ignores_dashboard_properties(query["source"])
     series = query.get("series")
     return isinstance(series, list) and any(
-        isinstance(node, dict) and node.get("kind") in _DATA_WAREHOUSE_NODE_KINDS for node in series
+        isinstance(node, dict)
+        and node.get("kind") in _DATA_WAREHOUSE_NODE_KINDS
+        and node.get("table_name") != FLAG_EVALUATIONS_HOGQL_TABLE
+        for node in series
     )
 
 
@@ -290,7 +301,7 @@ def resolve_effective_dashboard_filters(
     # `merge_filters_by_priority` can early-return a raw layer (and a single layer is unmerged), so
     # `properties` may still be a group dict here — normalize before it reaches `DashboardFilter`.
     effective_filters = normalize_dashboard_filters_properties(effective_filters)
-    if effective_filters and not _has_data_warehouse_series(query):
+    if effective_filters and not _ignores_dashboard_properties(query):
         query = remove_query_properties_overridden_by(query, effective_filters)
     return EffectiveDashboardFilters(query=query, filters=effective_filters)
 

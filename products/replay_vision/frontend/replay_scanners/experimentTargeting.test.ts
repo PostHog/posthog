@@ -1,7 +1,6 @@
 import { Experiment } from '~/types'
 
 import {
-    buildExperimentTargeting,
     experimentScannerName,
     experimentScannerParams,
     parseExperimentScannerParams,
@@ -72,22 +71,34 @@ describe('experimentTargeting', () => {
     })
 
     it.each([
-        ['test', { experiment_id: 7, variant: 'test' }],
-        [null, { experiment_id: 7, variant: null }],
-    ])('builds the persisted targeting for variant %j', (variantKey, expected) => {
-        expect(buildExperimentTargeting({ experiment, variantKey })).toEqual(expected)
-    })
+        ['test', ['test']],
+        [null, null],
+    ])('prefills an experiment scanner for variant %j, with no exposure in the query', (variantKey, variants) => {
+        // A monitor template, because the prefill must replace the type: the API refuses legacy
+        // targeting, so only the experiment type can watch an experiment.
+        const scanner = {
+            name: 'Frustration score',
+            scanner_type: 'monitor',
+            scanner_config: { prompt: 'Did they get stuck?' },
+            query: { kind: 'RecordingsQuery' },
+        } as unknown as ReplayScanner
 
-    it('prefills targeting and test-account filtering without touching exposure in the query', () => {
-        const scanner = { name: 'Frustration score', query: { kind: 'RecordingsQuery' } } as unknown as ReplayScanner
+        const prefilled = prefillScannerForExperiment(scanner, { experiment, variantKey }, true)
 
-        const prefilled = prefillScannerForExperiment(scanner, { experiment, variantKey: 'test' })
-
-        expect(prefilled.experiment_targeting).toEqual({ experiment_id: 7, variant: 'test' })
+        expect(prefilled).toMatchObject({
+            scanner_type: 'experiment',
+            scanner_config: { experiment_id: 7, variants, balance_variants: true },
+            experiment_targeting: null,
+        })
         expect(prefilled.query?.filter_test_accounts).toBe(true)
-        // Exposure must never enter the query blob: the API rejects it there, and access control
-        // for the experiment hangs off experiment_targeting alone.
+        // Exposure must never enter the query blob: the API rejects it there.
         expect(prefilled.query).not.toHaveProperty('experiment_exposure')
+
+        // Until the flag is on for a team, the template keeps its type and gets legacy targeting.
+        expect(prefillScannerForExperiment(scanner, { experiment, variantKey }, false)).toMatchObject({
+            scanner_type: 'monitor',
+            experiment_targeting: { experiment_id: 7, variant: variantKey },
+        })
     })
 
     it.each([

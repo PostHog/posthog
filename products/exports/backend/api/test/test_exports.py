@@ -1,4 +1,4 @@
-import ipaddress
+import asyncio
 from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import Literal, Optional
@@ -11,6 +11,7 @@ from unittest.mock import ANY, AsyncMock, patch
 from django.http import HttpResponse
 from django.utils.timezone import now
 
+import redis.exceptions
 import requests.exceptions
 from boto3 import resource
 from botocore.client import Config
@@ -22,11 +23,11 @@ from posthog.hogql.errors import QueryError
 
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.filters.filter import Filter
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.rate_limit import ExportCreateBurstRateThrottle
 from posthog.settings import (
     HOGQL_INCREASED_MAX_EXECUTION_TIME,
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -36,11 +37,14 @@ from posthog.settings import (
 )
 from posthog.tasks import exporter
 from posthog.temporal.session_replay.rasterize_recording.types import RASTERIZE_WORKFLOW_TIMEOUT
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 from posthog.test.insight_queries import browser_filtered_pageview_query
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.exports.backend.api.exports import BLOCKING_EXPORTS_PER_TEAM, _blocking_exports_limiter
+from products.exports.backend.facade import exporters as export_handlers
 from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
 from products.exports.backend.models.exported_asset import DATASET_EXPORT_KIND, ExportedAsset
 from products.exports.backend.source_authentication import required_scopes_for_export_target
@@ -108,7 +112,7 @@ class TestExports(APIBaseTest):
     def test_screenshot_heatmap_export_requires_same_origin_url(
         self, _name: str, site_url: str, heatmap_url: str, expected_status: int, mock_exporter_task
     ) -> None:
-        with self.settings(SITE_URL=site_url):
+        with self.settings(SITE_URL=site_url), mock_anti_ssrf_dns_lookup():
             response = self.client.post(
                 f"/api/projects/{self.team.id}/exports/",
                 {
@@ -126,11 +130,6 @@ class TestExports(APIBaseTest):
             mock_exporter_task.assert_called_once()
         else:
             mock_exporter_task.assert_not_called()
-
-    insight_filter_dict = {
-        "events": [{"id": "$pageview"}],
-        "properties": [{"key": "$browser", "value": "Mac OS X"}],
-    }
 
     @classmethod
     def setUpTestData(cls):
@@ -504,21 +503,22 @@ class TestExports(APIBaseTest):
             },
         )
 
-    def test_errors_if_the_request_picks_its_own_limit_context(self) -> None:
+    @parameterized.expand([("limit_context", "posthog_ai"), ("execution_mode", "blocking"), ("kind", "dataset")])
+    def test_errors_if_the_request_picks_an_internal_export_setting(self, key: str, value: str) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {
                 "export_format": "image/png",
                 "export_context": {
                     "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
-                    "limit_context": "posthog_ai",
+                    key: value,
                 },
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "export_context")
-        self.assertEqual(response.json()["detail"], "limit_context is not supported for exports.")
+        self.assertEqual(response.json()["detail"], f"{key} is not supported for exports.")
 
     @parameterized.expand(["not/allowed", ExportedAsset.ExportFormat.JSONL])
     def test_errors_if_bad_format(self, export_format: str) -> None:
@@ -613,7 +613,7 @@ class TestExports(APIBaseTest):
             ],
         )
         other_insight = Insight.objects.create(
-            filters=Filter(data=self.insight_filter_dict).to_dict(),
+            query=browser_filtered_pageview_query(),
             team=other_team,
             created_by=self.user,
         )
@@ -823,6 +823,36 @@ class TestExports(APIBaseTest):
             f"/api/projects/{self.team.id}/datasets/{dataset_id}/exports/{dataset_export.id}/content",
             fetch_redirect_response=False,
         )
+
+    @parameterized.expand(
+        [
+            ("an owner path", "/api/owner/content", 302, "/api/owner/content?download=true"),
+            ("no owner path", None, 404, None),
+        ]
+    )
+    def test_registered_exports_are_hidden_and_their_content_goes_to_the_owner(
+        self, _name: str, owner_path: str | None, content_status: int, location: str | None
+    ) -> None:
+        with patch.dict(export_handlers._export_format_handlers):
+            export_handlers.register_export_format_handler(
+                export_format="application/json",
+                kind="test_kind",
+                handler=lambda asset: None,
+                content_path=lambda *, team_id, asset_id, export_context: owner_path,
+            )
+            asset = ExportedAsset.objects.create(
+                team=self.team,
+                export_format=ExportedAsset.ExportFormat.JSON,
+                export_context={"kind": "test_kind"},
+                created_by=self.user,
+                content=b"{}",
+            )
+
+            retrieve = self.client.get(f"/api/projects/{self.team.id}/exports/{asset.id}")
+            content = self.client.get(f"/api/projects/{self.team.id}/exports/{asset.id}/content?download=true")
+
+        self.assertEqual(retrieve.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual((content.status_code, content.get("Location")), (content_status, location))
 
     def test_dataset_id_metadata_does_not_hide_an_ordinary_export(self) -> None:
         ordinary_export = ExportedAsset.objects.create(
@@ -1877,11 +1907,17 @@ class TestExports(APIBaseTest):
         self.assertEqual(asset.exception_type, "QueryError")
         self.assertEqual(asset.failure_type, "user")
 
+    def _mock_export_workflow_handle(self, mock_async_connect) -> AsyncMock:
+        mock_handle = AsyncMock()
+        mock_client = AsyncMock()
+        mock_client.start_workflow.return_value = mock_handle
+        mock_async_connect.return_value = mock_client
+        return mock_handle
+
     @patch("products.exports.backend.api.exports.async_connect")
     def test_workflow_failure_returns_201_with_failed_asset(self, mock_async_connect) -> None:
-        mock_client = AsyncMock()
-        mock_client.execute_workflow.side_effect = Exception("workflow failed")
-        mock_async_connect.return_value = mock_client
+        mock_handle = self._mock_export_workflow_handle(mock_async_connect)
+        mock_handle.result.side_effect = Exception("workflow failed")
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
@@ -1890,6 +1926,78 @@ class TestExports(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertFalse(response.json()["has_content"])
+
+    @patch("products.exports.backend.api.exports.BLOCKING_EXPORT_WAIT_TIMEOUT", timedelta(milliseconds=10))
+    @patch("products.exports.backend.api.exports.async_connect")
+    def test_export_wait_timeout_returns_201_and_leaves_workflow_running(self, mock_async_connect) -> None:
+        async def never_finishes() -> None:
+            await asyncio.Event().wait()
+
+        mock_handle = self._mock_export_workflow_handle(mock_async_connect)
+        mock_handle.result.side_effect = never_finishes
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "text/csv", "insight": self.insight.id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(response.json()["has_content"])
+        mock_handle.result.assert_awaited_once()
+        mock_handle.cancel.assert_not_awaited()
+        mock_handle.terminate.assert_not_awaited()
+        slots_key = f"exports:blocking:per-team:{self.team.id}"
+        self.assertEqual(_blocking_exports_limiter.redis_client.zcard(slots_key), 0)
+
+    @patch("products.exports.backend.api.exports.async_connect")
+    def test_export_over_team_wait_limit_starts_without_waiting(self, mock_async_connect) -> None:
+        for i in range(BLOCKING_EXPORTS_PER_TEAM):
+            slot = _blocking_exports_limiter.use(team_id=self.team.id, task_id=f"held-{i}")
+            assert slot is not None
+            self.addCleanup(_blocking_exports_limiter.release, slot)
+        mock_handle = self._mock_export_workflow_handle(mock_async_connect)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "text/csv", "insight": self.insight.id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        mock_async_connect.return_value.start_workflow.assert_awaited_once()
+        mock_handle.result.assert_not_awaited()
+
+    @patch.object(_blocking_exports_limiter, "use", side_effect=redis.exceptions.ConnectionError("unavailable"))
+    @patch("products.exports.backend.api.exports.async_connect")
+    def test_export_starts_without_waiting_when_wait_limiter_fails(self, mock_async_connect, _mock_use) -> None:
+        mock_handle = self._mock_export_workflow_handle(mock_async_connect)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "text/csv", "insight": self.insight.id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        mock_async_connect.return_value.start_workflow.assert_awaited_once()
+        mock_handle.result.assert_not_awaited()
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_export_create_is_throttled_per_team_and_list_is_not(self, _mock_start, _enabled) -> None:
+        with patch.object(ExportCreateBurstRateThrottle, "rate", "2/minute"):
+            responses = [
+                self.client.post(
+                    f"/api/projects/{self.team.id}/exports",
+                    {"export_format": "text/csv", "insight": self.insight.id},
+                )
+                for _ in range(3)
+            ]
+            list_response = self.client.get(f"/api/projects/{self.team.id}/exports")
+
+        self.assertEqual(
+            [response.status_code for response in responses],
+            [status.HTTP_201_CREATED, status.HTTP_201_CREATED, status.HTTP_429_TOO_MANY_REQUESTS],
+        )
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
 
 
 class TestExportHeatmapSSRFValidation(APIBaseTest):
@@ -1929,10 +2037,9 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
     )
     def test_accepts_valid_heatmap_url(self, _name: str, url: str) -> None:
         with (
-            patch("posthog.security.url_validation.resolve_host_ips") as mock_resolve,
+            mock_anti_ssrf_dns_lookup(),
             patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow"),
         ):
-            mock_resolve.return_value = {ipaddress.ip_address("93.184.216.34")}
             response = self.client.post(
                 f"/api/projects/{self.team.id}/exports",
                 {
@@ -1951,10 +2058,9 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
     def test_accepts_screenshot_url_with_default_site_port(self, _name: str, site_url: str, heatmap_url: str) -> None:
         with (
             self.settings(SITE_URL=site_url),
-            patch("posthog.security.url_validation.resolve_host_ips") as mock_resolve,
+            mock_anti_ssrf_dns_lookup(),
             patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow"),
         ):
-            mock_resolve.return_value = {ipaddress.ip_address("93.184.216.34")}
             response = self.client.post(
                 f"/api/projects/{self.team.id}/exports",
                 {

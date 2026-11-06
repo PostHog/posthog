@@ -1,4 +1,8 @@
+import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -56,6 +60,22 @@ describe('visualReviewRunSceneLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    it('shows not found for a missing run without a toast or an error report', async () => {
+        logic.unmount()
+        const captureException = jest.spyOn(posthog, 'captureException')
+        const toastError = jest.spyOn(lemonToast, 'error')
+        logic = visualReviewRunSceneLogic({ runId: RUN_ID })
+        logic.mount()
+        // PR comment links carry a snapshot, which makes a successful snapshots load fetch it again.
+        logic.actions.setSelectedSnapshotId(UNCHANGED_SNAPSHOT.id)
+
+        await expectLogic(logic)
+            .toDispatchActions(['setRunNotFound', 'loadRunSuccess', 'loadDeepLinkedSnapshotSuccess'])
+            .toMatchValues({ runNotFound: true, run: null })
+        expect(captureException).not.toHaveBeenCalled()
+        expect(toastError).not.toHaveBeenCalled()
     })
 
     it('drops the previous snapshot tolerations when the next load fails', async () => {
@@ -266,5 +286,54 @@ describe('visualReviewRunSceneLogic', () => {
             selectedLiftRequest,
             selectedLiftOnMergeDisabledReason: disabledReason,
         })
+    })
+
+    it.each([
+        {
+            name: 'moves a renamed repo path to the run repo',
+            pathName: 'PostHog/old-name',
+            leaveTo: null,
+            expectedPath: '/visual-review/repos/PostHog/posthog/runs/',
+        },
+        {
+            name: 'keeps a path that differs only in case',
+            pathName: 'posthog/POSTHOG',
+            leaveTo: null,
+            expectedPath: '/visual-review/repos/posthog/POSTHOG/runs/',
+        },
+        {
+            name: 'stays on the page the user moved to before the repo loaded',
+            pathName: 'PostHog/old-name',
+            leaveTo: '/insights',
+            expectedPath: '/insights',
+        },
+    ])('$name', async ({ pathName, leaveTo, expectedPath }) => {
+        // A run of its own, because the shared logic already loaded the run without a repo name.
+        const NAMED_RUN_ID = '00000000-0000-0000-0000-0000000000bb'
+        useMocks({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${NAMED_RUN_ID}/`]: [
+                    200,
+                    { id: NAMED_RUN_ID, repo_id: 'repo', run_type: 'storybook', pr_number: 7, status: 'completed' },
+                ],
+                '/api/projects/:team_id/visual_review/repos/repo/': [
+                    200,
+                    { id: 'repo', team_id: 1, repo_full_name: 'PostHog/posthog' },
+                ],
+            },
+        })
+        const [owner, name] = pathName.split('/')
+        router.actions.push(`/visual-review/repos/${owner}/${name}/runs/${NAMED_RUN_ID}`, {}, { snapshot: 'kept' })
+        const namedLogic = visualReviewRunSceneLogic({ runId: NAMED_RUN_ID, repoFullName: pathName })
+        namedLogic.mount()
+        if (leaveTo) {
+            router.actions.push(leaveTo, {}, { snapshot: 'kept' })
+        }
+
+        await expectLogic(namedLogic).toDispatchActions(['loadRepoSuccess'])
+        await expectLogic(namedLogic).toMatchValues({ repoFullName: 'PostHog/posthog' })
+        expect(router.values.location.pathname).toContain(expectedPath)
+        expect(router.values.hashParams).toEqual({ snapshot: 'kept' })
+        namedLogic.unmount()
     })
 })

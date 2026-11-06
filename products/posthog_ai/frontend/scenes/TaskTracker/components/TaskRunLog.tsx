@@ -2,7 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
 
+import { useThreadSkin } from '../../../hooks/useThreadSkin'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
+import { QuillTaskNotRunEmpty } from './QuillTaskNotRunEmpty'
 import { TaskErrorBanner } from './TaskErrorBanner'
 import { TaskRunChat } from './TaskRunChat'
 import { TaskRunLoadingSkeleton } from './TaskRunLoadingSkeleton'
@@ -41,6 +43,7 @@ export function TaskRunLog({
         runContinuation,
     } = useValues(logic)
     const { loadTaskRuns, loadSelectedTaskRun, clearContinuationDraft } = useActions(logic)
+    const skin = useThreadSkin()
 
     if (runContinuation && selectedRunId === runContinuation.run.id) {
         return (
@@ -101,6 +104,9 @@ export function TaskRunLog({
         return <TaskRunLoadingSkeleton />
     }
     if (runs.length === 0 && !selectedRunId) {
+        if (skin === 'quill') {
+            return <QuillTaskNotRunEmpty taskId={taskId} />
+        }
         return (
             <div className="text-center py-16">
                 <p className="text-muted">This task hasn't been run yet</p>

@@ -109,7 +109,7 @@ To alert only on unassigned issues, add the property filter `assignee` **is not 
 **Deep-link shape** for the issue page (used by the canonical block templates):
 
 ```text
-{project.url}/error_tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack
+{project.url}/error-tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack
 ```
 
 The link goes through the fingerprint redirect page, which resolves the fingerprint to whatever issue it currently belongs to — so links keep working after issues are merged.

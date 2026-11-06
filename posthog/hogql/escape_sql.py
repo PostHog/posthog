@@ -277,10 +277,18 @@ def escape_duckdb_identifier(v: str) -> str:
 
 
 def escape_trino_identifier(v: str) -> str:
-    for character, label in (("%", "%"), ("?", "?"), ("\0", "NUL")):
+    # "?" is allowed because convert_pyformat_placeholders does not read inside quoted identifiers.
+    for character, label in (("%", "%"), ("\0", "NUL")):
         if character in v:
             raise QueryError(f'The Trino identifier "{v}" is not permitted as it contains the "{label}" character')
     return '"' + v.replace('"', '""') + '"'
+
+
+def escape_trino_string(v: str) -> str:
+    # Trino string literals have no backslash escapes; doubling the quote is the only escape.
+    if "\0" in v:
+        raise QueryError("Trino string literals cannot contain the NUL character")
+    return "'" + v.replace("'", "''") + "'"
 
 
 def escape_snowflake_identifier(v: str) -> str:
@@ -335,6 +343,17 @@ def backquote_clickhouse_identifier(identifier: str) -> str:
     if not _backquote_escape_chars_re.search(identifier):
         return f"`{identifier}`"
     return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))
+
+
+def escape_clickhouse_json_path(key: str) -> str:
+    """Quote one segment of a JSON subcolumn path, spelling a `%` as the `\\x25` escape.
+
+    ClickHouse decodes the escape inside backticks, so the path reads as a direct subcolumn. A literal `%` cannot
+    appear in the SQL, because the client runs it through parameter substitution, where `%` opens a format directive.
+    """
+    if "%" not in key:
+        return escape_clickhouse_identifier(key)
+    return backquote_clickhouse_identifier(key).replace("%", "\\x25")
 
 
 def escape_hogql_string(

@@ -20,7 +20,7 @@ export const manifest: ProductManifest = {
             activityScope: 'KnowledgeSource',
             iconType: 'business_knowledge',
             description:
-                'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
+                'Upload text, public URLs, or files so AI can understand your business context, vision, and policies.',
         },
         BusinessKnowledgePlayground: {
             name: 'Business knowledge playground',
@@ -65,10 +65,12 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Business knowledge',
-            intents: [ProductKey.CONVERSATIONS],
+            intents: [ProductKey.BUSINESS_KNOWLEDGE],
             category: ProductItemCategory.DATA,
             href: urls.businessKnowledge(),
-            tags: ['alpha'],
+            searchKeywords: ['knowledge base', 'company context'],
+            searchTabs: [{ name: 'Playground', href: urls.businessKnowledgePlayground() }],
+            tags: ['beta'],
             iconType: 'business_knowledge',
             iconColor: [
                 'var(--color-product-business-knowledge-light)',

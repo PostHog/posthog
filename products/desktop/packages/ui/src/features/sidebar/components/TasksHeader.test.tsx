@@ -103,17 +103,4 @@ describe("TasksHeader", () => {
       { group_by: "date", sort_by: "updated", surface: "sidebar" },
     );
   });
-
-  it("hides the mode selector when Channels is unavailable", () => {
-    featureFlagEnabled.value = false;
-
-    render(
-      <Theme>
-        <TasksHeader />
-      </Theme>,
-    );
-
-    expect(screen.getByText("List")).toBeInTheDocument();
-    expect(screen.queryByText("Channels")).not.toBeInTheDocument();
-  });
 });

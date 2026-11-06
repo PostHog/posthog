@@ -575,6 +575,33 @@ class _Introspection:
             _capture_unexpected("information_schema: failed to resolve expression column type", e)
             return "Expression"
 
+    def _traverser_target(self, table_name: str, column_name: str) -> Optional[DatabaseField]:
+        """The plain field a traverser column resolves to, or None when it lands on a table, an
+        expression, or nothing resolvable."""
+        scope = self._table_scope(table_name)
+        if scope is None:
+            return None
+        # Deferred: see `_table_scope`.
+        from posthog.hogql.resolver import resolve_types  # noqa: PLC0415
+
+        chain: list[str | int] = [*column_name.split(".")]
+        try:
+            resolved_type = resolve_types(ast.Field(chain=chain), self.context, "hogql", [scope]).type
+            # The table scope is a `SELECT *`, so a column comes back wrapped in its select alias.
+            while isinstance(resolved_type, ast.FieldAliasType):
+                resolved_type = resolved_type.type
+            if not isinstance(resolved_type, ast.FieldType):
+                return None
+            target = resolved_type.resolve_database_field(self.context)
+        except BaseHogQLError:
+            return None  # genuinely unresolvable chain — expected
+        except Exception as e:
+            _capture_unexpected("information_schema: failed to resolve field traverser target", e)
+            return None
+        if not isinstance(target, DatabaseField) or isinstance(target, ExpressionField):
+            return None
+        return target
+
     def _row_count(self, name: str, table: Table, table_type: str) -> Optional[int]:
         if table_type == "data_warehouse" and table.name:
             return self.row_counts.get(table.name)
@@ -747,6 +774,25 @@ class _Introspection:
                         provenance_key=None,
                     )
                 )
+                target_field = self._traverser_target(table_name, qualified)
+                if target_field is not None:
+                    column_rows.append(
+                        [
+                            table_schema,
+                            table_name,
+                            qualified,
+                            ordinal,
+                            _field_type_name(target_field),
+                            bool(target_field.is_nullable()),
+                            bool(target_field.array),
+                            "field_traverser",
+                            self._column_description(table, qualified, field),
+                            None,
+                            None,
+                            None,
+                        ]
+                    )
+                    ordinal += 1
             elif isinstance(field, VirtualTable):
                 # Surface nested virtual-table columns as `parent.child` columns.
                 column_rows.append(
@@ -1719,7 +1765,10 @@ class InformationSchemaColumnsTable(InformationSchemaTable):
         "field_kind": _string_field(
             "field_kind",
             nullable=False,
-            description="How the column is backed: 'column', 'expression' (computed), or 'virtual_table'.",
+            description=(
+                "How the column is backed: 'column', 'expression' (computed), 'field_traverser' (read "
+                "through a join, typed by the field it reaches), or 'virtual_table'."
+            ),
         ),
         "description": _string_field(
             "description", nullable=True, description="Human/agent-facing description of what the column holds."
@@ -1900,7 +1949,11 @@ class InformationSchemaMetricsTable(InformationSchemaTable):
         "confidence": FloatDatabaseField(
             name="confidence", nullable=True, description="AI author's confidence for a proposed metric, 0-1."
         ),
-        "reasoning": _string_field("reasoning", nullable=True, description="AI author's reasoning, review context."),
+        "reasoning": _string_field(
+            "reasoning",
+            nullable=True,
+            description="AI author's design decisions and trade-offs behind the definition, as review context.",
+        ),
         "source_insight_short_id": _string_field(
             "source_insight_short_id",
             nullable=True,
@@ -2289,9 +2342,3 @@ def disable_data_catalog(info_schema: TableNode) -> None:
         relationships.table.fields.pop("confidence", None)
         relationships.table.fields.pop("reasoning", None)
         relationships.table.description = _RELATIONSHIPS_DESCRIPTION
-
-
-def disable_data_quality(info_schema: TableNode) -> None:
-    info_schema.children.pop("data_quality_checks", None)
-    info_schema.children.pop("data_quality_check_runs", None)
-    info_schema.children.pop("data_quality_health", None)

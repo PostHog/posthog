@@ -13,14 +13,19 @@ use tracing::{debug, info, warn};
 
 /// Sibling-JS size below which an empty sourcemap is treated as a harmless
 /// bundler-generated wrapper (e.g. Turbopack App Router page entries,
-/// webpack re-export shims). Observed wrapper files in the wild are
-/// under 1 KiB; 2 KiB leaves comfortable headroom for tools that inject
-/// extra glue (PostHog chunk-id IIFE, etc.) without misclassifying real code.
-const WRAPPER_JS_SIZE_THRESHOLD_BYTES: usize = 2048;
+/// webpack re-export shims). Turbopack page entries reach about 3 KiB after
+/// chunk-id injection (#70235), and every layout, loading or error file on the
+/// route makes the entry larger. Every empty map is skipped whatever its size,
+/// so this cutoff only picks the log message and which of the
+/// `empty_skipped_wrapper` and `empty_skipped_suspect` telemetry counts the
+/// map adds to. A bundler that drops maps for a whole build also writes empty
+/// maps for chunks well above 4 KiB, so the summary still reports it.
+const WRAPPER_JS_SIZE_THRESHOLD_BYTES: usize = 4096;
 
 /// Cap on the suspect paths named in the summary line. They share one line, and an
 /// oversized line kills the process on a non-blocking stderr pipe (see `FileSelectionArgs`).
 const MAX_LISTED_SUSPECT_PATHS: usize = 3;
+const MAX_LISTED_UNIDENTIFIED_PATHS: usize = 3;
 
 use crate::{
     api::{
@@ -121,6 +126,8 @@ pub fn upload_pairs(
         );
     }
 
+    pairs = select_uploadable_pairs(pairs);
+
     // Fingerprinting re-serializes and hashes every pair, which is not free for large
     // maps - skip it when nothing gets cleaned up.
     let cleanup_targets = if args.delete_after {
@@ -132,6 +139,10 @@ pub fn upload_pairs(
         Vec::new()
     };
     info!("Found {} chunks to upload", pairs.len());
+    if pairs.is_empty() {
+        warn!("No source map pairs with uploadable IDs were found; nothing to upload");
+        return Ok(());
+    }
 
     // Reuse the pre-resolved release if available, otherwise fetch or create one. Skipped entirely
     // in event mode: inject already put the release id inside the chunks, and resolving one here
@@ -160,45 +171,8 @@ pub fn upload_pairs(
     let (empty_pairs, valid_pairs): (Vec<_>, Vec<_>) = pairs
         .into_iter()
         .partition(|pair| pair.sourcemap.is_empty());
-    let mut empty_skipped_wrapper = 0usize;
-    let mut empty_skipped_suspect = 0usize;
-    let mut suspect_paths: Vec<String> = Vec::new();
-    for pair in &empty_pairs {
-        let js_size = pair.source.inner.content.len();
-        let map_path = pair.sourcemap.inner.path.display();
-        if js_size < WRAPPER_JS_SIZE_THRESHOLD_BYTES {
-            empty_skipped_wrapper += 1;
-            debug!(
-                "Skipping {}: sourcemap is empty and sibling JS is {} bytes — bundler-generated wrapper, nothing to symbolicate",
-                map_path, js_size
-            );
-        } else {
-            empty_skipped_suspect += 1;
-            if suspect_paths.len() < MAX_LISTED_SUSPECT_PATHS {
-                suspect_paths.push(map_path.to_string());
-            }
-            debug!(
-                "Skipping {}: sourcemap is empty but sibling JS is {} bytes — possible bundler misconfiguration",
-                map_path, js_size
-            );
-        }
-    }
-    if empty_skipped_suspect > 0 {
-        let unlisted = empty_skipped_suspect - suspect_paths.len();
-        let rest = if unlisted > 0 {
-            format!(" and {unlisted} more (set RUST_LOG=debug to list them all)")
-        } else {
-            String::new()
-        };
-        info!(
-            "Skipped {} empty sourcemaps whose sibling JS file is at least {} bytes: {}{}. If those files must symbolicate, check your bundler's source-map setting (e.g. webpack `devtool`, Next.js `productionBrowserSourceMaps`, server compiler config).",
-            empty_skipped_suspect,
-            WRAPPER_JS_SIZE_THRESHOLD_BYTES,
-            suspect_paths.join(", "),
-            rest
-        );
-    }
     let empty_skipped = empty_pairs.len();
+    let empty_skipped_suspect = report_empty_pairs(&empty_pairs);
 
     let uploads = prepare_uploads(valid_pairs, args.release_mode)?;
 
@@ -211,7 +185,10 @@ pub fn upload_pairs(
             ("file_count", json!(file_count)),
             ("total_bytes", json!(total_bytes)),
             ("empty_skipped", json!(empty_skipped)),
-            ("empty_skipped_wrapper", json!(empty_skipped_wrapper)),
+            (
+                "empty_skipped_wrapper",
+                json!(empty_skipped - empty_skipped_suspect),
+            ),
             ("empty_skipped_suspect", json!(empty_skipped_suspect)),
         ],
     );
@@ -276,6 +253,78 @@ pub fn upload_pairs(
     Ok(())
 }
 
+fn select_uploadable_pairs(pairs: Vec<SourcePair>) -> Vec<SourcePair> {
+    let (uploadable, skipped): (Vec<_>, Vec<_>) = pairs
+        .into_iter()
+        .partition(|pair| pair.has_chunk_id() || pair.get_debug_id().is_some());
+    if !skipped.is_empty() {
+        let listed_paths = skipped
+            .iter()
+            .take(MAX_LISTED_UNIDENTIFIED_PATHS)
+            .map(|pair| pair.source.inner.path.display().to_string())
+            .collect::<Vec<_>>();
+        let unlisted = skipped.len() - listed_paths.len();
+        let rest = if unlisted > 0 {
+            format!(" and {unlisted} more (set RUST_LOG=debug to list them all)")
+        } else {
+            String::new()
+        };
+        warn!(
+            "Skipping {} source map pairs without a PostHog chunk ID or native debug ID: {}{}",
+            skipped.len(),
+            listed_paths.join(", "),
+            rest
+        );
+        for pair in skipped {
+            debug!(
+                "Skipping {}: no PostHog chunk ID or native debug ID",
+                pair.source.inner.path.display()
+            );
+        }
+    }
+    uploadable
+}
+
+fn report_empty_pairs(empty_pairs: &[SourcePair]) -> usize {
+    let mut empty_skipped_suspect = 0usize;
+    let mut suspect_paths: Vec<String> = Vec::new();
+    for pair in empty_pairs {
+        let js_size = pair.source.inner.content.len();
+        let map_path = pair.sourcemap.inner.path.display();
+        if js_size < WRAPPER_JS_SIZE_THRESHOLD_BYTES {
+            debug!(
+                "Skipping {}: sourcemap is empty and sibling JS is {} bytes — bundler-generated wrapper, nothing to symbolicate",
+                map_path, js_size
+            );
+        } else {
+            empty_skipped_suspect += 1;
+            if suspect_paths.len() < MAX_LISTED_SUSPECT_PATHS {
+                suspect_paths.push(map_path.to_string());
+            }
+            debug!(
+                "Skipping {}: sourcemap is empty but sibling JS is {} bytes — possible bundler misconfiguration",
+                map_path, js_size
+            );
+        }
+    }
+    if empty_skipped_suspect > 0 {
+        let unlisted = empty_skipped_suspect - suspect_paths.len();
+        let rest = if unlisted > 0 {
+            format!(" and {unlisted} more (set RUST_LOG=debug to list them all)")
+        } else {
+            String::new()
+        };
+        info!(
+            "Skipped {} empty sourcemaps whose sibling JS file is at least {} bytes: {}{}. If those files must symbolicate, check your bundler's source-map setting (e.g. webpack `devtool`, Next.js `productionBrowserSourceMaps`, server compiler config).",
+            empty_skipped_suspect,
+            WRAPPER_JS_SIZE_THRESHOLD_BYTES,
+            suspect_paths.join(", "),
+            rest
+        );
+    }
+    empty_skipped_suspect
+}
+
 /// Build the upload payloads for `pairs`, at most one per chunk id. Event mode derives the id
 /// from content, so a hashless alias copied beside `app-<hash>.js` collides with its original.
 fn prepare_uploads(
@@ -284,13 +333,21 @@ fn prepare_uploads(
 ) -> Result<Vec<SymbolSetUpload>> {
     // Payload preparation (serialization + zstd compression) is CPU-bound,
     // so spread it across cores.
-    let uploads = pairs
+    let mut uploads = pairs
         .into_par_iter()
-        .map(|pair| pair.into_upload(release_mode))
-        .collect::<Result<Vec<SymbolSetUpload>>>()
+        .map(|pair| {
+            let source_carries_native_debug_id =
+                !pair.has_chunk_id() && pair.source.get_debug_id().is_some();
+            pair.into_upload(release_mode)
+                .map(|upload| (source_carries_native_debug_id, upload))
+        })
+        .collect::<Result<Vec<_>>>()
         .context("While preparing files for upload")?;
 
-    Ok(dedup_uploads_by_chunk_id(uploads))
+    uploads.sort_by_key(|(source_carries_native_debug_id, _)| !source_carries_native_debug_id);
+    Ok(dedup_uploads_by_chunk_id(
+        uploads.into_iter().map(|(_, upload)| upload).collect(),
+    ))
 }
 
 fn canonical_selection_roots(paths: &[PathBuf]) -> Vec<PathBuf> {
@@ -545,6 +602,14 @@ fn restore_staged(staged: &Path, path: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use crate::{sourcemaps::inject::inject_pairs, utils::files::FileSelection};
+    use clap::Parser;
+    use posthog_symbol_data::{read_symbol_data, SourceAndMap};
+
+    #[derive(Parser)]
+    struct UploadCli {
+        #[command(flatten)]
+        args: Args,
+    }
 
     const MAP_JSON: &str = r#"{"version":3,"sources":["a.ts"],"names":[],"mappings":""}"#;
 
@@ -626,6 +691,25 @@ mod tests {
         let stripped = std::fs::read_to_string(&source_path).unwrap();
         assert!(!stripped.contains("sourceMappingURL"), "{stripped}");
         assert_eq!(std::fs::read_to_string(&map_path).unwrap(), replacement_map);
+    }
+
+    #[test]
+    fn empty_maps_split_into_wrappers_and_suspects_at_4_kib() {
+        let dir = tempfile::tempdir().unwrap();
+        for (name, js_size) in [("page", 2900), ("stub", 4095), ("chunk", 4096)] {
+            let reference = format!("\n//# sourceMappingURL={name}.js.map\n");
+            let source = "x".repeat(js_size - reference.len()) + &reference;
+            std::fs::write(dir.path().join(format!("{name}.js")), source).unwrap();
+            std::fs::write(
+                dir.path().join(format!("{name}.js.map")),
+                r#"{"version":3,"sources":[],"names":[],"mappings":""}"#,
+            )
+            .unwrap();
+        }
+        let pairs = read_dir_pairs(dir.path());
+        assert_eq!(pairs.len(), 3);
+
+        assert_eq!(report_empty_pairs(&pairs), 1);
     }
 
     #[test]
@@ -777,5 +861,147 @@ mod tests {
         let uploads =
             prepare_uploads(injected, ReleaseMode::Event).expect("Failed to prepare uploads");
         assert_eq!(uploads.len(), 1);
+    }
+
+    #[test]
+    fn event_mode_uploads_native_debug_ids_without_rewriting_files() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let debug_id = "11111111-2222-4333-8444-555555555555";
+        let source = format!(
+            "console.log('hi');\n//# debugId={debug_id}\n//# sourceMappingURL=app.js.map\n"
+        );
+        let sourcemap = format!(
+            r#"{{"version":3,"sources":["app.ts"],"sourcesContent":["console.log('hi')\n"],"mappings":"AAAA,QAAQ,IAAI,IAAI","names":[],"debugId":"{debug_id}"}}"#
+        );
+        let source_path = dir.path().join("app.js");
+        let map_path = dir.path().join("app.js.map");
+        std::fs::write(&source_path, &source).expect("Failed to write entry");
+        std::fs::write(&map_path, &sourcemap).expect("Failed to write sourcemap");
+        let (runtime_path, runtime_map_path) = write_pair(dir.path(), "runtime");
+        let runtime = std::fs::read_to_string(&runtime_path).unwrap();
+        let runtime_map = std::fs::read_to_string(&runtime_map_path).unwrap();
+
+        let pairs = select_uploadable_pairs(read_dir_pairs(dir.path()));
+        assert_eq!(pairs.len(), 1);
+        let uploads = prepare_uploads(pairs, ReleaseMode::Event)
+            .expect("Failed to prepare native debug ID upload");
+
+        assert_eq!(uploads.len(), 1);
+        assert_eq!(uploads[0].chunk_id, debug_id);
+        let stored: SourceAndMap =
+            read_symbol_data(&uploads[0].data).expect("Failed to read upload payload");
+        assert_eq!(stored.minified_source, source);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&stored.sourcemap)
+                .expect("Failed to parse uploaded sourcemap")["debugId"],
+            debug_id
+        );
+        assert_eq!(std::fs::read_to_string(source_path).unwrap(), source);
+        assert_eq!(std::fs::read_to_string(map_path).unwrap(), sourcemap);
+        assert_eq!(std::fs::read_to_string(runtime_path).unwrap(), runtime);
+        assert_eq!(
+            std::fs::read_to_string(runtime_map_path).unwrap(),
+            runtime_map
+        );
+    }
+
+    #[test]
+    fn native_debug_id_dedup_prefers_the_source_that_carries_the_id() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let debug_id = "11111111-2222-4333-8444-555555555555";
+        let alias = "console.log('alias');\n//# sourceMappingURL=shared.js.map\n";
+        let instrumented = format!(
+            "console.log('instrumented');\n//# debugId={debug_id}\n//# sourceMappingURL=shared.js.map\n"
+        );
+        std::fs::write(dir.path().join("a-alias.js"), alias).expect("Failed to write alias");
+        std::fs::write(dir.path().join("z-instrumented.js"), &instrumented)
+            .expect("Failed to write instrumented source");
+        std::fs::write(
+            dir.path().join("shared.js.map"),
+            format!(
+                r#"{{"version":3,"sources":["app.ts"],"mappings":"AAAA","debugId":"{debug_id}"}}"#
+            ),
+        )
+        .expect("Failed to write shared sourcemap");
+        let mut pairs = read_dir_pairs(dir.path());
+        pairs.sort_by_key(|pair| pair.source.inner.path.clone());
+
+        let uploads = prepare_uploads(pairs, ReleaseMode::Event)
+            .expect("Failed to prepare native debug ID uploads");
+
+        assert_eq!(uploads.len(), 1);
+        assert_eq!(uploads[0].chunk_id, debug_id);
+        let stored: SourceAndMap =
+            read_symbol_data(&uploads[0].data).expect("Failed to read upload payload");
+        assert_eq!(stored.minified_source, instrumented);
+    }
+
+    #[test]
+    fn native_debug_ids_are_uploadable_without_an_opt_in() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let debug_id = "11111111-2222-4333-8444-555555555555";
+        let (source_path, map_path) = write_pair(dir.path(), "webpack");
+        std::fs::write(
+            source_path,
+            format!(
+                "console.log(1);\n//# debugId={debug_id}\n//# sourceMappingURL=webpack.js.map\n"
+            ),
+        )
+        .expect("Failed to add a source debug ID");
+        std::fs::write(
+            map_path,
+            format!(
+                r#"{{"version":3,"sources":["app.ts"],"mappings":"AAAA","debugId":"{debug_id}"}}"#
+            ),
+        )
+        .expect("Failed to add a map debug ID");
+
+        let pairs = select_uploadable_pairs(read_dir_pairs(dir.path()));
+        let uploads = prepare_uploads(pairs, ReleaseMode::Event)
+            .expect("The native debug ID should be uploadable automatically");
+
+        assert_eq!(uploads.len(), 1);
+        assert_eq!(uploads[0].chunk_id, debug_id);
+    }
+
+    #[test]
+    fn sourcemap_only_native_debug_ids_are_uploadable() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let debug_id = "11111111-2222-4333-8444-555555555555";
+        let (_, map_path) = write_pair(dir.path(), "mapped");
+        std::fs::write(
+            map_path,
+            format!(
+                r#"{{"version":3,"sources":["app.ts"],"mappings":"AAAA","debugId":"{debug_id}"}}"#
+            ),
+        )
+        .expect("Failed to add a map-only debug ID");
+
+        let pairs = select_uploadable_pairs(read_dir_pairs(dir.path()));
+        let uploads = prepare_uploads(pairs, ReleaseMode::Event)
+            .expect("The sourcemap debug ID should be uploadable automatically");
+
+        assert_eq!(uploads.len(), 1);
+        assert_eq!(uploads[0].chunk_id, debug_id);
+    }
+
+    #[test]
+    fn upload_without_native_or_injected_ids_is_a_successful_noop() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let (source_path, map_path) = write_pair(dir.path(), "app");
+        let source = std::fs::read_to_string(&source_path).unwrap();
+        let sourcemap = std::fs::read_to_string(&map_path).unwrap();
+        let args = UploadCli::try_parse_from([
+            "test",
+            "--directory",
+            dir.path().to_str().expect("Temp path is not UTF-8"),
+        ])
+        .expect("Upload args should parse")
+        .args;
+
+        upload(&args, None).expect("Missing IDs must not fail a CI upload");
+
+        assert_eq!(std::fs::read_to_string(source_path).unwrap(), source);
+        assert_eq!(std::fs::read_to_string(map_path).unwrap(), sourcemap);
     }
 }

@@ -1,4 +1,4 @@
-import { KafkaProducerWrapper, MessageKey } from '~/common/kafka/producer'
+import { KafkaProducer, MessageKey } from '~/common/kafka/producer'
 import { logger } from '~/common/utils/logger'
 
 import { IngestionOutput } from './ingestion-output'
@@ -17,7 +17,7 @@ export class SingleIngestionOutput implements IngestionOutput {
     constructor(
         readonly outputName: string,
         readonly topic: string,
-        readonly producer: KafkaProducerWrapper,
+        readonly producer: KafkaProducer,
         readonly producerName: string
     ) {
         this.labels = { output: outputName, producer_name: producerName, topic }

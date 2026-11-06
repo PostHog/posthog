@@ -246,6 +246,12 @@ body {
     background: var(--fill-hover);
 }
 
+.node-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
 .node-button strong {
     font-size: 11px;
 }

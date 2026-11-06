@@ -153,6 +153,12 @@ class TestGetMarketingDiagnostic(SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.team = Team(id=1)
+        flag_patcher = patch(
+            "products.marketing_analytics.backend.services.native_integrations.get_feature_flag_or_none",
+            return_value=True,
+        )
+        self.mock_flag = flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
         ds_patcher = patch(
             "products.marketing_analytics.backend.services.marketing_diagnostic.get_data_source_health",
             new_callable=AsyncMock,
@@ -227,6 +233,30 @@ class TestGetMarketingDiagnostic(SimpleTestCase):
         assert bool(google.recommended_actions) is (paid > 0)
         assert bool(response.recommended_actions) is (paid > 0)
         assert response.overall_status == ("degraded" if paid else "no_sources")
+
+    @parameterized.expand([(True,), (False,)])
+    @pytest.mark.asyncio
+    async def test_connection_recommendations_respect_source_flag(self, enabled: bool) -> None:
+        self.mock_flag.return_value = enabled
+        self.mock_ds.return_value = DataSourceHealthResponse(integrations=[_ds_entry()])
+        self.mock_attr.return_value = AttributionHealthResponse(
+            lookback_days=7,
+            integrations=[
+                _attr_entry(),
+                _attr_entry(
+                    integration_key="twitter_ads",
+                    display_name="X Ads",
+                    events_matched_paid_last_7d=100,
+                ),
+            ],
+        )
+
+        response = await get_marketing_diagnostic(self.team, include_conversion_goals=False)
+
+        assert any(i.integration_key == "twitter_ads" for i in response.integrations) is enabled
+        assert any(i.integration_key == "google_ads" for i in response.integrations)
+        assert any("Connect X Ads" in a.title for a in response.recommended_actions) is enabled
+        assert response.overall_status == ("degraded" if enabled else "healthy")
 
     @pytest.mark.asyncio
     async def test_sync_broken_propagates_to_overall(self):

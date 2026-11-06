@@ -144,6 +144,16 @@ describe("classifyGatewayLimitError", () => {
     ],
     ["Rate limit exceeded: User sustained rate limit exceeded", "org_limit"],
     ["Cloud usage limit reached", "org_limit"],
+    [
+      // The Go gateway's per-user window, OpenAI dialect with its code.
+      `API Error: 429 {"error":{"message":"user limit exceeded: hour:opus55","type":"rate_limit_error","code":"user_limit_exceeded"}}`,
+      "user_limit",
+    ],
+    [
+      // The Anthropic dialect drops the code and keeps the detail.
+      `API Error: 429 {"type":"error","error":{"type":"rate_limit_error","message":"user limit exceeded: org_day"}}`,
+      "user_limit",
+    ],
   ])("classifies %j as %s", (message, expected) => {
     expect(classifyGatewayLimitError(message)).toBe(expected);
   });
@@ -284,6 +294,35 @@ describe("classifyPromptFailure", () => {
     ["Cloud usage limit reached", undefined, "usage_limit", false],
     ["API Error: 529 overloaded", undefined, "transient", true],
     ["boom", "upstream_timeout", "transient", true],
+    ["boom", "upstream_stream_terminated", "transient", true],
+    ["boom", "upstream_connection_error", "transient", true],
+    ["boom", "upstream_provider_failure", "transient", true],
+    ["boom", "upstream_unknown", "unknown", false],
+    ["boom", "upstream_request_rejected", "request_rejected", false],
+    [
+      "API Error: Request timed out",
+      "upstream_request_rejected",
+      "request_rejected",
+      false,
+    ],
+    [
+      "Internal error: API Error: 400 invalid_request_error",
+      undefined,
+      "request_rejected",
+      false,
+    ],
+    [
+      "unexpected status 422 Unprocessable Entity",
+      undefined,
+      "request_rejected",
+      false,
+    ],
+    [
+      '{"error":{"type":"invalid_request_error","message":"Unsupported parameter"}}',
+      undefined,
+      "request_rejected",
+      false,
+    ],
     [
       "[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null",
       "turn_ended_without_response",
@@ -299,6 +338,13 @@ describe("classifyPromptFailure", () => {
       false,
     ],
     ["invalid model", undefined, "unknown", false],
+    // A 429 also reads as transient; the user limit must win so the turn is not retried into it.
+    [
+      "API Error: 429 user limit exceeded: hour:opus55",
+      undefined,
+      "usage_limit",
+      false,
+    ],
   ] as const)("classifies %j as %s", (message, errorType, kind, retryable) => {
     expect(
       classifyPromptFailure(new Error(message), undefined, errorType),
@@ -351,7 +397,11 @@ describe("isFatalSessionError", () => {
     "exceeded this model context window limit",
     'API Error: 413 {"error":{"message":"Request rejected"}}',
     "api error:413",
-  ])("does not treat the request size error %j as fatal", (message) => {
+    "API Error: 400 invalid_request_error",
+    "API Error: 404 Not Found",
+    "unexpected status 422 Unprocessable Entity",
+    '{"error":{"type":"invalid_request_error","message":"Unsupported parameter"}}',
+  ])("does not treat the request rejection %j as fatal", (message) => {
     expect(isFatalSessionError(`Internal error: ${message}`)).toBe(false);
     expect(isFatalSessionError("Internal error", message)).toBe(false);
   });

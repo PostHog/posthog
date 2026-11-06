@@ -1,7 +1,7 @@
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import {
-    listAvailableAccountViewComponents,
+    listAvailableAccountSystemTabs,
     type AccountViewComponentKind,
 } from '../../components/Accounts/accountViewComponents'
 import type { AccountDetailTabsConfigApi, AccountViewApi } from '../../generated/api.schemas'
@@ -17,7 +17,7 @@ export interface AccountTabDefinition {
 
 export function listAccountTabs(featureFlags: FeatureFlagsSet, views: AccountViewApi[]): AccountTabDefinition[] {
     return [
-        ...listAvailableAccountViewComponents(featureFlags).map(
+        ...listAvailableAccountSystemTabs(featureFlags).map(
             (component): AccountTabDefinition => ({
                 id: component.systemTabId,
                 routeKey: component.kind,

@@ -22,7 +22,6 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import CDC_EXTRACTION_WORKFLOW_ID_PREFIX
-from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 
 if TYPE_CHECKING:
     from structlog.types import FilteringBoundLogger
@@ -43,20 +42,12 @@ def snapshot_in_buffer(schema: ExternalDataSchema) -> bool:
 def resnapshot_stays_in_buffer(schema: ExternalDataSchema) -> bool:
     """Whether a reset of this schema to snapshot keeps its changes in the buffer.
 
-    True for a table whose buffer already holds an unbroken run of its changes: a streaming table on
-    a buffered source with no deferred runs left, or one already snapshotting there. A capture run in
-    progress keeps adding to that buffer. Any other table is started by capture, which first empties
-    the buffer, because files from before a gap in capture must not be replayed. A source capture
-    has not converted yet is one such case: its buffer holds copies of changes the legacy lane
-    already delivered.
+    True for a table whose buffer already holds an unbroken run of its changes: a streaming table, or
+    one already snapshotting there. A capture run in progress keeps adding to that buffer. Any other
+    table is started by capture, which first empties the buffer, because files from before a gap in
+    capture must not be replayed.
     """
-    if snapshot_in_buffer(schema):
-        return True
-    return (
-        parse_ingest_mode(schema.source.job_inputs) == "buffered"
-        and schema.cdc_mode == "streaming"
-        and not (schema.sync_type_config or {}).get("cdc_deferred_runs")
-    )
+    return snapshot_in_buffer(schema) or schema.cdc_mode == "streaming"
 
 
 def cancel_running_sync(schema: ExternalDataSchema) -> str | None:
@@ -130,6 +121,7 @@ def hand_reset_to_capture(
     *,
     start_capture: bool = True,
     awaiting_slot: bool = False,
+    stage: bool = True,
 ) -> None:
     """Pause a CDC table's schedule and mark its reset pending, so capture finishes it once no sync can hand over.
 
@@ -139,6 +131,9 @@ def hand_reset_to_capture(
 
     `awaiting_slot` holds the staged reset back until a capture run has read the slot, as Repair CDC
     needs while it recreates the slot.
+
+    `stage=False` is for a caller that staged the reset in its own save. A second stage would start
+    another generation, and capture would take a second snapshot.
     """
     # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
     from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
@@ -161,14 +156,15 @@ def hand_reset_to_capture(
         # Capture pauses the schedule again before it resets the table.
         logger.warning("cdc_reset_schedule_pause_failed", schema_id=str(schema.id), exc_info=True)
 
-    persisted = update_sync_type_config_keys(
-        schema.id, schema.team_id, mutate=partial(stage_handed_over_reset, awaiting_slot=awaiting_slot)
-    )
-    # Only this key in memory, so a caller that saves the schema afterwards keeps its own edits.
-    schema.sync_type_config = {
-        **(schema.sync_type_config or {}),
-        CDC_RESET_PENDING_KEY: persisted[CDC_RESET_PENDING_KEY],
-    }
+    if stage:
+        persisted = update_sync_type_config_keys(
+            schema.id, schema.team_id, mutate=partial(stage_handed_over_reset, awaiting_slot=awaiting_slot)
+        )
+        # Only this key in memory, so a caller that saves the schema afterwards keeps its own edits.
+        schema.sync_type_config = {
+            **(schema.sync_type_config or {}),
+            CDC_RESET_PENDING_KEY: persisted[CDC_RESET_PENDING_KEY],
+        }
     # Capture finishes the reset, so start a run now instead of waiting for its schedule: the last
     # run may have looked for resets just before this write, and the schedule may be gone. A halted
     # source is left alone, because Repair CDC or a resumed capture restarts capture itself.
@@ -191,7 +187,6 @@ def stage_handed_over_reset(config: dict[str, Any], *, awaiting_slot: bool = Fal
     """
     current = config.get(CDC_RESET_PENDING_KEY)
     fields = dict(current) if isinstance(current, dict) else {}
-    fields["clear_deferred_runs"] = True
     fields["trigger"] = True
     if awaiting_slot:
         fields["awaiting_slot"] = True

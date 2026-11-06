@@ -1,0 +1,30 @@
+"""
+Exported enums for ai_gateway.
+
+If an enum appears in a contract dataclass field, it belongs here.
+Internal-only constants (DB magic values, feature flags) stay in
+the implementation (logic.py, models.py).
+
+No Django imports: use LabeledStrEnum or LabeledIntEnum, not
+models.TextChoices, for an enum that backs model or serializer choices.
+"""
+
+from posthog.enums import LabeledStrEnum
+
+
+class DevTokenClient(LabeledStrEnum):
+    WEB = "web", "Web"
+    CLI = "cli", "CLI"
+
+
+class DevTokenStatus(LabeledStrEnum):
+    LIVE = "live", "Live"
+    REVOKED = "revoked", "Revoked"
+    EXPIRED = "expired", "Expired"
+
+
+class TeamAccessAction(LabeledStrEnum):
+    ENABLE = "enable", "Enable"
+    UNENABLE = "unenable", "Remove enablement"
+    REVOKE = "revoke", "Revoke"
+    UNREVOKE = "unrevoke", "Clear revoke"
