@@ -23,6 +23,7 @@ import structlog
 from ..logic.installations import reset_unverified_review_policy
 from ..logic.review_trigger import derive_review_trigger
 from ..logic.reviewer import parse_reviewer_output
+from ..logic.routing.claims import is_stale_claim
 from ..logic.routing.owners_file import owners_file_status
 from ..logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from ..models import (
@@ -51,6 +52,7 @@ from .enums import (
     RoutingOwnerOutcome,
     RoutingOwnerReason,
     RoutingScope,
+    RoutingStatus,
 )
 
 logger = structlog.get_logger(__name__)
@@ -107,6 +109,41 @@ def _repo_config_to_dto(obj: StamphogRepoConfig) -> contracts.RepoConfigDTO:
     )
 
 
+def _record_time(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _routing_to_dto(record: object) -> contracts.PullRequestRoutingDTO | None:
+    """An allowlist of the routing record's scalars. The plan, the pins and the comment stay internal."""
+    if not isinstance(record, dict):
+        return None
+    try:
+        status = RoutingStatus(str(record.get("status")))
+        mode = RoutingMode(str(record.get("mode")))
+        scope = RoutingScope(record["scope"]) if record.get("scope") else None
+    except ValueError:
+        return None
+    claimed = status in (RoutingStatus.ROUTING, RoutingStatus.REQUESTED)
+    return contracts.PullRequestRoutingDTO(
+        status=status,
+        head_sha=str(record.get("head_sha") or ""),
+        mode=mode,
+        trigger=str(record.get("trigger") or ""),
+        scope=scope,
+        claim_expired=claimed and is_stale_claim(record),
+        waiting_since=_record_time(record.get("waiting_since")),
+        claimed_at=_record_time(record.get("claimed_at")),
+        routed_at=_record_time(record.get("routed_at")),
+        full_routed_head=str(record.get("full_routed_head") or ""),
+        pinned_routed_head=str(record.get("pinned_routed_head") or ""),
+    )
+
+
 def _pull_request_to_dto(obj: PullRequest) -> contracts.PullRequestDTO:
     return contracts.PullRequestDTO(
         id=obj.id,
@@ -125,6 +162,8 @@ def _pull_request_to_dto(obj: PullRequest) -> contracts.PullRequestDTO:
         merge_commit_sha=obj.merge_commit_sha,
         merged_at=obj.merged_at,
         posted_comment_id=obj.posted_comment_id,
+        routing_mode=RoutingMode(obj.repo_config.routing_mode),
+        routing=_routing_to_dto(obj.routing),
         created_at=obj.created_at,
         updated_at=obj.updated_at,
     )
@@ -646,6 +685,8 @@ def _routing_owner_to_dto(row: RoutingRunOwner, *, with_files: bool) -> contract
                 status=file["status"],
                 additions=file["additions"],
                 deletions=file["deletions"],
+                # Runs recorded before the field have no entry.
+                owners_source=file.get("owners_source"),
             )
             for file in (row.files if with_files else [])
         ],

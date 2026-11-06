@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 from django.db import router
@@ -36,6 +36,7 @@ from products.stamphog.backend.facade.enums import (
     RoutingOwnerOutcome,
     RoutingOwnerReason,
     RoutingScope,
+    RoutingStatus,
 )
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.logic.routing.candidates import (
@@ -44,6 +45,7 @@ from products.stamphog.backend.logic.routing.candidates import (
     find_candidates,
     paths_to_resolve,
 )
+from products.stamphog.backend.logic.routing.claims import is_stale_claim
 from products.stamphog.backend.logic.routing.comment import (
     ROUTING_COMMENT_MARKER,
     render_approved_routing_comment,
@@ -58,19 +60,15 @@ from products.stamphog.backend.models import PullRequest, StamphogRepoConfig
 logger = structlog.get_logger(__name__)
 
 ROUTING_EVENT = "stamphog_reviewer_routing_completed"
-# FALLBACK only: the head waits for stamphog's verdict or for the safety net, whichever comes first.
-STATUS_WAITING = "waiting"
+STATUS_WAITING = RoutingStatus.WAITING.value
 # A task claimed the pull request and its routing is running. The record holds the plan once
 # `planned_at` is set, and the plan is saved before any GitHub write.
-STATUS_ROUTING = "routing"
+STATUS_ROUTING = RoutingStatus.ROUTING.value
 # A record stays REQUESTED between the review requests and the comment, so a retry finishes the
 # comment without requesting anybody a second time.
-STATUS_REQUESTED = "requested"
-STATUS_DONE = "done"
+STATUS_REQUESTED = RoutingStatus.REQUESTED.value
+STATUS_DONE = RoutingStatus.DONE.value
 _CLAIMED_STATUSES = frozenset({STATUS_ROUTING, STATUS_REQUESTED})
-# A claim older than this counts as abandoned, so a task that died does not block the pull request
-# for good. It sits far above the time a task needs to finish, retries included.
-CLAIM_STALE_AFTER = timedelta(hours=2)
 
 TRIGGER_SAFETY_NET = "safety_net"
 SCOPE_FULL = RoutingScope.FULL.value
@@ -172,19 +170,9 @@ def is_own_claim(record: Mapping[str, Any] | None, task_id: str) -> bool:
     return _is_claim(record) and bool(task_id) and record is not None and record.get("claimed_by") == task_id
 
 
-def _is_stale_claim(record: Mapping[str, Any]) -> bool:
-    try:
-        claimed_at = datetime.fromisoformat(str(record.get("claimed_at") or ""))
-    except ValueError:
-        return True
-    return datetime.now(UTC) - claimed_at > CLAIM_STALE_AFTER
-
-
 def is_foreign_claim(record: Mapping[str, Any] | None, task_id: str) -> bool:
     """Whether another task holds a live claim on the pull request."""
-    return (
-        _is_claim(record) and not is_own_claim(record, task_id) and record is not None and not _is_stale_claim(record)
-    )
+    return _is_claim(record) and not is_own_claim(record, task_id) and record is not None and not is_stale_claim(record)
 
 
 def effective_record(record: dict[str, Any] | None, task_id: str) -> dict[str, Any] | None:
@@ -195,7 +183,7 @@ def effective_record(record: dict[str, Any] | None, task_id: str) -> dict[str, A
     """
     if record is None or record.get("status") != STATUS_ROUTING:
         return record
-    if is_own_claim(record, task_id) or _is_stale_claim(record):
+    if is_own_claim(record, task_id) or is_stale_claim(record):
         previous = record.get("previous")
         return previous if isinstance(previous, dict) else None
     return record
@@ -391,6 +379,7 @@ def _candidate_record(
                 "status": file.status,
                 "additions": file.additions,
                 "deletions": file.deletions,
+                "owners_source": candidate.owners_sources.get(file.path),
             }
             for file in candidate.files
         ],
