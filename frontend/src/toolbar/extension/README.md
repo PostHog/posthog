@@ -85,6 +85,8 @@ When the release pull request merges, the workflow runs again:
 Changesets that land while a release is open go into the next release.
 Never edit the version or the changelog by hand.
 To retry a failed publish, run the workflow from `master` with the merge commit of the release pull request.
+If the failed run already uploaded the zip, also check `skip_upload`, because the store doesn't take the same version twice.
+Publishes run one at a time. A release that waits behind another is skipped when a newer one replaces it, because the newer version carries its changes.
 
 ### Setup
 

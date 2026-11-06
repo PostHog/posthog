@@ -17,6 +17,11 @@ on:
                 description: Merge commit of the toolbar extension release pull request
                 required: true
                 type: string
+            skip_upload:
+                description: Submit the version already uploaded to the store, for a run that uploaded it but failed to submit it
+                required: false
+                type: boolean
+                default: false
 
 permissions:
     contents: read
@@ -614,9 +619,10 @@ jobs:
         timeout-minutes: 30
         # Holds the Chrome Web Store variables, and lets only master use the Google identity.
         environment: chrome-web-store
-        # One group per release, so a later run never replaces the pending publish of a merged release.
+        # Uploads replace the item's one draft, so publishes run one at a time. A newer release replaces a pending
+        # older one, which loses nothing because the newer version carries the older changes.
         concurrency:
-            group: release-toolbar-extension-publish-${{ needs.identify-release.outputs.release-commit }}
+            group: release-toolbar-extension-publish
             cancel-in-progress: false
         permissions:
             contents: write
@@ -624,6 +630,7 @@ jobs:
         env:
             NEW_VERSION: ${{ needs.identify-release.outputs.new-version }}
             RELEASE_COMMIT: ${{ needs.identify-release.outputs.release-commit }}
+            SKIP_UPLOAD: ${{ inputs.skip_upload && 'true' || 'false' }}
             CWS_ITEM: publishers/${{ vars.CHROME_WEB_STORE_PUBLISHER_ID }}/items/${{ vars.CHROME_WEB_STORE_ITEM_ID }}
         steps:
             - name: Checkout the changelog
@@ -682,6 +689,14 @@ jobs:
 
                   # A retried run must not upload the same version twice, which the store rejects.
                   status=$(cws "$api/v2/$CWS_ITEM:fetchStatus")
+                  newest_version=$(printf '%s' "$status" | jq -r '
+                      [.submittedItemRevisionStatus, .publishedItemRevisionStatus][]?.distributionChannels[]?.crxVersion' |
+                      sort -V | tail -1)
+                  if [ -n "$newest_version" ] && [ "$newest_version" != "$NEW_VERSION" ] &&
+                      [ "$(printf '%s\n%s\n' "$newest_version" "$NEW_VERSION" | sort -V | tail -1)" = "$newest_version" ]; then
+                      echo "::error::The store already has the newer version $newest_version, which includes the changes of $NEW_VERSION"
+                      exit 1
+                  fi
                   version_state=$(printf '%s' "$status" | jq -r --arg version "$NEW_VERSION" '
                       [.submittedItemRevisionStatus, .publishedItemRevisionStatus]
                       | map(select(. != null and any(.distributionChannels[]?; .crxVersion == $version)) | .state)
@@ -698,21 +713,25 @@ jobs:
                           ;;
                   esac
 
-                  upload=$(cws -X POST -T "$ZIP_FILE" "$api/upload/v2/$CWS_ITEM:upload")
-                  upload_state=$(printf '%s' "$upload" | jq -r '.uploadState')
-                  for _ in $(seq 1 30); do
-                      case "$upload_state" in
-                          IN_PROGRESS | UPLOAD_IN_PROGRESS)
-                              sleep 10
-                              upload_state=$(cws "$api/v2/$CWS_ITEM:fetchStatus" | jq -r '.lastAsyncUploadState')
-                              ;;
-                          *) break ;;
-                      esac
-                  done
-                  if [ "$upload_state" != 'SUCCEEDED' ]; then
-                      echo "::error::The Chrome Web Store upload ended in state $upload_state"
-                      printf '%s\n' "$upload" | jq .
-                      exit 1
+                  if [ "$SKIP_UPLOAD" = 'true' ]; then
+                      echo "Submitting the version already uploaded to the store"
+                  else
+                      upload=$(cws -X POST -T "$ZIP_FILE" "$api/upload/v2/$CWS_ITEM:upload")
+                      upload_state=$(printf '%s' "$upload" | jq -r '.uploadState')
+                      for _ in $(seq 1 30); do
+                          case "$upload_state" in
+                              IN_PROGRESS | UPLOAD_IN_PROGRESS)
+                                  sleep 10
+                                  upload_state=$(cws "$api/v2/$CWS_ITEM:fetchStatus" | jq -r '.lastAsyncUploadState')
+                                  ;;
+                              *) break ;;
+                          esac
+                      done
+                      if [ "$upload_state" != 'SUCCEEDED' ]; then
+                          echo "::error::The Chrome Web Store upload ended in state $upload_state. If an earlier run already uploaded $NEW_VERSION, retry with skip_upload."
+                          printf '%s\n' "$upload" | jq .
+                          exit 1
+                      fi
                   fi
 
                   # The store reviews the version, then publishes it with the item's current visibility.
