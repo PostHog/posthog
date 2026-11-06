@@ -1,5 +1,8 @@
 {% extends "admin_console/base.html" %}
 {% block title %}{{ tool.title }} · PostHog Admin{% endblock %}
+{% block extra_head %}
+    {% if page.refresh_seconds %}<meta http-equiv="refresh" content="{{ page.refresh_seconds }}" />{% endif %}
+{% endblock %}
 {% block content %}
     <nav class="text-xs text-muted-foreground" aria-label="Breadcrumb">
         Tools › {{ tool.group }}
@@ -20,11 +23,23 @@
     <div class="flex flex-col gap-4">
         {% for block in page.blocks %}
             {% if block.kind == "notice" %}
-                <p class="m-0 max-w-3xl text-muted-foreground">{{ block.text }}</p>
+                {% if block.tone %}
+                    {% include "admin_console/_callout.html" with text=block.text tone=block.tone %}
+                {% else %}
+                    <p class="m-0 max-w-3xl text-muted-foreground">{{ block.text }}</p>
+                {% endif %}
             {% elif block.kind == "table" %}
                 {% include "admin_console/_table.html" with table=block %}
             {% elif block.kind == "paging" %}
                 {% include "admin_console/_paging.html" with paging=block %}
+            {% elif block.kind == "stats" %}
+                {% include "admin_console/_stats.html" with stats=block %}
+            {% elif block.kind == "links" %}
+                {% include "admin_console/_links.html" with links=block %}
+            {% elif block.kind == "filters" %}
+                {% include "admin_console/_filters.html" with filters=block %}
+            {% elif block.kind == "operation_form" %}
+                {% include "admin_console/_operation_form.html" with operation_form=block %}
             {% endif %}
         {% endfor %}
     </div>

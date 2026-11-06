@@ -21,6 +21,7 @@
         <link rel="icon" href="/static/posthog-icon.svg" />
         <script src="/static/admin-console/console.js?v={{ console_asset_version }}"
                 defer></script>
+        {% block extra_head %}{% endblock %}
     </head>
     <body class="console-body m-0 min-h-screen bg-background text-foreground text-[13px]">
         <a class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-10 focus:px-3 focus:py-2 focus:rounded focus:bg-background"

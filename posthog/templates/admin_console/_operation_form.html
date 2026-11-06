@@ -1,0 +1,45 @@
+{# An OperationForm block: the form of an operation a tool offers. It posts to the page it is on, so the query stays. #}
+<section class="quill-card group/card flex flex-col max-w-xl{% if operation_form.operation.danger %} console-danger{% endif %}"
+         data-quill
+         data-slot="card"
+         data-size="default">
+    <div class="quill-card__header group/card-header" data-slot="card-header">
+        <h2 class="quill-card__title m-0 flex items-center gap-2"
+            data-slot="card-title">
+            {{ operation_form.operation.label }}
+            {% if operation_form.operation.danger %}
+                <span class="text-[13px] font-normal">
+                    {% include "admin_console/_badge.html" with label="Risky" tone="destructive" %}
+                </span>
+            {% endif %}
+        </h2>
+    </div>
+    <form method="post" class="flex flex-col">
+        {% csrf_token %}
+        <input type="hidden"
+               name="operation"
+               value="{{ operation_form.operation.key }}" />
+        {% for hidden in operation_form.form.hidden_fields %}{{ hidden }}{% endfor %}
+        <div class="quill-card__content flex flex-col gap-4"
+             data-slot="card-content">
+            {% if operation_form.operation.description %}<p class="m-0">{{ operation_form.operation.description }}</p>{% endif %}
+            {% if operation_form.operation.undo_hint %}
+                <p class="m-0 text-muted-foreground">{{ operation_form.operation.undo_hint }}</p>
+            {% endif %}
+            {% for error in operation_form.form.non_field_errors %}
+                <p class="quill-field__error m-0" role="alert">{{ error }}</p>
+            {% endfor %}
+            {% for field in operation_form.form.visible_fields %}
+                {% include "admin_console/_form_field.html" %}
+            {% endfor %}
+        </div>
+        <div class="quill-card__footer flex flex-wrap gap-2"
+             data-slot="card-footer">
+            <button type="submit"
+                    {% if operation_form.pending_label %}data-pending-label="{{ operation_form.pending_label }}"{% endif %}
+                    class="quill-button {% if operation_form.operation.danger %}quill-button--variant-destructive{% else %}quill-button--variant-primary{% endif %} quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">
+                {{ operation_form.operation.label }}
+            </button>
+        </div>
+    </form>
+</section>

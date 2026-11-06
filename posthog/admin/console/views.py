@@ -1,7 +1,9 @@
 import uuid
+import dataclasses
 from pathlib import Path
 from typing import cast
 
+from django import forms
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.staticfiles import finders
@@ -15,7 +17,7 @@ import structlog
 from posthog.admin.console.bridge import QueuedMessages
 from posthog.admin.console.panels import Fact, Operation, Panel, Tone
 from posthog.admin.console.registry import console
-from posthog.admin.console.tools import ConsoleTool
+from posthog.admin.console.tools import Block, ConsoleTool, OperationForm, Page, ToolOperation
 from posthog.dataclasses import frozen
 from posthog.git import get_git_commit_short
 from posthog.models.team.team import Team
@@ -239,15 +241,68 @@ def run_team_operation(request: HttpRequest, team_id: int, panel_key: str, opera
     return response
 
 
+def _run_tool_operation(
+    request: HttpRequest, tool: ConsoleTool, operation: ToolOperation, form: forms.Form
+) -> HttpResponse | None:
+    audit = logger.bind(
+        record="tool",
+        tool=tool.key,
+        operation=operation.key,
+        reason=form.cleaned_data.get("reason"),
+        triggered_by=cast(User, request.user).email,
+    )
+    audit.info("admin_console_operation_started")
+    response = operation.handler(request, form)
+    audit.info("admin_console_operation_finished", status=response.status_code if response is not None else None)
+    return response
+
+
+def _fill_operation_forms(page: Page, bound: tuple[str, forms.Form] | None) -> Page:
+    blocks: list[Block] = []
+    for block in page.blocks:
+        if isinstance(block, OperationForm):
+            is_bound = bound is not None and bound[0] == block.operation.key
+            form = bound[1] if bound is not None and is_bound else block.operation.form_class(initial=block.initial)
+            block = dataclasses.replace(block, form=form)
+        blocks.append(block)
+    return dataclasses.replace(page, blocks=tuple(blocks))
+
+
 def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
     tool = console.get_tool(tool_key)
     if tool is None:
         raise Http404("Unknown console tool")
-    page = tool.page(request)
+    if request.method not in ("GET", "HEAD", "POST"):
+        return HttpResponseNotAllowed(["GET", "HEAD", "POST"])
+
+    bound: tuple[str, forms.Form] | None = None
+    status = 200
+    if request.method == "POST":
+        # Look the operation up in what the tool offers now, so a stale form cannot run one the current state no longer allows.
+        offered = {operation.key: operation for operation in tool.operations(request)}
+        operation = offered.get(request.POST.get("operation", ""))
+        if operation is None:
+            raise Http404("This operation is not available right now")
+        form = operation.form_class(request.POST)
+        if form.is_valid():
+            response = _run_tool_operation(request, tool, operation, form)
+            if response is None:
+                return redirect(request.get_full_path())
+            if response.status_code < 400:
+                return response
+            if QueuedMessages.error_count(request) == 0:
+                messages.error(
+                    request,
+                    f"{operation.label} failed with status {response.status_code}. Try again, or ask the "
+                    f"{tool.owner.name} team if it keeps failing.",
+                )
+        bound, status = (operation.key, form), 400
+
     return render(
         request,
         "admin_console/tool.html",
-        {**ConsoleEnvironment.context(), "tool": tool, "page": page},
+        {**ConsoleEnvironment.context(), "tool": tool, "page": _fill_operation_forms(tool.page(request), bound)},
+        status=status,
     )
 
 

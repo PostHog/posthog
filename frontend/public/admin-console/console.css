@@ -723,6 +723,9 @@
     .list-none {
         list-style-type: none;
     }
+    .grid-cols-1 {
+        grid-template-columns: repeat(1, minmax(0, 1fr));
+    }
     .grid-cols-7 {
         grid-template-columns: repeat(7, minmax(0, 1fr));
     }
@@ -975,6 +978,9 @@
     .py-2 {
         padding-block: calc(0.25rem * 2);
     }
+    .py-3 {
+        padding-block: calc(0.25rem * 3);
+    }
     .py-8 {
         padding-block: calc(0.25rem * 8);
     }
@@ -1016,6 +1022,9 @@
     }
     .text-right {
         text-align: right;
+    }
+    .align-top {
+        vertical-align: top;
     }
     .font-mono {
         font-family: 'JetBrains Mono', 'Fira Code', monospace;
@@ -1066,6 +1075,10 @@
     .text-\[length\:var\(--text-ui\,0\.8125rem\)\] {
         font-size: var(--text-ui, 0.8125rem);
     }
+    .leading-7 {
+        --tw-leading: calc(0.25rem * 7);
+        line-height: calc(0.25rem * 7);
+    }
     .font-bold {
         --tw-font-weight: var(--font-weight-bold);
         font-weight: var(--font-weight-bold);
@@ -1102,6 +1115,9 @@
     }
     .whitespace-nowrap {
         white-space: nowrap;
+    }
+    .whitespace-pre-line {
+        white-space: pre-line;
     }
     .text-current {
         color: currentcolor;
@@ -1664,6 +1680,11 @@
             border-color: var(--border);
         }
     }
+    @container (width >= 28rem) {
+        .\@md\:grid-cols-2 {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
     @container field-group (width >= 28rem) {
         .\@md\/field-group\:flex-row {
             flex-direction: row;
@@ -1692,6 +1713,11 @@
     @container (width >= 48rem) {
         .\@3xl\:grid-cols-2 {
             grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+    @container (width >= 48rem) {
+        .\@3xl\:grid-cols-4 {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
         }
     }
     @container (width >= 48rem) {
@@ -9180,6 +9206,10 @@ body.is-desktop .group\/field:has(> [role='checkbox']) .quill-label {
     inherits: false;
     initial-value: solid;
 }
+@property --tw-leading {
+    syntax: '*';
+    inherits: false;
+}
 @property --tw-font-weight {
     syntax: '*';
     inherits: false;
@@ -9325,6 +9355,7 @@ body.is-desktop .group\/field:has(> [role='checkbox']) .quill-label {
             --tw-skew-x: initial;
             --tw-skew-y: initial;
             --tw-border-style: solid;
+            --tw-leading: initial;
             --tw-font-weight: initial;
             --tw-tracking: initial;
             --tw-ordinal: initial;
