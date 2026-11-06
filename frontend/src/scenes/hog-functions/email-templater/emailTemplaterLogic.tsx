@@ -360,8 +360,9 @@ export interface EmailTemplaterLogicProps {
 /** What switching to the sandbox sender drops, because it sends with a fixed identity. */
 function sandboxSwitchLosses(emailTemplate: EmailTemplate): string[] {
     const from = senderFrom(emailTemplate)
+    const customFrom = [from.email ? 'address' : '', from.name ? 'name' : ''].filter(Boolean)
     return [
-        from.email || from.name ? 'your custom From address and name' : '',
+        customFrom.length > 0 ? `your custom From ${humanList(customFrom)}` : '',
         emailTemplate?.replyTo ? 'your Reply-To' : '',
     ].filter(Boolean)
 }
@@ -880,14 +881,14 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     return
                 }
                 const integrations = integrationsLogic.isMounted() ? (integrationsLogic.values.integrations ?? []) : []
-                const replacedSenderNames = replacedSenderIds.map(
-                    (id) => integrations.find((sender) => sender.id === id)?.display_name
-                )
+                const replacedSenderNames = replacedSenderIds
+                    .map((id) => integrations.find((sender) => sender.id === id)?.display_name)
+                    .filter((name): name is string => !!name)
                 const replacedSenders =
                     replacedSenderIds.length < 2
                         ? null
-                        : replacedSenderNames.every(Boolean)
-                          ? humanList(replacedSenderNames as string[])
+                        : replacedSenderNames.length === replacedSenderIds.length
+                          ? humanList(replacedSenderNames)
                           : 'your current senders'
                 LemonDialog.open({
                     title: 'Switch to the sandbox sender?',

@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -193,6 +194,7 @@ describe('workflowEditorVisitLogic', () => {
                     has_more: false,
                     results: [{ id: 'wf-other', name: 'Other', status: 'draft' }],
                 },
+                '/api/projects/:team_id/integrations/': { results: [] },
             },
             post: {
                 '/api/projects/:team_id/hog_flows/': { ...NEW_WORKFLOW, id: SAVED_ID, origin_product: 'broadcasts' },
@@ -206,6 +208,7 @@ describe('workflowEditorVisitLogic', () => {
         jest.mocked(confirmCreateAsBroadcast).mockResolvedValue('broadcast_and_move')
         const props = { id: 'new' }
         const visit = await openEditor(props)
+        await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
         workflowLogic(props).actions.setWorkflowValues({
             name: 'Monthly update',
             exit_condition: 'exit_only_at_end',

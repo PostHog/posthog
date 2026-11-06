@@ -3828,8 +3828,10 @@ export const workflowLogic = kea<workflowLogicType>([
                     isBroadcastShaped(workflow.actions) &&
                     canEditInWizard(workflow.actions, workflow.edges) &&
                     // Broadcasts can't send through the sandbox sender, so the wizard would refuse to launch it.
+                    // Until the senders load, a sandbox sender can't be told apart from any other.
+                    values.integrations !== null &&
                     !sendsFromSandboxSender(workflow, [
-                        ...listedSandboxSenderIds(values.integrations ?? []),
+                        ...listedSandboxSenderIds(values.integrations),
                         ...(cache.firstRunSandboxSenderId ? [cache.firstRunSandboxSenderId] : []),
                     ])
                 ) {

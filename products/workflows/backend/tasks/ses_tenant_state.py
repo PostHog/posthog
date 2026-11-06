@@ -54,7 +54,6 @@ def reconcile_ses_tenant_states() -> None:
         .distinct()
         .order_by("team_id")
     )
-    # Builds its own provider, so a provider that cannot be built counts as a failed sandbox read.
     try:
         sync_sandbox_tenant_state()
     except Exception:

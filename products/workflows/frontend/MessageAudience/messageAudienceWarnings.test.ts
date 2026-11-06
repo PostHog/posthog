@@ -76,11 +76,18 @@ describe('messageAudienceWarnings', () => {
             expected: ["The sandbox sender can't send broadcasts. Set up your own email sender to send this one."],
         },
         {
-            case: 'only a sandbox sender kept after the flag was turned off',
+            case: 'only a sandbox sender kept after the flag was turned off (workflow)',
             destination: 'workflow',
             senders: [sandbox],
             sandboxFlag: false,
             expected: [],
+        },
+        {
+            case: 'only a sandbox sender kept after the flag was turned off (broadcast)',
+            destination: 'broadcast',
+            senders: [sandbox],
+            sandboxFlag: false,
+            expected: ["The sandbox sender can't send broadcasts. Set up your own email sender to send this one."],
         },
         {
             case: 'an unverified own sender beside the sandbox sender',
