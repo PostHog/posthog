@@ -42,8 +42,8 @@ class TestStructuredGaps:
 
     def test_tests_severe_values_as_one_set(self) -> None:
         # P1 alone is 2.5x its siblings, under the 3x gap ratio, but P0 and P1 together are 5x.
-        outputs = _outputs("security", ["P0", "P1", "P2", "P3"], 20) + _outputs(
-            "performance", ["P1", "P2", "P3", "P3", "P2", "P3", "P2", "P3", "P2", "P3"], 15
+        outputs = _outputs("security", ["P0", "P1", "P2", "P3"], 30) + _outputs(
+            "performance", ["P1", "P2", "P3", "P3", "P2", "P3", "P2", "P3", "P2", "P3"], 30
         )
 
         assert [g.values for g in find_structured_gaps(outputs)] == [("P0", "P1")]
@@ -80,6 +80,15 @@ class TestStructuredGaps:
             _outputs("security", ["P0", "P1"] * 20, 1)
             + _outputs("security", ["P2", "P3"], 19)
             + _outputs("performance", ["P2", "P3", "P3", "P2"], 20)
+        )
+        assert find_structured_gaps(outputs) == []
+
+    def test_one_long_response_among_the_supporting_traces_is_no_gap(self) -> None:
+        # 204 of 216 items are severe, but 200 come from one response: per trace the segment is 40% severe.
+        outputs = (
+            _outputs("security", ["P0"] * 200, 1)
+            + _outputs("security", ["P0", "P2", "P3", "P3"], 4)
+            + _outputs("performance", ["P0", "P2", "P3", "P3"], 20)
         )
         assert find_structured_gaps(outputs) == []
 
