@@ -60,7 +60,6 @@ export type SandboxEmailBlockReason =
     | 'recipient_unverified'
     | 'check_failed'
 
-// The blocked event is captured once per team, reason and hour, so only this counter shows how many sends block.
 const sandboxEmailBlockedTotal = new Counter({
     name: 'cdp_sandbox_email_blocked_total',
     help: 'Sandbox sender sends skipped before delivery, by block reason and by whether the send was a test send.',
