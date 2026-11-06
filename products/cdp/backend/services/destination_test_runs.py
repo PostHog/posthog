@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import requests
 import structlog
+from prometheus_client import Counter
 
 from posthog.hogql.parser import parse_string_template
 
@@ -24,6 +25,12 @@ if TYPE_CHECKING:
     from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
+
+TEST_RUN_REQUEST_ORIGINS_MISSING = Counter(
+    "test_run_request_origins_missing",
+    "Test runs with real requests whose audit row cannot say where the requests went",
+    labelnames=["scope"],
+)
 
 _CONTEXT_FIELDS = ("hog", "inputs", "inputs_schema", "mappings")
 # The worker runs these templates with their own executors, which send real requests even when the test mocks.
@@ -161,6 +168,14 @@ def record_test_run_request_origins(row: Optional[ActivityLog], response: reques
     origins = body.get("request_origins") if isinstance(body, dict) else None
     if not isinstance(origins, list) or not all(isinstance(origin, str) for origin in origins):
         # The row then cannot say where the requests went, so the gap must be visible.
-        logger.warning("test_run.request_origins_missing", scope=row.scope, status_code=response.status_code)
+        TEST_RUN_REQUEST_ORIGINS_MISSING.labels(scope=row.scope).inc()
+        logger.warning(
+            "test_run.request_origins_missing",
+            scope=row.scope,
+            team_id=row.team_id,
+            item_id=row.item_id,
+            activity_log_id=str(row.id),
+            status_code=response.status_code,
+        )
         return
     update_activity_context(row, request_origins=origins)
