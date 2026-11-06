@@ -8,7 +8,7 @@ export function TodayNewsStoryRow({ story, onDiveIn }: { story: TodayNewsStory; 
                 type="button"
                 onClick={onDiveIn}
                 aria-label={`Dive in: ${story.title}`}
-                className="group/story flex w-full cursor-pointer flex-col gap-1.5 rounded-sm text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                className="group/story flex w-full cursor-pointer flex-col gap-2 rounded-sm text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                 data-attr="today-news-dive-in"
             >
                 <TodayNewsKicker story={story} />

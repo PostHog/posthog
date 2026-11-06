@@ -26,7 +26,7 @@ export function TodayNewsLead({ story, onDiveIn }: { story: TodayNewsLeadStory; 
                 {story.title}
             </h3>
             <p className="m-0 text-base text-pretty text-muted-foreground">{story.summary}</p>
-            <figure className="m-0 mt-2 flex min-h-40 flex-1 flex-col gap-3">
+            <figure className="m-0 mt-3 flex min-h-40 flex-1 flex-col gap-3">
                 <figcaption className="flex items-baseline justify-between gap-4 border-t pt-2 font-mono text-xs tracking-wide text-muted-foreground uppercase">
                     <span className="flex items-baseline gap-2">
                         <span>{story.metricLabel}</span>

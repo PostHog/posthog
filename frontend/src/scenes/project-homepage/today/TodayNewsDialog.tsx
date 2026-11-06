@@ -38,12 +38,12 @@ export function TodayNewsDialog(): JSX.Element {
                 data-attr="today-news-dialog"
             >
                 <DialogBody>
-                    <div className="@container flex flex-col gap-6 px-2 pt-2 pb-1">
+                    <div className="@container flex flex-col gap-6 px-2 pt-2 pb-2">
                         <header className="flex flex-col gap-2 border-b-4 border-double border-foreground pb-2">
                             <DialogTitle className="m-0 text-center text-[3.5rem] leading-none font-bold tracking-tighter">
                                 Today
                             </DialogTitle>
-                            <DialogDescription className="grid grid-cols-1 gap-x-4 gap-y-1 font-mono text-xs tracking-wide uppercase @2xl:grid-cols-[1fr_auto_1fr]">
+                            <DialogDescription className="grid grid-cols-1 items-center gap-x-4 gap-y-1 font-mono text-xs tracking-wide uppercase @2xl:grid-cols-[1fr_auto_1fr]">
                                 <span className="truncate">{currentTeam?.name ?? 'Your project'}</span>
                                 <span className="flex items-center gap-1.5 @2xl:justify-center">
                                     <IconTelescope className="size-3.5 shrink-0 text-foreground" />
