@@ -28,7 +28,7 @@ def calculate_point_estimate(
         Point estimate value
 
     Raises:
-        StatisticError: If control mean is zero for relative calculations
+        StatisticError: If the baseline mean is zero for relative calculations
     """
     treatment_mean = get_mean(treatment_stat)
     control_mean = get_mean(control_stat)
@@ -39,8 +39,8 @@ def calculate_point_estimate(
     elif difference_type == DifferenceType.RELATIVE:
         denominator = unadjusted_mean if unadjusted_mean is not None else control_mean
         if abs(denominator) < 1e-10:
-            raise StatisticError("Control mean cannot be zero for relative difference calculation")
-        return (treatment_mean - control_mean) / denominator
+            raise StatisticError("Baseline mean is zero, so the relative difference is undefined")
+        return (treatment_mean - control_mean) / abs(denominator)
 
     else:
         raise StatisticError(f"Unknown difference type: {difference_type}")
@@ -84,7 +84,7 @@ def calculate_variance_pooled(
         denominator = unadjusted_mean if unadjusted_mean is not None else control_mean
 
         if abs(denominator) < 1e-10:
-            raise StatisticError("Control mean cannot be zero for relative variance calculation")
+            raise StatisticError("Baseline mean is zero, so the relative variance is undefined")
 
         # Var(Y/X) ≈ Var(Y)/X² + Y²Var(X)/X⁴ - 2Y*Cov(X,Y)/X³
         # Since treatment and control are independent, Cov(X,Y) = 0

@@ -14,10 +14,11 @@ from posthog.hogql import ast
 from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.models import EventDefinition, PropertyDefinition, Team
+from posthog.models import Team
 from posthog.taxonomy.dynamic_properties import is_dynamic_property
 from posthog.taxonomy.taxonomy import virtual_property_names
 
+from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 logger = getLogger(__name__)

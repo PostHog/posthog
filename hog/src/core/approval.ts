@@ -7,6 +7,7 @@ import { escapeControls, type Output } from './output'
 import { hogFile } from './paths'
 import type { Spinner } from './prompts'
 import type { Runtime } from './runtime'
+import type { Schema } from './schema'
 
 // Something a person approves in a browser, saved in hog's folder while hog waits for them.
 export const PendingApprovalSchema = z.object({
@@ -38,7 +39,7 @@ export interface ApprovalFlow<Pending extends PendingApproval, Value> {
     // What the person approves, in copy and in error codes, like `login`.
     noun: string
     // Reads the pending item back from its file. An item hog can't read counts as none.
-    pending: z.ZodType<Pending>
+    pending: Schema<Pending>
     start: () => Promise<Pending>
     // Whether a pending item from an earlier run can stand in for a new one, so an agent that
     // retries hands the person the link it already shared.

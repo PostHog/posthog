@@ -140,7 +140,7 @@ export const SignalsConfigCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            "Legacy off switch for anomaly scoring. The Product analytics source (analytics \/ anomaly_investigation) now controls scoring: when that source is on, anomaly scoring scores this project's active trends insights and writes the results as $anomaly_score events, which are not billed. True by default. False still stops new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered."
+            "Whether anomaly scoring runs while the Product analytics source (analytics \/ anomaly_investigation) is on. Scoring checks this project's active trends insights for anomalies and writes the results as $anomaly_score events, which are not billed. True by default. False stops new scores and keeps alert signals; events written before stay. Turning the source off stops scoring whatever this value is, and turning the source on again keeps this value. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered."
         ),
 })
 
@@ -1128,7 +1128,7 @@ export const SignalsReportsClaimBody = /* @__PURE__ */ zod.object({
         .uuid()
         .optional()
         .describe(
-            'With takeover, the claim the caller expects to replace. The takeover is rejected when a different claim is active, so a takeover based on a stale read cannot replace a newer claim.'
+            'With takeover, the claim the caller expects to replace. The takeover is rejected when a different claim is active, so a takeover based on a stale read cannot replace a newer claim. Required to take over a claim that another person holds, directly or through their agent. That person is notified.'
         ),
     pr_url: zod
         .url()
@@ -1618,14 +1618,22 @@ export const signalsReportChecksReplaceCreateBodyTitleMax = 200
 
 export const signalsReportChecksReplaceCreateBodyRationaleMax = 2000
 
-export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOnePurposeDefault = `expectation`
-export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesExclusiveMin = 0
-export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesMax = 527040
+export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringPurposeDefault = `expectation`
+export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringReferencePeriodMinutesExclusiveMin = 0
+export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringReferencePeriodMinutesMax = 527040
 
-export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneBaselinePeriodMinutesOneExclusiveMin = 0
-export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneBaselinePeriodMinutesOneMax = 527040
+export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringBaselinePeriodMinutesOneExclusiveMin = 0
+export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringBaselinePeriodMinutesOneMax = 527040
 
 export const signalsReportChecksReplaceCreateBodyConfigOneUnitOneMax = 40
+
+export const signalsReportChecksReplaceCreateBodySoakMinutesMin = 0
+export const signalsReportChecksReplaceCreateBodySoakMinutesMax = 43200
+
+export const signalsReportChecksReplaceCreateBodyRunIntervalMinutesMin = 360
+export const signalsReportChecksReplaceCreateBodyRunIntervalMinutesMax = 129600
+
+export const signalsReportChecksReplaceCreateBodyRunsRemainingMax = 1
 
 export const SignalsReportChecksReplaceCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(signalsReportChecksReplaceCreateBodyTitleMax).describe('Label for the new metric check.'),
@@ -1649,50 +1657,44 @@ export const SignalsReportChecksReplaceCreateBody = /* @__PURE__ */ zod.object({
                     'Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.'
                 ),
             monitoring: zod
-                .union([
-                    zod.object({
-                        purpose: zod
-                            .enum(['expectation', 'minimum_evidence'])
-                            .default(signalsReportChecksReplaceCreateBodyConfigOneMonitoringOnePurposeDefault)
-                            .describe(
-                                '`expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count.'
-                            ),
-                        reference_period_minutes: zod
-                            .number()
-                            .gt(
-                                signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesExclusiveMin
-                            )
-                            .max(signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesMax)
-                            .describe(
-                                'The period the comparison target describes, in minutes. Independent of the soak and run schedule.'
-                            ),
-                        threshold_scaling: zod
-                            .enum(['linear', 'fixed'])
-                            .describe(
-                                'How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes \/ reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution.'
-                            ),
-                        baseline_period_minutes: zod
-                            .union([
-                                zod
-                                    .number()
-                                    .gt(
-                                        signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneBaselinePeriodMinutesOneExclusiveMin
-                                    )
-                                    .max(
-                                        signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneBaselinePeriodMinutesOneMax
-                                    ),
-                                zod.null(),
-                            ])
-                            .optional()
-                            .describe(
-                                'The actual period measured by baseline_value, in minutes. Required when a baseline is supplied.'
-                            ),
-                    }),
-                    zod.null(),
-                ])
-                .optional()
+                .object({
+                    purpose: zod
+                        .enum(['expectation', 'minimum_evidence'])
+                        .default(signalsReportChecksReplaceCreateBodyConfigOneMonitoringPurposeDefault)
+                        .describe(
+                            '`expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count.'
+                        ),
+                    reference_period_minutes: zod
+                        .number()
+                        .gt(signalsReportChecksReplaceCreateBodyConfigOneMonitoringReferencePeriodMinutesExclusiveMin)
+                        .max(signalsReportChecksReplaceCreateBodyConfigOneMonitoringReferencePeriodMinutesMax)
+                        .describe(
+                            'The period the comparison target describes, in minutes. Independent of the soak and run schedule.'
+                        ),
+                    threshold_scaling: zod
+                        .enum(['linear', 'fixed'])
+                        .describe(
+                            'How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes \/ reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution.'
+                        ),
+                    baseline_period_minutes: zod
+                        .union([
+                            zod
+                                .number()
+                                .gt(
+                                    signalsReportChecksReplaceCreateBodyConfigOneMonitoringBaselinePeriodMinutesOneExclusiveMin
+                                )
+                                .max(
+                                    signalsReportChecksReplaceCreateBodyConfigOneMonitoringBaselinePeriodMinutesOneMax
+                                ),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'The actual period measured by baseline_value, in minutes. Required when a baseline is supplied.'
+                        ),
+                })
                 .describe(
-                    "Optional Monitoring measurement definition, available only with the organization's Monitoring rollout. Measurements cover Monitoring start through the observation time. Omit for existing whole-window checks."
+                    'Monitoring definition for the replacement, including the target reference period and scaling policy.'
                 ),
             comparison: zod
                 .object({
@@ -1746,9 +1748,32 @@ export const SignalsReportChecksReplaceCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Optional value suffix.'),
         })
         .describe(
-            "A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nA caller names one source. When it names a metric, the create path copies that metric's query\ninto ``query`` before the row is stored, so the check keeps measuring what its author saw even if\nthe report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived."
-        )
-        .describe('Metric threshold configuration, including a bounded query and comparison.'),
+            'Metric threshold configuration, including a bounded query, comparison, and required Monitoring definition.'
+        ),
+    soak_minutes: zod
+        .number()
+        .min(signalsReportChecksReplaceCreateBodySoakMinutesMin)
+        .max(signalsReportChecksReplaceCreateBodySoakMinutesMax)
+        .optional()
+        .describe(
+            'Observation window in minutes from Monitoring start. Omission preserves the existing window, including zero. Replacing a check during Monitoring restarts the period for all open checks.'
+        ),
+    run_interval_minutes: zod
+        .number()
+        .min(signalsReportChecksReplaceCreateBodyRunIntervalMinutesMin)
+        .max(signalsReportChecksReplaceCreateBodyRunIntervalMinutesMax)
+        .optional()
+        .describe(
+            'Minutes between interim Monitoring measurements. Must be at least six hours and shorter than the observation window. Omit to use a quarter of the window, bounded to six hours through one day. Windows of six hours or less have no interim samples.'
+        ),
+    runs_remaining: zod
+        .number()
+        .min(1)
+        .max(signalsReportChecksReplaceCreateBodyRunsRemainingMax)
+        .optional()
+        .describe(
+            'Monitoring performs one terminal evaluation. Omit or set to 1; higher counts are not supported. Interim measurements do not consume this count.'
+        ),
 })
 
 /**
@@ -2944,7 +2969,7 @@ export const SignalsScoutNotesCreateBody = /* @__PURE__ */ zod
             .max(signalsScoutNotesCreateBodySkillNameMax)
             .optional()
             .describe(
-                'Address the note to one scout by its skill name (exact match against a configured scout on the project — check `scout-config-list` for the roster), or to one stage of the report pipeline by its reserved audience (`pipeline:report-research`). Use a pipeline audience for guidance about how reports get researched rather than about what the scouts watch, so it reaches that stage and no scout. Omit or leave blank for a general note every scout sees.'
+                'Address the note to one scout by its skill name (exact match against a configured scout on the project — check `scout-config-list` for the roster), or to one stage of the report pipeline by its reserved audience (`pipeline:report-research`); any other `pipeline:\*` value is rejected. Use a pipeline audience for guidance about how reports get researched, judged, and routed rather than about what the scouts watch, so it reaches that stage and no scout. Omit or leave blank for a general note every scout sees.'
             ),
         report_id: zod
             .uuid()
@@ -3047,7 +3072,7 @@ export const SignalsScoutRecordCheckResultBody = /* @__PURE__ */ zod
                 '\* `passed` - Passed\n\* `failed` - Failed\n\* `errored` - Errored\n\* `inconclusive` - Inconclusive'
             )
             .describe(
-                "`passed` when the evidence meets the check's stated bar and the expectation holds, `failed` when the evidence meets the bar and the expectation does not hold. `inconclusive` when your tools worked but the evidence cannot settle the question; give a `reason`. `errored` only when a tool, query, or model call failed. `failed` retires the check, so use it for a conclusion, not a suspicion.\n\n\* `passed` - Passed\n\* `failed` - Failed\n\* `errored` - Errored\n\* `inconclusive` - Inconclusive"
+                "`passed` when the evidence meets the check's stated bar and the expectation holds, `failed` when the evidence meets the bar and the expectation does not hold. `inconclusive` when your tools worked but the evidence cannot settle the question; give a `reason`. `errored` only when a tool, query, or model call failed. Reserve `failed` for a conclusion, not a suspicion.\n\n\* `passed` - Passed\n\* `failed` - Failed\n\* `errored` - Errored\n\* `inconclusive` - Inconclusive"
             ),
         reason: zod
             .union([
@@ -3060,7 +3085,7 @@ export const SignalsScoutRecordCheckResultBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Required with `inconclusive`, and refused with any other outcome. `awaiting_data`: the data can still arrive (a rollout lag, a soak not complete, too few samples so far), so the check looks again later. `unmeasurable`: the data the check needs is not captured. `needs_manual_verification`: only a person or another environment can verify it. `no_fix_to_measure`: nothing was changed to fix the claim, so no window after a fix exists. A report resolved without a pull request still has a window that starts when it resolved. Every reason except `awaiting_data` ends the check.\n\n\* `awaiting_data` - Awaiting Data\n\* `unmeasurable` - Unmeasurable\n\* `needs_manual_verification` - Needs Manual Verification\n\* `no_fix_to_measure` - No Fix To Measure'
+                'Required with `inconclusive`, and refused with any other outcome. `awaiting_data`: the data can still arrive (a rollout lag, a soak not complete, too few samples so far). `unmeasurable`: the data the check needs is not captured. `needs_manual_verification`: only a person or another environment can verify it. `no_fix_to_measure`: nothing was changed to fix the claim, so no window after a fix exists. A report resolved without a pull request still has a window that starts when it resolved.\n\n\* `awaiting_data` - Awaiting Data\n\* `unmeasurable` - Unmeasurable\n\* `needs_manual_verification` - Needs Manual Verification\n\* `no_fix_to_measure` - No Fix To Measure'
             ),
         explanation: zod
             .string()
@@ -4004,7 +4029,7 @@ export const SignalsScoutLighthouseAuditBody = /* @__PURE__ */ zod
             .url()
             .max(signalsScoutLighthouseAuditBodyUrlMax)
             .describe(
-                "The page to audit. Must be an https url on an allowed host — public PostHog pages only. Pages behind a login cannot be audited: the browser signs in to nothing, so it would measure the login screen and report its numbers as the page's."
+                "The page to audit. Must be an https url on an allowed host — public PostHog pages only. Pages behind a login cannot be audited: the browser signs in to nothing, so it would measure the login screen and report its numbers as the page's. A url that redirects off the allowed hosts is rejected for the same reason."
             ),
         form_factor: zod
             .enum(['desktop', 'mobile'])
@@ -4396,12 +4421,14 @@ export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
         content: zod
             .string()
             .max(signalsScoutScratchpadRememberBodyContentMax)
-            .describe('Prose to write. Read verbatim into future prompts.'),
+            .describe(
+                'Markdown to write. Future prompts read it verbatim and people read it directly, so structured Markdown (headings, bullets, inline code for ids) is easier to skim than a wall of prose.'
+            ),
         run_id: zod
             .uuid()
             .nullish()
             .describe(
-                "Run that authored this memory; persisted as `created_by_run_id` for lineage. Best-effort — a `run_id` that is unparseable, or that isn't a run on this project, is dropped rather than rejected, so the memory write is never lost. Omit it and the lineage still lands: a write from a scout sandbox is attributed to that sandbox's own run."
+                "Run that authored this memory; persisted as `created_by_run_id` for lineage. Best-effort — a `run_id` that is unparseable, or that isn't a run on this project, is dropped rather than rejected, so the memory write is never lost. Omit it and the lineage still lands: a write from a scout sandbox is attributed to that sandbox's own run. A report-pipeline caller is attributed by its stage and does not pass one."
             ),
         expires_at: zod
             .string()

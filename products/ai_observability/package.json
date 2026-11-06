@@ -13,7 +13,7 @@
         "kea-subscriptions": "catalog:",
         "partial-json": "^0.1.7",
         "posthog-js": "catalog:",
-        "torph": "^0.0.10",
+        "torph": "^0.0.9",
         "yaml": "catalog:"
     },
     "devDependencies": {
