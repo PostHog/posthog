@@ -1676,7 +1676,7 @@ def snapshot_postgres_queries(fn):
 
 
 @contextmanager
-def count_organization_access_cache_round_trips() -> Iterator[Callable[[], int]]:
+def count_organization_access_cache_round_trips() -> Iterator[Callable[..., int]]:
     # The local memory test cache implements get_many with one get per key, unlike Redis MGET.
     unpatched_get = access_cache.get
     missing = object()
@@ -1690,7 +1690,15 @@ def count_organization_access_cache_round_trips() -> Iterator[Callable[[], int]]
             },
         ) as get_many,
     ):
-        yield lambda: get.call_count + get_many.call_count
+
+        def count(key_prefix: str | None = None) -> int:
+            if key_prefix is None:
+                return get.call_count + get_many.call_count
+            return sum(call.args[0].startswith(key_prefix) for call in get.call_args_list) + sum(
+                any(key.startswith(key_prefix) for key in call.args[0]) for call in get_many.call_args_list
+            )
+
+        yield count
 
 
 def reset_unusable_db_connections() -> None:
