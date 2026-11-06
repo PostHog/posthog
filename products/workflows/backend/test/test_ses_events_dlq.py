@@ -417,7 +417,7 @@ class TestSesEventsDlqConsoleTool(BaseTest):
         unreadable.get_queue_attributes.side_effect = ClientError(
             {"Error": {"Code": "AccessDenied", "Message": "not allowed"}}, "GetQueueAttributes"
         )
-        sqs_client.side_effect = lambda queue: readable if queue == QUEUE else unreadable
+        sqs_client.side_effect = lambda queue, _config: readable if queue == QUEUE else unreadable
 
         response = self.client.get("/admin/console/tools/ses-events-dlq/")
 

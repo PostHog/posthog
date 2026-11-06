@@ -5,6 +5,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from products.workflows.backend.facade.contracts import SesEventsDlqMessage, SesEventsDlqState
 from products.workflows.backend.services.ses_events_dlq import (
+    INSPECT_SQS_CONFIG,
     DlqMessageSummary,
     DlqQueue,
     configured_queues,
@@ -21,7 +22,7 @@ def inspect_ses_events_dlqs() -> list[SesEventsDlqState]:
 
 def _inspect(queue: DlqQueue) -> SesEventsDlqState:
     try:
-        snapshot = inspect_queue(queue, sqs_client(queue))
+        snapshot = inspect_queue(queue, sqs_client(queue, INSPECT_SQS_CONFIG))
     except (BotoCoreError, ClientError) as error:
         logger.warning("ses_events_dlq.inspect_failed", queue=queue.name, error=str(error))
         return SesEventsDlqState(
