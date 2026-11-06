@@ -48,6 +48,7 @@ class TestObservationCreateTask(_VisionAPITestCase):
         self.assertEqual(resp.json()["task_id"], str(task_id))
         kwargs = create.call_args.kwargs
         self.assertEqual(kwargs["team"], self.team)
+        self.assertEqual(kwargs["profile"].key, "user")
         self.assertIn("Rage clicks", kwargs["title"])
         self.assertIn("sess-1", kwargs["description"])
 

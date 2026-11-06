@@ -59,6 +59,7 @@ from posthog.tasks.tasks import (
     redis_heartbeat,
     redispatch_orphaned_queued_task_runs,
     refresh_activity_log_fields_cache,
+    report_upcoming_events_deletions,
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
@@ -121,6 +122,7 @@ from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.facade.tasks import (
+    enqueue_signals_rated_usage,
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     reconcile_report_inbox_state_cache,
@@ -455,6 +457,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="refresh prebaked dev-stack VM image on base change",
         expires_seconds=2 * 60,
     )
+
+    if settings.CLOUD_DEPLOYMENT:
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(hour="3", minute="17"),
+            enqueue_signals_rated_usage.s(),
+            name="report self-driving rated usage",
+        )
 
     add_periodic_task_with_expiry(
         sender,
@@ -880,6 +890,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # Sync all Organization.available_product_features every hour, only for billing v1 orgs
     sender.add_periodic_task(crontab(minute="30", hour="*"), sync_all_organization_available_product_features.s())
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="15", minute="0"),
+        report_upcoming_events_deletions.s(),
+        name="report upcoming events deletions",
+    )
+
     sender.add_periodic_task(crontab(minute="*/15"), check_async_migration_health.s())
 
     if settings.INGESTION_LAG_METRIC_TEAM_IDS:
@@ -1289,12 +1306,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # AEO citation-tracking POC: daily citation checks for allowlisted, flag-enabled teams.
     add_periodic_task_with_expiry(
         sender,
-        crontab(hour="7", minute="30"),
+        # Hourly through the morning: the first dispatch starts the day's run and the later
+        # ones resume it if a worker rollout killed it. The runner skips the prompts already
+        # checked that day and the per-team lease makes a dispatch during a live run a no-op.
+        crontab(hour="7-15", minute="30"),
         run_aeo_citation_checks_task.s(),
         name="AEO citation checks",
-        # Well under the daily interval, so a backed-up queue drops the stale dispatch
-        # instead of fanning out a second day's checks and paying for them twice.
-        expires_seconds=60 * 60,
+        # Under the dispatch interval, so a backed-up queue drops the stale dispatch
+        # instead of the next one finding it still queued.
+        expires_seconds=50 * 60,
     )
 
     # MCP registry daily sync: crawl the official registry, aggregate measured servers,

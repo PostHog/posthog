@@ -64,6 +64,7 @@ import {
     TransactionalEmailRequestSchema,
     TransactionalEmailStageTimer,
     decodeAttachments,
+    fieldNotAcceptedError,
     isRecipientFormatIssue,
     queuedSend,
     transactionalEmailRecipients,
@@ -99,6 +100,7 @@ import {
     isSegmentPluginHogFunction,
     sanitizeLogMessage,
 } from './utils'
+import { recordRequestOrigins } from './utils/cdp-fetch'
 import { dualRead, dualWrite } from './utils/dual-store'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 import { buildHogFunctionInvocations } from './utils/invocation-utils'
@@ -578,6 +580,7 @@ export class CdpApi {
         }
 
     private postFunctionInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        const requestOrigins = new Set<string>()
         try {
             const { id, team_id } = req.params
             const { clickhouse_event, mock_async_functions, configuration, invocation_id } = req.body
@@ -691,14 +694,14 @@ export class CdpApi {
                     )
                     options.isTest = true
 
-                    let response: any = null
-                    if (isNativeHogFunction(compoundConfiguration)) {
-                        response = await this.nativeDestinationExecutorService.execute(invocation)
-                    } else if (isSegmentPluginHogFunction(compoundConfiguration)) {
-                        response = await this.segmentDestinationExecutorService.execute(invocation)
-                    } else {
-                        response = await this.hogExecutorAsync.executeWithAsyncFunctions(invocation, options)
-                    }
+                    const response: any = await recordRequestOrigins(requestOrigins, () => {
+                        if (isNativeHogFunction(compoundConfiguration)) {
+                            return this.nativeDestinationExecutorService.execute(invocation)
+                        } else if (isSegmentPluginHogFunction(compoundConfiguration)) {
+                            return this.segmentDestinationExecutorService.execute(invocation)
+                        }
+                        return this.hogExecutorAsync.executeWithAsyncFunctions(invocation, options)
+                    })
 
                     logs = logs.concat(response.logs)
                     if (response.error) {
@@ -713,6 +716,7 @@ export class CdpApi {
                     status: errors.length > 0 ? 'error' : wasSkipped ? 'skipped' : 'success',
                     errors: errors.map((e) => String(e)),
                     logs: logs,
+                    request_origins: [...requestOrigins].sort(),
                 })
             } else if (compoundConfiguration.type === 'transformation') {
                 // NOTE: We override the ID so that the transformer doesn't cache the result
@@ -728,7 +732,9 @@ export class CdpApi {
                     team_id: triggerGlobals.project.id,
                     now: '',
                 }
-                const response = await this.hogTransformer.transformEvent(pluginEvent, [compoundConfiguration])
+                const response = await recordRequestOrigins(requestOrigins, () =>
+                    this.hogTransformer.transformEvent(pluginEvent, [compoundConfiguration])
+                )
 
                 result = response.event
 
@@ -748,6 +754,7 @@ export class CdpApi {
                     status: errors.length > 0 ? 'error' : wasSkipped ? 'skipped' : 'success',
                     errors: errors.map((e) => String(e)),
                     logs: logs,
+                    request_origins: [...requestOrigins].sort(),
                 })
             } else if (compoundConfiguration.type === 'transformation_log') {
                 const mock = globals.record as Record<string, unknown>
@@ -799,6 +806,7 @@ export class CdpApi {
                         status: 'error',
                         errors: [String(e)],
                         logs,
+                        request_origins: [...requestOrigins].sort(),
                     })
                 }
 
@@ -843,19 +851,21 @@ export class CdpApi {
                     status: errors.length > 0 ? 'error' : 'success',
                     errors: errors.map((e) => String(e)),
                     logs: logs,
+                    request_origins: [...requestOrigins].sort(),
                 })
             } else {
                 return res.status(400).json({ error: 'Invalid function type' })
             }
         } catch (e) {
             console.error(e)
-            res.status(500).json({ errors: [e.message] })
+            res.status(500).json({ errors: [e.message], request_origins: [...requestOrigins].sort() })
         } finally {
             await this.invocationResultsService.flush()
         }
     }
 
     private postHogflowInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        const requestOrigins = new Set<string>()
         try {
             const { id, team_id } = req.params
             const { clickhouse_event, configuration, invocation_id, current_action_id, mock_async_functions } = req.body
@@ -990,7 +1000,9 @@ export class CdpApi {
                 sensitiveValues
             )
             options.isTest = true
-            const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
+            const result = await recordRequestOrigins(requestOrigins, () =>
+                this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
+            )
 
             res.json({
                 nextActionId: result.skipped ? null : result.invocation.state.currentAction?.id,
@@ -1000,10 +1012,11 @@ export class CdpApi {
                 variables: result.invocation.state.variables ?? {},
                 execResult: result.execResult ?? null,
                 ...(result.emailSendResult ? { emailSendResult: result.emailSendResult } : {}),
+                request_origins: [...requestOrigins].sort(),
             })
         } catch (e) {
             console.error(e)
-            res.status(500).json({ error: [e.message] })
+            res.status(500).json({ error: [e.message], request_origins: [...requestOrigins].sort() })
         }
     }
 
@@ -1340,6 +1353,14 @@ export class CdpApi {
                     }
                 }
                 try {
+                    // After the idempotency check, so a retry of a send accepted with files still gets its answer.
+                    if (send?.attachments !== undefined && !this.config.CDP_EMAIL_ATTACHMENTS_ENABLED) {
+                        if (idempotencyKey) {
+                            stages.start('idempotency')
+                            await idempotencyKeys.release(team.id, idempotencyKey, invocation.id)
+                        }
+                        return reply('invalid_request', 400, { error: fieldNotAcceptedError('attachments') })
+                    }
                     stages.start('checks')
                     const refusal = await this.refuseTransactionalEmail(
                         team.id,

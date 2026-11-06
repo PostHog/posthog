@@ -95,9 +95,9 @@ TICK_SHARE_OF_SHARED_BUILDS = 0.8
 _TICK_MAXIMUMS: dict[str, int] = {
     "target_interval_minutes": 1440,
     "active_days": 90,
-    "max_pairs_per_tick": 500,
-    "max_concurrency": 20,
-    "max_tick_builds_per_day": 10000,
+    "max_pairs_per_tick": 2000,
+    "max_concurrency": 50,
+    "max_tick_builds_per_day": 50000,
 }
 
 
@@ -169,7 +169,7 @@ _MAXIMUMS: dict[str, int] = {
     "build_burst": 20,
     "builds_per_hour": 120,
     "builds_per_day": 500,
-    "max_builds_per_day": 10000,
+    "max_builds_per_day": 50000,
     "max_rows_per_person": 100,
     "reason_max_chars": 500,
 }

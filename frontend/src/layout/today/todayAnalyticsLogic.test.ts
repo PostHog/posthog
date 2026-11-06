@@ -69,9 +69,9 @@ describe('todayAnalyticsLogic', () => {
             row('dashboard', '8', 'Costs'),
         ])
         expect(logic.values.recentAnalytics.map((item) => [item.type, item.name])).toEqual([
-            ['insight', 'Signups'],
-            ['dashboard', 'Revenue'],
             ['dashboard', 'Costs'],
+            ['dashboard', 'Revenue'],
+            ['insight', 'Signups'],
         ])
 
         recentItemsModel.actions.loadRecentsSuccess([])

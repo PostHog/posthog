@@ -135,6 +135,7 @@ def test_first_open_starts_a_thread_with_the_first_step_and_later_refreshes_post
 
     root, step = _posts(slack_client)
     assert root["channel"] == SLACK_USER_ID and "thread_ts" not in root
+    assert f"Hey <@{SLACK_USER_ID}>, I'm PostHog" in all_block_text(root["blocks"])
     assert "▱▱▱  0/3 done" in all_block_text(root["blocks"])
     assert (step["channel"], step["thread_ts"]) == ("D1", "100.1")
     assert f"<@{SLACK_USER_ID}> Step 1/3" in all_block_text(step["blocks"])
@@ -195,7 +196,7 @@ def test_each_step_is_a_new_reply_and_done_steps_shrink_to_one_line(
     assert ready["thread_ts"] == "100.1"
     assert "You skipped: Your model" in all_block_text(ready["blocks"])
     assert "Skipped: Your model" in edits["100.3"] and "Pick a model" not in edits["100.3"]
-    assert "Hey, I'm PostHog" in edits["100.1"] and "Setup done" in edits["100.1"]
+    assert edits["100.1"].startswith(f":tada: You're all set, <@{SLACK_USER_ID}>!")
     capture.assert_called_once_with(
         integration, "slack app onboarding completed", slack_user_id=SLACK_USER_ID, skipped_steps=["model"]
     )
@@ -386,7 +387,7 @@ def test_steps_done_before_the_thread_are_left_out_of_the_numbering(
     assert "0/1 done" in all_block_text(root["blocks"])
     assert f"<@{SLACK_USER_ID}> Step 1/1" in all_block_text(link_step["blocks"])
     assert finished is True and ready["thread_ts"] == "100.1"
-    assert "Setup done" in _edits(slack_client)["100.1"]
+    assert "You're all set" in _edits(slack_client)["100.1"]
 
 
 @pytest.mark.django_db
