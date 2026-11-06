@@ -26,6 +26,7 @@ const NON_BILLABLE_EVENTS = new Set([
     '$conversations_back_to_tickets',
     '$anomaly_score',
     '$anomaly_score_shadow',
+    '$email_received',
 ])
 
 /**

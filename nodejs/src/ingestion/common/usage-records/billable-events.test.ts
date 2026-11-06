@@ -22,6 +22,7 @@ describe('usage key resolvers', () => {
         ['$exception', null],
         ['$llm_prompt_fetched', null],
         ['$conversations_message_sent', null],
+        ['$email_received', null],
         ['$anomaly_score', null],
         ['$anomaly_score_shadow', null],
     ])('resolveAnalyticsUsageKey bills %s under %s', (event, expected) => {

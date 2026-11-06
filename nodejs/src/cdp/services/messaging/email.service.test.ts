@@ -1588,6 +1588,7 @@ describe('EmailService', () => {
                               status,
                               reason,
                               sending_domain: sendingDomain,
+                              provider_message_id: status === 'sent' ? 'test-message-id' : '',
                           }),
                       ]
                     : []

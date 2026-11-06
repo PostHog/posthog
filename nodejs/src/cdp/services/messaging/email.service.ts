@@ -500,6 +500,7 @@ export class EmailService {
         let assetRow: MessageAssetRow | null = null
         let trackingEnabled = true
         let sendingDomain = ''
+        let providerMessageId: string | undefined
         let failureReason: EmailStatusReason = 'provider_error'
 
         try {
@@ -787,7 +788,15 @@ export class EmailService {
                     await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest, files)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, queueWait, files)
+                    providerMessageId = await this.sendEmailWithSES(
+                        result,
+                        sendParams,
+                        from,
+                        trackingEnabled,
+                        isTest,
+                        queueWait,
+                        files
+                    )
                     break
 
                 case 'unsupported':
@@ -899,6 +908,7 @@ export class EmailService {
                     status: success ? 'sent' : 'failed',
                     reason: success ? undefined : failureReason,
                     sendingDomain,
+                    providerMessageId,
                 })
             }
         }
@@ -1262,7 +1272,7 @@ export class EmailService {
         isTest = false,
         queueWait?: EmailQueueWait,
         files: DecodedAttachment[] = []
-    ): Promise<void> {
+    ): Promise<string> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
@@ -1400,6 +1410,7 @@ export class EmailService {
             }
             sesSendDurationMs.labels({ result: 'success' }).observe(performance.now() - sendStartedAt)
             sesSendResultsTotal.labels({ result: 'success' }).inc()
+            return response.MessageId
         } catch (error: unknown) {
             sesSendDurationMs.labels({ result: 'error' }).observe(performance.now() - sendStartedAt)
             sesSendResultsTotal.labels({ result: classifySesSendError(error) }).inc()
