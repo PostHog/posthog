@@ -67,11 +67,11 @@ export const SIDEBAR_ICONS: Record<SidebarIconApi, JSX.Element> = {
     warning: <IconWarning />,
 }
 
-interface SidebarPage {
+export interface ResolvedSidebarTarget {
     label: string
     icon: JSX.Element
     to: string
-    /** The path that marks the page as open. */
+    /** The path that marks the target as open. */
     path: string
     explainer?: TodayExplainerPreview
 }
@@ -82,12 +82,12 @@ function sidebarPage(
     to: string,
     explainer?: Omit<TodayExplainerPreview, 'kind' | 'label' | 'icon'>,
     path: string = to
-): SidebarPage {
+): ResolvedSidebarTarget {
     return { label, icon, to, path, explainer: explainer && { kind: 'explainer', label, icon, ...explainer } }
 }
 
 // Module constants, so the shared hover card gets the same payload on every render.
-export const SIDEBAR_PAGES: Record<SidebarPageApi, SidebarPage> = {
+export const SIDEBAR_PAGES: Record<SidebarPageApi, ResolvedSidebarTarget> = {
     analytics_all: sidebarPage('View all', <IconList />, urls.analyticsList(), {
         description:
             'Browse every canvas, dashboard, notebook, and insight your project shares. Filter by type, creator, or collection.',
@@ -124,15 +124,6 @@ export const SIDEBAR_PAGES: Record<SidebarPageApi, SidebarPage> = {
     new_insight: sidebarPage('New insight', <IconPlus />, urls.insightNew()),
 }
 
-export interface ResolvedSidebarTarget {
-    label: string
-    icon: JSX.Element
-    to: string
-    /** The path that marks the target as open. */
-    path: string
-    explainer?: TodayExplainerPreview
-}
-
 /** Where a layout item leads, or null for a page this version of the app does not know. */
 export function resolveSidebarTarget(
     target: SidebarTarget,
@@ -142,7 +133,7 @@ export function resolveSidebarTarget(
     const chosenIcon = icon ? SIDEBAR_ICONS[icon] : undefined
     switch (target.kind) {
         case 'page': {
-            const page = SIDEBAR_PAGES[target.page] as SidebarPage | undefined
+            const page = SIDEBAR_PAGES[target.page] as ResolvedSidebarTarget | undefined
             return page ? { ...page, label: label ?? page.label, icon: chosenIcon ?? page.icon } : null
         }
         case 'insight':
