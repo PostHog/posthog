@@ -131,16 +131,28 @@ describe('sandbox email content', () => {
             error.mockRestore()
         }
     })
-    it.each([0, 1.5, -5, NaN])('fails every cap check closed when a daily cap is %s', async (dailyRecipientCap) => {
-        const capSender = new SandboxEmailSender(
-            { ...sender.config, dailyRecipientCap },
-            teamManager,
-            blockedEventRedis,
-            {} as RateLimiterService,
-            senderState
-        )
-        expect(await capSender.claimDailyCaps(1, ['member@example.com'])).toEqual({ type: 'cap_check_failed' })
-    })
+    it.each([
+        [0, 'cap_check_failed'],
+        [1.5, 'cap_check_failed'],
+        [-5, 'cap_check_failed'],
+        [NaN, 'cap_check_failed'],
+        [5, 'project_cap_reached'],
+    ])(
+        'claims the daily caps only when the recipient cap is a positive whole number: %s',
+        async (dailyRecipientCap, type) => {
+            const exhaustedLimiter = {
+                claimRefundable: () => Promise.resolve({ granted: false, deniedIndexes: [0] }),
+            } as unknown as RateLimiterService
+            const capSender = new SandboxEmailSender(
+                { ...sender.config, dailyRecipientCap },
+                teamManager,
+                blockedEventRedis,
+                exhaustedLimiter,
+                senderState
+            )
+            expect(await capSender.claimDailyCaps(1, ['member@example.com'])).toEqual({ type })
+        }
+    )
     it.each([
         ['open', () => Promise.resolve(false)],
         ['paused', () => Promise.resolve(true)],
@@ -225,9 +237,9 @@ describe('sandbox email content', () => {
         '<html style="height:20px;clip-path:inset(0)"><body style="height:20px;clip-path:inset(0)"><p>Visible message</p></body></html>',
         '<html style="margin-top:-100000px"><body style="margin-left:-100000px"><p style="margin-left:100000px">Visible message</p></body></html>',
         '<html><body style="mask-image:linear-gradient(black 0 40px,transparent 40px)"><p>Visible message</p></body></html>',
-        `<html ${manyAttributes(63)}><body ${manyAttributes(63)}><p>Visible message</p></body></html>`,
+        `<html ${manyAttributes(64)}><body ${manyAttributes(64)}><p>Visible message</p></body></html>`,
         `<html><body ${manyAttributes(33)}><body ${manyAttributes(33)}><p>Visible message</p></body></html>`,
-        `<html ${manyAttributes(32)}><html ${manyAttributes(31, 'b')}><body ${manyAttributes(32)}><body ${manyAttributes(31, 'b')}><p>Visible message</p></body></html>`,
+        `<html ${manyAttributes(32)}><html ${manyAttributes(32, 'b')}><body ${manyAttributes(32)}><body ${manyAttributes(32, 'b')}><p>Visible message</p></body></html>`,
         '<html style="min-width:100000px"><body style="padding-left:100000px;border-left:100000px solid #fff;width:100000px;float:right"><p style="margin-left:-100000px">Visible message</p></body></html>',
     ])('keeps document ancestors outside the template layout: %s', async (html) => {
         const result = await sender.buildSandboxMessage(params(html), 'Example organization via PostHog', 1)

@@ -8,6 +8,7 @@ type StoredCasingsByNormalizedEmail = ReadonlyMap<string, ReadonlySet<string>>
 type OrganizationMemberSnapshot = {
     verifiedEmails: StoredCasingsByNormalizedEmail
     unverifiedEmails: ReadonlySet<string>
+    loadedAt: number
 }
 
 export type BlockedRecipient = { readonly address: string; readonly unverifiedMember: boolean }
@@ -18,9 +19,8 @@ export type RecipientCheck = { readonly blocked: BlockedRecipient[]; readonly de
 
 const MAX_SNAPSHOT_AGE_MS = 60_000
 const LOOKUP_TIMEOUT_MS = 3_000
-// The loader stamps a snapshot when its lookup ends, and the lookup deadline ends every lookup within
-// LOOKUP_TIMEOUT_MS of reading, so no cached snapshot is older than MAX_SNAPSHOT_AGE_MS.
 const REFRESH_AGE_MS = MAX_SNAPSHOT_AGE_MS - LOOKUP_TIMEOUT_MS
+const BLOCK_RECHECK_AGE_MS = 5_000
 const MAX_OPEN_LOOKUPS = 5
 const MAX_CACHED_TEAMS = 10_000
 
@@ -69,29 +69,36 @@ export class OrganizationMembersService {
         })
     }
 
-    // A cached snapshot can be up to a minute behind a member who just joined or verified, so a cached
-    // block is checked again fresh. A fresh block marks the cache stale, so the next cached check sees it.
     public async checkRecipients(
         teamId: number,
         recipients: string[],
         { fresh }: { fresh: boolean }
     ): Promise<RecipientCheck> {
         const id = String(teamId)
-        if (!fresh) {
-            const cached = await this.snapshots.get(id)
-            if (!cached) {
-                throw new Error('Could not check organization members')
+        if (fresh) {
+            const check = checkAgainst((await this.loadSnapshots([id]))[id], recipients)
+            if (check.blocked.length) {
+                this.snapshots.markForRefresh(id)
             }
-            const check = checkAgainst(cached, recipients)
-            if (!check.blocked.length) {
-                return check
-            }
+            return check
         }
-        const check = checkAgainst((await this.loadSnapshots([id]))[id], recipients)
-        if (!fresh || check.blocked.length) {
+        let snapshot = await this.cachedSnapshot(id)
+        if (
+            checkAgainst(snapshot, recipients).blocked.length &&
+            Date.now() - snapshot.loadedAt > BLOCK_RECHECK_AGE_MS
+        ) {
             this.snapshots.markForRefresh(id)
+            snapshot = await this.cachedSnapshot(id)
         }
-        return check
+        return checkAgainst(snapshot, recipients)
+    }
+
+    private async cachedSnapshot(id: string): Promise<OrganizationMemberSnapshot> {
+        const snapshot = await this.snapshots.get(id)
+        if (!snapshot) {
+            throw new Error('Could not check organization members')
+        }
+        return snapshot
     }
 
     private async loadSnapshots(teamIds: string[]): Promise<Record<string, OrganizationMemberSnapshot>> {
@@ -99,15 +106,17 @@ export class OrganizationMembersService {
         const members = new Map(
             teamIds.map((id) => [
                 id,
-                { verifiedEmails: new Map<string, Set<string>>(), unverifiedEmails: new Set<string>() },
+                {
+                    verifiedEmails: new Map<string, Set<string>>(),
+                    unverifiedEmails: new Set<string>(),
+                    loadedAt: Date.now(),
+                },
             ])
         )
         for (const row of rows) {
             const { verifiedEmails, unverifiedEmails } = members.get(String(row.team_id))!
             const key = normalizeEmail(row.email)
-            // Null marks an account from before email verification existed. Like the web app's login and
-            // email-change flows, only an explicit false counts as unverified.
-            if (row.is_email_verified !== false) {
+            if (row.is_email_verified === true) {
                 verifiedEmails.set(key, (verifiedEmails.get(key) ?? new Set()).add(row.email.trim()))
             } else {
                 unverifiedEmails.add(key)
