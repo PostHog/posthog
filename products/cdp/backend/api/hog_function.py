@@ -351,9 +351,9 @@ def _raise_secret_reentry(errors: Any) -> None:
         raise _secret_reentry_error(refused)
 
 
-def _draft_with_entered_secrets(draft: dict, entered: Optional[dict]) -> dict:
-    """The draft to publish, with the secrets the publisher entered again. Only secret inputs are
-    taken, so publishing can't change config the preview didn't show."""
+def _draft_with_entered_secrets(draft: dict, entered: Optional[dict], stored_secrets: dict) -> dict:
+    """The draft to publish, with the secrets the publisher entered again. Only secrets the draft already
+    holds are taken, so publishing can't change config or add a secret the preview didn't show."""
     if not entered:
         return dict(draft)
     secret_keys = {
@@ -361,13 +361,22 @@ def _draft_with_entered_secrets(draft: dict, entered: Optional[dict]) -> dict:
         for schema in draft.get("inputs_schema") or []
         if isinstance(schema, dict) and schema.get("secret") and "key" in schema
     }
-    not_secret = sorted(entered.keys() - secret_keys)
-    if not_secret:
-        raise exceptions.ValidationError(
-            {"inputs": f"Only the draft's secret inputs can be entered when publishing: {', '.join(not_secret)}."}
-        )
+    errors = {}
+    for key, item in entered.items():
+        if key not in secret_keys or not stored_secrets.get(key):
+            errors[key] = "Only a secret the draft already holds can be entered when publishing."
+        elif _is_blank_secret(item["value"]):
+            errors[key] = "Enter a value for the secret, and for every entry of a dictionary secret."
+    if errors:
+        raise exceptions.ValidationError({"inputs": errors})
     entered_inputs = {key: {"value": item["value"]} for key, item in entered.items()}
     return {**draft, "inputs": {**(draft.get("inputs") or {}), **entered_inputs}}
+
+
+def _is_blank_secret(value: str | dict[str, str]) -> bool:
+    if isinstance(value, dict):
+        return not value or any(not entry.strip() for entry in value.values())
+    return not value.strip()
 
 
 def _comparable_inputs(items: Any) -> dict:
@@ -1365,7 +1374,8 @@ class HogFunctionPublishRequestSerializer(serializers.Serializer):
         help_text=(
             "Secret inputs entered again, keyed by input key, sent with confirm=true. Use it when publishing "
             "returned code secret_reentry_required: the staged config sends a stored secret to a new address, "
-            "so the secret has to be entered to go live. Only the draft's secret inputs are accepted."
+            "so the secret has to be entered to go live. Only secrets the draft already holds are accepted, "
+            "each with a non-empty value."
         ),
     )
 
@@ -2135,7 +2145,9 @@ class HogFunctionViewSet(
             # recompiles bytecode — a stored blob is never trusted to be execution-ready.
             serializer = self.get_serializer(
                 locked,
-                data=_draft_with_entered_secrets(locked.draft, param_serializer.validated_data.get("inputs")),
+                data=_draft_with_entered_secrets(
+                    locked.draft, param_serializer.validated_data.get("inputs"), locked.encrypted_inputs
+                ),
                 partial=True,
                 context={**self.get_serializer_context(), "live_encrypted_inputs": live_secrets},
             )
