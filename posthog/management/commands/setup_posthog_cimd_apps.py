@@ -64,10 +64,6 @@ POSTHOG_CIMD_DOCUMENTS: list[dict[str, object]] = [
 ]
 
 
-# These apps handle an `insufficient_scope` challenge. Elsewhere, staff turn on step-up in the admin.
-STEP_UP_CLIENT_IDS = frozenset({HOG_CLIENT_ID})
-
-
 class Command(BaseCommand):
     help = "Create PostHog's own CIMD client applications, verified, for a local stack"
 
@@ -96,7 +92,8 @@ class Command(BaseCommand):
                 app.is_verified = True
                 changed.append("is_verified")
                 self.stdout.write(self.style.SUCCESS(f"Verified CIMD app '{app.name}'"))
-            if client_id in STEP_UP_CLIENT_IDS and not app.supports_step_up:
+            # hog handles an `insufficient_scope` challenge. Elsewhere, staff turn on step-up in the admin.
+            if client_id == HOG_CLIENT_ID and not app.supports_step_up:
                 app.supports_step_up = True
                 changed.append("supports_step_up")
                 # A token copies the flag when it's issued, so an earlier login keeps getting a 403 without the challenge.
