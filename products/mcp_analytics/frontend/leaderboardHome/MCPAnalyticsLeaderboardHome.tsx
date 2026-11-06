@@ -20,7 +20,7 @@ import { KpiTiles } from '../dashboard/KpiTiles'
 import { ModelBarChart } from '../dashboard/ModelBarChart'
 import { NotableSessionsTable } from '../dashboard/NotableSessionsTable'
 import { ToolErrorRateChart } from '../dashboard/ToolErrorRateChart'
-import { mcpDashboardOverviewLogic } from '../mcpDashboardOverviewLogic'
+import { mcpDashboardOverviewLogic, rankedToolsEmptyMessage, rankToolsByErrorRate } from '../mcpDashboardOverviewLogic'
 import { FacetShareCard } from './FacetShareCard'
 import { LabScoreboard } from './LabScoreboard'
 import { harnessErrorRateRows } from './leaderboardShares'
@@ -42,10 +42,10 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         activityRowsLoading,
         harnessRows,
         harnessRowsLoading,
-        kpis,
+        headlineKpis,
         kpisLoading,
-        users,
-        usersLoading,
+        periodTotals,
+        periodTotalsLoading,
         intentClusterCount,
         kpiIncompleteTail,
         activityIncompleteTail,
@@ -126,11 +126,11 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
 
             <Section title="Key metrics">
                 <KpiTiles
-                    kpis={kpis}
-                    users={users}
+                    kpis={headlineKpis}
+                    users={periodTotals.users}
                     intentClusterCount={intentClusterCount}
                     kpisLoading={kpisLoading}
-                    usersLoading={usersLoading}
+                    usersLoading={periodTotalsLoading}
                     showIntentClusters={!!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]}
                     theme={theme}
                     interval={interval}
@@ -252,7 +252,8 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 </TwoColumns>
                 <TwoColumns>
                     <ToolErrorRateChart
-                        rows={toolRows}
+                        rows={rankToolsByErrorRate(toolRows)}
+                        emptyMessage={rankedToolsEmptyMessage(toolRows)}
                         loading={toolRowsLoading}
                         theme={theme}
                         onToolClick={openToolReport}

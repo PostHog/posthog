@@ -57,6 +57,11 @@ class NetworkAccess(StrEnum):
     CUSTOM = "custom"
 
 
+class RunOptionsCaller(StrEnum):
+    SERVER = "server"
+    PUBLIC = "public"
+
+
 class ContractCheck(StrEnum):
     PUBLIC_OPTIONS = "public_options"
     RUNTIMES = "runtimes"
