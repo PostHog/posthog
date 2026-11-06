@@ -8,7 +8,9 @@ the CLI-facing upload contract and are surfaced verbatim by the views.
 
 import hashlib
 import datetime
+import itertools
 from collections import Counter
+from collections.abc import Iterator
 from typing import Any
 
 from django.conf import settings
@@ -630,6 +632,19 @@ def _head_uploaded_file(symbol_set: ErrorTrackingSymbolSet) -> dict[str, Any] | 
     return object_storage.head_object(file_key=symbol_set.storage_ptr)
 
 
+def _head_uploaded_files_in_batches(
+    symbol_sets: list[ErrorTrackingSymbolSet],
+) -> Iterator[tuple[ErrorTrackingSymbolSet, dict[str, Any] | None]]:
+    for batch in itertools.batched(symbol_sets, HEAD_OBJECT_PARALLELISM, strict=False):
+        s3_uploads = map_in_caller_context(
+            _head_uploaded_file,
+            batch,
+            max_workers=HEAD_OBJECT_PARALLELISM,
+            thread_name_prefix="symbol_set_head",
+        )
+        yield from zip(batch, s3_uploads, strict=True)
+
+
 def bulk_finish_upload(
     team: Team, content_hashes: dict[str, str], *, analytics_props: AnalyticsProps | None = None
 ) -> None:
@@ -652,13 +667,7 @@ def bulk_finish_upload(
                 detail=f"Unknown symbol set IDs: {', '.join(sorted(missing_symbol_set_ids))}",
             )
 
-        s3_uploads = map_in_caller_context(
-            _head_uploaded_file,
-            symbol_sets,
-            max_workers=HEAD_OBJECT_PARALLELISM,
-            thread_name_prefix="symbol_set_head",
-        )
-        for symbol_set, s3_upload in zip(symbol_sets, s3_uploads, strict=True):
+        for symbol_set, s3_upload in _head_uploaded_files_in_batches(symbol_sets):
             if s3_upload:
                 content_length = s3_upload.get("ContentLength")
                 if content_length:

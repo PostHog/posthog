@@ -2652,6 +2652,24 @@ class TestErrorTracking(APIBaseTest):
             ErrorTrackingSymbolSet.objects.filter(team=self.team).values_list("ref", "content_hash")
         ) == dict.fromkeys(surviving_refs)
 
+    @patch("posthog.storage.object_storage.head_object", return_value=None)
+    def test_bulk_finish_upload_sends_no_more_head_requests_after_a_failed_batch(
+        self, patched_head_object: Mock
+    ) -> None:
+        symbol_sets = ErrorTrackingSymbolSet.objects.bulk_create(
+            ErrorTrackingSymbolSet(team=self.team, ref=f"ref-{i}", storage_ptr=f"file/{i}")
+            for i in range(symbol_sets_logic.HEAD_OBJECT_PARALLELISM + 1)
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_finish_upload",
+            data={"content_hashes": {str(symbol_set.id): "hash" for symbol_set in symbol_sets}},
+            format="json",
+        )
+
+        assert response.json()["code"] == "file_not_found"
+        assert patched_head_object.call_count <= symbol_sets_logic.HEAD_OBJECT_PARALLELISM
+
     def _assert_logs_the_activity(self, error_tracking_issue_id: int, expected: list[dict]) -> None:
         activity_response = self._get_error_tracking_issue_activity(error_tracking_issue_id)
         activity: list[dict] = activity_response["results"]
