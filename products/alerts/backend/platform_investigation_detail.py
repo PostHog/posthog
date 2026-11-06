@@ -16,6 +16,8 @@ from products.alerts_platform.backend.facade.contracts import AlertDeliveryReque
 INVESTIGATION_REQUESTED_KEY = "investigation_alert_id"
 # The same, for a metrics alert, whose investigation is a few metric queries rather than an agent run.
 METRICS_INVESTIGATION_REQUESTED_KEY = "metrics_investigation_alert_id"
+# Marks a firing the episode's last verdict muted, so the history tells it from a snooze.
+SUPPRESSED_BY_AGENT_KEY = "notification_suppressed_by_agent"
 
 
 @frozen

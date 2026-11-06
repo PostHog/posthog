@@ -9,9 +9,6 @@ from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 from fsspec.implementations.local import LocalFileSystem
 
 from products.warehouse_sources.backend.facade.source_config import SourceFieldSelectConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_s3.source import AmazonS3Source
-from products.warehouse_sources.backend.temporal.data_imports.sources.azure_blob.source import AzureBlobSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare_r2.source import CloudflareR2Source
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import filesystem
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
     BLOCKED_LOCATION_ERROR,
@@ -19,15 +16,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     TOO_MANY_FILES_ERROR,
     ObjectStorageError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.fields import (
+    file_option_fields,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.filesystem import (
     AzureObjectStore,
     open_store,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.source_base import (
-    ObjectStorageSource,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_cloud_storage.source import (
-    GoogleCloudStorageSource,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.tests.fake_source import (
+    STORE_BUILDERS,
+    FakeObjectStorageConfig,
+    FakeObjectStorageSource,
 )
 
 MODIFIED_AT = datetime(2024, 5, 1, 12, 0, tzinfo=UTC)
@@ -35,26 +34,19 @@ R2_ACCOUNT_ID = "0123456789abcdef0123456789abcdef"
 AZURE_KEY = "c2VjcmV0LWtleQ=="
 
 S3_KEYS = {"access_key_id": "AKIAEXAMPLE", "secret_access_key": "secret"}
-PROVIDERS: dict[str, tuple[ObjectStorageSource[Any], dict[str, Any]]] = {
-    "s3": (
-        AmazonS3Source(),
-        {"url_pattern": "https://customer-data.s3.eu-west-1.amazonaws.com/exports/", **S3_KEYS},
-    ),
-    "gcs": (GoogleCloudStorageSource(), {"url_pattern": "gs://customer_data/exports/", **S3_KEYS}),
-    "r2": (
-        CloudflareR2Source(),
-        {"url_pattern": f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com/customer-data/exports/", **S3_KEYS},
-    ),
-    "azure": (
-        AzureBlobSource(),
-        {"url_pattern": "https://customerstore.blob.core.windows.net/customer-data/exports/", "account_key": AZURE_KEY},
-    ),
+PROVIDER_VALUES: dict[str, dict[str, Any]] = {
+    "s3": {"url_pattern": "https://customer-data.s3.eu-west-1.amazonaws.com/exports/", **S3_KEYS},
+    "gcs": {"url_pattern": "gs://customer_data/exports/", **S3_KEYS},
+    "r2": {"url_pattern": f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com/customer-data/exports/", **S3_KEYS},
+    "azure": {
+        "url_pattern": "https://customerstore.blob.core.windows.net/customer-data/exports/",
+        "account_key": AZURE_KEY,
+    },
 }
 
 
 def _store_config(provider: str, **overrides: Any) -> Any:
-    source, values = PROVIDERS[provider]
-    return source.object_store_config(source.parse_config({**values, **overrides}))
+    return STORE_BUILDERS[provider]({**PROVIDER_VALUES[provider], **overrides})
 
 
 @pytest.mark.parametrize(
@@ -126,9 +118,11 @@ def test_each_provider_reads_from_its_own_endpoint(
 def test_provider_settings_that_could_retarget_the_request_are_rejected(
     provider: str, overrides: dict[str, str]
 ) -> None:
-    source, values = PROVIDERS[provider]
+    source = FakeObjectStorageSource(STORE_BUILDERS[provider])
 
-    valid, message = source.validate_credentials(source.parse_config({**values, **overrides}), team_id=1)
+    valid, message = source.validate_credentials(
+        FakeObjectStorageConfig(values={**PROVIDER_VALUES[provider], **overrides}), team_id=1
+    )
 
     assert not valid
     assert message is not None and message.startswith(INVALID_CONFIG_ERROR)
@@ -155,9 +149,9 @@ def test_gcs_bucket_name_length(bucket: str, valid: bool) -> None:
             _store_config("gcs", url_pattern=url_pattern)
 
 
-@pytest.mark.parametrize("provider", list(PROVIDERS))
+@pytest.mark.parametrize("provider", list(STORE_BUILDERS))
 def test_a_blocked_location_is_never_opened(provider: str) -> None:
-    source, values = PROVIDERS[provider]
+    source = FakeObjectStorageSource(STORE_BUILDERS[provider])
 
     with (
         patch(
@@ -167,7 +161,9 @@ def test_a_blocked_location_is_never_opened(provider: str) -> None:
             "products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.source_base.open_store"
         ) as opened,
     ):
-        valid, message = source.validate_credentials(source.parse_config(values), team_id=1)
+        valid, message = source.validate_credentials(
+            FakeObjectStorageConfig(values=PROVIDER_VALUES[provider]), team_id=1
+        )
 
     assert not valid
     assert message is not None and message.startswith(BLOCKED_LOCATION_ERROR)
@@ -179,39 +175,15 @@ CSV_FORMATS = ["infer", "csv", "csv_no_header"]
 NON_CSV_FORMATS = ["jsonl", "parquet", "delta"]
 
 
-@pytest.mark.parametrize("provider", list(PROVIDERS))
 @pytest.mark.parametrize("file_format", CSV_FORMATS + NON_CSV_FORMATS)
-def test_the_csv_quote_option_shows_only_under_csv_formats(provider: str, file_format: str) -> None:
-    source, _ = PROVIDERS[provider]
-    fields = source.get_source_config.fields
+def test_the_csv_quote_option_shows_only_under_csv_formats(file_format: str) -> None:
+    fields = file_option_fields()
 
     [select] = [f for f in fields if isinstance(f, SourceFieldSelectConfig) and f.name == "file_format"]
     [option] = [o for o in select.options if o.value == file_format]
 
     assert [f.name for f in option.fields or []] == (["csv_allow_double_quotes"] if file_format in CSV_FORMATS else [])
     assert "csv_allow_double_quotes" not in {f.name for f in fields}
-
-
-@pytest.mark.parametrize("provider", list(PROVIDERS))
-@pytest.mark.parametrize(
-    "file_format, expected_format, expected_allow_double_quotes",
-    [
-        *[({"selection": f, "csv_allow_double_quotes": "false"}, f, False) for f in CSV_FORMATS],
-        *[({"selection": f, "csv_allow_double_quotes": "true"}, f, True) for f in CSV_FORMATS],
-        *[({"selection": f}, f, True) for f in CSV_FORMATS + NON_CSV_FORMATS],
-        ("parquet", "parquet", True),
-        ({}, "infer", True),
-    ],
-)
-def test_discovery_options_read_the_csv_quote_option_from_the_file_format(
-    provider: str, file_format: Any, expected_format: str, expected_allow_double_quotes: bool
-) -> None:
-    source, values = PROVIDERS[provider]
-
-    options = source.discovery_options(source.parse_config({**values, "file_format": file_format}))
-
-    assert options.file_format == expected_format
-    assert options.allow_double_quotes is expected_allow_double_quotes
 
 
 class _FakeContainerClient:

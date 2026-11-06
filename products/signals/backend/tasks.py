@@ -30,12 +30,18 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
+from products.signals.backend import report_assignments
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.billing import current_billing_period_bounds
+from products.signals.backend.claim_takeover_notification import (
+    send_claim_takeover_notification as send_claim_takeover_notification,
+)
 from products.signals.backend.first_report_notification_tasks import (
     dispatch_first_report_notification as dispatch_first_report_notification,
     sweep_first_report_notifications as sweep_first_report_notifications,
 )
+from products.signals.backend.github_writeback_tasks import post_source_issue_links as post_source_issue_links
+from products.signals.backend.handoff_claim_tasks import reconcile_task_handoff_claims as reconcile_task_handoff_claims
 from products.signals.backend.implementation_dispatch_tasks import (
     dispatch_implementation_replacement as dispatch_implementation_replacement,
     sweep_implementation_dispatches as sweep_implementation_dispatches,
@@ -119,10 +125,16 @@ def refresh_report_implementation_pr_cache(
     )
 
 
-@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@shared_task(bind=True, ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
 @with_team_scope()
-def write_pull_request_to_support_tickets(team_id: int, report_id: str, pr_url: str, task_id: str) -> None:
+def write_pull_request_to_support_tickets(self: Task, team_id: int, report_id: str, pr_url: str, task_id: str) -> None:
     if not task_can_write_support_ticket_update(team_id=team_id, report_id=report_id, task_id=task_id, pr_url=pr_url):
+        return
+    try:
+        pr = report_assignments._pull_request_details(team_id, pr_url, raise_on_error=True)
+    except GitHubRateLimitError as error:
+        raise self.retry(exc=error, countdown=max(error.retry_after or 0, 60))
+    if pr.state not in {SignalReportPullRequest.State.DRAFT, SignalReportPullRequest.State.OPEN}:
         return
     team = Team.objects.filter(id=team_id).first()
     if team is None:
@@ -149,6 +161,7 @@ def launch_inbox_onboarding_job(self: Task, team_id: int, job: str) -> None:
 
 
 @shared_task(
+    bind=True,
     ignore_result=True,
     queue=CeleryQueue.LONG_RUNNING.value,
     autoretry_for=(Exception,),
@@ -158,12 +171,12 @@ def launch_inbox_onboarding_job(self: Task, team_id: int, job: str) -> None:
     reject_on_worker_lost=True,
 )
 @with_team_scope(canonical=True)
-def settle_scout_spend(team_id: int, run_id: str) -> None:
+def settle_scout_spend(self: Task, team_id: int, run_id: str) -> None:
     from products.signals.backend.spend import (
         complete_task_spend,  # noqa: PLC0415 - keeps spend accounting off the task registration import path
     )
 
-    complete_task_spend(team_id=team_id, run_id=run_id)
+    complete_task_spend(team_id=team_id, run_id=run_id, final_attempt=self.request.retries >= self.max_retries)
 
 
 @shared_task(

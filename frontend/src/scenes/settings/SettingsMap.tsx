@@ -9,6 +9,7 @@ import { Releases } from '@posthog/products-error-tracking/frontend/scenes/Error
 import { SeverityRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/severity_rules/SeverityRules'
 import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
+import { McpCustomHarnessesSettings } from '@posthog/products-mcp-analytics/frontend/settings/McpCustomHarnessesSettings'
 import { McpStoreSettings } from '@posthog/products-mcp-store/frontend/McpStoreSettings'
 import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
 import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
@@ -196,6 +197,7 @@ import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectDetails } from './project/ProjectDetails'
 import { ProjectMove } from './project/ProjectMove'
 import { ProjectSecretAPIKeys } from './project/ProjectSecretAPIKeys'
+import { WorkloadTrustPolicies } from './project/WorkloadTrustPolicies'
 import { SettingSection } from './types'
 import { AllowImpersonation } from './user/AllowImpersonation'
 import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
@@ -674,6 +676,22 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'mcp-analytics',
+        title: 'MCP analytics',
+        group: 'Products',
+        settings: [
+            {
+                id: 'mcp-analytics-custom-harnesses',
+                title: 'Custom harnesses',
+                description:
+                    'Name your own MCP clients. Calls from a client whose name or User-Agent contains the text you enter show under your name instead of Other harnesses. Harness names are cached, so a change can take a few minutes to show.',
+                component: <McpCustomHarnessesSettings />,
+                keywords: ['mcp', 'harness', 'client', 'user agent', 'other harnesses'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'mcp-servers',
         title: 'MCP servers',
         group: 'AI',
@@ -904,6 +922,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'bug',
                     'exception',
                     'stack trace',
+                    'adaptive',
+                    'sampling',
                 ],
             },
             {
@@ -1658,7 +1678,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ),
                 description: 'Import historical support data from external tools into Support.',
                 component: <ZendeskImportSection />,
-                flag: 'PRODUCT_SUPPORT_IMPORT_TICKETS',
                 allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: ['import', 'zendesk', 'migrate', 'ticket', 'support', 'conversation'],
             },
@@ -1667,7 +1686,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Macros',
                 description: 'Save replies you send often and insert them from a ticket.',
                 component: <MacrosSection />,
-                flag: 'PRODUCT_SUPPORT_MACROS',
                 allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: ['macro', 'canned', 'reply', 'shortcut', 'template', 'support', 'conversation'],
             },
@@ -1684,7 +1702,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Automatically generate AI-powered reply suggestions grounded in your business knowledge sources.',
                 component: <AISection />,
-                flag: 'PRODUCT_SUPPORT_AI_SUGGESTION',
+                flag: 'PRODUCT_SUPPORT_AI_SUGGESTION_ORGS',
                 allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: ['ai', 'agent', 'suggestion', 'auto', 'reply', 'support', 'conversation', 'beta'],
             },
@@ -1704,7 +1722,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'When on, PostHog learns reusable answers from public human replies on resolved support tickets.',
                 component: <LearnFromSupportSetting />,
                 docsUrl: 'https://posthog.com/docs/business-knowledge/learn-from-support',
-                keywords: ['business', 'knowledge', 'support', 'learn', 'ticket', 'resolved'],
+                keywords: ['business', 'knowledge', 'support', 'learn', 'ticket', 'resolved', 'past', 'backfill'],
             },
             {
                 id: 'business-knowledge-github-repos',
@@ -2220,6 +2238,33 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/api',
                 component: <ProjectSecretAPIKeys />,
                 keywords: ['token', 'api key', 'authentication', 'secret'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-trusted-workloads',
+        title: 'Trusted workloads',
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        settings: [
+            {
+                id: 'environment-trusted-workloads',
+                title: 'Trusted workloads',
+                description:
+                    'Let workloads you trust, such as CI jobs, get short-lived tokens for this project without storing a secret.',
+                component: <WorkloadTrustPolicies />,
+                keywords: [
+                    'workload',
+                    'workload identity',
+                    'federation',
+                    'ci',
+                    'oidc',
+                    'github actions',
+                    'gitlab',
+                    'token',
+                    'trust policy',
+                    'deploy',
+                ],
             },
         ],
     },

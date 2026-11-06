@@ -75,15 +75,15 @@ from products.warehouse_sources.backend.facade.hooks import (
 # these indicate problems with the query or data, not transient issues
 NON_RETRYABLE_ERRORS = [
     "CHQueryErrorMemoryLimitExceeded",
+    "ClickHouseUserQueryError",
     "CannotCoerceColumnException",
     "InvalidNodeTypeException",
     "NodeNotFoundException",
     "EmptyHogQLResponseColumnsError",
     "DuplicateOutputColumnError",
     "UnstorableIntegerError",
+    "EndpointMaterializationTurnedOffError",
 ]
-
-CLICKHOUSE_RUN_WITHOUT_TRINO_SHADOW_PATCH = "data-modeling-clickhouse-run-without-trino-shadow"
 
 
 def _is_cancellation(error: BaseException) -> bool:
@@ -226,8 +226,6 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         managed_warehouse_only = inputs.managed_warehouse_only
 
         if not managed_warehouse_only:
-            # Histories that carry the patch marker replay with deprecate_patch; delete it once those runs drain.
-            temporalio.workflow.deprecate_patch(CLICKHOUSE_RUN_WITHOUT_TRINO_SHADOW_PATCH)
             managed_warehouse_enabled = False
         else:
             managed_warehouse_enabled = await temporalio.workflow.execute_activity(

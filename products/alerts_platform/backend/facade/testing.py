@@ -193,6 +193,12 @@ def set_check_status(configuration_id: UUID, check_status: str) -> None:
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(check_status=check_status)
 
 
+def set_check_interval_minutes(configuration_id: UUID, minutes: int) -> None:
+    """Set a configuration's cadence, as an edit to its source's row leaves it. The caller holds the team scope."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    PlatformAlertConfiguration.objects.filter(id=configuration_id).update(check_interval_minutes=minutes)
+
+
 def set_enabled(configuration_id: UUID, enabled: bool) -> None:
     """Switch a configuration on or off, as a broken check the platform owns leaves it.
 
@@ -243,6 +249,29 @@ def record_check(
                 source_detail=source_detail or {},
             )
         ],
+    )
+
+
+def released_hold(
+    configuration_id: UUID,
+    *,
+    team_id: int,
+    at: datetime,
+    action: HoldRelease,
+    released_by: HoldReleasedBy,
+) -> None:
+    """Write a hold on the check `record_check` wrote at `at`, already released."""
+    PlatformAlertDeliveryHold.objects.for_team(team_id).create(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        evaluation_key=f"slot:{at.isoformat()}",
+        reason="test",
+        request={},
+        held_at=at,
+        release_after=at,
+        released_at=at,
+        release_action=action,
+        released_by=released_by,
     )
 
 

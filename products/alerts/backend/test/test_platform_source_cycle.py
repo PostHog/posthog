@@ -31,14 +31,17 @@ from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY
 
 from products.alerts.backend.evaluation.contract import (
     CREATOR_LEFT_DISABLE_REASON,
+    AlertDataUnavailableError,
     AlertExtractionError,
     AlertOwnerAccessError,
 )
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
 from products.alerts.backend.judge.contract import (
+    LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     LLMDetectorMisconfiguredError,
+    LLMDetectorPausedError,
     LLMDetectorUnavailableError,
 )
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
@@ -47,7 +50,7 @@ from products.alerts.backend.models.investigation import InsightAlertInvestigati
 from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
 from products.alerts.backend.platform_investigation import claim_requested_investigations
-from products.alerts.backend.platform_investigation_detail import requested_investigation
+from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY, requested_investigation
 from products.alerts.backend.platform_source_cycle import (
     CAPACITY_REJECTED,
     CHART_RENDER_INFLIGHT_KEY,
@@ -135,6 +138,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         *,
         truncated: bool = False,
         breach: str = "above 100",
+        error: Exception | None = None,
     ) -> PlatformAlertOutcome:
         slot = slot_of(configuration.next_check_at, CUTOFF)
         expires_at = time.time() + 3600
@@ -151,7 +155,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             ),
             truncated=truncated,
         )
-        with patch(f"{_MODULE}.check_alert_per_series", return_value=evaluated):
+        with patch(f"{_MODULE}.check_alert_per_series", return_value=evaluated, side_effect=error):
             evaluation = evaluate_insight_check(
                 self.team.id, slot, CUTOFF, str(configuration.id), held_until=expires_at, evaluation_id="test"
             )
@@ -722,7 +726,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
     @parameterized.expand(
         [
             ("bad_query_shape", AlertExtractionError("bad query shape")),
-            ("ai_consent_withdrawn", LLMDetectorMisconfiguredError("consent withdrawn")),
+            ("ai_detector_without_a_creator", LLMDetectorMisconfiguredError("no creator")),
             ("owner_left_or_lost_access", AlertOwnerAccessError(CREATOR_LEFT_DISABLE_REASON)),
         ]
     )
@@ -740,6 +744,40 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         )
         # The error message names and links the insight, as a firing's does.
         assert set(outcome.failure.source_detail) == {"insight_name", "insight_short_id"}
+
+    def test_a_paused_ai_detector_errors_and_stays_enabled(self) -> None:
+        outcome, _ = self._evaluate(
+            self._copy(self._alert(detector_config={"type": "llm"})),
+            result=LLMDetectorPausedError("consent withdrawn"),
+            uses_llm_detector=True,
+        )
+
+        assert outcome is not None and outcome.failure is not None
+        assert (outcome.failure.kind, outcome.error_message, outcome.disable) == (
+            AlertEventKind.ERRORED,
+            "consent withdrawn",
+            False,
+        )
+        assert outcome.failure.source_detail["error_code"] == LLM_DETECTOR_PAUSED_ERROR_CODE
+
+    @parameterized.expand([("single", False), ("breakdown", True)])
+    def test_a_check_without_enough_data_errors_and_stays_enabled(self, _name: str, breakdown: bool) -> None:
+        error = AlertDataUnavailableError("not enough rows")
+        outcome: PlatformAlertOutcome | None
+        if breakdown:
+            grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("breakdown",))
+            outcome = self._evaluate_per_series(
+                self._copy(self._alert(), grouping=grouping.to_stored()), {}, error=error
+            )
+        else:
+            outcome, _ = self._evaluate(self._copy(self._alert()), result=error)
+
+        assert outcome is not None and outcome.failure is not None
+        assert (outcome.failure.kind, outcome.error_message, outcome.disable) == (
+            AlertEventKind.ERRORED,
+            "not enough rows",
+            False,
+        )
 
     @parameterized.expand([("retried", False), ("last_attempt", True)])
     def test_an_ai_detector_without_a_verdict_is_retried_and_only_its_last_attempt_records_an_error(
@@ -958,6 +996,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         assert requested_investigation(outcome) is None
         assert (outcome.groups[0].kind, outcome.groups[0].muted_notification) == (AlertEventKind.CHECK, "fire")
+        assert outcome.groups[0].source_detail.get(SUPPRESSED_BY_AGENT_KEY) is True
         assert self.deliveries == ()
 
     @parameterized.expand(

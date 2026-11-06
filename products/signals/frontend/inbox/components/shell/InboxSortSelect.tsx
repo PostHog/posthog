@@ -22,7 +22,7 @@ const ALL_SORT_OPTIONS = [...INBOX_SORT_OPTIONS, ...INBOX_MODEL_SORT_OPTIONS]
 
 /**
  * The report list's sort order. It orders the list rather than narrowing it, so it sits after the
- * filters. In a narrow container the trigger shows only the icon, and the tooltip names the order.
+ * filters. In a very narrow container the trigger shows only the icon, and the tooltip names the order.
  */
 export function InboxSortSelect(): JSX.Element {
     const { activeSortField, activeSortDirection, modelSortAvailable } = useValues(inboxFiltersLogic)
@@ -44,7 +44,7 @@ export function InboxSortSelect(): JSX.Element {
             options={modelSortAvailable ? SORT_SELECT_SECTIONS_WITH_MODEL : SORT_SELECT_OPTIONS}
             icon={<IconSort />}
             tooltip={`Sort: ${activeLabel}`}
-            renderButtonContent={(leaf) => <span className="hidden @2xl:inline">{leaf?.label ?? ''}</span>}
+            renderButtonContent={(leaf) => <span className="hidden @md:inline">{leaf?.label ?? ''}</span>}
             data-attr="inbox-sort"
         />
     )

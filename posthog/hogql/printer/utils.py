@@ -340,8 +340,9 @@ def prepare_ast_for_printing(
         )
 
         if get_instance_setting("HOGQL_PROJECTION_OPTIMIZATION_ENABLED"):
+            narrow_properties = dialect == "clickhouse" and get_instance_setting("HOGQL_PROPERTIES_NARROWING_ENABLED")
             with context.timings.measure("projection_pushdown"):
-                node = pushdown_projections(node, context, narrow_properties=dialect == "clickhouse")
+                node = pushdown_projections(node, context, narrow_properties=narrow_properties)
             # Pushdown mutates SelectQueryType.columns, staling cached CTE tables. Drop them so a
             # wrongly pruned column fails loudly at compile time instead of emitting broken SQL.
             context.cte_database_table_cache.clear()
@@ -394,10 +395,11 @@ def prepare_ast_for_printing(
             node = PropertySwapper(
                 timezone=context.property_swapper.timezone,
                 group_properties=context.property_swapper.group_properties,
-                event_properties={},
-                person_properties={},
+                event_properties=context.property_swapper.event_properties,
+                person_properties=context.property_swapper.person_properties,
                 context=context,
                 setTimeZones=False,
+                before_lazy_tables=True,
             ).visit(node)
 
         with context.timings.measure("resolve_lazy_tables"):

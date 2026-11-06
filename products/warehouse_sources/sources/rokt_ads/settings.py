@@ -25,6 +25,16 @@ ReportKind = Literal["campaigns", "transactions"]
 ACCOUNTS_ENDPOINT = "Accounts"
 
 
+class MetadataEndpoint(TypedDict):
+    # Query API dimensions whose distinct values are the path IDs of one metadata request.
+    discovery_dimensions: list[str]
+    # Path under BASE_URL, filled with the account ID and one discovered value per dimension.
+    path: str
+    # Response keys that hold the path IDs, in discovery_dimensions order.
+    id_fields: list[str]
+    primary_key: list[str]
+
+
 class ReportEndpoint(TypedDict):
     kind: ReportKind
     dimensions: list[str]
@@ -109,11 +119,39 @@ ENDPOINTS: dict[str, ReportEndpoint] = {
     },
 }
 
-SCHEMA_NAMES = [ACCOUNTS_ENDPOINT, *ENDPOINTS]
+# Rokt has no list endpoint for campaigns, creatives or audiences, so each metadata table discovers
+# its IDs from the Query API, then reads the legacy metadata endpoint once per ID. Rokt keeps these
+# endpoints because the Query API has no replacement for them.
+METADATA_ENDPOINTS: dict[str, MetadataEndpoint] = {
+    "CampaignMetadata": {
+        "discovery_dimensions": ["campaign_id"],
+        "path": "/metadata/accounts/{account_id}/campaigns/{0}",
+        "id_fields": ["campaignId"],
+        "primary_key": ["campaignId"],
+    },
+    "CreativeMetadata": {
+        "discovery_dimensions": ["campaign_id", "creative_id"],
+        "path": "/metadata/accounts/{account_id}/campaigns/{0}/creatives/{1}",
+        "id_fields": ["campaignId", "creativeId"],
+        "primary_key": ["campaignId", "creativeId"],
+    },
+    "AudienceMetadata": {
+        "discovery_dimensions": ["campaign_id", "audience_id"],
+        "path": "/metadata/accounts/{account_id}/campaigns/{0}/audiences/{1}",
+        "id_fields": ["campaignId", "audienceId"],
+        "primary_key": ["campaignId", "audienceId"],
+    },
+}
+
+# Discovery only needs a row per ID, so it asks for the first of these metrics the account grants.
+DISCOVERY_METRICS = ["impressions", "referrals", "gross_cost"]
+
+SCHEMA_NAMES = [ACCOUNTS_ENDPOINT, *ENDPOINTS, *METADATA_ENDPOINTS]
 
 PRIMARY_KEYS: dict[str, list[str]] = {
     ACCOUNTS_ENDPOINT: ["accountId"],
     **{name: endpoint["primary_key"] for name, endpoint in ENDPOINTS.items()},
+    **{name: endpoint["primary_key"] for name, endpoint in METADATA_ENDPOINTS.items()},
 }
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
@@ -135,4 +173,7 @@ DESCRIPTIONS = {
     "AudiencePerformance": "Daily advertiser metrics per targeted audience.",
     "CampaignDemographics": "Daily advertiser metrics split by age range, gender and device.",
     "TransactionPerformance": "Daily partner transaction and impression metrics.",
+    "CampaignMetadata": "Type, objective, country and status of each campaign.",
+    "CreativeMetadata": "Ad text, response options and status of each creative.",
+    "AudienceMetadata": "Age range, gender and device targeting of each audience.",
 }

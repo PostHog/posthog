@@ -82,7 +82,6 @@ class TestQualityGateBranching:
             stack.enter_context(patch.object(temporalio.workflow, "info", return_value=info))
             stack.enter_context(patch.object(temporalio.workflow, "now", return_value=dt.datetime(2026, 8, 1)))
             stack.enter_context(patch.object(temporalio.workflow, "logger"))
-            stack.enter_context(patch.object(temporalio.workflow, "deprecate_patch"))
             stack.enter_context(patch(f"{WORKFLOW_MODULE}.capture_exception"))
             for metric in (
                 "get_node_finished_metric",
@@ -241,6 +240,10 @@ class TestQualityGateBranching:
         started = [call.args[0].__name__ for call in execute_activity.await_args_list]
         assert "publish_queryable_table_activity" in started
         assert "succeed_materialization_activity" in started
+        materialize_call = next(
+            call for call in execute_activity.await_args_list if call.args[0].__name__ == "materialize_view_activity"
+        )
+        assert "ClickHouseUserQueryError" in materialize_call.kwargs["retry_policy"].non_retryable_error_types
 
     async def test_an_audit_that_reached_no_verdict_leaves_the_node_to_the_sweep(self):
         # Returning zero here would publish and also claim the node was audited, so the DAG's

@@ -16,8 +16,11 @@ import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { parseBatch, readTeamIdHeader } from './message-parsing'
-import { counterTeamIdHeaderMismatch, counterTeamIdSource } from './metrics'
+import { counterParseError, counterTeamIdHeaderMismatch, counterTeamIdSource } from './metrics'
 import { PUSH_NOTIFICATION_OPENED_EVENT, buildPushOpenedMetric } from './push-open-tracking'
+
+const isEventObject = (value: unknown): value is RawClickHouseEvent =>
+    typeof value === 'object' && value !== null && !Array.isArray(value)
 
 export class CdpEventsConsumer<
     TConfig extends PluginsServerConfig = PluginsServerConfig,
@@ -199,7 +202,13 @@ export class CdpEventsConsumer<
         return await parseBatch(messages, {
             errorLog: 'Error parsing message',
             parse: (message) => {
-                const parseEvent = (): RawClickHouseEvent => parseJSON(message.value!.toString()) as RawClickHouseEvent
+                const parseEvent = (): RawClickHouseEvent => {
+                    const clickHouseEvent = parseJSON(message.value!.toString())
+                    if (!isEventObject(clickHouseEvent)) {
+                        throw new Error('not_an_event')
+                    }
+                    return clickHouseEvent
+                }
                 const buildGlobals = (team: Team, clickHouseEvent: RawClickHouseEvent) => {
                     const globals = convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL)
                     // The one place holding both. A failure found later in the pipeline carries
@@ -237,6 +246,7 @@ export class CdpEventsConsumer<
                 }
             },
             loadTeam: (teamId) => this.loadTeamWithHogFunctionsOrFlows(teamId, this.hogTypes),
+            onInvalidTeamId: () => counterParseError.labels({ error: 'invalid_team_id' }).inc(),
             // Parked rather than dropped: a schema we cannot read today is often one a later
             // version can.
             onError: park('parse'),

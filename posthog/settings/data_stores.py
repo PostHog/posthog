@@ -771,9 +771,23 @@ CACHES["task_artifact_preview"] = {
     "LOCATION": REDIS_URL,
 }
 
+# The signup throttle reads its per-IP history, changes it and writes it back under a lock. A lagging
+# replica would hand it a stale history, and the write-back would erase another request's reservation.
+CACHES["signup_throttle"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Metrics dashboard tiles wait for one loader to write the variable options and hold a lock while it runs.
 # A replica that lags would hide the result and the lock, so another tile would run the same query again.
 CACHES["metrics_variable_options"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
+# Warehouse destination connect tokens are polled right after they are written, and completion claims a
+# token with SETNX. A lagging replica would report a fresh token as expired, so read from the writer.
+CACHES["warehouse_destination_connect"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,
 }
@@ -845,6 +859,8 @@ if TEST:
     CACHES["ingress_dedup"] = CACHES["default"]
     CACHES["task_artifact_preview"] = CACHES["default"]
     CACHES["metrics_variable_options"] = CACHES["default"]
+    CACHES["warehouse_destination_connect"] = CACHES["default"]
+    CACHES["signup_throttle"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)
@@ -860,6 +876,12 @@ PATCH_EVENT_LIST_MAX_OFFSET_PER_TEAM: set[int] = get_from_env(
 )
 
 CLICKHOUSE_EVENT_LIST_MAX_THREADS: int = get_from_env("CLICKHOUSE_EVENT_LIST_MAX_THREADS", 50, type_cast=int)
+
+CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS: int | None = get_from_env(
+    "CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS", optional=True, type_cast=int
+)
+if CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS is not None and CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS <= 0:
+    raise ImproperlyConfigured("CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS must be a positive integer.")
 
 WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL: str = os.getenv("WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL", "")
 WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL: str = os.getenv(

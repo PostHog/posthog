@@ -52,6 +52,7 @@ export const ToolDefinitionSchema = z
         feature_entitlement: z.string().optional(),
         /** One-line selection hint surfaced in the system prompt's query tool catalog. */
         system_prompt_hint: z.string().optional(),
+        search_keywords: z.array(z.string()).optional(),
         /**
          * When true, the tool is exposed even when the client passes a `features`
          * or `tools` allowlist that wouldn't otherwise match. Reserved for
@@ -391,6 +392,7 @@ export interface ScopeGatedTool {
     name: string
     title: string
     description: string
+    searchKeywords?: string[]
     /** Scopes the tool requires that the current API key is missing. */
     missingScopes: string[]
     requiredScopes: readonly string[]
@@ -426,6 +428,7 @@ export function getScopeGatedTools(scopes: string[], options?: ToolFilterOptions
             name,
             title: definition.title,
             description: definition.description,
+            searchKeywords: definition.search_keywords,
             missingScopes: required.filter((scope) => !hasScope(scopes, scope)),
             requiredScopes: required,
         })

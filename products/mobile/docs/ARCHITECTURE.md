@@ -91,6 +91,9 @@ products/mobile/
       settings/           SettingsScreen, ProjectSwitcher, PushStatusGroup, SignOutSection, appInfo,
                           EnvironmentGroup (internal builds), LegalGroup, SettingsLinkRow, SettingsRadioRow,
                           DefaultPageGroup, defaultPageStore (the tab the app opens on)
+      widgets/            chartWidgetSync (session copy and pin catalog for the Chart home screen widget),
+                          chartWidgetCatalog (buildCatalog), useChartWidgetSync, useWidgetOpenedEvent;
+                          see modules/chart-widget/README.md
     lib/                  analytics, posthogClient, dates, errors, haptics, markdownIt (the shared safe parser),
                           deepLinkKind (link kind for analytics, webLinkTarget for issue and recording links),
                           richText, useAsyncAction, useNow,
@@ -150,7 +153,7 @@ Hand-off and decision actions resolve on failure and surface the error through
 | Push               | `POST /api/users/@me/push_tokens/`                                                                                               | unavailable on web and Expo Go                                                            |
 
 Details per domain: [DATA.md](DATA.md), [HANDOFF.md](HANDOFF.md), [CHAT.md](CHAT.md),
-[AUTH.md](AUTH.md), [PUSH.md](PUSH.md).
+[PUSH.md](PUSH.md).
 
 ## Hook surface
 

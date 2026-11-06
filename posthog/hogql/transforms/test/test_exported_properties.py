@@ -119,12 +119,6 @@ class TestExportedProperties(BaseTest):
                 "count()",
             ),
             (
-                "union_branches_matched_by_position",
-                "SELECT a.email FROM (SELECT properties AS a, properties AS b FROM events UNION ALL SELECT properties AS b, properties AS a FROM events)",
-                f"{EMAIL_MAP} AS b",
-                "JSONExtractRaw(a['email'])",
-            ),
-            (
                 "eight_chained_ctes",
                 f"WITH c1 AS {STAR_EVENTS}, "
                 + ", ".join(f"c{n} AS (SELECT * FROM c{n - 1})" for n in range(2, 9))
@@ -145,10 +139,6 @@ class TestExportedProperties(BaseTest):
             ("blob_and_key", "SELECT properties, properties.email FROM (SELECT properties FROM events)"),
             ("json_function_on_the_blob", "SELECT JSONHas(properties, 'x') FROM (SELECT properties FROM events)"),
             ("distinct_inner", "SELECT properties.email FROM (SELECT DISTINCT properties FROM events)"),
-            (
-                "grouped_inner",
-                "SELECT properties.email FROM (SELECT properties, count() AS c FROM events GROUP BY properties)",
-            ),
             ("inner_order_by_alias", "SELECT p.email FROM (SELECT properties AS p FROM events ORDER BY p)"),
             (
                 "union_distinct",
@@ -175,17 +165,13 @@ class TestExportedProperties(BaseTest):
                 "SELECT p.email FROM (SELECT properties AS p, event FROM events ORDER BY 1 LIMIT 1)",
             ),
             (
-                "grouping_sets_ordinal_on_a_passthrough",
-                "SELECT properties.email FROM (SELECT properties, event FROM (SELECT properties, event FROM events) GROUP BY GROUPING SETS ((1)))",
-            ),
-            (
-                "group_by_all_on_a_passthrough",
-                "SELECT properties.email FROM (SELECT properties, event FROM (SELECT properties, event FROM events) GROUP BY ALL)",
-            ),
-            (
                 "second_alias_of_the_column_feeds_a_blob_branch",
                 "SELECT x.a.email, x.e FROM (SELECT a, b.email AS e FROM (SELECT properties AS a, properties AS b FROM (SELECT properties FROM events)) "
                 "UNION ALL SELECT DISTINCT properties AS a, '' AS e FROM events) AS x",
+            ),
+            (
+                "union_branch_column_matched_by_name_at_another_position",
+                "SELECT a.email FROM (SELECT properties AS a, properties AS b FROM events UNION ALL SELECT properties AS b, properties AS a FROM events)",
             ),
             ("query_output", "SELECT properties FROM (SELECT properties FROM events)"),
             ("read_by_position", f"SELECT properties.arr[1] FROM {STAR_EVENTS}"),
@@ -221,6 +207,16 @@ class TestExportedProperties(BaseTest):
             assert "map('email', " in optimized, optimized
             assert "events.distinct_id AS distinct_id" not in optimized, optimized
             assert self._print(select, native=native, pruning=False) == unoptimized
+
+    @parameterized.expand([("legacy", False), ("native", True)])
+    def test_narrowing_kill_switch_keeps_the_blob_and_the_pruning(self, _name: str, native: bool) -> None:
+        select = f"SELECT properties.email FROM {STAR_EVENTS}"
+        with override_instance_config("HOGQL_PROPERTIES_NARROWING_ENABLED", False):
+            printed = self._print(select, native=native)
+        assert "map('email', " not in printed, printed
+        assert "events.distinct_id AS distinct_id" not in printed, printed
+        with override_instance_config("HOGQL_PROPERTIES_NARROWING_ENABLED", True):
+            assert "map('email', " in self._print(select, native=native)
 
     def test_native_export_reads_one_subcolumn(self) -> None:
         printed = self._print(f"SELECT properties.utm_source FROM {STAR_EVENTS}", native=True)

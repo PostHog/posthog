@@ -68,6 +68,9 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         self.recursive_cte_exprs: set[int] = set()
         self.converged: bool = False
         self.union_of: dict[int, ast.SelectSetQuery] = {}
+        # Column names and first positions by select, dropped when the select's columns are pruned
+        self._names_by_select: dict[int, list[str | None]] = {}
+        self._positions_by_select: dict[int, dict[str, int]] = {}
         # Branches of a set query that compares rows (anything but UNION ALL)
         self.strict_set_branches: set[int] = set()
         # Select leaves of a set query one of whose leaves keeps every column, so the branches keep lining up
@@ -210,24 +213,45 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
     def _select_names(self, node: SubqueryNode) -> list[str | None]:
         if isinstance(node, ast.SelectSetQuery):
             return self._select_names(node.initial_select_query)
-        return [self._get_column_name(expr) for expr in node.select]
+        names = self._names_by_select.get(id(node))
+        if names is None:
+            names = [self._get_column_name(expr) for expr in node.select]
+            self._names_by_select[id(node)] = names
+        return names
+
+    def select_position(self, node: SubqueryNode, name: str) -> int | None:
+        """The position of the first select column called `name`, the one a set operation pairs with a sibling's"""
+        if isinstance(node, ast.SelectSetQuery):
+            return self.select_position(node.initial_select_query, name)
+        positions = self._positions_by_select.get(id(node))
+        if positions is None:
+            positions = {}
+            for position, column in enumerate(self._select_names(node)):
+                if column is not None and column not in positions:
+                    positions[column] = position
+            self._positions_by_select[id(node)] = positions
+        return positions.get(name)
 
     def branch_column_name(self, set_query: ast.SelectSetQuery, branch: SubqueryNode, name: str) -> str | None:
-        """The branch column that feeds the set query's column `name`. A set operation matches columns by position
-        and the first branch names the result; the resolver already reorders BY NAME branches to line up."""
-        set_names = self._select_names(set_query)
-        if name not in set_names:
+        """The branch column that feeds the set query's column `name`. The first branch names the result. A branch
+        with a column of that name supplies it from that column: the branches of a `SELECT *` union over tables whose
+        columns differ in order or count only line up once each keeps the same names, and queries rely on that. A
+        branch without the name supplies the column at the same position, as the set operation itself does."""
+        position = self.select_position(set_query, name)
+        if position is None:
             return None
-        position = set_names.index(name)
+        if self.select_position(branch, name) is not None:
+            return name
         branch_names = self._select_names(branch)
         return branch_names[position] if position < len(branch_names) else None
 
     def set_column_name(self, set_query: ast.SelectSetQuery, branch: SubqueryNode, branch_name: str) -> str | None:
-        """The set query's column that the branch column `branch_name` feeds"""
-        branch_names = self._select_names(branch)
-        if branch_name not in branch_names:
+        """The set query's column that the branch column `branch_name` feeds, the inverse of `branch_column_name`"""
+        position = self.select_position(branch, branch_name)
+        if position is None:
             return None
-        position = branch_names.index(branch_name)
+        if self.select_position(set_query, branch_name) is not None:
+            return branch_name
         set_names = self._select_names(set_query)
         return set_names[position] if position < len(set_names) else None
 
@@ -312,21 +336,21 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
             return
 
         for col_name in demanded_from_this:
-            for expr in node.select:
-                if self._get_column_name(expr) != col_name:
-                    continue
-                passthrough = self._passthrough_source(expr)
-                if passthrough is None:
-                    self.visit(expr)
-                    break
-                child, child_name = passthrough
-                self._demand_passthrough(node, expr, passthrough)
-                parent_reads = self.reads.get((id(node), col_name))
-                if parent_reads is not None:
-                    child_reads = self.reads[(id(child), child_name)]
-                    child_reads.whole = child_reads.whole or parent_reads.whole
-                    child_reads.keys.update(parent_reads.keys)
-                break
+            position = self.select_position(node, col_name)
+            if position is None:
+                continue
+            expr = node.select[position]
+            passthrough = self._passthrough_source(expr)
+            if passthrough is None:
+                self.visit(expr)
+                continue
+            child, child_name = passthrough
+            self._demand_passthrough(node, expr, passthrough)
+            parent_reads = self.reads.get((id(node), col_name))
+            if parent_reads is not None:
+                child_reads = self.reads[(id(child), child_name)]
+                child_reads.whole = child_reads.whole or parent_reads.whole
+                child_reads.keys.update(parent_reads.keys)
 
     def _keep_unread_subquery_rows(self, node: ast.SelectQuery) -> None:
         if self.keeps_all_columns(node) or id(node) in self.union_of:
@@ -379,12 +403,8 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
             return False
 
     def _propagate_demands_to_union_branches(self, node: ast.SelectSetQuery) -> None:
-        """
-        Propagate demands from parent to all UNION/INTERSECT/EXCEPT branches.
-
-        Since all branches must have identical column structure, we propagate
-        the same demands to all of them.
-        """
+        """Propagate demands from parent to all UNION/INTERSECT/EXCEPT branches, each to the branch column that feeds
+        the demanded column (`branch_column_name`), so every branch keeps the same columns."""
         demanded_from_this = self.demands.get(id(node))
         if not demanded_from_this:
             return
@@ -534,26 +554,25 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
             return
 
         pruned_select = []
+        dropped_names: set[str] = set()
         for expr in node.select:
             if not self._is_from_asterisk(expr):
                 # Keep explicitly written columns
                 pruned_select.append(expr)
-            else:
-                # Keep demanded asterisk columns
-                col_name = self._get_column_name(expr)
-                if col_name and col_name in demanded:
-                    pruned_select.append(expr)
+                continue
+            # Keep demanded asterisk columns
+            col_name = self._get_column_name(expr)
+            if col_name and col_name in demanded:
+                pruned_select.append(expr)
+            elif col_name:
+                dropped_names.add(col_name)
 
         if pruned_select:
-            # Collect the names of asterisk columns we're about to drop
-            dropped_names: set[str] = set()
-            for expr in node.select:
-                if self._is_from_asterisk(expr) and expr not in pruned_select:
-                    col_name = self._get_column_name(expr)
-                    if col_name:
-                        dropped_names.add(col_name)
-
+            # A name a kept column still exports stays a column of the select's type
+            dropped_names -= {self._get_column_name(expr) for expr in pruned_select}
             node.select = pruned_select
+            self._names_by_select.pop(id(node), None)
+            self._positions_by_select.pop(id(node), None)
             # Remove dropped asterisk columns from SelectQueryType.columns.
             # Without this, stale LazyTableType references on pruned columns
             # leak through type traversal (e.g. CTETableType → SelectQueryType.columns)
