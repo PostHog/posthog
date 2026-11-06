@@ -1,9 +1,6 @@
-"""Which bot-authored PRs a repository's policy admits to review.
+"""Which bot-authored PRs a repository's `bot_authors` policy admits, from facts GitHub attests.
 
-Stamphog refuses bot authors. A repository can name a bot in the `bot_authors` list of its
-default-branch `.stamphog/policy.yml`, and stamphog then reviews that bot's PRs on one condition,
-which the engine enforces: CI must attest every changed file. This module decides only who the
-author is and whether the commits are the bot's own, from facts GitHub attests.
+The engine enforces the admission's condition, that CI attests every changed file.
 """
 
 from typing import Any

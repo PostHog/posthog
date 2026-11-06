@@ -323,8 +323,7 @@ def _bot_author_admission(
 
     The delivery's sender must be the bot too, so the push being reviewed is the bot's own. A push by
     anyone else to the bot's PR revokes the admission for good, also while the PR is a draft or the
-    repo is disabled. GitHub attests every fact this reads: the author's login and id, the head
-    repository and branch, the sender, and each commit's author, committer and signature.
+    repo is disabled.
     """
     if action not in _BOT_AUTHOR_REVIEW_ACTIONS:
         return None
@@ -421,10 +420,9 @@ def _revoke_bot_admission(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -
     """Hand an admitted bot's PR to people for good, because someone else pushed to it.
 
     A later push by the bot need not remove the other commit, so no later delivery restores the
-    admission. The row is created when no delivery has stored it yet. Every live run the bot's
-    admission started is superseded, and every standing approval is dismissed, whatever head it is
-    at, because a late delivery can revoke after a newer bot push was reviewed. Raises when a
-    dismissal fails, so the delivery retries.
+    admission. Every standing approval is dismissed, whatever head it is at, because a late delivery
+    can revoke after a newer bot push was reviewed. Raises when a dismissal fails, so the delivery
+    retries.
     """
     with transaction.atomic(using=router.db_for_write(PullRequest)):
         pr_obj = _upsert_pull_request(repo_config, pr)

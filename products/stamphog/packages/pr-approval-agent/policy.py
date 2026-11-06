@@ -150,10 +150,8 @@ class Attestation:
 class BotAuthor:
     """A bot whose PRs stamphog reviews, on condition that CI proves every file the PR changes.
 
-    GitHub attests `login` and `id` on the PR. The hosted server admits a PR only when the bot opened
-    it on a same-repository branch under `branch_prefix`, every commit is the bot's own GitHub-signed
-    commit, and the delivery came from the bot's own push. `requires` names that condition, so a
-    future condition is a policy change a reader can see.
+    GitHub attests `login` and `id` on the PR. The hosted server checks the branch, the pushers and
+    the commits before it admits a PR.
     """
 
     login: str

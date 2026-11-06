@@ -487,7 +487,7 @@ def _fetch_review_context(input: StamphogReviewInput) -> dict:
 
     client = StamphogGitHubClient(repo_config.installation_id)
     # Bot runs skip the author's history, because familiarity from a bot's merged PRs would read to the
-    # engine as human trust. Without facts the engine omits the familiarity section and the review proceeds normally.
+    # engine as human trust.
     is_bot_review = bool((run.output or {}).get("inbox_review") or (run.output or {}).get("bot_author_review"))
     timer = _StepTimer()
     started = time.monotonic()
@@ -877,7 +877,7 @@ def _review_invocation(run: ReviewRun, merge_base_sha: str | None) -> ReviewerIn
         # The engine's carve-out for bot-authored drafts keys off this flag alone. It comes only
         # from the run's inbox provenance, stamped after the PR is linked to a signals run.
         self_driving_review=bool(output.get("inbox_review")),
-        # Stamped only after the webhook matched the author, the sender and the commits to the policy.
+        # Stamped only by the webhook's bot admission.
         bot_author_review=bool(output.get("bot_author_review")),
         # Read as a description rather than a permission: the reviewer is told why it was asked,
         # and decides for itself what that means for this diff.
