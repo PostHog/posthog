@@ -4,7 +4,7 @@
   "private": true,
   "description": "Monorepo for the PostHog desktop app and agent framework",
   "engines": {
-    "node": ">=22.19.0"
+    "node": ">=24.19.0"
   },
   "packageManager": "pnpm@11.28.5",
   "scripts": {

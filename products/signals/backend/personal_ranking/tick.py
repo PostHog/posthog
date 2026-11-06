@@ -8,6 +8,7 @@ compares the input hash first: a match records `checked_at` on the latest row an
 calls the model spends the tick's daily limit and then the shared daily limit of the region.
 """
 
+import math
 import uuid
 import asyncio
 import datetime
@@ -103,8 +104,11 @@ _PAIR_TIMEOUT = datetime.timedelta(minutes=4)
 _PAIR_HEARTBEAT_TIMEOUT = datetime.timedelta(minutes=1)
 # No retry: an attempt can have called the model, and the next tick picks the pair again.
 _PAIR_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
-# The tick starts no wave after this share of its interval, so the last wave ends before the next tick.
+# The tick starts no pair after this share of its interval, so the last pairs end before the next tick.
 _TIME_BUDGET_SHARE = 0.6
+# Ticks recorded before this marker ran pairs in waves and replay the wave loop.
+_SLIDING_WINDOW_PATCH = "personal-ranking-tick-sliding-window-2026-11"
+_TIMED_STATUSES: tuple[PairStatus, ...] = ("unchanged", "built")
 
 
 @frozen
@@ -180,6 +184,43 @@ class PersonalRankingTickResult:
     enrolled_organizations: int = 0
     enrolled_teams: int = 0
     duration_seconds: float = 0.0
+    # Seconds from the start of a pair to its result, by pair status. Empty for a tick that ran in waves.
+    pair_seconds_p50: dict[str, float] = dataclasses.field(default_factory=dict)
+    pair_seconds_p95: dict[str, float] = dataclasses.field(default_factory=dict)
+
+
+def _percentile(values: list[float], share: float) -> float:
+    ordered = sorted(values)
+    return ordered[max(0, math.ceil(share * len(ordered)) - 1)]
+
+
+@dataclasses.dataclass(frozen=False)
+class _TickTally:
+    statuses: dict[str, int] = dataclasses.field(default_factory=dict)
+    changed_parts: dict[str, int] = dataclasses.field(default_factory=dict)
+    pair_seconds: dict[str, list[float]] = dataclasses.field(default_factory=dict)
+    errored: int = 0
+    # Model calls of this tick and the calls among them that failed or raised, for the circuit breaker.
+    calls: int = 0
+    failures: int = 0
+
+    def add(self, outcome: PersonalRankingPairResult | BaseException) -> str | None:
+        """Counts one pair result, and returns the stop reason of a limit that refused it."""
+        if isinstance(outcome, BaseException):
+            # The attempt can have called the model, so it counts as a failed call.
+            self.errored += 1
+            self.calls += 1
+            self.failures += 1
+            return None
+        self.statuses[outcome.status] = self.statuses.get(outcome.status, 0) + 1
+        for part in outcome.changed_parts:
+            self.changed_parts[part] = self.changed_parts.get(part, 0) + 1
+        self.calls += outcome.model_called
+        self.failures += outcome.status == "failed"
+        return _LIMIT_STOPS.get(outcome.status)
+
+    def error_rate_reached(self, max_error_rate: float) -> bool:
+        return self.calls >= _MIN_ERROR_RATE_SAMPLE and self.failures >= max_error_rate * self.calls
 
 
 def _in_rollout(percentage: float, organization_id: uuid.UUID) -> bool:
@@ -408,6 +449,8 @@ def capture_tick(result: PersonalRankingTickResult) -> None:
         "enrolled_organizations": result.enrolled_organizations,
         "enrolled_teams": result.enrolled_teams,
         "duration_seconds": result.duration_seconds,
+        **{f"{status}_pair_seconds_p50": result.pair_seconds_p50.get(status) for status in _TIMED_STATUSES},
+        **{f"{status}_pair_seconds_p95": result.pair_seconds_p95.get(status) for status in _TIMED_STATUSES},
     }
     logger.info("personal_inbox_ranking_tick_finished", **properties)
     ph_background_capture()(distinct_id=PIPELINE_DISTINCT_ID, event=TICK_EVENT, properties=properties)
@@ -450,19 +493,94 @@ class PersonalRankingTickWorkflow:
             return PersonalRankingTickResult(stop_reason=plan.stop_reason)
 
         deadline = started + datetime.timedelta(seconds=plan.time_budget_seconds)
-        statuses: dict[str, int] = {}
-        changed_parts: dict[str, int] = {}
-        errored = 0
-        # Model calls of this tick and the calls among them that failed or raised, for the circuit breaker.
-        calls = 0
-        failures = 0
+        tally = _TickTally()
+        if workflow.patched(_SLIDING_WINDOW_PATCH):
+            picked, stop_reason = await self._run_sliding_window(plan, deadline, tally)
+        else:
+            picked, stop_reason = await self._run_waves(plan, deadline, tally)
+
+        result = PersonalRankingTickResult(
+            enabled=True,
+            due_pairs=plan.due_pairs,
+            due_without_list=plan.due_without_list,
+            picked=picked,
+            statuses=tally.statuses,
+            changed_parts=tally.changed_parts,
+            errored=tally.errored,
+            stop_reason=stop_reason,
+            oldest_due_hours=plan.oldest_due_hours,
+            fresh_share=plan.fresh_share,
+            qualifying_organizations=plan.qualifying_organizations,
+            enrolled_organizations=plan.enrolled_organizations,
+            enrolled_teams=plan.enrolled_teams,
+            duration_seconds=(workflow.now() - started).total_seconds(),
+            pair_seconds_p50={status: _percentile(values, 0.5) for status, values in tally.pair_seconds.items()},
+            pair_seconds_p95={status: _percentile(values, 0.95) for status, values in tally.pair_seconds.items()},
+        )
+        await workflow.execute_activity(
+            capture_personal_ranking_tick_activity,
+            result,
+            start_to_close_timeout=datetime.timedelta(minutes=1),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+        return result
+
+    @staticmethod
+    def _start_pair(pair: TickPair) -> workflow.ActivityHandle[PersonalRankingPairResult]:
+        return workflow.start_activity(
+            build_personal_ranking_pair_activity,
+            pair,
+            start_to_close_timeout=_PAIR_TIMEOUT,
+            heartbeat_timeout=_PAIR_HEARTBEAT_TIMEOUT,
+            retry_policy=_PAIR_RETRY_POLICY,
+        )
+
+    async def _run_sliding_window(
+        self, plan: PersonalRankingTickPlan, deadline: datetime.datetime, tally: _TickTally
+    ) -> tuple[int, str | None]:
+        """Starts the next pair as soon as any running pair finishes, so `max_concurrency` pairs run at once.
+
+        A stop starts no further pair, and the pairs already running finish. The pairs never started stay due,
+        so the next tick picks them.
+        """
+        concurrency = max(1, plan.max_concurrency)
+        running: dict[workflow.ActivityHandle[PersonalRankingPairResult], datetime.datetime] = {}
+        stop_reason: str | None = None
+        index = 0
+        while True:
+            while stop_reason is None and index < len(plan.pairs) and len(running) < concurrency:
+                if tally.error_rate_reached(plan.max_error_rate):
+                    stop_reason = STOP_ERROR_RATE
+                elif workflow.now() >= deadline:
+                    stop_reason = STOP_TIME_BUDGET
+                else:
+                    running[self._start_pair(plan.pairs[index])] = workflow.now()
+                    index += 1
+            if not running:
+                break
+            done, _ = await workflow.wait(running, return_when=asyncio.FIRST_COMPLETED)
+            for handle in done:
+                started_at = running.pop(handle)
+                outcome = handle.exception() or handle.result()
+                if not isinstance(outcome, BaseException) and outcome.status in _TIMED_STATUSES:
+                    tally.pair_seconds.setdefault(outcome.status, []).append(
+                        (workflow.now() - started_at).total_seconds()
+                    )
+                limit_stop = tally.add(outcome)
+                stop_reason = stop_reason or limit_stop
+        return index, stop_reason or plan.stop_reason
+
+    async def _run_waves(
+        self, plan: PersonalRankingTickPlan, deadline: datetime.datetime, tally: _TickTally
+    ) -> tuple[int, str | None]:
+        """The loop of ticks recorded before `_SLIDING_WINDOW_PATCH`, kept so they replay."""
         picked = 0
         stop_reason = plan.stop_reason
         concurrency = max(1, plan.max_concurrency)
         index = 0
         while index < len(plan.pairs):
             # The pairs not attempted yet stay due, so the next tick picks them.
-            if calls >= _MIN_ERROR_RATE_SAMPLE and failures >= plan.max_error_rate * calls:
+            if tally.error_rate_reached(plan.max_error_rate):
                 stop_reason = STOP_ERROR_RATE
                 break
             if workflow.now() >= deadline:
@@ -486,42 +604,9 @@ class PersonalRankingTickWorkflow:
             )
             limit_stop: str | None = None
             for outcome in results:
-                if isinstance(outcome, BaseException):
-                    # The attempt can have called the model, so it counts as a failed call.
-                    errored += 1
-                    calls += 1
-                    failures += 1
-                    continue
-                statuses[outcome.status] = statuses.get(outcome.status, 0) + 1
-                for part in outcome.changed_parts:
-                    changed_parts[part] = changed_parts.get(part, 0) + 1
-                calls += outcome.model_called
-                failures += outcome.status == "failed"
-                limit_stop = limit_stop or _LIMIT_STOPS.get(outcome.status)
+                refused = tally.add(outcome)
+                limit_stop = limit_stop or refused
             if limit_stop is not None:
                 stop_reason = limit_stop
                 break
-
-        result = PersonalRankingTickResult(
-            enabled=True,
-            due_pairs=plan.due_pairs,
-            due_without_list=plan.due_without_list,
-            picked=picked,
-            statuses=statuses,
-            changed_parts=changed_parts,
-            errored=errored,
-            stop_reason=stop_reason,
-            oldest_due_hours=plan.oldest_due_hours,
-            fresh_share=plan.fresh_share,
-            qualifying_organizations=plan.qualifying_organizations,
-            enrolled_organizations=plan.enrolled_organizations,
-            enrolled_teams=plan.enrolled_teams,
-            duration_seconds=(workflow.now() - started).total_seconds(),
-        )
-        await workflow.execute_activity(
-            capture_personal_ranking_tick_activity,
-            result,
-            start_to_close_timeout=datetime.timedelta(minutes=1),
-            retry_policy=RetryPolicy(maximum_attempts=2),
-        )
-        return result
+        return picked, stop_reason

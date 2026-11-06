@@ -43,12 +43,12 @@ from posthog.api.search import (
 from posthog.clickhouse.query_tagging import get_query_tags, query_tags
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.llm.semantic_enrichment import get_team_business_context
-from posthog.models import EventDefinition
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.event_definitions.backend.models import EventDefinition
 from products.experiments.backend.facade.replay import targetable_experiments
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.gemini_client import gemini_text_models

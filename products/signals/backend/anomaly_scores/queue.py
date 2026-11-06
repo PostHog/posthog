@@ -297,7 +297,7 @@ def eligible_teams(config: AnomalyScoringConfig) -> list[Team]:
 
 
 def turned_off_in_settings(team: Team) -> bool:
-    """Whether the project turned anomaly scoring off in its self-driving settings. A team without a config row is on."""
+    """Whether the project turned anomaly scoring off in its Product analytics source. A team without a config row is on."""
     return SignalTeamConfig.objects.filter(team_id=team.id, anomaly_scoring_enabled=False).exists()
 
 

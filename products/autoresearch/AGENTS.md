@@ -46,8 +46,15 @@ The daily sweep starts research runs on scoring days until a run fails to promot
 Each run takes `iterations_per_run` iterations, and records why it started in `kickoff_reason`.
 Per-project limits in `backend/limits.py` bound every sandbox run, however it starts (sweep, UI, API or MCP).
 A project starts at most `max_training_runs_per_day` sandbox runs (default 3) in any rolling 24 hours, across all its pipelines, and no run gets more than `max_iterations_per_run` iterations (default 10).
-Both resolve from the `autoresearch` flag payload: the project's `team_configs["<team_id>"]` entry, then `default_team_config`, then the code constants. Edit the payload to change a limit without a deploy.
-Runs that `open_training_run()` opens for an external agent do not count, because the caller's own agent does the work.
+Runs that `open_training_run()` opens for an external agent do not count against the daily limit, because the caller's own agent does the work.
+A project has at most `max_live_pipelines` live pipelines (default 3).
+Live means `bootstrapping`, `running` or `converged`; `draft`, `paused` and `archived` do not count.
+A draft with an open training run counts too, because its promotion makes it live with no check.
+The facade refuses a pipeline going live at the limit with `LivePipelineCapReached` (a 400): starting a draft's first run, opening an external run on a draft, and resuming a paused pipeline.
+Pipelines already over the limit keep running and training.
+All three limits resolve from the `autoresearch` flag payload: the project's `team_configs["<team_id>"]` entry, then `default_team_config`, then the code constants.
+Edit the payload to change a limit without a deploy.
+The pipeline viewset's `limits` action reports each limit with the project's current usage, for the Setup tab.
 Each run also records the runtime adapter, model and reasoning effort it was dispatched with (see `backend/training/AGENTS.md`).
 `iteration_budget` and `iteration_budget_remaining` are deprecated: nothing scheduled reads them.
 
