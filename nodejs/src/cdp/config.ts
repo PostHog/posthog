@@ -165,6 +165,9 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_DLQ_REPLAY_TOPIC: string
 
     CDP_EMAIL_TRACKING_URL: string
+    // Attachment bytes are stored in the Cyclotron database, which the job queue also uses. While this is off,
+    // the API refuses a send with `attachments` before it stores any file.
+    CDP_EMAIL_ATTACHMENTS_ENABLED: boolean
 
     // Cyclotron (CDP job queue)
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
@@ -417,6 +420,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
+        CDP_EMAIL_ATTACHMENTS_ENABLED: false,
 
         // Cyclotron
         CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
