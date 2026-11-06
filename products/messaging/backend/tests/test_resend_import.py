@@ -1,7 +1,7 @@
 import re
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -15,6 +15,8 @@ from parameterized import parameterized
 
 from posthog.integrations import IntegrationManager
 
+from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.messaging.backend.facade.provider_imports import get_provider_import_run
 from products.messaging.backend.models.email_hard_bounce import EmailHardBounce
 from products.messaging.backend.models.message_category import MessageCategory
@@ -30,10 +32,22 @@ from products.messaging.backend.provider_imports import runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
 from products.messaging.backend.provider_imports.resend_templates import convert_template, convert_text
 from products.messaging.backend.services.suppression import remove_suppressions
+from products.workflows.backend.facade.workflows import get_workflow
 
 FIXTURES = json.loads((Path(__file__).parent / "fixtures" / "resend_account.json").read_text())
-ALL_STEPS = ["topics", "suppressions", "opt_outs", "topic_opt_outs", "templates", "domains"]
+ALL_STEPS = ["topics", "suppressions", "opt_outs", "topic_opt_outs", "templates", "automations", "domains"]
 API_KEY = "re_full_access_key"
+
+
+def _sync_email_template() -> None:
+    sync_template_to_db(
+        {
+            **MOCK_NODE_TEMPLATES[0],
+            "id": "template-email",
+            "name": "Email",
+            "inputs_schema": [{"key": "email", "type": "native_email", "label": "Email", "required": True}],
+        }
+    )
 
 
 class FakeResend:
@@ -83,6 +97,7 @@ class TestResendImport(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.resend = FakeResend()
+        _sync_email_template()
         client = "products.messaging.backend.services.resend_client"
         self.sleep = self._patch(f"{client}.time.sleep")
         self.start_workflow = self._patch(
@@ -311,6 +326,7 @@ class TestResendImport(BaseTest):
         assert edited.content["email"]["subject"] == "Edited here"
         assert MessageTemplate.objects.filter(team_id=self.team.id).count() == templates_before
         assert run.progress["templates"]["counts"]["already_present"] == len(FIXTURES["templates"])
+        assert run.progress["automations"]["counts"] == {"already_present": len(FIXTURES["automations"])}
 
     def test_templates_carry_sender_key_and_review_notes(self) -> None:
         sender = IntegrationManager.email.credentials.create(
@@ -382,6 +398,31 @@ class TestResendImport(BaseTest):
         assert items["Welcome email"]["notes"] == [
             "Your app already sends email under the key welcome-email, so this template wasn't imported."
         ]
+
+    def test_automations_become_drafts_with_notes(self) -> None:
+        run = self._run(["automations"])
+
+        items = {item["label"]: item for item in run.progress["automations"]["items"]}
+        assert items["Welcome series"]["status"] == "created"
+        workflow_id = items["Welcome series"]["url"].split("/")[2]
+        workflow = get_workflow(
+            team_id=self.team.id, workflow_id=workflow_id, user_access_control=None, required_level=None
+        )
+        assert workflow.status == "draft"
+        actions = cast(list[dict[str, Any]], workflow.actions)
+        action_types = {action["id"]: action["type"] for action in actions}
+        assert action_types["welcome"] == "function_email"
+        assert action_types["wait"] == "delay"
+        assert action_types["is_pro"] == "conditional_branch"
+        assert action_types["wait_upgrade"] == "wait_until_condition"
+        assert "tag" not in action_types and "update" not in action_types
+        edges = {(edge["from"], edge["to"], edge["type"]) for edge in cast(list[dict[str, Any]], workflow.edges)}
+        assert ("wait_upgrade", "receipt", "branch") in edges
+        html = next(a for a in actions if a["id"] == "welcome")["config"]["inputs"]["email"]["value"]["html"]
+        assert "event.properties.name" in html
+        assert '"free"' in html
+        assert any("user.created" in note for note in items["Welcome series"]["notes"])
+        assert any("couldn't read this email's template" in note for note in items["Re-engagement"]["notes"])
 
     def test_run_state_exposes_summary_for_the_ui(self) -> None:
         run = self._run(["suppressions", "domains"])
