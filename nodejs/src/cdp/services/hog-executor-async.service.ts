@@ -6,8 +6,10 @@ import { logger } from '~/common/utils/logger'
 import { FetchOptions } from '~/common/utils/request'
 import { TeamManager } from '~/common/utils/team-manager'
 
+import type { CommonConfig } from '../../common/config'
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from '../async-function-registry'
 import '../async-functions'
+import type { CdpConfig } from '../config'
 import type {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -58,6 +60,31 @@ export interface HogExecutorAsyncConfig {
     internalApiBaseUrl: string
     secretOriginCheckObserveTeams: string
     secretOriginCheckEnforceTeams: string
+}
+
+export function hogExecutorAsyncConfig(
+    config: Pick<
+        CdpConfig & CommonConfig,
+        | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
+        | 'CDP_FETCH_RETRIES'
+        | 'CDP_FETCH_BACKOFF_BASE_MS'
+        | 'CDP_FETCH_BACKOFF_MAX_MS'
+        | 'SITE_URL'
+        | 'INTERNAL_API_BASE_URL'
+        | 'CDP_SECRET_ORIGIN_CHECK_OBSERVE_TEAMS'
+        | 'CDP_SECRET_ORIGIN_CHECK_ENFORCE_TEAMS'
+    >
+): HogExecutorAsyncConfig {
+    return {
+        googleAdwordsDeveloperToken: config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+        fetchRetries: config.CDP_FETCH_RETRIES,
+        fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
+        fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
+        siteUrl: config.SITE_URL,
+        internalApiBaseUrl: config.INTERNAL_API_BASE_URL,
+        secretOriginCheckObserveTeams: config.CDP_SECRET_ORIGIN_CHECK_OBSERVE_TEAMS,
+        secretOriginCheckEnforceTeams: config.CDP_SECRET_ORIGIN_CHECK_ENFORCE_TEAMS,
+    }
 }
 
 /**

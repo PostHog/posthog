@@ -14,7 +14,7 @@ import { defaultConfig } from '~/common/config/config'
 import { GeoIPService, GeoIp } from '~/common/utils/geoip'
 
 import { PluginsServerConfig } from '../../../types'
-import { HogExecutorAsyncService } from '../../services/hog-executor-async.service'
+import { HogExecutorAsyncService, hogExecutorAsyncConfig } from '../../services/hog-executor-async.service'
 import { HogExecutorService } from '../../services/hog-executor.service'
 import { HogInputsService } from '../../services/hog-inputs.service'
 import { EmailService } from '../../services/messaging/email.service'
@@ -229,16 +229,7 @@ export class TemplateTester {
                 { executionTimeoutMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS },
                 hogInputsService
             ),
-            {
-                googleAdwordsDeveloperToken: config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                fetchRetries: config.CDP_FETCH_RETRIES,
-                fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
-                fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
-                siteUrl: config.SITE_URL,
-                internalApiBaseUrl: config.INTERNAL_API_BASE_URL,
-                secretOriginCheckObserveTeams: config.CDP_SECRET_ORIGIN_CHECK_OBSERVE_TEAMS,
-                secretOriginCheckEnforceTeams: config.CDP_SECRET_ORIGIN_CHECK_ENFORCE_TEAMS,
-            },
+            hogExecutorAsyncConfig(config),
             {
                 teamManager: this.mockTeamManager as any,
                 conversationsTicketsJwt: new ScopedServiceJwt(
