@@ -470,11 +470,24 @@ describe('messageTemplateTestSendLogic', () => {
                 sender: 5,
                 expected: false,
             },
+            {
+                description: 'a user whom the reloaded member list shows as verified',
+                verified: false,
+                recipient: 'john.doe@posthog.com',
+                sender: 7,
+                expected: false,
+                membersLoaded: true,
+            },
         ])(
             'flags $description as an unverified self send: $expected',
-            async ({ verified, recipient, sender, expected }) => {
+            async ({ verified, recipient, sender, expected, membersLoaded }) => {
                 userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_email_verified: verified })
                 await loadIntegrations([SANDBOX_SENDER, VERIFIED_OWN_SENDER])
+                if (membersLoaded) {
+                    await expectLogic(logic, () => {
+                        logic.actions.setModalOpen(true)
+                    }).toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
+                }
                 logic.actions.setSenderIntegrationId(sender)
                 logic.actions.setRecipientEmail(recipient)
 

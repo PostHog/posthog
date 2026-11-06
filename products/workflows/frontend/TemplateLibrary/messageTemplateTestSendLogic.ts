@@ -88,6 +88,17 @@ export interface messageTemplateTestSendLogicActions {
         error: string
         errorObject?: any
     } // membersLogic
+    loadAllMembersSuccess: (
+        members: OrganizationMemberType[],
+        payload?: {
+            value: true
+        }
+    ) => {
+        members: OrganizationMemberType[]
+        payload?: {
+            value: true
+        }
+    } // membersLogic
     clearTestSendResult: () => {
         value: true
     }
@@ -157,7 +168,8 @@ export interface messageTemplateTestSendLogicMeta {
         recipientIsUnverifiedSelf: (
             isSandboxSenderSelected: boolean,
             recipientEmail: string,
-            user: UserType | null
+            user: UserType | null,
+            members: OrganizationMemberType[] | null
         ) => boolean
         recipientNotSuggested: (
             isSandboxSenderSelected: boolean,
@@ -212,7 +224,7 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
             integrationsLogic,
             ['clearIntegrations', 'loadIntegrationsSuccess'],
             membersLogic,
-            ['loadAllMembers', 'loadAllMembersFailure'],
+            ['loadAllMembers', 'loadAllMembersFailure', 'loadAllMembersSuccess'],
         ],
     })),
     actions({
@@ -225,7 +237,8 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
         isModalOpen: [false, { setModalOpen: (_, { open }) => open }],
         recipientEmail: ['', { setRecipientEmail: (_, { email }) => email }],
         senderIntegrationIdOverride: [null as number | null, { setSenderIntegrationId: (_, { id }) => id }],
-        membersLoadFailed: [false, { loadAllMembers: () => false, loadAllMembersFailure: () => true }],
+        // Stays set during a retry, so the warning keeps its place until the retry answers.
+        membersLoadFailed: [false, { loadAllMembersSuccess: () => false, loadAllMembersFailure: () => true }],
     }),
     loaders(({ values }) => ({
         testSendResult: [
@@ -345,12 +358,21 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
             },
         ],
         recipientIsUnverifiedSelf: [
-            (s) => [s.isSandboxSenderSelected, s.recipientEmail, s.user],
-            (isSandboxSenderSelected: boolean, recipientEmail: string, user: UserType | null): boolean =>
+            (s) => [s.isSandboxSenderSelected, s.recipientEmail, s.user, s.members],
+            (
+                isSandboxSenderSelected: boolean,
+                recipientEmail: string,
+                user: UserType | null,
+                members: OrganizationMemberType[] | null
+            ): boolean =>
                 isSandboxSenderSelected &&
                 !!user &&
                 user.is_email_verified !== true &&
-                sameEmail(user.email, recipientEmail),
+                sameEmail(user.email, recipientEmail) &&
+                // The member list reloads on every open, so it can carry a verification the user record has not seen.
+                !members?.some(
+                    (member) => member.user.is_email_verified === true && sameEmail(member.user.email, user.email)
+                ),
         ],
         recipientNotSuggested: [
             (s) => [s.isSandboxSenderSelected, s.recipientEmail, s.members, s.recipientSuggestions],

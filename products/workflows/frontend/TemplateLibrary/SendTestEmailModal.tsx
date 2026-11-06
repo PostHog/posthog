@@ -77,7 +77,10 @@ function TestEmailRecipientField({ logicProps }: { logicProps: MessageTemplateLo
             {recipientIsUnverifiedSelf ? (
                 <LemonBanner type="warning">Verify your email address to send test emails to yourself.</LemonBanner>
             ) : recipientUncheckable ? (
-                <LemonBanner type="warning" action={{ children: 'Try again', onClick: loadAllMembers }}>
+                <LemonBanner
+                    type="warning"
+                    action={{ children: 'Try again', onClick: loadAllMembers, loading: membersLoading }}
+                >
                     Couldn't load your organization's members, so this address can't be checked. The sandbox sender only
                     delivers to verified members.
                 </LemonBanner>
