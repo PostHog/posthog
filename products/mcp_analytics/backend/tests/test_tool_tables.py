@@ -254,8 +254,10 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
                     'parameter "questions.3.link": expected string',
                     "survey 0190a6e2-5c1f-7a3b-9d4e-1f2a3b4c5d6e not found",
                     "survey 01a1b13c-ec92-7fcf-8e37-6087a7fd6bd9 not found",
+                    "commit 3f9a2c1d failed",
+                    "commit 8be41a07 failed",
                 ],
-                2,
+                3,
             ),
         ]
     )

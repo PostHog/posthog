@@ -107,7 +107,7 @@ _ERROR_MESSAGE = "substring(coalesce(toString(properties.$mcp_error_message), ''
 _FAILURE_CAUSE = (
     "substring(replaceRegexpAll(replaceRegexpAll("
     f"{_ERROR_MESSAGE}, "
-    "'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '<id>'), "
+    "'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\\\\b(?:[0-9]+[a-fA-F]|[a-fA-F]+[0-9])[0-9a-fA-F]*\\\\b', '<id>'), "
     "'[0-9]+', 'N'), 1, 300)"
 )
 
