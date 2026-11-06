@@ -88,3 +88,15 @@ class TestProviderImportsAPI(APIBaseTest):
         response = self.client.get(f"{self._url()}{path}", HTTP_AUTHORIZATION=f"Bearer {key}")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
+
+
+@patch("products.messaging.backend.facade.provider_imports.feature_enabled_or_false", return_value=False)
+class TestResendImportFlag(APIBaseTest):
+    def test_resend_stays_hidden_and_refused_while_its_flag_is_off(self, _flag: MagicMock) -> None:
+        url = f"/api/projects/{self.team.id}/messaging_provider_imports/"
+
+        providers = self.client.get(f"{url}providers/").json()
+        response = self.client.post(url, {"provider": "resend", "steps": ["suppressions"], "api_key": "re_key"})
+
+        assert [provider["key"] for provider in providers] == ["customerio"]
+        assert response.status_code == 400
