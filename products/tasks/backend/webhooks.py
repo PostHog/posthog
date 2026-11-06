@@ -114,7 +114,8 @@ def _shadow_task_lookup(
     team_ids: list[int],
 ) -> None:
     try:
-        task_id = find_task_id_by_pull_request(pr_url, branch, repository, team_ids=team_ids)
+        with transaction.atomic():
+            task_id = find_task_id_by_pull_request(pr_url, branch, repository, team_ids=team_ids)
     except Exception:
         logger.warning("github_webhook_task_lookup_shadow_failed", exc_info=True)
         return
