@@ -51,7 +51,7 @@ class TestSecretOriginsBackfill(BaseTest):
         }
 
     def _commit(self) -> Any:
-        return backfill_secret_origins(commit=True, team_id=self.team.pk)
+        return backfill_secret_origins(commit=True, team_id=self.team.pk, batch_size=1)
 
     @parameterized.expand(
         [
@@ -103,6 +103,30 @@ class TestSecretOriginsBackfill(BaseTest):
         assert report.outcomes == Counter(expected_outcomes)
         assert (report.rows_written, report.rows_failed) == (1, 0)
 
+    @parameterized.expand(
+        [
+            ("no_encrypted_inputs", None),
+            ("beside_an_encrypted_secret", {"token": KEPT_TOKEN}),
+        ]
+    )
+    def test_commit_moves_a_plaintext_secret_into_the_encrypted_column_and_binds_it(
+        self, _name: str, stored_secrets: dict[str, Any] | None
+    ) -> None:
+        hog_function = self._function(LIVE_HOG, {"api_key": {"value": "secret-legacy"}, **(stored_secrets or {})})
+        HogFunction.objects.filter(pk=hog_function.pk).update(
+            inputs={"api_key": {"value": "secret-legacy"}}, encrypted_inputs=stored_secrets
+        )
+
+        report = self._commit()
+
+        hog_function.refresh_from_db()
+        assert hog_function.inputs == {}
+        assert hog_function.encrypted_inputs == {
+            **(stored_secrets or {}),
+            "api_key": {"value": "secret-legacy", "allowed_origins": ["https://api.example.com"]},
+        }
+        assert (report.rows_written, report.rows_failed) == (1, 0)
+
     def test_commit_writes_only_the_encrypted_column_as_ciphertext(self) -> None:
         hog_function = self._function(LIVE_HOG, {"api_key": {"value": "secret-live"}}, enabled=True)
         hog_function.refresh_from_db()
@@ -125,6 +149,7 @@ class TestSecretOriginsBackfill(BaseTest):
         call_command("backfill_secret_origins", "--team-id", str(self.team.pk), stdout=out)
 
         assert self._stored() == before
+        assert "rows to write: 2" in out.getvalue()
         assert "template-hook=1" in out.getvalue()
         assert "secret-" not in out.getvalue() and "example.com" not in out.getvalue()
 
@@ -164,7 +189,7 @@ class TestSecretOriginsBackfill(BaseTest):
         assert self._stored() == after
         assert rerun.outcomes == Counter({SecretOutcome.ALREADY_BOUND: 2})
         assert rerun.unbound_templates == Counter({"template-hook": 1})
-        assert (rerun.rows_to_write, rerun.rows_written) == (0, 0)
+        assert rerun.rows_written == 0
 
     def test_a_failed_row_fails_the_command_after_the_other_rows_are_written(self) -> None:
         broken = self._function(LIVE_HOG, {"api_key": {"value": "secret-broken"}})
@@ -173,7 +198,9 @@ class TestSecretOriginsBackfill(BaseTest):
 
         out = StringIO()
         with pytest.raises(CommandError):
-            call_command("backfill_secret_origins", "--commit", "--team-id", str(self.team.pk), stdout=out)
+            call_command(
+                "backfill_secret_origins", "--commit", "--team-id", str(self.team.pk), "--batch-size", "1", stdout=out
+            )
 
         healthy.refresh_from_db()
         assert healthy.encrypted_inputs["api_key"]["allowed_origins"] == ["https://api.example.com"]

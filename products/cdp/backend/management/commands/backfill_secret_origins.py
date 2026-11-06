@@ -11,7 +11,9 @@ class Command(BaseCommand):
     def add_arguments(self, parser: Any) -> None:
         parser.add_argument("--commit", action="store_true", help="Write the changes. Omit for a dry run.")
         parser.add_argument("--team-id", type=int, default=None, help="Restrict to one team.")
-        parser.add_argument("--batch-size", type=int, default=500, help="Rows to load per query.")
+        parser.add_argument(
+            "--batch-size", type=int, default=500, help="Rows per page. The command logs its progress after each page."
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         commit: bool = options["commit"]
@@ -23,10 +25,10 @@ class Command(BaseCommand):
         # An unbound secret can go to any origin, so a person decides whether its function needs a change.
         for template_id, count in report.unbound_templates.most_common():
             self.stdout.write(f"functions with an unbound secret, by template: {template_id}={count}")
-        self.stdout.write(f"rows to write: {report.rows_to_write}")
         if commit:
             self.stdout.write(f"rows written: {report.rows_written}")
         else:
+            self.stdout.write(f"rows to write: {report.rows_to_write}")
             self.stdout.write("Dry run. Re-run with --commit to write the changes.")
         self.stdout.write(f"rows that failed: {report.rows_failed}")
         if report.rows_failed:
