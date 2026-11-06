@@ -361,15 +361,16 @@ export interface EmailTemplaterLogicProps {
 function sandboxSwitchLosses(emailTemplate: EmailTemplate): string[] {
     const from = senderFrom(emailTemplate)
     return [
-        from.email || from.name ? 'your custom From address and name' : '',
-        emailTemplate?.replyTo ? 'your Reply-To' : '',
+        from.email ? 'From address' : '',
+        from.name ? 'From name' : '',
+        emailTemplate?.replyTo ? 'Reply-To' : '',
     ].filter(Boolean)
 }
 
 function sandboxSwitchDescription(replacedSenders: string | null, losses: string[]): string {
     return [
         replacedSenders ? `This replaces ${replacedSenders} with the sandbox sender.` : '',
-        losses.length > 0 ? `This removes ${humanList(losses)}.` : '',
+        losses.length > 0 ? `This removes your custom ${humanList(losses)}.` : '',
         'The sandbox sender sends from its own address.',
     ]
         .filter(Boolean)
@@ -880,14 +881,14 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     return
                 }
                 const integrations = integrationsLogic.isMounted() ? (integrationsLogic.values.integrations ?? []) : []
-                const replacedSenderNames = replacedSenderIds.map(
-                    (id) => integrations.find((sender) => sender.id === id)?.display_name
-                )
+                const replacedSenderNames = replacedSenderIds
+                    .map((id) => integrations.find((sender) => sender.id === id)?.display_name)
+                    .filter((name): name is string => !!name)
                 const replacedSenders =
                     replacedSenderIds.length < 2
                         ? null
-                        : replacedSenderNames.every(Boolean)
-                          ? humanList(replacedSenderNames as string[])
+                        : replacedSenderNames.length === replacedSenderIds.length
+                          ? humanList(replacedSenderNames)
                           : 'your current senders'
                 LemonDialog.open({
                     title: 'Switch to the sandbox sender?',

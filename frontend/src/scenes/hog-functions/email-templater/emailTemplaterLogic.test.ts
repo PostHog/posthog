@@ -207,20 +207,26 @@ describe('emailTemplaterLogic', () => {
                     from: { integrationId: 5, email: 'hello@acme.example.com' },
                     replyTo: '',
                     description:
-                        'This removes your custom From address and name. The sandbox sender sends from its own address.',
+                        'This removes your custom From address. The sandbox sender sends from its own address.',
                 },
                 {
                     field: 'a custom name',
                     from: { integrationId: 5, name: 'Acme' },
                     replyTo: '',
-                    description:
-                        'This removes your custom From address and name. The sandbox sender sends from its own address.',
+                    description: 'This removes your custom From name. The sandbox sender sends from its own address.',
                 },
                 {
                     field: 'a Reply-To',
                     from: { integrationId: 5 },
                     replyTo: 'replies@acme.example.com',
-                    description: 'This removes your Reply-To. The sandbox sender sends from its own address.',
+                    description: 'This removes your custom Reply-To. The sandbox sender sends from its own address.',
+                },
+                {
+                    field: 'a custom name and a Reply-To',
+                    from: { integrationId: 5, name: 'Acme' },
+                    replyTo: 'replies@acme.example.com',
+                    description:
+                        'This removes your custom From name and Reply-To. The sandbox sender sends from its own address.',
                 },
                 {
                     field: 'a rotation',
