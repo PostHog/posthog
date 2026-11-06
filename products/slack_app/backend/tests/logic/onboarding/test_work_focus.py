@@ -118,7 +118,7 @@ def slack(org_team_user) -> Iterator[dict[str, MagicMock]]:
         search_client.return_value.api_call.side_effect = _search(found=6)
         ranker.return_value.decide.side_effect = _rank
         writer.return_value.with_options.return_value.chat.completions.create.return_value = _written(
-            [{"offer": "Churn by plan looks off in #product. Want me to dig in?", "request": REQUEST, "source": 1}]
+            [{"offer": "Churn by plan looks off in #product. Want me to dig in?", "request": REQUEST}]
         )
         yield {
             "search": search_client,
@@ -154,7 +154,10 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
     assert dm["channel"] == SLACK_USER_ID
     assert action_ids(dm["blocks"]) == ["slack_onboarding:work_focus_task"]
     shown = all_block_text(dm["blocks"])
-    assert "Looks like your week is about churn and signups." in shown and REQUEST in shown
+    assert "Looks like your week is about churn and signups." in shown
+    # The DM stays short: no message previews, and the full request rides in the button.
+    assert dm["unfurl_links"] is False and dm["unfurl_media"] is False
+    assert REQUEST not in shown and REQUEST in json.dumps(dm["blocks"])
     stored = SlackSettings.objects.get(slack_workspace_id=SLACK_TEAM_ID, slack_user_id=SLACK_USER_ID).onboarding
     assert isinstance(stored, dict) and stored["work_focus_outcome"] == "sent"
     assert SECRET_MESSAGE not in json.dumps(stored)
@@ -225,7 +228,7 @@ def test_a_suggestion_starts_its_shown_request_in_a_new_dm_thread_once(
     bot.chat_postMessage.return_value = {"channel": "D1", "ts": "1700.1"}
     focus = WorkFocus(
         intro="Looks like your week is about churn.",
-        suggestions=[WorkFocusSuggestion(offer="Want me to dig in?", request=REQUEST, source_permalink=None)],
+        suggestions=[WorkFocusSuggestion(offer="Want me to dig in?", request=REQUEST)],
     )
     button = work_focus_blocks(integration, focus)[1]["accessory"]
     payload = {
