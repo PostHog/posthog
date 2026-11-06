@@ -529,6 +529,8 @@ Without the filter it took 39 s, because the server then packs the file contents
 A depth-1 checkout followed by `git fetch --filter=blob:none --depth=1000` takes about 7 s, and the job uses that now.
 `--deepen=999` in its place fetched nothing when GitHub had already replaced the PR's merge ref, which failed the run.
 The `test-selection-verdict` and `backend-coverage-report` jobs still use deep blobless checkouts. They run after the required gate, so no PR waits on them.
+The Agent Skills build uses a plain depth-1 checkout on master pushes because its schema cache keys read only `HEAD`.
+Its PR checkout keeps bounded blobless history for the merge-base schema key.
 
 _Also asked as:_ blobless clone is slow, partial clone checkout, speed up the discovery checkout, fetch-depth 1000
 
