@@ -43,8 +43,8 @@ from posthog.helpers.trigram_search import (
     apply_trigram_search,
     drop_similar_when_exact_exists,
 )
-from posthog.integrations import IntegrationManager
-from posthog.models import Integration, Team, User
+from posthog.integrations import IntegrationKind, IntegrationManager
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_hog_invocations
 from posthog.scopes import APIScopeObject
@@ -358,8 +358,7 @@ def _comparable_inputs(items: Any) -> dict:
     }
 
 
-# The worker decides from these schema fields whether an input holds a secret or resolves to an
-# integration, so changing one changes what the code receives even when the code and values stay.
+# A schema change can turn an input into a secret or an integration, so it changes what the code receives.
 def _comparable_schema(schemas: Any) -> list[str]:
     return sorted(
         repr((schema.get("key"), schema.get("type"), bool(schema.get("secret")), schema.get("integration")))
@@ -439,14 +438,13 @@ class OriginCheck(StrEnum):
     INTEGRATION_UNLISTED = "integration_unlisted"
 
 
+# A key refused by several checks shows the error of the first check here. Entering the secret again
+# does not fix an integration refusal, so those go first and the user does not retype for nothing.
 _REFUSAL_ERRORS: dict[OriginCheck, tuple[str, str]] = {
     OriginCheck.INTEGRATION: (INTEGRATION_ORIGIN_MESSAGE, "integration_origin_refused"),
     OriginCheck.INTEGRATION_UNLISTED: (INTEGRATION_UNLISTED_MESSAGE, "integration_origin_refused"),
     OriginCheck.SECRET: (SECRET_REENTRY_MESSAGE, "secret_reentry_required"),
 }
-# A key refused by several checks shows the error of the first check here. Entering the secret again
-# does not fix an integration refusal, so those go first and the user does not retype for nothing.
-_REFUSAL_PRECEDENCE = (OriginCheck.INTEGRATION, OriginCheck.INTEGRATION_UNLISTED, OriginCheck.SECRET)
 
 
 @frozen
@@ -1195,7 +1193,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     def _integration_origin_outcomes(
         self, attrs: dict, team: Team, instance: Optional[HogFunction]
     ) -> list[_OriginOutcome]:
-        """Whether each integration input's credentials stay within the origins its kind allows."""
         inputs = attrs.get("inputs") or {}
         mappings = attrs.get("mappings", instance.mappings if instance else None)
         ids_by_key: dict[str, set[int]] = {}
@@ -1238,7 +1235,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     binding = SecretBinding.WITHIN
                 else:
                     binding = SecretBinding.KEPT if unchanged else SecretBinding.REFUSED
-                kind = row.kind if row.kind in Integration.IntegrationKind.values else "other"
+                kind = row.kind if row.kind in IntegrationKind else "other"
                 outcomes.append(_OriginOutcome(key=key, check=check, binding=binding, kind=kind))
         return outcomes
 
@@ -1264,8 +1261,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if not enforce:
             return
         errors: dict[str, ErrorDetail] = {}
-        for check in _REFUSAL_PRECEDENCE:
-            message, code = _REFUSAL_ERRORS[check]
+        for check, (message, code) in _REFUSAL_ERRORS.items():
             for item in outcomes:
                 if item.check == check and item.binding == SecretBinding.REFUSED:
                     errors.setdefault(item.key, ErrorDetail(message, code=code))
