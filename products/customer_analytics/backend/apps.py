@@ -48,7 +48,7 @@ class CustomerAnalyticsConfig(AppConfig):
                     return None
                 return PersonGroupMembership(
                     group_type_index=group_type_index,
-                    ready=membership.get_membership_readiness(team) == membership.MembershipReadiness.READY,
+                    ready=membership.is_membership_ready(team),
                 )
 
         register_account_audience_provider(_Provider())
