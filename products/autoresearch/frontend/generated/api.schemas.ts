@@ -1972,6 +1972,24 @@ export interface AgentModelOptionsApi {
     models: AgentModelOptionApi[]
 }
 
+export interface ProjectLimitsApi {
+    /** Sandbox training runs the project may start in any 24 hours, across all its pipelines. 0 means training is turned off. */
+    max_training_runs_per_day: number
+    /** Sandbox training runs the project started in the last 24 hours, across all its pipelines. */
+    training_runs_used: number
+    /**
+     * When the next training run can start, while the project is at its daily limit. Null while a run can start now, and when training is turned off.
+     * @nullable
+     */
+    next_slot_at: string | null
+    /** Most experiments any one training run gets. A pipeline's iterations_per_run above this is lowered to it. */
+    max_iterations_per_run: number
+    /** Most pipelines the project may have live (bootstrapping, running or converged, or a draft with an open training run, which goes live when the run promotes). Starting a draft's first training run or resuming a paused pipeline is refused at this limit. */
+    max_live_pipelines: number
+    /** Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered. */
+    live_pipelines: number
+}
+
 /**
  * * `likely_active_soon` - Likely Active Soon
  * * `at_risk_of_inactivity` - At Risk Of Inactivity

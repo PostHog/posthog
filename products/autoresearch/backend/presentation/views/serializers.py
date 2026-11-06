@@ -27,6 +27,7 @@ from products.autoresearch.backend.facade.contracts import (
     Pipeline,
     PipelineWrite,
     PredictionCoverage,
+    ProjectLimits,
     RealizedAucPoint,
     Run,
     Suggestion,
@@ -2047,6 +2048,46 @@ class TrainingRunCapReachedSerializer(serializers.Serializer):
         allow_null=True,
         help_text="When the next training run can start. Null when training runs are turned off for the project.",
     )
+
+
+class ProjectLimitsSerializer(DataclassSerializer):
+    max_training_runs_per_day = serializers.IntegerField(
+        help_text="Sandbox training runs the project may start in any 24 hours, across all its pipelines. 0 means training is turned off."
+    )
+    training_runs_used = serializers.IntegerField(
+        help_text="Sandbox training runs the project started in the last 24 hours, across all its pipelines."
+    )
+    next_slot_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "When the next training run can start, while the project is at its daily limit. "
+            "Null while a run can start now, and when training is turned off."
+        ),
+    )
+    max_iterations_per_run = serializers.IntegerField(
+        help_text="Most experiments any one training run gets. A pipeline's iterations_per_run above this is lowered to it."
+    )
+    max_live_pipelines = serializers.IntegerField(
+        help_text=(
+            "Most pipelines the project may have live (bootstrapping, running or converged, or a draft with an open "
+            "training run, which goes live when the run promotes). Starting a draft's first training run or "
+            "resuming a paused pipeline is refused at this limit."
+        )
+    )
+    live_pipelines = serializers.IntegerField(
+        help_text=("Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered.")
+    )
+
+    class Meta:
+        dataclass = ProjectLimits
+        fields = [
+            "max_training_runs_per_day",
+            "training_runs_used",
+            "next_slot_at",
+            "max_iterations_per_run",
+            "max_live_pipelines",
+            "live_pipelines",
+        ]
 
 
 # ── Agent-recorded training serializers ────────────────────────────────────
