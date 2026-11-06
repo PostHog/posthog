@@ -237,7 +237,11 @@ const workflowsPatchEmailTemplate = (): ToolBase<
 const WorkflowsSendEmailSchema = () => {
     const MessagingSendEmailCreateBody = orvalSchemas.MessagingSendEmailCreateBody()
     return MessagingSendEmailCreateBody.extend({
-        template_key: MessagingSendEmailCreateBody.shape['template_key'].nonoptional(),
+        template_key: MessagingSendEmailCreateBody.shape['template_key']
+            .nonoptional()
+            .describe(
+                'Key that names the email, such as welcome, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only.'
+            ),
         subject: MessagingSendEmailCreateBody.shape['subject'].nonoptional(),
         html: MessagingSendEmailCreateBody.shape['html'].describe(
             "HTML body of the email, exactly as the recipient should see it. Through this tool the whole request as JSON, html and text included, must stay under 1 MiB, and quotes and line breaks count twice. A larger email can't be sent here."

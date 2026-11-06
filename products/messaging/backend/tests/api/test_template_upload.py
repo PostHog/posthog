@@ -589,7 +589,7 @@ class TestTemplateUpload(APIBaseTest):
             ("outdated", f"v1:{'0' * 64}", status.HTTP_409_CONFLICT, None),
         ]
     )
-    @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_a_send_by_key_with_a_hash_only_ever_sends_the_published_content(
         self, hash_state, sent_hash, expected_status, expected_warnings, _reload, post: MagicMock, _flag, capture
     ):

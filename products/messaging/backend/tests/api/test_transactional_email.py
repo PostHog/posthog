@@ -106,6 +106,10 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()
 
+    def _posted(self, mock_post: MagicMock) -> dict[str, Any]:
+        kwargs = mock_post.call_args.kwargs
+        return kwargs["json"] if "json" in kwargs else json.loads(kwargs["data"])
+
     def _cdp_accepts(self, mock_post: MagicMock, invocation_id: str = "invocation-1") -> None:
         mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": invocation_id})
 
@@ -879,7 +883,7 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         assert mock_post.call_args.args[0].endswith(f"/hog_flows/{self.hog_flow_id}/{route}")
-        payload = mock_post.call_args.kwargs["json"]
+        payload = self._posted(mock_post)
         assert payload.get("send") == sent
         assert ("send" in payload) == (sent is not None)
 
@@ -916,7 +920,7 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         assert mock_post.call_args.args[0].endswith(f"/hog_flows/{self.hog_flow_id}/transactional_email")
-        assert "send" not in mock_post.call_args.kwargs["json"]
+        assert "send" not in self._posted(mock_post)
 
     def _keyed(self) -> dict[str, Any]:
         MessageTemplate.objects.filter(id=self.template.id).update(
@@ -982,7 +986,7 @@ class TestTransactionalEmail(APIBaseTest):
         expected = {"message_id": "invocation-1", "replayed": False, **({"warnings": warnings} if warnings else {})}
         assert response.json() == expected
         assert mock_post.call_args.args[0].endswith(f"/hog_flows/{self.hog_flow_id}/{route}")
-        posted = mock_post.call_args.kwargs["json"]
+        posted = self._posted(mock_post)
         assert (posted["to"], posted["distinct_id"], posted["variables"]) == (
             "user@example.com",
             "user-1",
@@ -1047,7 +1051,7 @@ class TestTransactionalEmail(APIBaseTest):
                 "nested_template_key",
                 {"template_key": None, "template": {"key": "password-reset"}},
                 status.HTTP_400_BAD_REQUEST,
-                "invalid_input",
+                "null",
                 "template_id",
             ),
             (
@@ -1083,7 +1087,7 @@ class TestTransactionalEmail(APIBaseTest):
                 {"from": "security@example.org"},
                 status.HTTP_400_BAD_REQUEST,
                 "sender_not_verified",
-                None,
+                "from",
             ),
         ]
     )

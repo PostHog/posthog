@@ -167,6 +167,7 @@ tools:
             project does not exist: stop and tell the user.
         exclude_params:
             - template_id
+            - template_hash
             - message_data
             - cc
             - bcc
@@ -174,6 +175,9 @@ tools:
         param_overrides:
             template_key:
                 required: true
+                description: >
+                    Key that names the email, such as welcome, so its metrics, logs and status group under it. Letters,
+                    numbers, hyphens (-) and underscores (_) only.
             subject:
                 required: true
             html:

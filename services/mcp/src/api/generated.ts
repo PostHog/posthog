@@ -106254,11 +106254,16 @@ export namespace Schemas {
       /** ID of the email template to send. The template must be made transactional first. Send either `template_id` or `template_key`. */
       template_id?: string;
       /**
-         * Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template. Once you upload a template under this key, these sends run through that template's workflow, so their metrics and logs group with the template from then on.
+         * Key of the email, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text` to send content your code rendered: PostHog sends the content as is and never stores it as a template. Send it without them to send the template uploaded under this key with `PUT /api/projects/@current/messaging_templates/by_key/{key}/`, with `message_data` filling its placeholders. Once you upload a template under a key, sends of rendered content with that key also run through the template's workflow, so their metrics and logs group with the template.
          * @maxLength 400
          * @pattern ^[a-zA-Z0-9_-]+$
          */
       template_key?: string;
+      /**
+         * Content hash of the uploaded template you hold, as an upload's `content_hash`. When PostHog doesn't hold that content as the current content or one of the last 100 contents it replaced, the send answers `409 template_outdated` and sends nothing. Only with `template_key` and no `subject`, `html` or `text`.
+         * @pattern ^v1:[0-9a-f]{64}$
+         */
+      template_hash?: string;
       /**
          * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
          * @maxLength 400
@@ -106272,27 +106277,45 @@ export namespace Schemas {
       /** Plain text body of the email your code rendered, at most 5 MiB as UTF-8. Without it, PostHog derives the text from `html`. */
       text?: string;
       /**
-         * Addresses replies to the email your code rendered go to.
+         * Addresses replies to the email go to. A send with `template_id` doesn't take it.
          * @maxItems 10
          */
       reply_to?: string[];
-      /** Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
+      /** Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send of a template, which refuses any address here. */
       cc?: string | string[] | null;
-      /** Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
+      /** Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send of a template, which refuses any address here. */
       bcc?: string | string[] | null;
       /**
-         * Files attached to the email your code rendered: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here.
+         * Files attached to the email your code rendered: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send of a template, which refuses any file here.
          * @maxItems 10
          * @nullable
          */
       attachments?: EmailAttachment[] | null;
-      /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
+      /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. A send with `template_id` takes it only in the beta for sending email from code. */
       capture_engagement?: boolean;
       /**
-         * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default.
+         * Sender of the email, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, an email your code rendered goes out from the project's default sender, or from its only verified sender when it has no default, and an uploaded template from its own sender. A send with `template_id` doesn't take it.
          * @maxLength 1024
          */
       from?: string;
+    }
+
+    export interface SendEmailWarning {
+      /** Stable code of the warning, such as `template_superseded`. */
+      code: string;
+      /** What happened. */
+      detail: string;
+      /** What you can change, if the warning isn't what you want. */
+      fix: string;
+    }
+
+    export interface SendEmailResponse {
+      /** ID of the queued send. Delivery and engagement are reported against the template asynchronously. */
+      message_id: string;
+      /** True when an earlier request with the same `Idempotency-Key` already queued this email. No new email was sent, and `message_id` is the earlier send's ID. */
+      replayed: boolean;
+      /** Things to know about the queued email. Left out when there are none. */
+      warnings?: SendEmailWarning[];
     }
 
     /**
@@ -115289,7 +115312,7 @@ export namespace Schemas {
       text?: string;
       /** Inbox preview text shown after the subject. Leaving it out removes the stored one. */
       preheader?: string;
-      /** Set it on uploads a program makes on its own, such as a sync that may hold an older copy of the file. When newer content already replaced this content, the upload changes nothing and answers `superseded`. The check covers the last 100 different contents the template replaced. Content outside those 100 publishes. Leave it out to publish the content in any case, such as to roll back to earlier content. */
+      /** Set it on uploads a program makes on its own, such as a sync that may hold an older copy of the file, or an upload after a send answered `template_outdated`. When newer content already replaced this content, the upload changes nothing and answers `superseded`. The check covers the last 100 different contents the template replaced. Content outside those 100 publishes. Leave it out to publish the content in any case, such as to roll back to earlier content. */
       if_not_superseded?: boolean;
       /** Set it so the upload only updates a template that code manages. When the key names a template edited in PostHog, the upload changes nothing and answers `409` with `template_edited_in_posthog`. A new key, or a template managed by code, uploads as usual. Leave it out to take over a template edited in PostHog, so code manages it from then on. */
       if_code_managed?: boolean;
@@ -115309,7 +115332,7 @@ export namespace Schemas {
        * * `unchanged` - Unchanged
        * * `superseded` - Superseded */
       result: TemplateUploadResultEnum;
-      /** Hash of the published content, as `v1:` and 64 hex characters. After `superseded` it is the hash of the newer content. */
+      /** Hash of the published content, as `v1:` and 64 hex characters. Send it with an email as `template_hash` to check PostHog holds the content you hold. After `superseded` it is the hash of the newer content. */
       content_hash: string;
       /** `code` after every upload except `superseded`, which changes nothing. After `superseded` it is what the template had, which is null for a template made in PostHog that no upload claimed yet.
        *

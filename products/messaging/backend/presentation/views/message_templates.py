@@ -535,7 +535,8 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
 
 
 def refuse_unknown_fields(sent: Iterable[str], known: Mapping[str, Any]) -> None:
-    if unknown := next((field for field in sorted(sent) if field not in known), None):
+    unknown = next((field for field in sorted(sent) if field not in known), None)
+    if unknown is not None:
         raise serializers.ValidationError(
             {unknown: "PostHog doesn't take this field, so it doesn't send the email without it."}
         )

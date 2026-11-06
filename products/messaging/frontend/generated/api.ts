@@ -41,6 +41,7 @@ import type {
     RemoveOptOutRequestApi,
     RemoveSuppressionRequestApi,
     SendEmailApi,
+    SendEmailResponseApi,
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
     SetPreferencesApi,
@@ -55,12 +56,9 @@ import type {
     TransactionalEmailLogStatsRetrieveParams,
     TransactionalEmailResultsApi,
     TransactionalEmailStatsApi,
-<<<<<<< 38c228c5c2f
+    TransactionalEmailStatsOverTimeApi,
     UploadTemplateApi,
     UploadTemplateResponseApi,
-=======
-    TransactionalEmailStatsOverTimeApi,
->>>>>>> origin/master
     WebhookUrlApi,
 } from './api.schemas'
 
@@ -126,15 +124,15 @@ export const getMessagingSendEmailCreateUrl = (projectId: string) => {
 }
 
 /**
- * Send one transactional email to one recipient. Name a template made transactional in `template_id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
+ * Send one transactional email to one recipient. Name a template made transactional in `template_id`, or one uploaded from code in `template_key`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
  * @summary Send a transactional email
  */
 export const messagingSendEmailCreate = async (
     projectId: string,
     sendEmailApi: SendEmailApi,
     options?: RequestInit
-): Promise<SendTransactionalEmailResponseApi> => {
-    return apiMutator<SendTransactionalEmailResponseApi>(getMessagingSendEmailCreateUrl(projectId), {
+): Promise<SendEmailResponseApi> => {
+    return apiMutator<SendEmailResponseApi>(getMessagingSendEmailCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
