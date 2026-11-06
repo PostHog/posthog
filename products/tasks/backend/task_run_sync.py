@@ -6,7 +6,8 @@ from typing import Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Value
+from django.db.models.functions import Coalesce
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -144,6 +145,14 @@ def _latest_run(task_id: UUID | str) -> LatestRun | None:
     return latest_runs([task_id]).get(UUID(str(task_id)))
 
 
+def _legacy_columns(task_id: UUID | str) -> dict[str, Any]:
+    key = UUID(str(task_id))
+    columns: dict[str, Any] = {"pr_urls": pr_urls_from_runs([key]).get(key, [])}
+    if branch := head_branches_from_runs([key]).get(key):
+        columns["head_branch"] = Coalesce("head_branch", Value(branch))
+    return columns
+
+
 def sync_task_status(task_id: UUID | str, *, changed_by: str = RUN_SYNC_ACTOR) -> bool:
     stored = _stored_task_status(task_id, lock=False)
     if stored is None or stored.value == derive_task_status(_latest_run(task_id)):
@@ -164,6 +173,7 @@ def sync_task_status(task_id: UUID | str, *, changed_by: str = RUN_SYNC_ACTOR) -
             status_reason=derived.reason,
             status_detail=derived.detail,
             status_changed_by=changed_by,
+            **(_legacy_columns(task_id) if previous is None else {}),
         )
         TaskStatusChange.objects.for_team(stored.team_id, canonical=True).create(
             team_id=stored.team_id,
