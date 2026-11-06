@@ -1,22 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { IconTelescope } from '@posthog/icons'
-import {
-    Button,
-    Dialog,
-    DialogBody,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
-    Text,
-} from '@posthog/quill'
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, Text } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { TodayNewsBriefs } from './TodayNewsBriefs'
 import { TodayNewsLead } from './TodayNewsLead'
@@ -25,7 +12,6 @@ import { TodayNewsStoryRow } from './TodayNewsStoryRow'
 
 export function TodayNewsDialog(): JSX.Element | null {
     const { isNewsOpen, edition } = useValues(todayNewsLogic)
-    const { currentTeam } = useValues(teamLogic)
     const { closeNews, diveIn } = useActions(todayNewsLogic)
     const popupRef = useRef<HTMLDivElement>(null)
     const today = dayjs().format('dddd, MMMM D')
@@ -51,32 +37,11 @@ export function TodayNewsDialog(): JSX.Element | null {
                 data-attr="today-news-dialog"
             >
                 <DialogHeader>
-                    <span className="flex items-start justify-between gap-4 pr-8">
-                        <span className="flex flex-col gap-1">
-                            <span className="flex flex-wrap items-baseline gap-x-3">
-                                <DialogTitle className="text-2xl tracking-tight">Today</DialogTitle>
-                                <Text size="sm" variant="muted" render={<span />} translate="no">
-                                    {today}
-                                </Text>
-                            </span>
-                            <DialogDescription className="flex items-center gap-1.5">
-                                <IconTelescope className="size-3.5 shrink-0" />
-                                <span>
-                                    Created by the Today scout from the last 24 hours of activity in{' '}
-                                    {currentTeam?.name ?? 'your project'}.
-                                </span>
-                            </DialogDescription>
-                        </span>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            nativeButton={false}
-                            render={<LinkPrimitive to={urls.inbox('scouts')} />}
-                            onClick={closeNews}
-                            data-attr="today-news-create-scout"
-                        >
-                            Create your own custom scout
-                        </Button>
+                    <span className="flex flex-wrap items-baseline gap-x-3 pr-8">
+                        <DialogTitle className="text-2xl tracking-tight">Today</DialogTitle>
+                        <Text size="sm" variant="muted" render={<span />} translate="no">
+                            {today}
+                        </Text>
                     </span>
                 </DialogHeader>
                 <DialogBody>
