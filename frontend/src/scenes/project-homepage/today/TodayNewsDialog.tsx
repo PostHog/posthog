@@ -43,9 +43,26 @@ export function TodayNewsDialog(): JSX.Element {
                             <DialogTitle className="m-0 text-center text-[3.5rem] leading-none font-bold tracking-tighter">
                                 Today
                             </DialogTitle>
-                            <DialogDescription className="flex flex-wrap items-baseline justify-between gap-x-4 font-mono text-xs tracking-wide uppercase">
-                                <span>{currentTeam?.name ?? 'Your project'}</span>
-                                <span translate="no">{today}</span>
+                            <DialogDescription className="grid grid-cols-1 gap-x-4 gap-y-1 font-mono text-xs tracking-wide uppercase @2xl:grid-cols-[1fr_auto_1fr]">
+                                <span className="truncate">{currentTeam?.name ?? 'Your project'}</span>
+                                <span className="flex items-center gap-1.5 @2xl:justify-center">
+                                    <IconTelescope className="size-3.5 shrink-0 text-foreground" />
+                                    <span>Editor in chief: a scout</span>
+                                    <span aria-hidden>·</span>
+                                    <Button
+                                        variant="link-foreground"
+                                        size="inline"
+                                        nativeButton={false}
+                                        render={<LinkPrimitive to={urls.inbox('scouts')} />}
+                                        onClick={closeNews}
+                                        data-attr="today-news-create-scout"
+                                    >
+                                        Hire your own
+                                    </Button>
+                                </span>
+                                <span translate="no" className="@2xl:text-right">
+                                    {today}
+                                </span>
                             </DialogDescription>
                         </header>
                         <div className="grid gap-6 @3xl:grid-cols-[5fr_3fr]">
@@ -61,23 +78,6 @@ export function TodayNewsDialog(): JSX.Element {
                             </ul>
                         </div>
                         {edition.briefs.length > 0 ? <TodayNewsBriefs briefs={edition.briefs} /> : null}
-                        <p className="m-0 flex flex-wrap items-center gap-x-2 border-t pt-3 font-mono text-xs tracking-wide text-muted-foreground uppercase">
-                            <span className="text-foreground [&_svg]:size-3.5">
-                                <IconTelescope />
-                            </span>
-                            <span>Edited by a scout</span>
-                            <span aria-hidden>·</span>
-                            <Button
-                                variant="link-foreground"
-                                size="inline"
-                                nativeButton={false}
-                                render={<LinkPrimitive to={urls.inbox('scouts')} />}
-                                onClick={closeNews}
-                                data-attr="today-news-create-scout"
-                            >
-                                Create your own scout
-                            </Button>
-                        </p>
                     </div>
                 </DialogBody>
             </DialogContent>
