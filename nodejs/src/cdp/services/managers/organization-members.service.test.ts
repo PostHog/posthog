@@ -237,7 +237,7 @@ describe('OrganizationMembersService', () => {
             }
         })
 
-        it('shares one member lookup with a send that starts while it runs and with later sends, and reloads it after a minute', async () => {
+        it('shares one member lookup with a send that starts while it runs and with later sends, and reloads it before it is a minute old', async () => {
             const start = Date.now()
             const clock = jest.spyOn(Date, 'now').mockReturnValue(start)
             let member = 'member@example.com'
