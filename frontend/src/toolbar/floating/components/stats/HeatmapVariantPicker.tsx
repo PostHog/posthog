@@ -39,6 +39,7 @@ export function HeatmapVariantPicker(): JSX.Element | null {
             size="small"
             dropdownMatchSelectWidth={false}
             data-attr="heatmap-variant-filter"
+            tooltip="Heatmap: sessions that were shown this variant. Clickmap: clicks from people in this variant, even if they weren't shown it."
             value={heatmapVariantFilter ? optionKey(heatmapVariantFilter) : null}
             options={[{ options: [{ label: 'All variants', value: null }] }, ...sections]}
             renderButtonContent={() =>
