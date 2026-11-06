@@ -297,7 +297,8 @@ def serialized_like_events(table: Table, chain: list[str | int], read: ast.Field
     value = null_if_sentinels(raw, ("", "{}") if overlaps_restriction else ("", "{}", "null"))
     # Events ingestion stores an integer outside the Int64 and UInt64 ranges as a JSON string.
     return parse_expr(
-        "if(match({value}, '^-?[0-9]+$') AND isNull(toInt64OrNull({value})) AND isNull(toUInt64OrNull({value})), "
+        "if(match({value}, '^-?[0-9]+$') AND isNull(accurateCastOrNull({value}, 'Int64')) "
+        "AND isNull(accurateCastOrNull({value}, 'UInt64')), "
         "concat('\"', {value}, '\"'), {value})",
         {"value": value},
     )

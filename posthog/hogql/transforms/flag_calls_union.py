@@ -618,13 +618,21 @@ class _FlagEvaluationsReads(CloningVisitor):
         return ast.Field(chain=["flag_evaluations", *chain])
 
     def visit_call(self, node: ast.Call):
-        argument = node.args[0] if node.name == "toJSONString" and len(node.args) == 1 else None
-        while isinstance(argument, ast.Alias):
-            argument = argument.expr
+        argument = _serialized_argument(node)
         if isinstance(argument, ast.Field):
             read = self.visit_field(argument)
             return serialized_like_events(self.columns.events, argument.chain, read, self.context)
         return super().visit_call(node)
+
+
+def _serialized_argument(node: ast.Call) -> ast.Expr | None:
+    """The argument of a one-argument `toJSONString` call, through any aliases, or None for any other call."""
+    if node.name != "toJSONString" or len(node.args) != 1:
+        return None
+    argument = node.args[0]
+    while isinstance(argument, ast.Alias):
+        argument = argument.expr
+    return argument
 
 
 def _serializes_select_alias(expr: ast.Expr, aliases: dict[str, ast.Expr]) -> bool:
@@ -642,9 +650,7 @@ class _SelectAliasSerializationFinder(SyntaxVisitor):
         self.found = False
 
     def visit_call(self, node: ast.Call) -> None:
-        argument = node.args[0] if node.name == "toJSONString" and len(node.args) == 1 else None
-        while isinstance(argument, ast.Alias):
-            argument = argument.expr
+        argument = _serialized_argument(node)
         if (
             isinstance(argument, ast.Field)
             and isinstance(argument.type, ast.FieldAliasType)

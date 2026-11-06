@@ -462,6 +462,16 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 column_type="Nullable(Float64)",
                 new_events_schema=True,
             ),
+            # Each branch serializes the key in the SELECT and in the copied filter with functions HogQL can print.
+            param(
+                "serialized_property_on_the_native_events_schema_on_mode_2",
+                f"SELECT toJSONString(properties.probe) FROM events WHERE {MIXED} "
+                "AND toJSONString(properties.probe) = '123'",
+                True,
+                True,
+                mode=ONLY,
+                new_events_schema=True,
+            ),
             param(
                 "typed_materialized_column_with_materialization_disabled",
                 f"SELECT properties.probe FROM events WHERE {MIXED}",
@@ -1463,6 +1473,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             ("out_of_range_integer", "properties.probe", 18446744073709551616, '"18446744073709551616"'),
             ("negative_out_of_range_integer", "properties.probe", -9223372036854775809, '"-9223372036854775809"'),
             ("largest_integer", "properties.probe", 18446744073709551615, "18446744073709551615"),
+            ("negative_integer", "properties.probe", -1, "-1"),
             # `toJSONString` of a SELECT alias serializes the text the alias holds, so both rows pass the filter.
             param(
                 "select_alias_filter",
