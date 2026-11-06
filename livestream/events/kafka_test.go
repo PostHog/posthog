@@ -318,10 +318,28 @@ func TestParse_CaptureOptions(t *testing.T) {
 			expected: map[string]interface{}{"$lib": "posthog-go", "$lib_version": "1.9.0"},
 		},
 		{
-			name:     "an empty client $lib is kept",
+			name:     "req_lib fills an empty $lib",
 			data:     `{"event":"$pageview","properties":{"$lib":""}}`,
 			options:  `{"req_lib":"posthog-go","req_lib_version":"2.0.0"}`,
-			expected: map[string]interface{}{"$lib": ""},
+			expected: map[string]interface{}{"$lib": "posthog-go", "$lib_version": "2.0.0"},
+		},
+		{
+			name:     "req_lib fills a non-string $lib",
+			data:     `{"event":"$pageview","properties":{"$lib":5,"$lib_version":"0.9.0"}}`,
+			options:  `{"req_lib":"posthog-go","req_lib_version":"2.0.0"}`,
+			expected: map[string]interface{}{"$lib": "posthog-go", "$lib_version": "2.0.0"},
+		},
+		{
+			name:     "req_lib fills an empty or non-string $lib_version when $lib matches",
+			data:     `{"event":"$pageview","properties":{"$lib":"posthog-go","$lib_version":1}}`,
+			options:  `{"req_lib":"posthog-go","req_lib_version":"2.0.0"}`,
+			expected: map[string]interface{}{"$lib": "posthog-go", "$lib_version": "2.0.0"},
+		},
+		{
+			name:     "a client $lib keeps an empty $lib_version",
+			data:     `{"event":"$pageview","properties":{"$lib":"custom","$lib_version":""}}`,
+			options:  `{"req_lib":"posthog-go","req_lib_version":"2.0.0"}`,
+			expected: map[string]interface{}{"$lib": "custom", "$lib_version": ""},
 		},
 		{
 			name:     "req_lib_version without req_lib is skipped",

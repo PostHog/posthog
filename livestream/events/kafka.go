@@ -359,11 +359,11 @@ func applyCaptureOptions(options CaptureOptions, properties map[string]interface
 	if !libOk || !libVersionOk {
 		return
 	}
-	current := properties["$lib"]
-	if current == nil {
+	current, _ := properties["$lib"].(string)
+	if current == "" {
 		properties["$lib"] = lib
 		properties["$lib_version"] = libVersion
-	} else if current == lib && properties["$lib_version"] == nil {
+	} else if version, _ := properties["$lib_version"].(string); current == lib && version == "" {
 		properties["$lib_version"] = libVersion
 	}
 }
