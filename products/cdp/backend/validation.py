@@ -207,7 +207,7 @@ def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) 
         raise serializers.ValidationError(
             {
                 "input": "The sandbox sender can only be used in workflow email steps and test sends. "
-                "Select a sender on your own verified domain for destinations."
+                "Select a sender on your own verified domain."
             }
         )
     if len(integration_ids) != 1:
