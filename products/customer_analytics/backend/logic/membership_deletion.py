@@ -25,10 +25,12 @@ from products.customer_analytics.backend.logic.membership import (
     MEMBERSHIP_LEASE_SECONDS,
     QUERY_SETTINGS,
     QUERY_TIMEOUT_SECONDS,
+    MembershipCleanupBusy,
     MembershipExistence,
     MembershipKey,
     get_membership_cleanup_lease,
     get_membership_existence,
+    get_membership_query_settings,
 )
 from products.customer_analytics.backend.logic.membership_discovery import get_candidate_key, is_membership_missing
 from products.customer_analytics.backend.models.membership_cleanup import (
@@ -101,6 +103,9 @@ def _get_cleanup_cluster(host: str) -> ClickhouseCluster:
 
 
 class MembershipDeletionStore:
+    def __init__(self, deadline: float | None = None) -> None:
+        self.deadline = deadline
+
     def _delete(self, team_id: int, keys: Sequence[MembershipKey] | None = None) -> None:
         target = CONFIG_TARGET if keys is None else MEMBERSHIP_TARGET
         predicate = "team_id = %(team_id)s"
@@ -123,14 +128,14 @@ class MembershipDeletionStore:
             pending = client.execute(
                 "SELECT count() FROM system.mutations WHERE database = currentDatabase() AND table = %(table)s AND NOT is_done",
                 {"table": target.data_table},
-                settings=QUERY_SETTINGS,
+                settings=get_membership_query_settings(self.deadline),
             )
             if pending[0][0]:
                 raise RuntimeError("Membership deletion has a pending mutation. Retry the batch later.")
             remaining = client.execute(
                 f"SELECT 1 FROM {escape_clickhouse_identifier(target.data_table)} WHERE {predicate} LIMIT 1",
                 parameters,
-                settings=QUERY_SETTINGS,
+                settings=get_membership_query_settings(self.deadline),
             )
             if not remaining:
                 return
@@ -138,7 +143,11 @@ class MembershipDeletionStore:
                 f"DELETE FROM {escape_clickhouse_identifier(target.data_table)} WHERE {predicate}",
                 parameters,
                 query_id=query_id,
-                settings={**QUERY_SETTINGS, "lightweight_deletes_sync": "2", "replace_running_query": "0"},
+                settings={
+                    **get_membership_query_settings(self.deadline),
+                    "lightweight_deletes_sync": "2",
+                    "replace_running_query": "0",
+                },
             )
 
         placement.cluster.map_one_host_per_shard(delete_membership, concurrency=1).result()
@@ -146,7 +155,7 @@ class MembershipDeletionStore:
         survivors = sync_execute(
             f"SELECT count() FROM {escape_clickhouse_identifier(target.read_table)} WHERE {predicate}",
             parameters,
-            settings=QUERY_SETTINGS,
+            settings=get_membership_query_settings(self.deadline),
             workload=Workload.OFFLINE,
         )
         if survivors[0][0]:
@@ -163,7 +172,7 @@ class MembershipDeletionStore:
             sync_execute(
                 "SELECT 1 FROM person_group_membership WHERE team_id = %(team_id)s LIMIT 1",
                 {"team_id": team_id},
-                settings=QUERY_SETTINGS,
+                settings=get_membership_query_settings(self.deadline),
                 workload=Workload.OFFLINE,
             )
         )
@@ -211,6 +220,8 @@ def _delete_missing_membership(
         if keys:
             store.delete_keys(input.team_id, list(keys))
         return len(keys)
+    except TimeoutError:
+        raise
     except Exception:
         OUTCOMES.labels("deletion_failed").inc()
         logger.exception("membership_deletion_failed", team_id=input.team_id)
@@ -231,7 +242,7 @@ def _run_batch(
     existence = (
         MembershipExistence(persons=frozenset(), groups=frozenset())
         if deleted_team
-        else get_membership_existence(input.team_id, list(keys))
+        else get_membership_existence(input.team_id, list(keys), deadline=store.deadline)
     )
     check_lease()
     recovered_ids = [
@@ -259,6 +270,7 @@ def _run_batch(
         and not candidates.exists()
         and not store.has_membership(input.team_id)
     ):
+        check_lease()
         MembershipCleanupScan.objects.for_team(input.team_id).delete()
     for outcome, count in (
         ("checked", len(pending)),
@@ -289,9 +301,10 @@ def run_membership_deletion(input: MembershipDeletionInput, store: MembershipDel
     lease = get_membership_cleanup_lease(input.team_id)
     if not lease.acquire():
         OUTCOMES.labels("overlap").inc()
-        return MembershipDeletionCounts()
+        raise MembershipCleanupBusy("Membership cleanup is busy for this team. Retry the batch.")
 
     def check_lease() -> None:
+        get_membership_query_settings(store.deadline)
         lease.extend(MEMBERSHIP_LEASE_SECONDS, replace_ttl=True)
 
     try:

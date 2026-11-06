@@ -2,27 +2,14 @@ import json
 from datetime import timedelta
 
 from temporalio import activity, workflow
-from temporalio.client import (
-    Client,
-    Schedule,
-    ScheduleActionStartWorkflow,
-    ScheduleIntervalSpec,
-    ScheduleOverlapPolicy,
-    SchedulePolicy,
-    ScheduleSpec,
-    ScheduleState,
-)
+from temporalio.client import Client
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ChildWorkflowError, WorkflowAlreadyStartedError
 
 with workflow.unsafe.imports_passed_through():
-    from django.conf import settings
-
     from posthog.dataclasses import frozen
-    from posthog.scheduling.jitter import deterministic_offset
     from posthog.sync import database_sync_to_async
     from posthog.temporal.common.heartbeat import Heartbeater
-    from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists
 
     from products.customer_analytics.backend.logic.membership_deletion import (
         MembershipDeletionCounts,
@@ -32,6 +19,16 @@ with workflow.unsafe.imports_passed_through():
         record_membership_deletion_team,
         run_membership_deletion,
     )
+
+from products.customer_analytics.backend.temporal.membership_common import (
+    BATCH_RETRY_POLICY,
+    HEARTBEAT_TIMEOUT,
+    MIN_TEAM_RUN_BUDGET,
+    create_membership_schedule,
+    get_membership_activity_timeout,
+    get_membership_query_deadline,
+    get_membership_run_deadline,
+)
 
 SCHEDULE_ID = "customer-analytics-membership-deletion"
 TEAM_WORKFLOW_NAME = "customer-analytics-membership-deletion-team"
@@ -65,7 +62,7 @@ async def record_membership_deletion_team_activity(team_id: int) -> None:
 async def membership_deletion_activity(input: MembershipDeletionInput) -> MembershipDeletionCounts:
     async with Heartbeater():
         return await database_sync_to_async(run_membership_deletion, thread_sensitive=False)(
-            input, MembershipDeletionStore()
+            input, MembershipDeletionStore(deadline=get_membership_query_deadline())
         )
 
 
@@ -73,15 +70,19 @@ async def membership_deletion_activity(input: MembershipDeletionInput) -> Member
 class MembershipDeletionTeamWorkflow:
     @workflow.run
     async def run(self, input: MembershipDeletionInput) -> MembershipDeletionCounts:
-        deadline = workflow.now() + TEAM_RUN_BUDGET
+        deadline = get_membership_run_deadline(TEAM_RUN_BUDGET)
         total = MembershipDeletionCounts()
         for _ in range(MAX_BATCHES_PER_TEAM):
+            timeout = get_membership_activity_timeout(deadline)
+            if timeout is None:
+                break
             result = await workflow.execute_activity(
                 membership_deletion_activity,
                 input,
-                start_to_close_timeout=timedelta(minutes=10),
-                heartbeat_timeout=timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=timeout,
+                schedule_to_close_timeout=deadline - workflow.now(),
+                heartbeat_timeout=HEARTBEAT_TIMEOUT,
+                retry_policy=BATCH_RETRY_POLICY,
             )
             total = MembershipDeletionCounts(
                 checked=total.checked + result.checked,
@@ -116,7 +117,7 @@ class MembershipDeletionWorkflow:
                 break
             for team_id in teams:
                 remaining = deadline - workflow.now()
-                if remaining <= timedelta():
+                if remaining <= MIN_TEAM_RUN_BUDGET:
                     return
                 try:
                     await workflow.execute_child_workflow(
@@ -138,29 +139,10 @@ class MembershipDeletionWorkflow:
 
 
 async def create_membership_deletion_schedule(client: Client) -> None:
-    if await a_schedule_exists(client, SCHEDULE_ID):
-        return
-    await a_create_schedule(
+    await create_membership_schedule(
         client,
         SCHEDULE_ID,
-        Schedule(
-            action=ScheduleActionStartWorkflow(
-                SCHEDULE_ID,
-                MembershipDeletionScheduleInput(),
-                id=SCHEDULE_ID,
-                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                execution_timeout=COORDINATOR_RUN_BUDGET + timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            ),
-            spec=ScheduleSpec(
-                intervals=[
-                    ScheduleIntervalSpec(
-                        every=timedelta(hours=1), offset=deterministic_offset(SCHEDULE_ID, timedelta(hours=1))
-                    )
-                ]
-            ),
-            policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
-            state=ScheduleState(paused=True, note="Validate dry-run cleanup before enabling deletion."),
-        ),
-        trigger_immediately=False,
+        COORDINATOR_RUN_BUDGET + timedelta(minutes=5),
+        "Validate dry-run cleanup before enabling deletion.",
+        MembershipDeletionScheduleInput(),
     )
