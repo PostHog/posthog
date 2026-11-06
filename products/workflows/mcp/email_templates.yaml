@@ -174,10 +174,10 @@ tools:
             - attachments
         param_overrides:
             template_key:
-                required: true
                 description: >
                     Key that names the email, such as welcome, so its metrics, logs and status group under it. Letters,
                     numbers, hyphens (-) and underscores (_) only.
+                required: true
             subject:
                 required: true
             html:
