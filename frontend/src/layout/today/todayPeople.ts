@@ -15,23 +15,6 @@ export interface TodayPeopleRecent {
  */
 export const TODAY_PEOPLE_RECENT_KEY = 'todayPeopleRecent'
 
-// pinned: the keys are part of the row's `people-sidebar-<row>` data-attr.
-export const TODAY_PEOPLE_ROW_LABELS = {
-    overview: 'Overview',
-    feed: 'Feed',
-    tasks: 'Tasks',
-    persons: 'Persons',
-    accounts: 'Accounts',
-    cohorts: 'Cohorts',
-    journeys: 'Journeys',
-    notes: 'Notes',
-    announcements: 'Announcements',
-    feature_requests: 'Feature requests',
-    support: 'Support',
-} as const
-
-export type TodayPeopleStaticRowKey = keyof typeof TODAY_PEOPLE_ROW_LABELS
-
 export function isPeopleListPath(path: string): boolean {
     return (
         path === urls.persons() ||

@@ -12,9 +12,9 @@ import { GroupType, GroupTypeIndex } from '~/types'
 import {
     accountGroupTypeIndex,
     activePeopleRow,
+    peopleRowSections,
     peopleSidebarRows,
     todayPeopleLogic,
-    visibleMoreRows,
 } from './todayPeopleLogic'
 
 const groupTypes = (...indexes: number[]): Map<GroupTypeIndex, GroupType> =>
@@ -46,7 +46,12 @@ const ONE_TYPE = groupTabs([0, 'Organizations'])
 
 describe('todayPeopleLogic', () => {
     test.each([
-        ['journeys on', JOURNEYS, 0, ['overview', 'persons', 'accounts', 'cohorts', 'journeys', 'support']],
+        [
+            'journeys on',
+            JOURNEYS,
+            0,
+            ['overview', 'persons', 'accounts', 'cohorts', 'journeys', 'configure', 'support'],
+        ],
         [
             'every tab on',
             EVERY_TAB,
@@ -57,23 +62,23 @@ describe('todayPeopleLogic', () => {
                 'tasks',
                 'persons',
                 'accounts',
-                'groups-0',
                 'cohorts',
                 'journeys',
                 'notes',
                 'announcements',
                 'feature_requests',
+                'configure',
                 'support',
             ],
         ],
-        ['journeys off', CUSTOMER_ANALYTICS, 0, ['overview', 'persons', 'accounts', 'cohorts', 'support']],
+        ['journeys off', CUSTOMER_ANALYTICS, 0, ['overview', 'persons', 'accounts', 'cohorts', 'configure', 'support']],
         [
             'customer analytics off, tab flags on',
             { ...EVERY_TAB, [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: false },
             0,
-            ['persons', 'accounts', 'cohorts', 'support'],
+            ['persons', 'groups-0', 'cohorts', 'support'],
         ],
-        ['no group types', JOURNEYS, null, ['overview', 'persons', 'cohorts', 'journeys', 'support']],
+        ['no group types', JOURNEYS, null, ['overview', 'persons', 'cohorts', 'journeys', 'configure', 'support']],
     ])('with %s, the pane shows %o', (_, flags, groupTypeIndex, keys) => {
         expect(
             peopleSidebarRows(
@@ -94,7 +99,7 @@ describe('todayPeopleLogic', () => {
         expect(accounts?.href).toBe(href)
     })
 
-    it('lists every group type, and names one row Accounts', () => {
+    it('lists every group type by its own name, and the account group type once', () => {
         const tabs = groupTabs([0, 'Accounts'], [1, 'Projects'])
         const rowsFor = (flags: Record<string, boolean>, index: GroupTypeIndex): [string, string, string][] =>
             peopleSidebarRows(flags, index, tabs)
@@ -102,28 +107,33 @@ describe('todayPeopleLogic', () => {
                 .map((row) => [row.key, row.label, row.href])
 
         expect(rowsFor(CUSTOMER_ANALYTICS, 1)).toEqual([
-            ['groups-0', 'Groups', urls.groups(0)],
             ['accounts', 'Accounts', urls.groups(1)],
+            ['groups-0', 'Accounts', urls.groups(0)],
         ])
         expect(rowsFor({ ...CUSTOMER_ANALYTICS, [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true }, 0)).toEqual([
             ['accounts', 'Accounts', urls.customerAnalyticsAccounts()],
-            ['groups-0', 'Groups', urls.groups(0)],
             ['groups-1', 'Projects', urls.groups(1)],
         ])
     })
 
-    test.each([
-        ['closed, on a top row', false, 'persons', []],
-        ['closed, on the Support page', false, 'support', ['support']],
-        [
-            'open',
-            true,
-            'persons',
-            ['feed', 'tasks', 'groups-0', 'notes', 'announcements', 'feature_requests', 'support'],
-        ],
-    ])('See more %s shows %s %o', (_, moreOpen, activeRow, keys) => {
-        const rows = peopleSidebarRows(EVERY_TAB, 0, ONE_TYPE)
-        expect(visibleMoreRows(rows, moreOpen, activeRow).map((row) => row.key)).toEqual(keys)
+    it('puts the core rows and Support on top, and the rest in Groups and Customer analytics', () => {
+        const rows = peopleSidebarRows(EVERY_TAB, 1, groupTabs([0, 'Organizations'], [1, 'Projects']))
+
+        expect(
+            rows.filter((row) => !peopleRowSections(rows).some((s) => s.rows.includes(row))).map((row) => row.key)
+        ).toEqual(['overview', 'persons', 'accounts', 'cohorts', 'support'])
+        expect(peopleRowSections(rows).map((section) => [section.label, section.rows.map((row) => row.key)])).toEqual([
+            ['Groups', ['groups-0']],
+            [
+                'Customer analytics',
+                ['feed', 'tasks', 'journeys', 'notes', 'announcements', 'feature_requests', 'configure'],
+            ],
+        ])
+    })
+
+    it('leaves out a section with no rows', () => {
+        const rows = peopleSidebarRows(JOURNEYS, 0, ONE_TYPE)
+        expect(peopleRowSections(rows).map((section) => section.key)).toEqual(['customer-analytics'])
     })
 
     test.each([
@@ -145,7 +155,7 @@ describe('todayPeopleLogic', () => {
     test.each([
         ['/project/1/person/ada%40example.com', JOURNEYS, 'persons'],
         ['/project/1/groups/0/acme', JOURNEYS, 'accounts'],
-        ['/project/1/groups/0/acme', EVERY_TAB, 'groups-0'],
+        ['/project/1/groups/0/acme', EVERY_TAB, 'accounts'],
         ['/project/1/customer_analytics/accounts/7', EVERY_TAB, 'accounts'],
         ['/project/1/customer_analytics/feature-requests/3', EVERY_TAB, 'feature_requests'],
         ['/project/1/support/tickets', JOURNEYS, 'support'],
@@ -176,5 +186,25 @@ describe('todayPeopleLogic', () => {
 
         await expectLogic(logic).toDispatchActions(['loadCountsSuccess'])
         expect(logic.values.counts).toEqual({ accounts: 4, cohorts: undefined, journeys: 2 })
+    })
+
+    it('filters every list by the search and opens collapsed sections while searching', () => {
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(EVERY_TAB), EVERY_TAB)
+        const logic = todayPeopleLogic()
+        logic.mount()
+        logic.actions.toggleSection('customer-analytics')
+        expect(logic.values.isSectionOpen('customer-analytics')).toBe(false)
+
+        logic.actions.setSearchQuery('ANNOUNCE')
+
+        expect(logic.values.topRows).toEqual([])
+        expect(logic.values.rowSections.map((section) => section.rows.map((row) => row.key))).toEqual([
+            ['announcements'],
+        ])
+        expect(logic.values.isSectionOpen('customer-analytics')).toBe(true)
+
+        logic.actions.setSearchQuery('')
+        expect(logic.values.isSectionOpen('customer-analytics')).toBe(false)
     })
 })

@@ -8,7 +8,6 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { productHasEffectiveNoneAccess } from 'lib/utils/accessControlUtils'
 import { hogql } from 'lib/utils/hogql'
 import { isUnderPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { teamLogic } from 'scenes/teamLogic'
@@ -16,20 +15,33 @@ import { urls } from 'scenes/urls'
 
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { GroupTab, groupTabs as groupTabsFor } from '~/models/groupTabs'
-import { AccessControlResourceType, GroupType, GroupTypeIndex, TeamPublicType, TeamType } from '~/types'
+import { GroupType, GroupTypeIndex, TeamPublicType, TeamType } from '~/types'
 
 import { cohortsList } from 'products/cohorts/frontend/generated/api'
 import { accountsList, customerJourneysList } from 'products/customer_analytics/frontend/generated/api'
 
-import { TODAY_PEOPLE_ROW_LABELS, TodayPeopleRecent, TodayPeopleStaticRowKey, peopleRecentRowKey } from './todayPeople'
+import { matchesPaneQuery } from './todayPaneSearch'
+import { TodayPeopleRecent, peopleRecentRowKey } from './todayPeople'
 import { todayPeopleRecentsLogic } from './todayPeopleRecentsLogic'
+import {
+    TODAY_PEOPLE_ROWS,
+    TODAY_PEOPLE_ROW_SECTION_LABELS,
+    TodayPeopleRowSection,
+    TodayPeopleSection,
+    TodayPeopleStaticRowKey,
+} from './todayPeopleRows'
 import { TODAY_USER_PERSIST_OPTIONS } from './todayUserPersistOptions'
 
-// pinned: persisted section ids and the `section` property of `people section toggled`.
-export type TodayPeopleSection = 'recents'
+/** A section under Recents with its rows, in pane order. */
+export interface TodayPeopleRowSectionGroup {
+    key: TodayPeopleRowSection
+    label: string
+    rows: TodayPeopleRow[]
+}
 
-/** The rows always on show. The others wait behind See more. */
-const PRIMARY_ROW_KEYS: TodayPeopleRowKey[] = ['overview', 'persons', 'accounts', 'cohorts', 'journeys']
+function rowSection(row: TodayPeopleRow): TodayPeopleRowSection | null {
+    return row.kind === 'group' ? 'groups' : TODAY_PEOPLE_ROWS[row.key].section
+}
 
 export type TodayPeopleRowCounts = Partial<Record<'accounts' | 'cohorts' | 'journeys', number>>
 
@@ -60,56 +72,72 @@ export function accountGroupTypeIndex(
     return first ?? null
 }
 
+function staticRow(key: TodayPeopleStaticRowKey, href?: string, paths?: string[]): TodayPeopleRow {
+    const definition = TODAY_PEOPLE_ROWS[key]
+    const rowHref = href ?? definition.href()
+    const rowPaths = paths ?? ('paths' in definition ? definition.paths() : [rowHref])
+    return { kind: 'static', key, label: definition.label, href: rowHref, paths: rowPaths }
+}
+
 /**
- * The rows at the top of the People pane. They carry the Customer analytics tabs, which this shell hides, under the
- * same flags as the tabs, and every group type, so the tab bars on those pages can go.
+ * The Accounts row and the group type rows. Accounts is a Customer analytics idea, so without that flag every group
+ * type keeps its own name. With it there is one Accounts row: the Customer analytics accounts page with
+ * customer-analytics-csp, which also covers the account group type's pages, else the account group type itself.
+ */
+function accountAndGroupRows(
+    featureFlags: FeatureFlagsSet,
+    groupTypeIndex: GroupTypeIndex | null,
+    groupTabs: GroupTab[]
+): TodayPeopleRow[] {
+    const customerAnalytics = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]
+    const accountsPage = TODAY_PEOPLE_ROWS.accounts.enabled(featureFlags)
+    const accountTab = customerAnalytics ? groupTabs.find((tab) => tab.key === `groups-${groupTypeIndex}`) : undefined
+    const accounts = accountsPage
+        ? staticRow('accounts', undefined, [urls.customerAnalyticsAccounts(), ...(accountTab ? [accountTab.url] : [])])
+        : accountTab
+          ? staticRow('accounts', accountTab.url)
+          : null
+    const groups = groupTabs
+        .filter((tab) => tab !== accountTab)
+        .map(
+            (tab): TodayPeopleRow => ({
+                kind: 'group',
+                key: tab.key,
+                label: tab.label,
+                href: tab.url,
+                paths: [tab.url],
+            })
+        )
+    return [...(accounts ? [accounts] : []), ...groups]
+}
+
+/**
+ * The People pane rows in pane order: the rows of `TODAY_PEOPLE_ROWS` that are on, with the group types after
+ * Accounts. They carry the Customer analytics tabs, which this shell hides, so the tab bars on those pages can go.
  */
 export function peopleSidebarRows(
     featureFlags: FeatureFlagsSet,
     groupTypeIndex: GroupTypeIndex | null,
     groupTabs: GroupTab[] = []
 ): TodayPeopleRow[] {
-    const customerAnalytics = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]
-    const csp = customerAnalytics && !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]
-    const journeys = customerAnalytics && !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS]
-    const featureRequests = customerAnalytics && !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS]
-    const tasks = customerAnalytics && !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]
-    const row = (
-        key: TodayPeopleStaticRowKey,
-        href: string,
-        paths: string[] = [href],
-        label: string = TODAY_PEOPLE_ROW_LABELS[key]
-    ): TodayPeopleRow => ({ kind: 'static', key, label, href, paths })
-    const rows: (TodayPeopleRow | null)[] = [
-        customerAnalytics ? row('overview', urls.customerAnalyticsDashboard()) : null,
-        csp ? row('feed', urls.customerAnalyticsFeed()) : null,
-        tasks ? row('tasks', urls.customerAnalyticsTasks()) : null,
-        row('persons', urls.persons(), [urls.persons(), '/person']),
-        csp ? row('accounts', urls.customerAnalyticsAccounts()) : null,
-        ...groupTabs.map((tab): TodayPeopleRow => {
-            // Accounts names one row only: the tab with customer-analytics-csp, else the account group type.
-            if (!csp && tab.key === `groups-${groupTypeIndex}`) {
-                return row('accounts', tab.url)
-            }
-            const label = tab.label === TODAY_PEOPLE_ROW_LABELS.accounts ? 'Groups' : tab.label
-            return { kind: 'group', key: tab.key, label, href: tab.url, paths: [tab.url] }
-        }),
-        row('cohorts', urls.cohorts()),
-        journeys ? row('journeys', urls.customerAnalyticsJourneys()) : null,
-        csp ? row('notes', urls.customerAnalyticsNotes()) : null,
-        csp ? row('announcements', urls.customerAnalyticsAnnouncements()) : null,
-        featureRequests ? row('feature_requests', urls.customerAnalyticsFeatureRequests()) : null,
-        // Without Ticket access the page only says access denied.
-        !productHasEffectiveNoneAccess(AccessControlResourceType.Ticket)
-            ? row('support', urls.supportTickets(), [urls.supportDashboard()])
-            : null,
-    ]
-    return rows.filter((row): row is TodayPeopleRow => row !== null)
+    return (Object.keys(TODAY_PEOPLE_ROWS) as TodayPeopleStaticRowKey[]).flatMap((key) =>
+        key === 'accounts'
+            ? accountAndGroupRows(featureFlags, groupTypeIndex, groupTabs)
+            : TODAY_PEOPLE_ROWS[key].enabled(featureFlags)
+              ? [staticRow(key)]
+              : []
+    )
 }
 
-/** The rows behind See more to show: all of them when open, else only the one for the open page. */
-export function visibleMoreRows(rows: TodayPeopleRow[], moreOpen: boolean, activeRow: string | null): TodayPeopleRow[] {
-    return rows.filter((row) => !PRIMARY_ROW_KEYS.includes(row.key) && (moreOpen || row.key === activeRow))
+/** The sections under Recents, in pane order. A section with no rows is left out. */
+export function peopleRowSections(rows: TodayPeopleRow[]): TodayPeopleRowSectionGroup[] {
+    return (Object.keys(TODAY_PEOPLE_ROW_SECTION_LABELS) as TodayPeopleRowSection[])
+        .map((key) => ({
+            key,
+            label: TODAY_PEOPLE_ROW_SECTION_LABELS[key],
+            rows: rows.filter((row) => rowSection(row) === key),
+        }))
+        .filter((section) => section.rows.length > 0)
 }
 
 export function activePeopleRow(
@@ -148,11 +176,14 @@ export interface todayPeopleLogicValues {
     counts: TodayPeopleRowCounts
     countsLoading: boolean
     groupTabs: GroupTab[]
-    hasMoreRows: boolean
-    moreOpen: boolean
-    moreRows: TodayPeopleRow[]
-    primaryRows: TodayPeopleRow[]
+    isSearching: boolean
+    isSectionOpen: (section: TodayPeopleSection) => boolean
+    matchingRecentRows: TodayPeopleRecent[]
+    matchingRows: TodayPeopleRow[]
+    rowSections: TodayPeopleRowSectionGroup[]
     rows: TodayPeopleRow[]
+    searchQuery: string
+    topRows: TodayPeopleRow[]
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -172,11 +203,11 @@ export interface todayPeopleLogicActions {
         counts: Partial<Record<'accounts' | 'cohorts' | 'journeys', number>>
         payload?: any
     }
-    toggleMore: () => {
-        value: true
+    setSearchQuery: (searchQuery: string) => {
+        searchQuery: string
     }
     toggleSection: (section: TodayPeopleSection) => {
-        section: 'recents'
+        section: TodayPeopleSection
     }
 }
 
@@ -207,9 +238,15 @@ export interface todayPeopleLogicMeta {
             recents: TodayPeopleRecent[],
             currentRecent: TodayPeopleRecent | null
         ) => string | null
-        primaryRows: (rows: TodayPeopleRow[]) => TodayPeopleRow[]
-        moreRows: (rows: TodayPeopleRow[], moreOpen: boolean, activeRow: string | null) => TodayPeopleRow[]
-        hasMoreRows: (rows: TodayPeopleRow[]) => boolean
+        matchingRows: (rows: TodayPeopleRow[], searchQuery: string) => TodayPeopleRow[]
+        topRows: (matchingRows: TodayPeopleRow[]) => TodayPeopleRow[]
+        rowSections: (matchingRows: TodayPeopleRow[]) => TodayPeopleRowSectionGroup[]
+        matchingRecentRows: (recentRows: TodayPeopleRecent[], searchQuery: string) => TodayPeopleRecent[]
+        isSearching: (searchQuery: string) => boolean
+        isSectionOpen: (
+            collapsedSections: TodayPeopleSection[],
+            isSearching: boolean
+        ) => (section: TodayPeopleSection) => boolean
     }
 }
 
@@ -238,7 +275,7 @@ export const todayPeopleLogic = kea<todayPeopleLogicType>([
     })),
     actions({
         toggleSection: (section: TodayPeopleSection) => ({ section }),
-        toggleMore: true,
+        setSearchQuery: (searchQuery: string) => ({ searchQuery }),
     }),
     loaders(({ values }) => ({
         counts: [
@@ -257,7 +294,7 @@ export const todayPeopleLogic = kea<todayPeopleLogicType>([
                         if (customerAnalytics && featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
                             return (await accountsList(id, { limit: 1 })).count
                         }
-                        if (accountsGroupTypeIndex === null) {
+                        if (!customerAnalytics || accountsGroupTypeIndex === null) {
                             return undefined
                         }
                         const response = await api.queryHogQL<[number][]>(
@@ -286,19 +323,18 @@ export const todayPeopleLogic = kea<todayPeopleLogicType>([
     })),
     reducers({
         // pinned: storage key for the persisted sections. Renaming it reopens everyone's sections.
+        searchQuery: [
+            '',
+            {
+                setSearchQuery: (_, { searchQuery }) => searchQuery,
+            },
+        ],
         collapsedSections: [
             [] as TodayPeopleSection[],
             TODAY_USER_PERSIST_OPTIONS,
             {
                 toggleSection: (state, { section }) =>
                     state.includes(section) ? state.filter((id) => id !== section) : [...state, section],
-            },
-        ],
-        moreOpen: [
-            false,
-            TODAY_USER_PERSIST_OPTIONS,
-            {
-                toggleMore: (state) => !state,
             },
         ],
     }),
@@ -341,18 +377,31 @@ export const todayPeopleLogic = kea<todayPeopleLogicType>([
                 currentRecent: TodayPeopleRecent | null
             ): string | null => activePeopleRow(location.pathname, rows, recents, currentRecent),
         ],
-        primaryRows: [
-            (s) => [s.rows],
-            (rows: TodayPeopleRow[]): TodayPeopleRow[] => rows.filter((row) => PRIMARY_ROW_KEYS.includes(row.key)),
+        matchingRows: [
+            (s) => [s.rows, s.searchQuery],
+            (rows: TodayPeopleRow[], searchQuery: string): TodayPeopleRow[] =>
+                rows.filter((row) => matchesPaneQuery(row.label, searchQuery)),
         ],
-        moreRows: [
-            (s) => [s.rows, s.moreOpen, s.activeRow],
-            (rows: TodayPeopleRow[], moreOpen: boolean, activeRow: string | null): TodayPeopleRow[] =>
-                visibleMoreRows(rows, moreOpen, activeRow),
+        topRows: [
+            (s) => [s.matchingRows],
+            (rows: TodayPeopleRow[]): TodayPeopleRow[] => rows.filter((row) => rowSection(row) === null),
         ],
-        hasMoreRows: [
-            (s) => [s.rows],
-            (rows: TodayPeopleRow[]): boolean => rows.some((row) => !PRIMARY_ROW_KEYS.includes(row.key)),
+        rowSections: [
+            (s) => [s.matchingRows],
+            (rows: TodayPeopleRow[]): TodayPeopleRowSectionGroup[] => peopleRowSections(rows),
+        ],
+        matchingRecentRows: [
+            (s) => [s.recentRows, s.searchQuery],
+            (recentRows: TodayPeopleRecent[], searchQuery: string): TodayPeopleRecent[] =>
+                recentRows.filter((recent) => matchesPaneQuery(recent.name, searchQuery)),
+        ],
+        isSearching: [(s) => [s.searchQuery], (searchQuery: string): boolean => searchQuery.trim() !== ''],
+        /** A search opens every section, so no match hides in a collapsed one. */
+        isSectionOpen: [
+            (s) => [s.collapsedSections, s.isSearching],
+            (collapsedSections: TodayPeopleSection[], isSearching: boolean) =>
+                (section: TodayPeopleSection): boolean =>
+                    isSearching || !collapsedSections.includes(section),
         ],
     }),
     listeners(({ values }) => ({

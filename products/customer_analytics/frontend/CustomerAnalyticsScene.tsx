@@ -22,6 +22,7 @@ import { urls } from 'scenes/urls'
 import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { useTodayPeopleTitle } from '~/layout/today/todayPeopleRows'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -70,7 +71,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
     const { addProductIntent } = useActions(teamLogic)
     const { reportCustomerAnalyticsDashboardConfigurationButtonClicked, reportCustomerAnalyticsViewed } =
         useActions(eventUsageLogic)
-    const { businessType, activeTab, sceneName } = useValues(customerAnalyticsSceneLogic)
+    const { businessType, activeTab, sceneName, todayPeopleRowKey } = useValues(customerAnalyticsSceneLogic)
     const { shouldShowGroupsIntroduction } = useValues(groupsAccessLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { location, searchParams } = useValues(router)
@@ -78,6 +79,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
     const { saveChanges, cancelChanges } = useActions(journeyEditorLogic)
     const { activeJourney } = useValues(customerJourneysLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const todayTitle = useTodayPeopleTitle(todayPeopleRowKey)
 
     const accessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.CustomerAnalytics,
@@ -247,12 +249,14 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
                                     ? 'Work assigned to you across customer accounts.'
                                     : sceneConfigurations[Scene.CustomerAnalytics].description
                             }
-                            resourceType={{
-                                type: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
-                            }}
+                            resourceType={
+                                todayTitle?.resourceType ?? {
+                                    type: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
+                                }
+                            }
                             actions={
                                 todayRailNav ? (
-                                    <QuillCustomerAnalyticsSceneActions onConfigureClick={onConfigureClick} />
+                                    <QuillCustomerAnalyticsSceneActions />
                                 ) : (
                                     <>
                                         <FeedbackButton id="customer-analytics-dashboard-feedback-button" />

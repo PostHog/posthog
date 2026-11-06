@@ -8,7 +8,6 @@ frontend/src/layout/navigation-3000/layout-modes/TodayFramedLayout.tsx -> .Today
 frontend/src/layout/navigation-3000/layout-modes/TodayPhoneLayout.tsx -> .TodayAppLayout
 frontend/src/layout/today/TodayContextPanelContent.tsx -> .TodayContextPanelContent
 frontend/src/layout/today/TodayContextPanelLauncher.tsx -> .TodayContextPanelButton
-frontend/src/layout/today/TodayPaneSearchList.tsx -> .TodayPaneSearchList
 frontend/src/layout/today/TodayPhoneHeader.tsx -> .TodayPhoneHeader
 frontend/src/layout/today/TodayProductHoverCard.tsx -> .TodayIconBadge
 frontend/src/layout/today/TodayTabBar.tsx -> .TodayTabBar
