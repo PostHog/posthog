@@ -6162,6 +6162,7 @@ export enum ActivityScope {
     ORGANIZATION_MEMBERSHIP = 'OrganizationMembership',
     ORGANIZATION_INVITE = 'OrganizationInvite',
     ORGANIZATION_DOMAIN = 'OrganizationDomain',
+    ORGANIZATION_IP_RESTRICTIONS = 'OrganizationIPRestrictions',
     OAUTH_APPLICATION = 'OAuthApplication',
     WORKLOAD_TRUST_POLICY = 'WorkloadTrustPolicy',
     WORKLOAD_TRUST_POLICY_REQUEST = 'WorkloadTrustPolicyRequest',
