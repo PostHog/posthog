@@ -17,7 +17,6 @@ from requests.exceptions import (
 from urllib3 import HTTPConnectionPool
 from urllib3.exceptions import MaxRetryError, NewConnectionError
 
-from posthog.admin.console.tools import OperationForm
 from posthog.clickhouse.client.execute import sync_execute
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -467,7 +466,8 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
             "skip_failing_before_window": "on",
         }
         self.url = "/admin/console/tools/replay-failed-runs/"
-        self.send_url = f"{self.url}?{urlencode(self.filters)}"
+        self.query = f"?{urlencode(self.filters)}&step=details"
+        self.send_url = f"{self.url}send/{self.query}"
         self.staff_client = Client()
         self.staff_client.force_login(self.user)
 
@@ -475,19 +475,16 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
         cache.clear()
         super().tearDown()
 
-    def _details(self) -> Any:
-        return self.staff_client.get(f"{self.send_url}&step=details")
-
     def _fingerprint(self) -> str:
-        blocks = self._details().context["page"].blocks
-        initial = next(block for block in blocks if isinstance(block, OperationForm)).initial
-        assert initial is not None
-        return initial["fingerprint"]
+        form = self.staff_client.get(self.send_url).context["form"]
+        return form.initial["fingerprint"]
+
+    def _allow_resend_url(self, fingerprint: str) -> str:
+        return f"{self.url}allow-resend/?plan={fingerprint}"
 
     def _send(self, fingerprint: str, confirm: str = "2") -> Any:
         return self.staff_client.post(
-            self.send_url,
-            {"operation": "send", "fingerprint": fingerprint, "confirm_count": confirm, "reason": "Outage INC-1"},
+            self.send_url, {"fingerprint": fingerprint, "confirm_count": confirm, "reason": "Outage INC-1"}
         )
 
     @parameterized.expand(
@@ -509,7 +506,7 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
         with patch("products.cdp.backend.tasks.invocation_replay.run_invocation_replay") as task:
             preview = Client(enforce_csrf_checks=True)
             preview.force_login(self.user)
-            response = preview.get(self.send_url)
+            response = preview.get(f"{self.url}{self.query}")
 
         assert response.status_code == 200
         assert "Nothing has been sent yet" in response.content.decode()
@@ -527,6 +524,9 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
         task.delay.assert_called_once()
         assert task.delay.call_args.args[1] == fingerprint
         assert "Queued" in self.staff_client.get(first["Location"]).content.decode()
+        live_status = self.staff_client.get(f"{self.url}live/status/?plan={fingerprint}")
+        assert live_status.status_code == 200
+        assert "Queued" in live_status.content.decode()
 
     @patch("products.cdp.backend.tasks.invocation_replay.run_invocation_replay")
     def test_a_send_whose_task_may_have_been_queued_stays_blocked_until_released(self, task: MagicMock) -> None:
@@ -540,7 +540,7 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
         self._send(fingerprint)
         assert task.delay.call_count == 1
 
-        self.staff_client.post(first["Location"], {"operation": "allow-resend", "reason": "Checked the destinations"})
+        self.staff_client.post(self._allow_resend_url(fingerprint), {"reason": "Checked the destinations"})
         self._send(fingerprint)
         assert task.delay.call_count == 2
 
@@ -550,13 +550,13 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
         plan = plan_replay(_criteria())
         assert claim_replay(plan, actor="first")
         execute_replay(plan, actor="first")
-        status_url = f"{self.url}?plan={plan.fingerprint}"
+        allow_resend_url = self._allow_resend_url(plan.fingerprint)
         assert not claim_replay(plan, actor="second")
 
-        missing_reason = self.staff_client.post(status_url, {"operation": "allow-resend", "reason": ""})
+        missing_reason = self.staff_client.post(allow_resend_url, {"reason": ""})
         assert missing_reason.status_code == 400
         assert not claim_replay(plan, actor="second")
 
-        self.staff_client.post(status_url, {"operation": "allow-resend", "reason": "Checked the destinations"})
+        self.staff_client.post(allow_resend_url, {"reason": "Checked the destinations"})
 
         assert claim_replay(plan, actor="second")

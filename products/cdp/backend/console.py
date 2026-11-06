@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
@@ -19,8 +20,8 @@ from posthog.admin.console.tools import (
     Filters,
     Link,
     Links,
+    Live,
     Notice,
-    OperationForm,
     Page,
     Row,
     Stat,
@@ -68,6 +69,7 @@ STATUS_LABELS: dict[str, tuple[str, Tone]] = {
     "failed": ("Failed", Tone.DESTRUCTIVE),
 }
 STATUS_REFRESH_SECONDS = 3
+STATUS_LIVE_KEYS = ("status", "progress", "requests")
 
 
 def _split_list(raw: str) -> list[str]:
@@ -219,7 +221,7 @@ def _filters_query(request: HttpRequest, **extra: str) -> QueryDict:
 def _team_cell(team_id: int, team_name: str) -> Cell:
     return Cell(
         text=team_name or f"Team {team_id}",
-        href=reverse("admin_console_team", kwargs={"team_id": team_id}),
+        href=reverse("admin_console_team", kwargs={"pk": team_id}),
         detail=f"Team {team_id}",
     )
 
@@ -320,6 +322,87 @@ def _destinations_table(plan: ReplayPlan) -> Table:
     )
 
 
+class ReplayStatus:
+    """The state of one sent plan, read once per request, so every block on the status page agrees."""
+
+    def __init__(self, fingerprint: str, state: dict[str, Any], can_release: bool) -> None:
+        self.fingerprint = fingerprint
+        self.state = state
+        self.can_release = can_release
+        self.results: list[dict[str, Any]] = state.get("results", [])
+        self.failed = sum(1 for result in self.results if result["status_code"] != 200)
+        self.in_progress = state["status"] in ("queued", "running")
+
+    @classmethod
+    def load(cls, fingerprint: str) -> "ReplayStatus | None":
+        state = get_replay_state(fingerprint)
+        if not state:
+            return None
+        return cls(fingerprint, state, can_release_replay(fingerprint))
+
+    @property
+    def refresh_seconds(self) -> int | None:
+        return STATUS_REFRESH_SECONDS if self.in_progress and not self.can_release else None
+
+    def stats(self) -> Stats:
+        label, tone = STATUS_LABELS.get(self.state["status"], (self.state["status"], Tone.INFO))
+        if self.state["status"] == "done" and self.failed:
+            label, tone = "Finished with errors", Tone.DESTRUCTIVE
+        return Stats(
+            items=(
+                Stat(label="Status", value=label, tone=tone),
+                Stat(label="Runs in the plan", value=f"{self.state['invocation_count']:,}"),
+                Stat(label="Requests sent", value=f"{len(self.results):,} / {self.state['request_count']:,}"),
+                Stat(label="Requests failed", value=f"{self.failed:,}"),
+            )
+        )
+
+    def progress_notice(self) -> Notice:
+        if self.refresh_seconds:
+            return Notice(
+                text=f"The replay is sending in the background. This page refreshes every {STATUS_REFRESH_SECONDS} seconds.",
+                tone=Tone.INFO,
+            )
+        # The notices and actions for a finished send are only on a fresh page, so ask for one.
+        return Notice(text="The replay is no longer sending. Reload the page to see the result.", tone=Tone.INFO)
+
+    def requests_table(self) -> Table:
+        return Table(
+            title="Requests sent",
+            scrolls=True,
+            columns=("Team", "Destination", "Runs", "HTTP status", "Rerun job or error"),
+            numeric_columns=(2, 3),
+            empty_text="No requests sent yet.",
+            rows=tuple(
+                Row(
+                    cells=(
+                        Cell(
+                            text=f"Team {result['team_id']}",
+                            href=reverse("admin_console_team", kwargs={"pk": result["team_id"]}),
+                        ),
+                        Cell(
+                            text=result["function_id"],
+                            href=reverse("admin:cdp_hogfunction_change", args=[result["function_id"]]),
+                            mono=True,
+                        ),
+                        Cell(text=f"{result['invocation_count']:,}"),
+                        Cell(text=str(result["status_code"] or "No response")),
+                        Cell(text=_result_summary(result), muted=result["status_code"] == 200),
+                    )
+                )
+                for result in self.results
+            ),
+        )
+
+    def live(self, key: str) -> Live:
+        blocks: dict[str, Callable[[], Stats | Notice | Table]] = {
+            "status": self.stats,
+            "progress": self.progress_notice,
+            "requests": self.requests_table,
+        }
+        return Live(key=key, block=blocks[key](), refresh_seconds=self.refresh_seconds)
+
+
 @console.register_tool
 class ReplayFailedRunsTool(ConsoleTool):
     key = TOOL_KEY
@@ -329,20 +412,42 @@ class ReplayFailedRunsTool(ConsoleTool):
     description = "Send failed destination runs from an incident window again, across teams. You review the runs first."
 
     def __init__(self) -> None:
-        self._plans: dict[ReplayCriteria, ReplayPlan] = {}
+        self._plans: dict[ReplayCriteria, ReplayPlan | Exception] = {}
 
     def _plan(self, criteria: ReplayCriteria) -> ReplayPlan:
-        # A refused send shows the page again in the same request, and planning can take a minute.
+        # The operations and the page both need the plan in one request, and planning can take a minute.
+        # A failure is kept too, so the page reports it without planning a second time.
         if criteria not in self._plans:
-            self._plans[criteria] = plan_replay(criteria)
-        return self._plans[criteria]
+            try:
+                self._plans[criteria] = plan_replay(criteria)
+            except Exception as error:
+                self._plans[criteria] = error
+        plan = self._plans[criteria]
+        if isinstance(plan, Exception):
+            raise plan
+        return plan
 
     def _filters_form(self, request: HttpRequest) -> ReplayFiltersForm | None:
         if "window_start" not in request.GET:
             return None
         return ReplayFiltersForm(request.GET)
 
-    def _send(self, request: HttpRequest, form: forms.Form) -> HttpResponse | None:
+    def _details_plan(self, request: HttpRequest) -> ReplayPlan | None:
+        """The plan the details step shows, or None when that step shows no runs to send."""
+        filters = self._filters_form(request)
+        if request.GET.get("step") != "details" or request.GET.get("edit") or filters is None:
+            return None
+        if not filters.is_valid():
+            return None
+        try:
+            plan = self._plan(filters.to_criteria())
+        except Exception:
+            # `page` reports the error.
+            return None
+        return plan if plan.invocation_count else None
+
+    def _send(self, request: HttpRequest, form: forms.Form | None) -> HttpResponse | None:
+        assert form is not None
         filters = self._filters_form(request)
         if filters is None or not filters.is_valid():
             messages.error(request, "The filters are not valid, so nothing was sent. Review them again.")
@@ -364,7 +469,7 @@ class ReplayFailedRunsTool(ConsoleTool):
             messages.warning(request, "This plan was already sent, so it was not sent again.")
         return redirect(_tool_url({"plan": plan.fingerprint}))
 
-    def _allow_resend(self, request: HttpRequest, form: forms.Form) -> HttpResponse | None:
+    def _allow_resend(self, request: HttpRequest, form: forms.Form | None) -> HttpResponse | None:
         fingerprint = request.GET["plan"]
         if release_replay_claim(fingerprint, actor=f"admin:{request.user.pk}"):
             messages.success(request, "This plan can be sent again. Preview the same filters to send it.")
@@ -383,15 +488,20 @@ class ReplayFailedRunsTool(ConsoleTool):
                     handler=self._allow_resend,
                     form_class=AllowResendForm,
                     danger=True,
-                    description="Only when the destinations show that the runs below were not queued.",
+                    description="Only when the destinations show that the runs in this plan were not queued.",
                     undo_hint="This cannot be undone. A resend of runs that were queued sends them twice.",
                 )
             ]
         if "window_start" not in request.GET:
             return []
-        return [self._send_operation()]
+        plan = self._details_plan(request)
+        # A submit is always offered, so `_send` can say why it refuses one, for example when the runs
+        # changed since the review and the details step no longer shows any.
+        if plan is None and request.method != "POST":
+            return []
+        return [self._send_operation(plan)]
 
-    def _send_operation(self, plan: ReplayPlan | None = None) -> ToolOperation:
+    def _send_operation(self, plan: ReplayPlan | None) -> ToolOperation:
         description = ""
         if plan is not None:
             description = (
@@ -404,6 +514,8 @@ class ReplayFailedRunsTool(ConsoleTool):
             label="Send replay",
             handler=self._send,
             form_class=SendReplayForm,
+            # The send checks this against a fresh plan, so it refuses runs that changed since this review.
+            form_initial={"fingerprint": plan.fingerprint} if plan is not None else None,
             danger=True,
             description=description,
             undo_hint="This cannot be undone. The destinations receive these requests again.",
@@ -411,7 +523,7 @@ class ReplayFailedRunsTool(ConsoleTool):
 
     def page(self, request: HttpRequest) -> Page:
         if "plan" in request.GET:
-            return self._status_page(request, request.GET["plan"])
+            return self._status_page(request.GET["plan"])
         filters = self._filters_form(request)
         if filters is None:
             return self._filters_page(ReplayFiltersForm())
@@ -426,6 +538,14 @@ class ReplayFailedRunsTool(ConsoleTool):
                 error="The runs could not be loaded, so nothing was sent. Try again, or narrow the window.",
             )
         return self._plan_page(request, plan)
+
+    def live(self, request: HttpRequest, key: str) -> Live | None:
+        if key not in STATUS_LIVE_KEYS:
+            return None
+        status = ReplayStatus.load(request.GET.get("plan", ""))
+        if status is None:
+            return None
+        return status.live(key)
 
     def _filters_page(self, form: ReplayFiltersForm, error: str = "") -> Page:
         blocks: list[Block] = [
@@ -491,23 +611,16 @@ class ReplayFailedRunsTool(ConsoleTool):
         blocks.extend(_plan_tables(plan))
         blocks.append(_destinations_table(plan))
         blocks.append(
-            OperationForm(
-                operation=self._send_operation(plan),
-                initial={"fingerprint": plan.fingerprint},
-                pending_label="Sending...",
-            )
-        )
-        blocks.append(
             Notice(
                 text=f"Plan {plan.fingerprint}. If the runs change before you send, nothing is sent and the new plan is shown."
             )
         )
         return Page(blocks=tuple(blocks))
 
-    def _status_page(self, request: HttpRequest, fingerprint: str) -> Page:
+    def _status_page(self, fingerprint: str) -> Page:
         start_new = Links(items=(Link(label="Start a new replay", href=_tool_url()),))
-        state = get_replay_state(fingerprint)
-        if not state:
+        status = ReplayStatus.load(fingerprint)
+        if status is None:
             return Page(
                 blocks=(
                     Notice(
@@ -517,31 +630,16 @@ class ReplayFailedRunsTool(ConsoleTool):
                     start_new,
                 )
             )
-        results = state.get("results", [])
-        failed = sum(1 for result in results if result["status_code"] != 200)
-        can_release = can_release_replay(fingerprint)
-        in_progress = state["status"] in ("queued", "running")
-        label, tone = STATUS_LABELS.get(state["status"], (state["status"], Tone.INFO))
-        if state["status"] == "done" and failed:
-            label, tone = "Finished with errors", Tone.DESTRUCTIVE
-        blocks: list[Block] = [
-            Stats(
-                items=(
-                    Stat(label="Status", value=label, tone=tone),
-                    Stat(label="Runs in the plan", value=f"{state['invocation_count']:,}"),
-                    Stat(label="Requests sent", value=f"{len(results):,} / {state['request_count']:,}"),
-                    Stat(label="Requests failed", value=f"{failed:,}"),
-                )
-            )
-        ]
+        state = status.state
+        blocks: list[Block] = [status.live("status")]
         if state.get("detail"):
             blocks.append(
                 Notice(
                     text=state["detail"],
-                    tone=Tone.DESTRUCTIVE if state["status"] != "done" or can_release else Tone.INFO,
+                    tone=Tone.DESTRUCTIVE if state["status"] != "done" or status.can_release else Tone.INFO,
                 )
             )
-        if in_progress and can_release:
+        if status.in_progress and status.can_release:
             blocks.append(
                 Notice(
                     text=(
@@ -551,14 +649,9 @@ class ReplayFailedRunsTool(ConsoleTool):
                     tone=Tone.DESTRUCTIVE,
                 )
             )
-        elif in_progress:
-            blocks.append(
-                Notice(
-                    text=f"The replay is sending in the background. This page refreshes every {STATUS_REFRESH_SECONDS} seconds.",
-                    tone=Tone.INFO,
-                )
-            )
-        if state["status"] == "done" and failed and not can_release:
+        elif status.in_progress:
+            blocks.append(status.live("progress"))
+        if state["status"] == "done" and status.failed and not status.can_release:
             blocks.append(
                 Notice(
                     text=(
@@ -568,38 +661,8 @@ class ReplayFailedRunsTool(ConsoleTool):
                     tone=Tone.DESTRUCTIVE,
                 )
             )
-        if can_release:
-            blocks.append(OperationForm(operation=self.operations(request)[0], pending_label="Allowing..."))
-        if results:
-            blocks.append(
-                Table(
-                    title="Requests sent",
-                    scrolls=True,
-                    columns=("Team", "Destination", "Runs", "HTTP status", "Rerun job or error"),
-                    numeric_columns=(2, 3),
-                    rows=tuple(
-                        Row(
-                            cells=(
-                                Cell(
-                                    text=f"Team {result['team_id']}",
-                                    href=reverse("admin_console_team", kwargs={"team_id": result["team_id"]}),
-                                ),
-                                Cell(
-                                    text=result["function_id"],
-                                    href=reverse("admin:cdp_hogfunction_change", args=[result["function_id"]]),
-                                    mono=True,
-                                ),
-                                Cell(text=f"{result['invocation_count']:,}"),
-                                Cell(text=str(result["status_code"] or "No response")),
-                                Cell(text=_result_summary(result), muted=result["status_code"] == 200),
-                            )
-                        )
-                        for result in results
-                    ),
-                )
-            )
+        if status.results or status.refresh_seconds:
+            blocks.append(status.live("requests"))
         blocks.append(Notice(text=f"Plan {fingerprint}, sent by {state['actor']}."))
         blocks.append(start_new)
-        return Page(
-            blocks=tuple(blocks), refresh_seconds=STATUS_REFRESH_SECONDS if in_progress and not can_release else None
-        )
+        return Page(blocks=tuple(blocks))
