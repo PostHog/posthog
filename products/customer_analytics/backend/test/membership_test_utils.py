@@ -1,13 +1,29 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from time_machine import travel
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
+from posthog.personhog_client.proto import (
+    CONSISTENCY_LEVEL_STRONG,
+    DistinctIdRow,
+    GetDistinctIdRowsResponse,
+    Group,
+    GroupsResponse,
+)
 
 from products.customer_analytics.backend.logic.membership import MembershipKey
+from products.customer_analytics.backend.logic.membership_discovery import (
+    MembershipDiscoveryInput,
+    MembershipDiscoveryStore,
+    run_membership_discovery,
+)
 
 
 class MembershipTestCase(ClickhouseTestMixin, APIBaseTest):
@@ -60,3 +76,64 @@ class MembershipTestCase(ClickhouseTestMixin, APIBaseTest):
             "SELECT distinct_id FROM person_group_membership WHERE team_id = %(team_id)s ORDER BY distinct_id",
             {"team_id": team_id or self.team.pk},
         )
+
+    @contextmanager
+    def primary_person_lookup(self, identity_state: str) -> Iterator[MagicMock]:
+        row = DistinctIdRow(
+            distinct_id=self.key.distinct_id, person_id=1, is_deleted=identity_state == "deleted_mapping"
+        )
+        if identity_state != "orphan":
+            row.person_is_deleted = identity_state == "deleted_person"
+        with (
+            travel(self.now + timedelta(days=2), tick=False),
+            patch("posthog.models.person.util._get_client") as get_client,
+        ):
+            lookup = get_client.return_value.get_distinct_id_rows
+            lookup.return_value = GetDistinctIdRowsResponse(rows=[row])
+            if identity_state == "unavailable":
+                lookup.side_effect = RuntimeError("identity unavailable")
+            yield lookup
+            assert lookup.call_args.args[0].read_options.consistency == CONSISTENCY_LEVEL_STRONG
+
+    @contextmanager
+    def primary_group_lookup(self, group_state: str) -> Iterator[MagicMock]:
+        with (
+            travel(self.now + timedelta(days=2), tick=False),
+            patch("products.customer_analytics.backend.logic.membership.require_personhog_client") as get_client,
+        ):
+            lookup = get_client.return_value.get_groups
+            lookup.return_value = GroupsResponse(
+                groups=[
+                    Group(
+                        id=1,
+                        team_id=self.team.pk,
+                        group_type_index=self.key.group_type_index,
+                        group_key='account "north"',
+                    )
+                ]
+                if group_state == "live"
+                else []
+            )
+            if group_state == "unavailable":
+                lookup.side_effect = RuntimeError("group lookup unavailable")
+            yield lookup
+            request = lookup.call_args.args[0]
+            assert request.team_id == self.team.pk
+            assert request.group_identifiers[0].group_key == 'account "north"'
+            assert request.read_options.consistency == CONSISTENCY_LEVEL_STRONG
+            assert "group_properties" not in request.read_options.field_mask
+
+    def restore_missing_membership(self, missing_side: str, reassigned_mapping: bool) -> None:
+        self.create_membership()
+        if missing_side == "person":
+            self.create_group()
+            if reassigned_mapping:
+                self.create_mapping(self.create_person(deleted=True))
+        else:
+            self.create_mapping(self.create_person())
+        with travel(self.now, tick=False):
+            run_membership_discovery(MembershipDiscoveryInput(team_id=self.team.pk), MembershipDiscoveryStore())
+        if missing_side == "person":
+            self.create_mapping(self.create_person(), version=2)
+        else:
+            self.create_group()

@@ -15,11 +15,12 @@ from posthog.models import Team
 
 from products.customer_analytics.backend.logic.membership import (
     MEMBERSHIP_LEASE_SECONDS,
-    QUERY_SETTINGS,
+    MembershipCleanupBusy,
     MembershipExistence,
     MembershipKey,
     get_membership_cleanup_lease,
     get_membership_existence,
+    get_membership_query_settings,
 )
 from products.customer_analytics.backend.models.membership_cleanup import (
     MembershipCleanupCandidate,
@@ -54,12 +55,15 @@ class MembershipDiscoveryCounts:
 
 
 class MembershipDiscoveryStore:
+    def __init__(self, deadline: float | None = None) -> None:
+        self.deadline = deadline
+
     def list_teams(self, after: int) -> list[int]:
         rows = sync_execute(
             """SELECT DISTINCT team_id FROM distributed_person_group_membership_config
             WHERE team_id > %(after)s ORDER BY team_id LIMIT %(limit)s""",
             {"after": after, "limit": TEAM_BATCH_SIZE},
-            settings=QUERY_SETTINGS,
+            settings=get_membership_query_settings(self.deadline),
             workload=Workload.OFFLINE,
         )
         teams = [row[0] for row in rows]
@@ -69,7 +73,11 @@ class MembershipDiscoveryStore:
                 """SELECT team_id FROM person_group_membership
                 WHERE team_id > %(after)s ORDER BY team_id LIMIT 1""",
                 {"after": cursor},
-                settings={**QUERY_SETTINGS, "max_execution_time": "2", "optimize_read_in_order": "1"},
+                settings={
+                    **get_membership_query_settings(self.deadline),
+                    "max_execution_time": "2",
+                    "optimize_read_in_order": "1",
+                },
                 workload=Workload.OFFLINE,
             )
             if not rows:
@@ -90,7 +98,7 @@ class MembershipDiscoveryStore:
                 "cursor": tuple(cursor or [0, "", ""]),
                 "limit": BATCH_SIZE + 1,
             },
-            settings={**QUERY_SETTINGS, "optimize_distinct_in_order": "1"},
+            settings={**get_membership_query_settings(self.deadline), "optimize_distinct_in_order": "1"},
             workload=Workload.OFFLINE,
         )
         return [MembershipKey(group_type_index=row[0], group_key=row[1], distinct_id=row[2]) for row in rows]
@@ -159,7 +167,7 @@ def _run_batch(
     existence = (
         MembershipExistence(persons=frozenset(), groups=frozenset())
         if deleted_team
-        else get_membership_existence(input.team_id, list(all_keys))
+        else get_membership_existence(input.team_id, list(all_keys), deadline=store.deadline)
     )
     check_lease()
     now = timezone.now()
@@ -211,9 +219,10 @@ def run_membership_discovery(
     lease = get_membership_cleanup_lease(input.team_id)
     if not lease.acquire():
         OUTCOMES.labels("overlap").inc()
-        return MembershipDiscoveryCounts()
+        raise MembershipCleanupBusy("Membership cleanup is busy for this team. Retry the batch.")
 
     def check_lease() -> None:
+        get_membership_query_settings(store.deadline)
         lease.extend(MEMBERSHIP_LEASE_SECONDS, replace_ttl=True)
 
     try:

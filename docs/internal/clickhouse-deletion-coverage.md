@@ -127,6 +127,8 @@ Scan pages also clear recovered candidates outside the recheck page.
 New candidates use bulk inserts and preserve `first_missing_at` on repeated discovery.
 Identity read failures leave candidates and scan positions unchanged.
 A renewable per-team Redis lease prevents overlapping membership batches.
+A busy lease raises a retryable error. A hard worker shutdown can leave the lease until its one-hour expiry.
+Heartbeats report liveness. Postgres stores the checkpoints.
 Postgres transactions contain database writes only.
 
 The coordinator discovers teams from membership, eligibility config, and saved scans.
@@ -136,6 +138,8 @@ The coordinator saves each processed team. Team zero holds its cursor and never 
 Cleanup state has no project foreign key, so project deletion cannot remove pending work.
 
 Queries use the SQL editor's `HOGQL_INCREASED_MAX_EXECUTION_TIME` setting, which defaults to 600 seconds.
+Each batch reduces the query timeout to fit its remaining activity budget.
+The activity reserves time for three attempts inside the child workflow deadline.
 Memory, read, thread, and result limits come from the ClickHouse profile.
 Unavailable shards and overflow limits fail queries instead of returning partial results.
 Queries use the `OFFLINE` workload because discovery runs in the background.

@@ -1,5 +1,7 @@
+import re
 import json
 from datetime import timedelta
+from time import monotonic
 
 import pytest
 from time_machine import travel
@@ -9,13 +11,6 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.person_group_membership.sql import GROUP_KEY_EXPR
-from posthog.personhog_client.proto import (
-    CONSISTENCY_LEVEL_STRONG,
-    DistinctIdRow,
-    GetDistinctIdRowsResponse,
-    Group,
-    GroupsResponse,
-)
 
 from products.customer_analytics.backend.logic.membership import MembershipKey
 from products.customer_analytics.backend.logic.membership_discovery import (
@@ -60,19 +55,7 @@ class TestMembershipDiscovery(MembershipTestCase):
 
     @parameterized.expand([("person", False), ("person", True), ("group", False)])
     def test_recovered_match_clears_candidate(self, missing_side: str, reassigned_mapping: bool) -> None:
-        self.create_membership()
-        if missing_side == "person":
-            self.create_group()
-            if reassigned_mapping:
-                self.create_mapping(self.create_person(deleted=True))
-        else:
-            self.create_mapping(self.create_person())
-        with travel(self.now, tick=False):
-            self.run_discovery()
-        if missing_side == "person":
-            self.create_mapping(self.create_person(), version=2)
-        else:
-            self.create_group()
+        self.restore_missing_membership(missing_side, reassigned_mapping)
         with travel(self.now + timedelta(hours=25), tick=False):
             assert self.run_discovery().recovered == 1
         assert self.get_rows() == [(self.key.distinct_id,)]
@@ -99,28 +82,14 @@ class TestMembershipDiscovery(MembershipTestCase):
         self.create_group()
         with travel(self.now, tick=False):
             self.run_discovery()
-        row = DistinctIdRow(
-            distinct_id=self.key.distinct_id,
-            person_id=1,
-            is_deleted=identity_state == "deleted_mapping",
-        )
-        if identity_state != "orphan":
-            row.person_is_deleted = identity_state == "deleted_person"
-        with (
-            travel(self.now + timedelta(days=2), tick=False),
-            patch("posthog.models.person.util._get_client") as get_client,
-        ):
-            lookup = get_client.return_value.get_distinct_id_rows
-            lookup.return_value = GetDistinctIdRowsResponse(rows=[row])
+        with self.primary_person_lookup(identity_state):
             if identity_state == "unavailable":
-                lookup.side_effect = RuntimeError("identity unavailable")
                 with self.assertRaisesRegex(RuntimeError, "identity unavailable"):
                     self.run_discovery()
             else:
                 result = self.run_discovery()
                 assert MembershipCleanupCandidate.objects.for_team(self.team.pk).exists() == (identity_state != "live")
                 assert result.recovered == (1 if identity_state == "live" else 0)
-            assert lookup.call_args.args[0].read_options.consistency == CONSISTENCY_LEVEL_STRONG
         if identity_state in ("live", "unavailable"):
             assert self.get_rows() == [(self.key.distinct_id,)]
             assert MembershipCleanupCandidate.objects.for_team(self.team.pk).exists() == (
@@ -137,6 +106,9 @@ class TestMembershipDiscovery(MembershipTestCase):
             ("object", '{"id":"account"}'),
             ("array", '["account"]'),
             ("nul", "account\x00north"),
+            ("high_surrogate", "account\ud800north"),
+            ("low_surrogate", "account\udcffnorth"),
+            ("surrogate_pair", "account\U0001f600north"),
         ]
     )
     def test_escaped_group_keys_preserve_membership(self, _name: str, group_key: str) -> None:
@@ -152,7 +124,7 @@ class TestMembershipDiscovery(MembershipTestCase):
         self.key = MembershipKey(group_type_index=0, group_key=stored_key, distinct_id=self.key.distinct_id)
         self.create_membership()
         self.create_mapping(self.create_person())
-        self.create_group(group_key.replace("\x00", "\ufffd"))
+        self.create_group(re.sub(r"[\ud800-\udfff\x00]", "\ufffd", group_key))
         self.run_discovery()
         with travel(self.now + timedelta(days=2), tick=False):
             assert self.run_discovery().discovered == 0
@@ -167,25 +139,8 @@ class TestMembershipDiscovery(MembershipTestCase):
         self.run_discovery()
         candidates = MembershipCleanupCandidate.objects.for_team(self.team.pk)
         before = list(candidates.values())
-        with (
-            travel(self.now + timedelta(days=2), tick=False),
-            patch("products.customer_analytics.backend.logic.membership.require_personhog_client") as get_client,
-        ):
-            lookup = get_client.return_value.get_groups
-            lookup.return_value = GroupsResponse(
-                groups=[
-                    Group(
-                        id=1,
-                        team_id=self.team.pk,
-                        group_type_index=self.key.group_type_index,
-                        group_key='account "north"',
-                    )
-                ]
-                if group_state == "live"
-                else []
-            )
+        with self.primary_group_lookup(group_state):
             if group_state == "unavailable":
-                lookup.side_effect = RuntimeError("group lookup unavailable")
                 with self.assertRaisesRegex(RuntimeError, "group lookup unavailable"):
                     self.run_discovery()
                 assert list(candidates.values()) == before
@@ -194,11 +149,6 @@ class TestMembershipDiscovery(MembershipTestCase):
                 assert candidates.exists() == (group_state == "missing")
                 assert result.recovered == (1 if group_state == "live" else 0)
                 assert candidates.exists() == (group_state == "missing")
-            request = lookup.call_args.args[0]
-            assert request.team_id == self.team.pk
-            assert request.group_identifiers[0].group_key == 'account "north"'
-            assert request.read_options.consistency == CONSISTENCY_LEVEL_STRONG
-            assert "group_properties" not in request.read_options.field_mask
         assert self.get_rows() == [(self.key.distinct_id,)]
 
     def test_team_discovery_resumes_after_last_processed_team(self) -> None:
@@ -213,15 +163,20 @@ class TestMembershipDiscovery(MembershipTestCase):
         assert list_membership_discovery_teams(self.store) == []
         assert list_membership_discovery_teams(self.store) == [self.team.pk, later_team_id]
 
-    def test_lost_lease_preserves_candidates_and_scan_position(self) -> None:
+    @parameterized.expand([("lease",), ("deadline",)])
+    def test_lost_lease_preserves_candidates_and_scan_position(self, failure: str) -> None:
         self.create_membership()
-        with travel(self.now, tick=False):
-            self.run_discovery()
+        self.run_discovery()
         candidates = list(MembershipCleanupCandidate.objects.for_team(self.team.pk).values())
         with patch("products.customer_analytics.backend.logic.membership.get_redis_client") as redis:
             lease = redis.return_value.lock.return_value
-            lease.extend.side_effect = RuntimeError("lease lost")
-            with self.assertRaisesRegex(RuntimeError, "lease lost"):
+            if failure == "deadline":
+                self.store.deadline = monotonic() - 1
+                error_type = TimeoutError
+            else:
+                lease.extend.side_effect = RuntimeError("lease lost")
+                error_type = RuntimeError
+            with self.assertRaises(error_type):
                 self.run_discovery()
         assert list(MembershipCleanupCandidate.objects.for_team(self.team.pk).values()) == candidates
         assert MembershipCleanupScan.objects.for_team(self.team.pk).get().cursor == []
