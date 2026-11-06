@@ -221,3 +221,43 @@ class PushTokenImportRowFailureReason(LabeledStrEnum):
     TOKEN_MISMATCH = "token_mismatch", "The token does not fit this channel"
     NOT_STORED = "not_stored", "The device was not stored"
     PERSON_PROCESSING_DISABLED = "person_processing_disabled", "Person processing is off for this person"
+
+
+class InboundEmailDomainKind(LabeledStrEnum):
+    GENERATED = "generated", "Generated"
+    CUSTOM = "custom", "Custom"
+
+
+class InboundEmailDomainStatus(LabeledStrEnum):
+    PENDING = "pending", "Pending"
+    ACTIVE = "active", "Active"
+
+
+class ReceivedEmailStatus(LabeledStrEnum):
+    RECEIVED = "received", "Received"
+    FILTERED = "filtered", "Filtered"
+
+
+class ReceivedEmailFilterReason(LabeledStrEnum):
+    SPAM = "spam", "Spam"
+    AUTO_REPLY = "auto_reply", "Auto-reply"
+    RATE_LIMITED = "rate_limited", "Rate limited"
+
+
+class ReceivedEmailMatchMethod(LabeledStrEnum):
+    IN_REPLY_TO = "in_reply_to", "In-Reply-To header"
+    REFERENCES = "references", "References header"
+
+
+class InboundDomainCheckState(LabeledStrEnum):
+    ACTIVE = "active", "Active"
+    MISSING = "missing", "No MX record"
+    CONFLICT = "conflict", "Another MX record takes the mail"
+    TAKEN = "taken", "Another project holds the domain"
+    LOOKUP_FAILED = "lookup_failed", "DNS did not answer"
+
+
+class InboundEmailContentStatus(LabeledStrEnum):
+    AVAILABLE = "available", "Available"
+    TOO_LARGE = "too_large", "Too large"
+    PARSE_FAILED = "parse_failed", "Parse failed"
