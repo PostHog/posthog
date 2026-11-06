@@ -146,6 +146,7 @@ rules:
                               |CustomPropertyValue
                               |DAG
                               |TodayHighlights
+                              |TodayNewsEdition
                               |TodayPulsePins
                               |Dashboard
                               |DashboardTemplate
@@ -666,6 +667,7 @@ rules:
                         |CustomPropertyValue
                         |DAG
                         |TodayHighlights
+                        |TodayNewsEdition
                         |TodayPulsePins
                         |Dashboard
                         |DashboardTemplate

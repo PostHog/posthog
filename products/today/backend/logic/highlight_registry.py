@@ -39,7 +39,12 @@ def load_registry() -> HighlightRegistry:
         if not isinstance(declared, tuple | list):
             raise HighlightRegistryError(f"{module.__name__}.{SOURCES_ATTRIBUTE} must be a tuple of HighlightSource")
         for source in declared:
-            if not isinstance(source, HighlightSource) or not source.name or not callable(source.find):
+            if (
+                not isinstance(source, HighlightSource)
+                or not source.name
+                or not callable(source.find)
+                or (source.news is not None and not callable(source.news))
+            ):
                 raise HighlightRegistryError(
                     f"{module.__name__} declares {source!r}, which is not a usable HighlightSource"
                 )

@@ -7,6 +7,7 @@ from products.signals.backend.facade import api as signals
 from ..feature_flags import (
     is_enabled_for as is_enabled_for,
     may_ask_jev as may_ask_jev,
+    news_enabled_for as news_enabled_for,
 )
 from ..logic import (
     code_excerpts,
@@ -16,12 +17,14 @@ from ..logic import (
     report_page as report_pages,
 )
 from ..logic.jev import GatewayJev
+from ..logic.news import editions as news_editions
 from . import contracts
 
 
 def delete_highlights_for_teams(team_ids: list[int]) -> None:
     """Remove every highlights row of the given teams. Called from team deletion, which no foreign key covers."""
     highlights.delete_for_teams(team_ids)
+    news_editions.delete_for_teams(team_ids)
 
 
 def _jev(team: Team, user: User, model: str | None = None) -> GatewayJev:
@@ -64,3 +67,7 @@ def get_pulse_pins(*, team: Team, user: User, scopes: frozenset[str] | None) -> 
 
 def set_pulse_pins(*, team: Team, user: User, pins: list[contracts.PulsePin]) -> contracts.PulsePins:
     return contracts.PulsePins(pins=pulse_pins.set_pins(team=team, user_id=user.id, pins=pins))
+
+
+def get_news(*, team: Team, user: User, scopes: frozenset[str] | None) -> contracts.TodayNews:
+    return news_editions.get_news(team=team, user=user, scopes=scopes)

@@ -1059,3 +1059,43 @@ html[data-today-transition]::view-transition-new(root) {
         animation-iteration-count: 1 !important;
     }
 }
+
+.TodayHome--news {
+    .TodayHome__greeting {
+        justify-content: space-between;
+        margin-bottom: 2px;
+    }
+
+    .TodayHome__body {
+        gap: 36px;
+        margin-top: 36px;
+    }
+
+    .TodayJumpList {
+        margin-bottom: -8px;
+    }
+}
+
+.TodayHome__composer {
+    padding: 8px;
+    margin: 36px -8px 0;
+    background: color-mix(in oklab, var(--foreground) 4.5%, transparent);
+    border-radius: calc(var(--radius-sm) + 8px);
+}
+
+.TodayHome__pulse {
+    position: relative;
+}
+
+.TodayHome__pulseEdit {
+    position: absolute;
+    top: -4px;
+    right: 0;
+
+    @container main-content (max-width: 600px) {
+        position: static;
+        display: flex;
+        justify-content: flex-end;
+        padding: 0 20px;
+    }
+}

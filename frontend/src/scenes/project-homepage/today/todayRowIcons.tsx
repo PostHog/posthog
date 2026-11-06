@@ -57,6 +57,10 @@ export function reportIcon(report: Pick<SignalReport, 'source_products'>): Today
     return sourceIcon(report.source_products?.[0])
 }
 
+export function productIcon(product: string | null | undefined): TodayRowIcon {
+    return (product ? PRODUCT_ICONS[product] : undefined) ?? ANALYTICS
+}
+
 export function highlightIcon(item: Pick<HighlightItemApi, 'source' | 'product'>): TodayRowIcon {
-    return SOURCE_ICONS[item.source] ?? (item.product ? PRODUCT_ICONS[item.product] : undefined) ?? ANALYTICS
+    return SOURCE_ICONS[item.source] ?? productIcon(item.product)
 }

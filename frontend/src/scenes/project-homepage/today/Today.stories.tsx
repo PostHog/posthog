@@ -26,6 +26,8 @@ import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
 import type { HighlightsApi } from 'products/today/frontend/generated/api.schemas'
 
+import { NEWS_EDITION } from './todayTestFixtures'
+
 const ADA = {
     id: 1,
     uuid: 'user-ada',
@@ -1464,4 +1466,23 @@ export const HomePulseEmptyAndError: Story = {
             },
         }),
     ],
+}
+
+const NEWS_FLAGS = [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS, FEATURE_FLAGS.TODAY_NEWS]
+const newsReady = mswDecorator({
+    get: { '/api/projects/:team_id/today/news/': { status: 'ready', skip_reason: null, edition: NEWS_EDITION } },
+})
+
+export const HomeWithNews: Story = {
+    decorators: [keepNumbers([]), newsReady],
+    parameters: { featureFlags: NEWS_FLAGS },
+}
+
+export const HomeWithNewsOpen: Story = {
+    decorators: [keepNumbers([]), newsReady],
+    parameters: { featureFlags: NEWS_FLAGS },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByRole('button', { name: /The news/ }))
+        await within(document.body).findByRole('dialog')
+    },
 }

@@ -3,6 +3,7 @@
 import dataclasses
 
 HIGHLIGHTS_WORKFLOW_NAME = "today-compute-highlights"
+NEWS_WORKFLOW_NAME = "today-generate-news"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -68,3 +69,20 @@ class FinalizeHighlightsInputs:
 
 def highlights_workflow_id(team_id: int, user_id: int, highlights_id: str) -> str:
     return f"today-highlights-{team_id}-{user_id}-{highlights_id}"
+
+
+@dataclasses.dataclass(frozen=True)
+class GenerateNewsInputs:
+    team_id: int
+    edition_id: str
+
+
+@dataclasses.dataclass(frozen=True)
+class FailNewsInputs:
+    team_id: int
+    edition_id: str
+    error: str
+
+
+def news_workflow_id(team_id: int, period: str, period_start: str, attempt: int) -> str:
+    return f"today-news-{team_id}-{period}-{period_start}-{attempt}"
