@@ -6,7 +6,7 @@ import random
 import asyncio
 import dataclasses
 from collections.abc import Awaitable, Callable, Iterable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from django.conf import settings
@@ -77,7 +77,7 @@ class InternalLogEntry:
     team_id: int
     log_source_id: str
     instance_id: str
-    # Must be timezone-aware, because a naive datetime reads as the host's local time.
+    # A naive datetime reads as UTC.
     timestamp: datetime
     level: str
     message: str
@@ -296,8 +296,9 @@ class InternalLogsProducer:
 
 
 def _encode_otlp_log_record(entry: InternalLogEntry) -> bytes:
+    timestamp = entry.timestamp if entry.timestamp.tzinfo else entry.timestamp.replace(tzinfo=UTC)
     record: dict[str, Any] = {
-        "timeUnixNano": str(int(entry.timestamp.timestamp() * 1_000_000) * 1_000),
+        "timeUnixNano": str(int(timestamp.timestamp() * 1_000_000) * 1_000),
         "severityText": entry.level.upper(),
         "severityNumber": SEVERITY_NUMBERS.get(entry.level, 0),
         "body": {"stringValue": _valid_utf8(entry.message[:MAX_MESSAGE_LENGTH])},
