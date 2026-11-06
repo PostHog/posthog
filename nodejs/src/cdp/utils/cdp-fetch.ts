@@ -1,5 +1,4 @@
 import { DateTime } from 'luxon'
-import { AsyncLocalStorage } from 'node:async_hooks'
 import { Counter, Histogram } from 'prom-client'
 
 import { fetchAttribution } from '~/common/utils/fetch-attribution'
@@ -131,22 +130,6 @@ export type CdpFetchAttribution = {
     hogFunctionId?: string
 }
 
-const requestOriginRecorder = new AsyncLocalStorage<Set<string>>()
-
-// A test run reports the origins it sent requests to, so its audit record can name where the data went.
-// The origin leaves out the path, query and credentials, which can hold secrets.
-export function recordRequestOrigins<T>(origins: Set<string>, run: () => Promise<T>): Promise<T> {
-    return requestOriginRecorder.run(origins, run)
-}
-
-function recordRequestOrigin(url: string): void {
-    const origins = requestOriginRecorder.getStore()
-    if (!origins || !URL.canParse(url)) {
-        return
-    }
-    origins.add(new URL(url).origin)
-}
-
 export async function cdpTrackedFetch({
     url,
     fetchParams,
@@ -162,7 +145,6 @@ export async function cdpTrackedFetch({
     fetchResponse: FetchResponse | null
     fetchDuration: number
 }> {
-    recordRequestOrigin(url)
     const start = performance.now()
 
     // Attribution read by the URL-validation check logs and the egress proxy rollout in common/utils/request.ts,
