@@ -84,7 +84,9 @@ def _change_tracking_tier(field: IncrementalField) -> int:
     """2 when the field advances on updates, 1 when only on inserts, 0 when the name tells nothing."""
     name = field.get("field") or ""
     field_type = field.get("field_type") or field.get("type")
-    if field_type in _TEMPORAL_FIELD_TYPES:
+    # A numeric column counts only by an exact name, so an epoch `updated_at` matches and
+    # `modified_by` (a user id) does not.
+    if field_type in _TEMPORAL_FIELD_TYPES or name.lower() in _INCREMENTAL_FIELD_PREFERENCE:
         compact = "".join(ch for ch in name.lower() if ch.isalnum())
         if "updat" in compact or "modif" in compact:
             return 2
@@ -125,8 +127,12 @@ def rank_incremental_fields(incremental_fields: list[IncrementalField]) -> list[
             exact_preference,
         )
 
+    # The synthetic Postgres xmin cursor only works as its own sync method, so it never leads.
+    synthetic = [f for f in incremental_fields if (f.get("field_type") or f["type"]) == IncrementalFieldType.XID]
+    real = [f for f in incremental_fields if (f.get("field_type") or f["type"]) != IncrementalFieldType.XID]
+
     ranked: list[IncrementalField] = []
-    for position, candidate in enumerate(sorted(incremental_fields, key=sort_key)):
+    for position, candidate in enumerate(sorted(real, key=sort_key)):
         notes = []
         tier = _change_tracking_tier(candidate)
         if tier == 2:
@@ -138,7 +144,7 @@ def rank_incremental_fields(incremental_fields: list[IncrementalField]) -> list[
         if candidate.get("nullable"):
             notes.append(_NULLABLE_NOTE)
         ranked.append({**candidate, "recommended": position == 0, "notes": notes})
-    return ranked
+    return ranked + synthetic
 
 
 def _select_incremental_field(incremental_fields: list[IncrementalField]) -> IncrementalField | None:

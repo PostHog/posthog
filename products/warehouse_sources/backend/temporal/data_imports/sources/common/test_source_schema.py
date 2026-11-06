@@ -82,6 +82,25 @@ class TestRankIncrementalFields:
                 ["id", "event_time"],
             ),
             (
+                "integer_epoch_updated_at_beats_id",
+                [_column("id", IncrementalFieldType.Integer), _column("updated_at", IncrementalFieldType.Integer)],
+                ["updated_at", "id"],
+            ),
+            (
+                "synthetic_xmin_stays_last",
+                [
+                    {
+                        "label": "xmin",
+                        "type": IncrementalFieldType.XID,
+                        "field": "xmin",
+                        "field_type": IncrementalFieldType.XID,
+                        "is_indexed": False,
+                    },
+                    _column("event_time", indexed=False, nullable=True),
+                ],
+                ["event_time", "xmin"],
+            ),
+            (
                 "keeps_table_order_on_ties",
                 [_column("event_time"), _column("seen_at")],
                 ["event_time", "seen_at"],
