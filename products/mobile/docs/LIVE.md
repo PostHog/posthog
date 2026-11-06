@@ -56,16 +56,21 @@ Users online comes from the HogQL `usersOnline` job instead when the host is not
 - **Reads only while seen.** A poller reads when the screen is focused, the app is in the foreground and the user has not paused. Losing focus stops at once and aborts the read in flight. Live never polls behind another screen.
 - **Background grace.** When the app leaves the foreground, reads stop after 2 seconds, like the web's hidden-tab grace. Coming back within 2 seconds changes nothing. Coming back later reads at once, then polls again.
 - **Timed from the end of a read**, so a slow read never overlaps the next.
+- **Slower after 10 minutes.** After 10 minutes of polling with no user action, the read comes every 60 seconds instead of 30. Pull to refresh, Try again, Resume, reopening the screen, and coming back to the foreground after reads stopped set it back to 30 seconds and start the 10 minutes again. Scrolling does not count. The status line still says when the last update came. The stats read keeps its 10-second interval.
 - **Pause** stops every timer and aborts the read in flight. Resume reads at once, then polls again.
 - **Pull to refresh** reads now. While paused it reads once and stays paused.
-- **Failures.** A job that fails, or answers with a query that still runs, keeps its card's last value, and the status line says "Reconnecting…" until a read completes. The first failed read after data shows the toast "Couldn't update live data. Retrying…" once per failure streak. A read where every job fails waits 30 seconds, then doubles up to 5 minutes. A first read that fails shows "Couldn't load live data" with Try again.
+- **Failures.** A job that fails, or answers with a query that still runs, keeps its card's last value, and the status line says "Reconnecting…" until a read completes. The first failed read after data shows the toast "Couldn't update live data. Retrying…" once per failure streak. A read where every job fails waits one read interval (30 or 60 seconds), then doubles up to 5 minutes. A first read that fails shows "Couldn't load live data" with Try again.
 - **A missing scope** (403 naming `query:read`) reports a Views scope error, so the screen shows the sign-in state.
 
 ## Budget
 
-Live spends the `live` budget family (`src/api/budget.ts`): 60 requests a minute and 300 an hour, like `replay`, so its polling never empties the Views or replay buckets and theirs never stop Live.
-One read is 7 queries, or 8 with the users online count, so a focused screen sends 14 to 16 queries a minute.
-At that rate the hourly bucket runs out after about 25 to 30 minutes on screen without a break. Reads then fail with "Reconnecting…" until the bucket refills.
+Live spends the `live` budget family (`src/api/budget.ts`): 60 requests a minute and 900 an hour, so its polling never empties the Views or replay buckets and theirs never stop Live.
+The other families hold 25% of the published budget. Live polls by design, and at 25% a normal session would stop after about half an hour, so Live holds 75% of the published query budget.
+The buckets refill all the time, so the hourly bucket gets 15 requests back each minute.
+One read is 7 queries, or 8 with the users online count.
+In the first 10 minutes a focused screen sends up to 16 queries a minute, 1 more than the refill. After that it sends up to 8 a minute, less than the refill.
+So steady polling never empties the hourly bucket, and a focused screen keeps updating for as long as it stays open.
+Many pulls to refresh in a row can still empty the minute bucket. Reads then fail with "Reconnecting…" until the bucket refills.
 
 ## Screen
 
