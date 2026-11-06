@@ -164,6 +164,9 @@ PAYLOAD_GATE_AUTHOR_ASSOCIATIONS = TRUSTED_AUTHOR_ASSOCIATIONS | {"CONTRIBUTOR"}
 WRITE_PERMISSIONS = frozenset({"admin", "write"})
 _AUTHOR_PERMISSION_ALLOW_CACHE_SECONDS = 60
 _AUTHOR_PERMISSION_DENY_CACHE_SECONDS = 10 * 60
+# A bot removed from the policy stays admitted here until this expires. The run reads the policy
+# again, and the engine refuses an author that policy does not admit.
+_BOT_AUTHOR_RULES_CACHE_SECONDS = 60
 
 _REREVIEW_MAX_RETRIES = 4
 _REREVIEW_RETRY_BASE_SECONDS = 30
@@ -329,14 +332,16 @@ def _bot_author_admission(
     if repo_config is None or not repo_config.installation_id:
         return None
     pr = payload.get("pull_request") or {}
-    # A revocation is for good, so nothing below can change the answer.
-    if bot_admission_revoked(repo_config.team_id, repo_config=repo_config, pr_number=pr.get("number")):
+    foreign_sender = (payload.get("sender") or {}).get("id") != (pr.get("user") or {}).get("id")
+    # Revoked before any GitHub read, because a read that keeps failing would otherwise lose the
+    # revocation, and a later bot push would be admitted over the foreign commit. A PR that is
+    # already revoked repeats the revocation, so a retry dismisses what a failed attempt left standing.
+    if (foreign_sender and action == "synchronize") or bot_admission_revoked(
+        repo_config.team_id, repo_config=repo_config, pr_number=pr.get("number")
+    ):
+        _revoke_bot_admission(repo_config, pr)
         return None
-    if (payload.get("sender") or {}).get("id") != (pr.get("user") or {}).get("id"):
-        # Revoked before any GitHub read, because a read that keeps failing would otherwise lose the
-        # revocation, and a later bot push would be admitted over the foreign commit.
-        if action == "synchronize" and _is_bot_authored(pr):
-            _revoke_bot_admission(repo_config, pr)
+    if foreign_sender:
         return None
     if skip_reason != "bot_author" or not _is_bound(repo_config):
         return None
@@ -365,7 +370,12 @@ def _policy_bot_rule(
     client: StamphogGitHubClient, repo_config: StamphogRepoConfig, pr: dict[str, Any]
 ) -> BotAuthorRule | None:
     repo = repo_config.repository
-    return matching_rule(bot_author_rules(client.get_default_branch_file(repo, STAMPHOG_POLICY_ENTRYPOINT)), pr, repo)
+    cache_key = f"stamphog:bot_author_rules:{repo_config.id}"
+    rules = cache.get(cache_key)
+    if rules is None:
+        rules = bot_author_rules(client.get_default_branch_file(repo, STAMPHOG_POLICY_ENTRYPOINT))
+        cache.set(cache_key, rules, _BOT_AUTHOR_RULES_CACHE_SECONDS)
+    return matching_rule(rules, pr, repo)
 
 
 def _bot_admitted_at_head(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> bool:
@@ -382,10 +392,22 @@ def _bot_admitted_at_head(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -
 def _bot_still_admitted(
     client: StamphogGitHubClient, repo_config: StamphogRepoConfig, pr: dict[str, Any], rule: BotAuthorRule
 ) -> bool:
-    """Whether no one else has pushed to this bot's PR: no earlier revocation, and every commit is the bot's own."""
+    """Whether no one else has pushed to this bot's PR.
+
+    That means no earlier revocation, only the bot updating the branch, and every commit the bot's
+    own. A push by anyone else revokes here too, because its webhook may never have arrived.
+    """
     if bot_admission_revoked(repo_config.team_id, repo_config=repo_config, pr_number=pr["number"]):
         return False
-    commits = client.get_pr_commits(repo_config.repository, pr["number"], (pr.get("head") or {}).get("sha") or "")
+    head = pr.get("head") or {}
+    head_sha = head.get("sha") or ""
+    pusher_ids = client.get_branch_pusher_ids(repo_config.repository, head.get("ref") or "", head_sha)
+    if pusher_ids is None:
+        return False
+    if any(pusher_id != rule.id for pusher_id in pusher_ids):
+        _revoke_bot_admission(repo_config, pr)
+        return False
+    commits = client.get_pr_commits(repo_config.repository, pr["number"], head_sha)
     return commits is not None and commits_are_the_bots_own(commits, rule)
 
 

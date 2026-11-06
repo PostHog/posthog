@@ -104,6 +104,7 @@ _TOKEN_RE = re.compile(r"^/app/installations/(?P<inst>[^/]+)/access_tokens$")
 _PR_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)$")
 _PR_FILES_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)/files$")
 _PR_COMMITS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)/commits$")
+_ACTIVITY_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/activity$")
 _REVIEWS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/pulls/(?P<number>\d+)/reviews$")
 _ISSUE_COMMENTS_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/(?P<number>\d+)/comments$")
 _COMMENT_PATCH_RE = re.compile(r"^/repos/(?P<repo>[^/]+/[^/]+)/issues/comments/(?P<cid>\d+)$")
@@ -182,6 +183,8 @@ class GitHubRecorder:
         self.merge_base_sha = "mergebase000"
         # (repo, number) -> the PR's commits, oldest first. register_pr fills one commit at the head.
         self.pr_commits: dict[tuple[str, int], list[dict]] = {}
+        # (repo, "refs/heads/<branch>") -> the branch's activity record, newest first.
+        self.branch_activity: dict[tuple[str, str], list[dict]] = {}
         self.blame_ranges: dict[str, list[dict]] = {}
         self.author_history: dict[str, list[dict]] = {}
         self.policy_files: dict[str, str] = {}
@@ -246,6 +249,8 @@ class GitHubRecorder:
             page = int(params.get("page", 1))
             commits = self.pr_commits.get((m.group("repo"), int(m.group("number"))), []) if page == 1 else []
             return FakeResponse(200, json_data=commits)
+        if method == "GET" and (m := _ACTIVITY_RE.match(path)):
+            return FakeResponse(200, json_data=self.branch_activity.get((m.group("repo"), params.get("ref")), []))
         if method == "GET" and (m := _PR_RE.match(path)):
             return self._get_pr(m.group("repo"), int(m.group("number")))
         if method == "GET" and path == "/search/issues":

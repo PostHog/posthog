@@ -47,6 +47,8 @@ from products.tasks.backend.facade.contracts import SignalImplementationRunDTO
 
 REPO = "acme/widgets"
 INSTALLATION_ID = "1001"
+_BOT_LOGIN = "renovate[bot]"
+_BOT_ID = 29139614
 # The instance's PostHog Code App slug: genuine self-driving PRs are authored by <slug>[bot], the
 # identity `_is_self_driving_pr` requires. The self-driving fixtures below author as this bot.
 APP_SLUG = "posthog-code"
@@ -124,6 +126,7 @@ def _run_task(
     compare_diffs: list[str] | None = None,
     policy_text: str | None = None,
     pr_commits: list[dict[str, Any]] | None = None,
+    branch_pusher_ids: tuple[int | None, ...] | None = (_BOT_ID,),
 ):
     # transaction.on_commit never fires on its own outside a real commit, so run it
     # inline; execute_stamphog_review_workflow is a Temporal network call and gets mocked, as is
@@ -140,6 +143,9 @@ def _run_task(
         mock_client.return_value.get_pr_files.return_value = pr_files or []
         mock_client.return_value.get_default_branch_file.return_value = policy_text
         mock_client.return_value.get_pr_commits.return_value = pr_commits
+        mock_client.return_value.get_branch_pusher_ids.return_value = (
+            None if branch_pusher_ids is None else list(branch_pusher_ids)
+        )
         # Retention reads both sides of its comparison with compare_diff, and it reads the approved
         # head first.
         if compare_diffs is None:
@@ -1052,8 +1058,6 @@ def test_inbox_carve_out_requires_task_linkage(team, repo_config):
     mock_execute.assert_not_called()
 
 
-_BOT_LOGIN = "renovate[bot]"
-_BOT_ID = 29139614
 _BOT_POLICY = f"""
 bot_authors:
   - login: '{_BOT_LOGIN}'
@@ -1171,8 +1175,8 @@ def test_a_push_by_someone_else_hands_the_bots_pr_to_people_for_good(team, repo_
             pr_commits=[_bot_commit()],
         )
 
-    # The revocation dismisses at every head (""), and each skipped push dismisses for its own head.
-    assert [call.args[3] for call in dismiss.call_args_list] == ["", "sha-2", "sha-3"]
+    # Every delivery on the revoked PR dismisses at every head (""), then for its own head as a skip.
+    assert [call.args[3] for call in dismiss.call_args_list] == ["", "sha-2", "", "sha-3"]
     mock_execute.assert_not_called()
     with team_scope(team.id):
         assert PullRequest.objects.get(pr_number=42).bot_admission_revoked_at is not None
@@ -1200,6 +1204,31 @@ def test_a_push_by_someone_else_revokes_even_when_a_lookup_fails(team, repo_conf
         assert PullRequest.objects.get(pr_number=42).bot_admission_revoked_at is not None
 
 
+@pytest.mark.parametrize(
+    "pusher_ids,expect_revoked",
+    [
+        pytest.param((_BOT_ID, 42, _BOT_ID), True, id="push-whose-webhook-never-arrived"),
+        pytest.param(None, False, id="record-short-of-head"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_bot_admission_needs_a_branch_only_the_bot_pushed_to(team, repo_config, pusher_ids, expect_revoked):
+    # A commit can name the bot as its author, so only the branch's activity record shows who pushed it.
+    _sync_repo_config(team.id, repo_config)
+    mock_execute = _run_task(
+        _bot_payload(action="synchronize", head_sha="sha-3"),
+        f"delivery-bot-{uuid.uuid4()}",
+        team.id,
+        policy_text=_BOT_POLICY,
+        pr_commits=[_bot_commit()],
+        branch_pusher_ids=pusher_ids,
+    )
+
+    mock_execute.assert_not_called()
+    with team_scope(team.id):
+        assert PullRequest.objects.filter(bot_admission_revoked_at__isnull=False).exists() == expect_revoked
+
+
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_late_push_by_someone_else_revokes_the_newer_bot_run_and_its_approval(team, repo_config):
     # GitHub can deliver another person's push after a newer bot push already queued its run.
@@ -1212,17 +1241,25 @@ def test_a_late_push_by_someone_else_revokes_the_newer_bot_run_and_its_approval(
         pr_commits=[_bot_commit()],
     )
 
-    with patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=0) as dismiss:
-        _run_task(
-            _bot_payload(action="synchronize", head_sha="sha-2", sender_id=42, updated_at="2026-07-15T12:00:00Z"),
-            "delivery-late-foreign-push",
-            team.id,
-            policy_text=_BOT_POLICY,
-            pr_commits=[_bot_commit(), _bot_commit(author_id=42)],
-        )
+    # The first dismissal fails after the revocation committed, so only the retry can dismiss.
+    with patch(
+        "products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head",
+        side_effect=[RuntimeError("GitHub down"), 0],
+    ) as dismiss:
+        for _attempt in range(2):
+            with contextlib.suppress(RuntimeError):
+                _run_task(
+                    _bot_payload(
+                        action="synchronize", head_sha="sha-2", sender_id=42, updated_at="2026-07-15T12:00:00Z"
+                    ),
+                    "delivery-late-foreign-push",
+                    team.id,
+                    policy_text=_BOT_POLICY,
+                    pr_commits=[_bot_commit(), _bot_commit(author_id=42)],
+                )
 
     # Only the revocation dismisses. The stale skip names an old head and dismisses nothing for it.
-    assert [call.args[3] for call in dismiss.call_args_list] == [""]
+    assert [call.args[3] for call in dismiss.call_args_list] == ["", ""]
     with team_scope(team.id):
         assert PullRequest.objects.get(pr_number=42).bot_admission_revoked_at is not None
         [run] = ReviewRun.objects.all()

@@ -2334,6 +2334,9 @@ def test_rereview_after_external_review_reruns_a_waiting_bot_run(
         {"sha": "sha127b", "author": {"id": 29139614}, "committer": {"login": "web-flow"}}
         | {"commit": {"message": "chore(deps): update left-pad", "verification": {"verified": True}}}
     ]
+    stamphog_chain.recorder.branch_activity[(REPO, "refs/heads/renovate/left-pad-1.x")] = [
+        {"after": "sha127b", "activity_type": "branch_creation", "actor": {"id": 29139614}}
+    ]
     stamphog_chain.recorder.policy_files[".stamphog/policy.yml"] = (
         "bot_authors:\n  - {login: 'renovate[bot]', id: 29139614, branch_prefix: 'renovate/', requires: every_file_attested}\n"
     )
