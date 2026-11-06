@@ -133,6 +133,8 @@ async def generate_with_spend(
         trial = await database_sync_to_async_pool(TrialLLMExecution.prepare)(
             team_id=team_id, gateway=gateway, signal_id=signal_id
         )
+        if trial is not None and trial.funding.funding == "operator":
+            return PricedGeneration(response=await generation, spend=None)
         source_id = f"generation:{uuid4()}" if trial else None
         trial_grant_id = str(trial.funding.grant_id) if trial else None
         signal_id = signal_id or (str(uuid4()) if trial else None)

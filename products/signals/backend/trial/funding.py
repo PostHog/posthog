@@ -9,7 +9,7 @@ from posthog.dataclasses import frozen
 
 @frozen
 class TrialFunding:
-    funding: Literal["trial", "paid", "existing"]
+    funding: Literal["trial", "paid", "existing", "operator"]
     grant_id: UUID | None = None
     policy_version: int = 1
     report_pass_key: str = ""
@@ -27,13 +27,13 @@ class TrialFunding:
         if not value:
             return None
         mode = value["funding"]
-        if mode not in {"trial", "paid", "existing"}:
+        if mode not in {"trial", "paid", "existing", "operator"}:
             raise ValueError("Invalid Self-driving funding mode")
         grant_id = UUID(str(value["grant_id"])) if value.get("grant_id") else None
         if (mode == "trial") != (grant_id is not None):
             raise ValueError("Trial funding must identify its grant")
         return cls(
-            funding=cast(Literal["trial", "paid", "existing"], mode),
+            funding=cast(Literal["trial", "paid", "existing", "operator"], mode),
             grant_id=grant_id,
             policy_version=int(str(value["policy_version"])),
             report_pass_key=str(value.get("report_pass_key", "")),

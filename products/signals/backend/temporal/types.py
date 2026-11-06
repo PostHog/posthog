@@ -206,8 +206,7 @@ class SignalReportSummaryWorkflowInputs:
     requested_implementation_task_id: str | None = None
     requested_after_run_count: int | None = None
     signal_id: str | None = None
-    # Manual reruns need a fresh receipt without inventing a source signal.
-    spend_signal_id: str | None = None
+    operator_rerun: bool = False
 
 
 @dataclass

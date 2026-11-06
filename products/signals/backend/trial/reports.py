@@ -80,7 +80,10 @@ def context_funding(team: Team) -> TrialFunding | None:
 
 def requires_trial_accounting(team_id: int, signal_id: str | None = None) -> bool:
     team = Team.objects.get(id=team_id)
-    parent = signal_funding(team_id, signal_id) or context_funding(team)
+    parent = context_funding(team)
+    if parent is not None and parent.funding == "operator":
+        return False
+    parent = signal_funding(team_id, signal_id) or parent
     if parent is not None:
         return parent.grant_id is not None
     grant = TrialPolicy(team).admission_grant()
@@ -126,7 +129,13 @@ def report_pass_paid_authorized(
 
 
 def prepare_report_pass(
-    *, team: Team, report_id: str, operation_key: str, paid_authorized: bool = False, signal_id: str | None = None
+    *,
+    team: Team,
+    report_id: str,
+    operation_key: str,
+    paid_authorized: bool = False,
+    signal_id: str | None = None,
+    operator_rerun: bool = False,
 ) -> None:
     from products.signals.backend.models import SignalReport  # noqa: PLC0415 -- model registration cycle
 
@@ -138,15 +147,17 @@ def prepare_report_pass(
             return
         if previous is not None and report.status == SignalReport.Status.IN_PROGRESS:
             raise TrialRefused("report_pass_in_progress")
-        funding = (
-            TrialFunding(funding="existing")
-            if report.billing_exempt_reason
-            else policy.admit(
+        # Operator repairs are free for this pipeline, not for later automatic refreshes.
+        if operator_rerun:
+            funding = TrialFunding(funding="operator")
+        elif report.billing_exempt_reason:
+            funding = TrialFunding(funding="existing")
+        else:
+            funding = policy.admit(
                 paid_authorized=paid_authorized,
                 report_id=report.id,
                 parent=signal_funding(team.id, signal_id, for_report=True),
             )
-        )
         SignalReport.objects.filter(team_id=team.id, id=report.id).update(
             self_driving_funding=replace(funding, report_pass_key=operation_key).as_dict()
         )

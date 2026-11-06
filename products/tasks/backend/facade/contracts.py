@@ -184,6 +184,7 @@ class TaskRunSpend:
     accounting_failed: bool
     compute_cost_microusd: int = 0
     trial_grant_id: str | None = None
+    billing_exempt: bool = False
 
 
 @dataclass(frozen=True)

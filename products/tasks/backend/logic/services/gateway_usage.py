@@ -316,6 +316,7 @@ def _run_spend(
         accounting_failed=_accounting_failed(run),
         compute_cost_microusd=int(((compute or Decimal(0)) * 1_000_000).to_integral_value(rounding=ROUND_CEILING)),
         trial_grant_id=(run.state or {}).get("self_driving_funding", {}).get("grant_id") or None,
+        billing_exempt=(run.state or {}).get("self_driving_funding", {}).get("funding") == "operator",
     )
 
 

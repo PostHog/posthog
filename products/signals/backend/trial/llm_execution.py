@@ -20,7 +20,10 @@ class TrialLLMExecution:
             return None
         team = Team.objects.select_related("organization").get(id=team_id)
         policy = TrialPolicy(team)
-        parent = signal_funding(team_id, signal_id) or context_funding(team)
+        parent = context_funding(team)
+        if parent is not None and parent.funding == "operator":
+            return cls(parent)
+        parent = signal_funding(team_id, signal_id) or parent
         grant = policy.admission_grant() if parent is None else None
         if parent is None and grant is None:
             return None
