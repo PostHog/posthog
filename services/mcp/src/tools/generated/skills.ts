@@ -174,6 +174,12 @@ const SkillFileGetSchema = () => {
                 file_path: LlmSkillsNameFilesRetrieveParams.shape['file_path'].describe(
                     "The file's path, copied from the `path` field of a skill-get manifest entry (e.g. `references/limits.md`). Sending it as `path` also works."
                 ),
+                content_length: LlmSkillsNameFilesRetrieveQueryParams.shape['content_length']
+                    .default(8000)
+                    .optional()
+                    .describe(
+                        'Maximum number of characters of the file content to return, starting at content_offset. Defaults to 8000 so a large file arrives in pages that fit the response, each with a valid content_next_offset to continue from.'
+                    ),
             })
     )
 }
@@ -187,6 +193,8 @@ const skillFileGet = (): ToolBase<ReturnType<typeof SkillFileGetSchema>, Schemas
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(String(params.skill_name))}/files/${encodeURIComponent(String(params.file_path))}/`,
             query: {
+                content_length: params.content_length,
+                content_offset: params.content_offset,
                 version: params.version,
             },
         })

@@ -417,7 +417,23 @@ export const LlmSkillsNameFilesRetrieveParams = () => zod.object({
     skill_name: zod.string().regex(llmSkillsNameFilesRetrievePathSkillNameRegExp),
 })
 
+export const llmSkillsNameFilesRetrieveQueryContentOffsetMin = 0
+
 export const LlmSkillsNameFilesRetrieveQueryParams = () => zod.object({
+    content_length: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe(
+            'Maximum number of characters of the content to return starting at content_offset. Omit to return the whole file from the offset onwards. When the slice stops before the end, content_next_offset is the offset to request next.'
+        ),
+    content_offset: zod
+        .number()
+        .min(llmSkillsNameFilesRetrieveQueryContentOffsetMin)
+        .optional()
+        .describe(
+            'Zero-based character offset to start the returned content from. Use with content_length to page through a large file that a client would otherwise truncate. Compare the returned content length against content_total_length to detect truncation, then re-fetch from content_next_offset. Defaults to 0 (start of file).'
+        ),
     version: zod
         .number()
         .min(1)

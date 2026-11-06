@@ -1,6 +1,17 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "content_length": {
+            "default": 8000,
+            "description": "Maximum number of characters of the file content to return, starting at content_offset. Defaults to 8000 so a large file arrives in pages that fit the response, each with a valid content_next_offset to continue from.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "content_offset": {
+            "description": "Zero-based character offset to start the returned content from. Use with content_length to page through a large file that a client would otherwise truncate. Compare the returned content length against content_total_length to detect truncation, then re-fetch from content_next_offset. Defaults to 0 (start of file).",
+            "minimum": 0,
+            "type": "number"
+        },
         "file_path": {
             "description": "The file's path, copied from the `path` field of a skill-get manifest entry (e.g. `references/limits.md`). Sending it as `path` also works.",
             "pattern": "^.+$",

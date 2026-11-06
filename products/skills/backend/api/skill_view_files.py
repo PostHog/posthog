@@ -21,9 +21,9 @@ from ..models.skills import LLMSkillFile
 from .skill_analytics import file_extension, record_skill_event, skill_analytics_props
 from .skill_error_responses import skill_write_error_response
 from .skill_serializers import (
-    LLMSkillFetchQuerySerializer,
     LLMSkillFileCreateSerializer,
     LLMSkillFileDeleteQuerySerializer,
+    LLMSkillFileFetchQuerySerializer,
     LLMSkillFileRenameSerializer,
     LLMSkillFileSerializer,
     LLMSkillSerializer,
@@ -54,7 +54,7 @@ def _safe_file_path(file_path: str) -> str | None:
 
 class SkillFileActionsMixin(SkillAccessMixin):
     @extend_schema(
-        parameters=[LLMSkillFetchQuerySerializer],
+        parameters=[LLMSkillFileFetchQuerySerializer],
         responses={200: LLMSkillFileSerializer},
     )
     # NOTE: `required_scopes` is intentionally not set on @action here. delete_file is registered
@@ -70,7 +70,7 @@ class SkillFileActionsMixin(SkillAccessMixin):
     @llma_track_latency("llma_skills_get_file")
     @monitor(feature=None, endpoint="llma_skills_get_file", method="GET")
     def get_file(self, request: Request, skill_name: str = "", file_path: str = "", **kwargs) -> Response:
-        version_params = self._validated_query(LLMSkillFetchQuerySerializer, request)
+        version_params = self._validated_query(LLMSkillFileFetchQuerySerializer, request)
         version = cast(int | None, version_params.get("version"))
         skill = self._load_skill_with_object_access(request, skill_name, version)
         if skill is None:
@@ -87,7 +87,11 @@ class SkillFileActionsMixin(SkillAccessMixin):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        return Response(LLMSkillFileSerializer(skill_file).data)
+        context = {
+            "content_offset": version_params.get("content_offset"),
+            "content_length": version_params.get("content_length"),
+        }
+        return Response(LLMSkillFileSerializer(skill_file, context=context).data)
 
     @extend_schema(request=LLMSkillFileCreateSerializer, responses={201: LLMSkillSerializer})
     @action(
