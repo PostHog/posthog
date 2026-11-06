@@ -887,6 +887,9 @@ jobs:
                   toolchain: 1.91.1
                   components: clippy,rustfmt
 
+            - name: Check format
+              run: cargo fmt -- --check
+
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
@@ -899,9 +902,6 @@ jobs:
                   shared-key: 'v2-rust-ci'
                   workspaces: rust
                   save-if: ${{ github.ref == 'refs/heads/master' }}
-
-            - name: Check format
-              run: cargo fmt -- --check
 
             - name: Run clippy
               env:
