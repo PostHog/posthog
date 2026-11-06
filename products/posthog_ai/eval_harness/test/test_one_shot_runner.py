@@ -247,6 +247,7 @@ def test_trace_upload_does_not_block_infrastructure_cleanup(monkeypatch: pytest.
     monkeypatch.setenv("OPT_OUT_CAPTURE", "")
     monkeypatch.setattr("products.posthog_ai.eval_harness.harness.lifecycle.TRACE_SHUTDOWN_TIMEOUT_SECONDS", 0)
     with (
+        patch("posthoganalytics.Posthog", side_effect=partial(Posthog, flush_at=1, enable_local_evaluation=False)),
         patch("posthoganalytics.consumer.batch_post", side_effect=blocked_upload),
         patch("products.posthog_ai.eval_harness.harness.lifecycle.atexit.register"),
         patch("products.posthog_ai.eval_harness.harness.lifecycle._git", return_value=""),
