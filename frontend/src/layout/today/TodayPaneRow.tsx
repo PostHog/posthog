@@ -42,7 +42,10 @@ export function TodayPaneRow({
                 variant={variant}
                 title={label}
                 data-attr={dataAttr}
-                onClick={onClick}
+                // Capture-phase, so Cmd/Ctrl-clicks count too: the link's own handler returns
+                // for those before it calls onClick. Middle-clicks only fire auxclick.
+                onClickCapture={onClick}
+                onAuxClick={(event) => event.button === 1 && onClick?.()}
                 className={cn(action && 'pr-8')}
             >
                 {icon && (
