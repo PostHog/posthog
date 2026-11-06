@@ -139,23 +139,25 @@ def test_the_wal_position_waits_for_transactions_running_when_it_was_read():
     # usable only once every transaction running when it was read has ended.
     from django.db import connection
 
-    connection.ensure_connection()
-    # A read before the other connection opens, so a per-transaction stats snapshot cannot hide it.
-    get_visible_wal_lsn(connection.connection, timeout=5)
     settings = connection.settings_dict
-    with psycopg.connect(
-        dbname=settings["NAME"],
-        user=settings["USER"],
-        password=settings["PASSWORD"],
-        host=settings["HOST"],
-        port=settings["PORT"],
-    ) as other:
-        other.execute("SELECT pg_current_xact_id()")
-        with pytest.raises(WalPositionNotVisibleError):
-            get_visible_wal_lsn(connection.connection, timeout=0)
-        other.commit()
+    params = {
+        "dbname": settings["NAME"],
+        "user": settings["USER"],
+        "password": settings["PASSWORD"],
+        "host": settings["HOST"],
+        "port": settings["PORT"],
+    }
+    with psycopg.connect(**params) as reader:
+        # A read before the other connection opens, so a per-transaction stats snapshot cannot hide it.
+        get_visible_wal_lsn(reader, timeout=5)
+        with psycopg.connect(**params) as other:
+            other.execute("SELECT pg_current_xact_id()")
+            with pytest.raises(WalPositionNotVisibleError):
+                get_visible_wal_lsn(reader, timeout=0.5)
+            reader.rollback()
+            other.commit()
 
-        assert PgLSN.deserialize(get_visible_wal_lsn(connection.connection, timeout=5)).value > 0
+            assert PgLSN.deserialize(get_visible_wal_lsn(reader, timeout=5)).value > 0
 
 
 class TestGetPublicationTables:
