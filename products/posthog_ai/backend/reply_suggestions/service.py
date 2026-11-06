@@ -90,6 +90,8 @@ def generate_reply_suggestions(run_id: str, team_id: int) -> ReplySuggestionsOut
     if not cache.add(f"posthog_ai_reply_suggestions:{task.id}:{turn_index}", True, timeout=TURN_CLAIM_SECONDS):
         return _skipped("turn_already_claimed")
 
+    from ee.hogai.utils.feature_flags import is_privacy_mode_enabled  # noqa: PLC0415
+
     suggestions = suggest_replies(
         transcript.assistant_text,
         ReplySuggestionAttribution(
@@ -99,6 +101,7 @@ def generate_reply_suggestions(run_id: str, team_id: int) -> ReplySuggestionsOut
             distinct_id=str(user.distinct_id),
             task_id=str(task.id),
             run_id=str(task_run.id),
+            privacy_mode=is_privacy_mode_enabled(task_run.team),
         ),
         transcript.last_human_message,
         reasoning_effort=REPLY_SUGGESTIONS_REASONING_EFFORT,

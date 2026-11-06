@@ -1011,7 +1011,10 @@ class SlackThreadHandler:
     def _suggestions_block(self, answer_markdown: str) -> tuple[list[SuggestedReply], dict[str, Any]] | None:
         integration = self._get_integration()
         posthog_user = self._actor_posthog_user
+        from ee.hogai.utils.feature_flags import is_privacy_mode_enabled  # noqa: PLC0415
+
         attribution = slack_reply_attribution(
+            privacy_mode=is_privacy_mode_enabled(integration.team),
             trace_id=self.turn_trace_id,
             session_id=self._session_id(),
             distinct_id=posthog_user.distinct_id if posthog_user else None,

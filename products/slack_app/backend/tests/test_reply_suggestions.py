@@ -204,18 +204,19 @@ class TestReplySuggestionPlacement(SimpleTestCase):
     def setUp(self) -> None:
         cache.clear()
 
+    @patch("ee.hogai.utils.feature_flags.is_privacy_mode_enabled", return_value=False)
     @patch("products.slack_app.backend.slack_thread.capture_slack_event")
     @patch("products.slack_app.backend.slack_thread.suggest_replies", return_value=[OPEN_PR])
     @patch.object(SlackThreadHandler, "_actor_posthog_user", None)
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_plain_answer_gets_the_buttons_under_its_text(
-        self, mock_get_client, mock_get_integration, mock_suggest, _mock_capture
+        self, mock_get_client, mock_get_integration, mock_suggest, _mock_capture, _mock_privacy
     ) -> None:
         mock_client = MagicMock()
         mock_client.chat_postMessage.return_value = {"ts": "2.0"}
         mock_get_client.return_value = mock_client
-        mock_get_integration.return_value = Integration(id=7, config={}, integration_id="T1")
+        mock_get_integration.return_value = Integration(id=7, config={}, integration_id="T1", team=Team(id=1))
         handler = SlackThreadHandler(
             SlackThreadContext(integration_id=7, channel="C001", thread_ts="1.0"),
             RunFooter(model="claude-opus-5"),

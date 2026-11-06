@@ -73,6 +73,7 @@ class TestGenerateReplySuggestions(BaseTest):
             ),
             "suggest": patch(f"{SERVICE}.suggest_replies", return_value=[OPEN_PR]),
             "flag": patch(f"{SERVICE}.feature_enabled_or_false", return_value=True),
+            "privacy": patch("ee.hogai.utils.feature_flags.is_privacy_mode_enabled", return_value=True),
         }
         self.mocks = {name: patcher.start() for name, patcher in patchers.items()}
         for patcher in patchers.values():
@@ -89,6 +90,7 @@ class TestGenerateReplySuggestions(BaseTest):
         assert person_message == "Why did the relay keep retrying?"
         assert attribution.ai_product == "posthog_ai"
         assert attribution.run_id == str(self.task_run.id)
+        assert attribution.privacy_mode is True
         assert self.mocks["suggest"].call_args.kwargs == {"reasoning_effort": "none"}
         publish = self.mocks["publish"].call_args
         assert publish.args[3] == REPLY_SUGGESTIONS_METHOD

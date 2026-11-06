@@ -111,6 +111,7 @@ class ReplySuggestionAttribution:
     distinct_id: str | None = None
     task_id: str | None = None
     run_id: str | None = None
+    privacy_mode: bool = False
 
 
 @frozen
@@ -202,6 +203,8 @@ def request_reply_suggestions(
     extra: dict[str, Any] = {"user": attribution.distinct_id} if attribution.distinct_id else {}
     if reasoning_effort:
         extra["reasoning_effort"] = reasoning_effort
+    if attribution.privacy_mode:
+        extra["extra_headers"] = {"X-PostHog-Privacy-Mode": "true"}
     response = client.chat.completions.create(
         model=SUGGESTIONS_MODEL,
         messages=[

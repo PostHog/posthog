@@ -70,6 +70,16 @@ class TestSuggestReplies(SimpleTestCase):
             build.return_value.with_options.return_value.chat.completions.create.return_value = _completion(content)
             assert suggest_replies("Should I open a PR?", ATTRIBUTION) == expected
 
+    @parameterized.expand([(False, None), (True, {"X-PostHog-Privacy-Mode": "true"})])
+    def test_privacy_mode_asks_the_gateway_not_to_record_the_prompt(self, privacy_mode: bool, headers) -> None:
+        attribution = ReplySuggestionAttribution(ai_product="posthog_ai", properties={}, privacy_mode=privacy_mode)
+        with patch("products.tasks.backend.logic.reply_suggestions.build_ai_gateway_openai_client") as build:
+            create = build.return_value.with_options.return_value.chat.completions.create
+            create.return_value = _completion(json.dumps({"suggestions": []}))
+            suggest_replies("Should I open a PR?", attribution)
+
+        assert create.call_args.kwargs.get("extra_headers") == headers
+
     def test_model_failure_offers_nothing(self) -> None:
         with patch("products.tasks.backend.logic.reply_suggestions.build_ai_gateway_openai_client") as build:
             build.return_value.with_options.return_value.chat.completions.create.side_effect = TimeoutError()

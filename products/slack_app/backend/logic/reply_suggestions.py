@@ -39,6 +39,7 @@ def slack_reply_attribution(
     distinct_id: str | None = None,
     task_id: str | None = None,
     run_id: str | None = None,
+    privacy_mode: bool = False,
 ) -> ReplySuggestionAttribution:
     return ReplySuggestionAttribution(
         ai_product=REPLY_SUGGESTIONS_AI_PRODUCT,
@@ -48,6 +49,7 @@ def slack_reply_attribution(
         distinct_id=distinct_id,
         task_id=task_id,
         run_id=run_id,
+        privacy_mode=privacy_mode,
     )
 
 
