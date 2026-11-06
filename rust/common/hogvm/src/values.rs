@@ -952,9 +952,16 @@ impl Num {
             }
 
             match op {
-                NumOp::Add => Ok((a.saturating_add(b)).into()),
-                NumOp::Sub => Ok((a.saturating_sub(b)).into()),
-                NumOp::Mul => Ok((a.saturating_mul(b)).into()),
+                // The reference VM's numbers are doubles, so a result past i64 continues as a float.
+                NumOp::Add => Ok(a
+                    .checked_add(b)
+                    .map_or(((a as f64) + (b as f64)).into(), Into::into)),
+                NumOp::Sub => Ok(a
+                    .checked_sub(b)
+                    .map_or(((a as f64) - (b as f64)).into(), Into::into)),
+                NumOp::Mul => Ok(a
+                    .checked_mul(b)
+                    .map_or(((a as f64) * (b as f64)).into(), Into::into)),
                 // `/` is float division in the reference VMs (JS `/`, Python true division), even
                 // for two integers: 3 / 2 is 1.5, not 1. Use `intDiv` for integer division.
                 NumOp::Div => Ok(((a as f64) / (b as f64)).into()),
