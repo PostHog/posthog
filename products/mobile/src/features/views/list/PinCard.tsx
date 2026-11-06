@@ -1,4 +1,4 @@
-import { memo, type ReactElement, type ReactNode, useEffect } from 'react'
+import { memo, type ReactElement, type ReactNode, useEffect, useMemo } from 'react'
 import { Text, View } from 'react-native'
 import Animated, {
     cancelAnimation,
@@ -256,7 +256,10 @@ function ChartPin({ pin, index, data, onOpen, onMenu, onUnpin, onPressTooltip }:
     const value = snapshot && format && snapshot.value !== null ? format(snapshot.value) : null
     const delta = snapshot && format ? pinDelta(snapshot, format) : null
     const at = snapshot ? valueAtText(snapshot) : null
-    const series = snapshot ? snapshotChartSeries(snapshot, chartPalette) : []
+    const series = useMemo(
+        () => (snapshot ? snapshotChartSeries(snapshot, chartPalette) : []),
+        [snapshot, chartPalette]
+    )
     const showValue = !snapshot || snapshot.capabilities.number
     const canChart = snapshot ? snapshot.capabilities.chart && series.length > 0 : true
     const slotKey = `pin:${pin.shortcutId}`
@@ -381,7 +384,9 @@ function DataState({ data, capable, onUnpin, chart = false, children }: DataStat
         return (
             <Text style={styles.stateText}>
                 {chart
-                    ? 'This view has no line to draw. Show it as a number or a row.'
+                    ? data.snapshot.capabilities.chart
+                        ? 'No data for this chart.'
+                        : `${data.snapshot.capabilities.chartReason ?? 'This visualization cannot be pinned as a chart yet'}. Choose another tile or show it as a row.`
                     : 'This view has no single number. Show it as a chart or a row.'}
             </Text>
         )

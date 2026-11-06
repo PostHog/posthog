@@ -72,7 +72,8 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, first_error_message
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import Team
+from posthog.ip_restrictions import ip_restrictions_exempt_for_secret_keys
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
@@ -93,6 +94,11 @@ from posthog.settings.feature_flags import REMOTE_CONFIG_RATE_LIMITS
 from posthog.utils import is_valid_regex, str_to_bool
 from posthog.views import format_bytes
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
+from products.access_control.backend.facade.contracts import RestrictedPropertyNames
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
@@ -746,6 +752,54 @@ def _filter_person_properties_for_flag(
             referenced_keys.add(override["key"])
 
     return {key: value for key, value in person_properties.items() if key in referenced_keys}
+
+
+def _group_type_indexes_for_condition_property(
+    filters: dict[str, Any], condition_index: Any, key: str
+) -> set[int | None]:
+    # Mirrors the flags service: a group filter's own group_type_index, else the condition's
+    # aggregation, else the flag's. {None} (any group type) when the filter cannot be located.
+    groups = filters.get("groups") or []
+    if not isinstance(condition_index, int) or not 0 <= condition_index < len(groups):
+        return {None}
+    condition = groups[condition_index] or {}
+    aggregation = flag_filters.condition_aggregation(condition, filters.get("aggregation_group_type_index"))
+    indexes: set[int | None] = {
+        aggregation if prop.get("group_type_index") is None else prop["group_type_index"]
+        for prop in condition.get("properties") or []
+        if isinstance(prop, dict) and prop.get("type") == "group" and prop.get("key") == key
+    }
+    return indexes if indexes else {None}
+
+
+def _redact_restricted_actual_values(
+    conditions: Any, filters: dict[str, Any], restricted: RestrictedPropertyNames
+) -> Any:
+    if (not restricted.person and not restricted.group) or not isinstance(conditions, list):
+        return conditions
+
+    def is_restricted(condition_index: Any, prop: dict[str, Any]) -> bool:
+        key = prop.get("key")
+        if prop.get("type") != "group":
+            return key in restricted.person
+        if not isinstance(key, str):
+            return False
+        indexes = _group_type_indexes_for_condition_property(filters, condition_index, key)
+        return any(restricted.is_group_property_restricted(key, index) for index in indexes)
+
+    redacted: list[Any] = []
+    for condition in conditions:
+        if not isinstance(condition, dict) or not isinstance(condition.get("properties"), list):
+            redacted.append(condition)
+            continue
+        properties: list[Any] = []
+        for prop in condition["properties"]:
+            if isinstance(prop, dict) and is_restricted(condition.get("index"), prop):
+                properties.append({**prop, "actual_value": None})
+            else:
+                properties.append(prop)
+        redacted.append({**condition, "properties": properties})
+    return redacted
 
 
 def check_flag_limits_for_team(
@@ -3606,7 +3660,13 @@ class FeatureFlagConditionPropertyAnalysisSerializer(serializers.Serializer):
     operator = serializers.CharField(help_text="Comparison operator")
     value = serializers.JSONField(help_text="Expected property value")
     type = serializers.CharField(help_text="Property type (person, group, etc.)")
-    actual_value = serializers.JSONField(allow_null=True, help_text="Actual property value from user")
+    actual_value = serializers.JSONField(
+        allow_null=True,
+        help_text=(
+            "Actual property value from user. Null when the property is not set, "
+            "or when property access control hides it from the requesting user."
+        ),
+    )
     matched = serializers.BooleanField(help_text="Whether this property condition matched")
     explanation = serializers.CharField(help_text="Human-readable explanation of the match result")
 
@@ -3665,7 +3725,10 @@ class FeatureFlagTestEvaluationResponseSerializer(serializers.Serializer):
     )
     payload = serializers.JSONField(allow_null=True, help_text="Payload associated with the flag result, if any")
     person_properties = serializers.DictField(
-        help_text="Person properties at the time of evaluation (for historical evaluations)"
+        help_text=(
+            "Person properties at the time of evaluation (for historical evaluations). "
+            "Properties that property access control hides from the requesting user are omitted."
+        )
     )
     evaluation_distinct_id = serializers.CharField(
         allow_null=True,
@@ -6259,6 +6322,12 @@ class FeatureFlagViewSet(
             response_evaluation_distinct_id = (
                 evaluation_distinct_id if distinct_id and distinct_id in distinct_ids else None
             )
+            restricted_properties = split_restricted_property_names(
+                get_restricted_properties_with_group_type_index_for_team(
+                    user=cast(User, request.user) if request.user.is_authenticated else None,
+                    team_id=self.team_id,
+                )
+            )
             response_data = {
                 "flag_key": feature_flag.key,
                 "result": result,
@@ -6266,11 +6335,17 @@ class FeatureFlagViewSet(
                 "reason_description": reason_description,
                 "condition_index": condition_index,
                 "payload": payload,
-                "person_properties": _filter_person_properties_for_flag(
-                    evaluation_filters, person_properties, flag_key=feature_flag.key
-                ),
+                "person_properties": {
+                    key: value
+                    for key, value in _filter_person_properties_for_flag(
+                        evaluation_filters, person_properties, flag_key=feature_flag.key
+                    ).items()
+                    if key not in restricted_properties.person
+                },
                 "evaluation_distinct_id": response_evaluation_distinct_id,
-                "conditions": detailed_conditions,
+                "conditions": _redact_restricted_actual_values(
+                    detailed_conditions, evaluation_filters, restricted_properties
+                ),
             }
             if detect_config_format(evaluation_filters).kind == "v2":
                 response_data["conditions_unavailable_reason"] = V2_CONDITIONS_UNAVAILABLE_REASON
@@ -6377,6 +6452,7 @@ class FeatureFlagViewSet(
         permission_classes=[TeamSecretTokenPermission],
         throttle_classes=[RemoteConfigThrottle, RemoteConfigProjectSecretApiKeyTeamThrottle],
     )
+    @ip_restrictions_exempt_for_secret_keys
     def remote_config(self, request: request.Request, **kwargs):
         response = self._remote_config_response(request, **kwargs)
         # Temporary (Rust remote_config port, phase 2): shadow-compare against Rust; delete after cutover.

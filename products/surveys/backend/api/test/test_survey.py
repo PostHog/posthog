@@ -87,6 +87,74 @@ class TestSurvey(APIBaseTest):
         ]
         assert response_data["created_by"]["id"] == self.user.id
 
+    @parameterized.expand(
+        [
+            (
+                "no_appearance",
+                None,
+                None,
+                {"displayThankYouMessage": True, "thankYouMessageHeader": "Thank you for your feedback!"},
+            ),
+            (
+                "partial_appearance",
+                {"backgroundColor": "#ffffff"},
+                None,
+                {
+                    "backgroundColor": "#ffffff",
+                    "displayThankYouMessage": True,
+                    "thankYouMessageHeader": "Thank you for your feedback!",
+                },
+            ),
+            ("explicit_opt_out", {"displayThankYouMessage": False}, None, {"displayThankYouMessage": False}),
+            (
+                "team_default",
+                None,
+                {"thankYouMessageHeader": "Thanks from the team"},
+                {"displayThankYouMessage": True, "thankYouMessageHeader": "Thanks from the team"},
+            ),
+            (
+                "team_header_html_is_sanitized",
+                None,
+                {"thankYouMessageHeader": "<script>alert(1)</script>Thanks"},
+                {"displayThankYouMessage": True, "thankYouMessageHeader": "Thanks"},
+            ),
+            (
+                "team_appearance_not_an_object",
+                None,
+                "dark",
+                {"displayThankYouMessage": True, "thankYouMessageHeader": "Thank you for your feedback!"},
+            ),
+            (
+                "team_null_values",
+                None,
+                {"displayThankYouMessage": None, "thankYouMessageHeader": None},
+                {"displayThankYouMessage": True, "thankYouMessageHeader": "Thank you for your feedback!"},
+            ),
+        ]
+    )
+    def test_create_defaults_thank_you_screen(
+        self, _name: str, appearance: dict | None, team_appearance: dict | str | None, expected: dict
+    ) -> None:
+        if team_appearance:
+            self.team.survey_config = {"appearance": team_appearance}
+            self.team.save(update_fields=["survey_config"])
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Hosted survey",
+                "type": "external_survey",
+                "questions": [{"type": "open", "question": "How was it?"}],
+                "appearance": appearance,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert response.json()["appearance"].items() >= expected.items()
+        stored_appearance = Survey.objects.get(id=response.json()["id"]).appearance
+        assert stored_appearance is not None
+        assert stored_appearance.items() >= expected.items()
+
     def test_can_create_survey_with_translations(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
@@ -263,42 +331,37 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "translation" in response.json()["detail"].lower()
 
-    def test_translation_rejects_base_language_collision(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "survey_level",
+                {"translations": {"en": {"name": "Translated"}}},
+                "Survey translation: 'en'",
+            ),
+            (
+                "question_level",
+                {"questions": [{"type": "open", "question": "Question?", "translations": {"EN": {"question": "Hi"}}}]},
+                "Question 1 translation: 'EN'",
+            ),
+        ]
+    )
+    def test_translation_rejects_base_language_collision(self, _name: str, payload: dict, context: str) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
                 "name": "Survey",
                 "type": "popover",
-                "base_language": "en",
                 "questions": [{"type": "open", "question": "Question?"}],
-                "translations": {"en": {"name": "Translated"}},
+                **payload,
             },
             format="json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "base language" in response.json()["detail"].lower()
-
-    def test_translation_rejects_base_language_collision_in_question(self) -> None:
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "Survey",
-                "type": "popover",
-                "base_language": "es",
-                "questions": [
-                    {
-                        "type": "open",
-                        "question": "¿Cómo estás?",
-                        "translations": {"ES": {"question": "Hola"}},
-                    }
-                ],
-            },
-            format="json",
+        assert response.json()["detail"] == (
+            f"{context} matches the survey's base language ('en'), so the untranslated text already covers it. "
+            "Remove this translation, or set base_language to the language the untranslated text is written in."
         )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "base language" in response.json()["detail"].lower()
 
     def test_survey_defaults_to_english_base_language(self) -> None:
         response = self.client.post(
@@ -447,15 +510,39 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "collides" in response.json()["detail"].lower()
 
-    def test_base_language_change_rejects_collision_with_existing_translation(self) -> None:
-        """Changing base_language to a code already present in translations is rejected."""
+    @parameterized.expand(
+        [
+            (
+                "survey_level",
+                {
+                    "questions": [{"type": "open", "id": "q1", "question": "Question?"}],
+                    "translations": {"fr": {"name": "French"}},
+                },
+            ),
+            (
+                "question_level",
+                {
+                    "questions": [
+                        {
+                            "type": "open",
+                            "id": "q1",
+                            "question": "Question?",
+                            "translations": {"fr": {"question": "Q?"}},
+                        }
+                    ]
+                },
+            ),
+        ]
+    )
+    def test_base_language_change_rejects_collision_with_existing_translation(
+        self, _name: str, translated_fields: dict
+    ) -> None:
         survey = Survey.objects.create(
             team=self.team,
             name="Multi-language survey",
             type="popover",
             base_language="en",
-            questions=[{"type": "open", "id": "q1", "question": "Question?"}],
-            translations={"fr": {"name": "French"}},
+            **translated_fields,
         )
 
         response = self.client.patch(
@@ -466,6 +553,49 @@ class TestSurvey(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "base_language" in response.json() or "translation" in response.content.decode().lower()
+
+    @parameterized.expand(
+        [
+            (
+                "survey_level",
+                {
+                    "questions": [{"type": "open", "id": "q1", "question": "Question?"}],
+                    "translations": {"en": {"name": "Legacy"}},
+                },
+            ),
+            (
+                "question_level",
+                {
+                    "questions": [
+                        {
+                            "type": "open",
+                            "id": "q1",
+                            "question": "Question?",
+                            "translations": {"en": {"question": "Q?"}},
+                        }
+                    ]
+                },
+            ),
+        ]
+    )
+    def test_unchanged_base_language_keeps_legacy_translations_editable(
+        self, _name: str, translated_fields: dict
+    ) -> None:
+        survey = Survey.objects.create(
+            team=self.team,
+            name="Legacy survey",
+            type="popover",
+            base_language="en",
+            **translated_fields,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"base_language": "EN", "name": "Renamed"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
 
     @parameterized.expand(
         [
@@ -1603,7 +1733,7 @@ class TestSurvey(APIBaseTest):
         ).json()
 
         # Includes one query for the project's replay gates
-        with self.assertNumQueries(18):
+        with self.assertNumQueries(15):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -1694,7 +1824,11 @@ class TestSurvey(APIBaseTest):
         assert survey_with_targeting.json() == {
             "type": "validation_error",
             "code": "behavioral_cohort_found",
-            "detail": "Cohort 'cohort2' has an event-based condition on '$pageview' (performed_event_first_time) and cannot be used in surveys.",
+            "detail": (
+                "Cohort 'cohort2' has an event-based condition on '$pageview' (performed_event_first_time) and cannot be used in surveys. "
+                "To show the survey after someone does an event, add an event trigger to the survey's display conditions. "
+                "To keep this audience, duplicate the cohort as a static cohort and target that."
+            ),
             "attr": None,
         }
 
@@ -2967,7 +3101,10 @@ class TestSurvey(APIBaseTest):
                             "question": "What would you want to improve from notebooks?",
                         }
                     ],
-                    "appearance": None,
+                    "appearance": {
+                        "displayThankYouMessage": True,
+                        "thankYouMessageHeader": "Thank you for your feedback!",
+                    },
                     "created_at": ANY,
                     "created_by": ANY,
                     "targeting_flag": None,
@@ -3029,6 +3166,7 @@ class TestSurvey(APIBaseTest):
                     ],
                     "iteration_count": None,
                     "iteration_frequency_days": None,
+                    "repeat_until_stopped": False,
                     "iteration_start_dates": [],
                     "current_iteration": None,
                     "current_iteration_start_date": None,
@@ -3967,6 +4105,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
             },
         ]
         assert response_data["appearance"] == {
+            "displayThankYouMessage": True,
             "thankYouMessageHeader": "Thanks for your feedback!",
             "thankYouMessageDescription": "<b>We'll use it to make notebooks better.</b>",
             "shuffleQuestions": True,
@@ -4129,6 +4268,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response_data["name"] == "Notebooks beta release survey"
         assert response_data["questions"] == []
         assert response_data["appearance"] == {
+            "displayThankYouMessage": True,
             "thankYouMessageHeader": " ",
             "thankYouMessageDescription": "",
         }
@@ -5458,15 +5598,18 @@ class TestSurveysRecurringIterations(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("once", "once"),
-            ("null", None),
+            ("once", "once", {"iteration_count": 2}),
+            ("null", None, {"iteration_count": 2}),
+            ("once_from_open_ended", "once", {"repeat_until_stopped": True}),
         ]
     )
-    def test_switching_schedule_to_non_recurring_clears_iteration_fields(self, _name: str, schedule: Optional[str]):
+    def test_switching_schedule_to_non_recurring_clears_iteration_fields(
+        self, _name: str, schedule: Optional[str], repeat_payload: dict
+    ):
         survey = self._create_recurring_survey()
         self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
-            data={"start_date": datetime.now(), "iteration_count": 2, "iteration_frequency_days": 30},
+            data={"start_date": datetime.now(), "iteration_frequency_days": 30, **repeat_payload},
         )
 
         response = self.client.patch(
@@ -5481,14 +5624,19 @@ class TestSurveysRecurringIterations(APIBaseTest):
         assert response_data["iteration_frequency_days"] is None
         assert response_data["iteration_start_dates"] == []
         assert response_data["current_iteration"] is None
+        assert response_data["repeat_until_stopped"] is False
 
     @parameterized.expand(
         [
-            ("schedule_omitted", {}),
-            ("schedule_null", {"schedule": None}),
+            ("schedule_omitted", {}, {"iteration_count": 2}, 2),
+            ("schedule_null", {"schedule": None}, {"iteration_count": 2}, 2),
+            # Open-ended keeps the current and the next window; the count the caller sent is dropped.
+            ("open_ended", {}, {"iteration_count": 5, "repeat_until_stopped": True}, None),
         ]
     )
-    def test_setting_iterations_without_a_schedule_marks_the_survey_recurring(self, _name: str, schedule_payload: dict):
+    def test_setting_iterations_without_a_schedule_marks_the_survey_recurring(
+        self, _name: str, schedule_payload: dict, repeat_payload: dict, expected_iteration_count: Optional[int]
+    ):
         survey = self._create_non_recurring_survey()
         assert survey.schedule == Survey.Schedule.ONCE
 
@@ -5496,8 +5644,8 @@ class TestSurveysRecurringIterations(APIBaseTest):
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
             data={
                 "start_date": datetime.now(),
-                "iteration_count": 2,
                 "iteration_frequency_days": 30,
+                **repeat_payload,
                 **schedule_payload,
             },
         )
@@ -5505,9 +5653,49 @@ class TestSurveysRecurringIterations(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
         assert response_data["schedule"] == "recurring"
-        assert response_data["iteration_count"] == 2
+        assert response_data["iteration_count"] == expected_iteration_count
         assert response_data["iteration_frequency_days"] == 30
         assert len(response_data["iteration_start_dates"]) == 2
+
+    @parameterized.expand(
+        [
+            # A fixed count sent alone ends an open-ended schedule instead of being stored and ignored.
+            ("count_ends_open_ended", True, {"iteration_count": 5}, 200, ("recurring", 5, 30, False)),
+            ("flag_off_without_a_count", True, {"repeat_until_stopped": False}, 400, None),
+            ("flag_null_without_a_count", True, {"repeat_until_stopped": None}, 400, None),
+            (
+                "flag_with_zero_frequency",
+                False,
+                {"repeat_until_stopped": True, "iteration_frequency_days": 0},
+                400,
+                None,
+            ),
+            ("flag_on_a_once_survey", False, {"repeat_until_stopped": True}, 200, ("recurring", None, 30, True)),
+            ("count_zero_turns_repeats_off", True, {"iteration_count": 0}, 200, ("recurring", 0, 30, False)),
+            ("frequency_cleared_on_open_ended", True, {"iteration_frequency_days": None}, 400, None),
+        ]
+    )
+    def test_patching_repeat_until_stopped(
+        self, _name: str, open_ended: bool, payload: dict, expected_status: int, expected: Optional[tuple]
+    ):
+        survey = self._create_non_recurring_survey()
+        Survey.objects.filter(pk=survey.pk).update(
+            schedule=Survey.Schedule.RECURRING if open_ended else Survey.Schedule.ONCE,
+            repeat_until_stopped=open_ended,
+            iteration_frequency_days=30,
+        )
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/surveys/{survey.id}/", data=payload, format="json")
+
+        assert response.status_code == expected_status
+        if expected is not None:
+            data = response.json()
+            assert (
+                data["schedule"],
+                data["iteration_count"],
+                data["iteration_frequency_days"],
+                data["repeat_until_stopped"],
+            ) == expected
 
     def test_can_handle_non_nil_current_iteration(self):
         survey = self._create_non_recurring_survey()
