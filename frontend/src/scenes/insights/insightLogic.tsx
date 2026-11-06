@@ -35,7 +35,6 @@ import { objectsEqual } from 'lib/utils/objects'
 import { RetainedValues } from 'lib/utils/retainedValues'
 import { retryImport } from 'lib/utils/retryImport'
 import { withBackLink } from 'scenes/analytics/analyticsBackLink'
-import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -76,6 +75,8 @@ import {
     SetInsightOptions,
 } from '~/types'
 
+import { isDashboardFilterOverrideEmpty } from 'products/dashboards/frontend/dashboardFilterEmpty'
+import { dashboardsPartialUpdate } from 'products/dashboards/frontend/generated/api'
 import {
     titleMentionsMCP,
     tryShowMCPAnalyticsNudge,
@@ -1364,6 +1365,24 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             }
 
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(tasksToComplete)
+
+            // A new insight started from a dashboard tile group's Add menu goes into that group.
+            const tileGroupParam = router.values.searchParams.tile_group
+            const tileGroupKey =
+                typeof tileGroupParam === 'string' || typeof tileGroupParam === 'number' ? String(tileGroupParam) : ''
+            const newDashboardTile =
+                !insightNumericId && dashboards?.length === 1 && tileGroupKey
+                    ? savedInsight.dashboard_tiles?.find(({ dashboard_id }) => dashboard_id === dashboards[0])
+                    : undefined
+            if (newDashboardTile) {
+                try {
+                    await dashboardsPartialUpdate(String(values.currentTeamId), newDashboardTile.dashboard_id, {
+                        tiles: [{ id: newDashboardTile.id, group_key: tileGroupKey }],
+                    })
+                } catch {
+                    lemonToast.error("Couldn't add the new tile to its group. Move it there with its Move to option.")
+                }
+            }
 
             // reload dashboards with updated insight
             // since filters on dashboard might be different from filters on insight

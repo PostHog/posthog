@@ -1,7 +1,7 @@
 import uuid
 import dataclasses
 from datetime import datetime
-from typing import Any, Optional, Union
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -56,9 +56,8 @@ from posthog.schema import (
 )
 
 from posthog.clickhouse.client import sync_execute
-from posthog.constants import TREND_FILTER_TYPE_EVENTS
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
-from posthog.models import Entity, Organization, Person
+from posthog.models import Organization, Person
 from posthog.models.event.util import events_only_in_active_schema
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting, override_instance_config
@@ -69,28 +68,12 @@ from posthog.test.persons import create_person
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import Action
+from products.actions.backend.facade.testing import create_action, update_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.product_analytics.backend.hogql_queries.trends.test.test_trends_persons import get_actors
 from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
-
-
-def breakdown_label(entity: Entity, value: Union[str, int]) -> dict[str, Optional[Union[str, int]]]:
-    ret_dict: dict[str, Optional[Union[str, int]]] = {}
-    if not value or not isinstance(value, str) or "cohort_" not in value:
-        label = value if (value or isinstance(value, bool)) and value != "None" and value != "nan" else "Other"
-        ret_dict["label"] = f"{entity.name} - {label}"
-        ret_dict["breakdown_value"] = label
-    else:
-        if value == "cohort_all":
-            ret_dict["label"] = f"{entity.name} - all users"
-            ret_dict["breakdown_value"] = "all"
-        else:
-            cohort = Cohort.objects.get(pk=value.replace("cohort_", ""))
-            ret_dict["label"] = f"{entity.name} - {cohort.name}"
-            ret_dict["breakdown_value"] = cohort.pk
-    return ret_dict
 
 
 def _create_cohort(
@@ -3399,33 +3382,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["labels"][23], "2-Jan 23:00")
         self.assertEqual(response[0]["data"][23], 1.0)
 
-    def test_breakdown_label(self):
-        entity = Entity({"id": "$pageview", "name": "$pageview", "type": TREND_FILTER_TYPE_EVENTS})
-        num_label = breakdown_label(entity, 1)
-        self.assertEqual(num_label, {"label": "$pageview - 1", "breakdown_value": 1})
-
-        string_label = breakdown_label(entity, "Chrome")
-        self.assertEqual(string_label, {"label": "$pageview - Chrome", "breakdown_value": "Chrome"})
-
-        nan_label = breakdown_label(entity, "nan")
-        self.assertEqual(nan_label, {"label": "$pageview - Other", "breakdown_value": "Other"})
-
-        none_label = breakdown_label(entity, "None")
-        self.assertEqual(none_label, {"label": "$pageview - Other", "breakdown_value": "Other"})
-
-        cohort_all_label = breakdown_label(entity, "cohort_all")
-        self.assertEqual(
-            cohort_all_label,
-            {"label": "$pageview - all users", "breakdown_value": "all"},
-        )
-
-        cohort = _create_cohort(team=self.team, name="cohort1", groups=[{"properties": {"name": "Jane"}}])
-        cohort_label = breakdown_label(entity, f"cohort_{cohort.pk}")
-        self.assertEqual(
-            cohort_label,
-            {"label": f"$pageview - {cohort.name}", "breakdown_value": cohort.pk},
-        )
-
     @also_test_with_materialized_columns(["key"])
     def test_breakdown_with_filter(self):
         self._create_person(
@@ -3515,8 +3471,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_action_filtering_for_action_in_different_env_of_project(self):
         sign_up_action, person = self._create_events()
         other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
-        sign_up_action.team = other_team_in_project
-        sign_up_action.save()
+        # The same action, owned by another environment of the project.
+        sign_up_action = create_action(
+            team=other_team_in_project,
+            name=sign_up_action.name,
+            steps_json=[dataclasses.asdict(step) for step in sign_up_action.steps],
+        )
 
         action_response = self._run_query(
             TrendsQuery(
@@ -3672,7 +3632,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self._create_event(team=self.team, event="$pageview", distinct_id="d3")
             self._create_event(team=self.team, event="$pageview", distinct_id="d4")
 
-        event_filtering_action = Action.objects.create(
+        event_filtering_action = create_action(
             team=self.team,
             name="$pageview from non-internal",
             steps_json=[
@@ -4235,7 +4195,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     ),
                     series=[
                         ActionsNode(
-                            id=action.pk,
+                            id=action.id,
                         ),
                     ],
                 ),
@@ -4533,7 +4493,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     TrendsQuery(
                         breakdownFilter=breakdown_filter,
                         dateRange=DateRange(date_from="-14d"),
-                        series=[ActionsNode(id=action.pk)],
+                        series=[ActionsNode(id=action.id)],
                     ),
                     self.team,
                 )
@@ -5458,7 +5418,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                         PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[person_filter]),
                     ],
                 ),
-                series=[ActionsNode(id=action.pk)],
+                series=[ActionsNode(id=action.id)],
             )
 
         def event_query(breakdown_filter: BreakdownFilter) -> TrendsQuery:
@@ -5768,7 +5728,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     ),
                     series=[
                         ActionsNode(
-                            id=action.pk,
+                            id=action.id,
                         ),
                     ],
                 ),
@@ -6425,7 +6385,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["blabla", "anonymous_id"],
             properties={"$some_prop": "some_val"},
         )
-        sign_up_action = Action.objects.create(
+        sign_up_action = create_action(
             team=self.team,
             name="sign up",
             steps_json=[
@@ -6537,11 +6497,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             groups=[{"properties": [{"key": "$some_prop", "value": "some_val", "type": "person"}]}],
         )
 
-        step = sign_up_action.steps[0]
-        step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
-
-        sign_up_action.steps = [dataclasses.asdict(step)]
-        sign_up_action.save()
+        step = dataclasses.replace(
+            sign_up_action.steps[0], properties=[{"key": "id", "value": cohort.pk, "type": "cohort"}]
+        )
+        sign_up_action = update_action(sign_up_action, steps_json=[dataclasses.asdict(step)])
 
         cohort.calculate_people_ch(pending_version=0)
 
@@ -7806,7 +7765,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             properties={"key": "val", "$current_url": "/another/page"},
         )
 
-        action = Action.objects.create(
+        action = create_action(
             name="sign up",
             team=self.team,
             steps_json=[
@@ -7825,7 +7784,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 series=[
                     ActionsNode(
-                        id=action.pk,
+                        id=action.id,
                     ),
                 ],
             ),

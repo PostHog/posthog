@@ -264,12 +264,14 @@ WORKFLOWS_RESUME_BATCH_JWT_PURPOSE = ScopedServiceJwtPurpose(
 )
 
 
-def _mint_transactional_email_jwt(team_id: int, hog_flow_id: str) -> str:
+def _mint_transactional_email_jwt(team_id: int, hog_flow_id: str, **route_claims: str) -> str:
     """Short-lived scoped JWT for one transactional email send, pinned to the team and the transactional email's
     workflow so a leaked token can only send that email. Verified in the plugin server's CdpApi."""
     if not WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE.enabled():
         raise RuntimeError("WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET is not configured — cannot send email")
-    return WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE.mint({"team_id": team_id, "hog_flow_id": hog_flow_id})
+    return WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE.mint(
+        {"team_id": team_id, "hog_flow_id": hog_flow_id, **route_claims}
+    )
 
 
 def send_transactional_email(
@@ -290,8 +292,11 @@ def send_accepted_transactional_email(
 ) -> requests.Response:
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_email/send",
-        json=payload,
-        headers={"Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, hog_flow_id)}"},
+        data=json.dumps(payload, ensure_ascii=False).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, hog_flow_id, kind='code_send')}",
+        },
         timeout=timeout,
     )
 

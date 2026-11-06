@@ -3,6 +3,7 @@ from typing import Any, cast
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -17,6 +18,7 @@ from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from .. import learning_settings
+from ..models import TeamBusinessKnowledgeConfig
 from .serializers import BusinessKnowledgeSettingsSerializer, BusinessKnowledgeSettingsUpdateSerializer
 
 
@@ -61,7 +63,7 @@ class BusinessKnowledgeSettingsViewSet(TeamAndOrgViewSetMixin, ViewSet):
     posthog_feature_flag = "product-business-knowledge"
     throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
     pagination_class = None
-    http_method_names = ["get", "patch", "head", "options"]
+    http_method_names = ["get", "patch", "post", "head", "options"]
 
     @cached_property
     def user_access_control(self) -> UserAccessControl:
@@ -79,11 +81,12 @@ class BusinessKnowledgeSettingsViewSet(TeamAndOrgViewSetMixin, ViewSet):
             return ["business_knowledge:write"]
         return ["business_knowledge:read"]
 
-    def _serialize(self, *, learn_from_support_enabled: bool) -> dict[str, bool]:
+    def _serialize(self, config: TeamBusinessKnowledgeConfig) -> dict[str, Any]:
         return BusinessKnowledgeSettingsSerializer(
             {
-                "learn_from_support_enabled": learn_from_support_enabled,
+                "learn_from_support_enabled": config.learn_from_support_enabled,
                 "support_enabled": bool(self.team.conversations_enabled),
+                "learning_backfill": learning_settings.get_learning_backfill_progress(config),
             }
         ).data
 
@@ -126,4 +129,34 @@ class BusinessKnowledgeSettingsViewSet(TeamAndOrgViewSetMixin, ViewSet):
             )
         else:
             config = learning_settings.get_team_business_knowledge_config(self.team)
-        return Response(self._serialize(learn_from_support_enabled=config.learn_from_support_enabled))
+        return Response(self._serialize(config))
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=BusinessKnowledgeSettingsSerializer,
+                description="The updated Business knowledge learning settings.",
+            ),
+            400: OpenApiResponse(description="Learn from support is off."),
+        },
+        summary="Learn from past support tickets",
+        description=(
+            "Start learning from resolved support tickets of the last 90 days. Tickets that were already "
+            "analyzed are skipped. The work runs in the background in small batches and can take a few hours."
+        ),
+    )
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="learning_backfill",
+        url_name="learning_backfill",
+        required_scopes=["business_knowledge:write"],
+    )
+    def learning_backfill(self, request: Request, **kwargs: Any) -> Response:
+        config = learning_settings.get_team_business_knowledge_config(self.team)
+        if not config.learn_from_support_enabled:
+            raise ValidationError("Turn on Learn from support to learn from past tickets.")
+        if not self.team.conversations_enabled:
+            raise ValidationError("Turn on Support to learn from resolved tickets.")
+        return Response(self._serialize(learning_settings.start_learning_backfill(self.team)))

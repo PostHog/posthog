@@ -24,9 +24,11 @@ S3/personhog/Kafka helpers are the boundaries and are mocked in the orchestratio
 
 import io
 import json
+import uuid
 import asyncio
 import hashlib
 import dataclasses
+from collections.abc import Awaitable, Callable
 from datetime import date, datetime, time
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
@@ -35,10 +37,12 @@ from django.conf import settings
 
 import structlog
 import pyarrow.parquet as pq
+from confluent_kafka import KafkaException
 from temporalio.exceptions import ActivityError, ApplicationError, CancelledError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.kafka_client.client import ProduceResult
 from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES
 from posthog.models import Team
@@ -51,10 +55,12 @@ from products.data_warehouse.backend.facade.api import aget_s3_client, get_s3_cl
 from products.warehouse_sources.backend.facade.person_property_provenance import stamp_person_property_provenance
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
+    PersonPropertySyncProgress,
     PersonPropertySyncRunRecord,
     PersonPropertySyncSource,
     WarehouseBinding,
     person_property_sync_sources_for,
+    record_person_property_sync_progress,
     record_person_property_sync_run,
 )
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -97,6 +103,15 @@ ROW_BATCH_SIZE = 50_000
 # for every person at once. Each extra pass reads only its own sources' columns.
 SOURCES_PER_STAGED_PASS = 4
 
+# Changed entities per produce-and-snapshot step. Each step writes the hashes Kafka confirmed to its own
+# snapshot file before the next step starts, so a run that is stopped part way (a deploy stops the
+# worker) keeps what it delivered, and the next run's diff resumes from there instead of from zero.
+_PRODUCE_CHUNK_SIZE = 50_000
+
+# A concurrent compaction writes its merged file before it deletes the old ones, so a fresh listing
+# after a vanished file almost always reads complete. Giving up means re-sending every row.
+_SNAPSHOT_READ_ATTEMPTS = 3
+
 
 @frozen(frozen=False)
 class PerSourceResult:
@@ -108,9 +123,35 @@ class PerSourceResult:
     existing: int = 0
     produced: int = 0
     skipped_missing_person: int = 0
+    # Intents Kafka did not confirm. They are left out of the snapshot so a retry sends them again.
+    undelivered: int = 0
     # Set when the source can't write anything for a reason its counts alone don't explain, so the
     # recorder persists a failed run instead of a clean one that produced nothing.
     error: str | None = None
+
+
+@frozen
+class PerSourceProgress:
+    source_id: str
+    produced_increment: int
+    rows_read_total: int
+    changed_total: int
+    # Missing people have no snapshot, so retries need a total to avoid counting them twice.
+    skipped_missing_person_total: int
+
+
+ProgressCallback = Callable[[PerSourceProgress], Awaitable[None]]
+
+
+class PropertyUpdatesNotDeliveredError(Exception):
+    """Kafka did not confirm some property-update intents. Raised so the run fails and Temporal retries
+    it. The snapshot holds only confirmed intents, so the retry sends only the undelivered ones."""
+
+
+@frozen
+class _SnapshotMerge:
+    hashes: dict[str, str]
+    complete: bool
 
 
 @dataclasses.dataclass
@@ -209,8 +250,8 @@ def _wanted_columns(sources: list[PersonPropertySyncSource]) -> set[str]:
 
 
 def _snapshot_prefix(team_id: int, binding: WarehouseBinding, source_id: str) -> str:
-    # A folder, not a single file: each run drops a uniquely-named parquet of the hashes it produced,
-    # and the reader unions every file in the folder. Two writers (a scheduled sync and a backfill)
+    # A folder, not a single file: each run drops uniquely-named parquet files of the hashes it
+    # produced (one per chunk, then one compacted file), and the reader unions every file in the folder. Two writers (a scheduled sync and a backfill)
     # for the same source can't clobber each other, since they write different filenames. Growth is
     # bounded by _write_snapshot_hashes, which compacts the folder back down as it writes.
     return snapshot_prefix(team_id, binding, source_id)
@@ -320,10 +361,11 @@ async def _list_snapshot_files(s3_client, prefix: str) -> list[str]:
     return [f["Key"] for f in files]
 
 
-async def _merge_snapshot_files(s3_client, file_keys: list[str]) -> dict[str, str]:
+async def _merge_snapshot_files(s3_client, file_keys: list[str]) -> _SnapshotMerge:
     """Union the given snapshot files into {distinct_id: sent_hash}, later files winning (callers pass
     them oldest-first). Decodes off the event loop so a large parquet can't starve the heartbeater."""
     hashes: dict[str, str] = {}
+    complete = True
     for key in file_keys:
         try:
             data = await s3_client._cat_file(_s3_uri(key))
@@ -331,9 +373,10 @@ async def _merge_snapshot_files(s3_client, file_keys: list[str]) -> dict[str, st
             # A concurrent _write_snapshot_hashes compacted this file into a new one and deleted it
             # after we listed the folder but before we read it. Its rows survive in that new file (or
             # whichever one replaces it next run) — skip rather than fail the whole read.
+            complete = False
             continue
         await asyncio.to_thread(_merge_snapshot_file, data, hashes)
-    return hashes
+    return _SnapshotMerge(hashes=hashes, complete=complete)
 
 
 async def _read_snapshot_hashes(team_id: int, binding: WarehouseBinding, source_id: str) -> dict[str, str]:
@@ -342,7 +385,31 @@ async def _read_snapshot_hashes(team_id: int, binding: WarehouseBinding, source_
     cost an idempotent re-send, but newest-wins avoids even that). Ordering never affects correctness."""
     prefix = _snapshot_prefix(team_id, binding, source_id)
     async with aget_s3_client() as s3_client:
-        return await _merge_snapshot_files(s3_client, await _list_snapshot_files(s3_client, prefix))
+        for _ in range(_SNAPSHOT_READ_ATTEMPTS):
+            merge = await _merge_snapshot_files(s3_client, await _list_snapshot_files(s3_client, prefix))
+            if merge.complete:
+                return merge.hashes
+        return {}
+
+
+async def _put_snapshot_file(s3_client, path: str, hashes: dict[str, str]) -> None:
+    import pyarrow as pa  # noqa: PLC0415
+
+    table = pa.table({"distinct_id": list(hashes.keys()), "sent_hash": list(hashes.values())})
+    buffer = pa.BufferOutputStream()
+    pq.write_table(table, buffer, compression="zstd")
+    await s3_client._pipe_file(_s3_uri(path), buffer.getvalue().to_pybytes())
+
+
+async def _write_snapshot_chunk(
+    team_id: int, binding: WarehouseBinding, source_id: str, file_name: str, hashes: dict[str, str]
+) -> None:
+    """Add ``hashes`` to the source's snapshot folder as one new file, without reading or merging the
+    folder. The reader unions this file with the rest, and ``_write_snapshot_hashes`` folds it in when
+    the run compacts. Merging here instead would re-read the whole folder once per chunk."""
+    path = f"{_snapshot_prefix(team_id, binding, source_id)}/{file_name}.parquet"
+    async with aget_s3_client() as s3_client:
+        await _put_snapshot_file(s3_client, path, hashes)
 
 
 async def _write_snapshot_hashes(
@@ -358,19 +425,19 @@ async def _write_snapshot_hashes(
     listing isn't in the merge set, so it's neither merged-away nor deleted, and its rows still surface
     through the reader's union; the two files collapse on the next run. Write-then-delete keeps a crash
     between the two harmless — the reader unions both the new file and the not-yet-deleted old ones."""
-    import pyarrow as pa  # noqa: PLC0415
-
     prefix = _snapshot_prefix(team_id, binding, source_id)
     write_path = f"{prefix}/{run_token}.parquet"
     async with aget_s3_client() as s3_client:
         existing_keys = await _list_snapshot_files(s3_client, prefix)
-        merged = await _merge_snapshot_files(s3_client, existing_keys)
-        merged.update(hashes)
-
-        table = pa.table({"distinct_id": list(merged.keys()), "sent_hash": list(merged.values())})
-        buffer = pa.BufferOutputStream()
-        pq.write_table(table, buffer, compression="zstd")
-        await s3_client._pipe_file(_s3_uri(write_path), buffer.getvalue().to_pybytes())
+        if not hashes and len(existing_keys) <= 1:
+            return
+        merge = await _merge_snapshot_files(s3_client, existing_keys)
+        if not hashes and not merge.complete:
+            return
+        merged = {**merge.hashes, **hashes} if merge.complete else hashes
+        await _put_snapshot_file(s3_client, write_path, merged)
+        if not merge.complete:
+            return
 
         # Delete the files we merged, except the one we just wrote (the backfill token reuses its name).
         stale = [key for key in existing_keys if _s3_key(key) != _s3_key(write_path)]
@@ -444,12 +511,13 @@ def _produce_intents(
     *,
     team_uuid: str,
     group_type_name: str | None,
-) -> int:
+) -> set[str]:
     """Produce one property-update intent per entity to Kafka. Person intents map to a `$set` keyed
     by team:distinct_id; group intents map to a `$groupidentify` keyed by team:group_type:group_key so
-    per-group ordering is preserved. The consumer branches on ``kind``. Returns the count produced."""
+    per-group ordering is preserved. The consumer branches on ``kind``. Returns the keys Kafka
+    confirmed as delivered."""
     is_group = source.target == _GROUP_TARGET
-    produced = 0
+    results: list[tuple[str, ProduceResult]] = []
     with producer_scope(topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES) as producer:
         for key, bundle in items:
             if is_group:
@@ -476,9 +544,19 @@ def _produce_intents(
                     "event_source": EVENT_SOURCE,
                 }
                 kafka_key = f"{team_id}:{key}"
-            producer.produce(topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES, data=data, key=kafka_key)
-            produced += 1
-    return produced
+            results.append(
+                (key, producer.produce(topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES, data=data, key=kafka_key))
+            )
+    # The scope flushes on exit. flush() counts only messages still queued, and a failed delivery
+    # leaves the queue, so only each message's result shows whether Kafka accepted it.
+    delivered: set[str] = set()
+    for key, result in results:
+        try:
+            result.get(timeout=0)
+        except (KafkaException, TimeoutError):
+            continue
+        delivered.add(key)
+    return delivered
 
 
 def _reconcile_property_definitions(
@@ -515,9 +593,12 @@ async def _process_source_bundles(
     bundles: list[tuple[str, dict]],
     rows_read: int,
     run_token: str,
+    on_progress: ProgressCallback | None = None,
 ) -> PerSourceResult:
     """Diff one source's bundles against its snapshot, drop entities that don't exist, produce update
-    intents (person `$set` or group `$groupidentify`), stamp provenance, and advance the snapshot.
+    intents (person `$set` or group `$groupidentify`), stamp provenance, and advance the snapshot. Works
+    in chunks of ``_PRODUCE_CHUNK_SIZE`` and snapshots each chunk's confirmed deliveries before the next
+    chunk, so a run stopped part way loses at most one chunk of progress.
     Shared by the incremental sync and the backfill — they differ only in how ``bundles`` are sourced
     (staged rows vs a full Delta read)."""
     ps = PerSourceResult(source_id=str(source.source_id), rows_read=rows_read)
@@ -530,23 +611,7 @@ async def _process_source_bundles(
     changed, new_hashes = await asyncio.to_thread(select_changed, bundles, prior)
     ps.changed = len(changed)
     if not changed:
-        return ps
-
-    existing = await database_sync_to_async(_filter_existing_ids, thread_sensitive=False)(
-        team_id, source, [key for key, _ in changed]
-    )
-    to_send = [(key, bundle) for key, bundle in changed if key in existing]
-    ps.existing = len(to_send)
-    ps.skipped_missing_person = len(changed) - len(to_send)
-    if not to_send:
-        logger.info(
-            "person-property sync: no existing entities among changed rows for source",
-            team_id=team_id,
-            **_log_fields(binding),
-            source_id=str(source.source_id),
-            target=source.target,
-            changed=len(changed),
-        )
+        await _write_snapshot_hashes(team_id, binding, str(source.source_id), run_token, {})
         return ps
 
     group_type_name = None
@@ -565,15 +630,74 @@ async def _process_source_bundles(
                 group_type_index=source.group_type_index,
             )
             return ps
-    produced = await asyncio.to_thread(
-        _produce_intents, team_id, team_api_token, source, to_send, team_uuid=team_uuid, group_type_name=group_type_name
-    )
-    ps.produced = produced
 
-    # Record only the distinct_ids we actually produced, as this run's snapshot file.
-    sent_ids = {distinct_id for distinct_id, _ in to_send}
-    produced_hashes = {d: h for d, h in new_hashes.items() if d in sent_ids}
-    await _write_snapshot_hashes(team_id, binding, str(source.source_id), run_token, produced_hashes)
+    # Snapshot chunk files get a name unique to this attempt. A Temporal retry reuses ``run_token``, and
+    # its chunk numbering starts again at zero, so a name built from the token and index alone would
+    # overwrite the files that hold the previous attempt's delivered hashes.
+    attempt = uuid.uuid4().hex[:12]
+    chunks_written = 0
+    confirmed_hashes: dict[str, str] = {}
+    for start in range(0, len(changed), _PRODUCE_CHUNK_SIZE):
+        chunk = changed[start : start + _PRODUCE_CHUNK_SIZE]
+        existing = await database_sync_to_async(_filter_existing_ids, thread_sensitive=False)(
+            team_id, source, [key for key, _ in chunk]
+        )
+        to_send = [(key, bundle) for key, bundle in chunk if key in existing]
+        existing_count = len(to_send)
+        delivered: set[str] = set()
+        if to_send:
+            delivered = await asyncio.to_thread(
+                _produce_intents,
+                team_id,
+                team_api_token,
+                source,
+                to_send,
+                team_uuid=team_uuid,
+                group_type_name=group_type_name,
+            )
+        ps.existing += existing_count
+        ps.skipped_missing_person += len(chunk) - len(to_send)
+        ps.produced += len(delivered)
+        ps.undelivered += len(to_send) - len(delivered)
+
+        # Write only after Kafka confirms delivery. A hash in the snapshot means "already sent", so a
+        # hash written before delivery would make a lost intent look sent and the next run skip it.
+        # An undelivered id stays out, so the next diff sees it as changed and sends it again.
+        delivered_hashes = {key: new_hashes[key] for key in delivered}
+        if delivered_hashes:
+            await _write_snapshot_chunk(
+                team_id, binding, str(source.source_id), f"{run_token}-{attempt}-{chunks_written:05d}", delivered_hashes
+            )
+            confirmed_hashes.update(delivered_hashes)
+            chunks_written += 1
+
+        if on_progress is not None:
+            # Snapshot first so a retry cannot report these deliveries twice.
+            await on_progress(
+                PerSourceProgress(
+                    source_id=ps.source_id,
+                    produced_increment=len(delivered),
+                    rows_read_total=ps.rows_read,
+                    changed_total=ps.changed,
+                    skipped_missing_person_total=ps.skipped_missing_person,
+                )
+            )
+
+    if chunks_written:
+        # Fold this run's chunk files, and any left by an earlier run that was stopped part way, into
+        # one ``{run_token}.parquet`` so the folder stays at about one file per source.
+        await _write_snapshot_hashes(team_id, binding, str(source.source_id), run_token, confirmed_hashes)
+
+    if not ps.existing:
+        logger.info(
+            "person-property sync: no existing entities among changed rows for source",
+            team_id=team_id,
+            **_log_fields(binding),
+            source_id=str(source.source_id),
+            target=source.target,
+            changed=len(changed),
+        )
+        return ps
 
     logger.info(
         "person-property sync: source processed",
@@ -582,8 +706,9 @@ async def _process_source_bundles(
         source_id=str(source.source_id),
         bundles=len(bundles),
         changed=len(changed),
-        existing=len(to_send),
-        produced=produced,
+        existing=ps.existing,
+        produced=ps.produced,
+        undelivered=ps.undelivered,
     )
     return ps
 
@@ -597,6 +722,7 @@ async def _process_accumulated_source(
     bundles_by_source: dict[str, dict[str, dict]],
     rows_read: int,
     run_token: str,
+    on_progress: ProgressCallback | None = None,
 ) -> PerSourceResult:
     bundles = list(bundles_by_source.pop(str(source.source_id)).items())
     return await _process_source_bundles(
@@ -609,6 +735,7 @@ async def _process_accumulated_source(
         bundles=bundles,
         rows_read=rows_read,
         run_token=run_token,
+        on_progress=on_progress,
     )
 
 
@@ -620,7 +747,18 @@ def _accumulate(result: SyncResult, ps: PerSourceResult) -> None:
     result.skipped_missing_person += ps.skipped_missing_person
 
 
-async def run_person_property_sync(*, team_id: int, binding: WarehouseBinding, job_id: str) -> SyncResult:
+def _raise_if_undelivered(result: SyncResult) -> None:
+    undelivered = sum(ps.undelivered for ps in result.per_source)
+    if undelivered:
+        raise PropertyUpdatesNotDeliveredError(
+            f"Kafka did not confirm {undelivered} of {undelivered + result.produced} property updates. "
+            "A retry sends the undelivered updates again."
+        )
+
+
+async def run_person_property_sync(
+    *, team_id: int, binding: WarehouseBinding, job_id: str, on_progress: ProgressCallback | None = None
+) -> SyncResult:
     result = SyncResult()
     sources = await database_sync_to_async(person_property_sync_sources_for, thread_sensitive=False)(team_id, binding)
     if not sources:
@@ -657,9 +795,12 @@ async def run_person_property_sync(*, team_id: int, binding: WarehouseBinding, j
                 bundles_by_source=read.bundles_by_source,
                 rows_read=read.rows_read,
                 run_token=job_id,
+                on_progress=on_progress,
             )
             _accumulate(result, ps)
 
+    # Raise before the staged rows are cleared, so the retry can read them again.
+    _raise_if_undelivered(result)
     await _clear_staged(team_id, binding, job_id)
     return result
 
@@ -751,7 +892,9 @@ def _delta_uri_for_binding(team_id: int, binding: WarehouseBinding) -> str | Non
     return _schema_delta_uri(team_id, binding.id)
 
 
-async def run_person_property_backfill(*, team_id: int, binding: WarehouseBinding, trigger: str) -> SyncResult:
+async def run_person_property_backfill(
+    *, team_id: int, binding: WarehouseBinding, trigger: str, on_progress: ProgressCallback | None = None
+) -> SyncResult:
     """Populate person properties from a warehouse table's full Delta data (rather than the
     incrementally staged rows) — for a new/changed mapping that never saw historical rows. Reads the
     table once and upserts every enabled person source on the binding; the snapshot diff still skips
@@ -818,9 +961,11 @@ async def run_person_property_backfill(*, team_id: int, binding: WarehouseBindin
             bundles_by_source=read.bundles_by_source,
             rows_read=read.rows_read,
             run_token=BACKFILL_RUN_TOKEN,
+            on_progress=on_progress,
         )
         _accumulate(result, ps)
 
+    _raise_if_undelivered(result)
     return result
 
 
@@ -860,6 +1005,41 @@ def _record(
             count_failure=count_failure,
         )
     )
+
+
+def progress_recorder(*, team_id: int, binding: WarehouseBinding, job_id: str | None, trigger: str) -> ProgressCallback:
+    """A callback that adds each chunk's counts to the run row, so a run that stops part way, and a
+    run retried over several attempts, shows everything it delivered. Never raises, because
+    bookkeeping must not fail the sync it describes."""
+
+    async def _record_progress(increment: PerSourceProgress) -> None:
+        try:
+            await database_sync_to_async(record_person_property_sync_progress, thread_sensitive=False)(
+                PersonPropertySyncProgress(
+                    team_id=team_id,
+                    binding_kind=binding.kind,
+                    binding_id=binding.id,
+                    source_id=increment.source_id,
+                    job_id=job_id,
+                    trigger=trigger,
+                    rows_read=increment.rows_read_total,
+                    changed=increment.changed_total,
+                    existing=increment.produced_increment,
+                    produced=increment.produced_increment,
+                    skipped_missing_person=increment.skipped_missing_person_total,
+                )
+            )
+        except Exception as e:
+            logger.exception(
+                "person-property run: failed to record progress",
+                team_id=team_id,
+                **_log_fields(binding),
+                job_id=job_id,
+                trigger=trigger,
+            )
+            capture_exception(e, {"team_id": team_id, **_log_fields(binding), "trigger": trigger})
+
+    return _record_progress
 
 
 async def record_started_runs(

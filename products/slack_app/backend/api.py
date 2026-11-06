@@ -51,12 +51,16 @@ from products.slack_app.backend.feature_flags import (
     ASSISTANT_REQUIRED_SCOPES,
     is_slack_app_assistant_enabled,
     is_slack_app_oauth_enabled,
+    is_slack_app_onboarding_enabled,
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.logic import interview_recruitment, reply_suggestions
 from products.slack_app.backend.logic.feature_tips import interactivity as feature_tip_interactivity
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
+from products.slack_app.backend.logic.onboarding import interactivity as onboarding_interactivity
+from products.slack_app.backend.logic.onboarding.actions import is_onboarding_action
+from products.slack_app.backend.logic.onboarding.dispatch import request_onboarding
 from products.slack_app.backend.logic.untagged_question import is_untagged_question_candidate
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
@@ -75,6 +79,7 @@ from products.slack_app.backend.services import (
 )
 from products.slack_app.backend.services.commands import SLASH_COMMAND_PREFIX, mention_command_redirect
 from products.slack_app.backend.services.integration_resolver import (
+    ResolutionResult,
     UserResolutionFailure,
     load_integrations,
     pick_a_project_message,
@@ -333,6 +338,12 @@ QUOTA_EXHAUSTED_MESSAGE = (
     "Top up at https://us.posthog.com/organization/billing to continue."
 )
 
+AI_PROCESSING_NOT_APPROVED_MESSAGE = (
+    ":lock: *PostHog AI is turned off for your organization*\n"
+    "I can't work on this request until AI analysis is on. "
+    "Ask an organization admin to turn it on in <{settings_url}|organization settings>."
+)
+
 
 def post_quota_exhausted_denial(
     *,
@@ -363,6 +374,35 @@ def post_quota_exhausted_denial(
         slack_user_id,
         thread_ts,
         QUOTA_EXHAUSTED_MESSAGE,
+        prefer_thread_message=True,
+    )
+
+
+def post_ai_processing_not_approved_denial(
+    *,
+    integration: WorkspaceIntegration,
+    slack: SlackIntegration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    context: str,
+) -> None:
+    """Post the AI-consent denial message into a Slack thread."""
+    logger.info(
+        "slack_app_slack_blocked_by_ai_consent",
+        context=context,
+        team_id=integration.team_id,
+        channel=channel,
+        thread_ts=thread_ts,
+    )
+    _post_slack_user_feedback(
+        slack,
+        channel,
+        slack_user_id,
+        thread_ts,
+        AI_PROCESSING_NOT_APPROVED_MESSAGE.format(
+            settings_url=f"{settings.SITE_URL}/settings/organization-details#organization-ai-consent"
+        ),
         prefer_thread_message=True,
     )
 
@@ -2437,6 +2477,8 @@ def _route_app_home_opened(
         _handle_app_home_opened(event, slack_team_id, integration=integration)
     except Exception:
         logger.exception("slack_app_home_opened_failed", slack_team_id=slack_team_id, event_id=event_id)
+    # Opening the Home tab or the DM is often a person's first contact with the app.
+    request_onboarding(integration, slack_user_id, may_start=True)
     return ROUTE_HANDLED_LOCALLY
 
 
@@ -3036,6 +3078,7 @@ def route_posthog_code_event_to_relevant_region(
                 posthog_user=attributed_user,
                 **unresolved_user_properties(resolution, probe),
             )
+            _start_onboarding_on_mention(event, slack_team_id, workspace_result)
             return ROUTE_HANDLED_LOCALLY
 
         posthog_user = resolution.user
@@ -3116,9 +3159,10 @@ def route_posthog_code_event_to_relevant_region(
                 candidate_count=len(candidates),
                 picker_shown=picker_shown,
             )
+            _start_onboarding_on_mention(event, slack_team_id, workspace_result)
             return ROUTE_HANDLED_LOCALLY
 
-        return _dispatch_mention_to_target(
+        route = _dispatch_mention_to_target(
             event,
             mention_target,
             slack_team_id,
@@ -3128,6 +3172,8 @@ def route_posthog_code_event_to_relevant_region(
             is_ext_shared_channel=is_ext_shared_channel,
             awaited_request_reply=awaited_request_reply,
         )
+        _start_onboarding_on_mention(event, slack_team_id, workspace_result)
+        return route
 
     if event_type == "member_joined_channel":
         return _route_member_joined_channel(
@@ -3601,6 +3647,16 @@ def _release_channel_onboarding_claim(slack_team_id: str, channel_id: str) -> No
     cache.delete(_channel_onboarding_cache_key(slack_team_id, channel_id))
 
 
+def skip_channel_welcome(slack_team_id: str, channel_id: str) -> bool:
+    """Hold the welcome slot before the bot joins a channel, so it joins without a welcome message.
+    Returns False when another flow already holds the slot."""
+    return _claim_channel_onboarding(slack_team_id, channel_id)
+
+
+def release_channel_welcome_skip(slack_team_id: str, channel_id: str) -> None:
+    _release_channel_onboarding_claim(slack_team_id, channel_id)
+
+
 def _post_channel_onboarding_message(
     slack: SlackIntegration,
     integration: WorkspaceIntegration,
@@ -3680,6 +3736,11 @@ def _route_team_join(
 
     integration = next((c for c in workspace_result.candidates if is_slack_app_assistant_enabled(c)), None)
     if integration is None:
+        return ROUTE_HANDLED_LOCALLY
+
+    if is_slack_app_onboarding_enabled(integration):
+        # The onboarding thread opens with the same welcome, and its stored state replaces the dedupe below.
+        request_onboarding(integration, slack_user_id, may_start=True, spread_burst=True)
         return ROUTE_HANDLED_LOCALLY
 
     if not _claim_once(_team_join_onboarding_cache_key(slack_team_id, slack_user_id)):
@@ -4214,13 +4275,15 @@ def post_thread_join_prompt(
     )
     home_tab_url = app_home_url(integration)
     home_tab_label = f"<{home_tab_url}|PostHog app Home tab>" if home_tab_url else "PostHog app Home tab"
+    thread_url = _thread_permalink(slack, channel, thread_ts)
+    thread_label = f"<{thread_url}|your thread>" if thread_url else "your thread"
     blocks: list[dict[str, Any]] = [
         {
             "type": "section",
             "block_id": f"{THREAD_JOIN_BLOCK_ID_PREFIX}:{context_token}",
             "text": {
                 "type": "mrkdwn",
-                "text": f"<@{joiner_slack_user_id}> wants to work with me in your thread. "
+                "text": f"<@{joiner_slack_user_id}> wants to work with me in {thread_label}. "
                 + ("Let anyone join this thread?" if opens_thread else "Let them join?"),
             },
         },
@@ -4254,10 +4317,9 @@ def post_thread_join_prompt(
         },
     ]
     try:
-        slack.client.chat_postEphemeral(
-            channel=channel,
-            user=owner_slack_user_id,
-            thread_ts=thread_ts,
+        # A DM notifies the creator. An ephemeral message in the thread does not, so they often miss it.
+        slack.client.chat_postMessage(
+            channel=owner_slack_user_id,
             text="Someone wants to join your PostHog thread.",
             blocks=blocks,
         )
@@ -4279,13 +4341,22 @@ def post_thread_join_prompt(
     capture_slack_event(integration, "slack app thread join requested", slack_user_id=joiner_slack_user_id)
 
 
+def _thread_permalink(slack: SlackIntegration, channel: str, thread_ts: str) -> str | None:
+    try:
+        permalink = slack.client.chat_getPermalink(channel=channel, message_ts=thread_ts).get("permalink")
+    except Exception:
+        logger.warning("slack_app_thread_join_permalink_failed", slack_channel_id=channel, exc_info=True)
+        return None
+    return permalink if isinstance(permalink, str) else None
+
+
 def _thread_join_context(payload: dict) -> tuple[str, dict[str, Any]] | None:
     """The live join prompt this click answers, when the thread creator is the one clicking."""
     context_token = _extract_context_token(payload)
     context = _decode_picker_context(context_token) if context_token else None
     if not context or context.get("kind") != THREAD_JOIN_CONTEXT_KIND:
         return None
-    # The prompt is ephemeral, so only the creator sees it, but the answer acts for them.
+    # The prompt goes to the creator's DM, but the answer acts for them, so the clicker is checked.
     if payload.get("user", {}).get("id", "") != context.get("owner_slack_user_id"):
         return None
     return context_token, context
@@ -4841,6 +4912,18 @@ def _report_slack_mention_dropped(
             reason=reason,
             exc_info=True,
         )
+
+
+def _start_onboarding_on_mention(event: dict, slack_team_id: str, workspace_result: ResolutionResult) -> None:
+    """Someone who only tags PostHog in channels may never open its DM, so their mention starts the onboarding.
+    It runs after the mention is handled, so a slow onboarding start never delays the answer. A guest from
+    another workspace in a shared channel gets no onboarding, because it would come from this workspace's app."""
+    slack_user_id = event.get("user")
+    if event.get("type") != "app_mention" or event.get("user_team", slack_team_id) != slack_team_id:
+        return
+    integration = workspace_result.resolved_or_first()
+    if integration is not None and isinstance(slack_user_id, str) and slack_user_id:
+        request_onboarding(integration, slack_user_id, may_start=True, start_only=True)
 
 
 def _start_mention_workflow(
@@ -6228,6 +6311,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         or (clicked_reply_suggestion.integration_id if clicked_reply_suggestion else None)
         or feature_tip_interactivity.feature_tip_integration_hint(payload)
         or interview_recruitment.interview_integration_hint(payload)
+        or onboarding_interactivity.onboarding_integration_hint(payload)
     )
     requesting_user = payload.get("user", {}).get("id", "")
     slack_team_id = payload.get("team", {}).get("id")
@@ -6370,6 +6454,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return feature_tip_interactivity.handle_feature_tip_action(payload)
             if interview_recruitment.is_interview_action(action_id):
                 return interview_recruitment.handle_interview_action(payload)
+            if is_onboarding_action(action_id):
+                return onboarding_interactivity.handle_onboarding_action(payload)
             if reply_suggestions.is_reply_suggestion_action(action_id) and clicked_reply_suggestion:
                 return _handle_reply_suggestion_click(payload, clicked_reply_suggestion)
             if action_id == CHANNEL_APPROVAL_ACTION_APPROVE:

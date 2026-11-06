@@ -215,7 +215,12 @@ export function recommendationsSource(source: ExternalDataSource): MarketingAnal
         if (!queryTable) {
             return null
         }
-        return { sourceType: 'GoogleSearchConsole', queryTable, sitesTable: syncedTable(source, 'sites') }
+        return {
+            sourceType: 'GoogleSearchConsole',
+            queryTable,
+            queryPageTable: syncedTable(source, 'search_analytics_by_query_page'),
+            sitesTable: syncedTable(source, 'sites'),
+        }
     }
     return null
 }

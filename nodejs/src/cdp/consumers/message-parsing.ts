@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { EVENT_NAME_HEADER, TEAM_ID_HEADER } from '~/common/kafka/headers'
 import { logger } from '~/common/utils/logger'
 import { isValidTeamId } from '~/common/utils/team-manager'
 
@@ -14,6 +15,38 @@ export function assertTeamId<T extends { team_id: unknown }>(message: T): T {
         throw new Error('invalid_team_id')
     }
     return message
+}
+
+/**
+ * Reads the team id the producer put in a Kafka header, so a consumer can decide whether it needs a
+ * message before it parses the body.
+ *
+ * The body still holds the authoritative team id, and a caller that acts on this header has to check
+ * the two agree once it parses the body. Anything unexpected here returns null and the caller reads
+ * the body instead, because a value that is not a usable team id must never become one.
+ */
+export function readTeamIdHeader(message: Message): number | null {
+    const value = readHeader(message, TEAM_ID_HEADER)
+    if (value === null) {
+        return null
+    }
+    const teamId = Number(value)
+    return isValidTeamId(teamId) ? teamId : null
+}
+
+/** Like the team id header: a caller may skip the body on this name, but reads the event from the body. */
+export function readEventNameHeader(message: Message): string | null {
+    return readHeader(message, EVENT_NAME_HEADER)
+}
+
+function readHeader(message: Message, name: string): string | null {
+    for (const header of message.headers ?? []) {
+        const value = header[name]
+        if (value !== undefined) {
+            return value.toString()
+        }
+    }
+    return null
 }
 
 function errorMessage(e: unknown): string {
@@ -41,7 +74,8 @@ export function skipIfMalformed<T>(errorLog: string, step: () => T, onError?: (e
 // the team has loaded.
 type ParsedMessage<TLoaded> = {
     teamId: unknown
-    toGlobals: (loaded: TLoaded) => HogFunctionInvocationGlobals
+    /** Returns null to skip a message the loaded team has no use for. */
+    toGlobals: (loaded: TLoaded) => HogFunctionInvocationGlobals | null
 }
 
 export type ParseBatchOptions<TLoaded = Team> = {

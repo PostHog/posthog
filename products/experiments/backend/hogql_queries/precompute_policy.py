@@ -10,20 +10,18 @@ from typing import Any, Optional
 
 from django.db.models import Q
 
+import posthoganalytics
 from pydantic import BaseModel
 
+from posthog.constants import EXPERIMENTS_PRECOMPUTE_PERSON_RESOLUTION_FEATURE_FLAG_KEY
 from posthog.models.team.team import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
-    LazyComputationResult,
-    LazyComputationTable,
     TtlSchedule,
-    ensure_precomputed,
     parse_ttl_schedule,
 )
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.facade.enums import PrecomputeSkipReason
-from products.experiments.backend.hogql_queries.experiment_query_builder import ExperimentQueryBuilder
 from products.experiments.backend.hogql_queries.exposure_query_logic import has_activation_config
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -60,6 +58,30 @@ PRECOMPUTE_TTL_JITTER_SECONDS = 14 * 24 * 60 * 60
 # window would stretch the precompute horizon into thousands of daily jobs before the
 # executor's timeout check. Past the cap the metric falls back to the direct scan.
 METRIC_EVENTS_MAX_WINDOW_EXTENSION_SECONDS = 90 * 24 * 60 * 60  # 90 days
+
+
+def precompute_person_resolution_enabled(team: Team) -> bool:
+    """
+    Whether a person-aggregated read of the precomputed tables resolves each row to its current
+    person through `person_distinct_id_overrides`.
+
+    The join aggregates all of the team's override rows on every read, and it can change only a
+    row that stores its distinct_id. Off, a read takes the person stored at build time and pays
+    no join. Default-off and fail-safe: an absent or unevaluable flag keeps the read without the join.
+    """
+    return bool(
+        posthoganalytics.feature_enabled(
+            EXPERIMENTS_PRECOMPUTE_PERSON_RESOLUTION_FEATURE_FLAG_KEY,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id), "uuid": str(team.uuid)},
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    )
 
 
 def experiment_precompute_ttl_schedule(team_timezone: str) -> TtlSchedule:
@@ -191,27 +213,3 @@ def team_precompute_skip_reason(
     if has_uncalculated_cohorts(team, exposure_criteria, *cohort_filter_sources):
         return PrecomputeSkipReason.COHORT_NOT_CALCULATED
     return None
-
-
-def ensure_exposures_precomputed(
-    team: Team,
-    builder: ExperimentQueryBuilder,
-    time_range_start: datetime,
-    time_range_end: datetime,
-) -> LazyComputationResult:
-    query_string, placeholders = builder.get_exposure_query_for_precomputation()
-
-    return ensure_precomputed(
-        team=team,
-        insert_query=query_string,
-        time_range_start=time_range_start,
-        time_range_end=time_range_end,
-        ttl_seconds=experiment_precompute_ttl_schedule(team.timezone),
-        table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
-        placeholders=placeholders,
-        sentinel_placeholders={"experiment_date_to"},
-        end_is_data_horizon=True,
-        # High-volume teams' builds OOM even at capped window widths; spilling the
-        # GROUP BY to disk degrades gracefully instead of failing the build.
-        spill_to_disk=True,
-    )

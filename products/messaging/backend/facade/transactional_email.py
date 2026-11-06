@@ -3,12 +3,15 @@
 from products.messaging.backend.facade.contracts import (
     CodeEmail,
     DeliveryUnavailable,
+    EmailAttachment,
     EmailDeliveryStatus,
     EmailStatus,
+    FieldNotAccepted,
     QueuedEmail,
     TransactionalEmailError,
 )
 from products.messaging.backend.services.transactional_email import (
+    PIPELINE_ADDRESS_PATTERN,
     SENDER_ADDRESS_MAX_LENGTH,
     SENDER_ADDRESS_PATTERN,
     TransactionalEmailStage,
@@ -27,10 +30,13 @@ from products.messaging.backend.services.transactional_email import (
 from products.messaging.backend.services.transactional_email_status import get_email_status
 
 __all__ = [
+    "PIPELINE_ADDRESS_PATTERN",
     "SENDER_ADDRESS_MAX_LENGTH",
     "SENDER_ADDRESS_PATTERN",
     "CodeEmail",
     "DeliveryUnavailable",
+    "FieldNotAccepted",
+    "EmailAttachment",
     "EmailDeliveryStatus",
     "EmailStatus",
     "QueuedEmail",

@@ -7,6 +7,7 @@ from rest_framework import serializers
 from rest_framework_dataclasses.fields import EnumField
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.pagination import PageLinksSerializer
 from posthog.api.shared import UserBasicSerializer
 
 from products.ai_observability.backend.api.offline_experiment_serializers import (
@@ -454,7 +455,7 @@ class OfflineHistoryPointSerializer(serializers.Serializer):
 
 
 @extend_schema_serializer(many=False)
-class OfflinePageSerializer(serializers.Serializer):
+class OfflinePageSerializer(PageLinksSerializer):
     count = serializers.IntegerField(help_text="Total authorized rows matching the filters, independent of this page.")
     next_cursor = serializers.CharField(allow_null=True, help_text="Continuation cursor, or null after the final page.")
 

@@ -40,7 +40,7 @@ from posthog.models.team import WeekStartDay
 from posthog.models.utils import UUIDT
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade import testing as action_fixtures
 from products.cohorts.backend.models.cohort import Cohort
 from products.product_analytics.backend.hogql_queries.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 
@@ -49,7 +49,7 @@ def create_action(**kwargs):
     team = kwargs.pop("team")
     name = kwargs.pop("name")
     event_name = kwargs.pop("event_name")
-    action = Action.objects.create(team=team, name=name, steps_json=[{"event": event_name}])
+    action = action_fixtures.create_action(team=team, name=name, steps_json=[{"event": event_name}])
     return action
 
 
@@ -188,6 +188,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "new",
                 },
                 {
@@ -233,6 +234,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "returning",
                 },
                 {
@@ -278,6 +280,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "resurrecting",
                 },
                 {
@@ -323,6 +326,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "dormant",
                 },
             ],
@@ -438,6 +442,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "new",
                 },
                 {
@@ -483,6 +488,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "returning",
                 },
                 {
@@ -528,6 +534,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "resurrecting",
                 },
                 {
@@ -573,6 +580,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "dormant",
                 },
             ],
@@ -914,6 +922,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "new",
                 },
                 {
@@ -959,6 +968,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "returning",
                 },
                 {
@@ -1004,6 +1014,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "resurrecting",
                 },
                 {
@@ -1049,6 +1060,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "19-Jan-2020",
                     ],
                     "order": 0,
+                    "custom_name": None,
                     "status": "dormant",
                 },
             ],
@@ -1683,7 +1695,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=LifecycleQuery(
                 dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                 interval=IntervalType.DAY,
-                series=[ActionsNode(id=pageview_action.pk)],
+                series=[ActionsNode(id=pageview_action.id)],
             ),
         ).calculate()
 
@@ -1696,7 +1708,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
             ],
         )
-        assert response.action_names == {str(pageview_action.pk): "$pageview"}
+        assert response.action_names == {str(pageview_action.id): "$pageview"}
 
     def test_lifecycle_trend_all_time(self):
         self._create_events(
