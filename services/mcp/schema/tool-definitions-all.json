@@ -12724,7 +12724,6 @@
             "readOnlyHint": true
         },
         "feature_flag": "mcp-analytics-intent-topics",
-        "reads_ingested_data": "events",
         "system_prompt_hint": "Topic bubbles and intent points for the 2D intent map"
     },
     "query-mcp-intent-topics": {
@@ -12742,7 +12741,6 @@
             "readOnlyHint": true
         },
         "feature_flag": "mcp-analytics-intent-topics",
-        "reads_ingested_data": "events",
         "system_prompt_hint": "Intent topics with share, trend and tools, for the server or one tool"
     },
     "query-mcp-missing-capabilities": {
@@ -12776,7 +12774,6 @@
             "readOnlyHint": true
         },
         "feature_flag": "mcp-analytics-intent-topics",
-        "reads_ingested_data": "events",
         "system_prompt_hint": "Other tools ranked by similarity of intent topic mix to one tool"
     },
     "query-mcp-tool-daily-stats": {
@@ -12858,7 +12855,6 @@
             "readOnlyHint": true
         },
         "feature_flag": "mcp-analytics-intent-topics",
-        "reads_ingested_data": "events",
         "system_prompt_hint": "One tool's intent focus, top topics with sparklines, drift and outliers"
     },
     "query-mcp-tool-neighbors": {
