@@ -4,6 +4,7 @@ import { urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
@@ -19,6 +20,7 @@ import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { teamLogic } from 'scenes/teamLogic'
 import type { teamLogicValues } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
@@ -31,7 +33,7 @@ import { compareQuery } from '~/queries/nodes/InsightViz/queryUtils'
 import { isInsightVizNode } from '~/queries/schema/node-guards'
 import type { InsightVizNode, TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, SidePanelTab } from '~/types'
-import type { InsightLogicProps, TrendResult } from '~/types'
+import type { InsightLogicProps, TrendResult, UserType } from '~/types'
 
 import {
     getToolOutputRecord,
@@ -66,6 +68,7 @@ export interface explainChartLogicValues {
     isTrends: boolean // trendsDataLogic
     results: TrendResult[] // trendsDataLogic
     trendsFilter: TrendsFilter | null | undefined // trendsDataLogic
+    user: UserType | null // userLogic
     chartStory: ExplainChartData | null
     consentRequested: boolean
     explainAvailable: boolean
@@ -80,6 +83,8 @@ export interface explainChartLogicValues {
     linkedExplanationId: string | null
     story: ExplainChartData | null
     storyAvailable: boolean
+    storyEventProperties: StoryEventProperties
+    storyOrigin: StoryOrigin | null
     storyOutdated: boolean
     storyQuery: Node | null
     storySeriesKey: string | null
@@ -146,10 +151,10 @@ export interface explainChartLogicActions {
     receiveStory: (
         story: ExplainChartData,
         query: Node | null,
-        source?: StorySource
+        origin?: StoryOrigin
     ) => {
+        origin: StoryOrigin
         query: Node<Record<string, any>> | null
-        source: StorySource
         story: ExplainChartData
     }
     requestConsent: () => {
@@ -208,6 +213,7 @@ export interface explainChartLogicMeta {
             incompletenessOffsetFromEnd: number
         ) => ExplainChartData | null
         storySeriesKey: (followedChartIndex: number | null, indexedResults: IndexedTrendResult[]) => string | null
+        storyEventProperties: (storyOrigin: StoryOrigin | null) => StoryEventProperties
         formatValue: (
             trendsFilter: TrendsFilter | null | undefined,
             baseCurrency: CurrencyCode
@@ -242,6 +248,8 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
             ['baseCurrency'],
             trendsDataLogic(props),
             ['display', 'indexedResults', 'isTrends', 'trendsFilter', 'results', 'incompletenessOffsetFromEnd'],
+            userLogic,
+            ['user'],
         ],
         actions: [
             sidePanelStateLogic,
@@ -265,10 +273,10 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
             output: Record<string, unknown> | null
         ) => ({ toolCallId, input, output }),
         setInvestigationStream: (streamKey: string) => ({ streamKey }),
-        receiveStory: (story: ExplainChartData, query: Node | null, source: StorySource = 'agent') => ({
+        receiveStory: (story: ExplainChartData, query: Node | null, origin: StoryOrigin = AGENT_ORIGIN) => ({
             story,
             query,
-            source,
+            origin,
         }),
         setLinkedExplanationId: (explanationId: string | null) => ({ explanationId }),
         loadLinkedExplanation: true,
@@ -314,6 +322,13 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
             null as Node | null,
             {
                 receiveStory: (_, { query }) => query,
+                forgetStory: () => null,
+            },
+        ],
+        storyOrigin: [
+            null as StoryOrigin | null,
+            {
+                receiveStory: (_, { origin }) => origin,
                 forgetStory: () => null,
             },
         ],
@@ -415,6 +430,13 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                 return String(rendered?.id ?? followedChartIndex)
             },
         ],
+        storyEventProperties: [
+            (s) => [s.storyOrigin],
+            (storyOrigin: StoryOrigin | null): StoryEventProperties => ({
+                story_source: storyOrigin?.source ?? null,
+                explanation_id: storyOrigin?.source === 'link' ? storyOrigin.explanationId : null,
+            }),
+        ],
         formatValue: [
             (s) => [s.trendsFilter, s.baseCurrency],
             (trendsFilter: TrendsFilter | null | undefined, baseCurrency: teamLogicValues['baseCurrency']) =>
@@ -446,6 +468,11 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                     return
                 }
                 if (explanation.data.shape !== 'time_series') {
+                    // pinned: analytics event name
+                    posthog.capture('explain chart link failed', {
+                        explanation_id: explanationId,
+                        reason: 'unsupported_shape',
+                    })
                     lemonToast.error(
                         'This chart explanation needs a newer version of PostHog. Refresh the page to see it.'
                     )
@@ -454,12 +481,21 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                 actions.receiveStory(
                     withEvidenceLinks(explanation.data as ExplainChartData),
                     explainedQuery(values.savedInsight.query, explanation.data.query),
-                    'link'
+                    {
+                        source: 'link',
+                        explanationId,
+                        openedByAuthor: !!explanation.created_by && explanation.created_by.id === values.user?.id,
+                    }
                 )
-            } catch {
+            } catch (error) {
                 if (cache.disposables.isDisposed) {
                     return
                 }
+                posthog.capture('explain chart link failed', {
+                    explanation_id: explanationId,
+                    reason: error instanceof ApiError && error.status === 404 ? 'not_found' : 'error',
+                    status: error instanceof ApiError ? (error.status ?? null) : null,
+                })
                 if (cache.linkedExplanationIdLoaded === explanationId) {
                     cache.linkedExplanationIdLoaded = null
                 }
@@ -554,12 +590,18 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
             actions.closeSidePanel(SidePanelTab.Max)
         },
         askFollowUp: ({ page, step }) => {
-            posthog.capture('explain chart follow-up opened', { page_index: step })
+            posthog.capture('explain chart follow-up opened', { page_index: step, ...values.storyEventProperties })
             actions.setFollowUpContext(followUpContextFor(values.insight, page, step))
             actions.openSidePanel(SidePanelTab.Max)
         },
-        receiveStory: ({ story, source }) => {
-            posthog.capture('explain chart story shown', { chapters: story.chapters.length, source })
+        receiveStory: ({ story, origin }) => {
+            posthog.capture('explain chart story shown', {
+                chapters: story.chapters.length,
+                // `source` predates `story_source` and stays for the insights that read it.
+                source: origin.source,
+                ...values.storyEventProperties,
+                ...(origin.source === 'link' ? { opened_by_author: origin.openedByAuthor } : {}),
+            })
         },
         saveInsightSuccess: () => {
             if (values.storyOutdated) {
@@ -594,4 +636,12 @@ function dataDiffers(a: Node | null | undefined, b: Node | null | undefined): bo
     return !!a && !!b && !compareQuery(a, b, { ignoreVisualizationOnlyChanges: true })
 }
 
-type StorySource = 'agent' | 'link'
+export type StoryOrigin = { source: 'agent' } | { source: 'link'; explanationId: string; openedByAuthor: boolean }
+
+const AGENT_ORIGIN: StoryOrigin = { source: 'agent' }
+
+/** Sent with every explanation event, so each step can be split by how the explanation arrived. */
+export interface StoryEventProperties {
+    story_source: StoryOrigin['source'] | null
+    explanation_id: string | null
+}
