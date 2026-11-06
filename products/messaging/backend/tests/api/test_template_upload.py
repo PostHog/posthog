@@ -268,7 +268,7 @@ class TestTemplateUpload(APIBaseTest):
         assert sent.status_code == status.HTTP_202_ACCEPTED, sent.json()
         return post.call_args.args[0].split("/hog_flows/")[1].split("/")[0]
 
-    @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_code_sends_under_a_key_move_to_its_template_only_once_an_upload_claims_it(
         self, _reload, post: MagicMock, _flag, _capture
     ):
