@@ -1,7 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query'
+import { BlurTargetView } from 'expo-blur'
 import { useIsFocused, useRouter } from 'expo-router'
-import { type ReactElement, useEffect, useState } from 'react'
-import { View } from 'react-native'
+import { type ReactElement, useEffect, useRef, useState } from 'react'
+import { View, type ViewInstance } from 'react-native'
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useViewer } from '@/auth/useViewer'
@@ -16,7 +17,7 @@ import {
     RESOLVE_REASON_OPTIONS,
     type ResolveReason,
 } from '@/model/verdictReasons'
-import { INBOX_PANE_WIDTH, NAV_RAIL_WIDTH, READING_WIDTH } from '@/ui/adaptiveLayout'
+import { NAV_RAIL_WIDTH, READING_WIDTH } from '@/ui/adaptiveLayout'
 import { ChartCanvasBudget } from '@/ui/chart/budget/ChartCanvasBudget'
 import { FloatingCard } from '@/ui/FloatingCard'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
@@ -79,7 +80,16 @@ function goBackOrInbox(router: ReturnType<typeof useRouter>): void {
 export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElement {
     const demo = useDataMode() === 'demo'
     const focused = useIsFocused()
-    const { rail, railSide, paired, reportNavigation: navigation } = useAppLayout()
+    const {
+        rail,
+        railSide,
+        paired,
+        inboxExtent,
+        paneAxis,
+        paneGap,
+        reportPane,
+        reportNavigation: navigation,
+    } = useAppLayout()
     return (
         <OverlayHost>
             <View
@@ -90,19 +100,31 @@ export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElemen
                     paddingRight: rail && railSide === 'right' ? NAV_RAIL_WIDTH : 0,
                 }}
             >
-                <View style={{ flex: 1, flexDirection: 'row' }}>
+                <View style={{ flex: 1, flexDirection: paneAxis, gap: paired ? paneGap : 0 }}>
                     <SceneFrame
                         style={{
                             flexGrow: 0,
                             flexShrink: 0,
-                            flexBasis: INBOX_PANE_WIDTH,
-                            width: INBOX_PANE_WIDTH,
+                            flexBasis: inboxExtent,
+                            ...(paneAxis === 'row' ? { width: inboxExtent } : { height: inboxExtent }),
                             display: paired ? 'flex' : 'none',
                         }}
                     >
                         <ReportInbox selectedReportId={reportId} active={paired && focused} />
                     </SceneFrame>
-                    <SceneFrame>
+                    <SceneFrame
+                        style={
+                            reportPane
+                                ? {
+                                      position: 'absolute',
+                                      left: reportPane.x,
+                                      top: reportPane.y,
+                                      width: reportPane.width,
+                                      height: reportPane.height,
+                                  }
+                                : undefined
+                        }
+                    >
                         <ChartCanvasBudget active={focused}>
                             {isReportId(reportId, demo) ? (
                                 <ReportContent reportId={reportId} from={from} />
@@ -404,6 +426,7 @@ function ReportBody({
     const styles = useStyles()
     const insets = useScreenInsets()
     const [headlineHeight, setHeadlineHeight] = useState(0)
+    const blurTarget = useRef<ViewInstance>(null)
     const scrollY = useSharedValue(0)
     const reading = useReportReadTracking(report.id)
     const { maxScrollY } = reading
@@ -413,39 +436,44 @@ function ReportBody({
     })
     return (
         <View style={styles.body}>
-            <Animated.ScrollView
-                style={styles.scroll}
-                contentContainerStyle={[styles.content, { paddingTop: topOffset(insets, SCREEN_CONTENT_TOP) }]}
-                keyboardShouldPersistTaps="handled"
-                onScroll={onScroll}
-                onLayout={reading.onLayout}
-                onContentSizeChange={reading.onContentSizeChange}
-                scrollEventThrottle={16}
-                testID="report-scroll"
-            >
-                <Headline
-                    headline={report.headline}
-                    accent={report.accent}
-                    lede={report.lede}
-                    meta={<ReportMeta report={report} onReassign={onReassign} onChangePriority={onChangePriority} />}
-                    onHeadlineHeight={setHeadlineHeight}
-                />
-                {hasReportDetail(report) ? (
-                    <View style={styles.readFull}>
-                        <TextLinkRow label="Read the full report" onPress={onReadFull} testID="report-read-full" />
-                    </View>
-                ) : null}
-                <Evidence blocks={report.evidence} reportId={report.id} />
-                <Facts facts={report.facts} />
-                {report.observation ? (
-                    <ObservationCard metric={report.observation} reportId={report.id} accent={report.accent} />
-                ) : null}
-                <ImpactMetrics metrics={report.supportingMetrics} reportId={report.id} />
-                <ReportCharts charts={report.charts} reportId={report.id} accent={report.accent} />
-                <Activity events={report.activity} viewerName={viewerName} />
-            </Animated.ScrollView>
+            <BlurTargetView ref={blurTarget} style={styles.scroll}>
+                <Animated.ScrollView
+                    style={styles.scroll}
+                    contentContainerStyle={[styles.content, { paddingTop: topOffset(insets, SCREEN_CONTENT_TOP) }]}
+                    keyboardShouldPersistTaps="handled"
+                    onScroll={onScroll}
+                    onLayout={reading.onLayout}
+                    onContentSizeChange={reading.onContentSizeChange}
+                    scrollEventThrottle={16}
+                    testID="report-scroll"
+                >
+                    <Headline
+                        headline={report.headline}
+                        accent={report.accent}
+                        lede={report.lede}
+                        meta={
+                            <ReportMeta report={report} onReassign={onReassign} onChangePriority={onChangePriority} />
+                        }
+                        onHeadlineHeight={setHeadlineHeight}
+                    />
+                    {hasReportDetail(report) ? (
+                        <View style={styles.readFull}>
+                            <TextLinkRow label="Read the full report" onPress={onReadFull} testID="report-read-full" />
+                        </View>
+                    ) : null}
+                    <Evidence blocks={report.evidence} reportId={report.id} />
+                    <Facts facts={report.facts} />
+                    {report.observation ? (
+                        <ObservationCard metric={report.observation} reportId={report.id} accent={report.accent} />
+                    ) : null}
+                    <ImpactMetrics metrics={report.supportingMetrics} reportId={report.id} />
+                    <ReportCharts charts={report.charts} reportId={report.id} accent={report.accent} />
+                    <Activity events={report.activity} viewerName={viewerName} />
+                </Animated.ScrollView>
+            </BlurTargetView>
             <TopChrome
                 refreshing={refreshing}
+                blurTarget={blurTarget}
                 onBack={onBack}
                 onPrevious={onPrevious}
                 onNext={onNext}

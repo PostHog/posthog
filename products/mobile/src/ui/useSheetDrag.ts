@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
-import { Gesture, type NativeGesture, type PanGesture } from 'react-native-gesture-handler'
+import { Gesture, type LegacyPanGesture as PanGesture } from 'react-native-gesture-handler'
 import { type SharedValue, useSharedValue, withTiming } from 'react-native-reanimated'
+import type { NativeGesture } from '@/ui/gestureTypes'
 
 import { motion } from './tokens'
 

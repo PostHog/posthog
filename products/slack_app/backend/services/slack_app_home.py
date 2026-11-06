@@ -35,7 +35,7 @@ from posthog.user_permissions import UserPermissions
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.feature_flags import is_slack_app_byos_enabled, is_slack_app_oauth_enabled
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
-from products.slack_app.backend.logic.feature_tips.state import record_feature_used
+from products.slack_app.backend.logic.feature_tips.state import get_state, record_feature_used, set_tips_enabled
 from products.slack_app.backend.logic.interview_recruitment import INVITE_MESSAGE, book_button, invite_section
 from products.slack_app.backend.models import ChannelWelcomeMode, SlackSettings, ThreadJoinMode, UntaggedFollowupMode
 from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_from_candidates
@@ -116,6 +116,7 @@ ACTION_SET_UNTAGGED_FOLLOWUP_MODE = "slack_app_home:set_untagged_followup_mode"
 ACTION_SET_UNTAGGED_QUESTION_MODE = "slack_app_home:set_untagged_question_mode"
 ACTION_SET_CHANNEL_WELCOME_MODE = "slack_app_home:set_channel_welcome_mode"
 ACTION_SET_AUTO_MODEL_CHOICE = "slack_app_home:set_auto_model_choice"
+ACTION_SET_FEATURE_TIPS = "slack_app_home:set_feature_tips"
 # URL buttons: Slack opens the link itself and posts a block_actions payload we
 # only ack — the ids exist so the clicks still reach the usage-analytics capture.
 ACTION_GITHUB_SETTINGS = "slack_app_home:github_settings"
@@ -145,6 +146,7 @@ HOME_ACTION_IDS: frozenset[str] = frozenset(
         ACTION_SET_UNTAGGED_QUESTION_MODE,
         ACTION_SET_CHANNEL_WELCOME_MODE,
         ACTION_SET_AUTO_MODEL_CHOICE,
+        ACTION_SET_FEATURE_TIPS,
         ACTION_GITHUB_SETTINGS,
         ACTION_CONNECT_ACCOUNT,
     }
@@ -469,6 +471,7 @@ def render_home_view(
     auto_model_choice: bool | None = None,
     own_plan: OwnPlanState | None = None,
     thread_join_mode: ThreadJoinMode | None = None,
+    feature_tips_enabled: bool | None = None,
     has_project_access: bool = True,
     account_settings_url: str | None = None,
     interview_invite: dict | None = None,
@@ -535,6 +538,11 @@ def render_home_view(
     if is_admin and channel_welcome_mode is not None:
         blocks.append({"type": "divider"})
         blocks.extend(_channel_welcome_section_blocks(channel_welcome_mode))
+
+    # Section 5a — feature tips: the only way back for a reader who turned them off.
+    if feature_tips_enabled is not None:
+        blocks.append({"type": "divider"})
+        blocks.extend(_feature_tips_section_blocks(feature_tips_enabled))
 
     # Section 6 — linked accounts: PostHog and GitHub side by side, shown
     # before Tasks so the connect prompts are visible while the Tasks list
@@ -957,6 +965,7 @@ def _personal_section_blocks(run_defaults: RunDefaultsState) -> list[dict]:
 
 
 AUTO_MODEL_CHOICE_VALUE = "on"
+FEATURE_TIPS_VALUE = "on"
 
 
 def _auto_model_choice_blocks(enabled: bool) -> list[dict]:
@@ -989,6 +998,21 @@ def _auto_model_choice_blocks(enabled: bool) -> list[dict]:
                 }
             ],
         },
+    ]
+
+
+def _feature_tips_section_blocks(enabled: bool) -> list[dict]:
+    option = {
+        "text": {"type": "mrkdwn", "text": "*Show tips*"},
+        "description": {"type": "mrkdwn", "text": "At most one tip a day, under an answer. Only you see it."},
+        "value": FEATURE_TIPS_VALUE,
+    }
+    checkbox: dict[str, Any] = {"type": "checkboxes", "action_id": ACTION_SET_FEATURE_TIPS, "options": [option]}
+    if enabled:
+        checkbox["initial_options"] = [option]
+    return [
+        _section_title("💡 Tips", "Short tips about PostHog features you have not used yet."),
+        {"type": "actions", "elements": [checkbox]},
     ]
 
 
@@ -1851,6 +1875,18 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         republish()
         return HttpResponse(status=200)
 
+    if action_id == ACTION_SET_FEATURE_TIPS:
+        enabled = any(option.get("value") == FEATURE_TIPS_VALUE for option in action.get("selected_options") or [])
+        set_tips_enabled(integration.integration_id, slack_user_id, enabled)
+        capture_slack_event(
+            integration,
+            "slack app feature tips turned on" if enabled else "slack app feature tips turned off",
+            slack_user_id=slack_user_id,
+            source="home",
+        )
+        republish()
+        return HttpResponse(status=200)
+
     if action_id == ACTION_SET_CHANNEL_WELCOME_MODE:
         slack = SlackIntegration(integration)
         if not _is_admin(slack, integration, slack_user_id):
@@ -2188,6 +2224,21 @@ def _apply_personal_preferences(
     )
 
 
+def set_personal_model(integration: WorkspaceIntegration, slack_user_id: str, model: str) -> None:
+    """Raises ``ValidationError`` with a message for the person, like the Home tab editor."""
+    _apply_personal_preferences(
+        integration,
+        slack_user_id,
+        runtime_adapter=runtime_adapter_for(model),
+        model=model,
+        reasoning_effort=None,
+    )
+
+
+def has_personal_model(integration: WorkspaceIntegration, slack_user_id: str) -> bool:
+    return _stored_personal_preferences(integration, slack_user_id) != AIPreferences()
+
+
 def _reset_personal_preferences(integration: WorkspaceIntegration, slack_user_id: str) -> None:
     """Clear the viewer's central per-(user, project) preference, which resets
     them to the project default. The reset button only renders for viewers with
@@ -2301,6 +2352,7 @@ def _build_home_view(
         ),
         own_plan=own_plan,
         thread_join_mode=(resolve_thread_join_mode(integration, slack_user_id) if home_user is not None else None),
+        feature_tips_enabled=get_state(integration.integration_id, slack_user_id).opted_out_at is None,
         has_project_access=bool(accessible),
         # The same settings page the GitHub card deep-links to.
         account_settings_url=github_state.settings_url,
@@ -2580,17 +2632,22 @@ def _auto_model_choice_offered(integration: WorkspaceIntegration, slack_user_id:
     return _resolve_home_user(integration, slack_user_id) is not None
 
 
+def linked_posthog_user(integration: WorkspaceIntegration, slack_user_id: str) -> User | None:
+    """The PostHog user this Slack user linked, the check behind "Connected as" on the Home tab."""
+    slack_team_id = integration.integration_id
+    return find_linked_posthog_user(
+        slack_user_id=slack_user_id,
+        slack_team_id=slack_team_id,
+        candidate_org_ids=_workspace_org_ids(slack_team_id),
+    )
+
+
 def _resolve_account_state(integration: WorkspaceIntegration, slack_user_id: str) -> AccountState:
     slack_team_id = integration.integration_id
     if not is_slack_app_oauth_enabled(integration):
         return AccountState(enabled=False)
 
-    candidate_org_ids = _workspace_org_ids(slack_team_id)
-    linked_user = find_linked_posthog_user(
-        slack_user_id=slack_user_id,
-        slack_team_id=slack_team_id,
-        candidate_org_ids=candidate_org_ids,
-    )
+    linked_user = linked_posthog_user(integration, slack_user_id)
     if linked_user is not None:
         return AccountState(enabled=True, linked_email=linked_user.email)
 

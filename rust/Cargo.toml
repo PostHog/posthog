@@ -61,6 +61,7 @@ members = [
   "kafka-assigner-proto",
   "ingestion-consumer",
   "ingestion-framework",
+  "logs-ingestion",
   "ingestion-control-plane",
   "ingestion-worker-proto",
   "kafka-deduplicator",
@@ -268,7 +269,7 @@ aws-smithy-runtime-api = { version = "1.11.5", features = ["client"] }
 aws-smithy-http-client = { version = "1.1.11", features = ["rustls-aws-lc"] }
 mockall = "0.13.0"
 moka = { version = "0.12.15", features = ["sync", "future"] }
-posthog-rs = { version = "0.30.0", features = ["async-client", "capture-v1"] }
+posthog-rs = { version = "0.31.1", features = ["async-client", "capture-v1"] }
 redis = { version = "0.32.7", features = [
   "tokio-comp",
   "cluster",

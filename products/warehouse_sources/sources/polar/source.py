@@ -29,6 +29,14 @@ from products.warehouse_sources.sources.sdk import (
     detect,
 )
 
+INVALID_TOKEN_MESSAGE = (
+    "Your Polar Organization Access Token is invalid or expired. Create a new token in Polar, then reconnect."
+)
+MISSING_SCOPE_MESSAGE = (
+    "Your Polar Organization Access Token is missing a read scope this source needs. "
+    "Create a token with the read scopes listed in the setup instructions, then reconnect."
+)
+
 
 @SourceRegistry.register
 class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
@@ -90,8 +98,8 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error: Unauthorized for url: https://api.polar.sh": "Your Polar Organization Access Token is invalid or expired. Please generate a new token in Polar and reconnect.",
-            "403 Client Error: Forbidden for url: https://api.polar.sh": "Your Polar Organization Access Token does not have the required permissions. Please check the token's scopes in Polar and reconnect.",
+            "401 Client Error: Unauthorized for url: https://api.polar.sh": INVALID_TOKEN_MESSAGE,
+            "403 Client Error: Forbidden for url: https://api.polar.sh": MISSING_SCOPE_MESSAGE,
             # Polar answers a removed or unknown `Polar-Version` with a 404; the list endpoints are static.
             "404 Client Error: Not Found for url: https://api.polar.sh": "The Polar API version this source uses is no longer supported by Polar. Please contact support to move it to a newer version.",
         }
@@ -118,21 +126,15 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
             validate_polar_credentials(config.polar_api_key, self.resolve_api_version(api_version), schema_name)
             return True, None
         except PolarPermissionError as e:
-            return False, f"Polar Organization Access Token lacks permissions: {e}"
+            return False, str(e)
         except requests.exceptions.HTTPError as e:
             # A failed probe surfaces via raise_for_status(): its str() leaks the full request URL
             # (with query params) and tells the user nothing to act on. Map the status instead.
             status_code = e.response.status_code if e.response is not None else None
             if status_code == 401:
-                return (
-                    False,
-                    "Your Polar Organization Access Token is invalid or expired. Please generate a new token in Polar and reconnect.",
-                )
+                return False, INVALID_TOKEN_MESSAGE
             if status_code == 403:
-                return (
-                    False,
-                    "Your Polar Organization Access Token does not have the required permissions. Please check the token's scopes in Polar and reconnect.",
-                )
+                return False, MISSING_SCOPE_MESSAGE
             return (
                 False,
                 f"Polar returned an unexpected error (HTTP {status_code}) while validating your token. Please try again.",

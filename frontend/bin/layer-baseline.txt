@@ -35,7 +35,6 @@ frontend/src/layout/panel-layout/navbar/tabs/NavTabChat.tsx -> frontend/src/scen
 frontend/src/layout/panel-layout/navbar/tabs/NavTabChat.tsx -> products/posthog_ai/frontend/api/logics.ts
 frontend/src/layout/panel-layout/navbar/tabs/NavTabChat.tsx -> products/posthog_ai/frontend/api/primitives.ts
 frontend/src/layout/panel-layout/navbar/tabs/navProductItems.ts -> frontend/src/scenes/data-management/definitionsSceneTabsLogic.tsx
-frontend/src/layout/panel-layout/navbar/tabs/navProductItems.ts -> frontend/src/scenes/onboarding/welcome/welcomeNavItem.ts
 frontend/src/layout/scenes/components/SceneTitlePanelButton.tsx -> frontend/src/scenes/max/useMaxTool.ts
 frontend/src/layout/scenes/components/SceneTitleSection.tsx -> frontend/src/scenes/max/components/AnimatedSparkles.tsx
 frontend/src/layout/today/TodayAiPanel.tsx -> frontend/src/scenes/max/components/PhaiSidePanelChat.tsx
@@ -311,9 +310,6 @@ frontend/src/lib/utils/eventUsageLogic.ts -> products/experiments/frontend/exper
 frontend/src/lib/utils/events.ts -> frontend/src/taxonomy/taxonomy.tsx
 frontend/src/loadPostHogJS.tsx -> products/webmcp/frontend/webmcpToolError.ts
 frontend/src/models/cohortsModel.ts -> frontend/src/exporter/exporterViewLogic.ts
-frontend/src/models/cohortsModel.ts -> frontend/src/scenes/cohorts/CohortFilters/constants.tsx
-frontend/src/models/cohortsModel.ts -> frontend/src/scenes/cohorts/CohortFilters/types.ts
-frontend/src/models/cohortsModel.ts -> products/persons/frontend/logics/personsLogic.tsx
 frontend/src/models/insightsModel.tsx -> frontend/src/scenes/insights/utils/api.ts
 frontend/src/models/notebooksModel.ts -> frontend/src/scenes/analytics/analyticsBackLink.ts
 frontend/src/models/notebooksModel.ts -> frontend/src/scenes/notebooks/NotebookPanel/notebookPanelLogic.ts
