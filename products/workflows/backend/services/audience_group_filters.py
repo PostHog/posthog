@@ -135,8 +135,6 @@ def _group_members_query(team: Team, prop: Property, group_type_index: int) -> a
             ]
         ),
     )
-    # Membership records distinct ids, so each one resolves to its current person. A distinct id
-    # that has moved to another person since the membership was written follows the person.
     query = parse_select(
         """
         SELECT argMax(person_id, version) AS person_id

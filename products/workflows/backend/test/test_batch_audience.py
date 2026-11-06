@@ -281,7 +281,6 @@ class TestAudienceGroupTypeIndex(SimpleTestCase):
                 PersonGroupMembership(group_type_index=1, ready=True),
                 GROUP_TYPE_NOT_SUPPORTED_MESSAGE,
             ),
-            # A partial membership would send to only part of the audience.
             (
                 "membership_backfilling",
                 PersonGroupMembership(group_type_index=0, ready=False),
