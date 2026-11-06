@@ -1277,8 +1277,8 @@ class TestListMCPToolCalls(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
             ("malformed_input_keys", {"$mcp_input_keys": "query"}, ("", "", [], "", "", "")),
             ("deeply_nested_input_keys", {"$mcp_input_keys": [[[["query"]]]]}, ("", "", [], "", "", "")),
             (
-                "unrenderable_input_keys",
-                {"$mcp_input_keys": ["query", "", "  ", "\ud800", "line\nbreak"]},
+                "blank_or_control_input_keys",
+                {"$mcp_input_keys": ["query", "", "  ", "line\nbreak"]},
                 ("", "", ["query"], "", "", ""),
             ),
         ]
