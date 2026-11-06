@@ -48,7 +48,7 @@ from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from ..models.taggers import Tagger
 from .metrics import llma_track_latency
-from .proxy import models_cache_key
+from .proxy import LLMProxyModelInfoSerializer, models_cache_key, provider_key_models
 
 logger = logging.getLogger(__name__)
 
@@ -600,6 +600,15 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
     @monitor(feature=None, endpoint="llma_provider_keys_partial_update", method="PATCH")
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
+
+    @extend_schema(responses={200: LLMProxyModelInfoSerializer(many=True)})
+    @action(detail=True, methods=["get"], required_scopes=["llm_provider_key:read"], pagination_class=None)
+    @llma_track_latency("llma_provider_keys_models")
+    @monitor(feature=None, endpoint="llma_provider_keys_models", method="GET")
+    def models(self, request: Request, **_kwargs) -> Response:
+        """Models this provider key can run, as the model pickers list them. Scoped to the project in the URL, so a
+        page on a project other than the user's current one still lists its own keys' models."""
+        return Response(provider_key_models(self.get_object()))
 
     @action(detail=True, methods=["get"], required_scopes=["llm_provider_key:read"])
     @llma_track_latency("llma_provider_keys_dependent_configs")

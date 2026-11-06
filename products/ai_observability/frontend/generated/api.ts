@@ -74,6 +74,7 @@ import type {
     LLMPromptResolveResponseApi,
     LLMPromptSetLabelApi,
     LLMProviderKeyApi,
+    LLMProxyModelInfoApi,
     LlmAnalyticsClusteringJobsListParams,
     LlmAnalyticsEvaluationReportsListParams,
     LlmAnalyticsEvaluationReportsRunsListParams,
@@ -155,6 +156,8 @@ import type {
     TextReprRequestApi,
     TextReprResponseApi,
     TraceApi,
+    TraceAvailabilityApi,
+    TraceAvailabilityRequestApi,
     TraceClustersApi,
     TraceEvaluationResultsApi,
     TraceExportApi,
@@ -1048,6 +1051,23 @@ export const aiObservabilityTracesSummaryCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(traceSummaryRequestApi),
+    })
+}
+
+export const getAiObservabilityTracesAvailabilityCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/availability/`
+}
+
+export const aiObservabilityTracesAvailabilityCreate = async (
+    projectId: string,
+    traceAvailabilityRequestApi: TraceAvailabilityRequestApi,
+    options?: RequestInit
+): Promise<TraceAvailabilityApi> => {
+    return apiMutator<TraceAvailabilityApi>(getAiObservabilityTracesAvailabilityCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(traceAvailabilityRequestApi),
     })
 }
 
@@ -2587,6 +2607,25 @@ export const llmAnalyticsProviderKeysDependentConfigsRetrieve = async (
     options?: RequestInit
 ): Promise<LLMProviderKeyApi> => {
     return apiMutator<LLMProviderKeyApi>(getLlmAnalyticsProviderKeysDependentConfigsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmAnalyticsProviderKeysModelsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/llm_analytics/provider_keys/${id}/models/`
+}
+
+/**
+ * Models this provider key can run, as the model pickers list them. Scoped to the project in the URL, so a
+ * page on a project other than the user's current one still lists its own keys' models.
+ */
+export const llmAnalyticsProviderKeysModelsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LLMProxyModelInfoApi[]> => {
+    return apiMutator<LLMProxyModelInfoApi[]>(getLlmAnalyticsProviderKeysModelsListUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

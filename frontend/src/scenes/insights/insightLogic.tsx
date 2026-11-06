@@ -35,7 +35,6 @@ import { objectsEqual } from 'lib/utils/objects'
 import { RetainedValues } from 'lib/utils/retainedValues'
 import { retryImport } from 'lib/utils/retryImport'
 import { withBackLink } from 'scenes/analytics/analyticsBackLink'
-import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -76,6 +75,7 @@ import {
     SetInsightOptions,
 } from '~/types'
 
+import { isDashboardFilterOverrideEmpty } from 'products/dashboards/frontend/dashboardFilterEmpty'
 import { dashboardsPartialUpdate } from 'products/dashboards/frontend/generated/api'
 import {
     titleMentionsMCP,
