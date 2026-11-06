@@ -120,7 +120,6 @@ def resolve_github_repository(team_id: int, name: str) -> ResolvedWorkloadSubjec
 GITLAB_COM = "https://gitlab.com"
 GITLAB_PROJECT_ENDPOINT = "/api/v4/projects/{id}"
 GITLAB_UNAVAILABLE = "GitLab didn't answer. Try again in a minute, or enter the project ID by hand."
-# A GitLab path is a namespace, any number of subgroups, and a project name.
 _GITLAB_PROJECT_PATH = re.compile(r"^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$")
 _GITLAB_REMOTE_PREFIX = re.compile(r"^(?:(?:https?://|ssh://git@|git@)?gitlab\.com[:/])", re.IGNORECASE)
 
