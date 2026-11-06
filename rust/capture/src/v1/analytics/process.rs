@@ -3984,25 +3984,36 @@ mod tests {
                 .with_legacy_property_splice(splice)
                 .build();
             let mut ctx = test_utils::test_analytics_context();
-            let batch = valid_batch(vec![Event {
-                session_id: Some("sess-1".to_string()),
-                properties: test_utils::raw_obj(r#"{"custom":1}"#),
-                ..valid_event()
-            }]);
+            let events = (0..8)
+                .map(|_| Event {
+                    session_id: Some("sess-1".to_string()),
+                    properties: test_utils::raw_obj(r#"{"custom":1}"#),
+                    ..valid_event()
+                })
+                .collect();
 
-            process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+            process_batch(&ts.state, &mut ctx, valid_batch(events))
+                .await
+                .unwrap();
 
             let records = ts.mock_producer.get_records();
-            assert_eq!(records.len(), 1);
-            let captured: common_types::CapturedEvent =
-                serde_json::from_slice(&records[0].payload).unwrap();
-            let data: serde_json::Value = serde_json::from_str(&captured.data).unwrap();
-            assert_eq!(
-                data["properties"].get("$session_id").is_some(),
-                splice,
-                "splice={splice}"
-            );
-            assert_eq!(captured.options.unwrap()["session_id"], "sess-1");
+            assert_eq!(records.len(), 8);
+            for record in records {
+                let captured: common_types::CapturedEvent =
+                    serde_json::from_slice(&record.payload).unwrap();
+                let data: serde_json::Value = serde_json::from_str(&captured.data).unwrap();
+                assert_eq!(
+                    data["properties"].get("$session_id").is_some(),
+                    splice,
+                    "splice={splice}"
+                );
+                assert_eq!(captured.options.unwrap()["session_id"], "sess-1");
+                assert_eq!(
+                    record.headers.legacy_property_splice,
+                    splice.then_some(true),
+                    "splice={splice}"
+                );
+            }
         }
     }
 
