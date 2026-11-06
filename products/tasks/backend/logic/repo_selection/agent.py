@@ -19,6 +19,7 @@ from posthog.models.team.team import Team
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.sync import database_sync_to_async
 
+from products.tasks.backend.facade.profiles import TaskProfile, TaskSource
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
 from products.tasks.backend.logic.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
@@ -689,8 +690,10 @@ async def select_repository(
     user_id: int,
     context: str,
     *,
-    origin_product: Task.OriginProduct,
+    profile: TaskProfile | None = None,
     priority: Priority,
+    origin_product: Task.OriginProduct | None = None,
+    source: TaskSource | None = None,
     github: GitHubIntegrationBase | None = None,
     candidate_repos: list[str] | None = None,
     step_name: str = "repo_selection",
@@ -843,11 +846,13 @@ async def select_repository(
             step_name=step_name,
             verbose=verbose,
             output_fn=output_fn,
+            profile=profile,
+            source=source,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            internal=True,
             spend_signal_id=spend_signal_id,
             ai_stage="repo_selection",
-            internal=True,
             on_task_run_created=_session_created,
             fallback_from_text=_salvage,
             json_retry_prompt=REPO_SELECTION_JSON_RETRY_PROMPT,
