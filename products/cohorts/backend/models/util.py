@@ -45,6 +45,7 @@ from posthog.exceptions import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.models.event.new_events_schema import events_read_settings
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
     INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
@@ -735,6 +736,9 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
 
         # Format settings as key=value pairs
         settings_pairs = {k: str(v) for k, v in settings.model_dump().items() if v is not None}
+        settings_pairs.update(
+            {key: str(value) for key, value in events_read_settings(hogql_context.uses_new_events_schema()).items()}
+        )
         settings_clause = ""
         if settings_pairs:
             settings_str = ", ".join([f"{key}={value}" for key, value in settings_pairs.items()])
@@ -962,6 +966,7 @@ def _recalculate_cohortpeople_for_team_hogql(
     cohort: Cohort, pending_version: int, team: Team, history: CohortCalculationHistory
 ) -> int:
     cohort_params: dict[str, Any]
+    hogql_context: HogQLContext | None = None
     if cohort.is_static:
         cohort_query, cohort_params = format_static_cohort_query(cohort, 0, prepend="")
     elif not cohort.properties.values:
@@ -1001,6 +1006,8 @@ def _recalculate_cohortpeople_for_team_hogql(
                 **COHORT_QUERY_SPILL_SETTINGS,
             }
         )
+        if hogql_context is not None:
+            settings.update(events_read_settings(hogql_context.uses_new_events_schema()))
 
         return sync_execute(
             recalculate_cohortpeople_sql,
@@ -1368,6 +1375,9 @@ def insert_actors_into_cohort_by_query(
         settings={
             **COHORT_QUERY_TIMEOUT_SETTINGS,
             **COHORT_QUERY_SPILL_SETTINGS,
+            # A SELECT compiled from cohort filters arrives without its SETTINGS clause (hogql_cohort_subquery_sql
+            # trims it so the query can be embedded), so the native read settings travel on the INSERT.
+            **events_read_settings(context.uses_new_events_schema()),
         },
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.COHORTS,

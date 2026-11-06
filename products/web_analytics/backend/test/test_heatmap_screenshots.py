@@ -22,6 +22,7 @@ from posthog.models import Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import HeatmapPreflightBurstRateThrottle
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.web_analytics.backend.api.heatmaps_api import SavedHeatmapCaptureRequestSerializer
@@ -37,6 +38,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
 class TestHeatmapsAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
+        self.enterContext(mock_anti_ssrf_dns_lookup())
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
 

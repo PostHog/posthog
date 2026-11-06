@@ -28,6 +28,7 @@ from .serializers import (
     ExcerptChoiceRequestSerializer,
     ExcerptChoiceSerializer,
     FigureMarksSerializer,
+    HighlightsQuerySerializer,
     HighlightsSerializer,
     KeyClausesQuerySerializer,
     PulsePinsSerializer,
@@ -104,6 +105,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise PermissionDenied()
 
     @validated_request(
+        query_serializer=HighlightsQuerySerializer,
         responses={200: OpenApiResponse(response=HighlightsSerializer)},
         summary="Get today's highlights",
         description="The project's key metrics and up to 6 ranked items, each labeled risk or opportunity. Queries, rules and copy templates make every item; no AI is used. The highlights are computed in the background and stay fresh for 15 minutes per person, or 1 minute when a source failed. The call never waits: while they are computed, it returns `computing` with the last ready highlights of the day, so poll every 2 seconds until the status is `ready` or `failed`. 404 when the person does not have the new navigation. A scoped key needs query:read as well, because every highlight runs a query.",
@@ -114,7 +116,12 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not api.is_enabled_for(user, self.team):
             raise NotFound()
         scopes = get_authenticator_scopes(request.successful_authenticator)
-        found = api.get_highlights(team=self.team, user=user, scopes=None if scopes is None else frozenset(scopes))
+        found = api.get_highlights(
+            team=self.team,
+            user=user,
+            scopes=None if scopes is None else frozenset(scopes),
+            refresh=request.validated_query_data["refresh"],
+        )
         return Response(HighlightsSerializer(found).data)
 
     @validated_request(
@@ -154,7 +161,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         detail=False,
         methods=["get"],
         url_path=rf"reports/(?P<report_id>{UUID_REGEX}|sample-[a-z]+)/page",
-        required_scopes=["today:read", "task:read"],
+        required_scopes=["today:read", "inbox:read"],
     )
     def report_page(self, request: Request, report_id: str, **kwargs) -> Response:
         user = cast(User, request.user)
@@ -179,7 +186,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         detail=False,
         methods=["get"],
         url_path=rf"reports/(?P<report_id>{UUID_REGEX})/key_clauses",
-        required_scopes=["today:read", "task:read"],
+        required_scopes=["today:read", "inbox:read"],
         throttle_classes=JEV_THROTTLES,
     )
     def key_clauses(self, request: Request, report_id: str, **kwargs) -> Response:
@@ -203,7 +210,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         detail=False,
         methods=["get"],
         url_path=rf"reports/(?P<report_id>{UUID_REGEX})/figure_marks",
-        required_scopes=["today:read", "task:read"],
+        required_scopes=["today:read", "inbox:read"],
         throttle_classes=JEV_THROTTLES,
     )
     def figure_marks(self, request: Request, report_id: str, **kwargs) -> Response:

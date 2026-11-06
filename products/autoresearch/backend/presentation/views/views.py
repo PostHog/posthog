@@ -11,6 +11,7 @@ No business logic here — that lives behind ``facade/api.py``.
 
 from dataclasses import fields
 from typing import Any, cast
+from uuid import UUID
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -27,10 +28,9 @@ from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
-from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.mixins import validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.models.user import User
 from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_origin_request
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -45,6 +45,7 @@ from products.autoresearch.backend.facade.contracts import (
     InvalidTarget,
     PipelineNotFound,
     SuggestionNotFound,
+    TrainingRunCapReached,
     TrainingRunNotFound,
 )
 from products.tasks.backend.facade import api as tasks_facade
@@ -71,6 +72,7 @@ from .serializers import (
     OnlinePerformanceQuerySerializer,
     OnlinePerformanceSerializer,
     OpenTrainingRunSerializer,
+    ProjectLimitsSerializer,
     RecordIterationSerializer,
     ResolvedTemplateSerializer,
     ResolveTemplateRequestSerializer,
@@ -78,6 +80,7 @@ from .serializers import (
     StartTrainingRequestSerializer,
     StoredArtifactSerializer,
     TemplateInfoSerializer,
+    TrainingRunCapReachedSerializer,
     TrainingRunHistoryQuerySerializer,
     TrainingRunHistorySerializer,
     ValidatePipelineRequestSerializer,
@@ -88,39 +91,6 @@ from .serializers import (
 )
 
 logger = structlog.get_logger(__name__)
-
-
-class FacadePathParamSchema(PostHogAutoSchema):
-    """Types a facade-backed viewset's UUID path parameters.
-
-    drf-spectacular reads a path parameter's type off the viewset's ``queryset`` model. These
-    viewsets reach their data through the facade and declare no queryset, so each id is spelled
-    out here instead. Declaring them through ``@extend_schema`` would not work: that appends the
-    parameter to every operation in the viewset, including the collection routes whose path has
-    no id in it. This hook only ever sees variables the path actually contains.
-    """
-
-    def _resolve_path_parameters(self, variables: Any) -> Any:
-        declared = getattr(self.view, "uuid_path_parameters", {})
-        resolved = []
-        for parameter in super()._resolve_path_parameters(variables):
-            description = declared.get(parameter["name"])
-            if parameter["name"] not in declared:
-                resolved.append(parameter)
-                continue
-            # Rebuilt rather than mutated, so the keys keep the order drf-spectacular emits.
-            rebuilt: dict[str, Any] = {}
-            for key, value in parameter.items():
-                if key == "schema":
-                    rebuilt["schema"] = {"type": "string", "format": "uuid"}
-                    if description:
-                        rebuilt["description"] = description
-                elif key == "description" and description:
-                    continue
-                else:
-                    rebuilt[key] = value
-            resolved.append(rebuilt)
-        return resolved
 
 
 class AutoresearchAccessPermission(BasePermission):
@@ -139,13 +109,12 @@ class ArtifactStorageUnavailableError(APIException):
     default_code = "artifact_storage_unavailable"
 
 
-def _parent_pipeline_id(view: Any) -> str | None:
+def _parent_pipeline_id(view: Any) -> UUID | None:
     """The pipeline this nested route is scoped to, or None on the unscoped collection route."""
-    pipeline_id = view.kwargs.get("parent_lookup_pipeline_id")
-    return str(pipeline_id) if pipeline_id else None
+    return view.kwargs.get("parent_lookup_pipeline_id")
 
 
-def _require_parent_pipeline_id(view: Any) -> str:
+def _require_parent_pipeline_id(view: Any) -> UUID:
     """The pipeline id for a route that cannot act without one."""
     pipeline_id = _parent_pipeline_id(view)
     if pipeline_id is None:
@@ -194,8 +163,9 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     users daily and emits autoresearch_prediction events.
     """
 
-    schema = FacadePathParamSchema()
-    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch pipeline."}
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this autoresearch pipeline.")
+    }
     scope_object = "autoresearch"
     # The HogQL actions also carry their own `required_scopes`, so a scoped token needs `query:read` too.
     scope_object_read_actions = [
@@ -206,6 +176,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         "resolve_template",
         "online_performance",
         "agent_models",
+        "limits",
     ]
     scope_object_write_actions = [
         "create",
@@ -369,6 +340,20 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     def agent_models(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response(AgentModelOptionsSerializer(instance=api.list_agent_model_options()).data)
 
+    @extend_schema(
+        responses={200: ProjectLimitsSerializer},
+        summary="Read the project's limits",
+        description=(
+            "Return the project's autoresearch limits and how much of each it is using: sandbox training runs "
+            "in the last 24 hours against the daily limit, with when the next run can start at the limit, the "
+            "most experiments per training run, and live pipelines against the live pipeline limit. "
+            "Read-only; it runs no queries."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="limits", pagination_class=None)
+    def limits(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return Response(ProjectLimitsSerializer(instance=api.get_project_limits(self.team_id)).data)
+
     @validated_request(
         request_serializer=ResolveTemplateRequestSerializer,
         responses={
@@ -465,7 +450,8 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
             400: OpenApiResponse(
                 description=(
                     "A training run is already in progress, the pipeline is paused, "
-                    "or the pipeline's target or creator is no longer valid."
+                    "the pipeline's target or creator is no longer valid, "
+                    "or the pipeline is a draft and the project already has its limit of live pipelines."
                 )
             ),
             403: OpenApiResponse(
@@ -475,7 +461,13 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
                 )
             ),
             404: OpenApiResponse(description="The pipeline does not exist or is archived."),
-            429: OpenApiResponse(description="The team is over its PostHog Desktop usage limit."),
+            429: OpenApiResponse(
+                response=TrainingRunCapReachedSerializer,
+                description=(
+                    "The project started its limit of training runs in the last 24 hours (this body), "
+                    "or the team is over its PostHog Desktop usage limit."
+                ),
+            ),
             503: OpenApiResponse(description="PostHog Desktop access could not be checked. Try again."),
         },
         summary="Start a training run",
@@ -515,6 +507,9 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
             raise ValidationError({"target_definition": str(exc)}) from exc
         except AutoresearchConflict as exc:
             raise ValidationError(str(exc)) from exc
+        except TrainingRunCapReached as exc:
+            body = {"detail": str(exc), "used": exc.used, "limit": exc.limit, "next_slot_at": exc.next_slot_at}
+            return Response(TrainingRunCapReachedSerializer(instance=body).data, status=429)
         return Response(AutoresearchTrainingRunSerializer(instance=training_run).data)
 
     @validated_request(
@@ -692,11 +687,16 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
                 response=AutoresearchPipelineSerializer,
                 description="The pipeline after resuming.",
             ),
-            400: OpenApiResponse(description="The pipeline is not paused."),
+            400: OpenApiResponse(
+                description="The pipeline is not paused, or the project already has its limit of live pipelines."
+            ),
             404: OpenApiResponse(description="The pipeline does not exist or is archived."),
         },
         summary="Resume a pipeline",
-        description="Resume a paused pipeline. Daily scoring and training will restart on the next cadence tick.",
+        description=(
+            "Resume a paused pipeline. Daily scoring and training will restart on the next cadence tick. "
+            "Refused when the project already has its limit of live pipelines, which the limits endpoint reports."
+        ),
     )
     @action(detail=True, methods=["post"], url_path="resume")
     def resume(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -724,8 +724,10 @@ class AutoresearchModelViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelVie
     the daily inference workflow compiles to score users.
     """
 
-    schema = FacadePathParamSchema()
-    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch model.", "pipeline_id": None}
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this autoresearch model."),
+        "pipeline_id": UUID,
+    }
     scope_object = "autoresearch"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions: list[str] = []
@@ -757,8 +759,10 @@ class AutoresearchRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     List and retrieve inference and validation runs for a pipeline.
     """
 
-    schema = FacadePathParamSchema()
-    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch run.", "pipeline_id": None}
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this autoresearch run."),
+        "pipeline_id": UUID,
+    }
     scope_object = "autoresearch"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions: list[str] = []
@@ -793,8 +797,10 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     score, and the summary of the run once it completes.
     """
 
-    schema = FacadePathParamSchema()
-    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch training run.", "pipeline_id": None}
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this autoresearch training run."),
+        "pipeline_id": UUID,
+    }
     scope_object = "autoresearch"
     scope_object_read_actions = ["list", "retrieve", "list_artifacts", "get_artifact", "history"]
     scope_object_write_actions = [
@@ -846,7 +852,8 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             400: OpenApiResponse(
                 description=(
                     "The pipeline is archived or paused, a run is already in progress, "
-                    "or an action target needs the action:read scope."
+                    "an action target needs the action:read scope, or the pipeline is a draft, which this run "
+                    "would make live, and the project already has its limit of live pipelines."
                 )
             ),
         },
@@ -1169,8 +1176,10 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     search constraint, or dismiss it with rationale.
     """
 
-    schema = FacadePathParamSchema()
-    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch suggestion.", "pipeline_id": None}
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this autoresearch suggestion."),
+        "pipeline_id": UUID,
+    }
     scope_object = "autoresearch"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["create", "respond"]

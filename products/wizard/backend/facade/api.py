@@ -50,6 +50,7 @@ from products.wizard.backend.logic.installs import service as installs
 from products.wizard.backend.logic.runs import pubsub as run_pubsub
 from products.wizard.backend.logic.sessions import pubsub
 from products.wizard.backend.tool_catalog.catalog import tool_catalog_json
+from products.wizard.backend.tool_catalog.warehouse_destinations import CATALOG_DESTINATION_CHOICES
 
 
 def upsert(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, bool]:
@@ -64,6 +65,9 @@ def record_scan(params: RecordWizardScanInput) -> WizardScanResult:
 def organization_has_detected_tool(*, organization_id: str, kinds: Collection[str]) -> bool:
     """Whether the latest scan of any workspace in the organization still finds one of `kinds`."""
     return scans.organization_has_detected_tool(organization_id=organization_id, kinds=kinds)
+
+
+TOOL_CATALOG_DESTINATION_CHOICES: list[tuple[str, str]] = CATALOG_DESTINATION_CHOICES
 
 
 def get_tool_catalog_json() -> bytes:

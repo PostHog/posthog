@@ -31,6 +31,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.user import User
+from posthog.permissions import posthog_feature_flag_enabled
 from posthog.queryset_paging import stable_queryset_ordering
 from posthog.utils import relative_date_parse
 
@@ -48,16 +49,17 @@ from products.alerts.backend.facade.destinations import (
     validate_destination_data,
 )
 from products.alerts_platform.backend.facade.api import (
-    history_by_legacy_id,
+    history_by_public_id,
     recent_destination_sends,
     reset_broken,
-    runtime_by_legacy_id,
+    runtime_by_public_id,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
     Grouping,
+    GroupingMode,
     InvalidPlatformAlertEdit,
     PagerDutyRegion,
     PagerDutySeverity,
@@ -130,6 +132,8 @@ DEFAULT_CHECK_INTERVAL_MINUTES = 5
 _SENTINEL: Final = object()
 _NOT_ANNOTATED: Final = object()
 _SINGLE_INSTANCE: Final = Grouping()
+LOGS_ALERTS_GROUPING_FLAG: Final = "logs-alerts-grouping"
+GROUPING_NOT_ENABLED: Final = "Grouping isn't available for this project yet. Set the mode to single to save the alert."
 
 
 def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, fields: set[str]) -> bool:
@@ -237,7 +241,7 @@ def _platform_runtime_of(alerts: list[LogsAlertConfiguration]) -> dict[UUID, Pla
     owned = [alert for alert in alerts if alert.platform_owned]
     if not owned:
         return {}
-    return runtime_by_legacy_id(team_id=owned[0].team_id, legacy_configuration_ids=[alert.id for alert in owned])
+    return runtime_by_public_id(team_id=owned[0].team_id, public_ids=[alert.id for alert in owned])
 
 
 def _platform_history_of(
@@ -249,9 +253,9 @@ def _platform_history_of(
     if not owned:
         return {}
     try:
-        return history_by_legacy_id(
+        return history_by_public_id(
             team_id=owned[0].team_id,
-            legacy_configuration_ids=[alert.id for alert in owned],
+            public_ids=[alert.id for alert in owned],
             since=window[0],
             until=window[1],
         )
@@ -779,7 +783,25 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             except ValueError as e:
                 raise ValidationError({"schedule_restriction": str(e)}) from e
 
+        grouping: Grouping | None = attrs.get("grouping")
+        if grouping is not None and grouping.mode != GroupingMode.SINGLE and not self._may_group(grouping):
+            raise ValidationError({"grouping": GROUPING_NOT_ENABLED})
+
         return attrs
+
+    def _may_group(self, grouping: Grouping) -> bool:
+        team = self.context["get_team"]()
+        if posthog_feature_flag_enabled(
+            LOGS_ALERTS_GROUPING_FLAG,
+            str(cast(User, self.context["request"].user).distinct_id),
+            organization_id=team.organization_id,
+            team_id=team.id,
+        ):
+            return True
+        # An alert that already groups keeps its keys with the flag off, so it can still change its
+        # group limit or be ungrouped.
+        runtime = _platform_runtime_of([self.instance]).get(self.instance.id) if self.instance else None
+        return runtime is not None and runtime.grouping.splits_like(grouping)
 
     def update(self, instance: LogsAlertConfiguration, validated_data: dict) -> LogsAlertConfiguration:
         if "name" in validated_data and not validated_data.get("name", "").strip():
@@ -1599,9 +1621,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if alert.platform_owned:
                 # The platform skips a broken alert, so the reset has to reach its copy. Its state
                 # decides, because the logs row stops moving once the shadow ends.
-                platform_failures = reset_broken(
-                    team_id=alert.team_id, legacy_configuration_id=alert.id, at=timezone.now()
-                )
+                platform_failures = reset_broken(team_id=alert.team_id, public_id=alert.id, at=timezone.now())
                 if platform_failures is None:
                     raise ValidationError({"state": "Only broken alerts can be reset."})
                 previous_failures = platform_failures

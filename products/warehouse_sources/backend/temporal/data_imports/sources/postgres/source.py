@@ -865,6 +865,18 @@ class PostgresSource(
                 "deleted, or the pooler username/host is wrong. Check that your database is active "
                 "and the connection details are correct, then re-enable the sync."
             ),
+            # The sync-time twins of the permanent "(EAUTHQUERY)" outcomes in `PostgresErrors`. The
+            # transient "(eauthquery)" reconnect in postgres.py also matches them, so without these
+            # keys a dropped user retries on every run. Supavisor then trips its "(ECIRCUITBREAKER)"
+            # credential-fetch block, and the raw text leads with that line but still lists this one.
+            "user not found in the database": (
+                "Your database doesn't have the user this source connects as. Update the user for this "
+                "source, then re-enable the sync."
+            ),
+            "unsupported or invalid secret format": (
+                "Your connection pooler can't check this user's password because of how your database "
+                "stores it. Reset the user's password in your database, then re-enable the sync."
+            ),
             # Supabase's Supavisor pooler reports a permanent DNS failure resolving its upstream
             # backend as "FATAL: Failed to connect to database: {:error, :nxdomain}" — Erlang's
             # resolver returning "no such domain", unlike the sibling ":etimedout"/":econnrefused"

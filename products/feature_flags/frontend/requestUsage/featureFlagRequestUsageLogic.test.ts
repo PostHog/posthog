@@ -39,20 +39,22 @@ describe('featureFlagRequestUsageLogic', () => {
                     bucket: '2026-08-20T00:00:00Z',
                     request_type: 'local_evaluation',
                     sdk: 'posthog-ruby',
-                    request_count: 3,
-                    billing_units: 30,
+                    // Three full responses at 10 units and two 304s at 1 unit.
+                    request_count: 5,
+                    billing_units: 32,
                 },
             ],
         })
 
         await expectLogic(logic).toMatchValues({
-            totalBillingUnits: 50,
+            totalBillingUnits: 52,
             sdkTotals: [
                 {
                     sdk: 'posthog-ruby',
                     remoteRequests: 20,
-                    localRequests: 3,
-                    billingUnits: 50,
+                    localRequests: 5,
+                    localBillingUnits: 32,
+                    billingUnits: 52,
                     billingUnitsShare: 100,
                 },
             ],
@@ -67,7 +69,7 @@ describe('featureFlagRequestUsageLogic', () => {
                     id: expect.any(Number),
                     label: 'posthog-ruby (local)',
                     dates: ['2026-08-20T00:00:00.000Z'],
-                    data: [3],
+                    data: [5],
                 },
             ],
         })

@@ -10,7 +10,6 @@ import {
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
-import { dashboardActivityDescriber } from 'scenes/dashboard/dashboardActivityDescriber'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
@@ -19,6 +18,7 @@ import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescribe
 import { ActivityScope } from '~/types'
 
 import { actionActivityDescriber } from 'products/actions/frontend/actionActivityDescriber'
+import { dashboardActivityDescriber } from 'products/dashboards/frontend/dashboardActivityDescriber'
 import { insightActivityDescriber } from 'products/product_analytics/frontend/insights/activityDescriptions'
 
 describe('humanizeActivity', () => {

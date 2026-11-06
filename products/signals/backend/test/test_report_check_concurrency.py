@@ -34,6 +34,7 @@ from products.signals.backend.report_check_execution import (
 )
 from products.signals.backend.report_check_monitoring import MONITORING_ERROR_RETRY_AFTER, record_monitoring_observation
 from products.signals.backend.report_checks import MAX_CHECK_HORIZON
+from products.signals.backend.report_monitoring_assessment import finish_monitoring_assessment
 from products.signals.backend.report_monitoring_attempts import check_definition_version, complete_implementation
 from products.signals.backend.report_monitoring_outcomes import aggregate_monitoring_attempt
 from products.signals.backend.report_monitoring_results import (
@@ -257,7 +258,8 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
                 assert duplicate.id == accepted.id
         assert SignalReportMonitoringResult.objects.for_team(self.team.id).count() == 1
 
-    def test_aggregation_preserves_manual_resolution_after_a_report_lock_wait(self) -> None:
+    @parameterized.expand([("aggregation",), ("assessment",)])
+    def test_aggregation_preserves_manual_resolution_after_a_report_lock_wait(self, writer: str) -> None:
         with (
             patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
             ThreadPoolExecutor(max_workers=1) as executor,
@@ -270,8 +272,14 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
                 save_monitoring_result(evaluation)
                 future = self._start_write(
                     executor,
-                    lambda: aggregate_monitoring_attempt(
-                        team_id=self.team.id, report_id=self.report.id, attempt_id=evaluation.attempt_id
+                    lambda: (
+                        aggregate_monitoring_attempt(
+                            team_id=self.team.id, report_id=self.report.id, attempt_id=evaluation.attempt_id
+                        )
+                        if writer == "aggregation"
+                        else finish_monitoring_assessment(
+                            team_id=self.team.id, report_id=self.report.id, attempt_id=evaluation.attempt_id
+                        )
                     ),
                 )
                 self._assert_write_waits(future)

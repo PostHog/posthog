@@ -221,7 +221,7 @@ class AnomalySearchResponseSerializer(serializers.Serializer):
     scoring_enabled = serializers.BooleanField(
         help_text=(
             "Whether anomaly scoring scores this project now. False when scoring does not cover the "
-            "project, or when the project turned it off in its self-driving settings. Scores written "
+            "project, or when the project turned it off in its Product analytics source. Scores written "
             "before scoring was turned off are still returned."
         )
     )
@@ -304,7 +304,7 @@ class AnomalyInsightResponseSerializer(serializers.Serializer):
     scoring_enabled = serializers.BooleanField(
         help_text=(
             "Whether anomaly scoring scores this project now. False when scoring does not cover the "
-            "project, or when the project turned it off in its self-driving settings. Scores written "
+            "project, or when the project turned it off in its Product analytics source. Scores written "
             "before scoring was turned off are still returned."
         )
     )

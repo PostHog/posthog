@@ -31,15 +31,24 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.signals.backend.activity_summary import read as activity_summary_read
+from products.signals.backend.activity_logging import log_source_configs_disabled
+from products.signals.backend.activity_summary import (
+    read as activity_summary_read,
+    render as activity_summary_render,
+    search as activity_summary_search,
+)
+from products.signals.backend.activity_summary.prompt import ActivitySummaryMode as ActivitySummaryMode
 from products.signals.backend.activity_summary.read import (
+    ActivitySummaryStatus as ActivitySummaryStatus,
     ActivitySummaryTheme as ActivitySummaryTheme,
     ActivitySummaryVersionView as ActivitySummaryVersionView,
     ActivitySummaryView as ActivitySummaryView,
 )
 from products.signals.backend.activity_summary.search import (
     ActivitySummarySearchResult as ActivitySummarySearchResult,
-    SearchMode,
+    MatchKind as MatchKind,
+    SearchMode as SearchMode,
+    SemanticSearchUnavailable as SemanticSearchUnavailable,
     search_summaries,
 )
 from products.signals.backend.anomaly_scores import search as anomaly_search
@@ -143,6 +152,11 @@ logger = structlog.get_logger(__name__)
 
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
 MAX_SIGNAL_REMEDIATION_TOKENS = 16000
+
+ActivitySummaryProductKey = activity_summary_render.Product
+ACTIVITY_SUMMARY_VERSIONS_DEFAULT_LIMIT = activity_summary_read.DEFAULT_VERSIONS_LIMIT
+ACTIVITY_SUMMARY_SEARCH_DEFAULT_LIMIT = activity_summary_search.DEFAULT_LIMIT
+ACTIVITY_SUMMARY_SEARCH_MAX_LIMIT = activity_summary_search.MAX_LIMIT
 
 
 @frozen
@@ -342,11 +356,15 @@ def set_signal_source_types_enabled(
     with transaction.atomic():
         Team.objects.select_for_update().only("id").get(id=team_id)
         if not enabled:
-            SignalSourceConfig.objects.filter(
+            disabled = SignalSourceConfig.objects.filter(
                 team_id=team_id,
                 source_product=source_product,
                 source_type__in=source_types,
-            ).update(enabled=False)
+                enabled=True,
+            )
+            disabled_rows = list(disabled)
+            disabled.update(enabled=False)
+            log_source_configs_disabled(disabled_rows)
             return
         for source_type in source_types:
             row, _ = SignalSourceConfig.objects.update_or_create(
@@ -749,9 +767,12 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
                     obj.enabled = True
                     obj.save(update_fields=["enabled", "updated_at"])
             else:
-                SignalSourceConfig.objects.filter(
+                disabled = SignalSourceConfig.objects.filter(
                     team_id=team_id, source_product=source_product, source_type=source_type, enabled=True
-                ).update(enabled=False)
+                )
+                disabled_rows = list(disabled)
+                disabled.update(enabled=False)
+                log_source_configs_disabled(disabled_rows)
 
 
 # Each source carries two names: the label, which is the product it comes from, and the watch, which
@@ -866,9 +887,13 @@ async def emit_signal(
     sync_with_source: bool = False,
     source_match_signal_id: str | None = None,
     source_match_report_id: str | None = None,
-) -> None:
+) -> bool:
     """
     Emit a signal for grouping and potential report generation, fire-and-forget.
+
+    Returns True when the signal was dispatched to the pipeline, and False when it was skipped: the
+    organization has not approved AI data processing, the source is off, the signal is already
+    finalized, the team's steering filtered it, or its idempotency key was already used.
 
     Active path:
         emit_signal() -> SignalEmitterWorkflow -> BufferSignalsWorkflow -> TeamSignalGroupingV2Workflow
@@ -930,7 +955,7 @@ async def emit_signal(
             await database_sync_to_async(complete_signal_pipeline)(
                 team_id=team.id, signal_id=signal_id, billing_exempt=system_source_exempt(source_product)
             )
-        return
+        return False
 
     is_enabled = await database_sync_to_async(SignalSourceConfig.is_source_enabled, thread_sensitive=False)(
         team.id, source_product, source_type
@@ -940,7 +965,7 @@ async def emit_signal(
             await database_sync_to_async(complete_signal_pipeline)(
                 team_id=team.id, signal_id=signal_id, billing_exempt=system_source_exempt(source_product)
             )
-        return
+        return False
 
     description_tokens = _token_count(description)
     if description_tokens > MAX_SIGNAL_DESCRIPTION_TOKENS:
@@ -1000,7 +1025,7 @@ async def emit_signal(
         team_id=team.id, source_product=source_product, source_type=source_type, idempotency_key=idempotency_key
     )
     if await database_sync_to_async(finalized_signal_ids)(team_id=team.id, signal_ids=[signal_id]):
-        return
+        return False
 
     # Below the started event on purpose: a filtered signal then has a top-of-funnel event to be
     # counted against, so a steering drop reads apart from a dispatch failure rather than as one.
@@ -1023,7 +1048,7 @@ async def emit_signal(
             await database_sync_to_async(complete_signal_pipeline, thread_sensitive=False)(
                 team_id=team.id, signal_id=signal_id, billing_exempt=system_source_exempt(source_product)
             )
-            return
+            return False
 
     client = await async_connect()
 
@@ -1078,11 +1103,12 @@ async def emit_signal(
         # A repeated idempotency key is a deliberate dedupe, so label it rather than leave it to
         # read as a dispatch failure in started - filtered - emitted.
         capture_emission_event("signal_data_source_filtered", {"filter_reason": "duplicate_emission"})
-        return
+        return False
 
     # Fire the analytics event only after the signal is definitively queued so
     # Temporal/connection failures don't inflate the "signals emitted" metric.
     capture_emission_event("signal_emitted")
+    return True
 
 
 def forward_report_discussion_note(
@@ -1763,7 +1789,7 @@ def enable_scout_for_product(
     fit the project's enabled-scout limit, and only a project admin or the person the runs act as
     may give a new scout more than the default scopes or widen an existing grant.
     Returns False without writing when a rule refuses, when the organization has not approved AI data processing, when the scout
-    is paused by a person or by the system, or when another product owns its config.
+    is paused by a person or by the system.
     """
     from posthog.temporal.oauth import (  # noqa: PLC0415 — keeps the token module off the facade's import path
         SCOUT_DEFAULT_WRITE_SCOPES,
@@ -1825,10 +1851,11 @@ def enable_scout_for_product(
             )
             if created:
                 return True
-        # A config this product did not create is somebody's own scout, and its write access is theirs to grant.
         # A paused config stays paused, whether a person or a system breaker paused it.
-        if config.source_product != source_product or not config.enabled:
+        if not config.enabled:
             return False
+        # A scout a person set up keeps its other settings. It still gains this product's scopes when the person
+        # may grant them, because without them its runs cannot do what the person just asked the product for.
         granted = sorted(set(config.write_scopes or []) | set(scopes))
         if granted != sorted(config.write_scopes or []):
             if not _may_grant_scout_scopes(team=team, skill_name=skill_name, config=config, acting_user=acting_user):

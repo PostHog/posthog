@@ -40,7 +40,7 @@ import type { UserTheme } from '~/types'
 
 import { getIconForItem, getItemTypeDisplayName } from './searchItemDisplay'
 import { SearchItem } from './searchItems'
-import { STARRED_LIMIT } from './searchListsLogic'
+import { STARRED_LIMIT } from './searchListItems'
 import { RECENTS_LIMIT, SearchLogicProps, searchLogic } from './searchLogic'
 import { SETTINGS_THEME_ITEM_ID, canOpenInNewTab, formatRelativeTimeShort, getCategoryDisplayName } from './utils'
 
@@ -933,20 +933,8 @@ function SearchResults({
                                                                                     {item.keybinding}
                                                                                 </span>
                                                                             )}
-                                                                            {item.matchedSearchKeyword && (
-                                                                                <span className="ml-auto text-xxs text-tertiary truncate mt-[2px]">
-                                                                                    {`Matches "${item.matchedSearchKeyword}"`}
-                                                                                </span>
-                                                                            )}
                                                                             {item.lastViewedAt && (
-                                                                                <span
-                                                                                    className={cn(
-                                                                                        'text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]',
-                                                                                        item.matchedSearchKeyword
-                                                                                            ? 'ml-2'
-                                                                                            : 'ml-auto'
-                                                                                    )}
-                                                                                >
+                                                                                <span className="text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px] ml-auto">
                                                                                     {formatRelativeTimeShort(
                                                                                         item.lastViewedAt
                                                                                     )}

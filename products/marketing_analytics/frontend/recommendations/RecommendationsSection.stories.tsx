@@ -100,6 +100,26 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         action: 'Add it as a negative, or change the keyword "analytics template" from broad to exact match',
         reason: 'Spent $640 (6.4x the account CPA) on 210 clicks with no conversions',
         impact: 640,
+        steps: [
+            {
+                text: 'In Google Ads, open Campaigns and search for this campaign.',
+                copyValue: 'Search - Generic',
+                url: 'https://ads.google.com/aw/campaigns',
+                linkText: 'Campaigns',
+            },
+            {
+                text: 'Open Negative keywords and add this one for the campaign. The brackets make it exact match, so it blocks only this search.',
+                copyValue: '[free analytics template]',
+                url: 'https://ads.google.com/aw/keywords/negative',
+                linkText: 'Negative keywords',
+            },
+            {
+                text: 'Or, to stop similar searches too, open Keywords, find this keyword, and change its match type to exact.',
+                copyValue: 'analytics template',
+                url: 'https://ads.google.com/aw/keywords',
+                linkText: 'Keywords',
+            },
+        ],
     }),
     recommendation({
         rule: 'spend_without_conversions',
@@ -264,6 +284,16 @@ export const Modal: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+    },
+}
+
+export const ModalInstructions: Story = {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        const modal = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
+        await userEvent.click(await modal.findByText('View instructions'))
     },
 }
 

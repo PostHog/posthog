@@ -63,6 +63,7 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
     TeamSecretTokenAuthentication,
+    WorkloadAccessTokenAuthentication,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
@@ -105,6 +106,7 @@ from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
 from products.experiments.backend.facade.contracts import LinkedExperiment
+from products.feature_flags.backend.api.code_analysis import FeatureFlagCodeAnalysisMixin
 from products.feature_flags.backend.api.filters_schema import (
     FEATURE_FLAG_OPERATOR_ALIASES,
     FEATURE_FLAG_PROPERTY_TYPES,
@@ -445,6 +447,8 @@ def _scope_audit_identity(authenticator) -> tuple[list[str], str, str | None, st
         return scopes, "oauth_access_token", str(raw_id) if raw_id is not None else None, None
     if isinstance(authenticator, IDJagAccessTokenAuthentication):
         return scopes, "id_jag_access_token", None, None
+    if isinstance(authenticator, WorkloadAccessTokenAuthentication):
+        return scopes, "workload_access_token", authenticator.policy_id, None
     psak = authenticator.project_secret_api_key
     return scopes, "project_secret_api_key", str(getattr(psak, "id", "")) or None, None
 
@@ -4242,6 +4246,7 @@ class CreateStaticCohortForFlagResponseSerializer(serializers.Serializer):
 # See products/feature_flags/backend/user_blast_radius.py for the pattern.
 @extend_schema(extensions={"x-product": ProductKey.FEATURE_FLAGS})
 class FeatureFlagViewSet(
+    FeatureFlagCodeAnalysisMixin,
     ApprovalHandlingMixin,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -4378,8 +4383,10 @@ class FeatureFlagViewSet(
             # never read the field.
             queryset = queryset.annotate(is_used_in_replay_settings_annotation=self._replay_gates.as_q())
 
+            # Soft-deleted flags can be restored, so the list returns them when asked for them, and only them.
+            show_deleted = str_to_bool(self.request.GET.get("deleted", False))
             queryset = (
-                queryset.filter(deleted=False)
+                queryset.filter(deleted=show_deleted)
                 .prefetch_related("analytics_dashboards")
                 .prefetch_related(
                     Prefetch(
@@ -4402,7 +4409,10 @@ class FeatureFlagViewSet(
                 Q(id__in=product_tour_internal_targeting_flags)
             )
 
-            queryset = exclude_archived_unless_requested(queryset, requested="archived" in self.request.GET)
+            # A flag that was archived before it was deleted still belongs in the deleted list.
+            queryset = exclude_archived_unless_requested(
+                queryset, requested="archived" in self.request.GET or show_deleted
+            )
 
             # add additional filters provided by the client
             queryset = self._filter_request(self.request, queryset)
@@ -4495,6 +4505,17 @@ class FeatureFlagViewSet(
                 required=False,
                 enum=["true", "false"],
                 description="Filter by archived state. When omitted, archived flags are excluded.",
+            ),
+            OpenApiParameter(
+                "deleted",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["true", "false"],
+                description=(
+                    "Pass `true` to list only soft-deleted flags, which can be restored, archived or not. "
+                    "When omitted, deleted flags are excluded."
+                ),
             ),
             OpenApiParameter(
                 "has_evaluation_contexts",

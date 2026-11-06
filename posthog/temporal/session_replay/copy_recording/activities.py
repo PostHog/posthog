@@ -230,7 +230,10 @@ async def _copy_session_recording(input: CopySessionInput) -> CopySessionResult:
         log.info("copy_recording.already_copied")
         return CopySessionResult(session_id=input.session_id, status="already_copied")
 
-    source_blocks = await fetch_blocks_from_recording_api(input.session_id, input.source_team_id)
+    try:
+        source_blocks = await fetch_blocks_from_recording_api(input.session_id, input.source_team_id)
+    except RecordingDeletedError as e:
+        raise ApplicationError("Recording was deleted", non_retryable=True) from e
     if not source_blocks:
         log.warning("copy_recording.source_not_found")
         return CopySessionResult(session_id=input.session_id, status="not_found")

@@ -1,14 +1,14 @@
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, ScrollView, Text, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, ScrollView, Text, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Svg, { Path, Rect, Text as SvgText } from 'react-native-svg'
-
 import type { DashboardTileView, InsightSnapshot, PinView } from '@/model/views'
 import { BottomSheet } from '@/ui/BottomSheet'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { motion, radii, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 
 import { type TileSheetEntry, trackPinTileSheetClosed } from '../analytics'
 import { insightQueryKey, tileTarget } from '../items'
@@ -71,7 +71,7 @@ function TileSheet({ target, visible, onClose, onChoose }: TileSheetProps): Reac
     const colors = useColors()
     const styles = useStyles()
     const { pin, mode, chooseFirst, entry } = target
-    const { height: windowHeight } = useWindowDimensions()
+    const { height: windowHeight } = useSceneDimensions()
     const listGesture = useMemo(() => Gesture.Native(), [])
     const { dashboard, retry } = useDashboardTiles(pin.ref)
     const [chosen, setChosen] = useState<number | null>(pin.display.tileId ?? null)

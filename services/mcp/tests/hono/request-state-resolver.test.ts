@@ -23,6 +23,7 @@ const {
         is_impersonated: undefined as boolean | undefined,
         suppress_analytics: undefined as boolean | undefined,
         mcp_allowed_tools: undefined as string[] | undefined,
+        supports_step_up: undefined as boolean | undefined,
     },
     mockSessionScopedStores: new Map<string, Map<string, unknown>>(),
     // Records the keys passed to every session-scoped refreshTtl call (only the
@@ -220,6 +221,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         mockApiKey.is_impersonated = undefined
         mockApiKey.suppress_analytics = undefined
         mockApiKey.mcp_allowed_tools = undefined
+        mockApiKey.supports_step_up = undefined
     })
 
     it.each([

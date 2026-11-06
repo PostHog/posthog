@@ -58,6 +58,10 @@ class IntegrationRecord(Protocol):
     @property
     def auth_type(self) -> str: ...
 
+    # The name the UI shows for the connection, for example the account or host.
+    @property
+    def display_name(self) -> str: ...
+
     # The decrypted `sensitive_config["access_token"]`. Raises `UndecryptedIntegrationSecretError`
     # when the stored value cannot be decrypted.
     @property

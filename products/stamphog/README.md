@@ -172,6 +172,63 @@ A merge fans out to every audience it belongs to, and each audience resolves to 
 
 Why the digest works this way: [`docs/digest.md`](docs/digest.md).
 
+## Reviewer routing
+
+Reviewer routing requests reviews from the owners of the changed code (`backend/logic/routing/`, queued by its own webhook consumer).
+Owners come from `owners.yaml` at the default branch, read with stamphog's installation token, so a PR cannot name its own reviewers.
+When more than one owner is a candidate, one Claude Haiku call through the ai-gateway may cut owners whose part is trivial, with its own short-lived token capped far below the reviewer's.
+Pinned owners (sensitive paths and owners of additions) are never cut, forks never reach the model, and any model failure requests everyone.
+A comment names the cut owners and why.
+
+`routing_mode` on the repo config decides when routing runs:
+
+- `off` (the default): never.
+- `always`: when a PR opens ready for review or is marked ready. It never reads or waits for a verdict, and it routes bot and fork PRs too. Each head routes once, so a draft marked ready right after it opened is not routed twice.
+- `fallback`: owners are requested only when stamphog does not approve. If stamphog will not review the head (reviews disabled, a draft, bot or untrusted author, or label mode without the trigger label), routing runs at once, like `always`. Otherwise the head waits for the verdict:
+  - An approval requests only the pinned owners of that head that no earlier routing of the PR requested, and says so in the comment. When there are none, it requests nobody.
+  - A WAIT keeps waiting, because stamphog reviews again later. A WAIT on a head that was not waiting starts waiting there.
+  - Any other outcome (refused, escalate, gated, failed) routes in full.
+  - A safety net fires 30 minutes after a head starts waiting. Unless the PR was already routed in full, or its current head was approved, it routes the current head in full, even when the head moved since.
+  - Full routing happens at most once per PR, like `always`. After it, later verdicts and safety nets do nothing.
+  - A PR that opened before `fallback` was on has no routing record, so its verdicts route nothing. Its reviewers came from elsewhere, and routing it would request again owners its author removed.
+  - A verdict that lands before the opening event stores its record is dropped the same way, so the opening event checks for a finished review of the head first and routes by it.
+
+`routing_fork_labels` maps a team slug to a label name. On a fork PR, a kept team with an entry gets that label instead of a review request, so an outside author cannot ping it.
+
+`routing_mode` is set under "Reviewer requests" in the repository's row on the Stamphog page, or with `routing_mode` on the repo config API. Both directions take the `manager` level, like `review_mode`. A placeholder row resets it to `off` when it binds to an installation, like the other review policy fields.
+The page offers the setting only when the default branch has a root `owners.yaml` (`GET repo_configs/{id}/owners_file/`, at most one GitHub call per repository every 10 minutes, at a priority the egress limiter can shed), and keeps it in view while it is on, so it can be turned off.
+Set `routing_fork_labels` with `routing_fork_labels` on the repo config API, for example `PATCH repo_configs/{id}/` with `{"routing_fork_labels": {"team-alpha": "team/alpha"}}`. The value replaces the whole map, and `{}` removes every label. It takes the `manager` level like `routing_mode`, because it decides who gets asked on a fork PR, and a placeholder row resets it to `{}` when it binds.
+
+Routing only adds review requests, so a second assigner that requests every owner leaves the cut nothing to remove.
+In PostHog/posthog, `.github/workflows/auto-assign-reviewers.yml` stops when the repository variable `AUTO_ASSIGN_REVIEWERS_PAUSED` is `true`.
+Turn routing on first, then set the variable. To roll back, delete the variable first, then turn routing off.
+
+The latest result is stored on `PullRequest.routing` with its mode, trigger (`opened`, `ready_for_review`, `verdict:<outcome>` or `safety_net`), scope (`full` or `pinned`) and status (`waiting`, `routing`, `requested` or `done`).
+`full_routed_head`, `pinned_routed_head` (with their `_at` times) and `requested_owners` carry over to every later record, so the PR-level rules hold across pushes.
+Routing never writes `payload_updated_at` or the descriptive fields of the row, so it cannot make the review path drop a delivery as stale.
+`GET pull_requests/` and `stamphog-pull-requests-list` return an allowlist of that record as `routing` (status, head, mode, trigger, scope, timestamps, the routed heads, and `claim_expired`), next to the repository's `routing_mode` now. The plan, the pins and the pending comment stay internal.
+
+Each run that makes its requests is also recorded, append-only, in `RoutingRun` with one `RoutingRunOwner` row per owner: what the run did with the owner (`outcome`), why (`reason`), the model's one-line reason when it proposed a cut, also when a guard kept the owner, and every changed file the owner owns, without patches.
+owners.yaml and the pull request both change after the run, so the run keeps its own copy of the file list, and `owners_sha` names the default-branch commit whose owners.yaml files decided the owners.
+Each file also keeps `owners_source`, the ownership file whose `owners` list named the owner for it. An owner that only an additions declaration made a candidate has none, because additions collect from every file on the walk.
+The plan decides each owner's outcome and reason. The rows are written after the `requested` record is saved, so a failed log write only logs and never makes the task request again.
+Read them with `GET routing_runs/` (filters `repository`, `pr_number`, `owner`, `outcome`, `reason`, `head_sha`, `created_after`, `created_before`) or the `stamphog-routing-runs-list` MCP tool.
+`outcome` and `reason` match the same owner as `owner`, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.
+The list leaves out the file lists, because a large pull request gives every owner a long one. `GET routing_runs/{id}/` and `stamphog-routing-runs-get` return them. The model call carries `stamphog_routing_run_id`, `stamphog_repo` and `stamphog_pr_number`, which link a run to its LLM trace.
+
+Every routing run (event, verdict or safety net) takes the same steps:
+
+1. A compare-and-swap claim sets `routing` with `claimed_by` (the Celery task id) and `claimed_at`.
+2. The plan (kept and cut owners, the user, team and label requests, the comment body) is saved under the claim, with `planned_at`, before any GitHub write.
+3. The labels and review requests go out, and the record becomes `requested`.
+4. The comment is written or removed, and the record becomes `done`.
+
+A retry of the same task keeps the task id: it reuses a saved plan without a second model call, and after `requested` it only finishes the comment.
+While another task holds a claim on any head, the event and verdict tasks retry a minute later and the safety net returns.
+A claim older than two hours counts as abandoned, so a task that died does not block the PR.
+When GitHub lists fewer files than the PR's `changed_files`, the cut step is skipped (`files_truncated: true`, `llm_skipped: files_truncated`) and every owner found is requested.
+`model` is set only when a request reached the gateway.
+
 ## How it runs
 
 Hosted flow: webhook → Celery (`backend/tasks/tasks.py`) → Temporal (`backend/temporal/workflow.py`) → sandboxed engine → verdict posted back (`post_verdict`).

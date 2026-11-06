@@ -284,6 +284,7 @@ impl SessionLimiter {
                     let outcome = if blocking { "blocked" } else { "counted" };
                     counter!("ai_research_v4_recorder_rate_limited_sessions_total", "outcome" => outcome)
                         .increment(1);
+                    tracing::info!(team_id = session.team_id, session_id = %session.session_id, outcome, "the session limiter limited a session");
                 }
                 let prefix = if allowed || !blocking {
                     self.seen.insert(session.clone(), ());

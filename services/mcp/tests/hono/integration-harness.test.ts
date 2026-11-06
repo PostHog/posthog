@@ -52,7 +52,7 @@ describe('Hono integration harness', () => {
                 expect(error?.code).toBe('EADDRINUSE')
                 const contextMillUrl = getEnv().POSTHOG_MCP_LOCAL_SKILLS_URL
                 expect(contextMillUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\//)
-                const entries = await fetchAndExtractEntries(contextMillUrl)
+                const { entries } = await fetchAndExtractEntries(contextMillUrl)
                 expect(entries.some((entry) => entry.uri.startsWith('posthog://'))).toBe(true)
                 if (fails) {
                     throw new Error('warmup failed')
