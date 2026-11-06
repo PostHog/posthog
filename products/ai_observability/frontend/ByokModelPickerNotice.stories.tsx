@@ -99,6 +99,22 @@ const meta: Meta<StoryArgs> = {
                                     ]
                                   : [],
                           ],
+                '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) =>
+                    modelsFail && params.key_id
+                        ? [500, { error: 'Internal error' }]
+                        : [
+                              200,
+                              systemOne
+                                  ? [
+                                        {
+                                            id: 'example-judge-v1',
+                                            name: 'example-judge-v1',
+                                            provider: 'System One',
+                                            is_recommended: false,
+                                        },
+                                    ]
+                                  : [],
+                          ],
             },
         })
 

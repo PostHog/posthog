@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 
 import { useMobileProductFlags } from '@/lib/featureFlags'
 import { BottomBar } from './BottomBar'
+import { openNavTarget } from './navPinRoutes'
 import { useNavPins } from './navPinStore'
 
 export function ReportNavigation(): ReactElement {
@@ -16,7 +17,7 @@ export function ReportNavigation(): ReactElement {
             onHome={() => router.navigate('/inbox')}
             onChats={() => router.navigate('/chats')}
             onViews={() => router.navigate('/views')}
-            onPin={(pin) => router.navigate(pin === 'errors' ? '/errors' : '/replay')}
+            onPin={(pin) => openNavTarget(router, pin, true)}
         />
     )
 }

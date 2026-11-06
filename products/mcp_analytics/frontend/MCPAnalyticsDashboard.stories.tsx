@@ -1,7 +1,7 @@
-import { MOCK_DEFAULT_USER } from '~/lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { waitFor, within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -9,11 +9,14 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import preflightJson from '~/mocks/fixtures/_preflight.json'
+import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
-import { expect } from 'storybook/test'
+import { expect, userEvent } from 'storybook/test'
 
 import { modelLab } from './aiLabs'
 import { labMark } from './brandMarks'
+import { ActivityNextSteps } from './earlyData/ActivityNextSteps'
 import { MCPAnalyticsDashboardOverview } from './MCPAnalyticsDashboardOverview'
 
 const KPI_RESULTS = [
@@ -77,11 +80,28 @@ const SESSION_RESULTS = [
     ['0193f2a1-aaaa-bbbb-cccc-000000000006', 22, 3, 13.6, 410, 6, '2026-06-06T16:20:00Z'],
 ]
 
+// An invented icon for the custom harness below, as a team would paste it in settings.
+const ACME_AGENT_ICON =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAoklEQVR42u2WyxGAIAwF4ZXhwcIs0MI82IbemUHyh8yYMwnshl8pfyjjPvZHk4/ZALCg11jIa6ClllrIaaBHK7GQz8CIkmshlwEqHceC2sB2XjXEALe31PGwoNdYgOeLR8mDVe+lFuD93o/yYbnzJRbgSU+pA+tzz7UAb/pRPXjcehwLiKD/qguvO586vkbR9xa31n8ggr6dZx0DUfSz5uvGCwGCWU5qX8y4AAAAAElFTkSuQmCC'
+
+const CUSTOM_HARNESSES = [
+    {
+        id: '0193f2a1-0000-7000-8000-000000000001',
+        name: 'Acme agent',
+        match_pattern: 'acme-agent',
+        icon: ACME_AGENT_ICON,
+        created_at: '2026-06-01T10:00:00Z',
+        updated_at: '2026-06-01T10:00:00Z',
+    },
+]
+
 // MCPHarnessBreakdownQuery returns already-labelled rows (the runner resolves the
 // harness server-side), so these are customer labels, not raw client strings.
 const HARNESS_RESULTS = [
     { harness: 'Claude Code', total_calls: 6200, errors: 240, error_rate_pct: 3.9, sessions: 820 },
     { harness: 'Cursor', total_calls: 2100, errors: 96, error_rate_pct: 4.6, sessions: 410 },
+    // A team-defined custom harness name. It shows the icon the team pasted in settings.
+    { harness: 'Acme agent', total_calls: 1500, errors: 30, error_rate_pct: 2.0, sessions: 260 },
     { harness: 'OpenAI Codex', total_calls: 980, errors: 71, error_rate_pct: 7.2, sessions: 180 },
     { harness: 'Claude.ai', total_calls: 760, errors: 22, error_rate_pct: 2.9, sessions: 240 },
     { harness: 'VS Code', total_calls: 540, errors: 12, error_rate_pct: 2.2, sessions: 120 },
@@ -762,6 +782,7 @@ const meta: Meta = {
             })(Story, context),
         mswDecorator({
             get: {
+                '/api/projects/:team_id/mcp_analytics/custom_harnesses/': CUSTOM_HARNESSES,
                 '/api/projects/:team_id/mcp_analytics/intent_clusters/': CLUSTER_SNAPSHOT,
                 '/api/projects/:team_id/mcp_analytics/sessions/activity_overview/': ACTIVITY_OVERVIEW,
                 '/api/projects/:team_id/mcp_analytics/sessions/': SESSION_LIST,
@@ -1016,6 +1037,100 @@ export const Activity: Story = {
         await expect(await canvas.findAllByText('claude-opus-5-5', {}, { timeout: 15000 })).not.toHaveLength(0)
         await expect(canvasElement.querySelector('[data-attr=hogqlx-brand-mark-label] svg')).toBeVisible()
     },
+}
+
+const WEEKLY_REPORT_BUTTON = '[data-attr=mcp-analytics-activity-next-step-weekly-report]'
+
+const WEEKLY_REPORT_OFFER_GET_MOCKS = {
+    '/_preflight': { ...preflightJson, cloud: true, realm: 'cloud' },
+    '/api/projects/:team_id/hog_functions': EMPTY_PAGINATED_RESPONSE,
+    '/api/projects/:team_id/subscriptions': EMPTY_PAGINATED_RESPONSE,
+}
+
+const CREATED_WEEKLY_REPORT = {
+    id: 1,
+    title: 'MCP tool health',
+    enabled: true,
+    target_type: 'email',
+    target_value: MOCK_DEFAULT_USER.email,
+    next_delivery_date: '2026-06-08T09:00:00Z',
+}
+
+const WEEKLY_REPORT_OFFER_PARAMETERS = {
+    featureFlags: [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT],
+    msw: {
+        mocks: {
+            get: WEEKLY_REPORT_OFFER_GET_MOCKS,
+            post: { '/api/projects/:team_id/subscriptions': CREATED_WEEKLY_REPORT },
+        },
+    },
+    testOptions: { waitForSelector: WEEKLY_REPORT_BUTTON },
+}
+
+async function clickWeeklyReportButton(): Promise<void> {
+    // A bare querySelector misses while the card is still loading, and the click would silently do nothing.
+    const button = await waitFor(() => {
+        const element = document.querySelector<HTMLElement>(WEEKLY_REPORT_BUTTON)
+        if (!element) {
+            throw new Error('The weekly report button is not rendered')
+        }
+        return element
+    })
+    await userEvent.click(button)
+}
+
+export const ActivityWeeklyReportOffer: Story = {
+    parameters: { ...WEEKLY_REPORT_OFFER_PARAMETERS, pageUrl: urls.mcpAnalyticsActivity() },
+}
+
+export const ActivityWeeklyReportOfferNarrow: Story = {
+    parameters: { ...WEEKLY_REPORT_OFFER_PARAMETERS, layout: 'padded' },
+    render: () => (
+        <div className="w-[520px]">
+            <ActivityNextSteps />
+        </div>
+    ),
+}
+
+export const ActivityWeeklyReportOfferFailed: Story = {
+    parameters: {
+        ...WEEKLY_REPORT_OFFER_PARAMETERS,
+        pageUrl: urls.mcpAnalyticsActivity(),
+        msw: {
+            mocks: {
+                get: WEEKLY_REPORT_OFFER_GET_MOCKS,
+                post: {
+                    '/api/projects/:team_id/subscriptions': (): [number, { detail: string }] => [
+                        400,
+                        { detail: 'Your plan is limited to 5 subscriptions.' },
+                    ],
+                },
+            },
+        },
+        testOptions: { waitForSelector: '[data-attr=mcp-analytics-activity-next-steps] [role=alert]' },
+    },
+    play: clickWeeklyReportButton,
+}
+
+export const ActivityWeeklyReportOfferNeedsConsent: Story = {
+    parameters: {
+        ...WEEKLY_REPORT_OFFER_PARAMETERS,
+        pageUrl: urls.mcpAnalyticsActivity(),
+        msw: {
+            mocks: {
+                get: {
+                    ...WEEKLY_REPORT_OFFER_GET_MOCKS,
+                    '/api/organizations/@current/': {
+                        ...MOCK_DEFAULT_ORGANIZATION,
+                        is_ai_data_processing_approved: false,
+                    },
+                },
+                post: { '/api/projects/:team_id/subscriptions': CREATED_WEEKLY_REPORT },
+            },
+        },
+        testOptions: { waitForSelector: '[data-attr=ai-consent-approve]' },
+    },
+    play: clickWeeklyReportButton,
 }
 
 export const Sessions: Story = {

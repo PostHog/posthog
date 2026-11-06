@@ -2556,6 +2556,7 @@ class TestCanvasActions(CanvasAPIBaseTest):
         task = Task.objects.get(id=response.json()["result"]["task_id"])
         assert task.created_by_id == self.user.id
         assert task.channel_id == self.channel.id
+        assert task.profile == "user"
         assert task.title == "Follow up"
         assert not task.runs.exists()
 
@@ -2643,6 +2644,7 @@ class TestCanvasActions(CanvasAPIBaseTest):
         run = task.runs.get(id=response.json()["result"]["run_id"])
         assert task.created_by_id == viewer.id
         assert task.channel_id == self.channel.id
+        assert task.profile == "user"
         assert task.repositories == repositories
         assert task.github_integration_id == integration.id
         assert run.environment == TaskRun.Environment.CLOUD
