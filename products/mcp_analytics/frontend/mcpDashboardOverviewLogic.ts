@@ -20,10 +20,8 @@ import {
     type ComparisonWindow,
     buildBucketKeys,
     buildComparisonWindow,
-    BUCKET_FORMAT,
     lastBucketIsInProgress,
     normalizeBucket,
-    startOfBucket,
 } from 'lib/utils/timeBuckets'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -332,17 +330,12 @@ export function buildDailyActivity(rows: ActivityRow[], bucketKeys: string[]): D
     }
 }
 
-// The window opens on a whole bucket so it stays the same between loads and the server can answer the
-// KPI and Users queries from its cache. A window opening at the current millisecond is a new cache key
-// on every load. A window shorter than one bucket keeps its start, because rounding it would reach into
-// the selected period's first bucket and count earlier events as current.
+// The window opens on a whole minute so the KPI and Users queries keep one cache key for that minute
+// instead of a new one per millisecond. A minute is the most the previous period may grow: rounding to
+// a whole bucket would make it up to a bucket longer than the selected period and skew every delta.
 function kpiComparisonWindow(dateFilter: DateFilter, timezone: string, interval: IntervalType): ComparisonWindow {
     const window = buildComparisonWindow(dateFilter.dateFrom, dateFilter.dateTo, timezone, interval)
-    const opening = startOfBucket(dayjs(window.dateFrom).tz(timezone), interval)
-    if (opening.format(BUCKET_FORMAT) >= window.currentStartBucket) {
-        return window
-    }
-    return { ...window, dateFrom: opening.toISOString() }
+    return { ...window, dateFrom: dayjs(window.dateFrom).startOf('minute').toISOString() }
 }
 
 // Merge the dashboard's active filters with a doubled comparison window's date range.

@@ -606,7 +606,7 @@ describe('mcpDashboardOverviewLogic', () => {
 
             await expectLogic(logic, () => logic.actions.setDateFilter(dateFrom, null)).toFinishAllListeners()
             const first = windowOf(mockApi.query.mock.calls.length - 9)
-            jest.setSystemTime(new Date('2026-11-06T14:24:52.004Z'))
+            jest.setSystemTime(new Date('2026-11-06T14:23:58.004Z'))
             const callsBefore = mockApi.query.mock.calls.length
             await expectLogic(logic, () => logic.actions.reloadAll()).toFinishAllListeners()
             jest.useRealTimers()
@@ -617,6 +617,24 @@ describe('mcpDashboardOverviewLogic', () => {
 
         // Rounding a window shorter than one bucket would reach into the selected period's first bucket and
         // count events from before the selected start as current.
+        // A previous period longer than the selected one makes flat traffic read as a drop. Sub-day ranges
+        // keep the bounded skew documented on the period totals loader, so only whole-day ranges are pinned.
+        it.each(['-7d', '-90d'])('compares %s against a previous period of the same length', async (dateFrom) => {
+            jest.useFakeTimers({ now: new Date('2026-11-06T00:59:59.900Z'), advanceTimers: true })
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            const callsBefore = mockApi.query.mock.calls.length
+            await expectLogic(logic, () => logic.actions.setDateFilter(dateFrom, null)).toFinishAllListeners()
+            const now = dayjs()
+            jest.useRealTimers()
+
+            const reloads = reloadCallsSince(callsBefore)
+            const totals = reloads.find((call) => call.query?.includes('current_users'))
+            const selectedStart = dayjs.utc(totals.query.match(/toDateTime\('([^']+)'/)[1])
+            const previousMs = selectedStart.diff(dayjs(totals.filters.dateRange.date_from))
+            expect(Math.abs(previousMs - now.diff(selectedStart))).toBeLessThan(60_000)
+        })
+
         it('leaves a window shorter than one bucket where it starts', async () => {
             const logic = mcpDashboardOverviewLogic()
             logic.mount()
