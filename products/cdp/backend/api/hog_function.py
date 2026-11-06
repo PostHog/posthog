@@ -71,15 +71,14 @@ from products.cdp.backend.presentation.hog_invocations.rerun import (
     HogInvocationRerunResponseSerializer,
 )
 from products.cdp.backend.secret_binding import (
-    SECRET_HOST_BINDING_COUNTER,
-    SECRET_REENTRY_CODE,
-    SECRET_REENTRY_MESSAGE,
     SecretBinding,
     binding_metric,
     comparable_inputs,
     entered_secret_input_keys,
     secret_binding,
     secret_binding_enforced,
+    secret_reentry_errors,
+    settle_secret_bindings,
 )
 from products.cdp.backend.secret_origins import (
     SecretOrigins,
@@ -1030,7 +1029,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         stages_draft = bool(self.context.get("stages_draft"))
         surface = "draft" if stages_draft else getattr(self.context.get("view"), "action", None) or "internal"
         refused = sorted(key for key, (_, outcome) in bindings.items() if outcome == SecretBinding.REFUSED)
-        enforce = bool(refused) and not stages_draft and self._enforces_secret_binding(team)
+        enforce = bool(refused) and not stages_draft and secret_binding_enforced(self.context)
+        outcomes: list[str] = []
         for key, (origins, outcome) in bindings.items():
             let_through = outcome == SecretBinding.REFUSED and not enforce
             if let_through and not stages_draft:
@@ -1038,18 +1038,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 # keeps the old origins because publishing checks the move again.
                 origins = derived[key]
             inputs[key]["allowed_origins"] = stored_origins(origins)
-            SECRET_HOST_BINDING_COUNTER.labels(
-                outcome=binding_metric(outcome, let_through, stages_draft), surface=surface
-            ).inc()
-        if enforce:
-            raise serializers.ValidationError(
-                {"inputs": dict.fromkeys(refused, SECRET_REENTRY_MESSAGE)}, code=SECRET_REENTRY_CODE
-            )
-
-    def _enforces_secret_binding(self, team: Team) -> bool:
-        if self.context.get("view") is None:
-            return False
-        return secret_binding_enforced(team)
+            outcomes.append(binding_metric(outcome, let_through, stages_draft))
+        settle_secret_bindings(outcomes, surface, {"inputs": secret_reentry_errors(refused)} if enforce else {})
 
     def to_representation(self, data):
         is_instance = isinstance(data, HogFunction)

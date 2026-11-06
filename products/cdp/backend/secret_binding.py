@@ -1,13 +1,13 @@
 """Whether a save may keep a stored secret where its config now sends it, shared by every API that
 stores secret inputs."""
 
+from collections.abc import Iterable, Mapping
 from enum import StrEnum
 from typing import Any, Optional
 
 import posthoganalytics
 from prometheus_client import Counter
-
-from posthog.models.team import Team
+from rest_framework import serializers
 
 from products.cdp.backend.secret_origins import SecretOrigins
 from products.cdp.backend.validation import MASKED_SECRET_VALUE
@@ -79,7 +79,13 @@ def secret_binding(
     return baseline, SecretBinding.KEPT if unchanged or sends_within else SecretBinding.REFUSED
 
 
-def secret_binding_enforced(team: Team) -> bool:
+def secret_binding_enforced(context: Mapping[str, Any]) -> bool:
+    """Whether a refused secret fails the save that `context` validates. Only a request fails: a caller
+    with no view, such as a management command, re-saves what someone already stored. A request fails
+    only while the flag is on for its team."""
+    if context.get("view") is None:
+        return False
+    team = context["get_team"]()
     return bool(
         posthoganalytics.feature_enabled(
             SECRET_HOST_BINDING_FLAG,
@@ -90,8 +96,14 @@ def secret_binding_enforced(team: Team) -> bool:
     )
 
 
-def count_secret_bindings(outcomes: list[SecretBinding], surface: str, enforced: bool) -> None:
+def secret_reentry_errors(keys: Iterable[str]) -> dict[str, str]:
+    return dict.fromkeys(keys, SECRET_REENTRY_MESSAGE)
+
+
+def settle_secret_bindings(outcomes: Iterable[str], surface: str, refused: Mapping[str, Any]) -> None:
+    """Count every secret the save bound, then fail the save when `refused`, the error detail of the
+    secrets it refuses, is not empty. A refused secret the save lets through counts as `would_refuse`."""
     for outcome in outcomes:
-        if outcome == SecretBinding.REFUSED and not enforced:
-            outcome = SecretBinding.WOULD_REFUSE
         SECRET_HOST_BINDING_COUNTER.labels(outcome=outcome, surface=surface).inc()
+    if refused:
+        raise serializers.ValidationError(refused, code=SECRET_REENTRY_CODE)

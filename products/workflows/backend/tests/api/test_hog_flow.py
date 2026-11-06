@@ -39,6 +39,7 @@ from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.flag_gated_templates import gated_template_enabled
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.secret_binding import SECRET_REENTRY_MESSAGE
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cohorts.backend.models.backfill import (
@@ -69,6 +70,7 @@ from products.workflows.backend.facade.transactional_emails import create_code_e
 from products.workflows.backend.facade.writes import update_workflow
 from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
+from products.workflows.backend.models.hog_flow_optimization import HogFlowOptimization
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.presentation.views.hog_flow import (
     HogFlowActionSerializer,
@@ -137,6 +139,7 @@ def _valid_email_inputs() -> dict:
 
 
 _SECRET_TEMPLATE_ID = "template-secret-webhook"
+_SECRET_HEADERS_ENTERED = {"secret_headers": {"value": {"X-Token": "NEW"}}}
 
 
 def _secret_input_template() -> dict:
@@ -8055,20 +8058,25 @@ class TestHogFlowSecretInputs(APIBaseTest):
         assert "LEGACY-SECRET" not in stored
         assert "DRAFT-SECRET" not in stored
 
-    def _actions(self, url: str, api_key: dict, template_id: str = _SECRET_TEMPLATE_ID) -> list[dict]:
+    def _actions(
+        self, url: str, api_key: dict, template_id: str = _SECRET_TEMPLATE_ID, extra_inputs: dict | None = None
+    ) -> list[dict]:
         actions = self._flow_payload()["actions"]
-        actions[1]["config"] = {"template_id": template_id, "inputs": {"url": {"value": url}, "api_key": api_key}}
+        inputs = {"url": {"value": url}, "api_key": api_key, **(extra_inputs or {})}
+        actions[1]["config"] = {"template_id": template_id, "inputs": inputs}
         return actions
 
     @parameterized.expand(
         [
-            ("rename", lambda self: {"name": "Renamed"}, True, 200, ["https://example.com"]),
+            ("rename", lambda self: {"name": "Renamed"}, True, 200, ["https://example.com"], "SUPER-SECRET", 0),
             (
                 "unchanged_resave",
                 lambda self: {"actions": self._actions("https://example.com", {"secret": True})},
                 True,
                 200,
                 ["https://example.com"],
+                "SUPER-SECRET",
+                0,
             ),
             (
                 "same_host",
@@ -8076,6 +8084,8 @@ class TestHogFlowSecretInputs(APIBaseTest):
                 True,
                 200,
                 ["https://example.com"],
+                "SUPER-SECRET",
+                0,
             ),
             (
                 "new_host",
@@ -8083,13 +8093,17 @@ class TestHogFlowSecretInputs(APIBaseTest):
                 True,
                 400,
                 ["https://example.com"],
+                "SUPER-SECRET",
+                0,
             ),
             (
                 "new_host_with_the_flag_off",
                 lambda self: {"actions": self._actions("https://evil.example.com", {"secret": True})},
                 False,
                 200,
-                ["https://example.com"],
+                ["https://evil.example.com"],
+                "SUPER-SECRET",
+                1,
             ),
             (
                 "new_host_with_the_secret_entered",
@@ -8097,6 +8111,8 @@ class TestHogFlowSecretInputs(APIBaseTest):
                 True,
                 200,
                 ["https://evil.example.com"],
+                "RE-ENTERED",
+                0,
             ),
             (
                 "id_swapped",
@@ -8109,6 +8125,8 @@ class TestHogFlowSecretInputs(APIBaseTest):
                 True,
                 400,
                 ["https://example.com"],
+                "SUPER-SECRET",
+                0,
             ),
             (
                 "template_swapped",
@@ -8116,11 +8134,13 @@ class TestHogFlowSecretInputs(APIBaseTest):
                 True,
                 400,
                 ["https://example.com"],
+                "SUPER-SECRET",
+                0,
             ),
         ]
     )
     def test_moving_a_stored_secret_needs_it_entered_again(
-        self, name, change, flag_on, expected_status, expected_origins
+        self, _name, change, flag_on, expected_status, expected_origins, expected_value, expected_would_refuse
     ):
         evil = deepcopy(webhook_template)
         evil["id"] = "template-evil"
@@ -8145,26 +8165,154 @@ class TestHogFlowSecretInputs(APIBaseTest):
                 "secret_reentry_required",
             )
         stored = HogFlow.objects.get(id=flow_id).encrypted_inputs["action_1"]["api_key"]
-        assert stored["value"] == ("RE-ENTERED" if name.endswith("entered") else "SUPER-SECRET")
-        assert stored["allowed_origins"] == expected_origins
-        assert (REGISTRY.get_sample_value(counter, labels) or 0) - would_refuse == (0 if flag_on else 1)
+        assert (stored["value"], stored["allowed_origins"]) == (expected_value, expected_origins)
+        assert (REGISTRY.get_sample_value(counter, labels) or 0) - would_refuse == expected_would_refuse
+
+    def _active_flow(self, url: str, variables: list[dict] | None = None, extra_inputs: dict | None = None) -> str:
+        actions = self._actions(url, {"value": "SUPER-SECRET"})
+        actions[1]["config"]["inputs"].update(extra_inputs or {})
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Secret Flow", "actions": actions, "variables": variables or []},
+            format="json",
+        )
+        assert create.status_code == 201, create.json()
+        flow_id = create.json()["id"]
+        assert (
+            self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"}).status_code
+            == 200
+        )
+        return flow_id
+
+    def _propose(self, flow_id: str, actions: list[dict]):
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}"
+        HogFlowOptimization.objects.for_team(self.team.id).create(hog_flow_id=flow_id, enabled=True)
+        producer_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="producer",
+            user=self.user,
+            secure_value=hash_key_value(producer_key),
+            scopes=["hog_flow:read", "hog_flow_proposal:write"],
+        )
+        return self.client.post(
+            f"{url}/proposals/",
+            {
+                "title": "Move the webhook",
+                "rationale": "The current URL fails.",
+                "content": {"actions": actions},
+                "base_version": self.client.get(url).json()["version"],
+                "evidence": {"metric": "failure rate", "current_value": 1.0, "n": 10, "unit": "rate", "guardrails": []},
+            },
+            format="json",
+            headers={"authorization": f"Bearer {producer_key}"},
+        )
 
     @parameterized.expand(
         [
-            ("rename", {"name": "Renamed"}, 200),
-            ("unchanged_variables", {"variables": [{"key": "host", "type": "string", "default": "example.com"}]}, 200),
-            ("new_variable_default", {"variables": [{"key": "host", "type": "string", "default": "evil.com"}]}, 400),
+            ("stage_draft", "stage_draft", True, 400),
+            ("proposal", "proposal", True, 400),
+            ("proposal_with_the_flag_off", "proposal", False, 201),
+        ]
+    )
+    def test_a_staged_or_suggested_move_of_a_secret_needs_it_entered_again(
+        self, _name, write, flag_on, expected_status
+    ):
+        flow_id = self._active_flow("https://example.com")
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}"
+        moved = self._actions("https://evil.example.com", {"secret": True})
+
+        with patch("products.cdp.backend.secret_binding.posthoganalytics.feature_enabled", return_value=flag_on):
+            if write == "stage_draft":
+                res = self.client.patch(url, {"actions": moved, "stage_draft": True}, format="json")
+            else:
+                res = self._propose(flow_id, moved)
+
+        assert res.status_code == expected_status, res.json()
+        if expected_status == 400:
+            assert res.json()["attr"] == ("content" if write == "proposal" else "actions__action_1__inputs__api_key")
+            assert HogFlow.objects.get(id=flow_id).draft is None
+
+    @parameterized.expand([("live_save",), ("test_run",)])
+    def test_a_secret_kept_from_an_unchanged_draft_cannot_follow_a_moved_live_step(self, write):
+        flow_id = self._active_flow("https://example.com")
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}"
+        stage = self.client.patch(
+            url, {"actions": self._actions("https://example.com", {"secret": True}), "stage_draft": True}, format="json"
+        )
+        assert stage.status_code == 200, stage.json()
+        moved = self.client.patch(
+            url, {"actions": self._actions("https://evil.example.com", {"value": "JUNK"})}, format="json"
+        )
+        assert moved.status_code == 200, moved.json()
+
+        with (
+            patch("products.cdp.backend.secret_binding.posthoganalytics.feature_enabled", return_value=True),
+            patch(
+                "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+            ) as mock_invoke,
+        ):
+            evil_with_kept_secret = self._actions("https://evil.example.com", {"secret": True})
+            if write == "live_save":
+                res = self.client.patch(url, {"actions": evil_with_kept_secret}, format="json")
+            else:
+                res = self.client.post(
+                    f"{url}/invocations/",
+                    {
+                        "configuration": {"actions": evil_with_kept_secret},
+                        "globals": {"event": {"event": "$pageview"}},
+                        "mock_async_functions": False,
+                    },
+                    format="json",
+                )
+
+        assert res.status_code == 400, res.json()
+        assert SECRET_REENTRY_MESSAGE in str(res.json())
+        mock_invoke.assert_not_called()
+        assert HogFlow.objects.get(id=flow_id).encrypted_inputs["action_1"]["api_key"]["value"] == "JUNK"
+
+    @parameterized.expand(
+        [
+            ("rename", lambda self: {"name": "Renamed"}, 200),
+            (
+                "unchanged_variables",
+                lambda self: {"variables": [{"key": "host", "type": "string", "default": "example.com"}]},
+                200,
+            ),
+            (
+                "new_variable_default",
+                lambda self: {"variables": [{"key": "host", "type": "string", "default": "evil.com"}]},
+                400,
+            ),
+            (
+                "unrelated_variable_added",
+                lambda self: {
+                    "variables": [
+                        {"key": "host", "type": "string", "default": "example.com"},
+                        {"key": "greeting", "type": "string", "default": "hello"},
+                    ]
+                },
+                200,
+            ),
+            (
+                "other_secret_entered",
+                lambda self: {
+                    "actions": self._actions(
+                        "https://{variables.host}/hook", {"secret": True}, extra_inputs=_SECRET_HEADERS_ENTERED
+                    )
+                },
+                200,
+            ),
         ]
     )
     def test_secret_sent_to_an_address_from_a_variable_is_unbound(self, _name, change, expected_status):
-        payload = self._flow_payload()
+        payload = self._flow_payload(extra_inputs={"secret_headers": {"value": {"X-Token": "OLD"}}})
         self._function_inputs(payload)["url"] = {"value": "https://{variables.host}/hook", "templating": "hog"}
         payload["variables"] = [{"key": "host", "type": "string", "default": "example.com"}]
         flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload, format="json").json()["id"]
         assert HogFlow.objects.get(id=flow_id).encrypted_inputs["action_1"]["api_key"]["allowed_origins"] == "*"
 
         with patch("products.cdp.backend.secret_binding.posthoganalytics.feature_enabled", return_value=True):
-            res = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", change, format="json")
+            res = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", change(self), format="json")
 
         assert res.status_code == expected_status, res.json()
 
@@ -8270,25 +8418,37 @@ class TestHogFlowSecretInputs(APIBaseTest):
                 "publish",
                 200,
             ),
+            (
+                "entered_again_for_a_moved_unbound_address",
+                "https://{variables.host}/hook",
+                "https://{variables.host}/other",
+                {"value": "RE-ENTERED"},
+                "publish",
+                200,
+            ),
+            (
+                "test_run_of_a_moved_unbound_address_entered_again",
+                "https://{variables.host}/hook",
+                "https://{variables.host}/other",
+                {"value": "RE-ENTERED"},
+                "test_run",
+                200,
+            ),
+            (
+                "test_run_of_a_move",
+                "https://example.com",
+                "https://evil.example.com",
+                {"secret": True},
+                "test_run",
+                400,
+            ),
         ]
     )
     def test_a_staged_secret_is_checked_against_the_live_step_when_it_goes_live(
         self, _name, live_url, staged_url, api_key, write, expected_status
     ):
-        variables = [{"key": "host", "type": "string", "default": "example.com"}]
-        create = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows",
-            {
-                "name": "Secret Flow",
-                "actions": self._actions(live_url, {"value": "SUPER-SECRET"}),
-                "variables": variables,
-            },
-            format="json",
-        )
-        assert create.status_code == 201, create.json()
-        flow_id = create.json()["id"]
+        flow_id = self._active_flow(live_url, [{"key": "host", "type": "string", "default": "example.com"}])
         url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}"
-        assert self.client.patch(url, {"status": "active"}).status_code == 200
         live_before = HogFlow.objects.get(id=flow_id).encrypted_inputs["action_1"]["api_key"]
 
         with patch("products.cdp.backend.secret_binding.posthoganalytics.feature_enabled", return_value=False):
@@ -8297,7 +8457,13 @@ class TestHogFlowSecretInputs(APIBaseTest):
             )
         assert stage.status_code == 200, stage.json()
 
-        with patch("products.cdp.backend.secret_binding.posthoganalytics.feature_enabled", return_value=True):
+        with (
+            patch("products.cdp.backend.secret_binding.posthoganalytics.feature_enabled", return_value=True),
+            patch(
+                "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test",
+                return_value=MagicMock(status_code=200, json=lambda: {}),
+            ) as mock_invoke,
+        ):
             if write == "publish":
                 with patch(
                     "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
@@ -8305,6 +8471,12 @@ class TestHogFlowSecretInputs(APIBaseTest):
                 ):
                     token = self.client.post(f"{url}/publish", {}).json()["confirm_token"]
                 res = self.client.post(f"{url}/publish", {"confirm": True, "confirm_token": token})
+            elif write == "test_run":
+                res = self.client.post(
+                    f"{url}/invocations/",
+                    {"globals": {"event": {"event": "$pageview"}}, "mock_async_functions": False, "use_draft": True},
+                    format="json",
+                )
             else:
                 res = self.client.patch(url, {"actions": self._actions(staged_url, {"secret": True})}, format="json")
 
@@ -8313,6 +8485,9 @@ class TestHogFlowSecretInputs(APIBaseTest):
         if expected_status == 400:
             assert res.json()["code"] == "secret_reentry_required"
             assert live == live_before
+            mock_invoke.assert_not_called()
+        elif write == "test_run":
+            mock_invoke.assert_called_once()
         else:
             assert live["value"] == "RE-ENTERED"
 

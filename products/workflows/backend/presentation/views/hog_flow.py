@@ -275,12 +275,9 @@ from products.workflows.backend.facade.schedules import (
     validate_rrule,
 )
 from products.workflows.backend.facade.secrets import (
-    SECRET_REENTRY_CODE,
-    SECRET_REENTRY_MESSAGE,
     FlowSecretBinding,
     TemplateCache,
     bind_flow_secret_origins,
-    count_secret_bindings,
     entered_secret_keys,
     mask_workflow_fields,
     merge_secret_maps,
@@ -289,6 +286,8 @@ from products.workflows.backend.facade.secrets import (
     rehydrate_flow_secrets,
     secret_binding_enforced,
     secret_keys_for_action,
+    secret_reentry_errors,
+    settle_secret_bindings,
     strip_content_secrets,
 )
 from products.workflows.backend.facade.send_calendar import SEND_CALENDAR_MAX_RANGE_DAYS, list_send_calendar_flows
@@ -611,20 +610,10 @@ def existing_secret_map(instance: WorkflowEditState, template_cache: Optional[Te
     return merge_secret_maps(result, instance.draft_encrypted_inputs)
 
 
-def enforce_secret_origins(context: dict, binding: FlowSecretBinding) -> None:
-    # Only a request is refused. A caller with no view, such as a management command, re-saves what
-    # someone already stored, so it is counted.
-    view = context.get("view")
-    get_team = context.get("get_team")
-    # A request whose context cannot name the team has no flag to read, so it is refused.
-    enforce = bool(binding.refused) and view is not None and (get_team is None or secret_binding_enforced(get_team()))
-    count_secret_bindings(binding.outcomes, f"workflow_{getattr(view, 'action', None) or 'internal'}", enforce)
-    if enforce:
-        refused = {
-            step_id: {"inputs": dict.fromkeys(keys, SECRET_REENTRY_MESSAGE)}
-            for step_id, keys in binding.refused.items()
-        }
-        raise serializers.ValidationError({"actions": refused}, code=SECRET_REENTRY_CODE)
+def settle_flow_secret_bindings(context: dict, binding: FlowSecretBinding) -> None:
+    refused = {step_id: {"inputs": secret_reentry_errors(keys)} for step_id, keys in binding.refused.items()}
+    surface = f"workflow_{getattr(context.get('view'), 'action', None) or 'internal'}"
+    settle_secret_bindings(binding.outcomes, surface, {"actions": refused} if refused else {})
 
 
 def snapshot_flow_content(flow: WorkflowEditState) -> dict:
@@ -4000,9 +3989,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             entered=entered,
             live_secrets_only=live_secrets_only,
             writes_draft=writes_draft,
+            enforced=lambda: secret_binding_enforced(self.context),
             template_cache=template_cache,
         )
-        enforce_secret_origins(self.context, binding)
+        settle_flow_secret_bindings(self.context, binding)
 
 
 class HogFlowUpdateSerializer(HogFlowSerializer):
@@ -6751,6 +6741,7 @@ class HogFlowViewSet(
                 draft["actions"] = rehydrate_flow_secrets(draft["actions"], draft_secrets)
                 # A restored version or an approved suggestion stages no secrets, so the live ones run
                 # with the draft's steps. The test run sends them, so it gets the check publish makes.
+                context = self.get_serializer_context()
                 binding = bind_flow_secret_origins(
                     draft["actions"],
                     stored=hog_flow,
@@ -6758,9 +6749,10 @@ class HogFlowViewSet(
                     entered={},
                     live_secrets_only=False,
                     writes_draft=False,
+                    enforced=lambda: secret_binding_enforced(context),
                     template_cache={},
                 )
-                enforce_secret_origins(self.get_serializer_context(), binding)
+                settle_flow_secret_bindings(context, binding)
             payload["configuration"] = draft
 
         test_run_row = None
