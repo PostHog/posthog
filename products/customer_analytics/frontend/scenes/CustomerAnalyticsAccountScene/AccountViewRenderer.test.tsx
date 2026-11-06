@@ -109,4 +109,36 @@ describe('AccountViewRenderer', () => {
         )
         expect(screen.getByTestId('mounted-search-term')).toHaveTextContent('persisted')
     })
+
+    it('keeps a dot matrix tile mounted through a failed save, so its unsaved query survives', () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CUSTOMER_ANALYTICS_DOT_MATRIX], {
+            [FEATURE_FLAGS.CUSTOMER_ANALYTICS_DOT_MATRIX]: true,
+        })
+        const view = (searchTerm: string): AccountViewApi => ({
+            ...createView(searchTerm),
+            content: createAccountViewContent([
+                { nodeId: 'matrix-1', kind: 'dot_matrix', span: 12, config: { searchTerm } },
+            ]),
+        })
+        const { rerender } = render(
+            <AccountViewRenderer
+                view={view('optimistic')}
+                projectId={1}
+                accountId="account-1"
+                externalId="external-account-1"
+            />
+        )
+        rerender(
+            <AccountViewRenderer
+                view={view('persisted')}
+                projectId={1}
+                accountId="account-1"
+                externalId="external-account-1"
+            />
+        )
+        act(() =>
+            accountViewsLogic({ projectId: 1 }).actions.resetViewComponentConfig('11111111-2222-4333-8444-555555555555')
+        )
+        expect(screen.getByTestId('mounted-search-term')).toHaveTextContent('optimistic')
+    })
 })
