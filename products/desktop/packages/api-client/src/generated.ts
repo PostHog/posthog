@@ -10026,6 +10026,7 @@ export namespace Schemas {
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+     * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
@@ -10053,6 +10054,7 @@ export namespace Schemas {
         | "srm"
         | "zero_exposures"
         | "test_account_filter_removes_exposures"
+        | "unserved_variant_exposures"
         | "forced_variant_release_condition"
         | "flag_variants_mismatch"
         | "split_changed_mid_run"
@@ -10112,6 +10114,7 @@ export namespace Schemas {
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
+     * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share
      */
@@ -10137,6 +10140,7 @@ export namespace Schemas {
         | "zero_exposures"
         | "test_account_filter_removes_exposures"
         | "srm"
+        | "unserved_variant_exposures"
         | "bias_risk_multiple_excluded"
         | "multiple_variants_share";
     export type ExperimentHealthFinding = {
@@ -10159,6 +10163,7 @@ export namespace Schemas {
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+         * * `unserved_variant_exposures` - Unserved Variant Exposures
          * * `forced_variant_release_condition` - Forced Variant Release Condition
          * * `flag_variants_mismatch` - Flag Variants Mismatch
          * * `split_changed_mid_run` - Split Changed Mid Run
@@ -10230,6 +10235,7 @@ export namespace Schemas {
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
          * * `srm` - Srm
+         * * `unserved_variant_exposures` - Unserved Variant Exposures
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
          * * `multiple_variants_share` - Multiple Variants Share
          */
@@ -10256,6 +10262,8 @@ export namespace Schemas {
      * * `since_launch_hours` - Hours since launch
      * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
      * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+     * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+     * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
      * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
      * * `primary_metric_count` - Primary metrics that the calculation computes
      * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
@@ -10278,6 +10286,8 @@ export namespace Schemas {
         | "since_launch_hours"
         | "exposed_without_test_account_filter_count"
         | "kept_by_test_account_filter_percentage"
+        | "unserved_exposed_count"
+        | "unserved_exposed_percentage"
         | "only_count_matured_users"
         | "primary_metric_count"
         | "waiting_metric_count"
@@ -10311,6 +10321,8 @@ export namespace Schemas {
          * * `since_launch_hours` - Hours since launch
          * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
          * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+         * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+         * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
          * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
          * * `primary_metric_count` - Primary metrics that the calculation computes
          * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
@@ -10342,6 +10354,8 @@ export namespace Schemas {
          * * `since_launch_hours` - Hours since launch
          * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
          * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+         * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+         * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
          * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
          * * `primary_metric_count` - Primary metrics that the calculation computes
          * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
@@ -10402,6 +10416,7 @@ export namespace Schemas {
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
          * * `srm` - Srm
+         * * `unserved_variant_exposures` - Unserved Variant Exposures
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
          * * `multiple_variants_share` - Multiple Variants Share
          */
@@ -10777,7 +10792,8 @@ export namespace Schemas {
         | "srm"
         | "bias_risk_multiple_excluded"
         | "multiple_variants_share"
-        | "test_account_filter_removes_exposures";
+        | "test_account_filter_removes_exposures"
+        | "unserved_variant_exposures";
     export type ExperimentExposureHealthValueKey =
         | "exposed_count"
         | "compared_count"
@@ -10787,7 +10803,9 @@ export namespace Schemas {
         | "p_value"
         | "since_launch_hours"
         | "exposed_without_test_account_filter_count"
-        | "kept_by_test_account_filter_percentage";
+        | "kept_by_test_account_filter_percentage"
+        | "unserved_exposed_count"
+        | "unserved_exposed_percentage";
     export type ExperimentExposureHealthRuleMinimum = {
         /**
          * The value that the key must reach. Below it, the check reports no finding.
@@ -10859,7 +10877,8 @@ export namespace Schemas {
         | "srm"
         | "bias_risk_multiple_excluded"
         | "multiple_variants_share"
-        | "test_account_filter_removes_exposures";
+        | "test_account_filter_removes_exposures"
+        | "unserved_variant_exposures";
     export type ExperimentExposureHealthFindingSeverity =
         | "critical"
         | "warning"
