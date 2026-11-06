@@ -89,9 +89,7 @@ def plan_secret_origins(hog_function: HogFunction) -> SecretOriginsPlan:
         return bind_unbound_secrets(secrets, "", {}, None)
     plaintext_keys = _plaintext_secret_keys(hog_function)
     if not plaintext_keys:
-        return bind_unbound_secrets(
-            secrets, hog_function.hog or "", hog_function.inputs or {}, hog_function.mappings
-        )
+        return bind_unbound_secrets(secrets, hog_function.hog or "", hog_function.inputs or {}, hog_function.mappings)
     # Like `move_secret_inputs` on save, limited to these keys: that helper also rewrites every other
     # input to match the schema, which a backfill must not do.
     inputs = hog_function.inputs or {}

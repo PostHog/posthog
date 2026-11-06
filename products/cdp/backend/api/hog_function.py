@@ -72,13 +72,14 @@ from products.cdp.backend.presentation.hog_invocations.rerun import (
 )
 from products.cdp.backend.secret_binding import (
     SecretBinding,
-    binding_metric,
-    comparable_inputs,
+    SecretConfig,
     entered_secret_input_keys,
+    entry_with_origins,
     secret_binding,
     secret_binding_enforced,
     secret_reentry_errors,
     settle_secret_bindings,
+    unchanged_secrets,
 )
 from products.cdp.backend.secret_origins import (
     SecretOrigins,
@@ -317,38 +318,6 @@ def _only_masked(value: Any) -> bool:
     if isinstance(value, dict):
         return bool(value) and all(entry == MASKED_SECRET_VALUE for entry in value.values())
     return value == MASKED_SECRET_VALUE
-
-
-def _analyzed_config(hog: Optional[str], inputs: dict, mappings: Any, secret_keys: set[str]) -> tuple:
-    public_inputs = {key: item for key, item in inputs.items() if key not in secret_keys}
-    return (
-        hog or "",
-        comparable_inputs(public_inputs),
-        [comparable_inputs(items) for items in mapping_inputs(mappings)],
-    )
-
-
-def _unchanged_secrets(
-    instance: Optional[HogFunction], hog: str, inputs: dict, mappings: Any, stored_inputs: dict, derived: dict
-) -> set[str]:
-    """A secret's own value is compared because a dictionary secret can hold the address it is sent to."""
-    secret_keys = set(derived)
-    if instance is None or _analyzed_config(hog, inputs, mappings, secret_keys) != _analyzed_config(
-        instance.hog, stored_inputs, instance.mappings, secret_keys
-    ):
-        return set()
-    moved = {
-        key
-        for key in secret_keys
-        if comparable_inputs({key: inputs.get(key)}) != comparable_inputs({key: stored_inputs.get(key)})
-    }
-    kept = secret_keys - moved
-    if not moved or not kept:
-        return kept
-    with_stored = {key: item for key, item in inputs.items() if key not in moved}
-    with_stored.update({key: stored_inputs[key] for key in moved if key in stored_inputs})
-    restored = secret_origins(hog, with_stored, mapping_inputs(mappings), kept)
-    return {key for key in kept if restored[key] == derived[key]}
 
 
 def _secret_baselines(
@@ -1019,27 +988,38 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         derived = analysis.origins
         live_secrets = self.context.get("live_encrypted_inputs", stored_secrets)
         stored_inputs = {**((instance.inputs or {}) if instance else {}), **live_secrets}
-        unchanged = _unchanged_secrets(instance, hog, inputs, mappings, stored_inputs, derived)
+        unchanged = (
+            unchanged_secrets(
+                SecretConfig(code=hog, inputs=inputs, mappings=mappings),
+                SecretConfig(code=instance.hog or "", inputs=stored_inputs, mappings=instance.mappings),
+                secret_keys,
+                derived,
+            )
+            if instance is not None
+            else set()
+        )
         baselines = _secret_baselines(instance, secret_keys, stored_secrets, stored_inputs, derived, unchanged)
         entered = entered_secret_input_keys(self.requested_inputs)
-        bindings = {
-            key: secret_binding(derived[key], baselines[key], key in entered, key in unchanged) for key in secret_keys
-        }
-
         stages_draft = bool(self.context.get("stages_draft"))
+        outcomes: list[SecretBinding] = []
+        for key in sorted(secret_keys):
+            origins, outcome = secret_binding(derived[key], baselines[key], key in entered, key in unchanged)
+            # Publishing a staged edit compares it with the live config, so the staged copy can keep
+            # the old origins.
+            inputs[key] = entry_with_origins(
+                inputs[key], origins, outcome, derived[key], staged=stages_draft, staged_keeps_origins=True
+            )
+            outcomes.append(outcome)
+
+        refused = [key for key, outcome in zip(sorted(secret_keys), outcomes) if outcome == SecretBinding.REFUSED]
         surface = "draft" if stages_draft else getattr(self.context.get("view"), "action", None) or "internal"
-        refused = sorted(key for key, (_, outcome) in bindings.items() if outcome == SecretBinding.REFUSED)
-        enforce = bool(refused) and not stages_draft and secret_binding_enforced(self.context)
-        outcomes: list[str] = []
-        for key, (origins, outcome) in bindings.items():
-            let_through = outcome == SecretBinding.REFUSED and not enforce
-            if let_through and not stages_draft:
-                # The save goes through, so store where the code now sends the secret. A staged edit
-                # keeps the old origins because publishing checks the move again.
-                origins = derived[key]
-            inputs[key]["allowed_origins"] = stored_origins(origins)
-            outcomes.append(binding_metric(outcome, let_through, stages_draft))
-        settle_secret_bindings(outcomes, surface, {"inputs": secret_reentry_errors(refused)} if enforce else {})
+        settle_secret_bindings(
+            outcomes,
+            surface,
+            {"inputs": secret_reentry_errors(refused)},
+            enforce=bool(refused) and not stages_draft and secret_binding_enforced(self.context),
+            stages_draft=stages_draft,
+        )
 
     def to_representation(self, data):
         is_instance = isinstance(data, HogFunction)

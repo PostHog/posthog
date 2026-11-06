@@ -10,16 +10,19 @@ secret without origins was never checked against its draft step, so it is checke
 import re
 import json
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Mapping
 from typing import Any, Optional
 
 from posthog.dataclasses import frozen
 
 from products.cdp.backend.secret_binding import (
     SecretBinding,
+    SecretConfig,
     comparable_inputs,
     entered_secret_input_keys,
+    entry_with_origins,
     secret_binding,
+    unchanged_secrets,
 )
 from products.cdp.backend.secret_origins import (
     UNBOUND,
@@ -27,7 +30,6 @@ from products.cdp.backend.secret_origins import (
     mapping_inputs,
     parse_stored_origins,
     secret_origins,
-    stored_origins,
 )
 from products.workflows.backend.facade.contracts import FlowSecretBinding, WorkflowEditState
 from products.workflows.backend.services.hog_flow_secrets import (
@@ -37,6 +39,8 @@ from products.workflows.backend.services.hog_flow_secrets import (
     plaintext_secret_map,
     secret_keys_for_action,
 )
+
+_NOT_STEP_TEXT = frozenset({"inputs", "mappings"})
 
 # A reference to a workflow variable by name. Any other use of `variables`, such as an index by a
 # computed key, can read every variable.
@@ -63,15 +67,6 @@ class _Store:
 class _Recovered:
     side: _Side
     entry: Optional[dict] = dataclasses.field(repr=False)
-
-
-@frozen
-class _Check:
-    action: dict = dataclasses.field(repr=False)
-    key: str
-    derived: SecretOrigins
-    origins: SecretOrigins
-    outcome: SecretBinding
 
 
 def _template_code(action: dict, template_cache: TemplateCache) -> str:
@@ -163,6 +158,75 @@ def _referenced_variables(texts: list[str]) -> Optional[set[str]]:
     return names
 
 
+def _step_text(action: dict, secret_keys: set[str]) -> str:
+    # The compiled bytecode stored beside each input names variables too, so only the source is read.
+    config = action.get("config") or {}
+    inputs = config.get("inputs") or {}
+    return json.dumps(
+        {
+            "type": action.get("type"),
+            "output_variable": action.get("output_variable"),
+            "config": {key: value for key, value in config.items() if key not in _NOT_STEP_TEXT},
+            "inputs": comparable_inputs({key: item for key, item in inputs.items() if key not in secret_keys}),
+            "mappings": [comparable_inputs(items) for items in mapping_inputs(config.get("mappings"))],
+        },
+        sort_keys=True,
+        default=str,
+    )
+
+
+def _read_variables(action: dict, template_cache: TemplateCache) -> Optional[set[str]]:
+    """The variables a step reads, in its code or in any input, its secret ones too."""
+    return _referenced_variables([_template_code(action, template_cache), _step_text(action, set())])
+
+
+def _writes_any(action: dict, names: Optional[set[str]]) -> bool:
+    output_variable = action.get("output_variable")
+    entries = output_variable if isinstance(output_variable, list) else [output_variable]
+    for entry in entries:
+        key = entry.get("key") if isinstance(entry, dict) else None
+        if not key:
+            continue
+        # A spread output writes one variable per property of the result, each named `<key>_<property>`.
+        spread = isinstance(entry, dict) and entry.get("spread")
+        if names is None or key in names or (spread and any(n.startswith(f"{key}_") for n in names)):
+            return True
+    return False
+
+
+def _variable_sources(
+    step_id: str, steps: dict[str, dict], template_cache: TemplateCache
+) -> tuple[Optional[set[str]], dict[str, dict]]:
+    """The variables a step's run can depend on, or None for any, and the steps that write them. A
+    step that writes one of them can read other variables to do it, so those count too."""
+    names = _read_variables(steps[step_id], template_cache)
+    writers: dict[str, dict] = {}
+    found = True
+    while found:
+        found = False
+        for writer_id, writer in steps.items():
+            if writer_id in writers or not _writes_any(writer, names):
+                continue
+            writers[writer_id] = writer
+            found = True
+            writer_names = _read_variables(writer, template_cache)
+            names = None if names is None or writer_names is None else names | writer_names
+    return names, writers
+
+
+def _variable_context(step_id: str, steps: dict[str, dict], variables: Any, template_cache: TemplateCache) -> tuple:
+    """What a step reads from workflow variables: the defaults of the variables it can depend on, and
+    the steps that write them, without their secret values."""
+    names, writers = _variable_sources(step_id, steps, template_cache)
+    return (
+        _variable_defaults(variables, names),
+        sorted(
+            (writer_id, _step_text(writer, secret_keys_for_action(writer, template_cache)))
+            for writer_id, writer in writers.items()
+        ),
+    )
+
+
 def _variable_defaults(variables: Any, names: Optional[set[str]]) -> dict[Any, Optional[str]]:
     # The API stores every default as text, so a re-save compares equal to a row written another way.
     return {
@@ -172,28 +236,21 @@ def _variable_defaults(variables: Any, names: Optional[set[str]]) -> dict[Any, O
     }
 
 
-def _comparable(action: dict, inputs: dict, secret_keys: set[str]) -> tuple:
-    config = action.get("config") or {}
-    return (
-        config.get("template_id") or "",
-        comparable_inputs({key: item for key, item in inputs.items() if key not in secret_keys}),
-        [comparable_inputs(items) for items in mapping_inputs(config.get("mappings"))],
+def _secret_config(
+    action: dict, inputs: dict, steps: dict[str, dict], variables: Any, template_cache: TemplateCache
+) -> SecretConfig:
+    return SecretConfig(
+        code=_template_code(action, template_cache),
+        inputs=inputs,
+        mappings=(action.get("config") or {}).get("mappings"),
+        context=_variable_context(str(action["id"]), steps, variables, template_cache),
     )
 
 
 def _unchanged(
-    action: dict,
-    inputs: dict,
-    variables: Any,
-    key: str,
-    derived: SecretOrigins,
-    side: _Side,
-    template_cache: TemplateCache,
+    config: SecretConfig, step_id: str, key: str, derived: SecretOrigins, side: _Side, template_cache: TemplateCache
 ) -> bool:
-    """Whether the step sends the secret `key` where the step on `side` sends it. Secret values are
-    left out of the comparison: the secret's own origins already say where it may go, and another
-    secret entered again counts only when it moves where this one goes."""
-    step_id = str(action["id"])
+    """Whether the step sends the secret `key` where the step on `side` sends it."""
     stored_action = side.actions.get(step_id)
     if stored_action is None:
         return False
@@ -201,28 +258,9 @@ def _unchanged(
         **((stored_action.get("config") or {}).get("inputs") or {}),
         **(side.secrets.get(step_id) or {}),
     }
-    secret_keys = secret_keys_for_action(action, template_cache)
-    compared = _comparable(action, inputs, secret_keys)
-    if compared != _comparable(stored_action, stored_inputs, secret_keys):
-        return False
-    code = _template_code(action, template_cache)
-    # The compiled bytecode stored beside each input names variables too, so only the source is read.
-    names = _referenced_variables([code, json.dumps(compared, default=str)])
-    if _variable_defaults(variables, names) != _variable_defaults(side.variables, names):
-        return False
-
-    def comparable(items: dict, secret_key: str) -> Any:
-        return comparable_inputs({secret_key: items.get(secret_key)}).get(secret_key)
-
-    moved_siblings = {
-        sibling for sibling in secret_keys - {key} if comparable(inputs, sibling) != comparable(stored_inputs, sibling)
-    }
-    if not moved_siblings:
-        return True
-    with_stored_siblings = {name: item for name, item in inputs.items() if name not in moved_siblings}
-    with_stored_siblings.update({name: stored_inputs[name] for name in moved_siblings if name in stored_inputs})
-    config = action.get("config") or {}
-    return secret_origins(code, with_stored_siblings, mapping_inputs(config.get("mappings")), {key})[key] == derived
+    stored = _secret_config(stored_action, stored_inputs, side.actions, side.variables, template_cache)
+    secret_keys = secret_keys_for_action(stored_action, template_cache)
+    return key in unchanged_secrets(config, stored, secret_keys, {key: derived})
 
 
 def _baseline(
@@ -288,58 +326,84 @@ def bind_flow_secret_origins(
     entered: dict[str, set[str]],
     live_secrets_only: bool,
     writes_draft: bool,
-    enforced: Callable[[], bool],
     template_cache: TemplateCache,
 ) -> FlowSecretBinding:
     """Set `allowed_origins` on every secret input of `actions`, which carry their secrets restored,
-    and name the secrets the save refuses. `variables` is None when the save keeps the stored ones.
-    `writes_draft` is true only when the save stages a draft: publish and a test run of the draft send
-    what they check, like a live save. `enforced` says whether a secret the save would send outside its
-    origins fails the save, and runs only when there is one."""
+    and name the secrets the save would send outside their origins. `variables` is None when the save
+    keeps the stored ones. `writes_draft` is true only when the save stages a draft: publish and a test
+    run of the draft send what they check, like a live save."""
     secret_steps = _secret_steps(actions, template_cache)
     if not secret_steps:
-        return FlowSecretBinding(refused={}, outcomes=[])
+        return FlowSecretBinding(refused={}, outcomes=[], rewrites_secrets=False)
     stored_secrets = _StoredSecrets(stored, live_secrets_only, template_cache) if stored is not None else None
     if variables is None and stored is not None:
         variables = _draft_variables(stored) if writes_draft else stored.variables
+    steps = _steps(actions)
 
-    checks: list[_Check] = []
+    refused: dict[str, list[str]] = {}
+    outcomes: list[str] = []
+    rewrites_secrets = False
     for action, keys in secret_steps:
         config = action["config"]
         inputs = config["inputs"]
         step_id = str(action["id"])
-        derived = secret_origins(
-            _template_code(action, template_cache), inputs, mapping_inputs(config.get("mappings")), keys
-        )
+        new_config = _secret_config(action, inputs, steps, variables, template_cache)
+        derived = secret_origins(new_config.code, inputs, mapping_inputs(new_config.mappings), keys)
         for key in sorted(keys):
             recovered = stored_secrets.recover(step_id, key) if stored_secrets is not None else None
             is_entered = key in entered.get(step_id, set())
             baseline: Optional[SecretOrigins] = None
             unchanged = False
             if recovered is not None and not is_entered:
-                unchanged = _unchanged(action, inputs, variables, key, derived[key], recovered.side, template_cache)
+                unchanged = _unchanged(new_config, step_id, key, derived[key], recovered.side, template_cache)
                 baseline = _baseline(key, step_id, recovered, unchanged, template_cache)
                 baseline = derived[key] if baseline is None else baseline
             origins, outcome = secret_binding(derived[key], baseline, is_entered, unchanged)
-            checks.append(_Check(action=action, key=key, derived=derived[key], origins=origins, outcome=outcome))
+            # A refused secret staged without enforcement stores no origins, so publishing checks it
+            # against the live step. Kept origins on the staged copy would make publish compare the
+            # draft step with itself, because a save recovers a staged entry with origins from the draft.
+            entry = entry_with_origins(
+                inputs[key], origins, outcome, derived[key], staged=writes_draft, staged_keeps_origins=False
+            )
+            rewrites_secrets = rewrites_secrets or entry != inputs[key]
+            inputs[key] = entry
+            outcomes.append(outcome)
+            if outcome == SecretBinding.REFUSED:
+                refused.setdefault(step_id, []).append(key)
+    return FlowSecretBinding(refused=refused, outcomes=outcomes, rewrites_secrets=rewrites_secrets)
 
-    enforce = any(check.outcome == SecretBinding.REFUSED for check in checks) and enforced()
-    refused: dict[str, list[str]] = {}
-    outcomes: list[str] = []
-    for check in checks:
-        entry = {**check.action["config"]["inputs"][check.key]}
-        entry.pop("allowed_origins", None)
-        outcome = check.outcome
-        if outcome == SecretBinding.REFUSED and enforce:
-            refused.setdefault(str(check.action["id"]), []).append(check.key)
-        elif outcome == SecretBinding.REFUSED:
-            outcome = SecretBinding.WOULD_REFUSE
-            # The save goes through. A live save stores where the step now sends the secret. A staged
-            # secret stores no origins, so publishing it checks it against the live step.
-            if not writes_draft:
-                entry["allowed_origins"] = stored_origins(check.derived)
-        else:
-            entry["allowed_origins"] = stored_origins(check.origins)
-        check.action["config"]["inputs"][check.key] = entry
-        outcomes.append(outcome)
-    return FlowSecretBinding(refused=refused, outcomes=outcomes)
+
+def secrets_sent_by_supplied_variables(
+    actions: list[dict],
+    *,
+    supplied: Mapping[str, Any],
+    variables: Any,
+    entered: dict[str, set[str]],
+    template_cache: TemplateCache,
+) -> FlowSecretBinding:
+    """The secrets that a test run supplying `supplied` as variable values could send to an address the
+    stored origins never named, each refused. Only a secret that may go to any origin can follow a
+    variable, and a value equal to its variable's default changes nothing."""
+    defaults = _variable_defaults(variables, None)
+    changed = {name for name, value in supplied.items() if _text(value) != defaults.get(name)}
+    if not changed:
+        return FlowSecretBinding(refused={}, outcomes=[], rewrites_secrets=False)
+    steps = _steps(actions)
+    steered: dict[str, list[str]] = {}
+    for action, keys in _secret_steps(actions, template_cache):
+        config = action["config"]
+        step_id = str(action["id"])
+        unbound = [
+            key
+            for key, origins in secret_origins(
+                _template_code(action, template_cache), config["inputs"], mapping_inputs(config.get("mappings")), keys
+            ).items()
+            if origins is UNBOUND and key not in entered.get(step_id, set())
+        ]
+        if not unbound:
+            continue
+        names, _ = _variable_sources(step_id, steps, template_cache)
+        if names is None or names & changed:
+            steered[step_id] = sorted(unbound)
+    outcomes = [str(SecretBinding.REFUSED) for keys in steered.values() for _ in keys]
+    return FlowSecretBinding(refused=steered, outcomes=outcomes, rewrites_secrets=False)

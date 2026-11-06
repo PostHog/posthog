@@ -3,7 +3,11 @@ and folded back in for inline test runs, and each one bound to the origins its s
 
 from products.cdp.backend.secret_binding import secret_binding_enforced, secret_reentry_errors, settle_secret_bindings
 from products.workflows.backend.facade.contracts import FlowSecretBinding
-from products.workflows.backend.services.hog_flow_secret_origins import bind_flow_secret_origins, entered_secret_keys
+from products.workflows.backend.services.hog_flow_secret_origins import (
+    bind_flow_secret_origins,
+    entered_secret_keys,
+    secrets_sent_by_supplied_variables,
+)
 from products.workflows.backend.services.hog_flow_secret_origins_backfill import backfill_hog_flow_secret_origins
 from products.workflows.backend.services.hog_flow_secrets import (
     TemplateCache,
@@ -38,6 +42,7 @@ __all__ = [
     "recover_or_drop_masked_inputs",
     "rehydrate_flow_secrets",
     "secret_keys_for_action",
+    "secrets_sent_by_supplied_variables",
     "strip_content_secrets",
     "strip_secrets_from_content",
 ]

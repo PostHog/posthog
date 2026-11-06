@@ -2,6 +2,7 @@
 stores secret inputs."""
 
 from collections.abc import Iterable, Mapping
+from dataclasses import field
 from enum import StrEnum
 from typing import Any, Optional
 
@@ -9,7 +10,9 @@ import posthoganalytics
 from prometheus_client import Counter
 from rest_framework import serializers
 
-from products.cdp.backend.secret_origins import SecretOrigins
+from posthog.dataclasses import frozen
+
+from products.cdp.backend.secret_origins import SecretOrigins, mapping_inputs, secret_origins, stored_origins
 from products.cdp.backend.validation import MASKED_SECRET_VALUE
 
 SECRET_HOST_BINDING_FLAG = "cdp-secret-host-binding"
@@ -26,7 +29,18 @@ class SecretBinding(StrEnum):
     BOUND = "bound"
     KEPT = "kept"
     REFUSED = "refused"
-    WOULD_REFUSE = "would_refuse"
+
+
+@frozen
+class SecretConfig:
+    """What decides where a config sends its secrets."""
+
+    code: str
+    inputs: dict[str, Any] = field(repr=False)
+    mappings: Any = field(repr=False)
+    # Anything else the code reads that can change an address, such as workflow variables. Compared
+    # for equality only.
+    context: Any = None
 
 
 class SecretBindingMetric(StrEnum):
@@ -39,9 +53,9 @@ class SecretBindingMetric(StrEnum):
     STAGED = "staged"
 
 
-def binding_metric(outcome: SecretBinding, let_through: bool, stages_draft: bool) -> SecretBindingMetric:
+def _binding_metric(outcome: str, let_through: bool, stages_draft: bool) -> SecretBindingMetric:
     if not let_through:
-        return SecretBindingMetric(outcome.value)
+        return SecretBindingMetric(outcome)
     return SecretBindingMetric.STAGED if stages_draft else SecretBindingMetric.WOULD_REFUSE
 
 
@@ -51,6 +65,39 @@ def comparable_inputs(items: Any) -> dict:
         for key, item in (items or {}).items()
         if isinstance(item, dict)
     }
+
+
+def _comparable_config(config: SecretConfig, secret_keys: set[str]) -> tuple:
+    """The parts of `config` that decide where its secrets go, without the secret values."""
+    public_inputs = {key: item for key, item in config.inputs.items() if key not in secret_keys}
+    return (
+        config.code,
+        comparable_inputs(public_inputs),
+        [comparable_inputs(items) for items in mapping_inputs(config.mappings)],
+        config.context,
+    )
+
+
+def unchanged_secrets(
+    config: SecretConfig, stored: SecretConfig, secret_keys: set[str], derived: Mapping[str, SecretOrigins]
+) -> set[str]:
+    """The secrets in `derived` that `config` sends where `stored` sends them. `secret_keys` names every
+    secret input of the config. A secret's own value is compared because a dictionary secret can hold
+    the address it is sent to."""
+    if _comparable_config(config, secret_keys) != _comparable_config(stored, secret_keys):
+        return set()
+    moved = {
+        key
+        for key in secret_keys
+        if comparable_inputs({key: config.inputs.get(key)}) != comparable_inputs({key: stored.inputs.get(key)})
+    }
+    kept = set(derived) - moved
+    if not moved or not kept:
+        return kept
+    with_stored = {key: item for key, item in config.inputs.items() if key not in moved}
+    with_stored.update({key: stored.inputs[key] for key in moved if key in stored.inputs})
+    restored = secret_origins(config.code, with_stored, mapping_inputs(config.mappings), kept)
+    return {key for key in kept if restored[key] == derived[key]}
 
 
 def entered_secret_input_keys(raw_inputs: Any) -> set[str]:
@@ -79,6 +126,29 @@ def secret_binding(
     return baseline, SecretBinding.KEPT if unchanged or sends_within else SecretBinding.REFUSED
 
 
+def entry_with_origins(
+    entry: dict[str, Any],
+    origins: SecretOrigins,
+    outcome: SecretBinding,
+    derived: SecretOrigins,
+    *,
+    staged: bool,
+    staged_keeps_origins: bool,
+) -> dict[str, Any]:
+    """`entry` with the origins a write stores for it. A refused secret reaches storage only when the save
+    lets it through. A live write then records where the code now sends it. A staged write keeps
+    `origins` when `staged_keeps_origins`, and otherwise stores none, so that publishing compares the
+    secret with the live config again."""
+    updated = {key: value for key, value in entry.items() if key != "allowed_origins"}
+    if outcome != SecretBinding.REFUSED:
+        updated["allowed_origins"] = stored_origins(origins)
+    elif not staged:
+        updated["allowed_origins"] = stored_origins(derived)
+    elif staged_keeps_origins:
+        updated["allowed_origins"] = stored_origins(origins)
+    return updated
+
+
 def secret_binding_enforced(context: Mapping[str, Any]) -> bool:
     """Whether a refused secret fails the save that `context` validates. Only a request fails: a caller
     with no view, such as a management command, re-saves what someone already stored. A request fails
@@ -100,10 +170,18 @@ def secret_reentry_errors(keys: Iterable[str]) -> dict[str, str]:
     return dict.fromkeys(keys, SECRET_REENTRY_MESSAGE)
 
 
-def settle_secret_bindings(outcomes: Iterable[str], surface: str, refused: Mapping[str, Any]) -> None:
-    """Count every secret the save bound, then fail the save when `refused`, the error detail of the
-    secrets it refuses, is not empty. A refused secret the save lets through counts as `would_refuse`."""
+def settle_secret_bindings(
+    outcomes: Iterable[str],
+    surface: str,
+    refused_detail: Mapping[str, Any],
+    enforce: bool,
+    stages_draft: bool = False,
+) -> None:
+    """Count every secret the save bound, and fail the save with `refused_detail` when `enforce`."""
     for outcome in outcomes:
-        SECRET_HOST_BINDING_COUNTER.labels(outcome=outcome, surface=surface).inc()
-    if refused:
-        raise serializers.ValidationError(refused, code=SECRET_REENTRY_CODE)
+        let_through = outcome == SecretBinding.REFUSED and not enforce
+        SECRET_HOST_BINDING_COUNTER.labels(
+            outcome=_binding_metric(outcome, let_through, stages_draft), surface=surface
+        ).inc()
+    if enforce and refused_detail:
+        raise serializers.ValidationError(refused_detail, code=SECRET_REENTRY_CODE)

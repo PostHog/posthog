@@ -1219,3 +1219,4 @@ class FlowSecretBinding:
     # Secret keys by step id.
     refused: dict[str, list[str]]
     outcomes: list[str]
+    rewrites_secrets: bool

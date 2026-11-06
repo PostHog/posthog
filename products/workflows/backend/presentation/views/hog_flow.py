@@ -287,6 +287,7 @@ from products.workflows.backend.facade.secrets import (
     secret_binding_enforced,
     secret_keys_for_action,
     secret_reentry_errors,
+    secrets_sent_by_supplied_variables,
     settle_secret_bindings,
     strip_content_secrets,
 )
@@ -613,7 +614,12 @@ def existing_secret_map(instance: WorkflowEditState, template_cache: Optional[Te
 def settle_flow_secret_bindings(context: dict, binding: FlowSecretBinding) -> None:
     refused = {step_id: {"inputs": secret_reentry_errors(keys)} for step_id, keys in binding.refused.items()}
     surface = f"workflow_{getattr(context.get('view'), 'action', None) or 'internal'}"
-    settle_secret_bindings(binding.outcomes, surface, {"actions": refused} if refused else {})
+    settle_secret_bindings(
+        binding.outcomes,
+        surface,
+        {"actions": refused},
+        enforce=bool(refused) and secret_binding_enforced(context),
+    )
 
 
 def snapshot_flow_content(flow: WorkflowEditState) -> dict:
@@ -3989,10 +3995,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             entered=entered,
             live_secrets_only=live_secrets_only,
             writes_draft=writes_draft,
-            enforced=lambda: secret_binding_enforced(self.context),
             template_cache=template_cache,
         )
         settle_flow_secret_bindings(self.context, binding)
+        if "actions" not in data and binding.rewrites_secrets:
+            # Write the kept steps back, so their secrets are stored as an edit of the steps would store them.
+            data["actions"] = actions
 
 
 class HogFlowUpdateSerializer(HogFlowSerializer):
@@ -6698,6 +6706,30 @@ class HogFlowViewSet(
             if error is not None:
                 raise exceptions.PermissionDenied(error)
 
+    def _refuse_secrets_sent_by_supplied_variables(
+        self,
+        hog_flow: Optional[WorkflowEditState],
+        configuration: Optional[dict],
+        supplied: dict,
+        entered: dict[str, set[str]],
+    ) -> None:
+        # A test run's variables replace the defaults, so a secret whose address reads one goes where
+        # the caller says. The run gets the check a save gets for a new default.
+        template_cache: TemplateCache = {}
+        if configuration and isinstance(configuration.get("actions"), list):
+            actions = configuration["actions"]
+            variables = configuration.get("variables", hog_flow.variables if hog_flow else [])
+        elif hog_flow is not None:
+            live_actions = hog_flow.actions if isinstance(hog_flow.actions, list) else []
+            actions = rehydrate_flow_secrets(live_actions, live_secret_map(hog_flow, template_cache))
+            variables = hog_flow.variables
+        else:
+            return
+        binding = secrets_sent_by_supplied_variables(
+            actions, supplied=supplied, variables=variables, entered=entered, template_cache=template_cache
+        )
+        settle_flow_secret_bindings(self.get_serializer_context(), binding)
+
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):
@@ -6711,6 +6743,11 @@ class HogFlowViewSet(
             # PermissionDenied from the lookup is deliberately not caught, so it surfaces as a 403.
             hog_flow = None
 
+        sent_configuration = request.data.get("configuration")
+        # Read before validation, which folds the stored secrets back into the sent steps.
+        entered = entered_secret_keys(
+            sent_configuration.get("actions") if isinstance(sent_configuration, dict) else None
+        )
         serializer = HogFlowInvocationSerializer(
             data=request.data, context={**self.get_serializer_context(), "instance": hog_flow}
         )
@@ -6749,11 +6786,14 @@ class HogFlowViewSet(
                     entered={},
                     live_secrets_only=False,
                     writes_draft=False,
-                    enforced=lambda: secret_binding_enforced(context),
                     template_cache={},
                 )
                 settle_flow_secret_bindings(context, binding)
             payload["configuration"] = draft
+
+        supplied = (payload.get("globals") or {}).get("variables")
+        if isinstance(supplied, dict) and supplied:
+            self._refuse_secrets_sent_by_supplied_variables(hog_flow, payload.get("configuration"), supplied, entered)
 
         test_run_row = None
         if not payload.get("mock_async_functions", True):
