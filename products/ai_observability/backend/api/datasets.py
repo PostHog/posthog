@@ -1153,6 +1153,8 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 archived=archived,
             ).values("id")
             queryset = _item_version_queryset().filter(
+                team_id=self.team.id,
+                dataset_id=dataset.id,
                 id__in=Subquery(version_ids),
             )
 

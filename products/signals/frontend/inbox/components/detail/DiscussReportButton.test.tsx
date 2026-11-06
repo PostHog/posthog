@@ -197,8 +197,8 @@ describe('DiscussReportButton', () => {
     it('submits the edited check suggestion with the metric replacement intent', async () => {
         const user = userEvent.setup()
         const report = makeReport([SUGGESTION])
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE], {
-            [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE]: true,
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_MONITORING], {
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
         })
         await expectLogic(inboxTaskKickoffLogic, () =>
             inboxTaskKickoffLogic.actions.openReportCheckMetricSuggestion(report, {

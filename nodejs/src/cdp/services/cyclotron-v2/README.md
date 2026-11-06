@@ -11,6 +11,30 @@ Run them with `rust/bin/migrate-cyclotron-node`.
 Single table `cyclotron_jobs` with a single `state` BYTEA column
 for all job payload data (mirrors how the Kafka backend serializes everything into one blob).
 
+## Keep rows small: no file or blob storage
+
+The cyclotron database is a queue.
+Rows are inserted, updated on every transition, and deleted soon after.
+PostgreSQL handles this churn well only while each row is small.
+
+Do not store large or variable-size payloads in this database.
+This applies to `cyclotron_jobs` and to any new table next to it,
+for example email attachments, rendered bodies, exports, or files from users.
+Put the bytes in object storage and keep only a key (and the metadata the worker needs) in the row.
+
+The reason:
+
+- PostgreSQL moves a large `BYTEA` or `TEXT` value out of line into the table's TOAST table, in chunks.
+  A delete does not give that space back. Only vacuum reclaims it.
+- Constant insert and delete of large rows bloats the table and its TOAST table,
+  and keeps autovacuum busy on the same database that serves dequeue.
+- Each large write also goes through the WAL, which adds write load and replication lag.
+- Dequeue, the janitor and every worker share this one database,
+  so bloat from one feature slows every queue.
+
+The `state` column is the only payload column.
+Keep it to what the next execution step needs to continue, not data that only passes through.
+
 ## Components
 
 ### Manager (producer)
