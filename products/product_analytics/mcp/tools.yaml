@@ -579,9 +579,7 @@ tools:
             events, so some events are kept up to about a month past the period.
 
 
-            Null makes projects without their own period use the default period. If the default period is shorter than
-            the organization's current period, a cleanup every 3 months deletes events past the default period, a whole
-            month at a time, so some events are kept a few months past it. The first one is at least 3 months from now.
+            Null makes projects without their own period use the default period.
 
 
             Before you prepare the change, call organization-events-retention-get and tell the user the current and new
