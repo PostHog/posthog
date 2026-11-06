@@ -272,7 +272,6 @@ describe('insightSceneLogic', () => {
         ['a SQL chart', sqlChart, sqlChart],
         ['a bare SQL query', { kind: NodeKind.HogQLQuery, query: 'SELECT 1' }, 'SELECT 1'],
     ])('sends a hand-built /insights/new link holding %s to the SQL editor', async (_, query, expectedOpenQuery) => {
-        // MCP, PostHog AI and backend links build this URL by hand, skipping urls.insightNew()
         router.actions.push(combineUrl('/insights/new', { dashboard: 5 }, { q: JSON.stringify(query) }).url)
         logic = insightSceneLogic()
         logic.mount()

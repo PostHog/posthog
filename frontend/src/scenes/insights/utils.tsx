@@ -663,10 +663,7 @@ export function parseDraftQueryFromURL(query: string): Node<Record<string, any>>
     return parseQuery(query)
 }
 
-/**
- * Whether `urls.insightNew()` routes this query to the SQL editor or the BI scene instead of the insight scene.
- * The insight scene has no SQL editing for these queries, so an unsaved one opened there is a dead end.
- */
+/** Mirrors the queries `urls.insightNew()` sends to the SQL editor or the BI scene */
 export function opensOutsideInsightScene(query: Node | null | undefined): boolean {
     if (!query) {
         return false

@@ -863,9 +863,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             if (shortId === 'quick-start') {
                 return
             }
-            // Links built by hand (MCP, PostHog AI, backend URLs) can put a SQL query on
-            // `/insights/new#q=`, where it renders with no way to see or edit the SQL.
-            // Send it where `urls.insightNew()` would have.
+            // Hand-built links skip `urls.insightNew()`, and this scene cannot edit a new SQL query
             if (shortId === 'new' && q) {
                 const parsedQuery = typeof q === 'string' ? parseDraftQueryFromURL(q) : q
                 if (opensOutsideInsightScene(parsedQuery)) {

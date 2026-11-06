@@ -144,8 +144,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     )
 
     const isSavedInsight = hasDashboardItemId && !!insight?.id && !!insight?.short_id
-    // A saved SQL insight opens in the SQL editor from its Edit button. An unsaved one has no Edit
-    // button and no "View source", so this is its only route to the SQL.
+    // An unsaved SQL insight has no Edit button or "View source", so this is its only route to the SQL
     const unsavedSqlQuery =
         !isSavedInsight && isDataVisualizationNode(query) && !isBIVisualizationNode(query) && isHogQLQuery(query.source)
             ? query
@@ -414,7 +413,6 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                             onClick={() =>
                                 push(
                                     urls.sqlEditor({
-                                        // Pass the whole node so the chart and table settings come along
                                         query: unsavedSqlQuery ?? hogQL ?? undefined,
                                         dashboard: unsavedSqlQuery ? (dashboardId ?? undefined) : undefined,
                                     })
