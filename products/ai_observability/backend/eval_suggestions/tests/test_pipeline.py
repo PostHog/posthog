@@ -200,7 +200,7 @@ class TestRunRetries(ClickhouseTestMixin, APIBaseTest):
         [
             (
                 "retry_after_the_result_was_lost",
-                lambda run: execute_run(str(run.id), include_paid=False, settings=SuggestionSettings()),
+                lambda run: execute_run(run.team_id, str(run.id), include_paid=False, settings=SuggestionSettings()),
             ),
             (
                 "attempt_racing_the_first_to_publish",
@@ -213,7 +213,7 @@ class TestRunRetries(ClickhouseTestMixin, APIBaseTest):
     ) -> None:
         dead_judge = _dead_judge(self.team)
         run = create_run(self.team, "scheduled")
-        execute_run(str(run.id), include_paid=False, settings=SuggestionSettings())
+        execute_run(self.team.pk, str(run.id), include_paid=False, settings=SuggestionSettings())
 
         second_attempt(run)
 
@@ -227,7 +227,7 @@ class TestRunRetries(ClickhouseTestMixin, APIBaseTest):
     def test_only_a_completed_run_replaces_the_previous_cards(self, _name: str, next_run_fails: bool) -> None:
         _dead_judge(self.team)
         first = create_run(self.team, "scheduled")
-        execute_run(str(first.id), include_paid=False, settings=SuggestionSettings())
+        execute_run(self.team.pk, str(first.id), include_paid=False, settings=SuggestionSettings())
         second = create_run(self.team, "scheduled")
 
         if next_run_fails:
@@ -236,9 +236,9 @@ class TestRunRetries(ClickhouseTestMixin, APIBaseTest):
                 side_effect=RuntimeError("ClickHouse timed out"),
             ):
                 with pytest.raises(RuntimeError):
-                    execute_run(str(second.id), include_paid=False, settings=SuggestionSettings())
+                    execute_run(self.team.pk, str(second.id), include_paid=False, settings=SuggestionSettings())
         else:
-            execute_run(str(second.id), include_paid=False, settings=SuggestionSettings())
+            execute_run(self.team.pk, str(second.id), include_paid=False, settings=SuggestionSettings())
 
         statuses = dict(EvalSuggestion.objects.for_team(self.team.pk).values_list("run_id", "status"))
         second.refresh_from_db()
@@ -347,14 +347,14 @@ class TestRunRecords(BaseTest):
         run = create_run(self.team, "scheduled")
         EvalSuggestionRun.objects.for_team(self.team.pk).filter(id=run.id).update(status=before)
 
-        fail_run(str(run.id), "Activity task timed out")
+        fail_run(self.team.pk, str(run.id), "Activity task timed out")
 
         run.refresh_from_db()
         assert run.status == after
 
     def test_an_attempt_publishes_nothing_once_the_run_was_given_up(self) -> None:
         run = create_run(self.team, "scheduled")
-        fail_run(str(run.id), "Activity task timed out")
+        fail_run(self.team.pk, str(run.id), "Activity task timed out")
 
         assert publish(run, [_candidate("check:unrecovered_errors", [])], {}) == []
         run.refresh_from_db()
@@ -382,7 +382,7 @@ class TestRunRecords(BaseTest):
     ) -> None:
         run = create_run(self.team, "scheduled")
 
-        assert execute_run(str(run.id), include_paid=True, settings=SuggestionSettings()) == 0
+        assert execute_run(self.team.pk, str(run.id), include_paid=True, settings=SuggestionSettings()) == 0
 
         run.refresh_from_db()
         assert run.status == EvalSuggestionRunStatus.FAILED
@@ -392,7 +392,7 @@ class TestRunRecords(BaseTest):
         run = create_run(self.team, "scheduled")
 
         with pytest.raises(pipeline.RunDeadlinePassed):
-            execute_run(str(run.id), include_paid=False, settings=SuggestionSettings(), deadline=0.0)
+            execute_run(self.team.pk, str(run.id), include_paid=False, settings=SuggestionSettings(), deadline=0.0)
 
         run.refresh_from_db()
         assert run.status == EvalSuggestionRunStatus.FAILED

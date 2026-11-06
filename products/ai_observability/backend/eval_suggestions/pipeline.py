@@ -101,7 +101,9 @@ def paid_draft(team: Team, run: EvalSuggestionRun, brief: str, budget: float) ->
     if not _reserve(run, reserved, budget):
         return None
     call = drafting.draft_check(team.pk, brief)
-    EvalSuggestionRun.objects.unscoped().filter(id=run.id).update(cost_usd=F("cost_usd") - reserved + call.cost_usd)
+    EvalSuggestionRun.objects.for_team(team.pk).filter(id=run.id).update(
+        cost_usd=F("cost_usd") - reserved + call.cost_usd
+    )
     return call
 
 
@@ -373,7 +375,7 @@ def publish(run: EvalSuggestionRun, proposals: Sequence[Proposal], stages: dict[
     The first to lock the run publishes, and the other returns what it published.
     """
     with transaction.atomic():
-        locked = EvalSuggestionRun.objects.unscoped().select_for_update().get(id=run.id)
+        locked = EvalSuggestionRun.objects.for_team(run.team_id).select_for_update().get(id=run.id)
         if locked.status == EvalSuggestionRunStatus.COMPLETED:
             return list(EvalSuggestion.objects.for_team(run.team_id).filter(run=run))
         # The run was given up on while this attempt still ran, so its cards must not replace last week's.
@@ -441,31 +443,33 @@ def create_run(team: Team, trigger: str, batch_id: str = "", run_id: str | None 
     return run
 
 
-def fail_run(run_id: str, error: str) -> None:
+def fail_run(team_id: int, run_id: str, error: str) -> None:
     """Mark a run failed unless an attempt already published, so a late failure never hides published cards."""
-    EvalSuggestionRun.objects.unscoped().filter(id=run_id).exclude(status=EvalSuggestionRunStatus.COMPLETED).update(
-        status=EvalSuggestionRunStatus.FAILED, error=error[:2000], completed_at=timezone.now()
-    )
+    EvalSuggestionRun.objects.for_team(team_id).filter(id=run_id).exclude(
+        status=EvalSuggestionRunStatus.COMPLETED
+    ).update(status=EvalSuggestionRunStatus.FAILED, error=error[:2000], completed_at=timezone.now())
 
 
-def execute_run(run_id: str, *, include_paid: bool, settings: SuggestionSettings, deadline: float | None = None) -> int:
+def execute_run(
+    team_id: int, run_id: str, *, include_paid: bool, settings: SuggestionSettings, deadline: float | None = None
+) -> int:
     """Run the pipeline for a stored run. A failure marks the run failed and re-raises, and the team keeps
     showing the suggestions of its last completed run."""
-    run = EvalSuggestionRun.objects.unscoped().select_related("team").get(id=run_id)
+    run = EvalSuggestionRun.objects.for_team(team_id).select_related("team").get(id=run_id)
     if run.status == EvalSuggestionRunStatus.COMPLETED:
         # Temporal retries an attempt whose result it lost after the run had published.
         return EvalSuggestion.objects.for_team(run.team_id).filter(run=run).count()
     # The weekly plan can be days old, so an organization taken off the rollout since then gets nothing new.
     if not is_enabled_for_organization(str(run.team.organization_id)):
-        fail_run(str(run.id), "The organization is no longer in the eval suggestions rollout")
+        fail_run(team_id, str(run.id), "The organization is no longer in the eval suggestions rollout")
         return 0
     if run.status == EvalSuggestionRunStatus.FAILED:
         # A retry after an attempt that gave up runs the stages again.
-        EvalSuggestionRun.objects.unscoped().filter(id=run.id, status=EvalSuggestionRunStatus.FAILED).update(
+        EvalSuggestionRun.objects.for_team(team_id).filter(id=run.id, status=EvalSuggestionRunStatus.FAILED).update(
             status=EvalSuggestionRunStatus.RUNNING, error="", completed_at=None
         )
     try:
         return len(run_pipeline(run.team, run, include_paid=include_paid, settings=settings, deadline=deadline))
     except Exception as error:
-        fail_run(str(run.id), f"{type(error).__name__}: {error}")
+        fail_run(team_id, str(run.id), f"{type(error).__name__}: {error}")
         raise

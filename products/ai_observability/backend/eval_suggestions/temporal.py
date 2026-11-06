@@ -33,6 +33,7 @@ class CoordinatorPlan:
 
 @frozen
 class ExecuteRunInputs:
+    team_id: int
     run_id: str
     include_paid: bool
 
@@ -46,6 +47,7 @@ class StartRunInputs:
 
 @frozen
 class FailRunInputs:
+    team_id: int
     run_id: str
     error: str
 
@@ -70,7 +72,7 @@ async def start_eval_suggestions_run_activity(inputs: StartRunInputs) -> str:
 
 @activity.defn(name="llma-eval-suggestions-fail-run")
 async def fail_eval_suggestions_run_activity(inputs: FailRunInputs) -> None:
-    await on_asyncify_pool(fail_run)(inputs.run_id, inputs.error)
+    await on_asyncify_pool(fail_run)(inputs.team_id, inputs.run_id, inputs.error)
 
 
 @activity.defn(name="llma-eval-suggestions-execute-run")
@@ -80,7 +82,11 @@ async def execute_eval_suggestions_run_activity(inputs: ExecuteRunInputs) -> int
         # A minute short of the attempt's timeout, so the run stops itself before Temporal starts a retry.
         deadline = time.monotonic() + RUN_ATTEMPT_TIMEOUT.total_seconds() - 60
         return await on_asyncify_pool(execute_run)(
-            inputs.run_id, include_paid=inputs.include_paid, settings=suggestion_settings, deadline=deadline
+            inputs.team_id,
+            inputs.run_id,
+            include_paid=inputs.include_paid,
+            settings=suggestion_settings,
+            deadline=deadline,
         )
 
 
@@ -104,7 +110,7 @@ class EvalSuggestionsTeamWorkflow(PostHogWorkflow):
             )
             return await workflow.execute_activity(
                 execute_eval_suggestions_run_activity,
-                ExecuteRunInputs(run_id=run_id, include_paid=inputs.include_paid),
+                ExecuteRunInputs(team_id=inputs.team_id, run_id=run_id, include_paid=inputs.include_paid),
                 start_to_close_timeout=RUN_ATTEMPT_TIMEOUT,
                 schedule_to_close_timeout=RUN_ATTEMPT_TIMEOUT * 2 + timedelta(minutes=8),
                 heartbeat_timeout=timedelta(minutes=2),
@@ -114,7 +120,7 @@ class EvalSuggestionsTeamWorkflow(PostHogWorkflow):
             # A worker that died or timed out never reached execute_run's own failure handling.
             await workflow.execute_activity(
                 fail_eval_suggestions_run_activity,
-                FailRunInputs(run_id=run_id, error=str(error.cause or error)),
+                FailRunInputs(team_id=inputs.team_id, run_id=run_id, error=str(error.cause or error)),
                 start_to_close_timeout=timedelta(minutes=1),
                 schedule_to_close_timeout=timedelta(minutes=3),
                 retry_policy=RetryPolicy(maximum_attempts=3),
