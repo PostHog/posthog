@@ -1,7 +1,7 @@
 ---
 name: managing-self-driving-spend
 description: >
-  Explain and control what Self-driving (Inbox) costs. Use when the user asks what they spent on
+  Explains and controls what Self-driving (Inbox) costs. Use when the user asks what they spent on
   Self-driving, which signal sources or scouts drive that spend, how spend changes day to day,
   how many reports a source or scout produced, or how to lower or cap the spend. Breaks spend
   down by signal source, scout, and day, links it to the reports it produced, recommends changes
@@ -12,30 +12,23 @@ description: >
 
 # Managing Self-driving spend
 
-Self-driving spend is shown in dollars. Do not assume a free tier.
-
-Spend lives in two places. Together they make up the total you can measure.
-
-| Where                                               | What it covers                                                                                 | How to read it                        |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------- |
-| Signal metadata (`document_embeddings`)             | Everything done for a signal from a source: processing it, grouping it, researching its report | `total_spend` in cents on each signal |
-| Scout runs (`system.scout_runs`, `scout-runs-list`) | Each scheduled scout run, including runs that find nothing                                     | `total_spend` in cents on each run    |
-
-Divide cents by 100 and show dollars.
-Spend on pull requests that Self-driving opens automatically is not in either place yet.
-When you recommend a change to automatic pull requests, say that its saving is not measured.
+Start with `posthog:inbox-usage-get` for monthly recorded usage, including processing, research, repository selection, scout execution, and report implementation.
+Pass `month: "YYYY-MM"`, or omit it for this month; history starts in October 2026.
+Multiply decimal credits by the returned `pricing.usd_per_credit` to show USD.
+Recorded usage includes exempt work and is not an invoice; use `posthog:billing-limits-get` for the billing spend and limit.
 
 ## Workflow
 
-1. **Scope.** Confirm the project and the date range. Default to the current billing period.
-   Read the spend limit and current spend with `billing-limits-get`.
-2. **Inventory.** List sources with `inbox-source-configs-list` and scouts with `scout-config-list`.
-   Only discuss sources and scouts the project actually has turned on.
-3. **By source.** Run "Spend by signal source" in [references/queries.md](references/queries.md).
-4. **By scout.** Run "Spend by scout".
-   Add "Signals created by scouts" to charge scout-emitted signals back to the scout.
-5. **By day.** Run both daily queries and add them together.
-   Look for spikes, then find the source or scout behind each one.
+1. **Scope.** Use the selected project and requested dates, defaulting to this UTC calendar month.
+   Read `posthog:inbox-usage-get` and `posthog:billing-limits-get`.
+   Use the returned canonical `project_id` for SQL reconciliation; child environments resolve to their parent and require access there.
+2. **Inventory.** List sources with `posthog:inbox-source-configs-list` and scouts with `posthog:scout-config-list`.
+   Explain historical spend even for disabled items; recommend controls only where they still apply.
+3. **By source and scout.** Use the monthly tool's `sources` and `scouts`; their `total_credits` sum to the overall total.
+   Sources include downstream research and implementation; scouts contain execution only, including runs with no reports.
+4. **Drill down.** Use `posthog:execute-sql` with [references/queries.md](references/queries.md) for custom dates, individual runs or reports, and finer source breakdowns.
+   If the monthly tool is unavailable, use the SQL ledger subject to its access controls; report credits if no verified USD conversion is available.
+5. **By day.** Run "Spend by day" and investigate spikes by source, scout, or `kind`.
 6. **Yield.** Run "Yield by signal source" and "Yield by scout".
    Yield is the share of settled reports that were resolved, and cost per resolved report matters more than raw spend.
 7. **Inside each large source.** Run "Breakdown inside a source" for every source that holds more than 10% of signal spend.
@@ -50,20 +43,16 @@ Present the result with [references/report-template.md](references/report-templa
 
 ## Rules
 
-- Read one embedding model only (`text-embedding-3-small-1536`) and `rendering = 'plain'`.
-  Each signal is stored once per model, so reading every row counts its spend twice.
-- Take the latest version of each signal with `argMax(..., inserted_at)` grouped by `document_id`.
-  A signal's spend grows as its report is researched, and each update writes a new row.
-- Leave out the `health_checks` and `engineering_analytics` sources, and the `signals-scout-health-checks` scout.
-  The user does not pay for them, even when their rows record spend.
-- Spend from the last day or two can still grow. Say that the latest days are provisional.
+- Sum each `system.signal_spend` record once. Signal `metadata.total_spend`, scout `spend_credits`, and report detail totals are copies or overlapping views, not additional charges.
+- Filter finalized usage by `finalized_at` with inclusive start and exclusive end in UTC. Work started earlier can finalize in this period.
+- Show `exempt_credits` as a subset, not an additional cost. Use receipt exemptions rather than excluding named sources or scouts; non-exempt usage is still not necessarily invoiced usage.
+- Report `incomplete`, `attribution_incomplete`, `unsettled_credits`, and `untracked_scout_run_count`. Unsettled credits cover work created in the requested month, exclude finalized totals, and are not the outstanding balance across all months. Missing receipts mean unknown cost.
+- Preserve unattributed costs, including implementation for deleted reports. Implementation is attributed to the report's current triggering signal, which can change.
+- Use latest signal metadata only for attribution, with one embedding model and rendering. Do not filter metadata by signal arrival date when attributing period spend.
 - Reports need about 14 days to resolve, so measure yield on settled reports: reports first shown at least 14 days ago.
   Take them from the last 60 days, even when the spend period is shorter.
   When a source or scout has fewer than 20 settled reports, call its yield too new to judge, and recommend no cut that rests on it.
-- A signal or run with entries in `spend_accounting_failed_stages` has incomplete spend.
-  Report how many there are.
-- A daily view buckets a signal's spend on the day the signal arrived and a run's spend on the day the run started.
-  Totals over a whole period still add up.
+- Private scout trials are excluded from the SQL tables. Scout report counts can overlap; deduplicate IDs for project totals, and never add shared scout costs across report details.
 - A scout that rarely creates reports can still be useful if it edits existing ones.
   Check `edited_report_ids` before you recommend pausing it.
 - Never turn off error tracking ingestion or lower its rate limits to save Self-driving spend.

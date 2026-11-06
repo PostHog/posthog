@@ -8,12 +8,12 @@ Base every rule on yield from settled reports (see "Yield" in queries.md), not o
 Let the project's data decide what to keep. Do not assume that one signal type, scanner, or scout is always worth more than another.
 Compare each item to the project's own average: a settled rate well below the project's average is low, whatever the absolute number.
 
-Convert spend in the period to a monthly figure before you compare savings.
+Convert non-exempt recorded usage in the period to a monthly estimate before comparing savings. Label it as an estimate, not an invoice forecast; avoid extrapolating incomplete periods or double-counting overlapping controls.
 Skip any change that saves less than about $10 a month, unless the user asked about that item.
 
 ## What to check
 
-- **Spend limit.** Compare the current limit with the expected monthly spend.
+- **Spend limit.** Compare the current limit with billing spend and its projected monthly total from `posthog:billing-limits-get`, keeping recorded usage separate.
   If the limit is lower, put this first and say on which day of the period the limit would be reached.
   Otherwise put it last, and suggest about 1.2 times the expected monthly spend after the other changes.
   Explain that once the limit is reached, new signals are dropped for the rest of the period, not held until it resets.
@@ -30,7 +30,7 @@ Skip any change that saves less than about $10 a month, unless the user asked ab
   Give no dollar figure.
 - **Automatic pull requests.** Compare pull requests opened and merged per source.
   When a source opens many and few merge, suggest a higher priority threshold.
-  Say that the saving is not measured.
+  Use implementation receipts for the affected reports to estimate savings; do not assume all implementation spend would disappear.
 - **Daily report limit.** Look at reports shown per day. Recommend a limit only when a few days hold much more than the rest, near the 75th percentile of daily reports.
   Say that signals past the limit are dropped, so a real incident on a spike day can be missed.
 
