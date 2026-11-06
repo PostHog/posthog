@@ -75,6 +75,14 @@ class TestStructuredGaps:
         outputs = _outputs("security", security, traces, field) + _outputs("performance", performance, traces, field)
         assert find_structured_gaps(outputs) == []
 
+    def test_flagged_items_from_a_single_trace_are_no_gap(self) -> None:
+        outputs = (
+            _outputs("security", ["P0", "P1"] * 20, 1)
+            + _outputs("security", ["P2", "P3"], 19)
+            + _outputs("performance", ["P2", "P3", "P3", "P2"], 20)
+        )
+        assert find_structured_gaps(outputs) == []
+
     def test_reads_enum_fields_from_fenced_json(self) -> None:
         parsed = parse_structured(
             '```json\n{"findings": [{"priority": "P1", "title": "A long sentence about a bug here"}]}\n```'

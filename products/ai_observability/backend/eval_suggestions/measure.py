@@ -36,27 +36,27 @@ MAIN_SAMPLE_TRACES = 250
 HELD_OUT_SAMPLE_TRACES = 150
 # Discovery groups only a slice of the window's traces, sized so the hash order still has room to choose.
 DISCOVERY_OVERSAMPLE = 20
-# Degenerate traces (a shared or runaway trace id) say nothing about a check and cost the most to read:
-# hydration reads every generation's full input, often over 100 KB. Over 99.9% of traces have fewer.
-MAX_TRACE_GENERATIONS = 100
+# Hydration reads every event of a trace, and a check needs a trace's whole history, so discovery only picks
+# traces with at most this many events. Longer ones (a shared or runaway trace id) cost the most to read.
 EVENTS_PER_TRACE = 40
 MAX_OUTPUT_BYTES = 16384
 MAX_INPUT_MESSAGE_BYTES = 8192
-TURN_TEXT_CHARS = 3000
+# Screening reads at most 3000 characters, so each part of a turn gets a third.
+TURN_TEXT_CHARS = 1000
 
 _DISCOVER_SQL = """
 SELECT
     toString(properties.$ai_trace_id) AS trace_id,
     uniq(toDate(timestamp)) AS days
 FROM events
-WHERE event = '$ai_generation'
+WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding')
   AND timestamp >= {start}
   AND timestamp < {end}
   AND notEmpty(toString(properties.$ai_trace_id))
   AND length(toString(properties.$ai_trace_id)) <= 256
   AND cityHash64(toString(properties.$ai_trace_id)) % 1000 < {per_mille}
 GROUP BY trace_id
-HAVING count() <= {max_generations}
+HAVING countIf(event = '$ai_generation') > 0 AND count() <= {max_events}
 ORDER BY cityHash64(trace_id)
 LIMIT {limit}
 """
@@ -118,6 +118,8 @@ class SampledTrace:
     segments: dict[str, str]
     # Every normalized value any generation sent. A trace evaluation runs when any generation matches its filter.
     segment_values: dict[str, frozenset[str]]
+    # The same, as sent, which is what an exact live filter compares against.
+    raw_segment_values: dict[str, frozenset[str]]
     raw_segments: dict[str, str]
     final_text: str
     turn_text: str
@@ -162,7 +164,7 @@ def _discover(team: Team, start: datetime, end: datetime, expected_traces: int, 
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
             "per_mille": ast.Constant(value=per_mille),
-            "max_generations": ast.Constant(value=MAX_TRACE_GENERATIONS),
+            "max_events": ast.Constant(value=EVENTS_PER_TRACE),
             "limit": ast.Constant(value=limit),
         },
         "EvalSuggestionsSampleDiscovery",
@@ -279,6 +281,15 @@ def _sampled_trace(
         spans_days=spans_days,
         segments={key: normalize_segment_value(value) for key, value in raw_segments.items()},
         segment_values={key: values for key, values in segment_values.items() if values},
+        raw_segment_values={
+            key: values
+            for key in segment_keys
+            if (
+                values := frozenset(
+                    str(g.properties[key]) for g, _, _ in generations if g.properties.get(key) not in (None, "")
+                )
+            )
+        },
         raw_segments=raw_segments,
         final_text=final_text,
         turn_text=(f"Assistant: {before}\n\n" if before else "")
