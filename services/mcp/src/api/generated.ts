@@ -111527,6 +111527,8 @@ export namespace Schemas {
     }
 
     export interface TableHistoryTable {
+      /** Whether this table has access rules of its own that you can manage, so there are rules to copy to its history table. */
+      main_table_has_copyable_rules: boolean;
       /** The table's history table, which keeps every past version of its rows. `null` when the table has none or you can't view it. */
       history_table: HistoryTableRef | null;
     }

@@ -1,4 +1,3 @@
-import api from 'lib/api'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 import { ExternalDataSourceSchema } from '~/types'
@@ -22,11 +21,10 @@ describe('confirmHistoryAccessRules', () => {
         ownRules = true,
         historyTable = null as { user_can_manage_access: boolean } | null,
     } = {}): Promise<void> => {
-        jest.spyOn(api, 'get').mockResolvedValue({
-            access_controls: ownRules ? [{ access_level: 'none' }] : [],
-            user_can_edit_access_levels: true,
+        dwApi.warehouseTablesHistoryTableRetrieve.mockResolvedValue({
+            history_table: historyTable,
+            main_table_has_copyable_rules: ownRules,
         })
-        dwApi.warehouseTablesHistoryTableRetrieve.mockResolvedValue({ history_table: historyTable })
         await confirmHistoryAccessRules(1, 'table-1', save, cancel)
     }
 
@@ -71,8 +69,7 @@ describe('confirmHistoryAccessRules', () => {
         expect(save.mock.calls).toEqual([[false]])
     })
 
-    it('asks when the lookups fail, rather than leaving the history table on its source rules', async () => {
-        jest.spyOn(api, 'get').mockRejectedValue(new Error('down'))
+    it('asks when the lookup fails, rather than leaving the history table on its source rules', async () => {
         dwApi.warehouseTablesHistoryTableRetrieve.mockRejectedValue(new Error('down'))
 
         await confirmHistoryAccessRules(1, 'table-1', save, cancel)

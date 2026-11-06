@@ -39,7 +39,7 @@ from posthog.models import Team
 from posthog.models.user import User
 from posthog.permissions import is_service_auth
 
-from products.access_control.backend.facade.api import InvalidObjectAccessControlError
+from products.access_control.backend.facade.api import InvalidObjectAccessControlError, object_has_access_rules
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
@@ -560,6 +560,10 @@ class HistoryTableRefSerializer(serializers.Serializer):
 
 
 class TableHistoryTableSerializer(serializers.Serializer):
+    main_table_has_copyable_rules = serializers.BooleanField(
+        help_text="Whether this table has access rules of its own that you can manage, so there are rules to copy "
+        "to its history table.",
+    )
     history_table = HistoryTableRefSerializer(
         allow_null=True,
         help_text="The table's history table, which keeps every past version of its rows. `null` when the table "
@@ -814,7 +818,11 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         history_table = registered_history_table_for(
             team_id=self.team_id, table_id=table.id, user_access_control=self.user_access_control
         )
-        payload = {"history_table": dataclasses.asdict(history_table) if history_table is not None else None}
+        payload = {
+            "history_table": dataclasses.asdict(history_table) if history_table is not None else None,
+            "main_table_has_copyable_rules": self.user_access_control.check_can_modify_access_levels_for_object(table)
+            and object_has_access_rules(team_id=self.team_id, resource="warehouse_table", resource_id=str(table.id)),
+        }
         return response.Response(TableHistoryTableSerializer(payload).data)
 
     @extend_schema(
@@ -844,7 +852,13 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             raise exceptions.PermissionDenied(str(e))
         except InvalidObjectAccessControlError as e:
             raise serializers.ValidationError(str(e))
-        return response.Response(TableHistoryTableSerializer({"history_table": dataclasses.asdict(history_table)}).data)
+        payload = {
+            "history_table": dataclasses.asdict(history_table),
+            "main_table_has_copyable_rules": object_has_access_rules(
+                team_id=self.team_id, resource="warehouse_table", resource_id=str(table.id)
+            ),
+        }
+        return response.Response(TableHistoryTableSerializer(payload).data)
 
     @extend_schema(
         request=None,

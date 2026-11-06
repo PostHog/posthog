@@ -543,6 +543,11 @@ def replace_object_access_rules(
                 )
 
 
+def object_has_access_rules(*, team_id: int, resource: str, resource_id: str) -> bool:
+    """Whether the object has access rules of its own, as opposed to only the rules it inherits."""
+    return AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=resource_id).exists()
+
+
 def _copyable_object_rules(team_id: int, resource: str, resource_id: str) -> list[contracts.ObjectAccessRuleInput]:
     # Rules naming a member or role of another organization never apply, so they are not copied.
     team = Team.objects.only("id", "organization_id").get(id=team_id)

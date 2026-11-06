@@ -1,8 +1,7 @@
-import api from 'lib/api'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { captureAccessControlEvent } from 'lib/utils/accessControlUtils'
 
-import { AccessControlResponseType, ExternalDataSourceSchema } from '~/types'
+import { ExternalDataSourceSchema } from '~/types'
 
 import { warehouseTablesHistoryTableRetrieve } from 'products/data_warehouse/frontend/generated/api'
 
@@ -20,25 +19,14 @@ export function turnsHistoryOn(
     return syncType === 'cdc' && !!cdcTableMode && HISTORY_MODES.includes(cdcTableMode) && !keptHistory
 }
 
-async function tableHasOwnRulesYouCanCopy(projectId: number | string, tableId: string): Promise<boolean> {
+async function hasRulesToCopy(projectId: number | string, tableId: string): Promise<boolean> {
     try {
-        // nosemgrep: prefer-codegen-api -- the access_controls action is excluded from the OpenAPI schema, so no generated function covers it.
-        const response = await api.get<AccessControlResponseType>(
-            `api/projects/${projectId}/warehouse_tables/${tableId}/access_controls`
-        )
-        return response.user_can_edit_access_levels && response.access_controls.length > 0
+        const response = await warehouseTablesHistoryTableRetrieve(String(projectId), tableId)
+        const historyTable = response.history_table
+        return response.main_table_has_copyable_rules && (!historyTable || historyTable.user_can_manage_access)
     } catch {
         // Unknown, so ask: skipping the question would leave the history table on its source's rules.
         return true
-    }
-}
-
-async function historyTableYouCannotManage(projectId: number | string, tableId: string): Promise<boolean> {
-    try {
-        const { history_table } = await warehouseTablesHistoryTableRetrieve(String(projectId), tableId)
-        return !!history_table && !history_table.user_can_manage_access
-    } catch {
-        return false
     }
 }
 
@@ -50,11 +38,7 @@ export async function confirmHistoryAccessRules(
     save: (copyAccessRules: boolean) => void,
     cancel: () => void
 ): Promise<void> {
-    const [hasRules, cannotManageHistory] = await Promise.all([
-        tableHasOwnRulesYouCanCopy(projectId, tableId),
-        historyTableYouCannotManage(projectId, tableId),
-    ])
-    if (!hasRules || cannotManageHistory) {
+    if (!(await hasRulesToCopy(projectId, tableId))) {
         save(false)
         return
     }

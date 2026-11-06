@@ -202,21 +202,32 @@ class TestHistoryAccessRules(WarehouseAccessControlTestMixin):
         assert self._pending() is None
 
     @parameterized.expand(
-        [("can_manage_access", True, True), ("cannot_manage_access", False, True), ("cannot_view", False, False)]
+        [
+            ("can_manage_access", True, True, True),
+            ("cannot_manage_access", False, True, True),
+            ("cannot_view", False, False, True),
+            ("table_without_rules_of_its_own", True, True, False),
+        ]
     )
-    def test_table_endpoint_says_whether_you_can_manage_the_history_table(
-        self, case: str, can_manage: bool, can_view: bool
+    def test_table_endpoint_describes_the_history_table_and_the_rules_to_copy(
+        self, case: str, can_manage: bool, can_view: bool, own_rules: bool
     ) -> None:
         history = self._table("orders_history", STAMPED)
         if not can_view:
             self._create_access_control(self.editor_user, resource_id=str(history.id), access_level="none")
+        if not own_rules:
+            AccessControl.objects.filter(resource_id=str(self.table.id)).delete()
         self.client.force_login(self.user if can_manage else self.editor_user)
 
         response = self.client.get(f"/api/projects/{self.team.pk}/warehouse_tables/{self.table.id}/history_table/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         expected = {"id": str(history.id), "name": "postgres.orders_history", "user_can_manage_access": can_manage}
-        assert response.json() == {"history_table": expected if can_view else None}
+        assert response.json() == {
+            "history_table": expected if can_view else None,
+            # Only someone who can manage the table's access, with rules on the table itself, has rules to copy.
+            "main_table_has_copyable_rules": can_manage and own_rules,
+        }
 
     @parameterized.expand([("history_table_registered", True), ("history_table_not_registered_yet", False)])
     def test_schema_update_copies_now_or_once_the_history_table_registers(self, _name: str, registered: bool) -> None:
