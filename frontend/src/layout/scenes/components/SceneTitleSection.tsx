@@ -304,8 +304,10 @@ function LemonSceneTitleSection({
                                                         // Plain opacity with a transition, not keyframes: a keyframe's resting state lives
                                                         // only in its forwards fill, which the test runner sometimes paints at 0%.
                                                         'size-[var(--button-height-sm)] shrink-0 transition-opacity duration-200 motion-reduce:transition-none',
+                                                        // The observer still reports scrolled in some test runner captures at the top
+                                                        // of the page, so snapshots pin the resting opacity, as the border does above.
                                                         isScrolled
-                                                            ? 'opacity-0 pointer-events-none'
+                                                            ? 'opacity-0 pointer-events-none [body.storybook-test-runner_&]:opacity-30'
                                                             : 'opacity-30 group-hover/scene-title-section:opacity-100'
                                                     )}
                                                     onClick={toggleShowDescription}
