@@ -32,26 +32,30 @@ The endpoint requires `integration:write` and project membership. Repeated reque
 Staff turn the sandbox sender off for one organization by adding a `SandboxSenderOrganizationBlock` row in the Django admin, and lift the block by deleting the row.
 While the block exists, the endpoint returns 404 for the organization's projects. Existing sandbox senders stay.
 The email worker, not this endpoint, skips their sends while the block exists, so keep `workflows-sandbox-sender` on test projects until the worker reads the block in every region.
-Set `WORKFLOWS_SANDBOX_SENDER_DOMAIN`, `SES_SANDBOX_FROM_ADDRESS`, and `SES_SANDBOX_TENANT_NAME` in Django; any empty value leaves the endpoint unavailable.
+Set `WORKFLOWS_SANDBOX_SENDER_DOMAIN`, `SES_SANDBOX_FROM_ADDRESS`, and `SES_SANDBOX_TENANT_NAME` in Django; any empty value, or a from address outside the sandbox domain and its subdomains, leaves the endpoint unavailable.
 Teams can't register an integration on `WORKFLOWS_SANDBOX_SENDER_DOMAIN` or its subdomains while that setting has a value, even when the other two are empty.
 The worker sends from the same `SES_SANDBOX_FROM_ADDRESS`, so set it once for Django and the worker. The address the UI shows is then the address the worker sends from.
-With the flag on, any project member who opens the Channels page creates the sender, and the page shows it in its own row.
-Each visit to Channels with the flag on also refreshes the sender's display name from the organization name. Nothing else refreshes it, so a rename shows on sends after the next visit whose refresh succeeds.
+With the flag on, any project member who opens the Channels page, or the push step of the workflows setup guide, creates the sender. Channels shows it in its own row.
+Each of those visits also refreshes the sender's display name from the organization name. Nothing else refreshes it, so a rename shows on sends after the next visit whose refresh succeeds.
+A 404 from the endpoint means the project isn't offered the sender, so Channels shows nothing for it rather than an error.
 Workflow email steps offer it as a sender. It replaces any other selected sender and has no Reply-To or custom sender. Broadcasts and other email surfaces do not offer it.
 Users cannot edit, verify, or remove the managed integration, make it the project default, use it for transactional email, or register their own integration on the shared domain.
 The managed integration is excluded from project SES tenant migration, identity cleanup, data suggestions, and the reputation page's domain breakdown.
 Configure the shared SES route, then enable `WORKFLOWS_SANDBOX_SENDER_ENABLED` on the worker and CDP API. Enable `workflows-sandbox-sender` last, and only for test projects until the worker reads the tenant pause and organization block in every region.
+The flag is evaluated without person properties, so target it by organization, or by the project group's `id` property, which holds the numeric project ID.
 The sandbox sender is available only in workflow email steps and test sends. Broadcasts, transactional email workflows, destinations, sender rotation, custom From values, and Reply-To overrides are rejected, and so is a templated sender ID in a project that has the sandbox sender. Unchanged stored sender settings remain editable.
 Saves check the sandbox sender whenever the sandbox settings are configured, whatever `workflows-sandbox-sender` says for the project. The flag only gates adoption and provisioning, so turning it off never lifts these limits from a sender the project already has.
 Django mirrors the tenant named by `SES_SANDBOX_TENANT_NAME` into `SandboxSenderTenantState` from the SES tenant-state webhook and the daily reconciliation, without emailing project admins. Set the same `SES_SANDBOX_TENANT_NAME` on Django web, Celery, and the worker.
 A committed state change reaches the workers through the `reload-sandbox-sender-state` message.
 A tenant that SES no longer knows reads as not paused, so deleting it clears a stored pause. Each failed read of the tenant counts in `workflows_sandbox_tenant_sync_failures_total`, labeled `transient` for throttling, an unreachable endpoint, timeouts, a connection dropped before or during the response, and SES server errors, and `error` for everything else, such as missing credentials, denied access, or TLS and proxy failures.
+`missing` counts a read that found no tenant by that name, which is a deleted tenant or a `SES_SANDBOX_TENANT_NAME` that names the wrong one, so an alert should fire on it.
+`busy` counts a sync that found another sync holding the state row. Its task retries, so an alert can ignore it.
 A long SES outage or a blocked endpoint stays `transient` on every read, so an alert on the mirror also watches sustained `transient` failures.
 The sending tier leaves `email_sandbox_sent` out of its volume and its rate denominators, and the sending allowance leaves it out too, also after the sandbox settings are cleared.
 The worker records each sandbox send's `email_sandbox_sent` in the same batch, workflow and step as its `email_sent`. Both readers keep the raw cutoff they used before for `email_sent`, so a team without sandbox sends gets the same numbers as before.
 The metrics table keeps one arbitrary timestamp per merged hour, so a cutoff inside an hour can split a send from its pair.
 Per workflow step and clock hour, the tier counts the smaller of the `email_sent` inside the window and the hour's `email_sent` minus its `email_sandbox_sent`, so a split pair cancels no other sends.
-The allowance counts the same way over its last hour and last day.
+The allowance counts the same way over its last day.
 A step that switches between the sandbox sender and its own sender inside the cutoff hour can still miscount that hour.
 Bounces and complaints of sandbox sends still count, so the exclusion can only raise a rate.
 

@@ -579,6 +579,8 @@ class TestOwnSendsAtTheWindowStart(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             ("own_send_before_the_cutoff", [("email_sent", -20, "step-1"), ("email_sent", 20, "step-2")], 1),
+            ("only_an_own_send_before_the_cutoff", [("email_sent", -20, "step-1")], 0),
+            ("only_sandbox_sends", [("email_sandbox_sent", 20, "step-1")], 0),
             ("full_pair", [("email_sent", 20, "step-1"), ("email_sandbox_sent", 20, "step-1")], 0),
             ("pair_split_sandbox_inside", [("email_sent", -10, "step-1"), ("email_sandbox_sent", 10, "step-1")], 0),
             ("pair_split_sent_inside", [("email_sandbox_sent", -10, "step-1"), ("email_sent", 10, "step-1")], 0),
@@ -608,7 +610,9 @@ class TestOwnSendsAtTheWindowStart(ClickhouseTestMixin, BaseTest):
                 self._record(metric_name, after + timedelta(minutes=minutes), instance=instance)
             histories = build_sending_histories(after=after, team_ids=[self.team.id])
 
-        assert histories[self.team.id].sent == expected_sent
+        assert {team_id: history.sent for team_id, history in histories.items()} == (
+            {self.team.id: expected_sent} if expected_sent else {}
+        )
 
     def test_sending_history_keeps_bounces_of_sandbox_sends(self) -> None:
         after = self.NOW - timedelta(days=1)
