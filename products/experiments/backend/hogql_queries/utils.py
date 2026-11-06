@@ -1,6 +1,6 @@
 import math
 from enum import Enum
-from typing import Any, Literal, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, Optional, TypeVar
 
 import structlog
 from rest_framework.exceptions import ValidationError
@@ -44,6 +44,9 @@ from products.experiments.stats.shared.statistics import (
     SampleMeanStatistic,
     StatisticError,
 )
+
+if TYPE_CHECKING:
+    from products.experiments.stats.shared.statistics import RelativeEffectBaseline
 
 logger = structlog.get_logger(__name__)
 
@@ -398,7 +401,7 @@ ExperimentStatistic = SampleMeanStatistic | ProportionStatistic | RatioStatistic
 class CupedAdjustment:
     test_stat: ExperimentStatistic
     control_stat: ExperimentStatistic
-    control_unadjusted_mean: float | None
+    relative_effect_baseline: RelativeEffectBaseline | None
 
 
 def _apply_cuped_adjustment_if_enabled(
@@ -409,7 +412,7 @@ def _apply_cuped_adjustment_if_enabled(
     test_variant: ExperimentStatsBaseValidated,
     control_variant: ExperimentStatsBaseValidated,
 ) -> CupedAdjustment:
-    unadjusted = CupedAdjustment(test_stat=test_stat, control_stat=control_stat, control_unadjusted_mean=None)
+    unadjusted = CupedAdjustment(test_stat=test_stat, control_stat=control_stat, relative_effect_baseline=None)
 
     if not cuped_config.enabled:
         return unadjusted
@@ -433,7 +436,7 @@ def _apply_cuped_adjustment_if_enabled(
     return CupedAdjustment(
         test_stat=cuped_result.treatment_adjusted,
         control_stat=cuped_result.control_adjusted,
-        control_unadjusted_mean=cuped_result.control_unadjusted_mean,
+        relative_effect_baseline=cuped_result.relative_effect_baseline,
     )
 
 
@@ -594,13 +597,13 @@ def get_frequentist_experiment_result(
                     control_variant_validated,
                 )
 
-                if cuped_adjustment.control_unadjusted_mean is None:
+                if cuped_adjustment.relative_effect_baseline is None:
                     result = method.run_test(cuped_adjustment.test_stat, cuped_adjustment.control_stat)
                 else:
                     result = method.run_test(
                         cuped_adjustment.test_stat,
                         cuped_adjustment.control_stat,
-                        unadjusted_mean=cuped_adjustment.control_unadjusted_mean,
+                        relative_effect_baseline=cuped_adjustment.relative_effect_baseline,
                     )
 
                 confidence_interval = [result.confidence_interval[0], result.confidence_interval[1]]
@@ -684,13 +687,13 @@ def get_bayesian_experiment_result(
                     control_variant_validated,
                 )
 
-                if cuped_adjustment.control_unadjusted_mean is None:
+                if cuped_adjustment.relative_effect_baseline is None:
                     result = method.run_test(cuped_adjustment.test_stat, cuped_adjustment.control_stat)
                 else:
                     result = method.run_test(
                         cuped_adjustment.test_stat,
                         cuped_adjustment.control_stat,
-                        unadjusted_mean=cuped_adjustment.control_unadjusted_mean,
+                        relative_effect_baseline=cuped_adjustment.relative_effect_baseline,
                     )
 
                 credible_interval = [result.credible_interval[0], result.credible_interval[1]]

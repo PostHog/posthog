@@ -4,7 +4,9 @@ import numpy as np
 from parameterized import parameterized
 
 from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
+from products.experiments.stats.bayesian.utils import calculate_effect_size_and_variance
 from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod
+from products.experiments.stats.frequentist.utils import calculate_variance_pooled
 from products.experiments.stats.shared.cuped import (
     CupedCovariate,
     _adjust_group,
@@ -160,6 +162,22 @@ class TestCupedAdjust(TestCase):
         self.assertEqual(result.variance_reduction_control, 0.0)
         self.assertAlmostEqual(result.treatment_adjusted.mean, treatment_post.mean, places=10)
         self.assertAlmostEqual(result.control_adjusted.mean, control_post.mean, places=10)
+
+        frequentist = FrequentistMethod()
+        expected = frequentist.run_test(treatment_post, control_post)
+        actual = frequentist.run_test(
+            result.treatment_adjusted, result.control_adjusted, relative_effect_baseline=result.relative_effect_baseline
+        )
+        self.assertAlmostEqual(actual.p_value, expected.p_value)
+        np.testing.assert_allclose(actual.confidence_interval, expected.confidence_interval)
+
+        bayesian = BayesianMethod()
+        expected_bayesian = bayesian.run_test(treatment_post, control_post)
+        actual_bayesian = bayesian.run_test(
+            result.treatment_adjusted, result.control_adjusted, relative_effect_baseline=result.relative_effect_baseline
+        )
+        self.assertAlmostEqual(actual_bayesian.posterior_variance, expected_bayesian.posterior_variance)
+        self.assertAlmostEqual(actual_bayesian.chance_to_win, expected_bayesian.chance_to_win)
 
     def test_proportion_input_produces_sample_mean_output(self):
         """ProportionStatistic inputs should produce SampleMeanStatistic outputs."""
@@ -438,7 +456,6 @@ class TestCupedReferenceData(TestCase):
         self.assertLess(result.treatment_adjusted.variance, treatment_post.variance)
 
     def test_mean_metric_relative_effect(self):
-        """Verify relative effect for mean metric with unadjusted_mean override."""
         control_post = SampleMeanStatistic(n=2801, sum=280, sum_squares=560)
         treatment_post = SampleMeanStatistic(n=2800, sum=205, sum_squares=510)
         control_cuped = CupedCovariate(
@@ -452,19 +469,17 @@ class TestCupedReferenceData(TestCase):
 
         result = cuped_adjust(treatment_post, control_post, treatment_cuped, control_cuped)
 
-        # Pass unadjusted control mean as unadjusted_mean for correct CUPED relative effect
         method = FrequentistMethod(FrequentistConfig(difference_type=DifferenceType.RELATIVE))
         test_result = method.run_test(
-            result.treatment_adjusted, result.control_adjusted, unadjusted_mean=result.control_unadjusted_mean
+            result.treatment_adjusted, result.control_adjusted, relative_effect_baseline=result.relative_effect_baseline
         )
 
         self.assertAlmostEqual(test_result.point_estimate, -0.288704169, places=5)
-        self.assertAlmostEqual(test_result.confidence_interval[0], -0.486775, places=5)
-        self.assertAlmostEqual(test_result.confidence_interval[1], -0.090633, places=5)
+        self.assertAlmostEqual(test_result.confidence_interval[0], -0.482034, places=5)
+        self.assertAlmostEqual(test_result.confidence_interval[1], -0.095375, places=5)
         self.assertTrue(test_result.is_significant)
 
     def test_mean_metric_relative_effect_bayesian(self):
-        """Verify unadjusted_mean works with Bayesian method too."""
         control_post = SampleMeanStatistic(n=2801, sum=280, sum_squares=560)
         treatment_post = SampleMeanStatistic(n=2800, sum=205, sum_squares=510)
         control_cuped = CupedCovariate(
@@ -480,12 +495,89 @@ class TestCupedReferenceData(TestCase):
 
         method = BayesianMethod(BayesianConfig(difference_type=DifferenceType.RELATIVE))
         test_result = method.run_test(
-            result.treatment_adjusted, result.control_adjusted, unadjusted_mean=result.control_unadjusted_mean
+            result.treatment_adjusted, result.control_adjusted, relative_effect_baseline=result.relative_effect_baseline
         )
 
         self.assertAlmostEqual(test_result.effect_size, -0.288704169, places=4)
-        self.assertAlmostEqual(test_result.credible_interval[0], -0.486732, places=5)
-        self.assertAlmostEqual(test_result.credible_interval[1], -0.090676, places=5)
+        self.assertAlmostEqual(test_result.credible_interval[0], -0.481992, places=5)
+        self.assertAlmostEqual(test_result.credible_interval[1], -0.095417, places=5)
+
+    @parameterized.expand([("positive", 1.0), ("negative", -1.0)])
+    def test_relative_variance_matches_linearized_observations(self, _name: str, sign: float) -> None:
+        treatment_y = sign * np.array([10, 13, 14, 9, 16, 11, 15, 12], dtype=float)
+        treatment_x = np.array([3, 5, 4, 2, 7, 3, 6, 2], dtype=float)
+        control_y = sign * np.array([10, 8, 13, 9, 12, 7], dtype=float)
+        control_x = np.array([2, 3, 6, 4, 5, 1], dtype=float)
+
+        def statistic(values: np.ndarray) -> SampleMeanStatistic:
+            return SampleMeanStatistic(n=len(values), sum=float(values.sum()), sum_squares=float(values @ values))
+
+        result = cuped_adjust(
+            statistic(treatment_y),
+            statistic(control_y),
+            CupedCovariate(
+                pre_statistic=statistic(treatment_x), sum_of_cross_products=float(treatment_y @ treatment_x)
+            ),
+            CupedCovariate(pre_statistic=statistic(control_x), sum_of_cross_products=float(control_y @ control_x)),
+        )
+        pooled_x = np.concatenate([treatment_x, control_x])
+        pooled_y = np.concatenate([treatment_y, control_y])
+        theta = np.cov(pooled_x, pooled_y, ddof=1)[0, 1] / np.var(pooled_x, ddof=1)
+        treatment_adjusted = treatment_y - theta * treatment_x
+        control_adjusted = control_y - theta * control_x
+        baseline = control_y.mean()
+        difference = treatment_adjusted.mean() - control_adjusted.mean()
+        treatment_influence = treatment_adjusted / baseline
+        control_influence = -control_adjusted / baseline - difference * control_y / baseline**2
+        expected_variance = np.var(treatment_influence, ddof=1) / len(treatment_y) + np.var(
+            control_influence, ddof=1
+        ) / len(control_y)
+
+        actual_variance = calculate_variance_pooled(
+            result.treatment_adjusted,
+            result.control_adjusted,
+            DifferenceType.RELATIVE,
+            relative_effect_baseline=result.relative_effect_baseline,
+        )
+        self.assertAlmostEqual(actual_variance, expected_variance)
+        bayesian_effect, bayesian_variance = calculate_effect_size_and_variance(
+            result.treatment_adjusted,
+            result.control_adjusted,
+            DifferenceType.RELATIVE,
+            relative_effect_baseline=result.relative_effect_baseline,
+        )
+        self.assertAlmostEqual(bayesian_effect, difference / abs(baseline))
+        self.assertAlmostEqual(bayesian_variance, expected_variance)
+
+    @parameterized.expand([("zero", 0.0), ("near_zero", 1e-12)])
+    def test_relative_baseline_rejection_preserves_absolute_effect(self, _name: str, baseline: float) -> None:
+        treatment = SampleMeanStatistic(n=100, sum=100, sum_squares=200)
+        control = SampleMeanStatistic(n=100, sum=100 * baseline, sum_squares=100)
+        pre = CupedCovariate(pre_statistic=SampleMeanStatistic(n=100, sum=0, sum_squares=0), sum_of_cross_products=0)
+        result = cuped_adjust(treatment, control, pre, pre)
+
+        with self.assertRaises(StatisticError):
+            calculate_effect_size_and_variance(
+                result.treatment_adjusted,
+                result.control_adjusted,
+                DifferenceType.RELATIVE,
+                relative_effect_baseline=result.relative_effect_baseline,
+            )
+        with self.assertRaises(StatisticError):
+            calculate_variance_pooled(
+                result.treatment_adjusted,
+                result.control_adjusted,
+                DifferenceType.RELATIVE,
+                relative_effect_baseline=result.relative_effect_baseline,
+            )
+        effect, variance = calculate_effect_size_and_variance(
+            result.treatment_adjusted,
+            result.control_adjusted,
+            DifferenceType.ABSOLUTE,
+            relative_effect_baseline=result.relative_effect_baseline,
+        )
+        self.assertAlmostEqual(effect, treatment.mean - control.mean)
+        self.assertAlmostEqual(variance, treatment.variance / treatment.n + control.variance / control.n)
 
     # --- Binomial metric ---
 
@@ -513,7 +605,7 @@ class TestCupedReferenceData(TestCase):
 
         method = FrequentistMethod(FrequentistConfig(difference_type=DifferenceType.RELATIVE))
         test_result = method.run_test(
-            result.treatment_adjusted, result.control_adjusted, unadjusted_mean=result.control_unadjusted_mean
+            result.treatment_adjusted, result.control_adjusted, relative_effect_baseline=result.relative_effect_baseline
         )
         self.assertTrue(test_result.is_significant)
         self.assertLess(test_result.point_estimate, 0)

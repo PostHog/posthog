@@ -118,11 +118,15 @@ class TwoSidedTTest(StatisticalTest):
         validate_sample_sizes(treatment_stat, control_stat)
         validate_quantile_inputs(treatment_stat, control_stat)
 
-        unadjusted_mean = kwargs.get("unadjusted_mean")
-        point_estimate = calculate_point_estimate(treatment_stat, control_stat, difference_type, unadjusted_mean)
+        relative_effect_baseline = kwargs.get("relative_effect_baseline")
+        point_estimate = calculate_point_estimate(
+            treatment_stat, control_stat, difference_type, relative_effect_baseline
+        )
 
         # Calculate variance and degrees of freedom
-        pooled_variance = calculate_variance_pooled(treatment_stat, control_stat, difference_type, unadjusted_mean)
+        pooled_variance = calculate_variance_pooled(
+            treatment_stat, control_stat, difference_type, relative_effect_baseline
+        )
         degrees_of_freedom = calculate_welch_satterthwaite_df(treatment_stat, control_stat)
 
         # Calculate test statistic and p-value
@@ -185,9 +189,13 @@ class SequentialTwoSidedTTest(StatisticalTest):
         validate_sample_sizes(treatment_stat, control_stat)
         validate_quantile_inputs(treatment_stat, control_stat)
 
-        unadjusted_mean = kwargs.get("unadjusted_mean")
-        point_estimate = calculate_point_estimate(treatment_stat, control_stat, difference_type, unadjusted_mean)
-        pooled_variance = calculate_variance_pooled(treatment_stat, control_stat, difference_type, unadjusted_mean)
+        relative_effect_baseline = kwargs.get("relative_effect_baseline")
+        point_estimate = calculate_point_estimate(
+            treatment_stat, control_stat, difference_type, relative_effect_baseline
+        )
+        pooled_variance = calculate_variance_pooled(
+            treatment_stat, control_stat, difference_type, relative_effect_baseline
+        )
         n = get_sample_size(treatment_stat) + get_sample_size(control_stat)
 
         # No t-distribution in the always-valid construction, so neither the degrees of

@@ -5,6 +5,8 @@ This module provides fundamental Bayesian statistical calculations including
 posterior updates, credible intervals, and probability calculations.
 """
 
+from typing import TYPE_CHECKING
+
 from scipy.stats import norm
 
 from ..shared.enums import DifferenceType
@@ -12,12 +14,15 @@ from ..shared.statistics import AnyStatistic, StatisticError
 from ..shared.utils import get_mean, get_sample_size, get_variance, validate_test_inputs
 from .priors import GaussianPrior
 
+if TYPE_CHECKING:
+    from ..shared.statistics import RelativeEffectBaseline
+
 
 def calculate_effect_size_and_variance(
     treatment_stat: AnyStatistic,
     control_stat: AnyStatistic,
     difference_type: DifferenceType,
-    unadjusted_mean: float | None = None,
+    relative_effect_baseline: RelativeEffectBaseline | None = None,
 ) -> tuple[float, float]:
     """
     Calculate effect size and its variance for Bayesian analysis.
@@ -26,9 +31,8 @@ def calculate_effect_size_and_variance(
         treatment_stat: Treatment group statistic
         control_stat: Control group statistic
         difference_type: Type of difference to calculate
-        unadjusted_mean: Optional override for the denominator in relative calculations.
-            When provided, used instead of the control mean. This is useful for CUPED
-            where the adjusted control mean differs from the original control mean.
+        relative_effect_baseline: Raw baseline moments for CUPED relative effects.
+            Includes its covariance with the adjusted treatment-control difference.
 
     Returns:
         Tuple of (effect_size, effect_variance)
@@ -49,11 +53,17 @@ def calculate_effect_size_and_variance(
         effect_variance = treatment_var / treatment_n + control_var / control_n
 
     elif difference_type == DifferenceType.RELATIVE:
-        denominator = unadjusted_mean if unadjusted_mean is not None else control_mean
+        denominator = relative_effect_baseline.mean if relative_effect_baseline is not None else control_mean
         if abs(denominator) < 1e-10:
             raise StatisticError("Baseline mean is zero, so the relative difference is undefined")
 
         effect = (treatment_mean - control_mean) / abs(denominator)
+
+        if relative_effect_baseline is not None:
+            return effect, relative_effect_baseline.relative_variance(
+                difference_mean=treatment_mean - control_mean,
+                difference_variance=treatment_var / treatment_n + control_var / control_n,
+            )
 
         # The effect is ±(μ_T / μ_C - 1), so it has the variance of μ_T / μ_C. Keep the signed μ_C for the covariance term.
         effect_variance = variance_of_ratios(
