@@ -17,6 +17,7 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -345,6 +346,15 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                           }
                 }
             />
+
+            {'scheduled_deletion_at' in definition && definition.scheduled_deletion_at && (
+                <LemonBanner type="warning">
+                    Ingestion of this event was stopped, so its definition will be deleted after{' '}
+                    <TZLabel time={definition.scheduled_deletion_at} timestampStyle="absolute" formatTime="h:mm A" />.
+                    To cancel the delete, edit the event and set its status to Visible or Verified. To ingest the event
+                    again, remove its condition from the <Link to={urls.eventFiltering()}>event ingestion filter</Link>.
+                </LemonBanner>
+            )}
 
             <div className="deprecated-space-y-2">
                 {formattedName !== definition.name && (
