@@ -1428,7 +1428,6 @@ def create_evaluation(
     *,
     request: Request,
     team: Team,
-    tracking_properties: Mapping[str, Any] | None = None,
 ) -> Evaluation:
     """Save a validated evaluation with its default report and track the creation."""
     with transaction.atomic():
@@ -1453,7 +1452,6 @@ def create_evaluation(
             "enabled": instance.enabled,
             "condition_count": len(conditions),
             "has_rollout_percentage": any(condition.get("rollout_percentage", 100) < 100 for condition in conditions),
-            **(tracking_properties or {}),
             "config_length": _config_length(instance),
         },
         team=team,
