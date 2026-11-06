@@ -70,7 +70,7 @@ Then write {count} prompts that a real buyer would type into an AI assistant. Fo
 - Weight toward prompts where someone is choosing a tool, comparing options or solving a concrete problem. \
 Keep only a few prompts about learning a concept.
 - Most prompts must not name {brand_name}. Add at most {branded_max} branded prompts, such as "what is {brand_name}" \
-or "{brand_name} vs <competitor>"; those check how accurately assistants describe the brand.
+or "{brand_name} vs [competitor]"; those check how accurately assistants describe the brand.
 - Never write a prompt rigged in the brand's favor, such as one that lists a feature only this brand has.
 - Only write questions people plausibly ask. Skip niche wording nobody would type.
 - Spread the prompts across the topics. Keep each topic to two or three words.
