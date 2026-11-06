@@ -74,6 +74,7 @@ from products.cdp.backend.services.destination_test_runs import (
     destination_test_run_context,
     record_test_run_request_origins,
     sends_real_requests,
+    without_request_origins,
 )
 from products.cdp.backend.services.icons import CDPIconsService
 from products.cdp.backend.site_functions import get_transpiled_function
@@ -1494,7 +1495,7 @@ class HogFunctionViewSet(
             # caller with a bare status code and nothing to act on.
             return Response({"status": "error", "errors": _worker_error_messages(res)}, status=res.status_code)
 
-        return Response(res.json())
+        return Response(without_request_origins(res.json()))
 
     @extend_schema(
         request=HogInvocationRerunRequestSerializer,

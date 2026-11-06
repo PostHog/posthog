@@ -230,6 +230,16 @@ def _stored_secrets(row: ActivityLog, secret_inputs: Any) -> list[str]:
     return [*_string_values(secret_inputs), *_string_values(list(configs))]
 
 
+def without_request_origins(body: Any) -> Any:
+    """Drop the reported origins from a worker reply before it goes back to the caller.
+
+    A host can hold a stored secret that the caller must not read back. The audit row keeps the redacted origins.
+    """
+    if isinstance(body, dict):
+        body.pop("request_origins", None)
+    return body
+
+
 def record_test_run_request_origins(
     row: Optional[ActivityLog], response: requests.Response, *, secret_inputs: Any = None
 ) -> None:

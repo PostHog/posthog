@@ -155,6 +155,7 @@ from products.workflows.backend.facade.activity import (
     log_workflow_test_run,
     record_workflow_test_run_origins,
     resume_workflow_email_sending,
+    without_workflow_test_run_origins,
 )
 from products.workflows.backend.facade.api import (
     flow_ids_with_active_schedule,
@@ -6673,7 +6674,7 @@ class HogFlowViewSet(
         if res.status_code != 200:
             return Response({"status": "error", "message": res.json()["error"]}, status=res.status_code)
 
-        return Response(res.json())
+        return Response(without_workflow_test_run_origins(res.json()))
 
     @extend_schema(request=ApplyUtmDefaultsRequestSerializer, responses=ApplyUtmDefaultsResponseSerializer)
     @action(methods=["POST"], detail=False)

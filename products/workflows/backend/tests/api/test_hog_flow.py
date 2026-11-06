@@ -3667,13 +3667,17 @@ class TestHogFlowAPI(APIBaseTest):
         with patch(
             "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
         ) as mock_invoke:
-            mock_invoke.return_value = MagicMock(status_code=500)
+            mock_invoke.return_value = MagicMock(status_code=500 if reply is None else 200)
             if reply is None:
                 mock_invoke.return_value.json.side_effect = ValueError("not JSON")
             else:
                 mock_invoke.return_value.json.return_value = {"error": "Worker failed", **reply}
-            self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/", data, format="json")
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/", data, format="json"
+            )
         assert mock_invoke.call_count == 1
+        if reply is not None:
+            assert "request_origins" not in response.json()
 
         rows = list(ActivityLog.objects.filter(team_id=self.team.id, scope="HogFlow", activity="tested"))
         if mock_async_functions:
