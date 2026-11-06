@@ -228,8 +228,12 @@ def _host_forms(secret: str) -> set[str]:
     return {form for form in forms if form}
 
 
+# The DNS label limit. The punycode decoder is quadratic in length, and no real label is longer.
+_MAX_LABEL_LENGTH = 63
+
+
 def _decoded_label(label: str) -> str:
-    if not label.startswith("xn--"):
+    if not label.startswith("xn--") or len(label) > _MAX_LABEL_LENGTH:
         return label
     try:
         return label[4:].encode("ascii").decode("punycode")
@@ -255,9 +259,10 @@ def _redact_subdomain(origin: str, pattern: Optional[re.Pattern[str]], short_for
         return origin
     if pattern is not None:
         # Punycode encodes a whole label, so a secret inside a longer non-ASCII label shows only once decoded.
+        labels = subdomain.split(".")
+        decoded = [_decoded_label(label) for label in labels]
         subdomain = ".".join(
-            _REDACTED if label != _decoded_label(label) and pattern.search(_decoded_label(label)) else label
-            for label in subdomain.split(".")
+            _REDACTED if text != label and pattern.search(text) else label for label, text in zip(labels, decoded)
         )
         subdomain = pattern.sub(_REDACTED, subdomain)
     subdomain = ".".join(_REDACTED if label in short_forms else label for label in subdomain.split("."))
