@@ -217,6 +217,7 @@ export type SettingId =
     | 'human-friendly-comparison-periods'
     | 'integration-error-tracking'
     | 'integration-github'
+    | 'integration-gitlab'
     | 'integration-ip-allowlist'
     | 'integration-linear'
     | 'integration-other'
