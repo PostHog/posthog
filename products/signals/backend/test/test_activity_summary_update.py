@@ -10,8 +10,7 @@ from parameterized import parameterized
 
 from posthog.models import ActivityLog, FileSystem, FileSystemViewLog, User
 
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade.testing import create_dashboard, create_insight_tile
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.activity_summary import mcp_buffer
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig
@@ -175,11 +174,11 @@ class TestUpdateActivitySummary(BaseTest):
         assert stored.inputs_used["limits"]["max_completion_tokens"] == 1234
 
     def test_insights_on_a_dashboard_render_as_one_line_for_the_dashboard(self) -> None:
-        dashboard = Dashboard.objects.create(team=self.team, name="Quality review")
-        self._change("Quality review", days_ago=1.2, scope="Dashboard", item_id=str(dashboard.id))
+        dashboard_id = create_dashboard(team_id=self.team.id, name="Quality review")
+        self._change("Quality review", days_ago=1.2, scope="Dashboard", item_id=str(dashboard_id))
         for index, name in enumerate(["Records judged per day", "Suggestion defect rates"]):
             insight = Insight.objects.create(team=self.team, name=name)
-            DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+            create_insight_tile(dashboard_id=dashboard_id, insight_id=insight.id)
             self._change(name, days_ago=1.1 - index / 100, item_id=str(insight.id))
 
         result = self._update(FakeLLM([ANSWER]), dry_run=True, min_units=1)
