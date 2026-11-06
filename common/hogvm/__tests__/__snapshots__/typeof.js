@@ -17,11 +17,11 @@ function toDate (input) { return __toDate(input) }
 function print (...args) { console.log(...args.map(__printHogStringOutput)) }
 function __toDateTime(input, zone) { let dt;
     if (typeof input === 'number') { dt = input; }
-    else { const date = new Date(input); if (isNaN(date.getTime())) { throw new Error('Invalid date input'); } dt = date.getTime() / 1000; }
+    else { const date = new Date(input); if (isNaN(date.getTime())) { return null; } dt = date.getTime() / 1000; }
     return { __hogDateTime__: true, dt: dt, zone: zone || 'UTC' }; }
 function __toDate(input) { let date;
     if (typeof input === 'number') { date = new Date(input * 1000); } else { date = new Date(input); }
-    if (isNaN(date.getTime())) { throw new Error('Invalid date input'); }
+    if (isNaN(date.getTime())) { return null; }
     return { __hogDate__: true, year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() }; }
 function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
 function __printHogValue(obj, marked = new Set()) {

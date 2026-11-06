@@ -25,11 +25,11 @@ function __toUnixTimestamp(input, zone) {
 function __toTimeZone(input, zone) { if (!__isHogDateTime(input)) { throw new Error('Expected a DateTime') }; return { ...input, zone }}
 function __toDateTime(input, zone) { let dt;
     if (typeof input === 'number') { dt = input; }
-    else { const date = new Date(input); if (isNaN(date.getTime())) { throw new Error('Invalid date input'); } dt = date.getTime() / 1000; }
+    else { const date = new Date(input); if (isNaN(date.getTime())) { return null; } dt = date.getTime() / 1000; }
     return { __hogDateTime__: true, dt: dt, zone: zone || 'UTC' }; }
 function __toDate(input) { let date;
     if (typeof input === 'number') { date = new Date(input * 1000); } else { date = new Date(input); }
-    if (isNaN(date.getTime())) { throw new Error('Invalid date input'); }
+    if (isNaN(date.getTime())) { return null; }
     return { __hogDate__: true, year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() }; }
 function __fromUnixTimestampMilli(input) { return __toHogDateTime(input / 1000) }
 function __fromUnixTimestamp(input) { return __toHogDateTime(input) }
@@ -170,3 +170,6 @@ let date = toDate("2024-05-03");
 print(date);
 print(toString(date));
 print(toInt(date));
+print("------");
+print(toDate("not a date"));
+print(toDateTime("not a date"));

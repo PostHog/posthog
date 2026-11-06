@@ -67,4 +67,7 @@
 "print", 2, 35, 32, "{\"a\":123}", 32, "a", 2, "JSONExtractArrayRaw", 2, 2, "jsonStringify", 1, 32, "{\"a\":\"hello\"}",
 32, "a", 2, "JSONExtractArrayRaw", 2, 2, "jsonStringify", 1, 2, "print", 2, 35, 32, "{\"a\":[]}", 32, "a", 2,
 "JSONExtractArrayRaw", 2, 2, "jsonStringify", 1, 32, "{\"a\":[\"hello\"]}", 32, "a", 2, "JSONExtractArrayRaw", 2, 2,
-"jsonStringify", 1, 2, "print", 2, 35]
+"jsonStringify", 1, 2, "print", 2, 35, 32, "", 2, "print", 1, 35, 32, "-- min2 / max2 --", 2, "print", 1, 35, 33, 1, 33,
+2, 2, "min2", 2, 33, 1, 33, 2, 2, "max2", 2, 34, 2.5, 33, -1, 2, "min2", 2, 34, 2.5, 33, -1, 2, "max2", 2, 2, "print",
+4, 35, 32, "", 2, "print", 1, 35, 32, "-- tryBase64Decode --", 2, "print", 1, 35, 32, "aGVsbG8=", 2, "tryBase64Decode",
+1, 32, "h\u00e9llo", 2, "base64Encode", 1, 2, "tryBase64Decode", 1, 2, "print", 2, 35]

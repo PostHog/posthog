@@ -83,8 +83,8 @@ class TestDateLikeGrammar(unittest.TestCase):
     @parameterized.expand([(value,) for value in REJECTED])
     def test_rejects(self, value):
         self.assertIsNone(date_string_to_seconds(value))
-        with self.assertRaises(ValueError):
-            toDateTime(value)
+        self.assertIsNone(toDateTime(value))
+        self.assertIsNone(toDate(value))
 
     def test_naive_string_resolves_to_utc_regardless_of_host_timezone(self):
         # Regression: `datetime.fromisoformat(s).timestamp()` resolves a naive datetime in the

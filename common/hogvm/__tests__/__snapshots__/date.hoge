@@ -26,4 +26,5 @@
 "toFloat(millisTs):                        ", 36, 4, 2, "toFloat", 1, 2, "print", 2, 35, 32,
 "toUnixTimestampMilli(millisTs):           ", 36, 4, 2, "toUnixTimestampMilli", 1, 2, "print", 2, 35, 32, "------", 2,
 "print", 1, 35, 32, "2024-05-03", 2, "toDate", 1, 36, 5, 2, "print", 1, 35, 36, 5, 2, "toString", 1, 2, "print", 1, 35,
-36, 5, 2, "toInt", 1, 2, "print", 1, 35, 35, 35, 35, 35, 35, 35]
+36, 5, 2, "toInt", 1, 2, "print", 1, 35, 32, "------", 2, "print", 1, 35, 32, "not a date", 2, "toDate", 1, 2, "print",
+1, 35, 32, "not a date", 2, "toDateTime", 1, 2, "print", 1, 35, 35, 35, 35, 35, 35, 35]

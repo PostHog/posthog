@@ -40,3 +40,6 @@ toUnixTimestampMilli(millisTs):            1234334543123
 Date(2024, 5, 3)
 2024-05-03
 19846
+------
+null
+null

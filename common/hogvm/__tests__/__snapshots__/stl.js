@@ -14,6 +14,7 @@ function __x_typeof (value) {
 }
 function tuple (...args) { const tuple = args.slice(); tuple.__isHogTuple = true; return tuple; }
 function tryDecodeURLComponent (str) { try { return decodeURIComponent(str) } catch { return null } }
+function tryBase64Decode (str) { try { return Buffer.from(str, 'base64').toString() } catch (e) { return '' } }
 function today() {
     const now = new Date();
     return __toHogDate(now.getUTCFullYear(), now.getUTCMonth()+1, now.getUTCDate());
@@ -95,6 +96,7 @@ function notEquals(a, b) { return a !== b }
 function notEmpty (value) { return !empty(value) }
 function minus(a, b) { return a - b }
 function min2(a, b) { return a < b ? a : b }
+function max2(a, b) { return a > b ? a : b }
 function lower (value) { if (value === null || value === undefined) { return null } return value.toLowerCase() }
 function lessOrEquals(a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a <= b }
 function less(a, b) { return a !== null && a !== undefined && b !== null && b !== undefined && a < b }
@@ -271,11 +273,11 @@ function __toHogInterval(value, unit) {
 }
 function __toDateTime(input, zone) { let dt;
     if (typeof input === 'number') { dt = input; }
-    else { const date = new Date(input); if (isNaN(date.getTime())) { throw new Error('Invalid date input'); } dt = date.getTime() / 1000; }
+    else { const date = new Date(input); if (isNaN(date.getTime())) { return null; } dt = date.getTime() / 1000; }
     return { __hogDateTime__: true, dt: dt, zone: zone || 'UTC' }; }
 function __toDate(input) { let date;
     if (typeof input === 'number') { date = new Date(input * 1000); } else { date = new Date(input); }
-    if (isNaN(date.getTime())) { throw new Error('Invalid date input'); }
+    if (isNaN(date.getTime())) { return null; }
     return { __hogDate__: true, year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() }; }
 function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
 function __printHogValue(obj, marked = new Set()) {
@@ -560,3 +562,9 @@ print(jsonStringify(JSONExtractFloat("{\"a\":123.1}", "a")), jsonStringify(JSONE
 print(jsonStringify(JSONExtractString("{\"a\":123.1}", "a")), jsonStringify(JSONExtractString("{\"a\":\"hello\"}", "a")));
 print(jsonStringify(JSONExtractArrayRaw("{\"a\":123}", "a")), jsonStringify(JSONExtractArrayRaw("{\"a\":\"hello\"}", "a")));
 print(jsonStringify(JSONExtractArrayRaw("{\"a\":[]}", "a")), jsonStringify(JSONExtractArrayRaw("{\"a\":[\"hello\"]}", "a")));
+print("");
+print("-- min2 / max2 --");
+print(min2(1, 2), max2(1, 2), min2(2.5, -1), max2(2.5, -1));
+print("");
+print("-- tryBase64Decode --");
+print(tryBase64Decode("aGVsbG8="), tryBase64Decode(base64Encode("h\u00e9llo")));
