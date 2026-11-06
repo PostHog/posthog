@@ -125,13 +125,14 @@ const MONDAY_MORNING: Greeting[] = [withName('We are so back')]
 const ANY_TIME: Greeting[] = [
     withName('We are so back'),
     plain('Chat, is this real?'),
-    withName('Let’s cook'),
+    plain('Let them cook.'),
     plain('An elegant weapon for a more civilized age.'),
     plain('Big if true.'),
     plain('I ain’t reading all that.'),
     plain('I’m not arguing, I’m just explaining why I’m right.'),
     plain('Hi, welcome to Chili’s.'),
     plain('I basically run on iced data and panic.'),
+    plain('Sir, this is a homepage.'),
 ]
 
 function greetingPool(day: number, hour: number): Greeting[] {
