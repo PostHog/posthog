@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { fireEvent, within } from '@testing-library/dom'
+import { fireEvent, within } from '@testing-library/react'
 
 import { mswDecorator } from '~/mocks/browser'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
