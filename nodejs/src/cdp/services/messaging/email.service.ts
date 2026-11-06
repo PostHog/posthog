@@ -1,4 +1,10 @@
-import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
+import {
+    MessageHeader,
+    SESv2Client,
+    SESv2ServiceException,
+    SendEmailCommand,
+    SendEmailCommandInput,
+} from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { SendMailOptions } from 'nodemailer'
 import * as mimeFuncs from 'nodemailer/lib/mime-funcs'
@@ -12,6 +18,7 @@ import {
     HogFunctionType,
     IntegrationType,
     MessageAssetRow,
+    MinimalAppMetric,
 } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
@@ -48,7 +55,12 @@ import {
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
-import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
+import {
+    parseDeliveryMailboxes,
+    quoteMailbox,
+    removeSuppressedRecipients,
+    unquoteMailbox,
+} from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
@@ -143,23 +155,19 @@ type EmailQueueWait = { source: 'transactional_api' | 'workflow'; startedAt: Dat
 
 // A transactional API job is created on the email queue, so its creation time is when the caller got its 202. A
 // workflow job can join the email queue long after it was created, so its wait starts at the time it became due.
-// Broadcasts (batch-triggered flows) and transactional API email also run as hog flows, so a hog flow alone
-// does not make a send a workflow email step.
-function isWorkflowEmailStep(invocation: CyclotronJobInvocationHogFunction): boolean {
-    const hogFlow = (invocation as { hogFlow?: Partial<HogFlow> }).hogFlow
-    return (
-        !!hogFlow &&
-        hogFlow.trigger?.type !== 'batch' &&
-        invocation.state.globals.event?.event !== TRANSACTIONAL_EMAIL_EVENT
-    )
-}
-
 // Both come from fields a clone keeps: running the email step clones the invocation and resets queueScheduledAt.
 function emailQueueWait(invocation: CyclotronJobInvocationHogFunction): EmailQueueWait | undefined {
     const source =
         invocation.state.globals.event?.event === TRANSACTIONAL_EMAIL_EVENT ? 'transactional_api' : 'workflow'
     const startedAt = source === 'transactional_api' ? invocation.queueCreatedAt : invocation.queueDueAt
     return startedAt ? { source, startedAt, teamCapped: invocation.queueMetadata?.teamCapped === true } : undefined
+}
+
+// Broadcasts (batch-triggered flows) and transactional API email also run as hog flows, so a hog flow alone
+// does not make a send a workflow email step.
+function isWorkflowEmailStep(invocation: CyclotronJobInvocationHogFunction): boolean {
+    const hogFlow = (invocation as { hogFlow?: Partial<HogFlow> }).hogFlow
+    return !!hogFlow && hogFlow.trigger?.type !== 'batch' && !isTransactionalEmailSend(invocation)
 }
 
 /**
@@ -179,6 +187,10 @@ export class SESThrottleError extends Error {
         this.retryAfterMs = retryAfterMs
     }
 }
+
+// SES answered with a client fault, so it did not accept the message. Other failures, such as a timeout or a
+// missing message ID, leave open whether the email went out.
+class SesRejectedError extends Error {}
 
 class EmailAttachmentsUnavailableError extends Error {
     constructor(cause: unknown) {
@@ -450,113 +462,53 @@ export function parseAddressList(value?: string): string[] | undefined {
     return result.length > 0 ? result : undefined
 }
 
-type QuoteScan = { unquotedIndexes: number[]; balanced: boolean }
-
-function scanQuotes(text: string): QuoteScan {
-    const unquotedIndexes: number[] = []
-    let quoted = false
-    let escaped = false
-    for (let index = 0; index < text.length; index++) {
-        const character = text[index]
-        if (escaped) {
-            escaped = false
-        } else if (quoted && character === '\\') {
-            escaped = true
-        } else if (character === '"') {
-            quoted = !quoted
-        } else if (!quoted) {
-            unquotedIndexes.push(index)
-        }
-    }
-    return { unquotedIndexes, balanced: !quoted }
-}
-
-function splitOutsideQuotes(text: string): string[] {
-    const commas = scanQuotes(text).unquotedIndexes.filter((index) => text[index] === ',')
-    return [-1, ...commas].map((comma, position) => text.slice(comma + 1, commas[position] ?? text.length))
-}
-
-function angleAddress(entry: string): string | undefined {
-    const { unquotedIndexes, balanced } = scanQuotes(entry)
-    const opening = unquotedIndexes.find((index) => entry[index] === '<')
-    const closing = entry.length - 1
-    if (!balanced || opening === undefined || entry[closing] !== '>' || /[\r\n]/.test(entry)) {
-        return undefined
-    }
-    const unquotedBetween = (start: number, end: number): string =>
-        unquotedIndexes
-            .filter((index) => index >= start && index < end)
-            .map((index) => entry[index])
-            .join('')
-    const mailbox = entry.slice(opening + 1, closing).trim()
-    const isFramed = !/[>@;]/.test(unquotedBetween(0, opening)) && !/[<>]/.test(unquotedBetween(opening + 1, closing))
-    return isFramed && mailbox ? mailbox : undefined
-}
-
-// Unlike `extractEmailsFromAddressList`, this keeps quoted commas inside one entry and leaves an
-// ambiguous mailbox whole, so the member check sees exactly the addresses SES would deliver to.
-function sandboxAddressList(value?: string): string[] {
-    return splitOutsideQuotes(value ?? '')
-        .map((entry) => entry.trim())
-        .filter(Boolean)
-        .map((entry) => angleAddress(entry) ?? entry)
-}
-
 function sandboxRecipientsOf(params: CyclotronInvocationQueueParametersEmailType): string[] {
-    return [params.to.email.trim(), ...sandboxAddressList(params.cc), ...sandboxAddressList(params.bcc)]
+    return [params.to.email.trim(), ...parseDeliveryMailboxes(params.cc), ...parseDeliveryMailboxes(params.bcc)]
 }
 
-type SandboxCapSkipReason = Extract<SandboxEmailBlockReason, 'project_cap_reached' | 'cap_check_failed'>
-type SandboxRecipientBlockReason = Exclude<SandboxEmailBlockReason, 'switch_off' | SandboxCapSkipReason>
+type SandboxBlockReason = Exclude<SandboxEmailBlockReason, 'switch_off' | 'not_workflow_step'>
 
+// CC and BCC belong to the route because a route builder may parse them its own way, and SES must
+// deliver to exactly the list that builder checked.
 type SesRoute = {
     tenantName: string
     configurationSetName: string
-    unsubscribeHeaders: boolean
+    unsubscribeHeaders: MessageHeader[]
     ccAddresses?: string[]
     bccAddresses?: string[]
 }
 
-const SANDBOX_RECIPIENT_BLOCKS: Record<
-    SandboxRecipientBlockReason,
-    { explanation: string; label: string; guidance: string; statusReason: EmailSkipReason }
+const SANDBOX_BLOCKS: Record<
+    SandboxBlockReason,
+    { message: (addresses: string[]) => string; statusReason: EmailSkipReason }
 > = {
     recipient_not_member: {
-        explanation:
-            'Skipping send: the sandbox sender only sends to active organization members with verified email addresses',
-        label: '. Blocked addresses: ',
-        guidance: 'Verify your own domain to send to anyone.',
+        message: (addresses) =>
+            `Skipping send: the sandbox sender only sends to active organization members with verified email addresses. Blocked addresses: ${addresses.join(', ')}. Verify your own domain to send to anyone.`,
         statusReason: 'recipient_unreachable',
     },
     recipient_unverified: {
-        explanation:
-            'Skipping send: the sandbox sender only sends to organization members with verified email addresses',
-        label: '. Unverified addresses: ',
-        guidance: 'Verify your email address in PostHog, or ask these members to verify theirs.',
+        message: (addresses) =>
+            `Skipping send: the sandbox sender only sends to organization members with verified email addresses. Unverified addresses: ${addresses.join(', ')}. Verify your email address in PostHog, or ask these members to verify theirs.`,
         statusReason: 'recipient_unreachable',
     },
     check_failed: {
-        explanation: 'Skipping send: could not check organization members',
-        label: ' for these addresses: ',
-        guidance: 'Try again, or verify your own domain to send to anyone.',
+        message: (addresses) =>
+            `Skipping send: could not check organization members for these addresses: ${addresses.join(', ')}. Try again, or verify your own domain to send to anyone.`,
         statusReason: 'recipient_unreachable',
     },
     recipient_cap_reached: {
-        explanation: "Skipping send: these addresses reached the sandbox sender's daily limit per address",
-        label: ': ',
-        guidance: 'Verify your own domain to send more.',
+        message: (addresses) =>
+            `Skipping send: these addresses reached the sandbox sender's daily limit per address: ${addresses.join(', ')}. Verify your own domain to send more.`,
         statusReason: 'frequency_capped',
     },
-}
-
-const SANDBOX_CAP_SKIPS: Record<SandboxCapSkipReason, { message: string; statusReason: EmailSkipReason }> = {
     project_cap_reached: {
-        message:
+        message: () =>
             "Skipping send: this email would go over the sandbox sender's daily limit for this project. Verify your own domain to send more.",
         statusReason: 'frequency_capped',
     },
     cap_check_failed: {
-        message:
+        message: () =>
             "Skipping send: could not check the sandbox sender's daily limit. Try again later, or verify your own domain to send more.",
         statusReason: 'recipient_unreachable',
     },
@@ -726,9 +678,11 @@ export class EmailService {
                     'Skipping send: the sandbox sender only sends workflow email steps and test sends. Verify your own domain to send broadcasts and transactional email.',
                     'sending_suspended'
                 )
+                await this.sandboxSender?.captureBlocked(invocation.teamId, isTest, 'not_workflow_step', 0)
                 return result
             }
-            if (isSandbox && !this.sandboxSender?.canSend) {
+            const sandboxSender = isSandbox ? this.sandboxSender : null
+            if (isSandbox && !sandboxSender?.canSend) {
                 this.skipSandboxSend(
                     result,
                     isTest,
@@ -774,8 +728,12 @@ export class EmailService {
                 return result
             }
 
-            const recipients = isSandbox ? sandboxRecipientsOf(params) : []
-            if (isSandbox && !(await this.checkSandboxRecipients(result, recipients, isTest))) {
+            if (
+                sandboxSender &&
+                !(await this.checkSandboxRecipients(result, sandboxSender, sandboxRecipientsOf(params), isTest, {
+                    fresh: false,
+                }))
+            ) {
                 return result
             }
             if (isSandbox && (params.from.email || params.from.name || params.replyTo)) {
@@ -956,26 +914,31 @@ export class EmailService {
                     await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, queueWait, files)
                     break
                 case 'sandbox': {
-                    deliveryParams = await this.sandboxSender!.withIdentificationFooter(
-                        sendParams,
-                        from.name,
-                        invocation.teamId
-                    )
-                    const route = this.sandboxSesRoute(deliveryParams)
+                    if (!sandboxSender) {
+                        throw new Error('The sandbox sender is not configured')
+                    }
+                    deliveryParams = await sandboxSender.buildSandboxMessage(sendParams, from.name, invocation.teamId)
+                    const route = this.sandboxSesRoute(sandboxSender, deliveryParams)
                     const deliveryRecipients = [
                         deliveryParams.to.email.trim(),
                         ...(route.ccAddresses ?? []),
                         ...(route.bccAddresses ?? []),
                     ]
-                    const capGrant = await this.claimSandboxDailyCaps(result, deliveryRecipients, isTest)
+                    const capGrant = await this.claimSandboxDailyCaps(result, sandboxSender, deliveryRecipients, isTest)
                     if (!capGrant) {
                         return result
                     }
-                    const deliverTo = await this.checkSandboxRecipients(result, deliveryRecipients, isTest, {
-                        fresh: true,
-                    })
+                    const deliverTo = await this.checkSandboxRecipients(
+                        result,
+                        sandboxSender,
+                        deliveryRecipients,
+                        isTest,
+                        {
+                            fresh: true,
+                        }
+                    )
                     if (!deliverTo) {
-                        await this.sandboxSender!.returnDailyCaps(capGrant)
+                        await sandboxSender.returnDailyCaps(capGrant)
                         return result
                     }
                     const stored = (address: string): string => deliverTo.get(address)!
@@ -990,6 +953,7 @@ export class EmailService {
                     }
                     await this.sendSandboxEmail(
                         result,
+                        sandboxSender,
                         deliveryParams,
                         from,
                         isTest,
@@ -998,7 +962,7 @@ export class EmailService {
                         memberRoute,
                         capGrant
                     )
-                    await this.sandboxSender!.captureSent(invocation.teamId, isTest, deliveryRecipients.length)
+                    await sandboxSender.captureSent(invocation.teamId, isTest, deliveryRecipients.length)
                     break
                 }
 
@@ -1079,37 +1043,26 @@ export class EmailService {
         // Test sends (from the editor's "Run test") must not record metrics — keep them out of the
         // workflow's Metrics tab, mirroring the isTest skip the SES webhook applies to delivery/open/click.
         if (!isTest) {
-            result.metrics.push({
-                team_id: invocation.teamId,
-                app_source_id: invocation.parentRunId ?? invocation.functionId,
-                instance_id: invocation.state.actionId || invocation.id,
-                metric_kind: 'email',
-                metric_name: success ? 'email_sent' : 'email_failed',
-                count: 1,
-            })
+            const pushEmailMetric = (metric_name: MinimalAppMetric['metric_name']): void => {
+                result.metrics.push({
+                    team_id: invocation.teamId,
+                    app_source_id: invocation.parentRunId ?? invocation.functionId,
+                    instance_id: invocation.state.actionId || invocation.id,
+                    metric_kind: 'email',
+                    metric_name,
+                    count: 1,
+                })
+            }
+            pushEmailMetric(success ? 'email_sent' : 'email_failed')
 
             // Untracked sends can never produce opens/clicks, so record them separately: open/click
             // rates are computed against (delivered - untracked) to avoid deflation.
             if (success && !trackingEnabled) {
-                result.metrics.push({
-                    team_id: invocation.teamId,
-                    app_source_id: invocation.parentRunId ?? invocation.functionId,
-                    instance_id: invocation.state.actionId || invocation.id,
-                    metric_kind: 'email',
-                    metric_name: 'email_untracked',
-                    count: 1,
-                })
+                pushEmailMetric('email_untracked')
             }
 
             if (success && isSandbox) {
-                result.metrics.push({
-                    team_id: invocation.teamId,
-                    app_source_id: invocation.parentRunId ?? invocation.functionId,
-                    instance_id: invocation.state.actionId || invocation.id,
-                    metric_kind: 'email',
-                    metric_name: 'email_sandbox_sent',
-                    count: 1,
-                })
+                pushEmailMetric('email_sandbox_sent')
             }
 
             if (success && assetRow) {
@@ -1264,21 +1217,24 @@ export class EmailService {
 
     private async checkSandboxRecipients(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        sender: SandboxEmailSender,
         recipients: string[],
         isTest: boolean,
-        { fresh = false }: { fresh?: boolean } = {}
+        { fresh }: { fresh: boolean }
     ): Promise<StoredAddressByRecipient | null> {
         const { teamId } = result.invocation
         let blockedRecipients: string[]
-        let reason: SandboxRecipientBlockReason
-        let deliverTo: StoredAddressByRecipient = new Map()
+        let reason: SandboxBlockReason
         try {
             if (!this.organizationMembers) {
                 throw new Error('Organization member checks are not configured')
             }
-            const check = await this.organizationMembers.checkRecipients(teamId, recipients, { fresh })
-            const blocked = check.blocked
-            deliverTo = check.deliverTo
+            const { blocked, deliverTo } = await this.organizationMembers.checkRecipients(teamId, recipients, {
+                fresh,
+            })
+            if (!blocked.length) {
+                return deliverTo
+            }
             blockedRecipients = blocked.map(({ address }) => address)
             reason = blocked.every(({ unverifiedMember }) => unverifiedMember)
                 ? 'recipient_unverified'
@@ -1291,51 +1247,40 @@ export class EmailService {
                 error: error instanceof Error ? error.message : 'Unknown error',
             })
         }
-        if (!blockedRecipients.length) {
-            return deliverTo
-        }
-        await this.blockSandboxRecipients(result, blockedRecipients, reason, isTest)
+        await this.blockSandboxSend(result, sender, blockedRecipients, reason, isTest)
         return null
     }
 
-    private async blockSandboxRecipients(
+    private async blockSandboxSend(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
-        blockedRecipients: string[],
-        reason: SandboxRecipientBlockReason,
+        sender: SandboxEmailSender,
+        addresses: string[],
+        reason: SandboxBlockReason,
         isTest: boolean
     ): Promise<void> {
-        const { explanation, label, guidance, statusReason } = SANDBOX_RECIPIENT_BLOCKS[reason]
-        this.skipSandboxSend(
-            result,
-            isTest,
-            `${explanation}${label}${blockedRecipients.join(', ')}. ${guidance}`,
-            statusReason
-        )
-        await this.sandboxSender?.captureBlocked(result.invocation.teamId, isTest, reason, blockedRecipients.length)
+        const { message, statusReason } = SANDBOX_BLOCKS[reason]
+        this.skipSandboxSend(result, isTest, message(addresses), statusReason)
+        await sender.captureBlocked(result.invocation.teamId, isTest, reason, addresses.length)
     }
 
     private async claimSandboxDailyCaps(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        sender: SandboxEmailSender,
         recipients: string[],
         isTest: boolean
     ): Promise<SandboxDailyCapGrant | null> {
-        const claim = await this.sandboxSender!.claimDailyCaps(result.invocation.teamId, recipients)
+        const claim = await sender.claimDailyCaps(result.invocation.teamId, recipients)
         if (claim.type === 'granted') {
             return claim
         }
-        if (claim.type === 'recipient_cap_reached') {
-            await this.blockSandboxRecipients(result, claim.addresses, 'recipient_cap_reached', isTest)
-            return null
-        }
-        const reason = claim.type === 'check_failed' ? 'cap_check_failed' : claim.type
-        const { message, statusReason } = SANDBOX_CAP_SKIPS[reason]
-        this.skipSandboxSend(result, isTest, message, statusReason)
-        await this.sandboxSender!.captureBlocked(result.invocation.teamId, isTest, reason, recipients.length)
+        const blocked = claim.type === 'recipient_cap_reached' ? claim.addresses : recipients
+        await this.blockSandboxSend(result, sender, blocked, claim.type, isTest)
         return null
     }
 
     private async sendSandboxEmail(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        sender: SandboxEmailSender,
         params: CyclotronInvocationQueueParametersEmailType,
         from: { email: string; name: string },
         isTest: boolean,
@@ -1347,8 +1292,8 @@ export class EmailService {
         try {
             await this.sendEmailWithSES(result, params, from, false, isTest, queueWait, files, route)
         } catch (error) {
-            if (error instanceof SESThrottleError) {
-                await this.sandboxSender!.returnDailyCaps(capGrant)
+            if (error instanceof SESThrottleError || error instanceof SesRejectedError) {
+                await sender.returnDailyCaps(capGrant)
             }
             throw error
         }
@@ -1421,7 +1366,13 @@ export class EmailService {
             // posthog/management/commands/migrate_ses_tenants.py).
             tenantName: `team-${invocation.teamId}`,
             configurationSetName: this.resolveConfigurationSetName(trackingEnabled, invocation),
-            unsubscribeHeaders: true,
+            unsubscribeHeaders:
+                invocation.hogFunction?.metadata?.message_category_type === 'transactional'
+                    ? []
+                    : this.generateUnsubscribeHeaders(
+                          { team_id: invocation.teamId, identifier: unquoteMailbox(params.to.email) },
+                          preferencesTokenSourceForInvocation(invocation)
+                      ),
             ccAddresses: parseAddressList(params.cc),
             bccAddresses: parseAddressList(params.bcc),
         }
@@ -1430,13 +1381,13 @@ export class EmailService {
     // The sandbox shares one SES identity, so every send uses its fixed tenant and configuration
     // set, and no recipient gets an unsubscribe link: only members of the sending organization
     // receive it. CC and BCC are parsed once so the final member check covers exactly this list.
-    private sandboxSesRoute(params: CyclotronInvocationQueueParametersEmailType): SesRoute {
+    private sandboxSesRoute(sender: SandboxEmailSender, params: CyclotronInvocationQueueParametersEmailType): SesRoute {
         return {
-            tenantName: this.sandboxSender!.config.tenantName,
-            configurationSetName: this.sandboxSender!.config.configurationSetName,
-            unsubscribeHeaders: false,
-            ccAddresses: sandboxAddressList(params.cc),
-            bccAddresses: sandboxAddressList(params.bcc),
+            tenantName: sender.config.tenantName,
+            configurationSetName: sender.config.configurationSetName,
+            unsubscribeHeaders: [],
+            ccAddresses: parseDeliveryMailboxes(params.cc),
+            bccAddresses: parseDeliveryMailboxes(params.bcc),
         }
     }
 
@@ -1626,11 +1577,12 @@ export class EmailService {
         isTest = false,
         queueWait?: EmailQueueWait,
         files: DecodedAttachment[] = [],
-        route: SesRoute = this.teamSesRoute(result.invocation, trackingEnabled, params)
+        customRoute?: SesRoute
     ): Promise<void> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
+        const route = customRoute ?? this.teamSesRoute(result.invocation, trackingEnabled, params)
         const distinctId = resolveEmailTrackingDistinctId(result.invocation)
         // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
         // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
@@ -1710,16 +1662,12 @@ export class EmailService {
         // `IncludeOriginalHeaders: true` for the webhook to surface this header.
         const trackingHeader: MessageHeader = { Name: TRACKING_CODE_HEADER_NAME, Value: trackingCode }
 
-        const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
         if (sendEmailParams.Content?.Simple) {
-            const unsubscribeHeaders =
-                route.unsubscribeHeaders && !isTransactionalEmail
-                    ? this.generateUnsubscribeHeaders(
-                          { team_id: result.invocation.teamId, identifier: unquoteMailbox(params.to.email) },
-                          preferencesTokenSourceForInvocation(result.invocation)
-                      )
-                    : []
-            sendEmailParams.Content.Simple.Headers = [...unsubscribeHeaders, trackingHeader, AUTO_SUBMITTED_HEADER]
+            sendEmailParams.Content.Simple.Headers = [
+                ...route.unsubscribeHeaders,
+                trackingHeader,
+                AUTO_SUBMITTED_HEADER,
+            ]
             if (files.length) {
                 sendEmailParams.Content.Simple.Attachments = files.map((file) => ({
                     RawContent: file.content,
@@ -1770,8 +1718,10 @@ export class EmailService {
                 sesThrottleResponsesTotal.inc({ error_code: error.name })
                 throw new SESThrottleError(error.name, pickThrottleRetryDelayMs(), error.message)
             }
-            const message = error instanceof Error ? error.message : String(error)
-            throw new Error(`Failed to send email via SES: ${message}`)
+            const message = `Failed to send email via SES: ${error instanceof Error ? error.message : String(error)}`
+            throw error instanceof SESv2ServiceException && error.$fault === 'client'
+                ? new SesRejectedError(message)
+                : new Error(message)
         }
     }
 
