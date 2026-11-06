@@ -1532,11 +1532,32 @@ class TestGitHubCredentialSourceHelpers(TestCase):
         ):
             assert is_caller_token_run("run-1", {}) is expected
 
-    def test_bot_authorship_falls_back_to_user_install_token_when_team_integration_missing(self) -> None:
+    @parameterized.expand(
+        [
+            ("no_repository", None, "ghs_user_scoped"),
+            ("repository_the_user_can_open", "acme/web-app", "ghs_user_scoped"),
+            ("repository_the_user_cannot_open", "acme/secret", None),
+        ]
+    )
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_bot_authorship_falls_back_to_user_install_token_when_team_integration_missing(
+        self,
+        _name: str,
+        repository: str | None,
+        expected: str | None,
+        mock_user_request: MagicMock,
+        mock_client_request: MagicMock,
+    ) -> None:
         from posthog.models import Organization, Team
         from posthog.models.user import User
         from posthog.models.user_integration import UserIntegration
 
+        get_tasks_cache().clear()
+        mock_user_request.return_value = MagicMock(
+            status_code=200, headers={}, json=lambda: {"total_count": 1, "repositories": [{"name": "web-app"}]}
+        )
+        mock_client_request.return_value = MagicMock(status_code=201, json=lambda: {"token": "ghs_user_scoped"})
         organization = Organization.objects.create(name="bot-fallback-org")
         Team.objects.create(organization=organization, name="bot-fallback-team")
         user = User.objects.create(email="bot-fallback@test.com")
@@ -1544,8 +1565,8 @@ class TestGitHubCredentialSourceHelpers(TestCase):
             user=user,
             kind=UserIntegration.IntegrationKind.GITHUB,
             integration_id="install-1",
-            config={},
-            sensitive_config={"access_token": "ghs_user_install"},
+            config={"installation_id": "install-1", "account": {"name": "acme"}},
+            sensitive_config={"access_token": "ghs_user_install", "user_access_token": "ghu_user"},
         )
 
         result = get_sandbox_github_token(
@@ -1553,9 +1574,12 @@ class TestGitHubCredentialSourceHelpers(TestCase):
             run_id="run-1",
             state={"pr_authorship_mode": "bot"},
             github_user_integration_id=str(user_integration.id),
+            repository=repository,
         )
 
-        assert result == "ghs_user_install"
+        assert result == expected
+        minted = [call.kwargs.get("json_body", {}).get("repositories") for call in mock_client_request.call_args_list]
+        assert all(repositories == ["web-app"] for repositories in minted)
 
     def test_bot_authorship_prefers_team_integration_over_user_install_token(self) -> None:
         from posthog.models import Integration, Organization, Team

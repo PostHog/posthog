@@ -23,6 +23,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
 from posthog.models.user_integration import (
     NEEDS_REAUTHORIZATION_Q,
+    NoAccessibleRepositories,
     ReauthorizationRequired,
     UserGitHubIntegration,
     UserIntegration,
@@ -1216,15 +1217,18 @@ def get_readonly_github_token(team_id: int, repositories: Sequence[str] = ()) ->
 
 
 def get_user_github_token(github_user_integration_id: str, repositories: Sequence[str] = ()) -> Optional[str]:
-    """Return the installation access token from a UserIntegration, refreshing if expired."""
+    """Return an installation token limited to repositories the linked GitHub user can open."""
     integration = UserIntegration.objects.get(id=github_user_integration_id)
     github_integration = UserGitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
     private_repositories = _private_repositories(repositories)
-    if private_repositories:
-        return _mint_repository_scoped_token(github_integration, private_repositories)
-    if github_integration.access_token_expired():
-        github_integration.refresh_access_token()
-    return github_integration.integration.sensitive_config.get("access_token") or None
+    try:
+        if not private_repositories:
+            return github_integration.get_access_token()
+        if not all(github_integration.user_can_open_repository(repository) for repository in private_repositories):
+            return None
+    except NoAccessibleRepositories:
+        return None
+    return _mint_repository_scoped_token(github_integration, private_repositories)
 
 
 def _normalize_repository(repository: str | None) -> str | None:
