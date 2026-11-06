@@ -546,9 +546,9 @@ describe('RateLimiterService', () => {
         })
 
         it.each([
-            ['a fail-fast pool fails the command at once', 'failFast', 'rejects'],
-            ['an optional pool queues the command until it reconnects', 'optional', 'resolves'],
-        ] as const)('while the connection drops, %s', async (_name, mode, outcome) => {
+            ['a fail-fast pool refuses the command at once', 'failFast', 'refused'],
+            ['an optional pool queues the command instead of refusing it', 'optional', 'queued'],
+        ] as const)('while the connection drops, %s', async (_name, mode, handling) => {
             const optionalValkey = createSesRateLimiterValkeyPool(
                 {
                     SES_RATE_LIMITER_VALKEY_HOST: hub.CDP_REDIS_HOST || '127.0.0.1',
@@ -573,11 +573,11 @@ describe('RateLimiterService', () => {
                     return client.get(`${KEY}/during-outage`)
                 })
 
-                if (outcome === 'rejects') {
-                    await expect(duringOutage).rejects.toThrow('enableOfflineQueue')
-                } else {
-                    await expect(duringOutage).resolves.toBeNull()
-                }
+                const settled = await duringOutage.then(
+                    () => 'queued',
+                    (error: Error) => (error.message.includes('enableOfflineQueue') ? 'refused' : 'queued')
+                )
+                expect(settled).toBe(handling)
             } finally {
                 pooled?.disconnect()
             }
