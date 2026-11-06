@@ -69,6 +69,8 @@ class ConditionPreset:
 class WorkloadProviderKey(models.TextChoices):
     GITHUB_ACTIONS = "github_actions", "GitHub Actions"
     GITLAB = "gitlab", "GitLab"
+    # An issuer outside this registry, whose claims the policy names. See custom_issuer.py.
+    CUSTOM = "custom", "Custom OIDC provider"
 
 
 @frozen

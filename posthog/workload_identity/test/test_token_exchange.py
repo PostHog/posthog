@@ -29,6 +29,7 @@ from posthog.redis import TEST_clear_clients
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.test.authentication_checks import covers_authentication
 from posthog.token_bucket import Budget, TEST_reset_scripts
+from posthog.workload_identity.custom_issuer import CustomIssuerMetadata
 from posthog.workload_identity.test.fixtures import (
     FAKE_WORKLOAD_ISSUER,
     FAKE_WORKLOAD_PROVIDER,
@@ -528,3 +529,130 @@ class TestWorkloadTokenExchange(APIBaseTest):
             "live_events_token",
         } & set(workload_body)
         assert pat_body["secret_api_token"] == "phs_example_team_secret"
+
+
+_CUSTOM_ISSUER = "https://idp.example.com"
+_CUSTOM_METADATA = CustomIssuerMetadata(
+    issuer=_CUSTOM_ISSUER, jwks_uri=f"{_CUSTOM_ISSUER}/keys", signing_algorithms=("RS256",)
+)
+
+
+def _custom_token(**overrides: Any) -> str:
+    return _oidc_token(**{"iss": _CUSTOM_ISSUER, "sub": "deploy-bot", "env": "prod", **overrides})
+
+
+@with_fake_workload_provider()
+@override_settings(SITE_URL=_SITE_URL, OIDC_RSA_PRIVATE_KEY=_POSTHOG_KEY_PEM)
+class TestCustomIssuerExchange(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+        TEST_clear_clients()
+        TEST_reset_scripts()
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        self.jwks = patch(
+            "posthog.api.oauth.client_assertion.fetch_client_json_document", return_value=(_jwks(), None)
+        ).start()
+        self.discovery = patch(
+            "posthog.workload_identity.token_exchange.discover_custom_issuer", return_value=_CUSTOM_METADATA
+        ).start()
+        self.addCleanup(patch.stopall)
+
+    def _policy(self, **overrides: Any) -> WorkloadTrustPolicy:
+        fields: dict[str, Any] = {
+            "name": "Deploy bot",
+            "issuer": _CUSTOM_ISSUER,
+            "subject_claim": "sub",
+            "subject": "deploy-bot",
+            "subject_name": "Deploy bot",
+            "conditions": {"env": "prod"},
+            "scopes": ["annotation:write"],
+            **overrides,
+        }
+        return WorkloadTrustPolicy.objects.for_team(self.team.id).create(team=self.team, **fields)
+
+    def _exchange(self, subject_token: str) -> Any:
+        self.client.logout()
+        return self.client.post(
+            "/oauth/token/",
+            {
+                "grant_type": TOKEN_EXCHANGE_GRANT_TYPE,
+                "subject_token": subject_token,
+                "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+                "resource": f"{_SITE_URL}/api/projects/{self.team.id}",
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("no_policy_names_the_issuer", {}, None),
+            ("only_a_disabled_policy_names_it", {"enabled": False}, "policy"),
+            ("only_another_project_names_it", {}, "other_team"),
+        ]
+    )
+    def test_an_issuer_no_enabled_policy_of_the_project_names_is_never_fetched(
+        self, _name: str, overrides: dict[str, Any], setup: str | None
+    ) -> None:
+        if setup == "policy":
+            self._policy(**overrides)
+        elif setup == "other_team":
+            other = Team.objects.create(organization=self.organization, name="Other")
+            WorkloadTrustPolicy.objects.for_team(other.id).create(
+                team=other,
+                name="x",
+                issuer=_CUSTOM_ISSUER,
+                subject_claim="sub",
+                subject="deploy-bot",
+                subject_name="x",
+                conditions={"env": "prod"},
+                scopes=["annotation:write"],
+            )
+
+        response = self._exchange(_custom_token())
+
+        assert response.json()["error_code"] == "workload_issuer_not_allowed"
+        assert not self.discovery.called
+        assert not self.jwks.called
+
+    @parameterized.expand(
+        [
+            ("matching_claims", {}, status.HTTP_200_OK, None),
+            ("another_subject", {"sub": "someone-else"}, status.HTTP_400_BAD_REQUEST, "workload_no_matching_policy"),
+            ("condition_unmet", {"env": "staging"}, status.HTTP_400_BAD_REQUEST, "workload_no_matching_policy"),
+            ("condition_as_a_list", {"env": ["prod"]}, status.HTTP_400_BAD_REQUEST, "workload_no_matching_policy"),
+            (
+                "wrong_audience",
+                {"aud": "https://attacker.example"},
+                status.HTTP_400_BAD_REQUEST,
+                "workload_token_invalid",
+            ),
+        ]
+    )
+    def test_a_custom_policy_matches_only_the_claims_it_names(
+        self, _name: str, overrides: dict[str, Any], expected_status: int, error_code: str | None
+    ) -> None:
+        self._policy()
+
+        response = self._exchange(_custom_token(**overrides))
+
+        assert response.status_code == expected_status, response.json()
+        assert response.json().get("error_code") == error_code
+
+    def test_a_token_signed_by_a_rotated_key_fetches_the_keys_once_more(self) -> None:
+        self._policy()
+        retired = json.loads(jwk_from_pem(_OTHER_KEY_PEM).export_public())
+        self.jwks.side_effect = [({"keys": [{**retired, "kid": "retired", "alg": "RS256"}]}, None), (_jwks(), None)]
+
+        response = self._exchange(_custom_token())
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self.jwks.call_count == 2
+
+    def test_an_issuer_must_match_the_policy_exactly(self) -> None:
+        self._policy()
+
+        response = self._exchange(_custom_token(iss=f"{_CUSTOM_ISSUER}/"))
+
+        assert response.json()["error_code"] == "workload_issuer_not_allowed"
+        assert not self.discovery.called

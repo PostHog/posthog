@@ -16,6 +16,7 @@ import type {
     CIMDVerificationTokenWithValueApi,
     CimdVerificationTokensListParams,
     ConnectedAppApi,
+    CustomIssuerApi,
     DataDeletionPreviewApi,
     DataDeletionRequestApi,
     DataDeletionRequestCreateApi,
@@ -142,6 +143,7 @@ import type {
     UsersProductIntroSeenPartialUpdate200,
     VerifyEmailRequestApi,
     WorkloadProvidersResponseApi,
+    WorkloadTrustPoliciesCheckIssuerRetrieveParams,
     WorkloadTrustPoliciesListParams,
     WorkloadTrustPolicyApi,
     WorkloadTrustPolicyRequestApi,
@@ -3108,6 +3110,39 @@ export const workloadTrustPoliciesDestroy = async (
     return apiMutator<void>(getWorkloadTrustPoliciesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getWorkloadTrustPoliciesCheckIssuerRetrieveUrl = (
+    projectId: string,
+    params: WorkloadTrustPoliciesCheckIssuerRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/workload_trust_policies/check_issuer/?${stringifiedParams}`
+        : `/api/projects/${projectId}/workload_trust_policies/check_issuer/`
+}
+
+/**
+ * Read an issuer's OpenID configuration, so an admin sees what a custom OIDC provider policy will trust.
+ */
+export const workloadTrustPoliciesCheckIssuerRetrieve = async (
+    projectId: string,
+    params: WorkloadTrustPoliciesCheckIssuerRetrieveParams,
+    options?: RequestInit
+): Promise<CustomIssuerApi> => {
+    return apiMutator<CustomIssuerApi>(getWorkloadTrustPoliciesCheckIssuerRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
