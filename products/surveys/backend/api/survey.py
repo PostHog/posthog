@@ -50,6 +50,7 @@ from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
@@ -234,6 +235,17 @@ def sanitize_survey_question(question: dict[str, Any]) -> dict[str, Any]:
     return sanitized_question
 
 
+@frozen
+class _QuestionContent:
+    type: str
+    text: str
+
+    @classmethod
+    def of(cls, question: dict[str, Any]) -> "_QuestionContent":
+        # repr keeps the key hashable whatever a stored question holds
+        return cls(type=repr(question.get("type")), text=repr(question.get("question")))
+
+
 def _carry_over_question_ids(questions: list[dict[str, Any]], existing_questions: list[dict[str, Any]]) -> None:
     """Give an id-less question the id of the one stored question with the same type and text.
 
@@ -249,20 +261,15 @@ def _carry_over_question_ids(questions: list[dict[str, Any]], existing_questions
         if isinstance(existing.get("id"), str) and existing["id"] not in sent_ids
     ]
     id_less = [question for question in questions if not question.get("id")]
-    stored_by_content: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    stored_by_content: dict[_QuestionContent, list[dict[str, Any]]] = defaultdict(list)
     for existing in unclaimed:
-        stored_by_content[_question_content(existing)].append(existing)
-    sent_counts = Counter(_question_content(question) for question in id_less)
+        stored_by_content[_QuestionContent.of(existing)].append(existing)
+    sent_counts = Counter(_QuestionContent.of(question) for question in id_less)
     for question in id_less:
-        content = _question_content(question)
+        content = _QuestionContent.of(question)
         matches = stored_by_content.get(content, [])
         if len(matches) == 1 and sent_counts[content] == 1:
             question["id"] = matches[0]["id"]
-
-
-def _question_content(question: dict[str, Any]) -> tuple[str, str]:
-    # repr keeps the key hashable whatever a stored question holds
-    return repr(question.get("type")), repr(question.get("question"))
 
 
 # Keep this in sync with SurveyAPISerializer's public runtime contract.
