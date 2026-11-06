@@ -18,7 +18,7 @@ def token_scope(url: str, token: str) -> str:
 
 class GitLabClient(RecordedEgressClient):
     """Recorded, never gated. The customer owns the token, and each instance admin sets its own
-    limits, so PostHog has no budget it can model. Callers honor a 429 and its Retry-After."""
+    limits, so PostHog has no budget it can model. The caller handles error responses."""
 
     observability = gitlab_egress
     egress_domain = "gitlab"

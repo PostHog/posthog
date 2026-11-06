@@ -14,7 +14,8 @@ A user with several tokens shows as several scopes. GitLab does not tell us the 
 None: calls are recorded, never gated (`RecordedEgressClient`).
 The customer owns the token on their own GitLab account or instance.
 The admin of each self-managed instance sets its limits, and gitlab.com limits depend on the plan, so PostHog has no single limit to stay under.
-Callers honor a `429` and its `Retry-After`.
+The transport returns `429` responses without retries or delays.
+The integration does not use `Retry-After`.
 Add a gate if one token starts to carry enough PostHog traffic to reach the gitlab.com limit.
 
 ## Lanes and callers

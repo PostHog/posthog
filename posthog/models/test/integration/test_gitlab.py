@@ -276,6 +276,49 @@ class TestGitLabIntegrationModel:
         assert mock_request.call_args.kwargs["json"]["title"] == "Draft: Fix checkout"
         assert mock_request.call_args.kwargs["allow_redirects"] is False
 
+    @pytest.mark.parametrize(
+        "method, kwargs, status_code",
+        [
+            ("list_projects", {}, 200),
+            (
+                "create_merge_request",
+                {
+                    "project_id": 7,
+                    "source_branch": "posthog/fix-checkout",
+                    "target_branch": "main",
+                    "title": "Fix checkout",
+                    "description": "Details",
+                },
+                201,
+            ),
+            ("get_merge_request", {"project_id": 7, "merge_request_iid": 5}, 200),
+        ],
+    )
+    @patch("requests.request")
+    @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
+    def test_project_and_merge_request_methods_reject_non_json_responses(
+        self,
+        _mock_is_url_allowed: MagicMock,
+        mock_request: MagicMock,
+        method: str,
+        kwargs: dict[str, str | int],
+        status_code: int,
+    ) -> None:
+        from posthog.models.integration import GitLabIntegration, GitLabIntegrationError
+
+        integration = MagicMock(
+            kind="gitlab",
+            config={"hostname": "https://gitlab.example.com"},
+            sensitive_config={"access_token": "glpat-not-a-real-token"},
+        )
+        mock_request.return_value = MagicMock(
+            status_code=status_code,
+            **{"json.side_effect": requests.JSONDecodeError("Expecting value", "", 0)},
+        )
+
+        with pytest.raises(GitLabIntegrationError, match="isn't JSON"):
+            getattr(GitLabIntegration(integration), method)(**kwargs)
+
     @patch("requests.request")
     @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
     def test_an_encoded_project_path_never_reaches_the_endpoint_label(self, _mock_is_url_allowed, mock_request):

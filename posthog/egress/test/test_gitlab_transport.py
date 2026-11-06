@@ -7,6 +7,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.egress.gitlab.transport import gitlab_request, token_scope
+from posthog.egress.observability.observability import scope_fingerprint
 
 _TOKEN = "glpat-not-a-real-token"
 _URL = "https://gitlab.example.com/api/v4/projects/7/merge_requests"
@@ -27,12 +28,21 @@ def _gitlab_samples() -> list:
 
 class TestGitLabTransport(SimpleTestCase):
     def test_the_token_is_sent_as_a_header_and_never_reaches_a_label(self) -> None:
+        labels = {
+            "scope": scope_fingerprint("gitlab.example.com", _TOKEN),
+            "method": "POST",
+            "endpoint": "/api/v4/projects/{id}/merge_requests",
+            "status_code": "201",
+            "source": "integration",
+        }
+        before = REGISTRY.get_sample_value("gitlab_api_requests_total", labels) or 0
         with patch("requests.request", return_value=_response({})) as request:
             gitlab_request(
                 "POST", _URL, token=_TOKEN, source="integration", endpoint="/api/v4/projects/{id}/merge_requests"
             )
 
         assert request.call_args.kwargs["headers"]["PRIVATE-TOKEN"] == _TOKEN
+        assert REGISTRY.get_sample_value("gitlab_api_requests_total", labels) == before + 1
         assert not any(_TOKEN in value for sample in _gitlab_samples() for value in sample.labels.values())
 
     @parameterized.expand(

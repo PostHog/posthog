@@ -311,7 +311,7 @@ class GitLabIntegration:
                     web_url=project["web_url"],
                     default_branch=project.get("default_branch"),
                 )
-                for project in response.json()
+                for project in self._json(response)
             )
             page = response.headers.get("X-Next-Page", "")
             if not page:
@@ -347,7 +347,7 @@ class GitLabIntegration:
         )
         if response.status_code != 201:
             raise GitLabIntegrationError(f"GitLabIntegration: failed to create merge request: {response.text[:300]}")
-        return self._merge_request(response.json())
+        return self._merge_request(self._json(response))
 
     def get_merge_request(self, project_id: int, merge_request_iid: int) -> GitLabMergeRequest | None:
         hostname = self.integration.config.get("hostname")
@@ -364,4 +364,4 @@ class GitLabIntegration:
             return None
         if response.status_code != 200:
             raise GitLabIntegrationError(f"GitLabIntegration: failed to retrieve merge request: {response.text[:300]}")
-        return self._merge_request(response.json())
+        return self._merge_request(self._json(response))
