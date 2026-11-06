@@ -170,6 +170,35 @@ def dashboard_refs(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ...]:
     return _refs_in_given_order(dashboard_ids)
 
 
+def create_dashboard(
+    *,
+    team_id: int,
+    name: str,
+    description: str = "",
+    pinned: bool = False,
+    variables: dict[str, Any] | None = None,
+) -> DashboardRef:
+    """Create an empty dashboard as the system, with no access check, for code that seeds a project."""
+    dashboard = Dashboard.objects.create(
+        team_id=team_id,
+        name=name,
+        description=description,
+        pinned=pinned,
+        variables=variables if variables is not None else {},
+    )
+    return DashboardRef(id=dashboard.id, name=dashboard.name)
+
+
+def add_insight_tile(
+    *, dashboard_id: int, insight_id: int, layouts: dict[str, Any] | None = None, color: str | None = None
+) -> int:
+    """Place an insight on a dashboard as the system, with no access check, and return the tile's id."""
+    tile = DashboardTile.objects.create(
+        dashboard_id=dashboard_id, insight_id=insight_id, layouts=layouts or {}, color=color
+    )
+    return tile.id
+
+
 def _to_summary(dashboard: Dashboard) -> DashboardSummary:
     return DashboardSummary(
         id=dashboard.id,
@@ -791,8 +820,10 @@ __all__ = [
     "PlacedInsightTile",
     "active_tile_count",
     "can_access_dashboard",
+    "add_insight_tile",
     "add_insight_to_dashboard",
     "check_insight_tile_limit",
+    "create_dashboard",
     "create_dashboard_from_tiles",
     "dashboard_access_ref",
     "dashboard_exists",
