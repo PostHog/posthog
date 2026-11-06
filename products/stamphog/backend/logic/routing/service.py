@@ -52,6 +52,7 @@ from products.stamphog.backend.logic.routing.comment import (
     render_routing_comment,
 )
 from products.stamphog.backend.logic.routing.cut import CUT_MODEL, RoutingDecision, decide_cuts, keep_pinned
+from products.stamphog.backend.logic.routing.fork_labels import fork_labels
 from products.stamphog.backend.logic.routing.model import GatewayCutModel
 from products.stamphog.backend.logic.routing.run_log import record_routing_run
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
@@ -114,14 +115,6 @@ def is_fork(pr: Mapping[str, Any], repository: str) -> bool:
     # A deleted fork leaves no head repo, and it is still not the base repository.
     head_repo = ((pr.get("head") or {}).get("repo") or {}).get("full_name") or ""
     return head_repo.casefold() != repository.casefold()
-
-
-def fork_labels(repo_config: StamphogRepoConfig) -> dict[str, str]:
-    """The repo's team slug -> label map. Entries that are not a string pair are ignored."""
-    configured = repo_config.routing_fork_labels
-    if not isinstance(configured, dict):
-        return {}
-    return {slug: label for slug, label in configured.items() if isinstance(slug, str) and isinstance(label, str)}
 
 
 def stored_routing(repo_config: StamphogRepoConfig, pr_number: int) -> dict[str, Any] | None:

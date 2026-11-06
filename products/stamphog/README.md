@@ -197,7 +197,7 @@ A comment names the cut owners and why.
 
 `routing_mode` is set under "Reviewer requests" in the repository's row on the Stamphog page, or with `routing_mode` on the repo config API. Both directions take the `manager` level, like `review_mode`. A placeholder row resets it to `off` when it binds to an installation, like the other review policy fields.
 The page offers the setting only when the default branch has a root `owners.yaml` (`GET repo_configs/{id}/owners_file/`, at most one GitHub call per repository every 10 minutes, at a priority the egress limiter can shed), and keeps it in view while it is on, so it can be turned off.
-`routing_fork_labels` has no API yet. Set it with a manual DB write, for example `StamphogRepoConfig.objects.for_team(team_id).filter(repository="acme/widgets").update(routing_fork_labels={"team-alpha": "team/alpha"})`.
+Set `routing_fork_labels` with `routing_fork_labels` on the repo config API, for example `PATCH repo_configs/{id}/` with `{"routing_fork_labels": {"team-alpha": "team/alpha"}}`. The value replaces the whole map, and `{}` removes every label. It takes the `manager` level like `routing_mode`, because it decides who gets asked on a fork PR, and a placeholder row resets it to `{}` when it binds.
 
 Routing only adds review requests, so a second assigner that requests every owner leaves the cut nothing to remove.
 In PostHog/posthog, `.github/workflows/auto-assign-reviewers.yml` stops when the repository variable `AUTO_ASSIGN_REVIEWERS_PAUSED` is `true`.
