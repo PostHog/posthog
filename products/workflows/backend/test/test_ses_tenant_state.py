@@ -327,6 +327,11 @@ class TestSandboxTenantStateSync(BaseTest):
                 _ses_status_error("AccessDeniedException", 403),
                 "error",
             ),
+            (
+                "rejected_read",
+                _ses_status_error("BadRequestException", 400),
+                "error",
+            ),
             ("no_credentials", NoCredentialsError(), "error"),
             (
                 "bad_ca_bundle",
@@ -335,8 +340,11 @@ class TestSandboxTenantStateSync(BaseTest):
             ),
         ]
     )
-    def test_a_failed_sandbox_sync_does_not_stop_the_team_sweep(self, _name: str, error: Exception, kind: str) -> None:
+    def test_a_failed_sandbox_sync_keeps_the_stored_pause_and_the_team_sweep(
+        self, _name: str, error: Exception, kind: str
+    ) -> None:
         Integration.objects.create(team=self.team, kind="email", config={"provider": "ses"})
+        SandboxSenderTenantState.objects.create(tenant_name=SANDBOX_TENANT, sending_status="DISABLED")
 
         def get_tenant(TenantName: str) -> dict:
             if TenantName == SANDBOX_TENANT:
@@ -350,6 +358,8 @@ class TestSandboxTenantStateSync(BaseTest):
             reconcile_ses_tenant_states()
 
         assert TeamWorkflowsConfig.objects.get(team=self.team).ses_tenant_sending_status == "ENABLED"
+        assert SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT).sending_status == "DISABLED"
+        assert "reload-sandbox-sender-state" not in [call.args[0] for call in self.publish.call_args_list]
         assert REGISTRY.get_sample_value("workflows_sandbox_tenant_sync_failures_total", {"kind": kind}) == failures + 1
 
     @override_settings(SES_SANDBOX_TENANT_NAME="")
