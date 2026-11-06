@@ -812,6 +812,22 @@ class TestSecretHosts(SimpleTestCase):
                 _origins("https://slack.com"),
             ),
             (
+                "public_config_field_passed_to_any_call",
+                "let granted := replaceAll(inputs.slack_workspace.scope ?? '', ' ', '')\n"
+                "if (has(splitByString(',', granted), 'chat:write')) { print(inputs.slack_workspace['team.name']) }\n"
+                + SLACK_HOG,
+                "slack_workspace",
+                {"scope": "chat:write", "team.name": "Acme"},
+                _origins("https://slack.com"),
+            ),
+            (
+                "field_missing_from_the_public_config_printed",
+                SLACK_HOG + "print(inputs.slack_workspace.scope)",
+                "slack_workspace",
+                {},
+                UNBOUND,
+            ),
+            (
                 "token_printed",
                 SLACK_HOG + "print(inputs.slack_workspace.access_token)",
                 "slack_workspace",
