@@ -8503,7 +8503,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
 
         rerun = StringIO()
         call_command("backfill_hog_flow_secret_origins", "--commit", "--team-id", str(self.team.id), stdout=rerun)
-        assert "rows to write: 0" in rerun.getvalue()
+        assert "rows written: 0" in rerun.getvalue()
 
     @parameterized.expand(
         [
