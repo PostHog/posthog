@@ -49,7 +49,7 @@ def _install(team) -> WorkspaceIntegration:
     return require_workspace_integration(row.id, SLACK_TEAM_ID)
 
 
-def _messages(contents: list[str], *, prefix: str) -> list[dict[str, Any]]:
+def _messages(contents: list[str], *, prefix: str, author: str = SLACK_USER_ID) -> list[dict[str, Any]]:
     return [
         {
             "channel_id": "C1",
@@ -57,6 +57,7 @@ def _messages(contents: list[str], *, prefix: str) -> list[dict[str, Any]]:
             "message_ts": f"{prefix}.{index}",
             "content": content,
             "permalink": f"https://example.slack.com/archives/C1/p{prefix}{index}",
+            "author_user_id": author,
             "is_author_bot": False,
         }
         for index, content in enumerate(contents)
@@ -76,7 +77,12 @@ def _search(found: int) -> Any:
             bots = [{"channel_id": "C1", "message_ts": "9", "content": "bot noise", "is_author_bot": True}]
             return {
                 "ok": True,
-                "results": {"messages": [*_messages(first, prefix=query_key), *bots]},
+                "results": {
+                    "messages": [
+                        *_messages(first, prefix=query_key, author=SLACK_USER_ID if query_key == "mine" else "U_ANDY"),
+                        *bots,
+                    ]
+                },
                 "response_metadata": {"next_cursor": "page-2"},
             }
         return {"ok": True, "results": {"messages": _messages([CHATTER], prefix=f"{query_key}-2")}}
@@ -118,7 +124,14 @@ def slack(org_team_user) -> Iterator[dict[str, MagicMock]]:
         search_client.return_value.api_call.side_effect = _search(found=6)
         ranker.return_value.decide.side_effect = _rank
         writer.return_value.with_options.return_value.chat.completions.create.return_value = _written(
-            [{"offer": "Churn by plan looks off in #product. Want me to dig in?", "request": REQUEST, "source": 1}]
+            [
+                {"offer": "Churn by plan looks off in #product. Want me to dig in?", "request": REQUEST, "source": 1},
+                {
+                    "offer": "Signups dropped after the release. Want me to check?",
+                    "request": "Check signups.",
+                    "source": 2,
+                },
+            ]
         )
         yield {
             "search": search_client,
@@ -152,14 +165,16 @@ def test_jev_picks_the_messages_and_only_those_reach_the_writer(
     assert CHATTER not in written_from and "bot noise" not in written_from
     dm = slack["bot"].chat_postMessage.call_args.kwargs
     assert dm["channel"] == SLACK_USER_ID
-    assert action_ids(dm["blocks"]) == ["slack_onboarding:work_focus_task"]
+    assert action_ids(dm["blocks"]) == ["slack_onboarding:work_focus_task"] * 2
     shown = all_block_text(dm["blocks"])
     assert "Looks like your week is about churn and signups." in shown
     # The DM stays short: no message previews, and the full request rides in the button.
     assert dm["unfurl_links"] is False and dm["unfurl_media"] is False
     assert REQUEST not in shown and REQUEST in json.dumps(dm["blocks"])
     # The suggestion links the message Jev ranked first, which the writer named as its source.
-    assert "<https://example.slack.com/archives/C1/pmine0|↗ message>" in shown
+    # Each suggestion links its message as a nested line: the person's own message, or the thread with the author.
+    assert "◦ <https://example.slack.com/archives/C1/pmine0|Your message> in #product" in shown
+    assert "◦ <https://example.slack.com/archives/C1/pmentions0|Here's the thread> with <@U_ANDY> in #product" in shown
     stored = SlackSettings.objects.get(slack_workspace_id=SLACK_TEAM_ID, slack_user_id=SLACK_USER_ID).onboarding
     assert isinstance(stored, dict) and stored["work_focus_outcome"] == "sent"
     assert SECRET_MESSAGE not in json.dumps(stored)
@@ -232,11 +247,17 @@ def test_a_suggestion_starts_its_request_in_a_new_dm_thread_once_and_loses_its_b
     focus = WorkFocus(
         intro="Looks like your week is about churn.",
         suggestions=[
-            WorkFocusSuggestion(offer="Want me to dig in?", request=REQUEST, source_permalink=source),
+            WorkFocusSuggestion(
+                offer="Want me to dig in?",
+                request=REQUEST,
+                source_permalink=source,
+                source_author_id="U_ANDY",
+                source_channel_name="product",
+            ),
             WorkFocusSuggestion(offer="Want me to check signups?", request="Check signups."),
         ],
     )
-    blocks = work_focus_blocks(integration, focus)
+    blocks = work_focus_blocks(integration, focus, SLACK_USER_ID)
     clicked = blocks[1]
     payload = {
         "type": "block_actions",
@@ -280,7 +301,8 @@ def test_a_suggestion_starts_its_request_in_a_new_dm_thread_once_and_loses_its_b
         "text": f"{REQUEST}\n\nThe Slack message this came from: {source}",
     }
     starter = bot.chat_postMessage.call_args.kwargs
-    assert REQUEST in starter["text"] and f"<{source}|" in starter["text"] and starter["unfurl_links"] is False
+    assert REQUEST in starter["text"] and starter["unfurl_links"] is False
+    assert f"<{source}|Here's the thread> with <@U_ANDY> in #product" in starter["text"]
     bot.chat_update.assert_called_once()
     updated = bot.chat_update.call_args.kwargs["blocks"]
     assert "accessory" not in updated[1] and "Started" in updated[1]["text"]["text"]

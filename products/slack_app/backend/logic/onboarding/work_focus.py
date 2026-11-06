@@ -142,6 +142,7 @@ class _FoundMessage:
     content: str
     channel_name: str | None
     permalink: str | None
+    author_id: str | None
 
 
 @frozen
@@ -149,6 +150,8 @@ class WorkFocusSuggestion:
     offer: str
     request: str
     source_permalink: str | None = None
+    source_author_id: str | None = None
+    source_channel_name: str | None = None
 
 
 @frozen
@@ -198,7 +201,7 @@ def _find_and_send(integration: WorkspaceIntegration, slack_user_id: str) -> str
     SlackIntegration(integration).client.chat_postMessage(
         channel=slack_user_id,
         text=focus.intro,
-        blocks=work_focus_blocks(integration, focus),
+        blocks=work_focus_blocks(integration, focus, slack_user_id),
         unfurl_links=False,
         unfurl_media=False,
     )
@@ -255,9 +258,14 @@ def _search_messages(
                 if content and not message.get("is_author_bot") and key not in found:
                     channel_name = message.get("channel_name")
                     permalink = message.get("permalink")
+                    author_id = message.get("author_user_id")
                     found[key] = _FoundMessage(
                         content=content[:MAX_MESSAGE_CHARS],
-                        channel_name=channel_name if isinstance(channel_name, str) and channel_name else None,
+                        # A DM has no channel name worth showing, so only channels keep theirs.
+                        channel_name=channel_name
+                        if isinstance(channel_name, str) and channel_name and key[0][:1] in ("C", "G")
+                        else None,
+                        author_id=author_id if isinstance(author_id, str) and author_id else None,
                         permalink=permalink
                         if isinstance(permalink, str) and permalink.startswith("https://")
                         else None,
@@ -340,24 +348,43 @@ def _clean_suggestions(raw: Any, candidates: list[_FoundMessage]) -> list[WorkFo
         source = item.get("source")
         if not offer or not request:
             continue
-        permalink = (
-            candidates[source - 1].permalink if isinstance(source, int) and 1 <= source <= len(candidates) else None
+        found = candidates[source - 1] if isinstance(source, int) and 1 <= source <= len(candidates) else None
+        suggestions.append(
+            WorkFocusSuggestion(
+                offer=offer,
+                request=request,
+                source_permalink=found.permalink if found else None,
+                source_author_id=found.author_id if found else None,
+                source_channel_name=found.channel_name if found else None,
+            )
         )
-        suggestions.append(WorkFocusSuggestion(offer=offer, request=request, source_permalink=permalink))
     return suggestions[:MAX_SUGGESTIONS]
 
 
-def work_focus_blocks(integration: WorkspaceIntegration, focus: WorkFocus) -> list[dict]:
+def source_line(suggestion: WorkFocusSuggestion, slack_user_id: str) -> str | None:
+    """A link to the message a suggestion came from. The author shows as a mention, so Slack renders the name and
+    PostHog keeps none."""
+    if not suggestion.source_permalink:
+        return None
+    where = f" in #{suggestion.source_channel_name}" if suggestion.source_channel_name else ""
+    if suggestion.source_author_id == slack_user_id:
+        return f"<{suggestion.source_permalink}|Your message>{where}"
+    with_author = f" with <@{suggestion.source_author_id}>" if suggestion.source_author_id else ""
+    return f"<{suggestion.source_permalink}|Here's the thread>{with_author}{where}"
+
+
+def work_focus_blocks(integration: WorkspaceIntegration, focus: WorkFocus, slack_user_id: str) -> list[dict]:
     blocks: list[dict] = [section_block(f"{focus.intro} Here's where I can jump in:")]
     for index, suggestion in enumerate(focus.suggestions):
         # The DM posts with unfurling off, so the link shows no preview.
-        source = f" <{suggestion.source_permalink}|↗ message>" if suggestion.source_permalink else ""
+        line = source_line(suggestion, slack_user_id)
         value: dict[str, Any] = {"integration_id": integration.id, "request": suggestion.request}
-        if suggestion.source_permalink:
+        if line:
             value["source"] = suggestion.source_permalink
+            value["source_line"] = line
         blocks.append(
             {
-                **section_block(f"• {suggestion.offer}{source}"),
+                **section_block(f"• {suggestion.offer}" + (f"\n      ◦ {line}" if line else "")),
                 "block_id": f"{WORK_FOCUS_SUGGESTION_BLOCK_PREFIX}{index}",
                 "accessory": {
                     "type": "button",
