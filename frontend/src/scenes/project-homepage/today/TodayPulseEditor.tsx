@@ -1,15 +1,21 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
-import { IconPencil, IconPin, IconPinFilled, IconSearch } from '@posthog/icons'
+import { IconPencil, IconSearch } from '@posthog/icons'
 import {
     Button,
-    InputGroup,
+    Combobox,
+    ComboboxCollection,
+    ComboboxContent,
+    ComboboxEmpty,
+    ComboboxGroup,
+    ComboboxInput,
+    ComboboxItem,
+    ComboboxLabel,
+    ComboboxList,
+    ComboboxSeparator,
+    ComboboxTrigger,
     InputGroupAddon,
-    InputGroupInput,
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
     Text,
     cn,
 } from '@posthog/quill'
@@ -18,89 +24,110 @@ import type { PulsePinApi } from 'products/today/frontend/generated/api.schemas'
 
 import { PULSE_TILES, pulsePinLimitReason, todayHighlightsLogic } from './todayHighlightsLogic'
 
-function PulsePinRow({
-    metric,
-    pinned,
-    disabledReason,
-    onToggle,
-}: {
-    metric: PulsePinApi
+interface EditorGroup {
     pinned: boolean
-    disabledReason?: string
-    onToggle: () => void
-}): JSX.Element {
-    return (
-        <li>
-            <Button
-                size="row"
-                left
-                aria-pressed={pinned}
-                disabledReason={disabledReason}
-                onClick={onToggle}
-                className="group/pin w-full aria-pressed:bg-transparent aria-pressed:hover:bg-fill-hover"
-                data-attr="today-pulse-pin"
-            >
-                <span className="min-w-0 flex-1 truncate text-left">{metric.name}</span>
-                {pinned ? (
-                    <IconPinFilled className="shrink-0" aria-hidden />
-                ) : (
-                    <IconPin
-                        className="shrink-0 text-muted-foreground opacity-60 group-hover/pin:opacity-100 group-focus-visible/pin:opacity-100"
-                        aria-hidden
-                    />
-                )}
-            </Button>
-        </li>
-    )
+    items: string[]
+}
+
+function withoutKeys(rows: PulsePinApi[], keys: Set<string>): PulsePinApi[] {
+    return rows.filter((row) => !keys.has(row.key))
 }
 
 export function TodayPulseEditor(): JSX.Element {
     const {
         pulsePins,
         pulseSlots,
-        pulseTiles,
+        pulseSuggestions,
+        pulseRecentInsights,
         pulseInsightResults,
         pulseInsightResultsLoading,
         pulseInsightSearchFailed,
         pulsePinsUnavailableReason,
     } = useValues(todayHighlightsLogic)
     const { togglePulsePin, loadPulseInsightResults, pulseEditorOpened } = useActions(todayHighlightsLogic)
+    const triggerRef = useRef<HTMLButtonElement>(null)
     const [open, setOpen] = useState(false)
     const [search, setSearch] = useState('')
-    const [shownOnOpen, setShownOnOpen] = useState<PulsePinApi[]>([])
+    const [pinnedOnOpen, setPinnedOnOpen] = useState<PulsePinApi[]>([])
+    const [othersOnOpen, setOthersOnOpen] = useState<PulsePinApi[]>([])
 
-    const isPinned = (key: string): boolean => pulsePins.some((pinned) => pinned.key === key)
     const searching = search.trim().length > 0
-    const shownNow = [...shownOnOpen, ...pulsePins.filter((pin) => !shownOnOpen.some((shown) => shown.key === pin.key))]
-    const rows = !searching
-        ? shownNow
-        : pulseInsightResultsLoading || pulseInsightSearchFailed
-          ? []
-          : pulseInsightResults
+    const pinnedKeys = new Set(pulsePins.map((pin) => pin.key))
+    const pinnedOnOpenKeys = new Set(pinnedOnOpen.map((pin) => pin.key))
+    const others = [
+        ...othersOnOpen,
+        ...withoutKeys(pulseSuggestions, new Set([...pinnedOnOpenKeys, ...othersOnOpen.map((row) => row.key)])),
+    ]
+    const recent = withoutKeys(pulseRecentInsights, new Set([...pinnedOnOpenKeys, ...others.map((row) => row.key)]))
+    const query = search.trim().toLowerCase()
+    const localMatches = [...pinnedOnOpen, ...others].filter((row) => row.name.toLowerCase().includes(query))
+    const results = [
+        ...localMatches,
+        ...withoutKeys(
+            pulseInsightResultsLoading || pulseInsightSearchFailed ? [] : pulseInsightResults,
+            new Set(localMatches.map((row) => row.key))
+        ),
+    ]
+    const rowByKey = new Map<string, PulsePinApi>(
+        [...pulsePins, ...pinnedOnOpen, ...others, ...recent, ...results].map((row) => [row.key, row])
+    )
+    const groups: EditorGroup[] = (
+        searching
+            ? [{ pinned: false, items: results.map((row) => row.key) }]
+            : [
+                  { pinned: true, items: pinnedOnOpen.map((row) => row.key) },
+                  { pinned: false, items: [...others, ...recent].map((row) => row.key) },
+              ]
+    ).filter((group) => group.items.length > 0)
 
     return (
-        <Popover
+        <Combobox
+            items={groups}
+            multiple
+            filter={null}
+            value={[...pinnedKeys]}
+            inputValue={search}
             open={open}
-            onOpenChange={(next) => {
+            highlightItemOnHover
+            itemToStringLabel={(key: string) => rowByKey.get(key)?.name ?? ''}
+            onInputValueChange={(value: string) => {
+                setSearch(value)
+                if (value.trim()) {
+                    loadPulseInsightResults(value)
+                }
+            }}
+            onOpenChange={(next: boolean) => {
                 setOpen(next)
                 if (next) {
                     pulseEditorOpened()
-                    setShownOnOpen(
-                        pulseSlots.map(({ key, name }) => ({
-                            key,
-                            name,
-                            dashboard_id:
-                                pulseTiles.find((metric) => metric.key === key)?.dashboard_id ??
-                                pulsePins.find((pin) => pin.key === key)?.dashboard_id ??
-                                null,
-                        }))
+                    setPinnedOnOpen(pulsePins)
+                    setOthersOnOpen(
+                        pulseSlots
+                            .filter((slot) => !pinnedKeys.has(slot.key))
+                            .map((slot) => ({
+                                key: slot.key,
+                                name: slot.name,
+                                dashboard_id:
+                                    pulseSuggestions.find((row) => row.key === slot.key)?.dashboard_id ?? null,
+                            }))
                     )
                 } else {
                     setSearch('')
                 }
             }}
+            onValueChange={(next: string[]) => {
+                const nextKeys = new Set(next)
+                const changed =
+                    [...nextKeys].find((key) => !pinnedKeys.has(key)) ??
+                    [...pinnedKeys].find((key) => !nextKeys.has(key))
+                const row = changed ? rowByKey.get(changed) : undefined
+                if (row) {
+                    togglePulsePin(row, 'editor')
+                }
+            }}
         >
-            <PopoverTrigger
+            <ComboboxTrigger
+                ref={triggerRef}
                 render={
                     <Button
                         size="sm"
@@ -113,55 +140,67 @@ export function TodayPulseEditor(): JSX.Element {
                     </Button>
                 }
             />
-            <PopoverContent side="bottom" align="end" sideOffset={6} className="w-72 gap-1 p-1">
-                <InputGroup className="h-7">
+            <ComboboxContent
+                anchor={triggerRef}
+                align="end"
+                className="w-72 [&_[data-slot=combobox-input-group-wrapper]]:border-b-0"
+            >
+                <ComboboxInput
+                    placeholder="Search insights"
+                    aria-label="Search insights"
+                    autoFocus
+                    showTrigger={false}
+                    className="h-7"
+                >
                     <InputGroupAddon align="inline-start">
                         <IconSearch className="size-3" />
                     </InputGroupAddon>
-                    <InputGroupInput
-                        autoFocus
-                        placeholder="Search insights to pin"
-                        aria-label="Search insights to pin"
-                        value={search}
-                        onChange={(event) => {
-                            setSearch(event.target.value)
-                            if (event.target.value.trim()) {
-                                loadPulseInsightResults(event.target.value)
-                            }
-                        }}
-                    />
-                </InputGroup>
-                <ul className="m-0 flex max-h-72 list-none flex-col overflow-y-auto scroll-mask-y-4 scroll-py-4 p-0">
-                    {rows.map((metric) => {
-                        const pinned = isPinned(metric.key)
-                        return (
-                            <PulsePinRow
-                                key={metric.key}
-                                metric={metric}
-                                pinned={pinned}
-                                disabledReason={
-                                    pulsePinsUnavailableReason ?? pulsePinLimitReason(pulsePins.length, pinned)
-                                }
-                                onToggle={() => togglePulsePin(metric, 'editor')}
-                            />
-                        )
-                    })}
-                </ul>
-                {searching && rows.length === 0 ? (
-                    <Text size="xs" render={<p />} className="m-0 px-2 py-1.5 text-muted-foreground">
-                        {pulseInsightResultsLoading
-                            ? 'Searching…'
-                            : pulseInsightSearchFailed
-                              ? "Couldn't search your insights. Try again."
-                              : 'No insights you can pin match your search'}
+                </ComboboxInput>
+                <ComboboxList>
+                    {(group: EditorGroup) => (
+                        <ComboboxGroup key={group.pinned ? 'pinned' : 'others'} items={group.items}>
+                            {group.pinned ? (
+                                <ComboboxLabel>Pinned</ComboboxLabel>
+                            ) : groups.length > 1 ? (
+                                <ComboboxSeparator />
+                            ) : null}
+                            <ComboboxCollection>
+                                {(key: string) => {
+                                    const row = rowByKey.get(key)
+                                    const pinned = pinnedKeys.has(key)
+                                    return (
+                                        <ComboboxItem
+                                            key={key}
+                                            value={key}
+                                            disabledReason={
+                                                pulsePinsUnavailableReason ??
+                                                pulsePinLimitReason(pulsePins.length, pinned)
+                                            }
+                                            data-attr="today-pulse-pin"
+                                        >
+                                            <span className="min-w-0 truncate">{row?.name}</span>
+                                        </ComboboxItem>
+                                    )
+                                }}
+                            </ComboboxCollection>
+                        </ComboboxGroup>
+                    )}
+                </ComboboxList>
+                {searching && results.length === 0 && (pulseInsightResultsLoading || pulseInsightSearchFailed) ? (
+                    <Text size="xs" variant="muted" render={<p />} className="m-0 px-2.5 py-1.5">
+                        {pulseInsightResultsLoading ? 'Searching…' : "Couldn't search your insights. Try again."}
                     </Text>
-                ) : null}
+                ) : (
+                    <ComboboxEmpty>
+                        {searching ? 'No insights you can pin match your search' : 'No trend insights to pin yet'}
+                    </ComboboxEmpty>
+                )}
                 {pulsePins.length >= PULSE_TILES ? (
-                    <Text size="xs" render={<p />} className="m-0 px-2 py-1.5 text-muted-foreground">
+                    <Text size="xs" variant="muted" render={<p />} className="m-0 border-t px-2.5 py-1.5">
                         {PULSE_TILES} pinned. Unpin one to pin another.
                     </Text>
                 ) : null}
-            </PopoverContent>
-        </Popover>
+            </ComboboxContent>
+        </Combobox>
     )
 }
