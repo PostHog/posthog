@@ -15,9 +15,10 @@ from posthog.ownership.github_files import OwnershipUnavailable
 
 from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.facade.tasks import route_pull_request_reviewers
+from products.stamphog.backend.logic.routing.claims import CLAIM_STALE_AFTER
 from products.stamphog.backend.logic.routing.comment import ROUTING_COMMENT_MARKER
 from products.stamphog.backend.logic.routing.cut import CUT_MODEL
-from products.stamphog.backend.logic.routing.service import CLAIM_STALE_AFTER, RoutingBusy
+from products.stamphog.backend.logic.routing.service import RoutingBusy
 from products.stamphog.backend.models import PullRequest, ReviewRun, RoutingRun, RoutingRunOwner, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import (
     ROUTING_BUSY_RETRY_SECONDS,
@@ -162,10 +163,10 @@ def _run_log(team_id: int) -> dict[str, tuple[str, str, str]]:
         return {row.owner: (row.outcome, row.reason, row.model_reason) for row in rows}
 
 
-def _run_log_paths(team_id: int) -> dict[str, list[str]]:
+def _run_log_sources(team_id: int) -> dict[str, dict[str, str | None]]:
     with team_scope(team_id):
         rows = RoutingRunOwner.objects.for_team(team_id).all()
-        return {row.owner: [file["path"] for file in row.files] for row in rows}
+        return {row.owner: {file["path"]: file["owners_source"] for file in row.files} for row in rows}
 
 
 def _seed_routing_comment(chain: RoutingChain, repo_config: StamphogRepoConfig) -> None:
@@ -276,10 +277,13 @@ def test_routing_requests_the_owners_the_cut_step_keeps(
     assert record["additions_resolved"] is True
     assert {candidate["owner"] for candidate in record["candidates"]} == {"team-alpha", "team-beta", "@carol"}
     assert _run_log(team.id) == (_LOG_ONE_CUT if expected_cut else _LOG_CUT_SKIPPED)
-    assert _run_log_paths(team.id) == {
-        "team-alpha": ["products/alpha/a.py", "products/alpha/new/b.py"],
-        "team-beta": ["products/beta/b.py"],
-        "@carol": ["products/gamma/c.py"],
+    assert _run_log_sources(team.id) == {
+        "team-alpha": {
+            "products/alpha/a.py": "products/alpha/owners.yaml",
+            "products/alpha/new/b.py": "products/alpha/owners.yaml",
+        },
+        "team-beta": {"products/beta/b.py": "products/beta/owners.yaml"},
+        "@carol": {"products/gamma/c.py": "products/gamma/owners.yaml"},
     }
     assert all("files" not in candidate for candidate in record["candidates"])
     assert record["owners_sha"]
