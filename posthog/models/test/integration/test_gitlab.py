@@ -16,7 +16,7 @@ class TestGitLabIntegrationSSRFProtection:
         mock_is_url_allowed.return_value = (True, None)
         mock_get.return_value.json.return_value = {"data": "test"}
 
-        GitLabIntegration.get("https://gitlab.com", "projects/1", "token123")
+        GitLabIntegration.get("https://gitlab.com", "projects/1", "token123", endpoint="/api/v4/projects/{id}")
 
         mock_get.assert_called_once()
         call_kwargs = mock_get.call_args.kwargs
@@ -31,7 +31,13 @@ class TestGitLabIntegrationSSRFProtection:
         mock_is_url_allowed.return_value = (True, None)
         mock_post.return_value.json.return_value = {"data": "test"}
 
-        GitLabIntegration.post("https://gitlab.com", "projects/1/issues", "token123", {"title": "test"})
+        GitLabIntegration.post(
+            "https://gitlab.com",
+            "projects/1/issues",
+            "token123",
+            {"title": "test"},
+            endpoint="/api/v4/projects/{id}/issues",
+        )
 
         mock_post.assert_called_once()
         call_kwargs = mock_post.call_args.kwargs
@@ -46,7 +52,7 @@ class TestGitLabIntegrationSSRFProtection:
         mock_is_url_allowed.return_value = (False, "Private IP address not allowed")
 
         with pytest.raises(GitLabIntegrationError, match="Invalid GitLab hostname"):
-            GitLabIntegration.get("http://192.168.1.1", "projects/1", "token123")
+            GitLabIntegration.get("http://192.168.1.1", "projects/1", "token123", endpoint="/api/v4/projects/{id}")
 
         mock_get.assert_not_called()
 
@@ -56,7 +62,9 @@ class TestGitLabIntegrationSSRFProtection:
         from posthog.models.integration import GitLabIntegration, GitLabIntegrationError
 
         with pytest.raises(GitLabIntegrationError, match="HTTPS is required"):
-            GitLabIntegration.get("http://gitlab.example.com", "projects/1", "token123")
+            GitLabIntegration.get(
+                "http://gitlab.example.com", "projects/1", "token123", endpoint="/api/v4/projects/{id}"
+            )
 
         mock_get.assert_not_called()
 
@@ -69,7 +77,13 @@ class TestGitLabIntegrationSSRFProtection:
         mock_is_url_allowed.return_value = (False, "Private IP address not allowed")
 
         with pytest.raises(GitLabIntegrationError, match="Invalid GitLab hostname"):
-            GitLabIntegration.post("http://192.168.1.1", "projects/1/issues", "token123", {"title": "test"})
+            GitLabIntegration.post(
+                "http://192.168.1.1",
+                "projects/1/issues",
+                "token123",
+                {"title": "test"},
+                endpoint="/api/v4/projects/{id}/issues",
+            )
 
         mock_post.assert_not_called()
 
@@ -231,3 +245,25 @@ class TestGitLabIntegrationModel:
         assert mock_request.call_args.args[1] == "https://gitlab.com/api/v4/projects/7/merge_requests"
         assert mock_request.call_args.kwargs["json"]["title"] == "Draft: Fix checkout"
         assert mock_request.call_args.kwargs["allow_redirects"] is False
+
+    @patch("requests.request")
+    @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))
+    def test_an_encoded_project_path_never_reaches_the_endpoint_label(self, _mock_is_url_allowed, mock_request):
+        from prometheus_client import REGISTRY
+
+        from posthog.models.integration import GitLabIntegration
+
+        mock_request.return_value = MagicMock(status_code=200, headers={})
+
+        GitLabIntegration.get(
+            "https://gitlab.com", "projects/acme%2Fsecret-app", "token123", endpoint="/api/v4/projects/{id}"
+        )
+
+        endpoints = {
+            sample.labels["endpoint"]
+            for metric in REGISTRY.collect()
+            if metric.name == "gitlab_api_requests"
+            for sample in metric.samples
+        }
+        assert "/api/v4/projects/{id}" in endpoints
+        assert not any("secret-app" in endpoint for endpoint in endpoints)

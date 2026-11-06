@@ -8,7 +8,6 @@ import requests
 
 from posthog.dataclasses import frozen
 from posthog.egress.gitlab.transport import gitlab_request
-from posthog.egress.observability.observability import default_normalize_endpoint
 from posthog.integrations.contracts import IntegrationRecord
 from posthog.security.url_validation import is_url_allowed
 
@@ -53,8 +52,10 @@ class GitLabIntegration:
 
     @staticmethod
     def _request(
-        method: str, hostname: str, path: str, access_token: str, *, endpoint: str | None = None, **kwargs: Any
+        method: str, hostname: str, path: str, access_token: str, *, endpoint: str, **kwargs: Any
     ) -> requests.Response:
+        """``endpoint`` is the template for the metric label. A project id can be an encoded path
+        such as ``group%2Frepo``, so the path itself is customer data and never becomes a label."""
         url = f"{hostname}/api/v4/{path}"
         GitLabIntegration._validate_api_url(url)
         return gitlab_request(
@@ -62,7 +63,7 @@ class GitLabIntegration:
             url,
             token=access_token,
             source="integration",
-            endpoint=endpoint or default_normalize_endpoint(url),
+            endpoint=endpoint,
             # disallow redirects to prevent SSRF on redirected host
             allow_redirects=False,
             timeout=10,
@@ -70,16 +71,18 @@ class GitLabIntegration:
         )
 
     @staticmethod
-    def get(hostname: str, endpoint: str, project_access_token: str) -> dict:
-        return GitLabIntegration._request("GET", hostname, endpoint, project_access_token).json()
+    def get(hostname: str, path: str, project_access_token: str, *, endpoint: str) -> dict:
+        return GitLabIntegration._request("GET", hostname, path, project_access_token, endpoint=endpoint).json()
 
     @staticmethod
-    def post(hostname: str, endpoint: str, project_access_token: str, json: dict) -> dict:
-        return GitLabIntegration._request("POST", hostname, endpoint, project_access_token, json=json).json()
+    def post(hostname: str, path: str, project_access_token: str, json: dict, *, endpoint: str) -> dict:
+        return GitLabIntegration._request(
+            "POST", hostname, path, project_access_token, endpoint=endpoint, json=json
+        ).json()
 
     @classmethod
     def create_integration(cls, hostname, project_id, project_access_token, team_id, user) -> model.Integration:
-        project = cls.get(hostname, f"projects/{project_id}", project_access_token)
+        project = cls.get(hostname, f"projects/{project_id}", project_access_token, endpoint="/api/v4/projects/{id}")
 
         integration = model.Integration.objects.create(
             team_id=team_id,
@@ -120,7 +123,12 @@ class GitLabIntegration:
             params["query"] = search.strip()
         query = urlencode(params)
         # This endpoint answers with a JSON array, unlike the objects `get` is typed for.
-        members: object = GitLabIntegration.get(hostname, f"projects/{project_id}/members/all?{query}", access_token)
+        members: object = GitLabIntegration.get(
+            hostname,
+            f"projects/{project_id}/members/all?{query}",
+            access_token,
+            endpoint="/api/v4/projects/{id}/members/all",
+        )
         if not isinstance(members, list):
             # GitLab reports failures as an object such as {"message": "403 Forbidden"}.
             error = members.get("message") or members.get("error") if isinstance(members, dict) else None
@@ -154,6 +162,7 @@ class GitLabIntegration:
             f"projects/{project_id}/issues",
             access_token,
             payload,
+            endpoint="/api/v4/projects/{id}/issues",
         )
 
         return {"issue_id": issue["iid"]}
@@ -165,7 +174,12 @@ class GitLabIntegration:
         access_token = self.integration.sensitive_config.get("access_token")
 
         response = self._request(
-            "PUT", hostname, f"projects/{project_id}/issues/{issue_id}", access_token, json={"state_event": "close"}
+            "PUT",
+            hostname,
+            f"projects/{project_id}/issues/{issue_id}",
+            access_token,
+            endpoint="/api/v4/projects/{id}/issues/{iid}",
+            json={"state_event": "close"},
         )
         if response.status_code != 200:
             raise GitLabIntegrationError(f"GitLabIntegration: failed to close issue: {response.text[:300]}")
@@ -174,7 +188,13 @@ class GitLabIntegration:
         hostname = self.integration.config.get("hostname")
         project_id = self.integration.config.get("project_id")
         access_token = self.integration.sensitive_config.get("access_token")
-        response = self._request("GET", hostname, f"projects/{project_id}/issues/{issue_iid}", access_token)
+        response = self._request(
+            "GET",
+            hostname,
+            f"projects/{project_id}/issues/{issue_iid}",
+            access_token,
+            endpoint="/api/v4/projects/{id}/issues/{iid}",
+        )
         if response.status_code == 404:
             return None
         if response.status_code != 200:
@@ -218,7 +238,14 @@ class GitLabIntegration:
         if query.strip():
             params["search"] = query
             params["in"] = "title"
-        response = self._request("GET", hostname, f"projects/{project_id}/issues", access_token, params=params)
+        response = self._request(
+            "GET",
+            hostname,
+            f"projects/{project_id}/issues",
+            access_token,
+            endpoint="/api/v4/projects/{id}/issues",
+            params=params,
+        )
         if response.status_code != 200:
             raise GitLabIntegrationError(
                 f"GitLabIntegration: failed to search issues: {response.text[:300]}",
