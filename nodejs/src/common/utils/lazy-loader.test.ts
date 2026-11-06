@@ -315,6 +315,37 @@ describe('LazyLoader', () => {
         })
     })
 
+    describe('reload', () => {
+        it('starts a load after the call instead of joining one already running, and keeps its result', async () => {
+            const reloading = new LazyLoader<string>({ name: 'test', loader, bufferMs: 0 })
+            let finishEarlierLoad: (values: Record<string, string>) => void = () => {}
+            loader
+                .mockReturnValueOnce(new Promise((resolve) => (finishEarlierLoad = resolve)))
+                .mockResolvedValueOnce({ key1: 'after write' })
+
+            const earlierGet = reloading.get('key1')
+            while (loader.mock.calls.length === 0) {
+                await delay(1)
+            }
+            await reloading.reload('key1')
+            finishEarlierLoad({ key1: 'before write' })
+
+            await earlierGet
+            expect(await reloading.get('key1')).toBe('after write')
+            expect(loader).toHaveBeenCalledTimes(2)
+        })
+
+        it('shares one load between reloads called together', async () => {
+            loader.mockResolvedValueOnce({ key1: 'value1' }).mockResolvedValueOnce({ key1: 'value2' })
+            await lazyLoader.get('key1')
+
+            await Promise.all([lazyLoader.reload('key1'), lazyLoader.reload('key1')])
+
+            expect(await lazyLoader.get('key1')).toBe('value2')
+            expect(loader).toHaveBeenCalledTimes(2)
+        })
+    })
+
     describe('parallel loading', () => {
         it('should bundle loads for the same key', async () => {
             loader.mockResolvedValue({ key1: { foo: 'bar' } })
