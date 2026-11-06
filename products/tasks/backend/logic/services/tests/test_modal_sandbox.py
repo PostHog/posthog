@@ -1,5 +1,6 @@
 import re
 import json
+import stat
 import shlex
 import base64
 import asyncio
@@ -3126,17 +3127,19 @@ class TestModalSandboxProxyRateLimit:
                 path=f"/tmp/workspace/memory/{name}",
                 type=file_type,
                 size=size,
-                mode=0o644,
+                mode=mode,
                 permissions="rw-r--r--",
                 owner="root",
                 group="root",
                 modified_time=5.5,
                 symlink_target="/etc/passwd" if file_type == ModalFileType.SYMLINK else None,
             )
-            for name, file_type, size in [
-                ("MEMORY.md", ModalFileType.FILE, 12),
-                ("link.md", ModalFileType.SYMLINK, 11),
-                ("nested", ModalFileType.DIRECTORY, 0),
+            for name, file_type, mode, size in [
+                ("MEMORY.md", ModalFileType.FILE, stat.S_IFREG | 0o644, 12),
+                ("link.md", ModalFileType.SYMLINK, stat.S_IFLNK | 0o777, 11),
+                ("nested", ModalFileType.DIRECTORY, stat.S_IFDIR | 0o755, 0),
+                # Modal reports a FIFO as a plain file; only the mode shows what it is.
+                ("pipe.md", ModalFileType.FILE, stat.S_IFIFO | 0o644, 0),
             ]
         ]
 
@@ -3144,6 +3147,7 @@ class TestModalSandboxProxyRateLimit:
             SandboxDirEntry(name="MEMORY.md", kind="file", size=12, mtime=5.5),
             SandboxDirEntry(name="link.md", kind="symlink", size=11, mtime=5.5),
             SandboxDirEntry(name="nested", kind="dir", size=0, mtime=5.5),
+            SandboxDirEntry(name="pipe.md", kind="other", size=0, mtime=5.5),
         ]
 
     def test_list_dir_of_a_missing_directory_is_none(self, mock_sandbox: Any):
@@ -3152,24 +3156,26 @@ class TestModalSandboxProxyRateLimit:
         assert mock_sandbox.list_dir("/tmp/workspace/memory") is None
 
     @pytest.mark.parametrize(
-        "file_type, size, read_exit_code, expected",
+        "file_type, mode, size, read_exit_code, expected",
         [
-            (ModalFileType.FILE, 8, 0, b"# Memory"),
-            (ModalFileType.SYMLINK, 8, 0, None),
-            (ModalFileType.FILE, 11, 0, None),
+            (ModalFileType.FILE, stat.S_IFREG | 0o644, 8, 0, b"# Memory"),
+            (ModalFileType.SYMLINK, stat.S_IFLNK | 0o777, 8, 0, None),
+            (ModalFileType.FILE, stat.S_IFREG | 0o644, 11, 0, None),
+            # A FIFO would block head until a writer appears.
+            (ModalFileType.FILE, stat.S_IFIFO | 0o644, 0, 0, None),
             # The file vanished or became a directory after the stat, so head failed.
-            (ModalFileType.FILE, 8, 1, None),
+            (ModalFileType.FILE, stat.S_IFREG | 0o644, 8, 1, None),
         ],
     )
     def test_read_file_reads_only_small_regular_files_through_a_capped_read(
-        self, mock_sandbox: Any, file_type: Any, size: int, read_exit_code: int, expected: bytes | None
+        self, mock_sandbox: Any, file_type: Any, mode: int, size: int, read_exit_code: int, expected: bytes | None
     ):
         mock_sandbox._sandbox.filesystem.stat.return_value = ModalFileInfo(
             name="MEMORY.md",
             path="/tmp/workspace/memory/MEMORY.md",
             type=file_type,
             size=size,
-            mode=0o644,
+            mode=mode,
             permissions="rw-r--r--",
             owner="root",
             group="root",
@@ -3181,7 +3187,7 @@ class TestModalSandboxProxyRateLimit:
         mock_sandbox.execute = execute
 
         assert mock_sandbox.read_file("/tmp/workspace/memory/MEMORY.md", 10) == expected
-        if file_type != ModalFileType.FILE or size > 10:
+        if not stat.S_ISREG(mode) or size > 10:
             execute.assert_not_called()
         else:
             assert execute.call_args.args[0].startswith("set -o pipefail; head -c 11 -- ")

@@ -933,6 +933,48 @@ class TestSandboxRotation:
         assert rotation.credential_refresh_task is refresh_old
         provision.assert_not_awaited()
 
+    @pytest.mark.parametrize("slow_step", ["in_flight_persist", "rotation_persist"])
+    async def test_slow_memory_persistence_leaves_time_for_the_deadline_snapshot(self, monkeypatch, slow_step):
+        wf = self._workflow(monkeypatch)
+        wf._agent_memory_persist_enabled = True
+        wf.context.task_created_by_id = 42
+        clock = [datetime(2026, 11, 6, 12, 0, tzinfo=UTC)]
+        expires_at = clock[0] + timedelta(minutes=10)
+        wf._sandbox_ttl_expires_at = expires_at
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", lambda: clock[0])
+        if slow_step == "in_flight_persist":
+            wf._agent_memory_persist_task = asyncio.create_task(asyncio.sleep(3600))
+
+        async def wait_until_timeout(condition, *, timeout):
+            clock[0] += timeout
+            raise TimeoutError
+
+        async def persist_until_timeout(activity_fn, activity_input, **kwargs):
+            clock[0] += kwargs["schedule_to_close_timeout"]
+            raise TimeoutError("persist ran out of time")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", wait_until_timeout)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", persist_until_timeout)
+        snapshot_started_at: list[datetime] = []
+
+        async def record_snapshot(sandbox_id, *, reason, allow_pruning):
+            snapshot_started_at.append(clock[0])
+            return self._snapshot(None)
+
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", record_snapshot)
+
+        # An unbounded drain would wait forever on the in-flight persist.
+        await asyncio.wait_for(
+            wf._rotate_sandbox_before_deadline("sb-old", self._relay("relay-old"), self._relay("refresh-old")),
+            timeout=5,
+        )
+
+        # The run loop takes the fallback snapshot as soon as the rotation returns.
+        latest_snapshot_start = snapshot_started_at[0] if snapshot_started_at else clock[0]
+        assert latest_snapshot_start <= expires_at - timedelta(minutes=5)
+        if slow_step == "in_flight_persist":
+            wf._agent_memory_persist_task.cancel()  # type: ignore[union-attr]
+
     @pytest.mark.parametrize(
         "persist_result, expected_reason",
         [
@@ -3933,6 +3975,35 @@ class TestProcessTaskWorkflowUnit:
         await workflow._persist_agent_memory("sandbox-123", reason="turn_completed")
 
         assert [persist_input.actor_user_id for persist_input in persist_inputs] == [99]
+
+    async def test_a_declined_teammate_steer_leaves_the_creator_as_the_persist_actor(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123, state={"mode": "interactive"})
+        workflow._context.task_created_by_id = 42
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        monkeypatch.setattr(
+            workflow, "_send_followup_to_sandbox", AsyncMock(side_effect=["delivered", STEER_DECLINED_OUTCOME])
+        )
+        persist_inputs: list[Any] = []
+
+        async def capture_activity(activity_fn, activity_input, **kwargs):
+            persist_inputs.append(activity_input)
+            return PersistAgentMemoryOutput(outcome="persisted")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", capture_activity)
+
+        await workflow._dispatch_followup(PendingFollowup(message="creator turn", artifact_ids=[], actor_user_id=42))
+        await workflow._dispatch_followup(
+            PendingFollowup(message="teammate steer", artifact_ids=[], actor_user_id=99, steer=True)
+        )
+        # Cancellation discards the requeued steer before its fallback delivery.
+        workflow._completion_status = "cancelled"
+        await workflow._finish_active_followup()
+        await workflow._persist_agent_memory_at_teardown("sandbox-123")
+
+        assert workflow._pending_followups == []
+        assert [persist_input.actor_user_id for persist_input in persist_inputs] == [42]
 
     async def test_turns_ending_during_a_persist_coalesce_into_one_trailing_persist(self, monkeypatch):
         workflow = ProcessTaskWorkflow()

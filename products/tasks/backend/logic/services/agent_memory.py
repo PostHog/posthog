@@ -151,6 +151,15 @@ class RestoreDeadlineExceeded(Exception):
     pass
 
 
+class BaselineCheckpointError(Exception):
+    """The sandbox refused a baseline write, so a later persist could mistake saved files for edits."""
+
+
+# Recorded for a restored file before its real mtime is known. The next persist sees the mtime
+# differ, hashes the file, finds the MD5 unchanged, and uploads nothing.
+_UNKNOWN_MTIME = -1.0
+
+
 def _md5(content: bytes) -> str:
     return hashlib.md5(content, usedforsecurity=False).hexdigest()
 
@@ -357,59 +366,54 @@ def _persist_slug(
     return new_base
 
 
+def _tracked_slug_count(baseline: Baseline) -> int:
+    return sum(1 for files in baseline.values() if files)
+
+
+def _checkpoint(sandbox: SandboxBase, baseline: Baseline) -> None:
+    if not write_baseline(sandbox, {slug: files for slug, files in baseline.items() if files}):
+        raise BaselineCheckpointError("could not save the agent memory baseline")
+
+
 def persist_sandbox_memory(sandbox: SandboxBase, *, team_id: int, user_id: int) -> MemorySyncCounts:
     """Upload the memory the agent changed since the baseline.
 
     A slug with no change against the baseline is not touched in storage. A stored file is deleted
-    only when the baseline had it and the sandbox no longer lists it.
-    Storage failures raise so the caller can retry.
+    only when the baseline had it and the sandbox no longer lists it. The baseline is saved after
+    each slug, so a failure never leaves an uploaded file untracked. Storage failures and a refused
+    baseline write raise so the caller can retry, and the ETag skip makes the retry idempotent.
     """
     counts = MemorySyncCounts()
     baseline = read_baseline(sandbox)
     sandbox_slugs = _list_sandbox_slugs(sandbox, counts)
-    updated: Baseline = dict(baseline)
-    dirty = False
-    try:
-        for slug in sorted(sandbox_slugs.selected | baseline.keys()):
-            in_sandbox = slug in sandbox_slugs.selected
-            if not in_sandbox and (
-                slug in sandbox_slugs.listed or sandbox.list_dir(sandbox_slug_dir(slug)) is not None
-            ):
-                # Left out by the slug cap, or not a plain directory: not evidence of a deletion.
-                continue
-            entries = _memory_file_entries(sandbox, slug, in_sandbox=in_sandbox, counts=counts)
-            if entries is None:
-                continue
-            counts.slugs += 1
-            new_base = _persist_slug(
-                sandbox,
-                team_id=team_id,
-                user_id=user_id,
-                slug=slug,
-                entries=entries,
-                base=baseline.get(slug, {}),
-                counts=counts,
-            )
-            if new_base is not None and new_base != baseline.get(slug, {}):
-                updated[slug] = new_base
-                dirty = True
-    finally:
-        if dirty:
-            write_baseline(sandbox, _bounded_baseline(updated, previous=baseline))
+    # Tracked slugs go first, so a removed slug frees its baseline slot before a new slug asks for one.
+    for slug in sorted(sandbox_slugs.selected | baseline.keys(), key=lambda slug: (not baseline.get(slug), slug)):
+        in_sandbox = slug in sandbox_slugs.selected
+        if not in_sandbox and (slug in sandbox_slugs.listed or sandbox.list_dir(sandbox_slug_dir(slug)) is not None):
+            # Left out by the slug cap, or not a plain directory: not evidence of a deletion.
+            continue
+        tracked = bool(baseline.get(slug))
+        if not tracked and _tracked_slug_count(baseline) >= MAX_SLUGS_PER_USER:
+            # Uploading a slug the baseline has no room for would leave its files untracked.
+            counts.skip("slug_limit")
+            continue
+        entries = _memory_file_entries(sandbox, slug, in_sandbox=in_sandbox, counts=counts)
+        if entries is None:
+            continue
+        counts.slugs += 1
+        new_base = _persist_slug(
+            sandbox,
+            team_id=team_id,
+            user_id=user_id,
+            slug=slug,
+            entries=entries,
+            base=baseline.get(slug, {}),
+            counts=counts,
+        )
+        if new_base is not None and new_base != baseline.get(slug, {}):
+            baseline[slug] = new_base
+            _checkpoint(sandbox, baseline)
     return counts
-
-
-def _bounded_baseline(updated: Baseline, *, previous: Baseline) -> Baseline:
-    """Drop emptied slugs and keep the slug count within what parse_baseline accepts.
-
-    Over the cap, slugs the previous baseline already had win, so the cut lands on new slugs,
-    whose next persist only rereads and rewrites their own files.
-    """
-    kept = {slug: files for slug, files in updated.items() if files}
-    if len(kept) <= MAX_SLUGS_PER_USER:
-        return kept
-    ordered = sorted(kept, key=lambda slug: (slug not in previous, slug))
-    return {slug: kept[slug] for slug in ordered[:MAX_SLUGS_PER_USER]}
 
 
 def _check_deadline(deadline: float) -> None:
@@ -456,21 +460,40 @@ def _read_stored_slug(
 
 
 def _write_sandbox_slug(
-    sandbox: SandboxBase, slug: str, files: dict[str, bytes], counts: MemorySyncCounts, deadline: float
-) -> dict[str, BaselineFile] | None:
-    """Make the sandbox slug match `files`. Returns the slug's baseline, or None when a write failed."""
+    sandbox: SandboxBase,
+    slug: str,
+    files: dict[str, bytes],
+    baseline: Baseline,
+    counts: MemorySyncCounts,
+    deadline: float,
+) -> bool:
+    """Make the sandbox slug match `files`, tracking each file in `baseline` as soon as it lands.
+
+    Returns False when a write failed. Every file still in the sandbox afterwards has its entry
+    saved, so a later persist never mistakes a restored file for a local edit.
+    """
     memory_dir = sandbox_memory_dir(slug)
     _check_deadline(deadline)
     if sandbox.execute(f"mkdir -p {shlex.quote(memory_dir)}").exit_code != 0:
         counts.errors += 1
-        return None
+        return False
+    slug_base = baseline.setdefault(slug, {})
     ok = True
     for filename, content in files.items():
         _check_deadline(deadline)
-        if sandbox.write_file(f"{memory_dir}/{filename}", content).exit_code != 0:
+        path = f"{memory_dir}/{filename}"
+        if sandbox.write_file(path, content).exit_code != 0:
             counts.errors += 1
             ok = False
             continue
+        slug_base[filename] = BaselineFile(md5=_md5(content), size=len(content), mtime=_UNKNOWN_MTIME)
+        try:
+            _checkpoint(sandbox, baseline)
+        except BaselineCheckpointError:
+            # The file would be untracked, so take it back out before the agent can see it.
+            del slug_base[filename]
+            sandbox.execute(f"rm -f -- {shlex.quote(path)}")
+            raise
         counts.files_written += 1
     _check_deadline(deadline)
     stale = sorted(
@@ -483,17 +506,16 @@ def _write_sandbox_slug(
         paths = " ".join(shlex.quote(f"{memory_dir}/{name}") for name in stale)
         if sandbox.execute(f"rm -f -- {paths}").exit_code != 0:
             counts.errors += 1
-            return None
+            return False
         counts.files_deleted += len(stale)
-    if not ok:
-        return None
+    # Swap the placeholder mtimes for real ones, so the next persist skips these files unread.
     _check_deadline(deadline)
-    base: dict[str, BaselineFile] = {}
     for entry in sandbox.list_dir(memory_dir) or []:
-        written = files.get(entry.name)
-        if entry.kind == "file" and written is not None and entry.size == len(written):
-            base[entry.name] = BaselineFile(md5=_md5(written), size=entry.size, mtime=entry.mtime)
-    return base
+        tracked = slug_base.get(entry.name)
+        if tracked is not None and entry.kind == "file" and entry.size == tracked.size:
+            slug_base[entry.name] = BaselineFile(md5=tracked.md5, size=tracked.size, mtime=entry.mtime)
+    _checkpoint(sandbox, baseline)
+    return ok
 
 
 def restore_sandbox_memory(
@@ -547,17 +569,12 @@ def restore_sandbox_memory(
             if files is None:
                 complete = False
                 continue
-            slug_base = _write_sandbox_slug(sandbox, slug, files, counts, deadline)
-            if slug_base is None:
+            if not _write_sandbox_slug(sandbox, slug, files, baseline, counts, deadline):
                 complete = False
-                continue
-            baseline[slug] = slug_base
     except RestoreDeadlineExceeded:
         counts.skip("deadline")
         complete = False
-    finally:
-        # Written even past the deadline: it is one call, and without it every restored slug would
-        # look newly added to the next persist.
-        if baseline and not write_baseline(sandbox, baseline):
-            complete = False
+    except BaselineCheckpointError:
+        counts.errors += 1
+        complete = False
     return MemoryRestoreResult(counts=counts, complete=complete)

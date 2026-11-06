@@ -16,6 +16,7 @@ from products.tasks.backend.logic.services.agent_memory import (
     SANDBOX_BASELINE_PATH,
     SANDBOX_CLAUDE_PROJECTS_DIR,
     SANDBOX_HOME_CLAUDE_PROJECTS_DIR,
+    BaselineCheckpointError,
     is_valid_memory_filename,
     is_valid_slug,
     memory_object_key,
@@ -61,6 +62,8 @@ class FakeSandbox:
         self.symlinks = symlinks
         self.reads: list[str] = []
         self.clock = 1.0
+        self.failing_writes: set[str] = set()
+        self.memory_writes = 0
 
     def _is_dir(self, path: str) -> bool:
         prefix = path + "/"
@@ -91,6 +94,10 @@ class FakeSandbox:
         return self.files.get(path)
 
     def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult:
+        if path in self.failing_writes:
+            return ExecutionResult(stdout="", stderr="write failed", exit_code=1, error=None)
+        if path.startswith(SANDBOX_CLAUDE_PROJECTS_DIR):
+            self.memory_writes += 1
         self.clock += 1
         self.files[path] = payload
         self.mtimes[path] = self.clock
@@ -292,15 +299,19 @@ def _fifty_restored_slugs(storage: FakeStorage) -> tuple[FakeSandbox, list[str]]
     return sandbox, slugs
 
 
-def test_a_slug_left_out_by_the_cap_is_not_treated_as_deleted(storage: FakeStorage) -> None:
+def test_a_new_slug_beyond_the_baseline_capacity_is_neither_uploaded_nor_treated_as_a_deletion(
+    storage: FakeStorage,
+) -> None:
     sandbox, slugs = _fifty_restored_slugs(storage)
     sandbox.files[_memory_path("-a", "MEMORY.md")] = b"new checkout"
     sandbox.mtimes[_memory_path("-a", "MEMORY.md")] = 1.0
 
-    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+    counts = persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
 
     assert storage.objects[_key(slugs[-1], "MEMORY.md")] == b"index"
-    assert storage.writes == [_key("-a", "MEMORY.md")]
+    assert storage.writes == []
+    assert counts.skipped["slug_limit"] >= 1
+    assert set(parse_baseline(sandbox.files[SANDBOX_BASELINE_PATH])) == set(slugs)
 
 
 def test_replacing_one_of_fifty_slugs_keeps_a_valid_baseline(storage: FakeStorage) -> None:
@@ -320,6 +331,41 @@ def test_replacing_one_of_fifty_slugs_keeps_a_valid_baseline(storage: FakeStorag
 
     assert storage.writes == []
     assert sandbox.reads == [SANDBOX_BASELINE_PATH]
+
+
+def test_a_refused_baseline_checkpoint_fails_the_persist(storage: FakeStorage) -> None:
+    sandbox = FakeSandbox({_memory_path(REPO_SLUG, "MEMORY.md"): b"new note"})
+    sandbox.failing_writes.add(SANDBOX_BASELINE_PATH)
+
+    with pytest.raises(BaselineCheckpointError):
+        persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+
+
+def test_a_partial_restore_does_not_later_overwrite_newer_stored_memory(storage: FakeStorage) -> None:
+    storage.objects = {_key(REPO_SLUG, "MEMORY.md"): b"index", _key(REPO_SLUG, "topic.md"): b"topic"}
+    sandbox = FakeSandbox()
+    sandbox.failing_writes.add(_memory_path(REPO_SLUG, "topic.md"))
+
+    result = restore_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+    storage.objects[_key(REPO_SLUG, "MEMORY.md")] = b"newer, saved by another sandbox"
+    storage.writes.clear()
+    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+
+    assert result.complete is False
+    assert storage.writes == []
+    assert storage.objects[_key(REPO_SLUG, "MEMORY.md")] == b"newer, saved by another sandbox"
+
+
+def test_a_restore_cut_by_the_deadline_tracks_the_files_it_wrote(storage: FakeStorage) -> None:
+    storage.objects = {_key(REPO_SLUG, f"topic-{index}.md"): b"note" for index in range(3)}
+    sandbox = FakeSandbox()
+
+    with patch.object(agent_memory, "time", SimpleNamespace(monotonic=lambda: sandbox.memory_writes * 10.0)):
+        result = restore_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, deadline=5.0)  # type: ignore[arg-type]
+
+    assert result.complete is False
+    assert list(sandbox.memory()) == [_memory_path(REPO_SLUG, "topic-0.md")]
+    assert set(parse_baseline(sandbox.files[SANDBOX_BASELINE_PATH])[REPO_SLUG]) == {"topic-0.md"}
 
 
 def test_restore_replaces_stored_slugs_for_this_project_only(storage: FakeStorage) -> None:

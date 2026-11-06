@@ -367,6 +367,9 @@ def _check_rotation_activity_before_boot() -> bool:
 
 
 _PATCH_ID_PERSIST_AGENT_MEMORY = "persist-agent-memory-2026-11"
+# Time left before sandbox expiry for the deadline snapshot, which a slow memory persist must not eat.
+_ROTATION_SNAPSHOT_RESERVE = timedelta(minutes=5)
+_PERSIST_AGENT_MEMORY_ATTEMPT_TIMEOUT = timedelta(minutes=3)
 
 
 def _check_persist_agent_memory_patch() -> bool:
@@ -587,11 +590,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 extra={"run_id": self.context.run_id},
             )
             return
-        # The persist activity refuses to save the creator's memory once someone else steers the run.
-        # An actorless follow-up (a Slack member with no PostHog user) keeps the last known actor, so
-        # it cannot re-enable persistence as the creator.
-        if followup.actor_user_id is not None:
-            self._agent_memory_last_actor_user_id = followup.actor_user_id
         outcome = await self._send_followup_to_sandbox(
             message=followup.message,
             artifact_ids=followup.artifact_ids,
@@ -600,6 +598,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             context=followup.context,
             steer=followup.steer,
         )
+        # The persist activity refuses to save the creator's memory once someone else steers the run.
+        # A declined steer drives no turn, so it leaves the actor alone until its fallback delivery.
+        # An actorless follow-up (a Slack member with no PostHog user) keeps the last known actor, so
+        # it cannot re-enable persistence as the creator.
+        steer_declined = followup.steer and outcome == STEER_DECLINED_OUTCOME
+        if followup.actor_user_id is not None and not steer_declined:
+            self._agent_memory_last_actor_user_id = followup.actor_user_id
         if followup.steer and outcome == STEER_DECLINED_OUTCOME:
             self._insert_followup_in_arrival_order(
                 PendingFollowup(
@@ -3022,8 +3027,17 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # storage, so storage must hold the snapshot's memory first. Taken after the activity count,
         # so agent activity during the persist abandons the rotation.
         if self._agent_memory_persist_enabled:
-            await self._drain_agent_memory_persist_task()
-            if not await self._persist_agent_memory(old_sandbox_id, reason="ttl_rotation"):
+            budget_deadline = (
+                self._sandbox_ttl_expires_at - _ROTATION_SNAPSHOT_RESERVE if self._sandbox_ttl_expires_at else None
+            )
+            drained = await self._drain_agent_memory_persist_task(timeout=self._time_left(budget_deadline))
+            budget = self._time_left(budget_deadline)
+            if not drained or (budget is not None and budget <= timedelta(0)):
+                workflow.logger.warning(
+                    "agent_memory_rotation_persist_skipped",
+                    extra={"run_id": self.context.run_id, "sandbox_id": old_sandbox_id, "drained": drained},
+                )
+            elif not await self._persist_agent_memory(old_sandbox_id, reason="ttl_rotation", budget=budget):
                 # Without that save, such a replacement would restore older stored files over newer ones.
                 return SandboxRotation(
                     relay_task=relay_task,
@@ -3340,8 +3354,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         except (asyncio.CancelledError, Exception):
             pass
 
-    async def _persist_agent_memory(self, sandbox_id: str, *, reason: str) -> bool:
-        """True only when the activity ran and saved the sandbox's memory."""
+    @staticmethod
+    def _time_left(deadline: datetime | None) -> timedelta | None:
+        return None if deadline is None else deadline - workflow.now()
+
+    async def _persist_agent_memory(self, sandbox_id: str, *, reason: str, budget: timedelta | None = None) -> bool:
+        """True only when the activity ran and saved the sandbox's memory.
+
+        `budget` bounds the whole activity, queue time and retries included.
+        """
         user_id = self.context.task_created_by_id
         if user_id is None:
             return False
@@ -3356,7 +3377,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     reason=reason,
                     actor_user_id=self._agent_memory_last_actor_user_id,
                 ),
-                start_to_close_timeout=timedelta(minutes=3),
+                start_to_close_timeout=(
+                    _PERSIST_AGENT_MEMORY_ATTEMPT_TIMEOUT
+                    if budget is None
+                    else min(_PERSIST_AGENT_MEMORY_ATTEMPT_TIMEOUT, budget)
+                ),
+                schedule_to_close_timeout=budget,
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
         except Exception as e:
@@ -3410,14 +3436,24 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await self._persist_agent_memory(self._agent_memory_sandbox_id, reason="turn_completed")
             self._agent_memory_persisted_turns = persisted_through
 
-    async def _drain_agent_memory_persist_task(self) -> None:
+    async def _drain_agent_memory_persist_task(self, timeout: timedelta | None = None) -> bool:
+        """Wait for an in-flight per-turn persist. False when it is still running after `timeout`."""
         task = self._agent_memory_persist_task
-        if task is not None and not task.done():
-            # A per-turn persist that finished after the next one would write older file contents over newer ones.
+        if task is None or task.done():
+            return True
+        # A per-turn persist that finished after the next one would write older file contents over newer ones.
+        if timeout is not None:
+            if timeout <= timedelta(0):
+                return False
             try:
-                await task
-            except (asyncio.CancelledError, Exception):
-                pass
+                await workflow.wait_condition(task.done, timeout=timeout)
+            except TimeoutError:
+                return False
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+        return True
 
     async def _persist_agent_memory_at_teardown(self, sandbox_id: str) -> None:
         self._agent_memory_persist_closed = True

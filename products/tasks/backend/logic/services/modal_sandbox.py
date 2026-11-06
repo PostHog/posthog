@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import json
+import stat
 import time
 import uuid
 import shlex
@@ -37,7 +38,10 @@ from modal.exception import (
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
-from modal.types import FileType as ModalFileType
+from modal.types import (
+    FileInfo as ModalFileInfo,
+    FileType as ModalFileType,
+)
 from modal_proto import api_pb2
 from python_socks import ProxyError as SocksProxyError
 from semantic_version import NpmSpec
@@ -129,6 +133,20 @@ _MODAL_FILE_KINDS: dict[ModalFileType, Literal["file", "dir", "symlink"]] = {
     ModalFileType.DIRECTORY: "dir",
     ModalFileType.SYMLINK: "symlink",
 }
+
+
+def _modal_entry_kind(info: ModalFileInfo) -> Literal["file", "dir", "symlink", "other"]:
+    # Modal reports FIFOs and sockets as FileType.FILE, and reading a FIFO blocks until a writer
+    # appears. The POSIX mode tells them apart; the enum is only a fallback for a mode without type bits.
+    if stat.S_IFMT(info.mode) == 0:
+        return _MODAL_FILE_KINDS.get(info.type, "other")
+    if stat.S_ISREG(info.mode):
+        return "file"
+    if stat.S_ISDIR(info.mode):
+        return "dir"
+    if stat.S_ISLNK(info.mode):
+        return "symlink"
+    return "other"
 
 
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
@@ -1725,7 +1743,7 @@ class ModalSandbox(AgentServerLaunchMixin):
         return [
             SandboxDirEntry(
                 name=info.name,
-                kind=_MODAL_FILE_KINDS.get(info.type, "other"),
+                kind=_modal_entry_kind(info),
                 size=info.size,
                 mtime=info.modified_time,
             )
@@ -1745,7 +1763,7 @@ class ModalSandbox(AgentServerLaunchMixin):
         except Exception as e:
             _raise_if_proxy_failure(e, self.id, "filesystem_stat")
             raise
-        if not info.is_file() or info.size > max_bytes:
+        if _modal_entry_kind(info) != "file" or info.size > max_bytes:
             return None
         # Modal's supported filesystem API has no bounded read, and a file can grow after the stat,
         # so the bytes come from a capped shell read. Callers validate and cap the content, so a
