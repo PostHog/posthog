@@ -35,14 +35,16 @@ products/mobile/
                           errorTracking.ts holds the error tracking reads and writes ([API.md](API.md#error-tracking)).
                           recordings.ts and replayVision.ts hold the session replay reads and Summarize
                           ([API.md](API.md#session-replay)).
+                          live.ts holds the Live screen's queries, project read and live events stats read
+                          ([LIVE.md](LIVE.md)).
     auth/                 oauth.ts (PKCE flow, refresh, revoke), tokens.ts (secure store),
                           account.ts (@me and projects), regions.ts (hosts and client ids),
                           authStore.ts (zustand), useViewer, SignInScreen
     model/                types.ts (the view-model contract), sources.ts, agent.ts, queryStates.ts,
-                          adapters/ (Today and signals responses -> view models)
+                          live.ts (Live view models), adapters/ (Today, signals and Live responses -> view models)
     demo/                 briefings.ts (raw prototype data), fixtures.ts (view models), derive.ts,
                           demoMode.ts (zustand store), hooks.ts (demo query hooks),
-                          sessionThreads.ts (demo session run logs)
+                          sessionThreads.ts (demo session run logs), live.ts (seeded Live traffic)
     features/
       tabs/               TabsLayout (Inbox, Chats and Views tab navigator), BottomBar and TabsHeader (each
                           rendered once), tabHeaderStore (each tab's header state), NavMenu (the More menu),
@@ -82,6 +84,10 @@ products/mobile/
                           SessionTimelineSection, SessionSkeleton, hooks (recording, timeline, summary flow with
                           Summarize and polling, frames, list), sessionAdapters (pure: person labels, timeline,
                           summary, list rows), replayModel (view types), replayLinks (web URLs, `t`), replayAnalytics
+      live/               LiveScreen (Web analytics Live, pushed at /views/live) and its cards, LiveEventSheet,
+                          liveController (polling: focus, app state, Pause, backoff), liveRead (one read of every
+                          job), hooks (useLiveFeed: data source, pollers, users online fallback), analytics; see
+                          LIVE.md
       views/              The Views tab and its screens, see VIEWS.md
         screen/           Shared screen chrome: ViewChrome, ViewScreenFrame, ViewTitle, HeaderMenu (the More menu
                           of a pushed screen: a view, an issue, a session), ViewMoreSheet, ViewErrorState, ViewSkeleton
