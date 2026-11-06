@@ -116,7 +116,7 @@ export class PostHogAPIClient {
       {
         method: "POST",
         body: JSON.stringify(input),
-        signal: AbortSignal.timeout(5_000),
+        signal: AbortSignal.timeout(9_000),
       },
     );
     return contextSelectionResponseSchema.parse(response);

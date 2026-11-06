@@ -70,7 +70,7 @@ class ContextSelectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(
         detail=False,
         methods=["post"],
-        throttle_classes=[ContextSelectionBurstThrottle, ContextSelectionSustainedThrottle],
+        throttle_classes=[],
     )
     def prepare(self, request: Request, **kwargs: object) -> Response:
         serializer = PrepareSerializer(data=request.data)
@@ -84,6 +84,13 @@ class ContextSelectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = dict(serializer.validated_data)
         run_id = data.pop("run_id")
         authorization = get_authorization_header(request).decode("ascii")
+
+        def admit() -> bool:
+            return all(
+                throttle.allow_request(request, self)
+                for throttle in (ContextSelectionBurstThrottle(), ContextSelectionSustainedThrottle())
+            )
+
         try:
             result = selection.prepare_context_selection(
                 self.team_id,
@@ -92,6 +99,7 @@ class ContextSelectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 request.user,
                 selection.SelectionInput(**data),
                 authorization,
+                admit,
             )
         except selection.SelectionDenied as error:
             raise PermissionDenied(str(error)) from error

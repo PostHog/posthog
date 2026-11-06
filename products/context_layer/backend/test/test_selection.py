@@ -5,7 +5,7 @@ from dataclasses import replace
 from threading import BoundedSemaphore, Event
 from uuid import uuid4
 
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -219,14 +219,30 @@ class TestSelection(SimpleTestCase):
         self.assertEqual(result.reason, "selected")
         self.assertEqual(len(self.requests), 5)
 
-    @parameterized.expand([("control", False), ("disabled", False), ("shadow", False), ("treatment", True)])
-    def test_variants_control_retrieval_injection_and_call_metadata(self, mode: str, inject: bool) -> None:
+    @parameterized.expand(
+        [
+            ("control", True, False),
+            ("disabled", True, False),
+            ("shadow", True, False),
+            ("treatment", True, True),
+            ("treatment", False, False),
+        ]
+    )
+    def test_variants_control_retrieval_injection_and_call_metadata(
+        self, mode: str, admitted: bool, inject: bool
+    ) -> None:
         self.flag.return_value = mode
+        self.selector.admit = Mock(return_value=admitted)
         result = self.selector.prepare(time.monotonic() + 60)
+        selects = mode in ("shadow", "treatment")
         self.assertEqual(result.mode, mode)
         self.assertEqual(bool(result.context), inject)
-        self.assertEqual(bool(self.requests), mode in ("shadow", "treatment"))
-        if mode in ("shadow", "treatment"):
+        self.assertEqual(self.selector.admit.called, selects)
+        self.assertEqual(bool(self.requests), selects and admitted)
+        if not admitted:
+            self.assertEqual(result.reason, "rate_limited")
+            self.client_factory.assert_not_called()
+        elif selects:
             labels = self.client_factory.call_args.kwargs["properties"]
             self.assertEqual(labels["selection_id"], result.selection_id)
             self.assertEqual(labels["mode"], mode)
@@ -284,8 +300,16 @@ class TestSelection(SimpleTestCase):
         self.assertEqual(result.context, "")
         self.assertEqual(result.reason, "error")
 
-    @parameterized.expand([("timeout", "error"), ("incomplete", "error"), ("refusal", "error"), ("empty", "empty")])
-    def test_failed_or_empty_rerank_preserves_delivery(self, outcome: str, reason: str) -> None:
+    @parameterized.expand(
+        [
+            ("timeout", "error", "ReadTimeout"),
+            ("deadline", "timeout", "TimeoutError"),
+            ("incomplete", "error", "SystemOneRequestFailed"),
+            ("refusal", "error", "ValueError"),
+            ("empty", "empty", None),
+        ]
+    )
+    def test_failed_or_empty_rerank_preserves_delivery(self, outcome: str, reason: str, error_type: str | None) -> None:
         self.rows["llm_skills/search/"] = [self.skill, {**self.skill, "name": "slow-guide"}]
         if outcome == "empty":
             self.rows = {}
@@ -295,6 +319,8 @@ class TestSelection(SimpleTestCase):
                 return self.decide(state=state, questions=questions)
             if outcome == "timeout":
                 raise httpx.ReadTimeout("Timed out")
+            if outcome == "deadline":
+                raise TimeoutError("selector_deadline")
             answers: dict[str, JsonValue] = {key: {"noul": 0.95} for key in questions}
             key = next(iter(answers))
             if outcome == "incomplete":
@@ -304,10 +330,16 @@ class TestSelection(SimpleTestCase):
             return parse_system_one_response({"model": "test", "answers": answers}, questions)
 
         self.model.decide.side_effect = decide
-        result = self.selector.prepare(time.monotonic() + 60)
+        with patch("products.context_layer.backend.selection.posthoganalytics.capture") as capture:
+            result = self.selector.prepare(time.monotonic() + 60)
         self.assertEqual(result.context, "")
         self.assertEqual(result.mode, "treatment")
         self.assertEqual(result.reason, reason)
+        properties = capture.call_args.kwargs["properties"]
+        self.assertEqual((properties["reason"], properties["error_type"]), (reason, error_type))
+        self.assertEqual(properties["over_budget"], reason == "timeout")
+        self.assertIsNotNone(properties["gate_ms"])
+        self.assertIsNotNone(properties["rerank_ms"])
         if outcome != "empty":
             self.assertEqual(self.client_factory.call_args.kwargs["properties"]["selection_step"], "rerank")
 
@@ -349,7 +381,8 @@ class TestSelection(SimpleTestCase):
             patch("products.context_layer.backend.selection.is_privacy_mode_enabled", return_value=privacy_mode),
             patch("products.context_layer.backend.selection.posthoganalytics.capture") as capture,
         ):
-            self.selector.capture_outcome("selected", 0.8, scored)
+            self.selector.gate_probability = 0.8
+            self.selector.capture_outcome("selected", scored)
         properties = capture.call_args.kwargs["properties"]
         self.assertEqual(properties["reason"], "selected")
         self.assertEqual([c["score"] for c in properties["candidates"]], [0.9, 0.2])
