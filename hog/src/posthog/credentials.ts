@@ -1,22 +1,26 @@
 import { join } from 'node:path'
 
+import { detectWorkloadProvider, type WorkloadProvider } from '@/ci/providers'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { Env, Runtime } from '@/core/runtime'
 import type { StoreChoice } from '@/posthog/credential-store/types'
 import { loginStorage, readLogin } from '@/posthog/login/stored'
 
-import { PersonalAPIKey, type AccessKey, type AccessKeyStorage } from './access-key'
-import { hostKey, parseHost, type Host } from './host'
+import { MemoryKeyStorage, PersonalAPIKey, type AccessKey, type AccessKeyStorage } from './access-key'
+import { cloudRegion, hostKey, parseHost, REGIONS, type Host } from './host'
 import { parseProjectId } from './ids'
 import { readSettings } from './settings'
 import { parsePersonalApiKey } from './tokens'
+import { exchangeWorkloadToken } from './workload'
 
 // posthog-cli falls back to this host when neither --host nor the credentials name one.
 export const DEFAULT_HOST = parseHost('https://us.i.posthog.com')
 
+// `storage` is how hog renews the key, and null for a key it can't renew.
 export type Credentials = { key: AccessKey } & (
-    | { source: 'env' }
-    | { source: 'dotenv-file'; path: string }
+    | { source: 'env'; storage: null }
+    | { source: 'dotenv-file'; path: string; storage: null }
+    | { source: 'workload'; storage: AccessKeyStorage }
     // What `hog auth login` or `hog auth migrate` saved. `path` is the file that holds the secret,
     // and null for the keychain.
     | { source: 'store'; store: StoreChoice; path: string | null; storage: AccessKeyStorage }
@@ -110,15 +114,21 @@ export function posthogFile(runtime: Runtime, name: string): string {
 }
 
 // Every credential source, in order: HOG_PERSONAL_API_KEY in the environment, then in --dotenv-file,
-// then what `hog auth login` stored. The global host overrides the host a key in the environment
+// then the OIDC token of a CI job that names HOG_PROJECT_ID, then what `hog auth login` stored. The global host overrides the host a key in the environment
 // or --dotenv-file carried, and picks which stored login to use. posthog.json comes from the repository, so its host never
 // redirects a key: it can pick a stored login for that host, and otherwise only stops the command
 // when the key belongs to another host.
 export async function resolveCredentials(
     runtime: Runtime,
-    // `skipStore` leaves out what `hog auth login` stored, for callers that must never open the
-    // keychain or renew a token, like telemetry for a command that needed no credentials.
-    options: { host?: Host; dotenvFile?: string; configHost?: Host; skipStore?: boolean }
+    // `envOnly` reads only the environment and --dotenv-file, for callers that must never open the
+    // keychain or get a token, like telemetry for a command that needed no credentials.
+    options: {
+        host?: Host
+        dotenvFile?: string
+        configHost?: Host
+        envOnly?: boolean
+        workloadProviders?: readonly WorkloadProvider[]
+    }
 ): Promise<Credentials> {
     const checkConfigHost = (host: Host): void => {
         const { configHost } = options
@@ -144,7 +154,7 @@ export async function resolveCredentials(
 
     const fromEnv = fromLookup((name) => runtime.env[name] || undefined)
     if (fromEnv) {
-        return { key: keyFrom(fromEnv), source: 'env' }
+        return { key: keyFrom(fromEnv), source: 'env', storage: null }
     }
 
     const dotenvFile = options.dotenvFile
@@ -160,11 +170,26 @@ export async function resolveCredentials(
                     'Add both variables to the file, or remove --dotenv-file.'
                 )
             }
-            return { key: keyFrom(fromFile), source: 'dotenv-file', path: dotenvFile }
+            return { key: keyFrom(fromFile), source: 'dotenv-file', path: dotenvFile, storage: null }
         }
     }
 
-    if (!options.skipStore) {
+    const workloadProvider = detectWorkloadProvider(runtime.env, options.workloadProviders)
+    const workloadProjectId = runtime.env.HOG_PROJECT_ID
+    if (!options.envOnly && workloadProvider && workloadProjectId) {
+        // The audience must be the address people open PostHog at, so the default isn't the ingestion
+        // host personal API keys use.
+        const key = await exchangeWorkloadToken(runtime, {
+            host: options.host ?? cloudRegion(options.configHost) ?? REGIONS.us,
+            projectId: parseProjectId(workloadProjectId, { code: 'invalid_credentials' }),
+            provider: workloadProvider,
+        })
+        if (key) {
+            return { key, source: 'workload', storage: new MemoryKeyStorage(key) }
+        }
+    }
+
+    if (!options.envOnly) {
         const settings = await readSettings(runtime).catch((error: unknown) => {
             // Without a home folder hog has no logins, so the way in is the environment.
             if (error instanceof HogError && error.code === 'no_home_directory') {
@@ -203,6 +228,16 @@ export async function resolveCredentials(
     throw new HogError(
         'not_authenticated',
         "hog couldn't find PostHog credentials.",
-        'Run `hog auth login`, or set HOG_PERSONAL_API_KEY and HOG_PROJECT_ID.'
+        notAuthenticatedHint(workloadProvider, workloadProjectId)
     )
+}
+
+function notAuthenticatedHint(workloadProvider: WorkloadProvider | undefined, projectId: string | undefined): string {
+    if (workloadProvider === undefined) {
+        return 'Run `hog auth login`, or set HOG_PERSONAL_API_KEY and HOG_PROJECT_ID.'
+    }
+    const fix = projectId
+        ? workloadProvider.missingTokenHint
+        : `Set HOG_PROJECT_ID in the job, so hog can exchange the job's ${workloadProvider.name} OIDC token for a PostHog token.`
+    return `${fix} Or set HOG_PERSONAL_API_KEY and HOG_PROJECT_ID.`
 }

@@ -9,7 +9,13 @@ import type { Runtime } from '@/core/runtime'
 import { parseOrThrow } from '@/core/schema'
 import type { OAuthSecret, StoreChoice } from '@/posthog/credential-store/types'
 
-import type { AccessKey, AccessKeyStatus, AccessKeyStorage, LogoutOutcome } from './access-key'
+import {
+    projectAccess,
+    type AccessKey,
+    type AccessKeyStatus,
+    type AccessKeyStorage,
+    type LogoutOutcome,
+} from './access-key'
 import { sendRequest, type HttpResponse } from './api'
 import { hostKey, hostUrl, type Host } from './host'
 import { ProjectIdSchema, type ProjectId } from './ids'
@@ -37,6 +43,17 @@ export const TokenResponse = z.object({
 })
 
 export type TokenResponse = z.output<typeof TokenResponse>
+
+export function grantLifetime(
+    runtime: Runtime,
+    body: Pick<TokenResponse, 'expires_in' | 'scope'>,
+    scopes: string[]
+): { expiresAt: number; scopes: string[] } {
+    return {
+        expiresAt: runtime.now() + body.expires_in * 1000,
+        scopes: body.scope ? body.scope.split(' ').filter(Boolean) : scopes,
+    }
+}
 
 // An RFC 6749 error answer. hog reads `error` only when the answer is one.
 export const OAuthErrorBody = z.object({
@@ -87,6 +104,7 @@ export class OAuthLogin implements AccessKey {
     readonly expiresAt: number
     readonly scopes: string[]
     readonly loginId: string
+    readonly identifiesPerson = true
 
     constructor(fields: OAuthLoginFields) {
         this.host = fields.host
@@ -121,8 +139,7 @@ export class OAuthLogin implements AccessKey {
             projectId: previous.projectId,
             accessToken: body.access_token,
             refreshToken,
-            expiresAt: runtime.now() + body.expires_in * 1000,
-            scopes: body.scope ? body.scope.split(' ').filter(Boolean) : previous.scopes,
+            ...grantLifetime(runtime, body, previous.scopes),
             loginId: previous.loginId ?? randomUUID(),
         })
     }
@@ -229,12 +246,13 @@ export class OAuthLogin implements AccessKey {
             scopes: this.scopes,
             expiresAt: this.expiresAt,
             rejected: 'PostHog rejected the token. Someone may have revoked it.',
+            provider: null,
         }
     }
 
     // A login works in the one project it was approved for.
     access(): ApiKeyAccess {
-        return { scopes: this.scopes, scopedTeams: [Number(this.projectId)], scopedOrganizations: [] }
+        return projectAccess(this.scopes, this.projectId)
     }
 
     // Revoking the refresh token ends this login: PostHog revokes its access tokens with it.

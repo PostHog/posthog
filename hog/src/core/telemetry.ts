@@ -222,7 +222,7 @@ export class Telemetry {
     // Looks the user up once per key and keeps the answer for 30 days, or a day when PostHog had
     // none, so most runs send no extra request. A key without the scopes stays anonymous.
     private async identity(key: AccessKey): Promise<Identity | undefined> {
-        if (!isCloudHost(key.host)) {
+        if (!isCloudHost(key.host) || !key.identifiesPerson) {
             return undefined
         }
         let path: string

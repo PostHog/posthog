@@ -9,6 +9,7 @@
 | `src/commands/`       | One file per command. `index.ts` is the tree of every command; `legacy.ts` holds the ones posthog-cli still owns                                                                          |
 | `src/core/`           | The shared parts every command uses: command definitions, context and global options, output, agent detection, errors, runtime, the manifest                                              |
 | `src/posthog/`        | The PostHog API client, the pagination helpers every list uses, and credentials                                                                                                           |
+| `src/ci/`             | The CI providers whose OIDC tokens hog exchanges for workload tokens: detection and token fetch                                                                                           |
 | `src/error-tracking/` | Symbol upload: discovery, artifact types under `kinds/`, the container and content hash, releases, git, the upload protocol, and `run.ts`, the inject and upload steps the commands share |
 | `src/endpoints/`      | The endpoint YAML files, how they compare with PostHog, and the push and pull plans                                                                                                       |
 | `test/parity/`        | Goldens recorded from posthog-cli and the tests that hold hog to them. Read its README before changing anything that reaches an upload                                                    |

@@ -8,18 +8,10 @@ import { validationError } from '@/core/schema'
 import { PersonalAPIKey, type AccessKey } from '@/posthog/access-key'
 import type { StoreChoice } from '@/posthog/credential-store/types'
 import { LOGIN_SCOPES, READ_ONLY_LOGIN_SCOPES } from '@/posthog/device-auth'
-import { hostKey, HostSchema, parseHost, type Host } from '@/posthog/host'
+import { cloudRegion, HostSchema, parseHost, REGIONS } from '@/posthog/host'
 import { parseProjectId, ProjectIdSchema } from '@/posthog/ids'
 import { loginFlow, loginWait, saveLogin, type LoggedIn } from '@/posthog/login/flow'
 import { parsePersonalApiKey, PersonalApiKeySchema } from '@/posthog/tokens'
-
-const REGIONS = { us: parseHost('https://us.posthog.com'), eu: parseHost('https://eu.posthog.com') }
-
-// A posthog.json comes with the repository, so it only picks between the PostHog Cloud regions. A
-// login to any other host needs --host, so a repository can't send a person's login elsewhere.
-function cloudRegion(host: Host | undefined): Host | undefined {
-    return host && Object.values(REGIONS).find((region) => hostKey(region) === hostKey(host))
-}
 
 type LoginResult =
     | (Extract<ApprovalResult<never>, { status: 'pending' }> & { host: string })
