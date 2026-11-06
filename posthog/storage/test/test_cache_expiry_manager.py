@@ -4,6 +4,7 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
 
+from django.core.cache import caches
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
@@ -276,7 +277,10 @@ class TestRefreshExpiringCaches(SimpleTestCase):
 
 @override_settings(
     OBJECT_STORAGE_ENABLED=True,
-    CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
+    CACHES={
+        "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
+        "mirror": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "expiry-cleanup-mirror"},
+    },
 )
 class TestCleanupStaleExpiryTracking(BaseTest):
     def given_cache(self, token_based: bool) -> None:
@@ -286,6 +290,8 @@ class TestCleanupStaleExpiryTracking(BaseTest):
             token_based=token_based,
             expiry_sorted_set_key=self.sorted_set_key,
         )
+        # Remote config and flag definitions mirror every write and delete to a secondary cache.
+        self.hypercache.secondary_cache_client = caches["mirror"]
         self.config = HyperCacheManagementConfig(
             hypercache=self.hypercache, update_fn=lambda team, ttl=None: True, cache_name="test_cache"
         )
@@ -324,20 +330,42 @@ class TestCleanupStaleExpiryTracking(BaseTest):
         assert self.entry_state(deleted_team) == (False, False, False)
         assert self.entry_state(self.team) == (True, True, True)
 
-    def test_a_failed_redis_delete_keeps_the_entry_tracked_for_the_next_cleanup(self) -> None:
+    @parameterized.expand(
+        [
+            ("primary", "cache_client", (True, False, True)),
+            ("secondary", "secondary_cache_client", (False, False, True)),
+        ]
+    )
+    def test_a_failed_redis_delete_keeps_the_entry_tracked_for_the_next_cleanup(
+        self, _name: str, failing_client_attr: str, state_after_failure: tuple[bool, bool, bool]
+    ) -> None:
         self.given_cache(token_based=True)
-        deleted_team = self.deleted_team()
-        self.write_entry(deleted_team)
+        failing_team = self.deleted_team()
+        other_deleted_team = Team(id=self.team.id + 100001, api_token=f"phc_deleted_{uuid4().hex}")
+        self.write_entry(failing_team)
+        self.write_entry(other_deleted_team)
+        failing_client = getattr(self.hypercache, failing_client_attr)
+        failing_key = self.hypercache.get_cache_key(self.hypercache.get_cache_identifier(failing_team))
+        real_delete = failing_client.delete
 
-        with patch.object(self.hypercache.cache_client, "delete", side_effect=ConnectionError("down")):
+        def fail_for_one_key(key, *args, **kwargs):
+            if key == failing_key:
+                raise ConnectionError("down")
+            return real_delete(key, *args, **kwargs)
+
+        with patch.object(failing_client, "delete", side_effect=fail_for_one_key):
             removed = cleanup_stale_expiry_tracking(self.config)
 
-        assert removed == 0
-        # The object-storage copy has no TTL. The cleanup deletes it even though the Redis delete failed.
-        assert self.entry_state(deleted_team) == (True, False, True)
+        # One entry's failure must not stop the cleanup of the others.
+        assert removed == 1
+        assert self.entry_state(other_deleted_team) == (False, False, False)
+        # The object-storage copy has no TTL. The cleanup deletes it even though a Redis delete failed.
+        assert self.entry_state(failing_team) == state_after_failure
+        assert failing_client.get(failing_key) is not None
 
         assert cleanup_stale_expiry_tracking(self.config) == 1
-        assert self.entry_state(deleted_team) == (False, False, False)
+        assert self.entry_state(failing_team) == (False, False, False)
+        assert failing_client.get(failing_key) is None
 
     def test_an_entry_rewritten_during_the_cleanup_stays_tracked(self) -> None:
         self.given_cache(token_based=True)
