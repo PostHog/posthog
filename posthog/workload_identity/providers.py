@@ -204,7 +204,7 @@ GITHUB_ACTIONS = WorkloadProvider(
         ConditionPreset(
             key="environment",
             label="A deployment environment",
-            help_text="Jobs that deploy to this GitHub environment. Its protection rules decide who can start them.",
+            help_text="Jobs that deploy to this GitHub environment. Its protection rules decide who can start them. GitHub creates a missing environment without rules, so add them first.",
             conditions=(("environment", PRESET_VALUE),),
             placeholder="production",
             default_value="production",
