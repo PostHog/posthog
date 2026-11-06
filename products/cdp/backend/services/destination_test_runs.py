@@ -54,7 +54,7 @@ class HogFunctionTestRunContext(ActivityContextBase):
     request_origins: Optional[list[str]] = None
 
 
-def _integration_ids_in_value(value: Any) -> Iterable[int]:
+def integration_ids_in_value(value: Any) -> Iterable[int]:
     # An `integration_multi` input holds a list. The `{"integrationId": ...}` form matches
     # integration_usage.py, so the record can name an id the worker skips but never miss one.
     if isinstance(value, dict):
@@ -82,7 +82,7 @@ def _integration_ids(effective: dict[str, Any], mappings: list[dict[str, Any]]) 
         key = schema.get("key")
         entry = merged.get(key) if isinstance(key, str) else None
         if isinstance(entry, dict):
-            ids.update(_integration_ids_in_value(entry.get("value")))
+            ids.update(integration_ids_in_value(entry.get("value")))
     return ids
 
 
