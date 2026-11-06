@@ -69,6 +69,7 @@ import {
 import { detectFeatureFlagChanges } from './featureFlagConfirmationLogic'
 import {
     NEW_FLAG,
+    RollbackReasonSource,
     convertIndexBasedPayloadsToVariantKeys,
     dependencyActionLabel,
     dependencyDisabledReason,
@@ -3889,6 +3890,281 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('release to everyone confirmation', () => {
+        const withRollout = (rollout_percentage: number): FeatureFlagType =>
+            ({
+                ...MOCK_FEATURE_FLAG,
+                filters: {
+                    ...MOCK_FEATURE_FLAG.filters,
+                    groups: [{ properties: [], rollout_percentage, variant: null }],
+                },
+            }) as FeatureFlagType
+
+        it('confirms a save that releases the flag to all users, even with team confirmation off', async () => {
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            logic.actions.setOriginalFeatureFlag(withRollout(50))
+            logic.actions.setFeatureFlag(withRollout(100))
+
+            await expectLogic(logic, () => logic.actions.submitFeatureFlagWithValidation(logic.values.featureFlag))
+                .toNotHaveDispatchedActions(['saveFeatureFlag'])
+                .toFinishAllListeners()
+
+            expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
+            expect(dialogOpenSpy.mock.calls[0][0].primaryButton?.children).toBe('Release to all users')
+            expect(capturesOf('feature flag release to everyone confirmation shown')).toHaveLength(1)
+            dialogOpenSpy.mockRestore()
+        })
+
+        it('confirms turning on a disabled flag that is already at 100% of all users', async () => {
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            const disabledForEveryone = { ...withRollout(100), active: false }
+            logic.actions.setOriginalFeatureFlag(disabledForEveryone)
+            logic.actions.setFeatureFlag(disabledForEveryone)
+
+            await expectLogic(logic, () => logic.actions.toggleFeatureFlagActive(true)).toFinishAllListeners()
+
+            expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
+            expect(dialogOpenSpy.mock.calls[0][0].primaryButton?.children).toBe('Release to all users')
+            expect(capturesOf('feature flag release to everyone confirmation shown')).toHaveLength(1)
+            dialogOpenSpy.mockRestore()
+        })
+
+        it('keeps the usual save confirmation for a partial rollout when the team requires confirmation', async () => {
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, feature_flag_confirmation_enabled: true })
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            logic.actions.setOriginalFeatureFlag(withRollout(50))
+            logic.actions.setFeatureFlag(withRollout(60))
+
+            await expectLogic(logic, () => logic.actions.submitFeatureFlagWithValidation(logic.values.featureFlag))
+                .toNotHaveDispatchedActions(['saveFeatureFlag'])
+                .toFinishAllListeners()
+
+            const dialogProps = dialogOpenSpy.mock.calls[0][0]
+            expect(dialogProps.primaryButton?.children).toBe('Save changes')
+            dialogProps.onAfterClose?.()
+            expect(capturesOf('feature flag release to everyone confirmation shown')).toHaveLength(0)
+            expect(capturesOf('feature flag release to everyone confirmation canceled')).toHaveLength(0)
+            dialogOpenSpy.mockRestore()
+        })
+
+        it.each([
+            { scenario: 'dismissed with Escape, the close icon or the overlay', confirm: false, canceled: 1 },
+            { scenario: 'confirmed', confirm: true, canceled: 0 },
+        ])('counts a cancellation only when the warning is $scenario', async ({ confirm, canceled }) => {
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            const update = jest.spyOn(api, 'update').mockResolvedValue(withRollout(100))
+            logic.actions.setOriginalFeatureFlag(withRollout(50))
+            logic.actions.setFeatureFlag(withRollout(100))
+            await expectLogic(logic, () =>
+                logic.actions.submitFeatureFlagWithValidation(logic.values.featureFlag)
+            ).toFinishAllListeners()
+
+            const dialogProps = dialogOpenSpy.mock.calls[0][0]
+            if (confirm) {
+                dialogProps.primaryButton?.onClick?.(undefined as any)
+            }
+            dialogProps.onAfterClose?.()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(capturesOf('feature flag release to everyone confirmation canceled')).toHaveLength(canceled)
+            expect(update).toHaveBeenCalledTimes(confirm ? 1 : 0)
+            dialogOpenSpy.mockRestore()
+            update.mockRestore()
+        })
+
+        it('saves a partial rollout change without asking', async () => {
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            jest.spyOn(api, 'update').mockResolvedValueOnce(withRollout(60))
+            logic.actions.setOriginalFeatureFlag(withRollout(50))
+            logic.actions.setFeatureFlag(withRollout(60))
+
+            await expectLogic(logic, () => logic.actions.submitFeatureFlagWithValidation(logic.values.featureFlag))
+                .toDispatchActions(['saveFeatureFlag'])
+                .toFinishAllListeners()
+
+            expect(dialogOpenSpy).not.toHaveBeenCalled()
+            dialogOpenSpy.mockRestore()
+        })
+    })
+
+    describe('rollback reason question', () => {
+        const rollbackReasonRequired = (): ApiError =>
+            new ApiError(undefined, 409, undefined, {
+                type: 'invalid_request',
+                code: 'rollback_reason_required',
+                detail: "This edit lowers the flag's exposure.",
+            })
+
+        // The save sends tags the form does not hold, as the sidebar tags save does, so a resend of the form fails.
+        const saveFrom: Record<RollbackReasonSource, (l: typeof logic) => void> = {
+            save: (l) => l.actions.saveFeatureFlag({ ...l.values.featureFlag, tags: ['from-the-sidebar'] }),
+            toggle: (l) => l.actions.updateFeatureFlagActive(false),
+        }
+        const sentBy: Record<RollbackReasonSource, Record<string, unknown>> = {
+            save: { tags: ['from-the-sidebar'] },
+            toggle: { active: false },
+        }
+
+        const withRollbackReasonFlag = (enabled: boolean): void => {
+            enabledFeaturesLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.FEATURE_FLAG_ROLLBACK_REASON]: enabled })
+        }
+
+        let openForm: jest.SpyInstance
+
+        beforeEach(() => {
+            silenceKeaLoadersErrors()
+            openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+            logic.actions.setFeatureFlag({ ...MOCK_FEATURE_FLAG, active: true })
+        })
+
+        afterEach(() => {
+            resumeKeaLoadersErrors()
+            openForm.mockRestore()
+        })
+
+        it.each([
+            [
+                'save',
+                'an answer',
+                { reason: 'errors', note: 'Checkout broke' },
+                { rollback_reason: 'errors', rollback_reason_note: 'Checkout broke' },
+            ],
+            [
+                'toggle',
+                'an answer',
+                { reason: 'metrics', note: '' },
+                { rollback_reason: 'metrics', rollback_reason_note: null },
+            ],
+            ['save', 'a skip', 'skipped', {}],
+            ['toggle', 'a skip', 'skipped', {}],
+        ] as const)(
+            'a %s save that lowers exposure asks why, then saves with %s',
+            async (source, _label, choice, resentFields) => {
+                withRollbackReasonFlag(true)
+                const update = jest
+                    .spyOn(api, 'update')
+                    .mockRejectedValueOnce(rollbackReasonRequired())
+                    .mockResolvedValue({ ...MOCK_FEATURE_FLAG, active: source !== 'toggle' })
+
+                await expectLogic(logic, () => saveFrom[source](logic)).toFinishAllListeners()
+
+                expect(update).toHaveBeenCalledTimes(1)
+                expect(update.mock.calls[0][1]).toEqual(expect.objectContaining({ ask_rollback_reason: true }))
+                expect(capturesOf('feature flag rollback reason asked')).toEqual([
+                    ['feature flag rollback reason asked', { source }],
+                ])
+
+                const dialog = openForm.mock.calls[0][0]
+                if (choice === 'skipped') {
+                    dialog.tertiaryButton.onClick()
+                } else {
+                    dialog.onSubmit(choice)
+                }
+                dialog.onAfterClose()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(update).toHaveBeenCalledTimes(2)
+                const resent = update.mock.calls[1][1] as Record<string, unknown>
+                expect(resent).not.toHaveProperty('ask_rollback_reason')
+                expect(resent).toEqual(expect.objectContaining({ ...sentBy[source], ...resentFields }))
+                expect(capturesOf('feature flag rollback reason skipped')).toEqual(
+                    choice === 'skipped' ? [['feature flag rollback reason skipped', { source }]] : []
+                )
+                expect(capturesOf('feature flag rollback reason canceled')).toEqual([])
+
+                // The answer belongs to that edit only, so the next save asks again.
+                await expectLogic(logic, () => saveFrom[source](logic)).toFinishAllListeners()
+                expect(update.mock.calls[2][1]).toEqual(expect.objectContaining({ ask_rollback_reason: true }))
+                expect(update.mock.calls[2][1]).not.toHaveProperty('rollback_reason')
+            }
+        )
+
+        it.each(['save', 'toggle'] as const)(
+            'a %s retried after the resend fails on the network keeps the answer',
+            async (source) => {
+                withRollbackReasonFlag(true)
+                const update = jest
+                    .spyOn(api, 'update')
+                    .mockRejectedValueOnce(rollbackReasonRequired())
+                    .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+                    .mockResolvedValue({ ...MOCK_FEATURE_FLAG, active: source !== 'toggle' })
+
+                await expectLogic(logic, () => saveFrom[source](logic)).toFinishAllListeners()
+                const dialog = openForm.mock.calls[0][0]
+                dialog.onSubmit({ reason: 'errors', note: '' })
+                dialog.onAfterClose()
+                await expectLogic(logic).toFinishAllListeners()
+
+                await expectLogic(logic, () => saveFrom[source](logic)).toFinishAllListeners()
+
+                expect(update).toHaveBeenCalledTimes(3)
+                expect(update.mock.calls[2][1]).toEqual(expect.objectContaining({ rollback_reason: 'errors' }))
+                expect(openForm).toHaveBeenCalledTimes(1)
+            }
+        )
+
+        it.each([
+            ['the edit is canceled', 'save', (l: typeof logic) => l.actions.editFeatureFlag(false), 'save'],
+            ['the flag is reloaded', 'save', (l: typeof logic) => l.actions.loadFeatureFlag(), 'save'],
+            ['the next edit comes from the other source', 'toggle', () => {}, 'save'],
+        ] as const)(
+            'an answer whose resend failed does not ride on the next edit when %s',
+            async (_label, answeredFrom, discard, nextFrom) => {
+                withRollbackReasonFlag(true)
+                const update = jest
+                    .spyOn(api, 'update')
+                    .mockRejectedValueOnce(rollbackReasonRequired())
+                    .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+                    .mockResolvedValue({ ...MOCK_FEATURE_FLAG, active: true })
+
+                await expectLogic(logic, () => saveFrom[answeredFrom](logic)).toFinishAllListeners()
+                const dialog = openForm.mock.calls[0][0]
+                dialog.onSubmit({ reason: 'errors', note: '' })
+                dialog.onAfterClose()
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(logic, () => discard(logic)).toFinishAllListeners()
+
+                await expectLogic(logic, () => saveFrom[nextFrom](logic)).toFinishAllListeners()
+
+                expect(update.mock.calls[2][1]).toEqual(expect.objectContaining({ ask_rollback_reason: true }))
+                expect(update.mock.calls[2][1]).not.toHaveProperty('rollback_reason')
+            }
+        )
+
+        it('saves nothing when the question is closed without an answer', async () => {
+            withRollbackReasonFlag(true)
+            const update = jest.spyOn(api, 'update').mockRejectedValueOnce(rollbackReasonRequired())
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            try {
+                await expectLogic(logic, () => saveFrom.save(logic)).toFinishAllListeners()
+
+                openForm.mock.calls[0][0].onAfterClose()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(update).toHaveBeenCalledTimes(1)
+                expect(capturesOf('feature flag rollback reason canceled')).toEqual([
+                    ['feature flag rollback reason canceled', { source: 'save' }],
+                ])
+                // The 409 must not read as a version conflict.
+                expect(toastSpy).not.toHaveBeenCalled()
+            } finally {
+                toastSpy.mockRestore()
+            }
+        })
+
+        it.each([
+            ['the feature flag is off', false, () => logic.actions.saveFeatureFlag(logic.values.featureFlag)],
+            ['the flag is turned on', true, () => logic.actions.updateFeatureFlagActive(true)],
+        ])('does not ask when %s', async (_label, enabled, save) => {
+            withRollbackReasonFlag(enabled)
+            const update = jest.spyOn(api, 'update').mockResolvedValueOnce({ ...MOCK_FEATURE_FLAG, active: true })
+
+            await expectLogic(logic, save).toFinishAllListeners()
+
+            expect(update.mock.calls[0][1]).not.toHaveProperty('ask_rollback_reason')
+        })
+    })
+
     describe('saveSidebarTags', () => {
         it('saves a v1 flag through the full save, evaluation contexts included', async () => {
             const update = jest
@@ -5548,6 +5824,113 @@ describe('a flag in config version 2', () => {
         ])
         newLogic.unmount()
     })
+
+    it.each([
+        [
+            'splits prefilled variants evenly',
+            urls.featureFlagNew({
+                key: 'checkout-layout',
+                type: 'multivariate',
+                variants: ['control', 'compact', 'wide'],
+            }),
+            'checkout-layout',
+            [
+                { key: 'control', name: '', rollout_percentage: 34 },
+                { key: 'compact', name: '', rollout_percentage: 33 },
+                { key: 'wide', name: '', rollout_percentage: 33 },
+            ],
+        ],
+        [
+            'trims and dedupes hand-written variants',
+            '/feature-flags/new?type=multivariate&variants=control,%20wide,control',
+            '',
+            [
+                { key: 'control', name: '', rollout_percentage: 50 },
+                { key: 'wide', name: '', rollout_percentage: 50 },
+            ],
+        ],
+        [
+            'keeps only as many variants as a flag allows',
+            urls.featureFlagNew({
+                key: 'checkout-layout',
+                type: 'multivariate',
+                variants: Array.from({ length: 25 }, (_, i) => `v${i}`),
+            }),
+            'checkout-layout',
+            Array.from({ length: 20 }, (_, i) => ({ key: `v${i}`, name: '', rollout_percentage: 5 })),
+        ],
+        [
+            'ignores a key and variants the router decodes into objects',
+            '/feature-flags/new?type=multivariate&key={"toString":null}&variants=[{"toString":null},"wide"]',
+            '',
+            [{ key: 'wide', name: '', rollout_percentage: 100 }],
+        ],
+        [
+            'keeps the default variants without a variants param',
+            urls.featureFlagNew({ key: 'checkout-layout', type: 'multivariate' }),
+            'checkout-layout',
+            [
+                { key: 'control', name: '', rollout_percentage: 50 },
+                { key: 'test', name: '', rollout_percentage: 50 },
+            ],
+        ],
+        [
+            'ignores variants on a boolean flag',
+            urls.featureFlagNew({ key: 'checkout-layout', variants: ['control', 'compact'] }),
+            'checkout-layout',
+            null,
+        ],
+        [
+            'drops a key and variants that fail validation',
+            urls.featureFlagNew({
+                key: "x' + (globalThis.injected = true) + '",
+                type: 'multivariate',
+                variants: ['control', "a'b"],
+            }),
+            '',
+            [{ key: 'control', name: '', rollout_percentage: 100 }],
+        ],
+    ])('prefills from the link and %s', async (_label, link, expectedKey, expectedVariants) => {
+        defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
+            enabled: false,
+            default_groups: [],
+        })
+        router.actions.push(link)
+        const newLogic = featureFlagLogic({ id: 'new' })
+        newLogic.mount()
+        await expectLogic(newLogic).toFinishAllListeners()
+
+        expect(newLogic.values.featureFlag.key).toBe(expectedKey)
+        expect(newLogic.values.featureFlag.filters.multivariate?.variants ?? null).toEqual(expectedVariants)
+        newLogic.unmount()
+    })
+
+    it('warns on load when the prefilled key is already taken', async () => {
+        defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
+            enabled: false,
+            default_groups: [],
+        })
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/`]: () => [
+                    200,
+                    { results: [{ ...NEW_FLAG, id: 42, key: 'taken-key' }], count: 1 },
+                ],
+            },
+        })
+        router.actions.push(urls.featureFlagNew({ key: 'taken-key' }))
+        const newLogic = featureFlagLogic({ id: 'new' })
+        newLogic.mount()
+        await expectLogic(newLogic).toDispatchActions(['checkKeyConflictSuccess']).toFinishAllListeners()
+
+        expect(newLogic.values.currentKeyConflict).toEqual({
+            key: 'taken-key',
+            existingFlagId: 42,
+            existingFlagKey: 'taken-key',
+            exact: true,
+        })
+        newLogic.unmount()
+    })
 })
 
 describe('the editor a flag opens in', () => {
@@ -5621,6 +6004,22 @@ describe('the editor a flag opens in', () => {
 
     it.each([
         ['a string return type', { return_type: 'string', default_value: 'control' }],
+        [
+            'a number return type',
+            {
+                return_type: 'number',
+                default_value: 1,
+                rules: [
+                    {
+                        ...EXPERIMENT_RULE,
+                        variants: [
+                            { key: 'control', weight: 50, value: 1 },
+                            { key: 'test', weight: 50, value: 2 },
+                        ],
+                    },
+                ],
+            },
+        ],
         ['an experiment rule', { rules: [EXPERIMENT_RULE] }],
         [
             'an experiment rule with a holdout',
@@ -5633,7 +6032,7 @@ describe('the editor a flag opens in', () => {
 
     // The editor would drop, or rewrite on save, what it cannot represent.
     it.each([
-        ['a number return type', { return_type: 'number', default_value: 1 }],
+        ['an unknown return type', { return_type: 'date', default_value: null }],
         ['group assignment', { aggregation_group_type_index: 0 }],
     ])('a v2 flag with %s opens no editor, even with the editor on', async (_label, filters) => {
         useMocks({ get: { [V2_FLAG_URL]: () => [200, { ...V2_FLAG, filters: { ...V2_FLAG.filters, ...filters } }] } })

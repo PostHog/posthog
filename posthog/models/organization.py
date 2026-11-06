@@ -2,7 +2,7 @@ import sys
 from collections.abc import Collection
 from datetime import datetime, timedelta
 from functools import cache as functools_cache
-from typing import TYPE_CHECKING, Any, Literal, Optional, Self, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Optional, Self, TypedDict, Union
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -40,6 +40,7 @@ class OrganizationUsageResource(TypedDict):
     usage: int | None
     limit: int | None
     todays_usage: int | None
+    daily_usage: NotRequired[dict[str, int]]
 
 
 # The "usage" field is essentially cached info from the Billing Service to be used for visual reporting to the user
@@ -56,8 +57,10 @@ class OrganizationUsageInfo(TypedDict):
     feature_flag_requests: OrganizationUsageResource | None
     api_queries_read_bytes: OrganizationUsageResource | None
     llm_events: OrganizationUsageResource | None
+    mcp_events: OrganizationUsageResource | None
     ai_credits: OrganizationUsageResource | None
     signals_credits: OrganizationUsageResource | None
+    signals_spend_credits: NotRequired[OrganizationUsageResource | None]
     posthog_code_credits: OrganizationUsageResource | None
     posthog_code_token_credits: OrganizationUsageResource | None
     sandbox_compute_credits: OrganizationUsageResource | None
@@ -69,6 +72,8 @@ class OrganizationUsageInfo(TypedDict):
     logs_mb_ingested: OrganizationUsageResource | None
     replay_vision_credits: OrganizationUsageResource | None
     period: list[str] | None
+    billing_status_computed_at: NotRequired[str]
+    billing_latest_usage_report_date: NotRequired[str | None]
 
 
 @frozen

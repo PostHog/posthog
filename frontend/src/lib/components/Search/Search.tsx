@@ -18,10 +18,11 @@ import {
 import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/icons'
 import { LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { filterSearchItems } from 'lib/components/Search/utils'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { themeLogic } from 'lib/logic/themeLogic'
 import posthog from 'lib/posthog-typed'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -37,10 +38,9 @@ import { userLogic } from 'scenes/userLogic'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
 import type { UserTheme } from '~/types'
 
-import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { getIconForItem, getItemTypeDisplayName } from './searchItemDisplay'
 import { SearchItem } from './searchItems'
-import { STARRED_LIMIT } from './searchListsLogic'
+import { STARRED_LIMIT } from './searchListItems'
 import { RECENTS_LIMIT, SearchLogicProps, searchLogic } from './searchLogic'
 import { SETTINGS_THEME_ITEM_ID, canOpenInNewTab, formatRelativeTimeShort, getCategoryDisplayName } from './utils'
 
@@ -933,20 +933,8 @@ function SearchResults({
                                                                                     {item.keybinding}
                                                                                 </span>
                                                                             )}
-                                                                            {item.matchedSearchKeyword && (
-                                                                                <span className="ml-auto text-xxs text-tertiary truncate mt-[2px]">
-                                                                                    {`Matches "${item.matchedSearchKeyword}"`}
-                                                                                </span>
-                                                                            )}
                                                                             {item.lastViewedAt && (
-                                                                                <span
-                                                                                    className={cn(
-                                                                                        'text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]',
-                                                                                        item.matchedSearchKeyword
-                                                                                            ? 'ml-2'
-                                                                                            : 'ml-auto'
-                                                                                    )}
-                                                                                >
+                                                                                <span className="text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px] ml-auto">
                                                                                     {formatRelativeTimeShort(
                                                                                         item.lastViewedAt
                                                                                     )}

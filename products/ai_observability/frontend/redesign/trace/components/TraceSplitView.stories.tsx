@@ -25,6 +25,8 @@ const meta: Meta<typeof TraceSplitView> = {
             node: generation,
             tab: 'messages',
             onTabChange: () => {},
+            messagesOpening: 'lastTurn',
+            onMessagesOpeningChange: () => {},
             content: { kind: 'messages', input: FIXTURE_GENERATION_INPUT, output: FIXTURE_GENERATION_OUTPUT },
             error: null,
             properties: FIXTURE_GENERATION_PROPERTIES,

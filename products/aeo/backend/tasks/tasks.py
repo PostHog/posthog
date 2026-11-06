@@ -28,7 +28,8 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 
-from products.aeo.backend.facade.contracts import AEO_CITATION_TRACKING_FLAG
+from products.aeo.backend import suggestions
+from products.aeo.backend.facade.contracts import AEO_CITATION_TRACKING_FLAG, PromptSuggestionRequest
 from products.aeo.backend.runner import run_citation_checks
 
 logger = structlog.get_logger(__name__)
@@ -40,6 +41,8 @@ logger = structlog.get_logger(__name__)
 # daily dispatch.
 RUN_SOFT_TIME_LIMIT_SECONDS = 10 * 60 * 60
 RUN_TIME_LIMIT_SECONDS = RUN_SOFT_TIME_LIMIT_SECONDS + 300
+SUGGESTION_SOFT_TIME_LIMIT_SECONDS = 6 * 60
+SUGGESTION_TIME_LIMIT_SECONDS = SUGGESTION_SOFT_TIME_LIMIT_SECONDS + 60
 
 # The per-team lease is short and renewed by a side thread while the run is alive, instead of
 # lasting the whole time limit. A worker that outlives its termination grace period is SIGKILLed,
@@ -140,3 +143,31 @@ def _renew_lease(lease: Lock, stop: threading.Event, lost: threading.Event, team
         except Exception as error:
             # A Redis blip must not end renewal; the next tick retries well inside the TTL.
             logger.warning("aeo_citation_task_lease_renew_failed", team_id=team_id, error=str(error)[:300])
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    soft_time_limit=SUGGESTION_SOFT_TIME_LIMIT_SECONDS,
+    time_limit=SUGGESTION_TIME_LIMIT_SECONDS,
+)
+@skip_team_scope_audit  # Team is the tenant; prompts are read via AEOPrompt.objects.for_team
+def suggest_aeo_prompts_task(team_id: int, job_id: str, request: dict) -> None:
+    try:
+        suggestions.run_job(
+            team_id,
+            job_id,
+            PromptSuggestionRequest(
+                domain=request["domain"],
+                brand=request["brand"],
+                description=request["description"],
+                competitors=tuple(request["competitors"]),
+                topics=tuple(request["topics"]),
+                count=request["count"],
+            ),
+        )
+    except Exception:
+        # Without this the client would poll a pending job until it expires.
+        suggestions.fail_job(team_id, job_id, "Prompt suggestions failed. Try again in a minute.")
+        logger.exception("aeo_prompt_suggestions_task_failed", team_id=team_id)
+        raise

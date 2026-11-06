@@ -7,20 +7,20 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import {
-    AlertConditionType,
-    BreakdownFilter,
-    GoalLine,
-    InsightThresholdType,
-    NodeKind,
-} from '~/queries/schema/schema-general'
-import {
     containsHogQLQuery,
     hasBreakdownFilter,
     isFunnelsQuery,
     isInsightVizNode,
     isMetricsQuery,
     isTrendsQuery,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import {
+    AlertConditionType,
+    BreakdownFilter,
+    GoalLine,
+    InsightThresholdType,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { FunnelVizType, InsightLogicProps } from '~/types'
 
 import type { Node } from '../../../../frontend/src/queries/schema/schema-general'

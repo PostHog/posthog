@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AppState, type AppStateStatus } from 'react-native'
 
 import { ApiError, NotSignedInError } from '@/api/client'
+import type { ProjectScope } from '@/api/reports'
 import { readSse } from '@/api/sse'
 import { getTask, getTaskRun, openTaskRunStream, type TaskApi, type TaskRunApi } from '@/api/tasks'
 import { addSessionEndTask } from '@/auth/authStore'
+import { useProjectScope } from '@/auth/useProjectScope'
+import { useConnectivity } from '@/lib/connectivity'
 import { sleep } from '@/lib/sleep'
 
 import { deliverPermissionResponse } from './commands'
@@ -60,6 +63,8 @@ export function isFatal(error: unknown): boolean {
 }
 
 interface FollowArgs {
+    /** The report's project, which owns the task. */
+    scope: ProjectScope | null
     reportId: string
     taskId: string
     runId?: string
@@ -70,12 +75,13 @@ interface FollowArgs {
 
 /** The run to follow: the task's latest run, which wins over a possibly stale run id. */
 async function fetchRun(
+    scope: ProjectScope | null,
     taskId: string,
     runId: string | undefined,
     signal: AbortSignal,
     onTaskSnapshot?: (task: TaskApi) => void
 ): Promise<TaskRunApi | null> {
-    const task = await getTask(taskId, signal)
+    const task = await getTask(scope, taskId, signal)
     if (signal.aborted) {
         return null
     }
@@ -83,10 +89,11 @@ async function fetchRun(
     if (task.latest_run) {
         return task.latest_run
     }
-    return runId ? getTaskRun(taskId, runId, signal) : null
+    return runId ? getTaskRun(scope, taskId, runId, signal) : null
 }
 
 async function runEffects(
+    scope: ProjectScope | null,
     reportId: string,
     taskId: string,
     runId: string,
@@ -99,6 +106,7 @@ async function runEffects(
         }
         try {
             const outcome = await deliverPermissionResponse(
+                scope,
                 { taskId, runId },
                 { requestId: effect.requestId, optionId: effect.optionId },
                 { signal }
@@ -167,7 +175,7 @@ async function readOnce(
     const result: ConnectionResult = { progressed: false }
     try {
         resetIdle()
-        const response = await openTaskRunStream(args.taskId, runId, {
+        const response = await openTaskRunStream(args.scope, args.taskId, runId, {
             lastEventId: hydration.cursor.cursor,
             signal: connection.signal,
         })
@@ -208,7 +216,7 @@ async function readOnce(
                         .applyFrame(args.reportId, runId, outcome.frame.data, outcome.frame.context)
                     cursors.set(runId, hydration.cursor)
                     if (effects.length > 0) {
-                        void runEffects(args.reportId, args.taskId, runId, effects, outer)
+                        void runEffects(args.scope, args.reportId, args.taskId, runId, effects, outer)
                     }
                 }
                 if (outcome.control) {
@@ -235,7 +243,9 @@ async function readOnce(
     }
 }
 
-export async function followRun(args: FollowArgs): Promise<void> {
+type FollowOutcome = 'ended' | 'gave_up' | 'fatal' | 'aborted'
+
+export async function followRun(args: FollowArgs): Promise<FollowOutcome> {
     const { reportId, taskId, signal } = args
     const store = useHandoffStore.getState
     const previous = store().reports[reportId]?.live
@@ -257,24 +267,24 @@ export async function followRun(args: FollowArgs): Promise<void> {
     let run: TaskRunApi | null = null
     for (let attempt = 0; ; attempt += 1) {
         try {
-            run = await fetchRun(taskId, args.runId, signal, args.onTaskSnapshot)
+            run = await fetchRun(args.scope, taskId, args.runId, signal, args.onTaskSnapshot)
             break
         } catch (error) {
             // Until this succeeds the screen shows what the report itself knows about the run.
             if (isAbort(error, signal) || isFatal(error) || attempt >= BOOTSTRAP_ATTEMPTS - 1) {
                 setConnection('unavailable')
-                return
+                return isAbort(error, signal) ? 'aborted' : isFatal(error) ? 'fatal' : 'gave_up'
             }
             setConnection('reconnecting')
         }
         try {
             await sleep(reconnectDelayMs(attempt), signal)
         } catch {
-            return
+            return 'aborted'
         }
     }
     if (!run || signal.aborted) {
-        return
+        return signal.aborted ? 'aborted' : 'ended'
     }
     const runId = run.id
     followedRunId = runId
@@ -284,7 +294,7 @@ export async function followRun(args: FollowArgs): Promise<void> {
     }
     if (isTerminalRunStatus(state.status)) {
         setConnection(undefined)
-        return
+        return 'ended'
     }
     setConnection('connecting')
     if (previous?.taskId !== taskId || previous.runId !== runId) {
@@ -303,7 +313,7 @@ export async function followRun(args: FollowArgs): Promise<void> {
         try {
             const current = store().reports[reportId]?.live
             if (!current || current.taskId !== taskId || current.runId !== runId) {
-                return
+                return 'aborted'
             }
             hydration.resume(current, store().reports[reportId]?.answer)
             const result = await readOnce(args, runId, hydration, signal)
@@ -314,30 +324,30 @@ export async function followRun(args: FollowArgs): Promise<void> {
         } catch (error) {
             if (isAbort(error, signal) || isFatal(error)) {
                 setConnection('unavailable')
-                return
+                return isAbort(error, signal) ? 'aborted' : 'fatal'
             }
             if (error instanceof ApiError && error.status === 503 && error.retryAfterSeconds) {
                 retryAfterMs = error.retryAfterSeconds * 1000
             }
         }
         if (signal.aborted || !isCurrent()) {
-            return
+            return 'aborted'
         }
         setConnection('reconnecting')
         if (control?.type === 'rotated' || control?.type === 'resync') {
             continue
         }
         try {
-            const latest = await getTaskRun(taskId, runId, signal)
+            const latest = await getTaskRun(args.scope, taskId, runId, signal)
             if (signal.aborted || !isCurrent()) {
-                return
+                return 'aborted'
             }
             state = store().applySnapshot(reportId, taskId, latest)
             hydration.applySnapshot(latest)
         } catch (error) {
             if (isAbort(error, signal) || isFatal(error)) {
                 setConnection('unavailable')
-                return
+                return isAbort(error, signal) ? 'aborted' : 'fatal'
             }
         }
         if (control?.type === 'ended' || !shouldReconnect(state, { perDrop, total })) {
@@ -350,16 +360,17 @@ export async function followRun(args: FollowArgs): Promise<void> {
                 setConnection(isTerminalRunStatus(state.status) ? undefined : 'unavailable')
             }
             args.onRefresh?.()
-            return
+            return control?.type === 'ended' || isTerminalRunStatus(state.status) ? 'ended' : 'gave_up'
         }
         try {
             await sleep(retryAfterMs ?? reconnectDelayMs(perDrop), signal)
         } catch {
-            return
+            return 'aborted'
         }
         perDrop += 1
         total += 1
     }
+    return 'aborted'
 }
 
 export function useTaskRun(
@@ -369,17 +380,33 @@ export function useTaskRun(
     onRefresh?: () => void,
     onTaskSnapshot?: (task: TaskApi) => void
 ): void {
+    const scope = useProjectScope()
     const active = useAppActive()
+    const online = useConnectivity((state) => state.status !== 'offline')
+    const lastFollow = useRef<{ key: string; outcome: FollowOutcome | null }>({ key: '', outcome: null })
     const refresh = useHandoffStore((state) => state.reports[reportId]?.refresh ?? 0)
     const taskId = target?.taskId
     const runId = target?.runId
-    // biome-ignore lint/correctness/useExhaustiveDependencies: `refresh` restarts the follow after a command found the run ended or moved on.
+    const key = JSON.stringify([scope, reportId, taskId, runId, refresh])
     useEffect(() => {
-        if (!enabled || !active || !taskId) {
+        if (lastFollow.current.key !== key) lastFollow.current = { key, outcome: null }
+        if (!enabled || !active || !online || !taskId) {
+            if (lastFollow.current.outcome === 'gave_up') lastFollow.current.outcome = null
             return
         }
+        if (
+            lastFollow.current.outcome === 'fatal' ||
+            lastFollow.current.outcome === 'ended' ||
+            lastFollow.current.outcome === 'gave_up'
+        )
+            return
         const controller = new AbortController()
-        void followRun({ reportId, taskId, runId, signal: controller.signal, onRefresh, onTaskSnapshot })
+        lastFollow.current.outcome = null
+        void followRun({ scope, reportId, taskId, runId, signal: controller.signal, onRefresh, onTaskSnapshot }).then(
+            (outcome) => {
+                if (!controller.signal.aborted) lastFollow.current.outcome = outcome
+            }
+        )
         return () => controller.abort()
-    }, [enabled, active, reportId, taskId, runId, refresh, onRefresh, onTaskSnapshot])
+    }, [enabled, active, online, scope, reportId, taskId, runId, key, onRefresh, onTaskSnapshot])
 }

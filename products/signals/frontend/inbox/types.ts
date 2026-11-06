@@ -1,7 +1,9 @@
 import type { UserBasicType } from '~/types'
 
+import type { SignalActorKindEnumApi } from 'products/signals/frontend/generated/api.schemas'
 import {
     type SignalReportApi,
+    type PatchedSignalSourceConfigApi,
     type ReportChartApi,
     type ReportMetricApi,
     type ReportPlanApi,
@@ -166,7 +168,7 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     refund_ineligibility_reason?: string | null
     /** The served ranking model's predictions. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
     ranking?: ReportRankingApi | null
-    /** Coarse sort key from the list response's ranker, for the Recommended sort only. Lower keys rank first. */
+    /** Sort key from the list response's ranker, for the Recommended sort only. Lower keys rank first. */
     inbox_merge_key?: number | null
 }
 
@@ -196,6 +198,8 @@ export interface SignalReportArtefact {
     created_by?: UserBasicType | null
     /** Set when an agent task produced the artefact (attribution reads "by agent"). */
     task_id?: string | null
+    /** Who produced the artefact: a person, an internal task, an external agent, or the pipeline. */
+    actor_kind?: SignalActorKindEnumApi
 }
 
 export interface SignalReportArtefactResponse {
@@ -219,6 +223,7 @@ export interface ToggleSignalSourceParams {
     sourceType: SignalSourceType
     enabled: boolean
     config?: Record<string, any>
+    configSet?: PatchedSignalSourceConfigApi['config_set']
     /** True when the enable came through the data-warehouse setup wizard, for `Signal source connected`. */
     viaSetupWizard?: boolean
 }
@@ -243,6 +248,23 @@ export const SOURCE_LINEAR_TEAM_IDS_KEY = 'linear_team_ids'
 export function linearTeamIdsFromConfig(config: Record<string, any> | null | undefined): string[] {
     const raw = config?.[SOURCE_LINEAR_TEAM_IDS_KEY]
     return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string' && id.length > 0) : []
+}
+
+/** Product analytics source only: which firing insight alerts become signals. */
+export const SOURCE_ALERT_SCOPE_KEY = 'alert_scope'
+
+export enum SignalAlertScope {
+    InvestigatedOnly = 'investigated_only',
+    AllFiringAlerts = 'all_firing_alerts',
+    Off = 'off',
+}
+
+// Anything unknown reads as investigated only, matching the backend's fallback.
+export function alertScopeFromConfig(config: Record<string, any> | null | undefined): SignalAlertScope {
+    const scope = config?.[SOURCE_ALERT_SCOPE_KEY]
+    return scope === SignalAlertScope.AllFiringAlerts || scope === SignalAlertScope.Off
+        ? scope
+        : SignalAlertScope.InvestigatedOnly
 }
 
 // ── Inbox IA: page tabs, report sections, scope ──────────────────────────────
@@ -304,7 +326,9 @@ export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
 export const INBOX_REPORT_SECTION_KEYS = [
     'monitoring',
     'needs-decision',
+    'outcome-monitoring',
     'resolved',
+    'closed',
     'dismissed',
     'held-back',
     'not-actionable',
@@ -320,7 +344,9 @@ export const INBOX_PRIMARY_REPORT_SECTION_KEY: InboxReportSectionKey = 'needs-de
 export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> = {
     monitoring: 'Review and merge',
     'needs-decision': 'Needs decision',
+    'outcome-monitoring': 'Monitoring',
     resolved: 'Resolved',
+    closed: 'Closed',
     dismissed: 'Dismissed',
     'held-back': 'Held back',
     'not-actionable': 'Not actionable',
@@ -330,7 +356,9 @@ export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> =
 export const INBOX_REPORT_SECTION_DESCRIPTION: Record<InboxReportSectionKey, string> = {
     monitoring: 'Reports with a pull request open, ready for you to review and merge on GitHub.',
     'needs-decision': 'Reports an agent can act on that have no pull request yet.',
+    'outcome-monitoring': 'Reports being monitored to verify their outcome.',
     resolved: 'Reports fixed by a merged pull request, or marked resolved.',
+    closed: 'Reports marked closed, including reports whose verification checks failed.',
     dismissed:
         'Reports a person or agent dismissed, and reports whose pull request was closed without merging. Most can be restored to your inbox.',
     'held-back':
@@ -396,6 +424,8 @@ export interface SignalTeamConfig {
     default_autostart_priority: SignalReportPriority | null
     /** Default Slack channel for this team's inbox notifications. */
     default_slack_notification_channel?: string | null
+    /** Slack integration that owns the team channel. Send it together with the channel. */
+    default_slack_notification_integration?: number | null
     /** Per-repo base-branch overrides for auto-started PRs, keyed by 'org/repo'. */
     autostart_base_branches?: Record<string, string>
     /** Integration self-driving opens a tracker issue in for each PR it makes. Null turns tracker issues off. */
@@ -412,6 +442,8 @@ export interface SignalTeamConfig {
     pull_request_label_enabled?: boolean
     /** The label name to apply, at most 50 characters. Null or blank means the default label. */
     pull_request_label?: string | null
+    /** Extra 'org/repo' names implementation tasks can read and write. They are not cloned and never become the PR target. */
+    implementation_repositories?: string[]
     /** Whether anomaly scoring writes $anomaly_score events for this project. True by default; false opts out. */
     anomaly_scoring_enabled?: boolean
     /** Read-only: whether anomaly scoring covers this project, so the switch above has an effect. Never send in a patch. */
@@ -436,6 +468,7 @@ export type SignalRunKind = 'scout' | 'signal'
  * standalone Tasks scene (`/tasks/{task_id}`).
  */
 export interface SignalRun {
+    total_spend?: number | null
     task_id: string
     kind: SignalRunKind
     /** Scout: the `signals-scout-*` skill code name (shown verbatim). Signal: the report title. */

@@ -23,6 +23,7 @@ from products.slack_app.backend.services.slack_messages import (
     thread_permalink,
 )
 from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
+from products.slack_app.backend.task_profiles import SLACK
 from products.slack_app.backend.temporal.attachments import (
     PreparedSlackAttachments,
     SlackAttachmentBudget,
@@ -34,12 +35,18 @@ from products.slack_app.backend.temporal.attachments import (
     prepare_slack_file_artifacts,
     prepare_slack_thread_file_artifacts,
 )
-from products.slack_app.backend.temporal.helpers import block_if_team_over_quota, safe_react, safe_unreact
+from products.slack_app.backend.temporal.helpers import (
+    block_if_ai_processing_not_approved,
+    block_if_team_over_quota,
+    safe_react,
+    safe_unreact,
+)
 from products.slack_app.backend.temporal.types import (
     SLACK_APP_PROCESSING_REACTION,
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppModelOverride,
 )
+from products.tasks.backend.facade.profiles import TaskRunOptions
 
 if TYPE_CHECKING:
     from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -651,6 +658,16 @@ def create_posthog_code_task_for_repo_activity(
 
     # Refuse before the :eyes: reaction or the permalink fetch: a denied
     # mention should not first ack-react and then refuse a second later.
+    if block_if_ai_processing_not_approved(
+        integration=integration,
+        slack=slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+        context="task_create",
+    ):
+        return
+
     if block_if_team_over_quota(
         integration=integration,
         slack=slack,
@@ -768,19 +785,21 @@ def create_posthog_code_task_for_repo_activity(
             team=integration.team,
             title=title,
             description=description,
-            origin_product=tasks_facade.TaskOriginProduct.SLACK,
+            profile=SLACK,
             user_id=user_id,
             repository=repository,
+            options=TaskRunOptions(
+                adapter=run_prefs.runtime_adapter,
+                model=run_prefs.model,
+                reasoning_effort=run_prefs.reasoning_effort,
+                mcp_scopes="full",
+                permission_mode="bypassPermissions",
+            ),
             create_pr=allow_pr_creation,
             mode="interactive",
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
             start_workflow=False,
-            posthog_mcp_scopes="full",
-            initial_permission_mode="bypassPermissions",
-            runtime_adapter=run_prefs.runtime_adapter,
-            model=run_prefs.model,
-            reasoning_effort=run_prefs.reasoning_effort,
             channel_id=personal_channel_id,
             extra_run_state=own_plan_state,
         )
@@ -1046,6 +1065,16 @@ def forward_posthog_code_followup_activity(
                 plan_name=plan.plan_name if (plan := tasks_facade.get_run_plan(task_run.state)) else None,
             )
             return True
+
+    if block_if_ai_processing_not_approved(
+        integration=integration,
+        slack=slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+        context="followup",
+    ):
+        return True
 
     if block_if_team_over_quota(
         integration=integration,

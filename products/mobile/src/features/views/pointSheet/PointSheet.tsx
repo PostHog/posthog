@@ -1,9 +1,8 @@
 import * as Clipboard from 'expo-clipboard'
 import { useRouter } from 'expo-router'
 import { type ReactElement, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
-import { Gesture, GestureDetector, type NativeGesture } from 'react-native-gesture-handler'
-
+import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { ACTORS_LIMIT } from '@/api/actors'
 import { safeHttpsUrl } from '@/lib/urls'
 import type { ActorRow, InsightSnapshot } from '@/model/views'
@@ -11,6 +10,7 @@ import { BottomSheet } from '@/ui/BottomSheet'
 import { formatAxisDate, formatChange, formatTooltipDate } from '@/ui/chart/chartMath'
 import { tooltipContent } from '@/ui/chart/chartSeries'
 import type { ChartTooltipPoint, ChartTooltipRow } from '@/ui/chart/types'
+import type { NativeGesture } from '@/ui/gestureTypes'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { ChevronLeftIcon } from '@/ui/icons/ChevronLeftIcon'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
@@ -22,6 +22,7 @@ import { PlayIcon } from '@/ui/icons/PlayIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { radii, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 
 import { trackViewOpenedInWeb } from '../analytics'
 import { SheetTitle } from '../screen/SheetTitle'
@@ -115,7 +116,7 @@ function PointBody({ request, actors, listGesture, onClose, onOpenAbout }: Point
     const snapshot = useLiveSnapshot(source)
     const { scope } = useViewsContext()
     const router = useRouter()
-    const { height } = useWindowDimensions()
+    const { height } = useSceneDimensions()
     const [page, setPage] = useState<Page>('point')
     const [selectedKey, setSelectedKey] = useState(point.rows[0]?.key ?? null)
     if (!snapshot) {

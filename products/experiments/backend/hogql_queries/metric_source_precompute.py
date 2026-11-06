@@ -27,6 +27,7 @@ def build_metric_events_precompute_query(
     entity_key: str,
     date_range_query: QueryDateRange,
     conversion_window_seconds: int,
+    distinct_id_column_sql: str,
 ) -> tuple[str, dict[str, ast.Expr]]:
     """
     Returns the SELECT query that the lazy computation system wraps in an
@@ -46,16 +47,23 @@ def build_metric_events_precompute_query(
     a sentinel) rather than reusing build_metric_predicate(), which bakes the
     resolved dates into the AST. The window end of a running experiment moves,
     so baked dates would change the job hash and defeat cache reuse.
+
+    distinct_id_column_sql comes from
+    ExperimentQueryContext.precompute_distinct_id_column_sql(). It is empty, or
+    it is the column that stores the distinct_id of the event.
     """
     # The job hash includes the parser source position of each node, so a change to
     # this template's whitespace invalidates every cached job. Keep it byte for byte.
-    query_string = """
+    query_string = (
+        """
             SELECT
                 {entity_key} AS entity_id,
                 timestamp AS timestamp,
                 uuid AS event_uuid,
                 `$session_id` AS session_id,
-                {value_expr} AS numeric_value
+                {value_expr} AS numeric_value"""
+        + distinct_id_column_sql
+        + """
             FROM events
             WHERE timestamp >= {time_window_min}
                 AND timestamp < {time_window_max}
@@ -63,6 +71,7 @@ def build_metric_events_precompute_query(
                 AND timestamp < {experiment_date_to} + toIntervalSecond({conversion_window_seconds})
                 AND {metric_event_filter}
         """
+    )
 
     math_type = getattr(source, "math", None) or ExperimentMetricMathType.TOTAL
     if math_type in (ExperimentMetricMathType.DAU, ExperimentMetricMathType.UNIQUE_SESSION):
@@ -92,7 +101,7 @@ def build_precomputed_metric_events_cte(
     *,
     cte_name: str,
     source: EventsNode | ActionsNode,
-    entity_key: str,
+    entity_id_sql: str,
     job_ids_placeholder: str,
 ) -> str:
     """
@@ -112,13 +121,12 @@ def build_precomputed_metric_events_cte(
     # dedups at merge time and this read doesn't use FINAL, so a re-applied build
     # INSERT would otherwise double-count sums. Same defense as the exposures read;
     # the funnel read skips it because funnel evaluation tolerates duplicate events.
-    entity_id_cast = "toUUID(t.entity_id)" if entity_key == "person_id" else "t.entity_id"
-    # For ID-valued math the value is the ID itself: the stored entity_id
-    # is the person id (dau) and session_id is the unique_session value,
+    # For ID-valued math the value is the ID itself: the entity
+    # is the person (dau) and session_id is the unique_session value,
     # so the downstream count(distinct) matches the direct path.
     math_type = getattr(source, "math", None) or ExperimentMetricMathType.TOTAL
     if math_type == ExperimentMetricMathType.DAU:
-        value_select = entity_id_cast
+        value_select = entity_id_sql
     elif math_type == ExperimentMetricMathType.UNIQUE_SESSION:
         value_select = "any(t.session_id)"
     else:
@@ -126,7 +134,7 @@ def build_precomputed_metric_events_cte(
     return f"""
         {cte_name} AS (
             SELECT
-                {entity_id_cast} AS entity_id,
+                {entity_id_sql} AS entity_id,
                 t.timestamp AS timestamp,
                 {value_select} AS value
             FROM experiment_metric_events_preaggregated AS t
@@ -134,7 +142,7 @@ def build_precomputed_metric_events_cte(
                 AND t.team_id = {{metric_events_team_id}}
                 AND t.timestamp >= {{metric_events_date_from}}
                 AND t.timestamp < {{metric_events_date_to}} + toIntervalSecond({{metric_events_conversion_window_seconds}})
-            GROUP BY t.entity_id, t.timestamp, t.event_uuid
+            GROUP BY {entity_id_sql}, t.timestamp, t.event_uuid
         )"""
 
 

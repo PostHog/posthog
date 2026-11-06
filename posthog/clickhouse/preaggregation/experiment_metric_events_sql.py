@@ -45,6 +45,13 @@ CREATE TABLE IF NOT EXISTS {table_name}
 
     -- Per-event data
     entity_id String,
+
+    -- distinct_id of the source event, the key a person-overrides lookup needs to
+    -- find this row's current person.
+    distinct_id String,
+    -- The entity's person, kept separate from entity_id so it can be rewritten after a person
+    -- merge: entity_id is in the sorting key, which ClickHouse refuses to UPDATE.
+    person_id UUID DEFAULT toUUIDOrZero(entity_id),
     timestamp DateTime64(6, 'UTC'),
     event_uuid UUID,
     session_id String,

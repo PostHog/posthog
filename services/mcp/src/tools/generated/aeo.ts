@@ -47,8 +47,10 @@ const aeoPromptsChecksList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/${encodeURIComponent(String(params.id))}/checks/`,
             query: {
                 engine: params.engine,
+                include_answer_text: params.include_answer_text,
                 limit: params.limit,
                 offset: params.offset,
+                since: params.since,
                 version: params.version,
             },
         })
@@ -119,11 +121,36 @@ const aeoPromptsList = (): ToolBase<
                 active: params.active,
                 include_archived: params.include_archived,
                 limit: params.limit,
+                needs_improvement: params.needs_improvement,
                 offset: params.offset,
                 topic: params.topic,
             },
         })
         return await withPostHogUrl(context, result, '/web/content-autopilot')
+    },
+})
+
+const AeoPromptsOverviewGetSchema = () => {
+    const AeoPromptsOverviewQueryParams = orvalSchemas.AeoPromptsOverviewQueryParams()
+    return AeoPromptsOverviewQueryParams
+}
+
+const aeoPromptsOverviewGet = (): ToolBase<
+    ReturnType<typeof AeoPromptsOverviewGetSchema>,
+    Schemas.AEOPromptSetOverview
+> => ({
+    name: 'aeo-prompts-overview-get',
+    schema: AeoPromptsOverviewGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AeoPromptsOverviewGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AEOPromptSetOverview>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/overview/`,
+            query: {
+                days: params.days,
+            },
+        })
+        return result
     },
 })
 
@@ -234,6 +261,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'aeo-prompts-get': aeoPromptsGet,
     'aeo-prompts-import': aeoPromptsImport,
     'aeo-prompts-list': aeoPromptsList,
+    'aeo-prompts-overview-get': aeoPromptsOverviewGet,
     'aeo-prompts-stats-get': aeoPromptsStatsGet,
     'aeo-prompts-topics-list': aeoPromptsTopicsList,
     'aeo-prompts-update': aeoPromptsUpdate,

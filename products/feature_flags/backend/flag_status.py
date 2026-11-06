@@ -61,8 +61,10 @@ def exclude_archived_unless_requested(queryset: QuerySet, *, requested: bool) ->
 
     This is the API's default for the list, `matching_ids`, and filter-based `bulk_delete`
     paths — archived flags stay out of "select all" / bulk-delete sets unless `archived` is
-    passed. `requested` is whether the caller provided an `archived` param (the value filter
-    itself is applied separately). The frontend `flagMatchesFilters` keeps its own mirror.
+    passed. `requested` is whether the caller asked to see archived flags: an `archived` param,
+    or the list's `deleted=true` view, which shows a deleted flag whether or not it was archived
+    first. The value filter itself is applied separately. The frontend `flagMatchesFilters` keeps
+    its own mirror.
     """
     if not requested:
         return queryset.filter(archived=False)

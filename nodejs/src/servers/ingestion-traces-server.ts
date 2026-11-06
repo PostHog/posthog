@@ -14,6 +14,7 @@ import {
     TracesIngestionConsumerConfig,
     getDefaultLogsIngestionOutputsConfig,
 } from '~/logs/config'
+import { createTracesIngestionConsumer } from '~/logs/framework/create-consumer'
 import { MetricRulesCache } from '~/logs/metrics-rules/metric-rules-cache'
 import { LogsMetricsEmitter } from '~/logs/metrics-rules/metrics-emitter'
 import { createProducerRegistry } from '~/logs/outputs/producer-registry'
@@ -27,7 +28,6 @@ import {
 import { createTracesOutputsRegistry } from '~/logs/outputs/registry'
 import { RetentionRulesCache } from '~/logs/retention/retention-rules-cache'
 import { TracingConfigCache } from '~/logs/retention/tracing-config-cache'
-import { TracesIngestionConsumer } from '~/logs/traces-ingestion-consumer'
 
 import { CommonConfig } from '../common/config'
 import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
@@ -134,7 +134,7 @@ export class IngestionTracesServer implements NodeServer {
                 unit: 'bytes',
                 isTeamEnabled: usageReportTeamMatcher(this.config),
             })
-            const consumer = new TracesIngestionConsumer(this.config, {
+            const consumer = createTracesIngestionConsumer(this.config, {
                 teamManager,
                 quotaLimiting,
                 outputs,

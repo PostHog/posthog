@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "native-1100",
+    "kind": "native",
+    "runtimeVersion": "1.10.0",
+    "previousRelease": "native-190",
+    "notes": "Upgrade to Expo SDK 58 with native iOS navigation and fold-aware content, sheets and menus. Verify Duo cover, open and half-open layouts, report and chat state through resizing, and navigation and charts on regular iPhone and Android."
+}

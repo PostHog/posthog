@@ -12,9 +12,8 @@ import { INTERVAL_SECONDS, intervalForSeconds } from '../refreshIntervals'
 import {
     dataAgeLabel,
     isMaterializePayload,
-    materializeSaving,
+    materializeSavingLines,
     refreshModeLabel,
-    savingSentence,
     shorterScheduleWarning,
     suggestedScheduleHint,
     todayAgeLabel,
@@ -45,6 +44,7 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
     const suggestedInterval = intervalForSeconds(payload.refresh_interval_seconds)
     const suggestedCadence = suggestedInterval ? CADENCE_LABELS[suggestedInterval] : null
     const pickedSeconds = materializeInterval ? INTERVAL_SECONDS[materializeInterval] : payload.refresh_interval_seconds
+    const [estimateHeadline, ...estimateDetails] = materializeSavingLines(payload)
     const shorterWarning =
         materializeIntervalShorterThanSuggested && suggestedCadence
             ? shorterScheduleWarning(payload.refresh_interval_basis, suggestedCadence)
@@ -116,7 +116,12 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
                         <span className="text-xs font-semibold text-secondary">
                             Estimated at the suggested settings
                         </span>
-                        <span className="text-sm">{savingSentence(materializeSaving(payload))}</span>
+                        <span className="text-sm">{estimateHeadline}</span>
+                        {estimateDetails.map((line) => (
+                            <span key={line} className="text-xs text-secondary">
+                                {line}
+                            </span>
+                        ))}
                     </div>
                 </div>
                 {shorterWarning && <LemonBanner type="warning">{shorterWarning}</LemonBanner>}

@@ -153,6 +153,20 @@ describe('aiObservabilityReviewsLogic.copyReviewsToClipboard', () => {
         expect(router.values.searchParams.search).toBe('from-scorers')
     })
 
+    it.each([
+        ['does not reload', 'the trace drawer steps to another trace', 'trace-2', 0],
+        ['reloads', 'the same location is pushed again', 'trace-1', 1],
+    ])('%s the reviews when %s', async (_outcome, _name, trace, expectedLoads) => {
+        router.actions.push(urls.aiObservabilityReviews(), { human_reviews_tab: 'reviews', trace: 'trace-1' })
+        await expectLogic(logic).toFinishAllListeners()
+        mockTraceReviewsList.mockClear()
+
+        router.actions.push(urls.aiObservabilityReviews(), { human_reviews_tab: 'reviews', trace })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockTraceReviewsList).toHaveBeenCalledTimes(expectedLoads)
+    })
+
     it('cancels an earlier invocation when called twice in quick succession', async () => {
         mockTraceReviewsList.mockReset()
         let resolveFirst: ((value: { results: TraceReview[]; count: number }) => void) | undefined

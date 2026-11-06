@@ -75,9 +75,9 @@ export interface searchLogicValues {
     cachedRecents: FileSystemEntry[] // recentItemsModel
     recentsHasLoaded: boolean // recentItemsModel
     sceneLogViewsHasLoaded: boolean // recentItemsModel
+    actionItems: SearchItem[] // searchListsLogic
     dataManagementItems: SearchItem[] // searchListsLogic
     healthItems: SearchItem[] // searchListsLogic
-    miscItems: SearchItem[] // searchListsLogic
     newItems: SearchItem[] // searchListsLogic
     peopleItems: SearchItem[] // searchListsLogic
     productsItems: SearchItem[] // searchListsLogic
@@ -121,7 +121,7 @@ export interface searchLogicValues {
     searchPending: boolean
     searchedRecents: FileSystemEntry[] | null
     searchedRecentsLoading: boolean
-    shortcutAndMiscItems: SearchItem[]
+    shortcutAndActionItems: SearchItem[]
     ticketItems: SearchItem[]
     ticketSearchResults: TicketApi[]
     ticketSearchResultsLoading: boolean
@@ -343,7 +343,7 @@ export interface searchLogicMeta {
             ticketSearchResultsLoading: boolean
             unifiedSearchResultsLoading: boolean
         }
-        shortcutAndMiscItems: (shortcutItems: SearchItem[], miscItems: SearchItem[]) => SearchItem[]
+        shortcutAndActionItems: (shortcutItems: SearchItem[], actionItems: SearchItem[]) => SearchItem[]
         allCategories: (
             recentItems: SearchItem[],
             starredItems: SearchItem[],
@@ -351,7 +351,7 @@ export interface searchLogicMeta {
             dataManagementItems: SearchItem[],
             peopleItems: SearchItem[],
             healthItems: SearchItem[],
-            shortcutAndMiscItems: SearchItem[],
+            shortcutAndActionItems: SearchItem[],
             settingsItems: SearchItem[],
             newItems: SearchItem[],
             personItems: SearchItem[],
@@ -396,7 +396,7 @@ export const searchLogic = kea<searchLogicType>([
                 'newItems',
                 'peopleItems',
                 'healthItems',
-                'miscItems',
+                'actionItems',
                 'settingsItems',
             ],
             groupsModel,
@@ -817,9 +817,12 @@ export const searchLogic = kea<searchLogicType>([
                 playlistSearchResultsLoading,
             }),
         ],
-        shortcutAndMiscItems: [
-            (s) => [s.shortcutItems, s.miscItems],
-            (shortcutItems: SearchItem[], miscItems: SearchItem[]): SearchItem[] => [...shortcutItems, ...miscItems],
+        shortcutAndActionItems: [
+            (s) => [s.shortcutItems, s.actionItems],
+            (shortcutItems: SearchItem[], actionItems: SearchItem[]): SearchItem[] => [
+                ...shortcutItems,
+                ...actionItems,
+            ],
         ],
         allCategories: [
             (s) => [
@@ -829,7 +832,7 @@ export const searchLogic = kea<searchLogicType>([
                 s.dataManagementItems,
                 s.peopleItems,
                 s.healthItems,
-                s.shortcutAndMiscItems,
+                s.shortcutAndActionItems,
                 s.settingsItems,
                 s.newItems,
                 s.personItems,
@@ -847,7 +850,7 @@ export const searchLogic = kea<searchLogicType>([
                 dataManagementItems: SearchItem[],
                 peopleItems: SearchItem[],
                 healthItems: SearchItem[],
-                shortcutAndMiscItems: SearchItem[],
+                shortcutAndActionItems: SearchItem[],
                 settingsItems: SearchItem[],
                 newItems: SearchItem[],
                 personItems: SearchItem[],
@@ -968,12 +971,14 @@ export const searchLogic = kea<searchLogicType>([
                     })
                 }
 
-                // Show misc items if searching with matching results
-                const filteredMisc = filterBySearch(shortcutAndMiscItems.filter((item) => item.category === 'misc'))
-                if (hasSearch && filteredMisc.length > 0) {
+                // Show action items if searching with matching results
+                const filteredActions = filterBySearch(
+                    shortcutAndActionItems.filter((item) => item.category === 'actions')
+                )
+                if (hasSearch && filteredActions.length > 0) {
                     categories.push({
-                        key: 'misc',
-                        items: filteredMisc,
+                        key: 'actions',
+                        items: filteredActions,
                         isLoading: false,
                     })
                 }
@@ -1081,7 +1086,7 @@ export const searchLogic = kea<searchLogicType>([
                 }
 
                 const filteredShortcuts = filterBySearch(
-                    shortcutAndMiscItems.filter((item) => item.category === 'shortcuts')
+                    shortcutAndActionItems.filter((item) => item.category === 'shortcuts')
                 )
                 if (filteredShortcuts.length > 0) {
                     categories.push({

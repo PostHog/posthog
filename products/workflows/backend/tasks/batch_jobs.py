@@ -1,9 +1,20 @@
-from celery import shared_task
+from celery import Task, shared_task
 
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.workflows.backend.services.batch_jobs import resume_batch_jobs_waiting_for_cohort
+from products.workflows.backend.services.batch_run_outcome import settle_batch_job_outcome
+
+# The first check waits for the child runs of a small audience to execute and for their metrics to
+# reach ClickHouse. Later checks follow at a fixed interval, and the check gives up waiting after a day.
+BATCH_RUN_SETTLE_FIRST_CHECK_SECONDS = 5 * 60
+BATCH_RUN_SETTLE_CHECK_INTERVAL_SECONDS = 10 * 60
+BATCH_RUN_SETTLE_MAX_RETRIES = 24 * 6
+
+
+class BatchRunNotSettled(Exception):
+    pass
 
 
 @shared_task(
@@ -24,3 +35,26 @@ from products.workflows.backend.services.batch_jobs import resume_batch_jobs_wai
 @skip_team_scope_audit
 def resume_batch_jobs_waiting_for_realtime_cohort(team_id: int, cohort_id: int) -> None:
     resume_batch_jobs_waiting_for_cohort(team_id=team_id, cohort_id=cohort_id)
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    queue=CeleryQueue.DEFAULT.value,
+    # A check only reads metrics and makes a conditional write, so a task a dying worker held runs again.
+    acks_late=True,
+    reject_on_worker_lost=True,
+    autoretry_for=(Exception,),
+    retry_backoff=False,
+    default_retry_delay=BATCH_RUN_SETTLE_CHECK_INTERVAL_SECONDS,
+    max_retries=BATCH_RUN_SETTLE_MAX_RETRIES,
+)
+@skip_team_scope_audit
+def settle_batch_run_outcome(self: Task, team_id: int, batch_job_id: str) -> None:
+    final_check = self.request.retries >= BATCH_RUN_SETTLE_MAX_RETRIES
+    if not settle_batch_job_outcome(team_id=team_id, batch_job_id=batch_job_id, final_check=final_check):
+        raise BatchRunNotSettled(batch_job_id)
+
+
+def schedule_batch_run_settle(*, team_id: int, batch_job_id: str) -> None:
+    settle_batch_run_outcome.apply_async(args=(team_id, batch_job_id), countdown=BATCH_RUN_SETTLE_FIRST_CHECK_SECONDS)

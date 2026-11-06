@@ -1,4 +1,4 @@
-import { LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { percentage } from 'lib/utils/numbers'
@@ -15,17 +15,22 @@ const cellAt = (record: unknown, columns: readonly string[], name: string): unkn
     Array.isArray(record) ? record[columns.indexOf(name)] : undefined
 
 const TargetTag = (): JSX.Element => (
-    <LemonTag type="success" size="small">
+    <LemonTag type="success" size="small" className="shrink-0">
         Your site
     </LemonTag>
 )
 
-const DomainCell: QueryContextColumnComponent = ({ value, record }) => (
-    <span className="flex flex-wrap items-center gap-2">
-        <span className="break-all">{String(value ?? '')}</span>
-        {cellAt(record, PROMPT_SOURCE_COLUMNS, 'is_target') ? <TargetTag /> : null}
-    </span>
-)
+const DomainCell: QueryContextColumnComponent = ({ value, record }) => {
+    const domain = String(value ?? '')
+    return (
+        <span className="flex items-center gap-2 min-w-0">
+            <Tooltip title={domain}>
+                <span className="truncate max-w-56">{domain}</span>
+            </Tooltip>
+            {cellAt(record, PROMPT_SOURCE_COLUMNS, 'is_target') ? <TargetTag /> : null}
+        </span>
+    )
+}
 
 const UrlCell: QueryContextColumnComponent = ({ value, record }) => {
     const url = String(value ?? '')

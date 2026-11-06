@@ -33,12 +33,15 @@ from posthog.models.integration import (
     POSTHOG_CONNECT_DEFAULT_SCOPES,
     POSTHOG_CONNECT_IDENTITY_SCOPES,
     Integration,
+    LinearIntegration,
     OauthClientCredentials,
     OauthIntegration,
     oauth_refresh_failure_reason,
     oauth_refresh_terminal_counter,
     refresh_backoff_active,
 )
+from posthog.models.integration.oauth import posthog_slack_scope
+from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 
 
 def get_db_field_value(field, model_id):
@@ -58,6 +61,26 @@ def test_slack_oauth_requests_the_recently_approved_scopes_on_every_instance():
     assert {"assistant:write", "im:history", "canvases:write", "files:write", "channels:manage"} <= requested
 
 
+@pytest.mark.parametrize(
+    "debug, cloud_deployment, requests_in_review",
+    [
+        (False, "US", False),
+        (False, "EU", False),
+        (False, None, False),
+        (False, "DEV", True),
+        (True, None, True),
+    ],
+)
+def test_slack_oauth_requests_in_review_scopes_only_on_dev_and_local(
+    debug: bool, cloud_deployment: str | None, requests_in_review: bool
+) -> None:
+    with override_settings(DEBUG=debug, CLOUD_DEPLOYMENT=cloud_deployment):
+        requested = set(posthog_slack_scope().split(","))
+
+    assert {scope.value for scope in SlackIntegrationScope} <= requested
+    assert ({scope.value for scope in SlackIntegrationScopeInReview} <= requested) is requests_in_review
+
+
 class TestOauthIntegrationModel(BaseTest):
     mock_settings = {
         "SALESFORCE_CONSUMER_KEY": "salesforce-client-id",
@@ -68,6 +91,8 @@ class TestOauthIntegrationModel(BaseTest):
         "GOOGLE_ADS_APP_CLIENT_SECRET": "google-client-secret",
         "GOOGLE_CALENDAR_APP_CLIENT_ID": "google-calendar-client-id",
         "GOOGLE_CALENDAR_APP_CLIENT_SECRET": "google-calendar-client-secret",
+        "GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID": "google-search-console-client-id",
+        "GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET": "google-search-console-client-secret",
         "LINKEDIN_APP_CLIENT_ID": "linkedin-client-id",
         "LINKEDIN_APP_CLIENT_SECRET": "linkedin-client-secret",
         "TIKTOK_ADS_CLIENT_ID": "tiktok-app-id",
@@ -111,6 +136,13 @@ class TestOauthIntegrationModel(BaseTest):
                 "code_challenge": params["code_challenge"],
                 "code_challenge_method": "S256",
             }
+
+    def test_google_search_console_authorize_url_offers_the_account_chooser(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("google-search-console", token="state_token", next="/projects/test")
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+            assert params["access_type"] == "offline"
+            assert set(params["prompt"].split(" ")) == {"consent", "select_account"}
 
     def test_authorize_url_carries_initiating_team_id_in_state(self):
         with self.settings(**self.mock_settings):
@@ -565,6 +597,37 @@ class TestOauthIntegrationModel(BaseTest):
         with time_machine.travel(now + timedelta(seconds=1000), tick=False):
             # After the threshold it is expired
             assert OauthIntegration(integration).access_token_expired()
+
+    @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_only_a_reconnect_moves_a_linear_connection_past_the_webhooks_date(self, mock_post, mock_reload):
+        mock_post.return_value.status_code = 200
+        # The token exchange pops fields from the body, so each request needs its own copy.
+        mock_post.return_value.json.side_effect = lambda: {
+            "access_token": "FAKES_ACCESS_TOKEN",
+            "refresh_token": "FAKE_REFRESH_TOKEN",
+            "expires_in": 3600,
+            "data": {"viewer": {"organization": {"id": "linear-org-1", "name": "Acme", "urlKey": "acme"}}},
+        }
+        params = {"code": "code", "state": "next=/projects/test"}
+
+        with self.settings(**self.mock_settings):
+            with time_machine.travel("2026-01-01T12:00:00Z", tick=False):
+                connected = OauthIntegration.integration_from_oauth_response("linear", self.team.id, self.user, params)
+            assert LinearIntegration(connected).authorized_before_webhooks() is True
+
+            with time_machine.travel("2026-11-03T12:00:00Z", tick=False):
+                OauthIntegration(connected).refresh_access_token()
+            connected.refresh_from_db()
+            assert LinearIntegration(connected).authorized_before_webhooks() is True
+
+            with time_machine.travel("2026-11-03T13:00:00Z", tick=False):
+                reconnected = OauthIntegration.integration_from_oauth_response(
+                    "linear", self.team.id, self.user, params
+                )
+
+        assert reconnected.id == connected.id
+        assert LinearIntegration(reconnected).authorized_before_webhooks() is False
 
     @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
     @patch("posthog.models.integration.oauth.requests.post")
