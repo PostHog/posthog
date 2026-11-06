@@ -250,7 +250,6 @@ describe('hog api', () => {
 
     test.each([
         [
-            // The tool's scopes are known up front, so a login that lacks them never starts the call.
             'stops before calling, naming every scope the login lacks',
             ['feature_flag:read'],
             'insight:write',
