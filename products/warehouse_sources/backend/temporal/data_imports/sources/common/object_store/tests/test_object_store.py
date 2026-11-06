@@ -1446,6 +1446,66 @@ def _source_with_store(store: ObjectStore) -> FakeObjectStorageSource:
     return source
 
 
+def _forbidden_os_error() -> OSError:
+    error = OSError("Forbidden")
+    error.__cause__ = ClientError(
+        cast(Any, {"Error": {"Code": "403", "Message": "Forbidden"}, "ResponseMetadata": {"HTTPStatusCode": 403}}),
+        "ListObjectsV2",
+    )
+    return error
+
+
+class TestAccessDeniedMessage:
+    GENERIC_WIZARD_MESSAGE = (
+        f"{ACCESS_DENIED_ERROR} 'example-bucket'. Check the access key and secret, and that the key can list "
+        "and read objects in this bucket."
+    )
+    GENERIC_SYNC_MESSAGE = (
+        "The storage provider rejected these credentials. Check the access key and secret, and that "
+        "the key can list and read the bucket, then reconnect the source."
+    )
+    PROVIDER_MESSAGE = "This provider denied access. Grant the role on the bucket, then reconnect."
+
+    @pytest.mark.parametrize(
+        "override, wizard_message, sync_message",
+        [
+            pytest.param(None, GENERIC_WIZARD_MESSAGE, GENERIC_SYNC_MESSAGE, id="default"),
+            pytest.param(PROVIDER_MESSAGE, PROVIDER_MESSAGE, PROVIDER_MESSAGE, id="provider_override"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "denial",
+        [
+            pytest.param(PermissionError("Access Denied"), id="permission_error"),
+            pytest.param(_forbidden_os_error(), id="bare_403"),
+        ],
+    )
+    def test_a_provider_can_replace_the_access_denied_text(
+        self, denial: Exception, override: str | None, wizard_message: str, sync_message: str
+    ) -> None:
+        store = MagicMock()
+        store.list_objects.side_effect = denial
+        source = _source_with_store(store)
+        source.access_denied_message = override
+
+        valid, message = source.validate_credentials(BUCKET_ROOT_CONFIG, 1)
+
+        assert not valid
+        assert message == wizard_message
+        assert source.get_non_retryable_errors()[ACCESS_DENIED_ERROR] == sync_message
+
+    def test_other_errors_keep_their_text_when_a_provider_overrides_the_access_denied_text(self) -> None:
+        store = MagicMock()
+        store.list_objects.side_effect = FileNotFoundError("The specified bucket does not exist")
+        source = _source_with_store(store)
+        source.access_denied_message = self.PROVIDER_MESSAGE
+
+        valid, message = source.validate_credentials(BUCKET_ROOT_CONFIG, 1)
+
+        assert not valid
+        assert message is not None and message.startswith(NO_SUCH_BUCKET_ERROR)
+
+
 BUCKET_ROOT_CONFIG = FakeObjectStorageConfig(
     values={
         "url_pattern": "https://s3.us-east-1.amazonaws.com/example-bucket/",
