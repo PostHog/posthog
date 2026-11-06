@@ -187,6 +187,7 @@ export const receivedEmailsLogic = kea<receivedEmailsLogicType>([
                 filters: ReceivedEmailFilters
             ): boolean =>
                 page !== null &&
+                !page.has_any_email &&
                 emails.length === 0 &&
                 !isFiltered &&
                 filteredCount === 0 &&
@@ -214,6 +215,12 @@ export const receivedEmailsLogic = kea<receivedEmailsLogicType>([
         setPage: () => actions.loadEmails(),
         refresh: () => actions.loadEmails(),
         loadEmailsSuccess: () => {
+            clearTimeout(cache.waitingPoll)
+            if (values.isWaitingForMail) {
+                cache.waitingPoll = setTimeout(() => actions.loadEmails(), WAITING_POLL_MS)
+            }
+        },
+        loadEmailsFailure: () => {
             clearTimeout(cache.waitingPoll)
             if (values.isWaitingForMail) {
                 cache.waitingPoll = setTimeout(() => actions.loadEmails(), WAITING_POLL_MS)

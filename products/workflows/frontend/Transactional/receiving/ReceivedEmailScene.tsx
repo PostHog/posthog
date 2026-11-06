@@ -47,7 +47,12 @@ export function ReceivedEmailScene(): JSX.Element {
         return <NotFound object="email" caption="This project has no email with this ID, or it's older than 30 days." />
     }
 
-    const visibleAttachments = email?.attachments.filter((attachment) => !attachment.inline) ?? []
+    // An inline image the email couldn't embed still has its cid: reference, so it stays reachable here.
+    const visibleAttachments =
+        email?.attachments.filter(
+            (attachment) =>
+                !attachment.inline || !attachment.content_id || email.html.includes(`cid:${attachment.content_id}`)
+        ) ?? []
 
     return (
         <SceneContent>
@@ -64,7 +69,7 @@ export function ReceivedEmailScene(): JSX.Element {
             ) : (
                 <div className="flex flex-col gap-3">
                     {!email.sender_verified && (
-                        <LemonBanner type="warning" data-attr="received-email-unverified">
+                        <LemonBanner type="warning" className="ph-no-capture" data-attr="received-email-unverified">
                             We couldn't prove this email came from {email.from_address || 'the address it shows'}.
                             Anyone can write any address as the sender, so don't trust it until you've checked.
                         </LemonBanner>

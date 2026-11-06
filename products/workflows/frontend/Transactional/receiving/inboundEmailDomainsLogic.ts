@@ -238,9 +238,14 @@ export const inboundEmailDomainsLogic = kea<inboundEmailDomainsLogicType>([
             {
                 checkDomain: async ({ id }: { id: string }) => {
                     const check = await inboundEmailDomainsVerifyCreate(String(values.currentProjectId), id)
-                    if (check.state === 'active' && values.checks[id]?.state !== 'active') {
-                        posthog.capture('inbound email domain verified')
-                        actions.loadOverview()
+                    if (check.state === 'active') {
+                        if (values.checks[id]?.state !== 'active') {
+                            posthog.capture('inbound email domain verified')
+                        }
+                        // The polling stops only once the overview says active, so a failed refresh gets another go.
+                        if (values.overview?.results.find((domain) => domain.id === id)?.status !== 'active') {
+                            actions.loadOverview()
+                        }
                     }
                     return { ...values.checks, [id]: check }
                 },

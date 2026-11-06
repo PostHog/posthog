@@ -40,16 +40,18 @@ export function hasRemoteImages(html: string): boolean {
         }
     }
     const lowered = html.toLowerCase()
-    let tagStart = lowered.indexOf('<img')
-    while (tagStart !== -1) {
-        const closing = lowered.indexOf('>', tagStart)
-        const tagEnd = closing === -1 ? lowered.length : closing
-        for (const srcMatch of lowered.slice(tagStart, tagEnd).matchAll(/\bsrc\s*=/g)) {
-            if (remoteUrlStartsAt(html, tagStart + srcMatch.index + srcMatch[0].length)) {
+    let scannedTo = 0
+    for (const tagMatch of lowered.matchAll(/<(?:img|source)\b/g)) {
+        if (tagMatch.index < scannedTo) {
+            continue
+        }
+        const closing = lowered.indexOf('>', tagMatch.index)
+        scannedTo = closing === -1 ? lowered.length : closing
+        for (const srcMatch of lowered.slice(tagMatch.index, scannedTo).matchAll(/\bsrc(?:set)?\s*=/g)) {
+            if (remoteUrlStartsAt(html, tagMatch.index + srcMatch.index + srcMatch[0].length)) {
                 return true
             }
         }
-        tagStart = lowered.indexOf('<img', tagEnd)
     }
     return false
 }
