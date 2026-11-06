@@ -10894,14 +10894,14 @@ Diffed against: <https://developer.servicem8.com/llms.txt>
 
 - [x] `Materials (GET /api_1.0/material.json)` — resolve JobMaterial.material_uuid and Staff.labour_material_uuid to inventory records, labour rates, costs, and stock levels (high)
 - [x] `Tax Rates (GET /api_1.0/taxrate.json)` — resolve tax_rate_uuid on job materials and clients to named tax rates (high)
-- [ ] `Job Queues (GET /api_1.0/queue.json)` — resolve Job.queue_uuid to queue names for backlog and dispatch analysis (high)
-- [ ] `Badges (GET /api_1.0/badge.json)` — resolve badge UUIDs on jobs and clients to meaningful business classifications (high)
-- [ ] `Job Material Bundles (GET /api_1.0/jobmaterialbundle.json)` — resolve JobMaterial.job_material_bundle_uuid and analyze the bundled work sold on each job (high)
+- [x] `Job Queues (GET /api_1.0/queue.json)` — resolve Job.queue_uuid to queue names for backlog and dispatch analysis (high)
+- [x] `Badges (GET /api_1.0/badge.json)` — resolve badge UUIDs on jobs and clients to meaningful business classifications (high)
+- [x] `Job Material Bundles (GET /api_1.0/jobmaterialbundle.json)` — resolve JobMaterial.job_material_bundle_uuid and analyze the bundled work sold on each job (high)
 - [x] `Staff Time Events (GET /api_1.0/stafftimeevent.json)` — measure working hours and breaks beyond time recorded against individual jobs (high)
 - [x] `Feedback (GET /api_1.0/feedback.json)` — measure customer satisfaction and connect feedback to completed jobs (high)
 - [ ] `Job Allocations (GET /api_1.0/joballocation.json)` — compare scheduled work, staff assignments, and actual job activity (medium)
 - [ ] `Forms and Form Responses (GET /api_1.0/form.json; GET /api_1.0/formresponse.json)` — analyze inspection results and completed forms by job, staff member, and asset (medium)
-- [ ] `Job Contacts (GET /api_1.0/jobcontact.json)` — connect job and billing contacts to jobs instead of relying on company contacts alone (medium)
+- [x] `Job Contacts (GET /api_1.0/jobcontact.json)` — connect job and billing contacts to jobs instead of relying on company contacts alone (medium)
 
 Note: Fetched the official llms index and parsed the OpenAPI definitions embedded in its collection-reference Markdown pages. Checked job, material, client, and staff fields for missing ID lookups. These additions use flat collections with record UUIDs, rather than requests for each job. Excluded templates, webhook plumbing, attachment transfers, and write operations.
 
@@ -10954,19 +10954,21 @@ Note: Diffed Microsoft's v1.0 references for drive items, list items, sites, and
 
 ## Shipmail — **thin**
 
-Today (4): `domains`, `mailboxes`, `messages`, `suppressions`
+Today (8): `audience_subscribers`, `domains`, `mailboxes`, `members`, `messages`, `newsletters`, `suppressions`, `threads`
 
 Diffed against: <https://shipmail.to/openapi.json>
 
-- [ ] `Threads (GET /api/v1/threads)` — resolve message thread_id values and compare conversation volumes, message counts, and recent activity (high)
-- [ ] `Newsletters (GET /api/v1/newsletters)` — measure newsletter deliveries, opens, clicks, bounces, and complaints, which the current message projection does not expose (high)
+- [x] `Threads (GET /api/v1/threads)` — resolve message thread_id values and compare conversation volumes, message counts, and recent activity (high)
+- [x] `Newsletters (GET /api/v1/newsletters)` — measure newsletter deliveries, opens, clicks, bounces, and complaints, which the current message projection does not expose (high)
 - [ ] `Audiences (GET /api/v1/audiences)` — analyze audience growth, subscription counts, and consent sources (medium)
-- [ ] `Audience subscribers (GET /api/v1/audiences/{id}/subscribers)` — analyze audience membership and subscriber status alongside newsletter results (medium)
+- [x] `Audience subscribers (GET /api/v1/audiences/{id}/subscribers)` — analyze audience membership and subscriber status alongside newsletter results (medium)
 - [ ] `Mailbox inbox thread attention states (GET /api/v1/mailboxes/{id}/inbox/threads)` — measure unanswered conversations, follow-up dates, assignments, and completed threads (medium)
-- [ ] `Members (GET /api/v1/members)` — analyze person roles and mailbox access alongside team email activity (medium)
+- [x] `Members (GET /api/v1/members)` — analyze person roles and mailbox access alongside team email activity (medium)
 - [ ] `Calendar events (GET /api/v1/calendar/events)` — connect meeting activity and recurring appointments to mailbox communication (medium)
 
 Note: Parsed all GET paths and relevant response schemas in the official OpenAPI JSON. The messages table uses /messages/analytics, whose projection omits newsletter engagement counters and thread attention states. Threads, subscriber lists, inbox states, and calendars need mailbox or audience inputs; attention states can change during pagination. Excluded credentials, DNS configuration, routing rules, webhooks, uploads, and message-body field differences.
+
+Threads and audience subscribers use paginated mailbox and audience listings as parents. Audiences remain an internal lookup, without a separate table. All four additions use full refresh because their list endpoints have no time filter. Threads require both `threads:read` and `mailboxes:read`; subscribers require `audiences:read`. Member mailbox access lists can omit mailboxes outside the API key's access.
 
 ## Shippo — gaps
 
@@ -10987,29 +10989,35 @@ Note on `/v2/reporting/runs`: skipped deliberately. Each row is a report job the
 
 ## ShipStation — gaps
 
-Today (8): `batches`, `carriers`, `labels`, `manifests`, `pickups`, `shipments`, `tags`, `warehouses`
+API v2 (11): `batches`, `carriers`, `labels`, `manifests`, `packages`, `pickups`, `services`, `shipments`, `tags`, `users`, `warehouses`.
 
-Diffed against: <https://www.shipstation.com/docs/api/ (V1 API reference index; the source targets ssapi.shipstation.com, i.e. V1, not the api.shipstation.com V2 API)>
+API v1 (11): `customers`, `fulfillments`, `marketplaces`, `orders`, `packages`, `products`, `services`, `shipments`, `stores`, `users`, `warehouses`.
+
+Verified against the [v1 reference](https://www.shipstation.com/docs/api/) and [v2 OpenAPI specification](https://github.com/shipstation/mcp-shipstation-api/blob/master/openapi.yaml) on 2026-11-06.
 
 - [x] `GET /carriers (List Carriers)` — Lookup resolving the carrierCode carried on every synced order, shipment and fulfillment row (high)
-- [ ] `GET /carriers/listservices (List Services)` — Lookup resolving serviceCode on shipments and orders — required to report shipping cost by service level (high)
+- [x] `GET /carriers/listservices (List Services)` — Carrier service lookup in v1; v2 uses `/carriers/{carrier_id}/services` (high)
 - [x] `GET /accounts/listtags (List Tags)` — Lookup resolving the tagIds array on orders; without it order tags are opaque integers (high)
-- [ ] `GET /users (List Users)` — Lookup resolving the userId assigned to orders and shipments, enabling per-picker/per-agent throughput analysis (high)
-- [ ] `GET /carriers/listpackages (List Packages)` — Lookup resolving packageCode on shipments for packaging-mix analysis (medium)
-- [ ] `GET /stores/marketplaces (List Marketplaces)` — Lookup resolving marketplaceId on the stores table, giving a clean sales-channel dimension (medium)
+- [x] `GET /users (List Users)` — Account user lookup in both versions; v1 includes inactive users (high)
+- [x] `GET /carriers/listpackages (List Packages)` — Carrier package lookup in v1; v2 uses `/carriers/{carrier_id}/packages` (medium)
+- [x] `GET /stores/marketplaces (List Marketplaces)` — Lookup for the marketplaceId on v1 stores (medium)
 
-Note: The seven synced tables cover every V1 collection that holds transactional data (orders, shipments, fulfillments, products, customers, stores, warehouses). Everything genuinely missing is a lookup/dimension table, which is exactly the highest-leverage kind of gap here. Note the vendor also ships a separate V2 API (api.shipstation.com, OpenAPI at https://github.com/shipstation/mcp-shipstation-api/blob/master/openapi.yaml) with batches, manifests, labels, inventory and pickups — a different product surface from the V1 API this source uses, so those are not counted as gaps.
+The source supports both API versions and defaults new connections to v2.
+All four added lookup tables use full refresh because their endpoints have no date filter.
+Services and packages read each connected carrier and use a key that includes the carrier identifier.
+The v2 user list uses pagination with a maximum page size of 100.
+Marketplaces remains v1-only because the v2 specification has no equivalent endpoint.
 
 ## ShopWired — **thin**
 
-Today (8): `brands`, `categories`, `customers`, `order_statuses`, `orders`, `products`, `tags`, `vouchers`
+Today (12): `brands`, `categories`, `customers`, `incomplete_orders`, `order_statuses`, `orders`, `payouts`, `product_variations`, `products`, `tags`, `transactions`, `vouchers`
 
 Diffed against: <https://help.shopwired.co.uk/api>
 
-- [ ] `transactions (GET /transactions, listtransactions)` — payment transactions per order — required to reconcile gross revenue against captured payments (high)
-- [ ] `product-variations (GET /products/{id}/variations, listproductvariations)` — SKU-level rows that order line items reference; without it product-level revenue can't be split by variant (high)
-- [ ] `incomplete-orders (GET /incomplete-orders, listincompleteorders)` — abandoned carts — the denominator for any checkout conversion funnel (high)
-- [ ] `payouts (GET /payouts, listpayouts)` — settlement records for reconciling store revenue to money actually received (high)
+- [x] `transactions (GET /shopwired-payments/transactions, listtransactions)` - successful transactions through ShopWired Payments ([reference](https://shopwired.readme.io/reference/listtransactions))
+- [x] `product_variations (GET /products/{product_id}/variations, listproductvariations)` - variations with parent product IDs ([reference](https://shopwired.readme.io/reference/listproductvariations))
+- [x] `incomplete_orders (GET /incomplete-orders, listincompleteorders)` - incomplete orders with optional incremental sync on `created` ([reference](https://shopwired.readme.io/reference/listincompleteorders))
+- [x] `payouts (GET /shopwired-payments/payouts, listpayouts)` - payouts through ShopWired Payments ([reference](https://shopwired.readme.io/reference/listpayouts))
 - [ ] `disputes (GET /disputes, listdisputes)` — chargebacks and their outcomes, a direct revenue leak metric (medium)
 - [ ] `payment-methods (GET /payment-methods, listpaymentmethods)` — lookup table resolving the payment method referenced on synced orders (medium)
 - [ ] `sales (GET /sales, listsales)` — discount campaigns; lookup that explains discounted line prices on synced orders (medium)
@@ -11019,7 +11027,7 @@ Diffed against: <https://help.shopwired.co.uk/api>
 - [ ] `wishlists (GET /wishlists, get_wishlists)` — purchase-intent signal joinable to customers and products already synced (medium)
 - [ ] `newsletter-subscribers (GET /newsletter-subscribers, listnewslettersubscribers)` — marketing list membership joined to customers (medium)
 
-Note: No dynamic table discovery — products/warehouse_sources/sources/shopwired/settings.py hardcodes 8 static paths. The ShopWired ReadMe reference exposes ~45 list/collection endpoints, so PostHog covers roughly a sixth of the API. `tags` maps to /tags (product tags); the separate blog tag/category/post endpoints are unsynced too but are low-value content objects.
+Verified the four completed entries against the official V1 reference on 2026-11-06. Other entries still need verification. Transactions and payouts support full refresh. Product variations use an unpaginated request per product, with resumable pagination of the product list. The table catalog is static. `tags` maps to `/tags`; blog tags, categories, and posts remain unsynced.
 
 ## Shortcut — gaps
 
@@ -11027,13 +11035,13 @@ Today (15): `categories`, `custom_fields`, `entity_templates`, `epics`, `files`,
 
 Diffed against: <https://developer.shortcut.com/api/rest/v3/shortcut.swagger.json>
 
-- [ ] `epic-workflow (GET /api/v3/epic-workflow)` — lookup that resolves epic_state_id on the epics we already sync; without it epic state is an opaque integer (high)
-- [ ] `stories/{id}/history (GET)` — per-story state transition log — the only way to compute cycle time, lead time, or time-in-state (high)
+- [x] `epic-workflow (GET /api/v3/epic-workflow)` - `epic_workflow` retains the workflow object and its nested epic states (high)
+- [x] `stories/{id}/history (GET)` - `story_history` reads each story's changes and adds `story_id` (high)
 - [ ] `milestones (GET /api/v3/milestones)` — lookup resolving milestone_id carried on synced epics; the objectives table does not cover legacy milestones (medium)
 - [ ] `stories/{id}/comments (GET)` — collaboration volume and response latency per story (medium)
 - [ ] `key-results/{id} (GET)` — resolves key_result_ids already present on synced objectives; hydrate by id since there is no list endpoint (medium)
-- [ ] `documents (GET /api/v3/documents)` — docs collection with epic linkage via /documents/{id}/epics (medium)
-- [ ] `epics/{id}/comments (GET)` — epic-level discussion volume (medium)
+- [x] `documents (GET /api/v3/documents)` - document IDs, titles, and application URLs; content and epic links require separate endpoints (medium)
+- [x] `epics/{id}/comments (GET)` - `epic_comments` retains nested replies and adds `epic_id` (medium)
 - [ ] `epics/{id}/health-history (GET)` — epic health status transitions over time (low)
 - [ ] `objectives/{id}/health-history (GET)` — objective health status transitions over time (low)
 
@@ -11061,24 +11069,24 @@ Note: Only `domains` is synced (settings.py has a single endpoint, no dynamic di
 
 ## Shutterstock — gaps
 
-Today (9): `image_categories`, `image_collections`, `image_licenses`, `images_updated`, `subscriptions`, `video_categories`, `video_collections`, `video_licenses`, `videos_updated`
+Today (15): `audio_genres`, `audio_instruments`, `audio_licenses`, `audio_moods`, `image_categories`, `image_collection_items`, `image_collections`, `image_licenses`, `images_updated`, `subscriptions`, `video_categories`, `video_collection_items`, `video_collections`, `video_licenses`, `videos_updated`
 
 Diffed against: <https://api-reference.shutterstock.com/>
 
-- [ ] `images/collections/{id}/items and videos/collections/{id}/items (GET)` — the join table for collections we already sync — without it a collection row has no members (high)
-- [ ] `audio/licenses (GET /v2/audio/licenses)` — audio licensing transactions, the same analytical shape as the image and video licenses already synced (high)
-- [ ] `images/licenses/{id}/downloads, videos/licenses/{id}/downloads, audio/licenses/{id}/downloads (GET)` — actual download events per license — usage grain under the license rows we sync (high)
+- [x] `images/collections/{id}/items and videos/collections/{id}/items (GET)` - added `image_collection_items` and `video_collection_items`, with `collection_id` on each member.
+- [x] `audio/licenses (GET /v2/audio/licenses)` - added `audio_licenses`, with incremental sync on `download_time`.
+- [x] `images/licenses/{id}/downloads, videos/licenses/{id}/downloads, audio/licenses/{id}/downloads (GET)` - skipped: the official v2 reference documents POST actions that generate download URLs. These paths do not list download events.
 - [ ] `editorial/licenses (GET /v2/editorial/licenses)` — editorial licensing transactions, missing from the licensing picture entirely (medium)
 - [ ] `sfx/licenses (GET /v2/sfx/licenses)` — sound-effects licensing transactions (medium)
 - [ ] `contributors/{contributor_id} (GET /v2/contributors)` — lookup resolving the contributor id carried on every synced asset; accepts comma-separated ids (medium)
 - [ ] `audio/collections and audio/collections/{id}/items (GET)` — audio collection membership, mirroring image and video collections (medium)
 - [ ] `editorial/images/updated and editorial/videos/updated (GET)` — editorial catalog deltas alongside the images_updated and videos_updated feeds already synced (medium)
-- [ ] `audio/genres, audio/instruments, audio/moods (GET)` — taxonomy lookup tables for audio, equivalent to the image and video category tables (medium)
+- [x] `audio/genres, audio/instruments, audio/moods (GET)` - added `audio_genres`, `audio_instruments`, and `audio_moods` as full-refresh tables.
 - [ ] `editorial/images/categories and editorial/videos/categories (GET)` — editorial taxonomy lookups (medium)
 - [ ] `catalog/collections and catalog/collections/{collection_id}/items (GET)` — the customer's own asset catalog and its membership (medium)
 - [ ] `images/collections/featured and videos/collections/featured (GET, plus /items)` — Shutterstock-curated collections and their contents (low)
 
-Note: Coverage is solid for the images and videos verticals (categories, collections, licenses, updated feeds) but the audio, SFX, and editorial verticals are entirely absent, and collection membership is never resolved.
+Note: Image and video collections include their members. Audio licenses and taxonomy tables are available. Audio collections, SFX, and editorial data remain gaps.
 
 ## SigmaComputing — gaps
 
