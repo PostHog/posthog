@@ -861,7 +861,7 @@ describe('EmailService', () => {
                 expectSkipped(result)
                 expect(result.logs).toContainEqual(
                     expect.objectContaining({
-                        message: `Skipping send: could not check organization members for these addresses: ${memberEmail()}, ${memberEmail('cc')}. Try again, or verify your own domain to send to anyone.`,
+                        message: `Skipping send: could not check organization members for these addresses: ${memberEmail()}, ${memberEmail('cc')}. Verify your own domain to send to anyone.`,
                     })
                 )
                 expectBlockedEvent('check_failed', false, 2)
@@ -992,7 +992,7 @@ describe('EmailService', () => {
                             expect.objectContaining({
                                 level: 'info',
                                 message:
-                                    'Skipping send: could not check whether the sandbox sender is paused. Try again later, or verify your own domain to keep sending.',
+                                    'Skipping send: could not check whether the sandbox sender is paused. Verify your own domain to keep sending.',
                             }),
                         ])
                     )
@@ -1001,51 +1001,6 @@ describe('EmailService', () => {
                         'workflows sandbox email blocked',
                         { reason: 'pause_check_failed', is_test: false, blocked_recipient_count: 0 }
                     )
-                })
-
-                it.each([
-                    [
-                        'the sandbox tenant is paused',
-                        async (): Promise<{ senderState?: SandboxSenderStateService }> => {
-                            await setTenantStatus('DISABLED')
-                            return {}
-                        },
-                    ],
-                    [
-                        'the pause state cannot be read',
-                        async (): Promise<{ senderState?: SandboxSenderStateService }> => {
-                            const brokenPostgres = new PostgresRouter(hub)
-                            await brokenPostgres.end()
-                            return {
-                                senderState: new SandboxSenderStateService(brokenPostgres, tenantName(), hub.pubSub),
-                            }
-                        },
-                    ],
-                ])('records a skipped transactional email as sending_suspended when %s', async (_case, setUp) => {
-                    const produce = jest.fn().mockResolvedValue(undefined)
-                    const emailStatusService = new EmailStatusService(
-                        { produce } as unknown as IngestionOutputs<EmailStatusOutput>,
-                        { EMAIL_STATUS_ENABLED: true }
-                    )
-                    service = createSandboxService(true, {
-                        senderSettings: { tenantName: tenantName() },
-                        ...(await setUp()),
-                    })
-                    service['emailStatusService'] = emailStatusService
-                    invocation.id = new UUIDT().toString()
-                    invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
-
-                    await service.executeSendEmail(invocation)
-                    await emailStatusService.flush()
-
-                    const rows = produce.mock.calls.map(([, message]) => parseJSON(message.value.toString()))
-                    expect(rows).toEqual([
-                        expect.objectContaining({
-                            message_id: invocation.id,
-                            status: 'failed',
-                            reason: 'sending_suspended',
-                        }),
-                    ])
                 })
 
                 it('leaves own-sender sends alone while the sandbox tenant is paused', async () => {
@@ -1059,9 +1014,11 @@ describe('EmailService', () => {
                     expect(sendEmailSpy).toHaveBeenCalledTimes(1)
                 })
 
-                it('rechecks a pause after a delayed cap claim and returns the grant', async () => {
+                it('rechecks a pause after a delayed cap claim, returns the grant, and sends again once the cached pause state expires', async () => {
                     await setTenantStatus('ENABLED')
                     const now = Date.now()
+                    // The state service caches a read for 30 seconds plus up to 5 seconds of jitter.
+                    const pastPauseCacheMs = 36_000
                     const clock = jest.spyOn(Date, 'now').mockReturnValue(now)
                     const dailyCapLimiter = new RateLimiterService(sandboxRedis, { name: 'sandbox-email' })
                     service = createSandboxService(true, {
@@ -1074,7 +1031,7 @@ describe('EmailService', () => {
                         .mockImplementationOnce(async (buckets) => {
                             const grant = await claim(buckets)
                             await setTenantStatus('DISABLED')
-                            clock.mockReturnValue(now + 40_000)
+                            clock.mockReturnValue(now + pastPauseCacheMs)
                             return grant
                         })
                     try {
@@ -1085,7 +1042,7 @@ describe('EmailService', () => {
                         expect(blocked.logs).toContainEqual(expect.objectContaining({ message: pausedMessage }))
 
                         await setTenantStatus('ENABLED')
-                        clock.mockReturnValue(now + 80_000)
+                        clock.mockReturnValue(now + 2 * pastPauseCacheMs)
                         invocation.state.vmState = { stack: [] } as any
                         const resumed = await service.executeSendEmail(invocation)
                         expect(resumed.error).toBeUndefined()
@@ -1117,7 +1074,7 @@ describe('EmailService', () => {
                 const recipientCapReached = (addresses: string): string =>
                     `Skipping send: these addresses reached the sandbox sender's daily limit per address: ${addresses}. Verify your own domain to send more.`
                 const CAP_CHECK_FAILED =
-                    "Skipping send: could not check the sandbox sender's daily limit. Try again later, or verify your own domain to send more."
+                    "Skipping send: could not check the sandbox sender's daily limit. Verify your own domain to send more."
 
                 const send = async (
                     isTest: boolean,

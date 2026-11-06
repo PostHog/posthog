@@ -494,7 +494,7 @@ const SANDBOX_BLOCKS: Record<
     },
     check_failed: {
         message: (addresses) =>
-            `Skipping send: could not check organization members for these addresses: ${addresses.join(', ')}. Try again, or verify your own domain to send to anyone.`,
+            `Skipping send: could not check organization members for these addresses: ${addresses.join(', ')}. Verify your own domain to send to anyone.`,
         statusReason: 'recipient_unreachable',
     },
     recipient_cap_reached: {
@@ -508,7 +508,7 @@ const SANDBOX_BLOCKS: Record<
     },
     pause_check_failed: {
         message: () =>
-            'Skipping send: could not check whether the sandbox sender is paused. Try again later, or verify your own domain to keep sending.',
+            'Skipping send: could not check whether the sandbox sender is paused. Verify your own domain to keep sending.',
         statusReason: 'sending_suspended',
     },
     project_cap_reached: {
@@ -518,7 +518,7 @@ const SANDBOX_BLOCKS: Record<
     },
     cap_check_failed: {
         message: () =>
-            "Skipping send: could not check the sandbox sender's daily limit. Try again later, or verify your own domain to send more.",
+            "Skipping send: could not check the sandbox sender's daily limit. Verify your own domain to send more.",
         statusReason: 'recipient_unreachable',
     },
 }
