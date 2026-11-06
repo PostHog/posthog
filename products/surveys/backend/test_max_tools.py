@@ -6,12 +6,14 @@ import os
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from posthog.models import Organization, Project, Team
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
@@ -1436,3 +1438,65 @@ class TestEditSurveyTool(BaseTest):
         assert ids[0] == "uuid-first"
         assert ids[1] and ids[1] != "uuid-first"
         assert len(set(ids)) == len(ids)
+
+
+class TestSurveyToolsSaveThroughSurveyAPI(BaseTest):
+    def setUp(self):
+        super().setUp()
+        env_patcher = patch.dict(os.environ, {"OPENAI_API_KEY": "test-api-key"})
+        env_patcher.start()
+        self.addCleanup(env_patcher.stop)
+
+    async def _run(self, tool_kind: str, **kwargs) -> tuple[str, dict]:
+        config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
+        if tool_kind == "create":
+            create_tool = CreateSurveyTool(team=self.team, user=self.user, config=config)
+            return await create_tool._arun_impl(
+                questions=[SimpleSurveyQuestion(type="open", question="Why?")], **kwargs
+            )
+        survey = await Survey.objects.acreate(
+            team=self.team, name="Draft", type="popover", questions=[{"type": "open", "question": "Why?"}]
+        )
+        edit_tool = EditSurveyTool(team=self.team, user=self.user, config=config)
+        return await edit_tool._arun_impl(survey_id=str(survey.id), **kwargs)
+
+    @parameterized.expand([("create",), ("edit",)])
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_rejects_a_name_another_survey_uses(self, tool_kind):
+        await Survey.objects.acreate(team=self.team, name="Taken", type="popover", questions=[])
+
+        content, artifact = await self._run(tool_kind, name="Taken")
+
+        assert artifact["error"] == "validation_failed", content
+        assert "already" in artifact["error_message"]
+        assert await Survey.objects.filter(team=self.team, name="Taken").acount() == 1
+
+    @parameterized.expand(
+        [
+            ("create", {"name": "New", "should_launch": True}, "created"),
+            ("edit", {"launch": True}, "updated"),
+        ]
+    )
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_logs_activity_and_activates_the_already_answered_flag(self, tool_kind, kwargs, activity):
+        content, artifact = await self._run(tool_kind, **kwargs)
+
+        survey = await Survey.objects.select_related("internal_targeting_flag").aget(id=artifact["survey_id"])
+        assert survey.internal_targeting_flag is not None, content
+        assert survey.internal_targeting_flag.active is True
+        assert await ActivityLog.objects.filter(
+            team_id=self.team.id, scope="Survey", item_id=str(survey.id), activity=activity, user=self.user
+        ).aexists()
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_strips_scripts_from_team_default_appearance(self):
+        self.team.survey_config = {"appearance": {"thankYouMessageHeader": "<script>alert(1)</script>Thanks"}}
+        await self.team.asave()
+
+        content, artifact = await self._run("create", name="Appearance")
+
+        survey = await Survey.objects.aget(id=artifact["survey_id"])
+        assert survey.appearance["thankYouMessageHeader"] == "Thanks", content
