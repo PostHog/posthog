@@ -3,7 +3,6 @@ mod integration_utils;
 
 use async_trait::async_trait;
 use axum_test_helper::TestClient;
-use capture::ai_event_limits::AI_MAX_EVENT_BYTES_CEILING;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
 use capture::event_restrictions::{
@@ -13,7 +12,7 @@ use capture::event_restrictions::{
 use capture::global_rate_limiter::GlobalRateLimiter;
 use capture::outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared};
 use capture::quota_limiters::{is_llm_event, CaptureQuotaLimiter, EventInfo};
-use capture::router::{router, BATCH_BODY_SIZE};
+use capture::router::router;
 use capture::sinks::sink::SinkResult;
 use capture::time::TimeSource;
 use capture::v0_request::{DataType, OverflowReason, ProcessedEvent};
@@ -947,72 +946,6 @@ async fn oversized_spans_are_shed_and_warn_while_the_export_succeeds() {
         emitted[0].extra_details.get("droppedSpans"),
         Some(&json!(1))
     );
-}
-
-#[tokio::test]
-async fn a_span_tens_of_megabytes_large_is_accepted() {
-    let sink = CapturingSink::new();
-    let client = make_test_client_with_options(
-        &sink,
-        TestClientOptions {
-            ai_max_event_bytes: Some(AI_MAX_EVENT_BYTES_CEILING),
-            ..Default::default()
-        },
-    );
-    let mut request = make_single_span_request();
-    request.resource_spans[0].scope_spans[0].spans[0]
-        .attributes
-        .push(make_kv(
-            "gen_ai.prompt",
-            any_value::Value::StringValue("x".repeat(BATCH_BODY_SIZE + 1024 * 1024)),
-        ));
-
-    let status = send_request_with_client(&client, &request).await;
-
-    assert_eq!(status, 200);
-    assert_eq!(sink.get_events().await.len(), 1);
-}
-
-#[rstest::rstest]
-#[case::kept_attribute_is_refused("service.description", 400, 0, 1)]
-#[case::dropped_attribute_is_not_counted("process.command_line", 200, 60, 0)]
-#[tokio::test]
-async fn resource_copies_are_bounded_by_the_attributes_the_fan_out_keeps(
-    #[case] key: &str,
-    #[case] expected_status: u16,
-    #[case] expected_events: usize,
-    #[case] expected_warnings: usize,
-) {
-    let sink = CapturingSink::new();
-    let (client, emitter) = make_test_client_collecting_warnings(&sink);
-    let mut request = make_single_span_request();
-    let resource_spans = &mut request.resource_spans[0];
-    resource_spans
-        .resource
-        .as_mut()
-        .expect("the request carries a resource")
-        .attributes
-        .push(make_kv(
-            key,
-            any_value::Value::StringValue("x".repeat(1_000_000)),
-        ));
-    let span = resource_spans.scope_spans[0].spans[0].clone();
-    resource_spans.scope_spans[0].spans = (0..60u8)
-        .map(|i| Span {
-            span_id: vec![i; 8],
-            ..span.clone()
-        })
-        .collect();
-
-    let status = send_request_with_client(&client, &request).await;
-
-    assert_eq!(status, expected_status);
-    assert_eq!(sink.get_events().await.len(), expected_events);
-    let emitted = emitter.emitted();
-    assert_eq!(emitted.len(), expected_warnings);
-    assert!(emitted
-        .iter()
-        .all(|w| w.warning == WarningType::InvalidAiPayload));
 }
 
 #[tokio::test]

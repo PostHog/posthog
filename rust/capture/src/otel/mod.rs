@@ -27,13 +27,13 @@ use crate::ingestion_warnings::otel::{
     emit_span_too_big_warning, SpanCapStage,
 };
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
-use crate::router::{State as AppState, AI_BODY_SIZE};
+use crate::router::State as AppState;
 use crate::token::validate_token;
 use crate::v0_request::{exceeds_max_ai_event_bytes, resolve_ai_max_event_bytes};
 
 use self::attribution::otel_request_context;
 
-pub const OTEL_BODY_SIZE: usize = AI_BODY_SIZE;
+pub const OTEL_BODY_SIZE: usize = 4 * 1024 * 1024; // 4MB
 
 /// Route this handler serves. Stamped onto warnings so a reader of the v2 table
 /// can tell which endpoint produced them.
@@ -175,7 +175,7 @@ pub async fn otel_handler(
     }
 
     // Cap raw spans before doing any expensive attribute conversion. The body
-    // size limit bounds the absolute maximum, but compact protobuf can
+    // size limit (4 MB) bounds the absolute maximum, but compact protobuf can
     // pack many spans into that budget.
     if raw_span_count > MAX_RAW_SPANS_PER_REQUEST {
         let err = CaptureError::RequestParsingError(format!(
@@ -188,22 +188,6 @@ pub async fn otel_handler(
             SpanCapStage::Raw,
             raw_span_count,
             MAX_RAW_SPANS_PER_REQUEST,
-        );
-        return Err(err.into_response());
-    }
-
-    // Each AI span gets its own copy of its resource, which can expand far past the body.
-    let resource_copy_bytes = fan_out::resource_copy_bytes(&request);
-    if resource_copy_bytes > OTEL_BODY_SIZE {
-        let err = CaptureError::RequestParsingError(format!(
-            "Resource attributes copied into each AI span come to {resource_copy_bytes} bytes, over the limit of {OTEL_BODY_SIZE}"
-        ));
-        report_internal_error_metrics(err.to_metric_tag(), "otel_validation");
-        emit_otel_parse_warning(
-            state.ingestion_warning_emitter.as_deref(),
-            &otel_request_context(token, OTEL_PATH, Some(&request)),
-            &err,
-            format,
         );
         return Err(err.into_response());
     }

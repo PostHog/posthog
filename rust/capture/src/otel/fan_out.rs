@@ -2,7 +2,6 @@ use chrono::{DateTime, TimeZone, Utc};
 use common_types::HasEventName;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::{any_value, KeyValue};
-use prost::Message;
 use serde_json::{Map, Value};
 
 use super::error_status::apply_error_status_properties;
@@ -78,21 +77,20 @@ pub(super) fn attributes_to_map(attrs: &[KeyValue]) -> Map<String, Value> {
 /// pass through since they don't match these prefixes.
 const NOISY_RESOURCE_PREFIXES: &[&str] = &["host.", "process.", "os.", "telemetry."];
 
-fn retained_resource_value(kv: &KeyValue) -> Option<&any_value::Value> {
-    if NOISY_RESOURCE_PREFIXES
-        .iter()
-        .any(|prefix| kv.key.starts_with(prefix))
-    {
-        return None;
-    }
-    kv.value.as_ref().and_then(|v| v.value.as_ref())
-}
-
 fn filter_resource_attributes(attrs: &[KeyValue]) -> Map<String, Value> {
     attrs
         .iter()
         .filter_map(|kv| {
-            retained_resource_value(kv).map(|v| (kv.key.clone(), any_value_to_json(v)))
+            if NOISY_RESOURCE_PREFIXES
+                .iter()
+                .any(|prefix| kv.key.starts_with(prefix))
+            {
+                return None;
+            }
+            kv.value
+                .as_ref()
+                .and_then(|v| v.value.as_ref())
+                .map(|v| (kv.key.clone(), any_value_to_json(v)))
         })
         .collect()
 }
@@ -115,30 +113,6 @@ fn nanos_to_datetime(nanos: u64) -> Option<DateTime<Utc>> {
     let secs = (nanos / 1_000_000_000) as i64;
     let nsecs = (nanos % 1_000_000_000) as u32;
     Utc.timestamp_opt(secs, nsecs).single()
-}
-
-pub fn resource_copy_bytes(request: &ExportTraceServiceRequest) -> usize {
-    request
-        .resource_spans
-        .iter()
-        .map(|rs| {
-            let resource_bytes: usize = rs.resource.as_ref().map_or(0, |resource| {
-                resource
-                    .attributes
-                    .iter()
-                    .filter(|kv| retained_resource_value(kv).is_some())
-                    .map(Message::encoded_len)
-                    .sum()
-            });
-            let ai_spans = rs
-                .scope_spans
-                .iter()
-                .flat_map(|ss| &ss.spans)
-                .filter(|span| providers::get_provider_raw(&span.attributes).is_some())
-                .count();
-            resource_bytes.saturating_mul(ai_spans)
-        })
-        .fold(0, usize::saturating_add)
 }
 
 /// Convert OTLP spans into [`SpanEvent`]s. `request_fallback_distinct_id` is
