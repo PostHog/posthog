@@ -60,7 +60,7 @@ export function ExtensionActionEditor(): JSX.Element | null {
                         </Link>
                     )}
                 </div>
-                {saveResult?.status === 'failed' && (
+                {saveResult?.status === 'failed' && !saveResult.field && (
                     <LemonBanner type="error">Couldn't save the action: {saveResult.error}</LemonBanner>
                 )}
                 <Field name="name" label="What did your user do?">

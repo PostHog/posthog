@@ -165,7 +165,8 @@ export type HeatmapSaveResult =
 
 export type ActionSaveResult =
     | { status: 'saved'; actionId: number; name: string | null }
-    | { status: 'failed'; error: string }
+    /** `field` names the form field the error belongs to, so the panel shows it there instead of in a banner. */
+    | { status: 'failed'; error: string; field?: 'name' }
 
 export interface PageToolbarActionsState {
     allActionsLoading: boolean

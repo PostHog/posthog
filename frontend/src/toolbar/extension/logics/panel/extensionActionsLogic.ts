@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 
+import { DUPLICATE_ACTION_NAME_ERROR, isActionNameTaken } from '~/toolbar/shared/actions/actionNameErrors'
 import type { ActionForm } from '~/toolbar/shared/types'
 
 import { capturePageToolUsed } from '../../browser/extensionTelemetry'
@@ -145,9 +146,17 @@ export const extensionActionsLogic = kea<extensionActionsLogicType>([
     forms(({ actions }) => ({
         actionForm: {
             defaults: EMPTY_ACTION_FORM,
-            errors: ({ name }) => ({
-                name: !name || !name.length ? 'Must name this action' : undefined,
-            }),
+            errors: [
+                (s) => [s.actionForm, s.pageToolbarState],
+                ({ name }: ActionForm, pageToolbarState: PageToolbarState | null) => {
+                    if (!name || !name.length) {
+                        return { name: 'Must name this action' }
+                    }
+                    const page = pageToolbarState?.actions
+                    const isDuplicate = !!page && isActionNameTaken(name, page.actions, page.selectedActionId)
+                    return { name: isDuplicate ? DUPLICATE_ACTION_NAME_ERROR : undefined }
+                },
+            ],
             submit: () => {
                 actions.sendActionsCommand({ type: 'save-action' })
                 capturePageToolUsed('save-action')
@@ -233,6 +242,9 @@ export const extensionActionsLogic = kea<extensionActionsLogicType>([
                 actions.resetActionForm(page.actionForm)
             } else if (values.saveRequested && !page.saving && page.saveResult) {
                 actions.setSaveRequested(false)
+                if (page.saveResult.status === 'failed' && page.saveResult.field) {
+                    actions.setActionFormManualErrors({ [page.saveResult.field]: page.saveResult.error })
+                }
             }
         },
     })),

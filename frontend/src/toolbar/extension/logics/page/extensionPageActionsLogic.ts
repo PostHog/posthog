@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
+import { DUPLICATE_ACTION_NAME_ERROR } from '~/toolbar/shared/actions/actionNameErrors'
 import { actionsLogic } from '~/toolbar/shared/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/shared/actions/actionsTabLogic'
 
@@ -117,10 +118,10 @@ export const extensionPageActionsLogic = kea<extensionPageActionsLogicType>([
                     actionId: action.id,
                     name: action.name ?? null,
                 }),
-                submitActionFormFailure: (_, { error }) => ({
-                    status: 'failed' as const,
-                    error: error?.message || 'Unknown error',
-                }),
+                submitActionFormFailure: (_, { error }) =>
+                    error?.message === DUPLICATE_ACTION_NAME_ERROR
+                        ? { status: 'failed' as const, error: DUPLICATE_ACTION_NAME_ERROR, field: 'name' as const }
+                        : { status: 'failed' as const, error: error?.message || 'Unknown error' },
                 selectAction: () => null,
                 newAction: () => null,
             },
