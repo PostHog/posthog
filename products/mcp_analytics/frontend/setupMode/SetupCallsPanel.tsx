@@ -57,7 +57,11 @@ function Row({
                 <BrandMark name={mark} className="size-3.5" />
             </span>
             <span className="MCPPreview__tool">{tool}</span>
-            {intent ? <span className="min-w-0 flex-1 truncate text-xs text-secondary">{intent}</span> : null}
+            {intent ? (
+                <span className="min-w-0 flex-1 truncate text-xs text-secondary" title={intent}>
+                    {intent}
+                </span>
+            ) : null}
             <span className="MCPPreview__time">{time}</span>
         </div>
     )

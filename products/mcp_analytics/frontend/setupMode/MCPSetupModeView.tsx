@@ -12,6 +12,7 @@ import { SetupUsefulStep } from './SetupUsefulStep'
 const COPY = {
     title: 'Set up MCP analytics',
     exit: 'Back to overview',
+    announce: (position: number, name: string) => `Step ${position} of ${MCP_SETUP_STEPS.length}: ${name}`,
     steps: { connect: 'Connect', 'first-call': 'First call', useful: 'Make it useful' } satisfies Record<
         MCPSetupStep,
         string
@@ -73,7 +74,13 @@ function StepBody({ step, ...props }: MCPSetupModeViewProps & { step: MCPSetupSt
             />
         )
     }
-    return <SetupUsefulStep onFinish={() => props.onExit('finished')} onAskPostHogAI={props.onAskPostHogAI} />
+    return (
+        <SetupUsefulStep
+            calls={props.recentCalls}
+            onFinish={() => props.onExit('finished')}
+            onAskPostHogAI={props.onAskPostHogAI}
+        />
+    )
 }
 
 /** The fullscreen setup walkthrough: a header with the step rail, and the current step below it. */
@@ -88,6 +95,10 @@ export function MCPSetupModeView(props: MCPSetupModeViewProps): JSX.Element {
                 </span>
                 <span className="order-last w-full @min-[48rem]/setup-mode:order-none @min-[48rem]/setup-mode:w-auto">
                     <StepRail current={step} />
+                </span>
+                {/* Steps change when data arrives, not on a click, so screen readers hear about it here. */}
+                <span className="sr-only" aria-live="polite">
+                    {step ? COPY.announce(MCP_SETUP_STEPS.indexOf(step) + 1, COPY.steps[step]) : null}
                 </span>
                 <LemonButton
                     size="small"
