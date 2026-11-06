@@ -89,6 +89,17 @@ function makeFakeTool(
     }
 }
 
+function apiValidationError(detail: string, attr: string): PostHogValidationError {
+    return new PostHogValidationError({
+        detail,
+        attr,
+        code: 'invalid_input',
+        extra: undefined,
+        url: 'https://us.posthog.com/api/environments/2/surveys/',
+        method: 'POST',
+    })
+}
+
 function callsFor(mock: ReturnType<typeof vi.fn>, tool: string): any[] {
     return mock.mock.calls.filter((c: any[]) => c[0]?.tool === tool).map((c: any[]) => c[0])
 }
@@ -354,19 +365,30 @@ describe('ToolExecutor metrics', () => {
                 }),
                 'Invalid input for tool: date_from (invalid_type)',
             ],
+            // The API's detail is the only place the cause of a validation failure is
+            // stated, but it can echo what the caller sent, so values are masked by shape.
             [
-                'a PostHogValidationError (controlled code + field only, never the detail body)',
-                new PostHogValidationError({
-                    // detail echoes the caller's offending expression; a query tool caller can
-                    // hide a secret here, so it must never reach analytics.
-                    detail: 'Unable to resolve field: SECRET=sk_live_abc123',
-                    attr: 'query',
-                    code: 'invalid_input',
-                    extra: undefined,
-                    url: 'https://us.posthog.com/api/environments/2/query/',
-                    method: 'POST',
-                }),
-                'Validation error: invalid_input (field: query)',
+                'a PostHogValidationError, with a quoted value masked',
+                apiValidationError("'en' matches the survey's base language", 'questions'),
+                "Validation error: invalid_input (field: questions): <value> matches the survey's base language",
+            ],
+            [
+                'a PostHogValidationError, with double, curly and backtick quotes masked',
+                apiValidationError('Flag "beta-checkout" conflicts with “Checkout v2” and `holdout`', 'key'),
+                'Validation error: invalid_input (field: key): Flag <value> conflicts with <value> and <value>',
+            ],
+            [
+                'a PostHogValidationError, with an unquoted secret-shaped token masked',
+                apiValidationError('Unable to resolve field: SECRET=sk_live_abc123', 'query'),
+                'Validation error: invalid_input (field: query): Unable to resolve field: <value>',
+            ],
+            [
+                'a PostHogValidationError, with emails, URLs and ids masked',
+                apiValidationError(
+                    'Recipient jane.doe@example.com cannot receive https://example.com/hook?t=1 for 0191c2a4-7d1e-7c3b-9f00-4f2a',
+                    'inputs'
+                ),
+                'Validation error: invalid_input (field: inputs): Recipient <value> cannot receive <value> for <value>',
             ],
             [
                 'a TimeoutError',

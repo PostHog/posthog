@@ -1257,16 +1257,31 @@ function resolveSafeErrorMessage(error: unknown): string | undefined {
     if (apiError instanceof PostHogValidationError) {
         // `detail` is the raw API validation body; for query tools it echoes the caller's
         // offending HogQL/filter expression (`/query/` resolver errors quote the bad name),
-        // so capture only the controlled code + field, never the free-text detail.
+        // so only its sentence survives: every value-shaped span is masked first.
         const code = apiError.code ? `: ${apiError.code}` : ''
         const field = apiError.attr ? ` (field: ${apiError.attr})` : ''
-        return `Validation error${code}${field}`
+        const detail = maskCallerValues(apiError.detail)
+        return `Validation error${code}${field}${detail ? `: ${detail}` : ''}`
     }
     if (apiError instanceof PostHogApiError) {
         // Rebuilt summary: no response body, no query string.
         return `HTTP ${apiError.status} ${apiError.statusText} on ${apiError.method} ${safeUrlPath(apiError.url)}`
     }
     return undefined
+}
+
+// A quote that opens or closes against a letter is an apostrophe (`survey's`), not a value.
+const QUOTED_VALUE_PATTERNS = [/(?<!\w)'[^'\n]*'(?!\w)/g, /"[^"\n]*"/g, /“[^”\n]*”/g, /‘[^’\n]*’/g, /`[^`\n]*`/g]
+const MASKED_VALUE = '<value>'
+
+/** Emails, URLs, and the keys, tokens, ids and numbers that carry digits. */
+function isValueShapedToken(token: string): boolean {
+    return token.includes('@') || token.includes('://') || (token.length >= 6 && /\d/.test(token))
+}
+
+function maskCallerValues(detail: string): string {
+    const unquoted = QUOTED_VALUE_PATTERNS.reduce((text, pattern) => text.replace(pattern, MASKED_VALUE), detail)
+    return unquoted.replace(/\S+/g, (token) => (isValueShapedToken(token) ? MASKED_VALUE : token)).trim()
 }
 
 function safeUrlPath(url: string): string {
