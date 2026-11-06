@@ -380,7 +380,7 @@ ManualSelectionWithSearchConsole.play = async ({ canvasElement }: { canvasElemen
 }
 
 async function openSearchTab(canvasElement: HTMLElement): Promise<void> {
-    await userEvent.click(await within(canvasElement).findByRole('tab', { name: 'Search' }))
+    await userEvent.click(await within(canvasElement).findByRole('tab', { name: /^Search/ }))
 }
 
 function dashboardStory(...args: Parameters<typeof useDashboardWithoutSourcesMocks>): StoryFn {
@@ -394,6 +394,8 @@ function dashboardStory(...args: Parameters<typeof useDashboardWithoutSourcesMoc
 
 export const DashboardWithSearchConsoleOnly = dashboardStory(plan.suggestions, false, false, 'ready')
 DashboardWithSearchConsoleOnly.parameters = {
+    // The Search tab's "New" tag ages from the first story that opens the tab, so every story shares one clock.
+    mockDate: '2026-09-16',
     pageUrl: urls.marketingAnalyticsApp(),
     featureFlags: [
         FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
@@ -410,7 +412,7 @@ DashboardWithSearchConsoleOnly.play = async ({ canvasElement }: { canvasElement:
 }
 
 export const DashboardWithAdsOnly = dashboardStory([], false, true, undefined, 'ready')
-DashboardWithAdsOnly.parameters = { ...DashboardWithSearchConsoleOnly.parameters, mockDate: '2026-09-16' }
+DashboardWithAdsOnly.parameters = DashboardWithSearchConsoleOnly.parameters
 
 export const DashboardWithAdsSyncingWithoutSearchConsole = dashboardStory([], false, false, undefined, 'syncing')
 DashboardWithAdsSyncingWithoutSearchConsole.parameters = DashboardWithAdsOnly.parameters
