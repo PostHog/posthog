@@ -628,12 +628,18 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
             }
         },
     })),
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions, values, cache }) => {
         // The sources tables read table names and sources only. Fields multiply the payload several
-        // times over, so consumers that read them load them themselves.
-        if (!values.databaseLoading && !values.database) {
-            actions.loadDatabase({ shallow: true })
-        }
+        // times over, so consumers that read them load them themselves. Waiting one tick lets such a
+        // consumer, mounted in the same pass, start its full load first, so no shallow load runs beside it.
+        cache.disposables.add(() => {
+            const timerId = setTimeout(() => {
+                if (!values.databaseLoading && !values.database) {
+                    actions.loadDatabase({ shallow: true })
+                }
+            }, 0)
+            return () => clearTimeout(timerId)
+        }, 'shallowSchemaLoad')
         actions.loadSources()
         actions.loadPendingSelfManagedTableIds()
     }),
