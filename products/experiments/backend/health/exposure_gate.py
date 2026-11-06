@@ -143,10 +143,13 @@ def load_split_history(
 ) -> FlagHistory | FlagHistoryNotChecked | None:
     """
     The flag history as `load_flag_history` returns it, with the exposure questions of the split changes only. The
-    questions that only the other kinds read are absent. Never raises.
+    questions that only the other kinds read are absent. It loads after the end too, because `srm` tests the run against
+    the flag's current split then and needs to know whether that split changed. Never raises.
     """
     try:
-        return _load_flag_history(experiment, reader_access, asked=frozenset({ExperimentHealthFlagChangeKind.SPLIT}))
+        return _load_flag_history(
+            experiment, reader_access, asked=frozenset({ExperimentHealthFlagChangeKind.SPLIT}), after_the_end=True
+        )
     except Exception as error:
         capture_exception(error)
         return None
@@ -452,11 +455,13 @@ def _load_flag_history(
     reader_access: ExperimentHealthReaderAccess,
     *,
     asked: frozenset[ExperimentHealthFlagChangeKind] = frozenset(_KINDS),
+    after_the_end: bool = False,
 ) -> FlagHistory | FlagHistoryNotChecked | None:
     start_date = experiment.start_date
     # django-stubs types the id as int, but an unsaved instance can carry None.
     feature_flag_id: int | None = experiment.feature_flag_id
-    if start_date is None or experiment.end_date is not None or experiment.archived or feature_flag_id is None:
+    ended = experiment.end_date is not None and not after_the_end
+    if start_date is None or ended or experiment.archived or feature_flag_id is None:
         return None
     if experiment.feature_flag.deleted:
         return None
