@@ -137,7 +137,7 @@ def find_snapshot_moment(team: Team, survey: Survey, device: SnapshotDevice) -> 
                 toInt(e.properties.$viewport_width) AS viewport_width,
                 toInt(e.properties.$viewport_height) AS viewport_height,
                 leadInFrame(e.timestamp) OVER (
-                    PARTITION BY e.$session_id ORDER BY e.timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING
+                    PARTITION BY e.$session_id, e.properties.$window_id ORDER BY e.timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING
                 ) AS next_pageview_at
             FROM events AS e
             WHERE e.event = '$pageview'
@@ -249,14 +249,16 @@ def _recording_was_deleted(team: Team, session_id: str) -> bool:
     return bool(response.results and response.results[0][0])
 
 
-def _snapshot_key(survey: Survey, device: SnapshotDevice) -> dict[str, str]:
+def _snapshot_key(survey: Survey, device: SnapshotDevice) -> str:
+    # The key is stored on the export, which recording viewers can read, so it hides the survey and its targeting.
     conditions = survey.conditions or {}
-    return {
+    targeting = {
         "survey_id": str(survey.id),
         "device": device.value,
         "url": conditions.get("url") or "",
         "url_match_type": conditions.get("urlMatchType") or "",
     }
+    return hashlib.sha256(json.dumps(targeting, sort_keys=True).encode()).hexdigest()
 
 
 def _may_view_recording(user_access_control: UserAccessControl, team: Team, session_id: str) -> bool:
@@ -266,9 +268,8 @@ def _may_view_recording(user_access_control: UserAccessControl, team: Team, sess
     return user_access_control.check_access_level_for_resource("session_recording", required_level="viewer")
 
 
-def _snapshot_cache_key(kind: str, team: Team, key: dict[str, str]) -> str:
-    digest = hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()
-    return f"survey_site_snapshot_{kind}:{team.id}:{digest}"
+def _snapshot_cache_key(kind: str, team: Team, key: str) -> str:
+    return f"survey_site_snapshot_{kind}:{team.id}:{key}"
 
 
 def _may_see_page_urls(user: User, team: Team) -> bool:
@@ -340,7 +341,7 @@ def _start_snapshot(
     device: SnapshotDevice,
     user: User,
     user_access_control: UserAccessControl,
-    key: dict[str, str],
+    key: str,
     no_snapshot_key: str,
 ) -> SiteSnapshot:
     moment = find_snapshot_moment(team, survey, device)
